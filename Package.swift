@@ -34,6 +34,11 @@ let package = Package(
             name: "LungfishWorkflow",
             targets: ["LungfishWorkflow"]
         ),
+        // macOS Application UI components
+        .library(
+            name: "LungfishApp",
+            targets: ["LungfishApp"]
+        ),
     ],
     dependencies: [
         // Swift Argument Parser for CLI tools
@@ -124,6 +129,17 @@ let package = Package(
             name: "LungfishWorkflowTests",
             dependencies: ["LungfishWorkflow"],
             path: "Tests/LungfishWorkflowTests"
+        ),
+
+        // MARK: - LungfishApp
+        .target(
+            name: "LungfishApp",
+            dependencies: [
+                "LungfishCore",
+                "LungfishIO",
+                "LungfishUI",
+            ],
+            path: "Sources/LungfishApp"
         ),
     ]
 )
