@@ -705,11 +705,37 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @objc func searchNCBI(_ sender: Any?) {
-        showNotImplementedAlert("NCBI Search")
+        showDatabaseBrowser(source: .ncbi)
     }
 
     @objc func searchENA(_ sender: Any?) {
-        showNotImplementedAlert("ENA Search")
+        showDatabaseBrowser(source: .ena)
+    }
+
+    /// Shows the database browser for the specified source.
+    private func showDatabaseBrowser(source: DatabaseSource) {
+        guard let window = mainWindowController?.window else { return }
+
+        let browserController = DatabaseBrowserViewController(source: source)
+
+        // Handle download completion
+        browserController.onDownloadComplete = { [weak self] fileURL in
+            // Dismiss the sheet first
+            if let sheet = window.attachedSheet {
+                window.endSheet(sheet)
+            }
+
+            // Load the downloaded file into the viewer
+            _ = self?.openDocument(at: fileURL)
+        }
+
+        // Present as sheet
+        let browserWindow = NSWindow(contentViewController: browserController)
+        browserWindow.title = "Search \(source.displayName)"
+
+        window.beginSheet(browserWindow) { _ in
+            // Sheet dismissed
+        }
     }
 
     @objc func runNextflow(_ sender: Any?) {
