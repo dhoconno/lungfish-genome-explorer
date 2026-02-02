@@ -116,6 +116,52 @@ public enum SearchScope: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Search Phase
+
+/// Represents the current phase of a search operation for progress tracking.
+public enum SearchPhase: Equatable {
+    case idle
+    case connecting
+    case searching
+    case loadingDetails
+    case complete(count: Int)
+    case failed(String)
+
+    /// Progress value from 0 to 1
+    var progress: Double {
+        switch self {
+        case .idle: return 0
+        case .connecting: return 0.15
+        case .searching: return 0.4
+        case .loadingDetails: return 0.7
+        case .complete: return 1.0
+        case .failed: return 0
+        }
+    }
+
+    /// Status message for the phase
+    var message: String {
+        switch self {
+        case .idle: return ""
+        case .connecting: return "Connecting to server..."
+        case .searching: return "Searching database..."
+        case .loadingDetails: return "Loading record details..."
+        case .complete(let count):
+            return "Found \(count) result\(count == 1 ? "" : "s")"
+        case .failed(let error):
+            return "Error: \(error)"
+        }
+    }
+
+    /// Whether the search is in progress
+    var isInProgress: Bool {
+        switch self {
+        case .idle, .complete, .failed: return false
+        case .connecting, .searching, .loadingDetails: return true
+        }
+    }
+}
+
 // MARK: - DatabaseBrowserViewModel
 
 /// View model for the database browser.
@@ -154,8 +200,13 @@ public class DatabaseBrowserViewModel: ObservableObject {
     /// Currently selected record
     @Published var selectedRecord: SearchResultRecord?
 
-    /// Whether a search is in progress
-    @Published var isSearching = false
+    /// Current search phase (for progress tracking)
+    @Published var searchPhase: SearchPhase = .idle
+
+    /// Whether a search is in progress (computed from searchPhase)
+    var isSearching: Bool {
+        searchPhase.isInProgress
+    }
 
     /// Whether a download is in progress
     @Published var isDownloading = false
@@ -166,8 +217,24 @@ public class DatabaseBrowserViewModel: ObservableObject {
     /// Download progress (0-1)
     @Published var downloadProgress: Double = 0
 
-    /// Status message
-    @Published var statusMessage: String?
+    /// Status message (computed from search phase when searching)
+    var statusMessage: String? {
+        if searchPhase.isInProgress || searchPhase != .idle {
+            switch searchPhase {
+            case .complete, .failed:
+                return searchPhase.message
+            default:
+                return searchPhase.message
+            }
+        }
+        return _statusMessage
+    }
+
+    /// Internal status message for non-search operations
+    @Published private var _statusMessage: String?
+
+    /// Current search task (for cancellation support)
+    private var currentSearchTask: Task<Void, Never>?
 
     // MARK: - Computed Properties
 
@@ -219,26 +286,34 @@ public class DatabaseBrowserViewModel: ObservableObject {
         maxLength = ""
     }
 
+    /// Cancels the current search operation
+    func cancelSearch() {
+        currentSearchTask?.cancel()
+        currentSearchTask = nil
+        searchPhase = .idle
+    }
+
     /// Initiates a search operation.
     ///
-    /// Uses a Timer to ensure the async task runs properly in the SwiftUI context.
+    /// Uses a Task with explicit @MainActor to ensure proper actor isolation.
     func performSearch() {
         guard isSearchTextValid else {
             errorMessage = "Please enter a search term"
             return
         }
 
-        isSearching = true
-        statusMessage = "Searching..."
+        // Cancel any existing search
+        cancelSearch()
+
+        // Reset state
+        searchPhase = .connecting
         errorMessage = nil
         results = []
 
-        // Use Timer to ensure the Task runs on the main run loop
-        Timer.scheduledTimer(withTimeInterval: 0.01, repeats: false) { [weak self] _ in
+        // Start new search task with explicit MainActor context
+        currentSearchTask = Task { @MainActor [weak self] in
             guard let self = self else { return }
-            Task {
-                await self.executeSearch()
-            }
+            await self.executeSearch()
         }
     }
 
@@ -264,6 +339,12 @@ public class DatabaseBrowserViewModel: ObservableObject {
         logger.info("Starting search for: \(searchTerm, privacy: .public)")
 
         do {
+            // Check for cancellation
+            try Task.checkCancellation()
+
+            // Update phase to searching
+            searchPhase = .searching
+
             let query = SearchQuery(
                 term: searchTerm,
                 organism: organismFilter.isEmpty ? nil : organismFilter,
@@ -273,28 +354,42 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 limit: 50
             )
 
+            // Check for cancellation before network call
+            try Task.checkCancellation()
+
             let searchResults: SearchResults
 
             switch source {
             case .ncbi:
+                // Update phase to loading details (NCBI does esearch + esummary)
+                searchPhase = .loadingDetails
                 searchResults = try await ncbiService.search(query)
             case .ena:
+                searchPhase = .loadingDetails
                 searchResults = try await enaService.search(query)
             default:
                 throw DatabaseServiceError.invalidQuery(reason: "Unsupported database: \(source)")
             }
 
+            // Check for cancellation after network call
+            try Task.checkCancellation()
+
             results = searchResults.records
-            statusMessage = "Found \(results.count) results"
+            searchPhase = .complete(count: results.count)
             logger.info("Search completed: \(self.results.count, privacy: .public) results")
 
+        } catch is CancellationError {
+            // Search was cancelled, don't show error
+            logger.info("Search cancelled")
+            searchPhase = .idle
         } catch {
-            errorMessage = "Search failed: \(error.localizedDescription)"
-            logger.error("Search failed: \(error.localizedDescription, privacy: .public)")
-            statusMessage = nil
+            let errorMsg = error.localizedDescription
+            errorMessage = "Search failed: \(errorMsg)"
+            searchPhase = .failed(errorMsg)
+            logger.error("Search failed: \(errorMsg, privacy: .public)")
         }
 
-        isSearching = false
+        currentSearchTask = nil
     }
 
     /// Public async search method.
@@ -312,14 +407,12 @@ public class DatabaseBrowserViewModel: ObservableObject {
         isDownloading = true
         downloadProgress = 0
         errorMessage = nil
-        statusMessage = "Downloading \(record.accession)..."
+        _statusMessage = "Downloading \(record.accession)..."
 
-        // Use Timer to ensure the Task runs on the main run loop
-        Timer.scheduledTimer(withTimeInterval: 0.01, repeats: false) { [weak self] _ in
+        // Use Task with explicit MainActor context
+        Task { @MainActor [weak self] in
             guard let self = self else { return }
-            Task {
-                await self.executeDownload(record: record)
-            }
+            await self.executeDownload(record: record)
         }
     }
 
@@ -338,7 +431,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
         isDownloading = true
         downloadProgress = 0
         errorMessage = nil
-        statusMessage = "Downloading \(record.accession)..."
+        _statusMessage = "Downloading \(record.accession)..."
 
         await executeDownload(record: record)
     }
@@ -348,24 +441,30 @@ public class DatabaseBrowserViewModel: ObservableObject {
         do {
             let dbRecord: DatabaseRecord
 
-            downloadProgress = 0.3
+            downloadProgress = 0.1
+            _statusMessage = "Connecting to \(source.displayName)..."
 
             switch source {
             case .ncbi:
+                downloadProgress = 0.2
+                _statusMessage = "Fetching \(record.accession)..."
                 dbRecord = try await ncbiService.fetch(accession: record.accession)
             case .ena:
+                downloadProgress = 0.2
+                _statusMessage = "Fetching \(record.accession)..."
                 dbRecord = try await enaService.fetch(accession: record.accession)
             default:
                 throw DatabaseServiceError.invalidQuery(reason: "Unsupported database: \(source)")
             }
 
             downloadProgress = 0.7
+            _statusMessage = "Saving \(record.accession)..."
 
             // Save to temporary file
             let tempURL = try saveToTemporaryFile(record: dbRecord)
 
             downloadProgress = 1.0
-            statusMessage = "Download complete: \(record.accession)"
+            _statusMessage = "Download complete: \(record.accession)"
             logger.info("Downloaded \(record.accession, privacy: .public) to \(tempURL.path, privacy: .public)")
 
             // Notify completion
@@ -374,7 +473,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
         } catch {
             errorMessage = "Download failed: \(error.localizedDescription)"
             logger.error("Download failed: \(error.localizedDescription, privacy: .public)")
-            statusMessage = nil
+            _statusMessage = nil
         }
 
         isDownloading = false
@@ -455,8 +554,9 @@ public struct DatabaseBrowserView: View {
 
             Spacer()
 
-            if let status = viewModel.statusMessage {
-                Text(status)
+            // Show result count in header (when complete and not searching)
+            if case .complete(let count) = viewModel.searchPhase, !viewModel.isSearching {
+                Label("\(count) result\(count == 1 ? "" : "s")", systemImage: "doc.text")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -760,40 +860,86 @@ public struct DatabaseBrowserView: View {
     }
 
     private var footerSection: some View {
-        HStack {
-            // Cancel button
-            Button("Cancel") {
-                viewModel.onCancel?()
-            }
-            .keyboardShortcut(.cancelAction)
-
-            if let error = viewModel.errorMessage {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundColor(.orange)
-                Text(error)
-                    .foregroundColor(.secondary)
-                    .font(.caption)
-                    .lineLimit(1)
+        VStack(spacing: 0) {
+            // Progress bar for search (when searching)
+            if viewModel.isSearching {
+                searchProgressBar
             }
 
-            Spacer()
+            // Main footer controls
+            HStack {
+                // Cancel button
+                Button("Cancel") {
+                    if viewModel.isSearching {
+                        viewModel.cancelSearch()
+                    } else {
+                        viewModel.onCancel?()
+                    }
+                }
+                .keyboardShortcut(.cancelAction)
 
-            if viewModel.isDownloading {
-                ProgressView(value: viewModel.downloadProgress)
-                    .frame(width: 100)
-                Text("Downloading...")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
+                // Error display
+                if let error = viewModel.errorMessage {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text(error)
+                        .foregroundColor(.secondary)
+                        .font(.caption)
+                        .lineLimit(1)
+                }
 
-            Button("Download Selected") {
-                viewModel.performDownload()
+                // Status message (when not showing in progress bar)
+                if !viewModel.isSearching, let status = viewModel.statusMessage {
+                    Text(status)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                // Download progress
+                if viewModel.isDownloading {
+                    ProgressView(value: viewModel.downloadProgress)
+                        .frame(width: 100)
+                    Text(viewModel.statusMessage ?? "Downloading...")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+
+                Button("Download Selected") {
+                    viewModel.performDownload()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(viewModel.selectedRecord == nil || viewModel.isDownloading || viewModel.isSearching)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(viewModel.selectedRecord == nil || viewModel.isDownloading)
+            .padding()
         }
-        .padding()
         .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    /// Progress bar shown during search operations
+    private var searchProgressBar: some View {
+        VStack(spacing: 4) {
+            ProgressView(value: viewModel.searchPhase.progress)
+                .progressViewStyle(.linear)
+
+            HStack {
+                Text(viewModel.searchPhase.message)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Spacer()
+
+                // Show percentage
+                Text("\(Int(viewModel.searchPhase.progress * 100))%")
+                    .font(.caption.monospacedDigit())
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
     }
 }
 
