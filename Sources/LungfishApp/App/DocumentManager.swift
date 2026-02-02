@@ -46,6 +46,7 @@ public enum DocumentType: String, CaseIterable {
     case bed
     case vcf
     case bam
+    case lungfishProject  // Native .lungfish project format
 
     /// File extensions for this document type.
     public var extensions: [String] {
@@ -57,6 +58,15 @@ public enum DocumentType: String, CaseIterable {
         case .bed: return ["bed"]
         case .vcf: return ["vcf"]
         case .bam: return ["bam", "cram", "sam"]
+        case .lungfishProject: return ["lungfish"]
+        }
+    }
+
+    /// Whether this is a directory-based format
+    public var isDirectoryFormat: Bool {
+        switch self {
+        case .lungfishProject: return true
+        default: return false
         }
     }
 
@@ -84,14 +94,174 @@ public class DocumentManager: ObservableObject {
     /// Currently active/selected document
     @Published public var activeDocument: LoadedDocument?
 
+    /// Currently active Lungfish project (for persistent storage)
+    @Published public private(set) var activeProject: ProjectFile?
+
     /// Notification posted when a document is loaded
     public static let documentLoadedNotification = Notification.Name("DocumentManagerDocumentLoaded")
 
     /// Notification posted when active document changes
     public static let activeDocumentChangedNotification = Notification.Name("DocumentManagerActiveDocumentChanged")
 
+    /// Notification posted when a project is opened
+    public static let projectOpenedNotification = Notification.Name("DocumentManagerProjectOpened")
+
     private init() {
         logger.info("DocumentManager initialized")
+    }
+
+    // MARK: - Project Management
+
+    /// Creates a new Lungfish project.
+    ///
+    /// - Parameters:
+    ///   - url: The project directory URL (will have .lungfish extension added if missing)
+    ///   - name: The project name
+    ///   - description: Optional project description
+    ///   - author: Optional author name
+    /// - Returns: The created project
+    public func createProject(
+        at url: URL,
+        name: String,
+        description: String? = nil,
+        author: String? = nil
+    ) throws -> ProjectFile {
+        logger.info("createProject: Creating project '\(name, privacy: .public)' at \(url.path, privacy: .public)")
+
+        let project = try ProjectFile.create(
+            at: url,
+            name: name,
+            description: description,
+            author: author
+        )
+
+        activeProject = project
+        logger.info("createProject: Project created and set as active")
+
+        NotificationCenter.default.post(
+            name: Self.projectOpenedNotification,
+            object: self,
+            userInfo: ["project": project]
+        )
+
+        return project
+    }
+
+    /// Opens an existing Lungfish project.
+    ///
+    /// - Parameter url: The project directory URL
+    /// - Returns: The opened project
+    public func openProject(at url: URL) throws -> ProjectFile {
+        logger.info("openProject: Opening project at \(url.path, privacy: .public)")
+
+        let project = try ProjectFile.open(at: url)
+
+        activeProject = project
+        logger.info("openProject: Opened project '\(project.name, privacy: .public)'")
+
+        // Load sequences from the project
+        try loadSequencesFromProject(project)
+
+        NotificationCenter.default.post(
+            name: Self.projectOpenedNotification,
+            object: self,
+            userInfo: ["project": project]
+        )
+
+        return project
+    }
+
+    /// Saves the active project.
+    public func saveActiveProject() throws {
+        guard let project = activeProject else {
+            logger.warning("saveActiveProject: No active project to save")
+            return
+        }
+
+        try project.save()
+        logger.info("saveActiveProject: Saved project '\(project.name, privacy: .public)'")
+    }
+
+    /// Closes the active project.
+    public func closeActiveProject() {
+        guard let project = activeProject else {
+            return
+        }
+
+        logger.info("closeActiveProject: Closing project '\(project.name, privacy: .public)'")
+        activeProject = nil
+
+        // Clear project-related documents
+        documents.removeAll()
+        activeDocument = nil
+    }
+
+    /// Loads sequences from a project into documents.
+    private func loadSequencesFromProject(_ project: ProjectFile) throws {
+        let sequenceSummaries = try project.listSequences()
+        logger.info("loadSequencesFromProject: Found \(sequenceSummaries.count) sequences")
+
+        for summary in sequenceSummaries {
+            // Get full sequence content
+            let content = try project.getSequenceContent(id: summary.id)
+
+            // Create a sequence object
+            let alphabet: SequenceAlphabet = summary.alphabet == "dna" ? .dna :
+                                             summary.alphabet == "rna" ? .rna : .protein
+            let sequence = try Sequence(
+                id: summary.id,
+                name: summary.name,
+                alphabet: alphabet,
+                bases: content
+            )
+
+            // Create a loaded document for this sequence
+            let document = LoadedDocument(
+                url: project.url.appendingPathComponent(summary.name),
+                type: .lungfishProject
+            )
+            document.sequences = [sequence]
+
+            // Load annotations
+            let storedAnnotations = try project.getAnnotations(for: summary.id)
+            document.annotations = storedAnnotations.map { stored in
+                SequenceAnnotation(
+                    id: stored.id,
+                    type: AnnotationType(rawValue: stored.type) ?? .region,
+                    name: stored.name,
+                    intervals: [AnnotationInterval(
+                        start: stored.startPosition,
+                        end: stored.endPosition
+                    )],
+                    strand: stored.strand == "+" ? .forward : (stored.strand == "-" ? .reverse : .unknown),
+                    qualifiers: (stored.qualifiers ?? [:]).mapValues { AnnotationQualifier($0) }
+                )
+            }
+
+            documents.append(document)
+            logger.debug("loadSequencesFromProject: Loaded sequence '\(summary.name, privacy: .public)'")
+        }
+
+        // Set the first document as active
+        if let first = documents.first {
+            activeDocument = first
+        }
+    }
+
+    /// Adds a sequence to the active project.
+    ///
+    /// - Parameter sequence: The sequence to add
+    /// - Returns: The sequence ID in the project
+    @discardableResult
+    public func addSequenceToProject(_ sequence: Sequence) throws -> UUID {
+        guard let project = activeProject else {
+            throw DocumentLoadError.parseError("No active project")
+        }
+
+        let sequenceId = try project.addSequence(sequence)
+        logger.info("addSequenceToProject: Added sequence '\(sequence.name, privacy: .public)' with ID \(sequenceId.uuidString)")
+
+        return sequenceId
     }
 
     // MARK: - Document Loading
@@ -157,6 +327,11 @@ public class DocumentManager: ObservableObject {
             case .bam:
                 logger.warning("loadDocument: BAM/CRAM not yet supported")
                 throw DocumentLoadError.unsupportedFormat("BAM/CRAM support coming soon")
+            case .lungfishProject:
+                // For .lungfish projects, use openProject instead
+                logger.info("loadDocument: Opening Lungfish project...")
+                _ = try openProject(at: url)
+                return documents.first ?? document
             }
         } catch {
             logger.error("loadDocument: Load failed with error: \(error.localizedDescription, privacy: .public)")

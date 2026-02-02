@@ -182,6 +182,9 @@ public class SidebarViewController: NSViewController {
         case .bam:
             itemType = .alignment
             icon = "chart.bar"
+        case .lungfishProject:
+            itemType = .sequence
+            icon = "folder.badge.gearshape"
         }
 
         // Check if document already exists in sidebar
@@ -258,6 +261,9 @@ public class SidebarViewController: NSViewController {
             case .bam:
                 itemType = .alignment
                 icon = "chart.bar"
+            case .lungfishProject:
+                itemType = .sequence
+                icon = "folder.badge.gearshape"
             }
 
             // Create document item
