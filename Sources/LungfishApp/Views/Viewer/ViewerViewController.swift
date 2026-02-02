@@ -172,18 +172,30 @@ public class ViewerViewController: NSViewController {
         // Set background color
         view.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
 
-        // Create initial reference frame
+        // Create initial reference frame with a reasonable default width
+        // (bounds may not be set yet at this point)
+        let initialWidth = max(800, Int(view.bounds.width))
         referenceFrame = ReferenceFrame(
             chromosome: "chr1",
             start: 0,
             end: 10000,
-            pixelWidth: Int(view.bounds.width)
+            pixelWidth: initialWidth
         )
-        logger.debug("viewDidLoad: Created initial referenceFrame with width=\(Int(self.view.bounds.width))")
+        logger.debug("viewDidLoad: Created initial referenceFrame with width=\(initialWidth)")
 
         // Set up accessibility
         setupAccessibility()
         logger.info("viewDidLoad: Setup complete")
+    }
+
+    public override func viewDidLayout() {
+        super.viewDidLayout()
+
+        // Update reference frame width when layout completes
+        if let frame = referenceFrame, viewerView.bounds.width > 0 {
+            frame.pixelWidth = Int(viewerView.bounds.width)
+            logger.debug("viewDidLayout: Updated referenceFrame width to \(frame.pixelWidth)")
+        }
     }
 
     private func setupAccessibility() {
@@ -221,8 +233,6 @@ public class ViewerViewController: NSViewController {
     public func displayDocument(_ document: LoadedDocument) {
         logger.info("displayDocument: Starting to display '\(document.name, privacy: .public)'")
         logger.info("displayDocument: Document has \(document.sequences.count) sequences, \(document.annotations.count) annotations")
-        // Debug output to stderr for immediate visibility
-        fputs("DEBUG: displayDocument called for '\(document.name)' with \(document.sequences.count) sequences\n", stderr)
 
         currentDocument = document
 
@@ -230,23 +240,26 @@ public class ViewerViewController: NSViewController {
         if let firstSequence = document.sequences.first {
             let length = firstSequence.length
             logger.info("displayDocument: First sequence '\(firstSequence.name, privacy: .public)' has length \(length)")
-            fputs("DEBUG: First sequence '\(firstSequence.name)' length=\(length)\n", stderr)
+
+            // IMPORTANT: Force layout to ensure bounds are valid before creating ReferenceFrame
+            view.layoutSubtreeIfNeeded()
+
+            // Use a reasonable default width if bounds are still 0
+            let effectiveWidth = max(800, Int(viewerView.bounds.width))
 
             referenceFrame = ReferenceFrame(
                 chromosome: firstSequence.name,
                 start: 0,
                 end: Double(min(length, 10000)),  // Start zoomed in
-                pixelWidth: max(1, Int(viewerView.bounds.width)),
+                pixelWidth: effectiveWidth,
                 sequenceLength: length
             )
-            logger.debug("displayDocument: Created referenceFrame start=0 end=\(min(length, 10000)) width=\(Int(self.viewerView.bounds.width))")
+            logger.debug("displayDocument: Created referenceFrame start=0 end=\(min(length, 10000)) width=\(effectiveWidth)")
 
             // Pass data to viewer
             logger.info("displayDocument: Setting sequence on viewerView...")
-            fputs("DEBUG: About to call viewerView.setSequence\n", stderr)
             viewerView.setSequence(firstSequence)
             viewerView.setAnnotations(document.annotations)
-            fputs("DEBUG: setSequence completed, viewerView.sequence is \(viewerView.sequence == nil ? "nil" : "SET")\n", stderr)
             logger.info("displayDocument: Sequence and annotations set on viewerView")
 
             // Update header with track names
@@ -261,12 +274,27 @@ public class ViewerViewController: NSViewController {
             logger.warning("displayDocument: No sequences in document!")
         }
 
-        // Trigger redraw
+        // Trigger immediate redraw
         logger.info("displayDocument: Triggering redraw of all views...")
-        viewerView.setNeedsDisplay(viewerView.bounds)
-        rulerView.setNeedsDisplay(rulerView.bounds)
-        headerView.setNeedsDisplay(headerView.bounds)
+        viewerView.needsDisplay = true
+        rulerView.needsDisplay = true
+        headerView.needsDisplay = true
         updateStatusBar()
+
+        // Schedule another redraw after a short delay to handle any remaining layout timing issues
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self = self else { return }
+
+            // Update reference frame width if it changed
+            if let frame = self.referenceFrame, self.viewerView.bounds.width > 0 {
+                frame.pixelWidth = Int(self.viewerView.bounds.width)
+            }
+
+            self.viewerView.needsDisplay = true
+            self.rulerView.needsDisplay = true
+            self.headerView.needsDisplay = true
+        }
+
         logger.info("displayDocument: Completed displaying document")
     }
 
@@ -327,12 +355,20 @@ public class ViewerViewController: NSViewController {
         )
     }
 
+    /// Updates track heights in all views when appearance settings change.
+    public func updateTrackHeights(_ newHeight: CGFloat) {
+        viewerView.trackHeight = newHeight
+        headerView.trackHeight = newHeight
+        viewerView.needsDisplay = true
+        headerView.needsDisplay = true
+    }
+
     /// Handles file drop from the viewer view
+    ///
+    /// For files already in the project folder, loads them directly.
+    /// For external files, copies them into the project's downloads folder first.
     func handleFileDrop(_ urls: [URL]) {
         logger.info("handleFileDrop: Received \(urls.count) URLs")
-        for (index, url) in urls.enumerated() {
-            logger.info("handleFileDrop: URL[\(index)] = '\(url.path, privacy: .public)'")
-        }
 
         // Process files sequentially
         guard let firstURL = urls.first else {
@@ -344,28 +380,48 @@ public class ViewerViewController: NSViewController {
 
         // Show progress immediately
         showProgress("Loading \(firstURL.lastPathComponent)...")
-        logger.info("handleFileDrop: Progress shown, starting detached task")
 
-        // Use Task.detached to break out of the main actor context during drag handling
-        // This ensures the task starts on a background executor, avoiding run loop issues
+        // Get the project/working directory to determine if file is internal or external
+        let projectURL = DocumentManager.shared.activeProject?.url
+        let workingURL = (NSApp.delegate as? AppDelegate)?.getWorkingDirectoryURL()
+
+        let isInternalFile: Bool
+        if let project = projectURL {
+            isInternalFile = firstURL.path.hasPrefix(project.path)
+        } else if let working = workingURL {
+            isInternalFile = firstURL.path.hasPrefix(working.path)
+        } else {
+            isInternalFile = false
+        }
+
+        logger.info("handleFileDrop: isInternalFile=\(isInternalFile)")
+
         Task.detached {
-            logger.info("handleFileDrop: Detached task started for '\(firstURL.lastPathComponent, privacy: .public)'")
-
             do {
-                logger.info("handleFileDrop: Calling DocumentManager.shared.loadDocument...")
-                let document = try await DocumentManager.shared.loadDocument(at: firstURL)
+                let urlToLoad: URL
 
-                // Update UI on main actor
+                if isInternalFile {
+                    // File is already in project, load directly
+                    urlToLoad = firstURL
+                    logger.info("handleFileDrop: Loading internal file directly")
+                } else {
+                    // External file - copy to project downloads folder
+                    logger.info("handleFileDrop: External file, copying to project")
+                    urlToLoad = try await self.copyExternalFileToProject(firstURL, projectURL: projectURL, workingURL: workingURL)
+                }
+
+                let document = try await DocumentManager.shared.loadDocument(at: urlToLoad)
+
                 await MainActor.run { [weak self] in
-                    guard let self = self else {
-                        logger.error("handleFileDrop: self is nil when updating UI")
-                        return
-                    }
-                    logger.info("handleFileDrop: Document loaded: '\(document.name, privacy: .public)' with \(document.sequences.count) sequences")
+                    guard let self = self else { return }
                     self.hideProgress()
-                    logger.info("handleFileDrop: Calling displayDocument...")
                     self.displayDocument(document)
-                    logger.info("handleFileDrop: displayDocument completed")
+
+                    // Add to sidebar if we have access to it
+                    if let appDelegate = NSApp.delegate as? AppDelegate,
+                       let sidebarController = appDelegate.mainWindowController?.mainSplitViewController?.sidebarController {
+                        sidebarController.addLoadedDocument(document)
+                    }
                 }
             } catch {
                 logger.error("handleFileDrop: Load failed: \(error.localizedDescription, privacy: .public)")
@@ -382,7 +438,44 @@ public class ViewerViewController: NSViewController {
                 }
             }
         }
-        logger.info("handleFileDrop: Detached task created")
+    }
+
+    /// Copies an external file into the project's downloads folder
+    private func copyExternalFileToProject(_ sourceURL: URL, projectURL: URL?, workingURL: URL?) async throws -> URL {
+        let fileManager = FileManager.default
+
+        // Determine destination directory
+        let destinationDirectory: URL
+        if let project = projectURL {
+            destinationDirectory = project.appendingPathComponent("downloads", isDirectory: true)
+        } else if let working = workingURL {
+            destinationDirectory = working.appendingPathComponent("downloads", isDirectory: true)
+        } else {
+            // Fallback to user's Downloads folder
+            let downloadsURL = fileManager.urls(for: .downloadsDirectory, in: .userDomainMask).first!
+            destinationDirectory = downloadsURL.appendingPathComponent("Lungfish Downloads", isDirectory: true)
+        }
+
+        // Create directory if needed
+        try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+
+        // Generate unique filename
+        var destinationURL = destinationDirectory.appendingPathComponent(sourceURL.lastPathComponent)
+        var counter = 1
+        let baseName = sourceURL.deletingPathExtension().lastPathComponent
+        let ext = sourceURL.pathExtension
+
+        while fileManager.fileExists(atPath: destinationURL.path) {
+            let newName = "\(baseName)_\(counter).\(ext)"
+            destinationURL = destinationDirectory.appendingPathComponent(newName)
+            counter += 1
+        }
+
+        // Copy file
+        try fileManager.copyItem(at: sourceURL, to: destinationURL)
+        logger.info("handleFileDrop: Copied to \(destinationURL.path, privacy: .public)")
+
+        return destinationURL
     }
 }
 
@@ -590,6 +683,14 @@ public class SequenceViewerView: NSView {
     /// Handles appearance change notifications by reloading settings and redrawing.
     @objc private func handleAppearanceChanged(_ notification: Notification) {
         sequenceAppearance = .load()
+
+        // Update track height from appearance settings
+        trackHeight = sequenceAppearance.trackHeight
+        logger.info("SequenceViewerView: Track height updated to \(self.trackHeight)")
+
+        // Also update the header view track height
+        viewController?.updateTrackHeights(sequenceAppearance.trackHeight)
+
         needsDisplay = true
         logger.info("SequenceViewerView: Appearance changed, triggering redraw")
     }
@@ -600,7 +701,20 @@ public class SequenceViewerView: NSView {
         logger.info("SequenceViewerView.setSequence: Setting sequence '\(seq.name, privacy: .public)' length=\(seq.length)")
         self.sequence = seq
         logger.info("SequenceViewerView.setSequence: self.sequence is now \(self.sequence == nil ? "nil" : "SET", privacy: .public)")
-        setNeedsDisplay(bounds)
+
+        // Request immediate display refresh
+        needsDisplay = true
+
+        // If bounds are not valid yet, schedule a redraw after layout
+        if bounds.width <= 0 || bounds.height <= 0 {
+            logger.info("SequenceViewerView.setSequence: bounds not ready (\(self.bounds.width)x\(self.bounds.height)), scheduling delayed redraw")
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.needsDisplay = true
+                logger.info("SequenceViewerView.setSequence: Delayed redraw triggered, bounds=\(self.bounds.width)x\(self.bounds.height)")
+            }
+        }
+
         logger.info("SequenceViewerView.setSequence: Requested display refresh, bounds=\(self.bounds.width, privacy: .public)x\(self.bounds.height, privacy: .public)")
     }
 
@@ -646,16 +760,14 @@ public class SequenceViewerView: NSView {
 
         // If we have a sequence, render it
         if let seq = sequence, let frame = viewController?.referenceFrame {
-            fputs("DEBUG draw: Drawing sequence '\(seq.name)' frame=\(frame.start)-\(frame.end)\n", stderr)
-            logger.info("SequenceViewerView.draw: Drawing sequence '\(seq.name, privacy: .public)' in bounds \(self.bounds.width)x\(self.bounds.height)")
+            logger.debug("SequenceViewerView.draw: Drawing sequence '\(seq.name, privacy: .public)' in bounds \(self.bounds.width)x\(self.bounds.height)")
             drawSequence(seq, frame: frame, context: context)
         } else {
             // Placeholder message
             let hasSeq = sequence != nil
             let hasFrame = viewController?.referenceFrame != nil
-            fputs("DEBUG draw: Placeholder - sequence=\(hasSeq) frame=\(hasFrame)\n", stderr)
             let hasVC = viewController != nil
-            logger.info("SequenceViewerView.draw: Drawing placeholder (sequence=\(hasSeq), frame=\(hasFrame), viewController=\(hasVC))")
+            logger.debug("SequenceViewerView.draw: Drawing placeholder (sequence=\(hasSeq), frame=\(hasFrame), viewController=\(hasVC))")
             drawPlaceholder(context: context)
         }
     }

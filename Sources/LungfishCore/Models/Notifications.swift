@@ -35,6 +35,16 @@ extension Notification.Name {
     /// appearance settings are modified. Views should observe this notification
     /// to update their rendering accordingly.
     public static let appearanceChanged = Notification.Name("appearanceChanged")
+
+    /// Posted when annotation display settings have changed.
+    ///
+    /// Contains userInfo keys: "showAnnotations", "annotationHeight", "annotationSpacing"
+    public static let annotationSettingsChanged = Notification.Name("annotationSettingsChanged")
+
+    /// Posted when annotation filter settings have changed.
+    ///
+    /// Contains userInfo keys: "visibleTypes" (Set<AnnotationType>), "filterText" (String)
+    public static let annotationFilterChanged = Notification.Name("annotationFilterChanged")
 }
 
 // MARK: - Notification UserInfo Keys

@@ -18,7 +18,18 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     /// Main window controller for the application
-    private var mainWindowController: MainWindowController?
+    public var mainWindowController: MainWindowController?
+
+    /// Welcome window controller for project selection
+    private var welcomeWindowController: WelcomeWindowController?
+
+    /// Current working directory for downloads when no project is active
+    private var workingDirectoryURL: URL?
+
+    /// Public accessor for working directory URL
+    public func getWorkingDirectoryURL() -> URL? {
+        return workingDirectoryURL
+    }
 
     // MARK: - Application Lifecycle
 
@@ -28,58 +39,101 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
-        // Create and show the main window
-        mainWindowController = MainWindowController()
-        mainWindowController?.showWindow(nil)
-
         // Configure application appearance
         configureAppearance()
 
         // Register for system notifications
         registerNotifications()
 
-        // Check for --test-folder argument for automated testing
+        // Check for command-line arguments
         let args = ProcessInfo.processInfo.arguments
+
+        // Check for --test-folder argument for automated testing
         if let folderIndex = args.firstIndex(of: "--test-folder"),
            folderIndex + 1 < args.count {
             let folderPath = args[folderIndex + 1]
-            fputs("DEBUG: Auto-loading test folder: \(folderPath)\n", stderr)
-            let url = URL(fileURLWithPath: folderPath)
 
-            fputs("DEBUG: Using Timer to schedule folder load\n", stderr)
-            // Use a Timer to schedule after the run loop is active
-            Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
-                fputs("DEBUG: Timer fired\n", stderr)
-                guard let self = self else {
-                    fputs("DEBUG: self is nil in timer callback\n", stderr)
-                    return
-                }
-                // Call synchronous test method directly (no async/await)
-                self.loadProjectFolderSync(url)
+            // Skip welcome window for automated testing
+            showMainWindowWithProject(URL(fileURLWithPath: folderPath))
+            return
+        }
+
+        // Check for --skip-welcome argument
+        if args.contains("--skip-welcome") {
+            showMainWindowWithoutProject()
+            return
+        }
+
+        // Show welcome window for normal launch
+        showWelcomeWindow()
+    }
+
+    // MARK: - Welcome Window
+
+    private func showWelcomeWindow() {
+        welcomeWindowController = WelcomeWindowController()
+
+        welcomeWindowController?.onProjectSelected = { [weak self] projectURL in
+            self?.showMainWindowWithProject(projectURL)
+        }
+
+        welcomeWindowController?.onOpenFilesSelected = { [weak self] in
+            self?.showMainWindowWithoutProject()
+            // Trigger the open dialog after a brief delay to ensure window is ready
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                self?.openDocument(nil)
             }
         }
+
+        welcomeWindowController?.show()
+    }
+
+    private func showMainWindowWithProject(_ projectURL: URL) {
+        // Set as working directory
+        workingDirectoryURL = projectURL
+
+        // Create and show the main window
+        mainWindowController = MainWindowController()
+        mainWindowController?.showWindow(nil)
+
+        // Close welcome window if open
+        welcomeWindowController?.close()
+        welcomeWindowController = nil
+
+        // Add the project folder to sidebar immediately for visibility
+        let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController
+        sidebarController?.addProjectFolder(projectURL, documents: [])
+
+        // Load the project/folder contents after a short delay
+        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
+            self?.loadProjectFolderSync(projectURL)
+        }
+    }
+
+    private func showMainWindowWithoutProject() {
+        // Create and show the main window without a project
+        mainWindowController = MainWindowController()
+        mainWindowController?.showWindow(nil)
+
+        // Close welcome window if open
+        welcomeWindowController?.close()
+        welcomeWindowController = nil
     }
 
     /// Synchronous wrapper for testing - kicks off async loading
     /// Note: This uses CFRunLoopRun to process Swift concurrency tasks
     private func loadProjectFolderSync(_ url: URL) {
-        fputs("DEBUG loadProjectFolderSync: Starting for \(url.path)\n", stderr)
         let viewerController = mainWindowController?.mainSplitViewController?.viewerController
         let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController
-
-        fputs("DEBUG loadProjectFolderSync: sidebarController = \(sidebarController != nil)\n", stderr)
-        fputs("DEBUG loadProjectFolderSync: viewerController = \(viewerController != nil)\n", stderr)
 
         viewerController?.showProgress("Loading project folder...")
 
         // Since DocumentManager is @MainActor, we need to stay on main thread
         // Use a completion handler pattern instead of blocking
         loadProjectFolderAsync(url) { [weak self] documents, error in
-            fputs("DEBUG loadProjectFolderSync: Completion handler called\n", stderr)
             viewerController?.hideProgress()
 
             if let error = error {
-                fputs("DEBUG loadProjectFolderSync: Error occurred: \(error.localizedDescription)\n", stderr)
                 let alert = NSAlert()
                 alert.messageText = "Failed to Load Project"
                 alert.informativeText = error.localizedDescription
@@ -87,18 +141,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 alert.addButton(withTitle: "OK")
                 alert.runModal()
             } else if let documents = documents, !documents.isEmpty {
-                fputs("DEBUG loadProjectFolderSync: Adding \(documents.count) docs to sidebar\n", stderr)
                 sidebarController?.addProjectFolder(url, documents: documents)
 
                 if let firstDoc = documents.first {
-                    fputs("DEBUG loadProjectFolderSync: Displaying first doc: \(firstDoc.name)\n", stderr)
                     viewerController?.displayDocument(firstDoc)
                 }
-            } else {
-                fputs("DEBUG loadProjectFolderSync: No documents found\n", stderr)
             }
         }
-        fputs("DEBUG loadProjectFolderSync: Async load initiated\n", stderr)
     }
 
     /// Async loading with completion handler - stores context for selector-based callback
@@ -106,31 +155,23 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     private var pendingFolderLoadCompletion: (([LoadedDocument]?, Error?) -> Void)?
 
     private func loadProjectFolderAsync(_ url: URL, completion: @escaping ([LoadedDocument]?, Error?) -> Void) {
-        fputs("DEBUG loadProjectFolderAsync: Creating task for \(url.path)\n", stderr)
-
         // Store for use in selector callback
         pendingFolderLoadURL = url
         pendingFolderLoadCompletion = completion
 
         // Use performSelector with run loop integration
-        fputs("DEBUG loadProjectFolderAsync: Scheduling performSelector\n", stderr)
         self.perform(#selector(executePendingFolderLoad), with: nil, afterDelay: 0.1)
     }
 
     @objc private func executePendingFolderLoad() {
-        fputs("DEBUG executePendingFolderLoad: Selector callback fired\n", stderr)
-
         guard let url = pendingFolderLoadURL,
               let completion = pendingFolderLoadCompletion else {
-            fputs("DEBUG executePendingFolderLoad: Missing URL or completion\n", stderr)
             return
         }
 
         // Clear pending state
         pendingFolderLoadURL = nil
         pendingFolderLoadCompletion = nil
-
-        fputs("DEBUG executePendingFolderLoad: Loading files synchronously\n", stderr)
 
         // Load files synchronously to avoid async/await issues in test mode
         var loadedDocuments: [LoadedDocument] = []
@@ -141,7 +182,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) else {
-            fputs("DEBUG executePendingFolderLoad: Failed to create enumerator\n", stderr)
             completion(nil, DocumentLoadError.accessDenied(url))
             return
         }
@@ -149,17 +189,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         for case let fileURL as URL in enumerator {
             guard let type = DocumentType.detect(from: fileURL) else { continue }
 
-            fputs("DEBUG executePendingFolderLoad: Found file: \(fileURL.lastPathComponent) type=\(type.rawValue)\n", stderr)
-
-            // Only handle FASTA for now in sync mode
-            if type == .fasta {
+            // Handle FASTA and GenBank files synchronously
+            if type == .fasta || type == .genbank {
                 do {
                     let document = LoadedDocument(url: fileURL, type: type)
-                    let reader = try FASTAReader(url: fileURL)
 
                     // Read sequences synchronously using a semaphore
                     let semaphore = DispatchSemaphore(value: 0)
                     var sequences: [Sequence] = []
+                    var annotations: [SequenceAnnotation] = []
                     var readError: Error?
 
                     // Run in a background thread so we can wait
@@ -169,7 +207,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
                         Task {
                             do {
-                                sequences = try await reader.readAll()
+                                if type == .fasta {
+                                    let reader = try FASTAReader(url: fileURL)
+                                    sequences = try await reader.readAll()
+                                } else if type == .genbank {
+                                    let reader = try GenBankReader(url: fileURL)
+                                    let records = try await reader.readAll()
+                                    for record in records {
+                                        sequences.append(record.sequence)
+                                        annotations.append(contentsOf: record.annotations)
+                                    }
+                                }
                             } catch {
                                 readError = error
                             }
@@ -182,24 +230,20 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
                     semaphore.wait()
 
-                    if let error = readError {
-                        fputs("DEBUG executePendingFolderLoad: Error reading \(fileURL.lastPathComponent): \(error.localizedDescription)\n", stderr)
+                    if readError != nil {
                         continue
                     }
 
-                    fputs("DEBUG executePendingFolderLoad: Read \(sequences.count) sequences from \(fileURL.lastPathComponent)\n", stderr)
                     document.sequences = sequences
+                    document.annotations = annotations
                     loadedDocuments.append(document)
 
                     // Register with DocumentManager so sidebar selection can find it
                     DocumentManager.shared.registerDocument(document)
-                } catch {
-                    fputs("DEBUG executePendingFolderLoad: Error loading \(fileURL.lastPathComponent): \(error.localizedDescription)\n", stderr)
                 }
             }
         }
 
-        fputs("DEBUG executePendingFolderLoad: Total loaded: \(loadedDocuments.count) documents\n", stderr)
         completion(loadedDocuments, nil)
     }
 
@@ -208,11 +252,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         let viewerController = mainWindowController?.mainSplitViewController?.viewerController
         let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController
 
-        fputs("DEBUG loadProjectFolderForTesting: mainWindowController = \(mainWindowController != nil)\n", stderr)
-        fputs("DEBUG loadProjectFolderForTesting: mainSplitViewController = \(mainWindowController?.mainSplitViewController != nil)\n", stderr)
-        fputs("DEBUG loadProjectFolderForTesting: sidebarController = \(sidebarController != nil)\n", stderr)
-        fputs("DEBUG loadProjectFolderForTesting: viewerController = \(viewerController != nil)\n", stderr)
-
         viewerController?.showProgress("Loading project folder...")
 
         do {
@@ -220,23 +259,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
             viewerController?.hideProgress()
 
-            fputs("DEBUG loadProjectFolderForTesting: Loaded \(documents.count) documents\n", stderr)
-            for doc in documents {
-                fputs("DEBUG loadProjectFolderForTesting:   - \(doc.name) (\(doc.sequences.count) sequences)\n", stderr)
-            }
-
             if !documents.isEmpty {
-                fputs("DEBUG loadProjectFolderForTesting: Calling sidebarController.addProjectFolder\n", stderr)
                 sidebarController?.addProjectFolder(url, documents: documents)
 
                 if let firstDoc = documents.first {
-                    fputs("DEBUG loadProjectFolderForTesting: Displaying first document\n", stderr)
                     viewerController?.displayDocument(firstDoc)
                 }
             }
         } catch {
             viewerController?.hideProgress()
-            fputs("DEBUG loadProjectFolderForTesting: ERROR - \(error.localizedDescription)\n", stderr)
         }
     }
 
@@ -289,6 +320,58 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             name: NSWindow.willCloseNotification,
             object: nil
         )
+
+        // Register for annotation update notifications
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAnnotationUpdated(_:)),
+            name: .annotationUpdated,
+            object: nil
+        )
+
+        // Register for annotation delete notifications
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAnnotationDeleted(_:)),
+            name: .annotationDeleted,
+            object: nil
+        )
+    }
+
+    /// Handles annotation updates from the inspector.
+    @objc private func handleAnnotationUpdated(_ notification: Notification) {
+        guard let annotation = notification.userInfo?[NotificationUserInfoKey.annotation] as? SequenceAnnotation else {
+            return
+        }
+
+        // Update the annotation in the current document
+        let viewerController = mainWindowController?.mainSplitViewController?.viewerController
+        guard let document = viewerController?.currentDocument else { return }
+
+        // Find and replace the annotation in the document
+        if let index = document.annotations.firstIndex(where: { $0.id == annotation.id }) {
+            document.annotations[index] = annotation
+            // Refresh the viewer to show updated annotation
+            viewerController?.viewerView.setAnnotations(document.annotations)
+            viewerController?.viewerView.needsDisplay = true
+        }
+    }
+
+    /// Handles annotation deletions from the inspector.
+    @objc private func handleAnnotationDeleted(_ notification: Notification) {
+        guard let annotation = notification.userInfo?[NotificationUserInfoKey.annotation] as? SequenceAnnotation else {
+            return
+        }
+
+        // Remove the annotation from the current document
+        let viewerController = mainWindowController?.mainSplitViewController?.viewerController
+        guard let document = viewerController?.currentDocument else { return }
+
+        // Remove the annotation
+        document.annotations.removeAll { $0.id == annotation.id }
+        // Refresh the viewer
+        viewerController?.viewerView.setAnnotations(document.annotations)
+        viewerController?.viewerView.needsDisplay = true
     }
 
     @objc private func windowWillClose(_ notification: Notification) {
@@ -372,8 +455,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
             guard let self = self else { return }
-
-            fputs("DEBUG openProjectFolder: Selected folder: \(url.path)\n", stderr)
 
             // Use the synchronous loading approach (same as --test-folder)
             self.loadProjectFolderSync(url)
@@ -750,7 +831,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         let browserController = DatabaseBrowserViewController(source: source)
 
-        // Handle download completion - this is the key fix
+        // Handle download completion
         browserController.onDownloadComplete = { [weak self] tempFileURL in
             // Dismiss the sheet first
             if let sheet = window.attachedSheet {
@@ -779,14 +860,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     ///
     /// - Parameter tempFileURL: The URL of the downloaded file in the temp directory
     private func handleDownloadedFile(at tempFileURL: URL) {
-        let viewerController = mainWindowController?.mainSplitViewController?.viewerController
-        let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController
 
-        // Determine destination: use project directory if available, otherwise Downloads folder
+        // Determine destination: use project directory, working directory, or Downloads folder
         let destinationDirectory: URL
         if let projectURL = DocumentManager.shared.activeProject?.url {
             // Save to project's "downloads" subdirectory
             destinationDirectory = projectURL.appendingPathComponent("downloads", isDirectory: true)
+        } else if let workingURL = workingDirectoryURL {
+            // Save to working directory's "downloads" subdirectory
+            destinationDirectory = workingURL.appendingPathComponent("downloads", isDirectory: true)
         } else {
             // Fall back to user's Downloads folder with a Lungfish subdirectory
             let downloadsURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
@@ -831,34 +913,68 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
 
         // Load the document from its new permanent location
-        Task { @MainActor in
-            viewerController?.showProgress("Loading \(destinationURL.lastPathComponent)...")
+        // Store URL for selector-based callback and schedule with perform selector
+        // This pattern works reliably even after modal sheet dismissal
+        pendingDownloadURL = destinationURL
+        self.perform(#selector(loadPendingDownload), with: nil, afterDelay: 0.5)
+    }
 
-            do {
-                // Load document - this will post documentLoadedNotification
-                // which MainSplitViewController listens for to update the sidebar
-                let document = try await DocumentManager.shared.loadDocument(at: destinationURL)
-                print("Loaded downloaded document: \(document.name) with \(document.sequences.count) sequences")
+    /// URL of pending download to load
+    private var pendingDownloadURL: URL?
 
-                viewerController?.hideProgress()
+    /// Loads the pending downloaded file - called via perform selector
+    @objc private func loadPendingDownload() {
+        guard let destinationURL = pendingDownloadURL else { return }
+        pendingDownloadURL = nil
 
-                // Display in viewer
-                viewerController?.displayDocument(document)
+        let viewerController = mainWindowController?.mainSplitViewController?.viewerController
+        let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController
 
-                // Also explicitly add to sidebar as "DOWNLOADS" group for clarity
-                // The notification handler will add it to "OPEN DOCUMENTS" but we want
-                // to ensure visibility even if that doesn't trigger properly
-                sidebarController?.addLoadedDocument(document)
+        viewerController?.showProgress("Loading \(destinationURL.lastPathComponent)...")
 
-            } catch {
-                viewerController?.hideProgress()
+        // Use the same pattern as loadProjectFolderSync
+        loadDownloadedFileAsync(destinationURL) { [weak self] document, error in
+            viewerController?.hideProgress()
 
+            if let error = error {
                 let alert = NSAlert()
                 alert.messageText = "Failed to Load Downloaded File"
                 alert.informativeText = error.localizedDescription
                 alert.alertStyle = .warning
                 alert.addButton(withTitle: "OK")
                 alert.runModal()
+            } else if let document = document {
+                viewerController?.displayDocument(document)
+                sidebarController?.addLoadedDocument(document)
+            }
+        }
+    }
+
+    /// Async loading with completion handler for downloaded files
+    private func loadDownloadedFileAsync(_ url: URL, completion: @escaping (LoadedDocument?, Error?) -> Void) {
+        pendingDownloadLoadURL = url
+        pendingDownloadLoadCompletion = completion
+        self.perform(#selector(executeDownloadLoad), with: nil, afterDelay: 0.1)
+    }
+
+    private var pendingDownloadLoadURL: URL?
+    private var pendingDownloadLoadCompletion: ((LoadedDocument?, Error?) -> Void)?
+
+    @objc private func executeDownloadLoad() {
+        guard let url = pendingDownloadLoadURL,
+              let completion = pendingDownloadLoadCompletion else { return }
+
+        pendingDownloadLoadURL = nil
+        pendingDownloadLoadCompletion = nil
+
+        // Use Task.detached to break out of the main actor context
+        // This allows the async work to proceed without blocking
+        Task.detached { @MainActor in
+            do {
+                let document = try await DocumentManager.shared.loadDocument(at: url)
+                completion(document, nil)
+            } catch {
+                completion(nil, error)
             }
         }
     }

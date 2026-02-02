@@ -86,15 +86,90 @@ public class InspectorViewController: NSViewController {
         viewModel.qualitySectionViewModel.onOverlayToggleChanged = { [weak self] enabled in
             self?.handleQualityOverlayToggled(enabled)
         }
+
+        // Annotation section callbacks
+        viewModel.annotationSectionViewModel.onSettingsChanged = { [weak self] in
+            self?.handleAnnotationSettingsChanged()
+        }
+
+        viewModel.annotationSectionViewModel.onFilterChanged = { [weak self] visibleTypes, filterText in
+            self?.handleAnnotationFilterChanged(visibleTypes: visibleTypes, filterText: filterText)
+        }
+    }
+
+    /// Handles annotation display settings changes.
+    private func handleAnnotationSettingsChanged() {
+        logger.info("handleAnnotationSettingsChanged: Annotation settings changed")
+
+        // Notify viewers to update annotation display
+        NotificationCenter.default.post(
+            name: .annotationSettingsChanged,
+            object: self,
+            userInfo: [
+                "showAnnotations": viewModel.annotationSectionViewModel.showAnnotations,
+                "annotationHeight": viewModel.annotationSectionViewModel.annotationHeight,
+                "annotationSpacing": viewModel.annotationSectionViewModel.annotationSpacing
+            ]
+        )
+    }
+
+    /// Handles annotation filter changes.
+    private func handleAnnotationFilterChanged(visibleTypes: Set<AnnotationType>, filterText: String) {
+        logger.info("handleAnnotationFilterChanged: Filter updated - types=\(visibleTypes.count) text='\(filterText, privacy: .public)'")
+
+        // Notify viewers to update annotation filtering
+        NotificationCenter.default.post(
+            name: .annotationFilterChanged,
+            object: self,
+            userInfo: [
+                "visibleTypes": visibleTypes,
+                "filterText": filterText
+            ]
+        )
     }
 
     // MARK: - Notification Handlers
 
-    /// Handles sidebar selection changes to update inspector properties.
+    /// Handles sidebar selection changes to update inspector properties and load document.
     @objc private func selectionDidChange(_ notification: Notification) {
-        if let item = notification.userInfo?["item"] as? SidebarItem {
-            viewModel.selectedItem = item.title
-            viewModel.selectedType = item.type.description
+        guard let item = notification.userInfo?["item"] as? SidebarItem else { return }
+
+        viewModel.selectedItem = item.title
+        viewModel.selectedType = item.type.description
+
+        // If the item has a URL and is a document type, load and display it
+        if let url = item.url,
+           (item.type == .sequence || item.type == .annotation || item.type == .alignment) {
+            logger.info("selectionDidChange: Loading document at \(url.path, privacy: .public)")
+            loadAndDisplayDocument(at: url)
+        }
+    }
+
+    /// Loads a document and displays it in the viewer.
+    private func loadAndDisplayDocument(at url: URL) {
+        guard let appDelegate = NSApp.delegate as? AppDelegate,
+              let viewerController = appDelegate.mainWindowController?.mainSplitViewController?.viewerController else {
+            logger.warning("loadAndDisplayDocument: Cannot access viewer controller")
+            return
+        }
+
+        viewerController.showProgress("Loading \(url.lastPathComponent)...")
+
+        Task.detached {
+            do {
+                let document = try await DocumentManager.shared.loadDocument(at: url)
+
+                await MainActor.run {
+                    viewerController.hideProgress()
+                    viewerController.displayDocument(document)
+                    logger.info("loadAndDisplayDocument: Displayed \(document.name, privacy: .public)")
+                }
+            } catch {
+                await MainActor.run {
+                    viewerController.hideProgress()
+                    logger.error("loadAndDisplayDocument: Failed to load \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
+            }
         }
     }
 
@@ -317,6 +392,9 @@ public class InspectorViewModel: ObservableObject {
     /// View model for the quality section
     let qualitySectionViewModel = QualitySectionViewModel()
 
+    /// View model for the annotation section
+    let annotationSectionViewModel = AnnotationSectionViewModel()
+
     // MARK: - Initialization
 
     init() {
@@ -369,8 +447,9 @@ public class InspectorViewModel: ObservableObject {
 
 /// SwiftUI view for the inspector panel content.
 ///
-/// Displays three main sections:
+/// Displays four main sections:
 /// - Selection: Shows and edits the currently selected annotation
+/// - Annotations: Configures annotation display and filtering
 /// - Appearance: Configures base colors and track height
 /// - Quality: Shows quality statistics and overlay toggle
 public struct InspectorView: View {
@@ -381,6 +460,11 @@ public struct InspectorView: View {
             VStack(alignment: .leading, spacing: 12) {
                 // Selection Section - shows selected annotation details
                 SelectionSection(viewModel: viewModel.selectionSectionViewModel)
+
+                Divider()
+
+                // Annotation Section - annotation display and filtering
+                AnnotationSection(viewModel: viewModel.annotationSectionViewModel)
 
                 Divider()
 
