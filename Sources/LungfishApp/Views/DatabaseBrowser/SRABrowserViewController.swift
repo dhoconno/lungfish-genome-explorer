@@ -29,6 +29,9 @@ public class SRABrowserViewController: NSViewController {
     /// Completion handler called when downloads complete
     public var onDownloadComplete: (([URL]) -> Void)?
 
+    /// Completion handler called when user cancels
+    public var onCancel: (() -> Void)?
+
     // MARK: - Initialization
 
     public override init(nibName nibNameOrNil: NSNib.Name?, bundle nibBundleOrNil: Bundle?) {
@@ -47,6 +50,19 @@ public class SRABrowserViewController: NSViewController {
         // Set up download completion callback
         viewModel.onDownloadComplete = { [weak self] urls in
             self?.onDownloadComplete?(urls)
+        }
+
+        // Set up cancel callback
+        viewModel.onCancel = { [weak self] in
+            guard let self = self else { return }
+            if let window = self.view.window {
+                if let parent = window.sheetParent {
+                    parent.endSheet(window)
+                } else {
+                    window.close()
+                }
+            }
+            self.onCancel?()
         }
 
         let browserView = SRABrowserView(viewModel: viewModel)
@@ -96,10 +112,20 @@ public class SRABrowserViewModel: ObservableObject {
     /// Whether SRA Toolkit is available
     @Published var sraToolkitAvailable = false
 
+    // MARK: - Computed Properties
+
+    /// Whether search text is valid (non-empty after trimming)
+    var isSearchTextValid: Bool {
+        !searchText.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
     // MARK: - Callbacks
 
     /// Called when downloads complete with file URLs
     var onDownloadComplete: (([URL]) -> Void)?
+
+    /// Called when user cancels
+    var onCancel: (() -> Void)?
 
     // MARK: - Services
 
@@ -117,7 +143,7 @@ public class SRABrowserViewModel: ObservableObject {
 
     /// Initiates a search operation.
     func performSearch() {
-        guard !searchText.trimmingCharacters(in: .whitespaces).isEmpty else {
+        guard isSearchTextValid else {
             errorMessage = "Please enter a search term"
             return
         }
@@ -125,6 +151,7 @@ public class SRABrowserViewModel: ObservableObject {
         isSearching = true
         statusMessage = "Searching SRA..."
         errorMessage = nil
+        results = []
 
         // Use Timer to ensure the Task runs on the main run loop
         Timer.scheduledTimer(withTimeInterval: 0.01, repeats: false) { [weak self] _ in
@@ -289,25 +316,50 @@ public struct SRABrowserView: View {
     private var searchSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Search field
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
+            HStack(spacing: 8) {
+                HStack(spacing: 0) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.secondary)
+                        .padding(.leading, 8)
 
-                TextField("Search SRA (e.g., SARS-CoV-2, SRR11140748, WGS Illumina)", text: $viewModel.searchText)
-                    .textFieldStyle(.plain)
-                    .onSubmit {
-                        viewModel.performSearch()
+                    TextField("Search SRA (e.g., SARS-CoV-2, SRR11140748, WGS Illumina)", text: $viewModel.searchText)
+                        .textFieldStyle(.plain)
+                        .padding(.horizontal, 8)
+                        .onSubmit {
+                            viewModel.performSearch()
+                        }
+
+                    // Clear button
+                    if !viewModel.searchText.isEmpty {
+                        Button {
+                            viewModel.searchText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, 8)
+                        .help("Clear search")
                     }
+                }
+                .padding(.vertical, 6)
+                .background(Color(nsColor: .textBackgroundColor))
+                .cornerRadius(8)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                )
 
                 if viewModel.isSearching {
                     ProgressView()
-                        .scaleEffect(0.7)
+                        .scaleEffect(0.8)
+                        .frame(width: 70)
                 } else {
                     Button("Search") {
                         viewModel.performSearch()
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(viewModel.searchText.isEmpty)
+                    .disabled(!viewModel.isSearchTextValid)
                 }
             }
 
@@ -358,12 +410,19 @@ public struct SRABrowserView: View {
 
     private var footerSection: some View {
         HStack {
+            // Cancel button
+            Button("Cancel") {
+                viewModel.onCancel?()
+            }
+            .keyboardShortcut(.cancelAction)
+
             if let error = viewModel.errorMessage {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundColor(.orange)
                 Text(error)
                     .foregroundColor(.secondary)
                     .font(.caption)
+                    .lineLimit(1)
             }
 
             Spacer()

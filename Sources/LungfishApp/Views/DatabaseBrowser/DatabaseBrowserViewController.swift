@@ -32,6 +32,9 @@ public class DatabaseBrowserViewController: NSViewController {
     /// Completion handler called when a download completes
     public var onDownloadComplete: ((URL) -> Void)?
 
+    /// Completion handler called when user cancels
+    public var onCancel: (() -> Void)?
+
     // MARK: - Initialization
 
     /// Creates a new database browser for the specified source.
@@ -56,15 +59,60 @@ public class DatabaseBrowserViewController: NSViewController {
             self?.onDownloadComplete?(url)
         }
 
+        // Set up cancel callback
+        viewModel.onCancel = { [weak self] in
+            guard let self = self else { return }
+            if let window = self.view.window {
+                if let parent = window.sheetParent {
+                    parent.endSheet(window)
+                } else {
+                    window.close()
+                }
+            }
+            self.onCancel?()
+        }
+
         let browserView = DatabaseBrowserView(viewModel: viewModel)
         hostingView = NSHostingView(rootView: browserView)
-        hostingView.frame = NSRect(x: 0, y: 0, width: 700, height: 500)
+        hostingView.frame = NSRect(x: 0, y: 0, width: 750, height: 550)
         self.view = hostingView
     }
 
     public override func viewDidLoad() {
         super.viewDidLoad()
         logger.info("Database browser loaded for \(self.databaseSource.displayName, privacy: .public)")
+    }
+}
+
+// MARK: - Search Scope
+
+/// Defines what fields the search will query
+public enum SearchScope: String, CaseIterable, Identifiable {
+    case all = "All Fields"
+    case accession = "Accession"
+    case organism = "Organism"
+    case title = "Title"
+
+    public var id: String { rawValue }
+
+    /// SF Symbol for the scope
+    var icon: String {
+        switch self {
+        case .all: return "magnifyingglass"
+        case .accession: return "number"
+        case .organism: return "leaf"
+        case .title: return "text.alignleft"
+        }
+    }
+
+    /// Help text explaining what this scope searches
+    var helpText: String {
+        switch self {
+        case .all: return "Searches accession numbers, organism names, titles, and descriptions"
+        case .accession: return "Search by accession number (e.g., NC_002549, MN908947)"
+        case .organism: return "Search by organism or species name"
+        case .title: return "Search within sequence titles and descriptions"
+        }
     }
 }
 
@@ -82,8 +130,17 @@ public class DatabaseBrowserViewModel: ObservableObject {
     /// Search query text
     @Published var searchText = ""
 
-    /// Optional organism filter
+    /// Search scope
+    @Published var searchScope: SearchScope = .all
+
+    /// Whether advanced search is expanded
+    @Published var isAdvancedExpanded = false
+
+    /// Optional organism filter (advanced)
     @Published var organismFilter = ""
+
+    /// Optional location filter (advanced)
+    @Published var locationFilter = ""
 
     /// Minimum sequence length filter
     @Published var minLength: String = ""
@@ -112,10 +169,34 @@ public class DatabaseBrowserViewModel: ObservableObject {
     /// Status message
     @Published var statusMessage: String?
 
+    // MARK: - Computed Properties
+
+    /// Whether search text is valid (non-empty after trimming)
+    var isSearchTextValid: Bool {
+        !searchText.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// Count of active advanced filters
+    var activeFilterCount: Int {
+        var count = 0
+        if !organismFilter.isEmpty { count += 1 }
+        if !locationFilter.isEmpty { count += 1 }
+        if !minLength.isEmpty || !maxLength.isEmpty { count += 1 }
+        return count
+    }
+
+    /// Whether any advanced filter is active
+    var hasActiveFilters: Bool {
+        activeFilterCount > 0
+    }
+
     // MARK: - Callbacks
 
     /// Called when a download completes with the file URL
     var onDownloadComplete: ((URL) -> Void)?
+
+    /// Called when user cancels
+    var onCancel: (() -> Void)?
 
     // MARK: - Services
 
@@ -130,11 +211,19 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
     // MARK: - Actions
 
+    /// Clears all advanced filters
+    func clearFilters() {
+        organismFilter = ""
+        locationFilter = ""
+        minLength = ""
+        maxLength = ""
+    }
+
     /// Initiates a search operation.
     ///
     /// Uses a Timer to ensure the async task runs properly in the SwiftUI context.
     func performSearch() {
-        guard !searchText.trimmingCharacters(in: .whitespaces).isEmpty else {
+        guard isSearchTextValid else {
             errorMessage = "Please enter a search term"
             return
         }
@@ -142,6 +231,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
         isSearching = true
         statusMessage = "Searching..."
         errorMessage = nil
+        results = []
 
         // Use Timer to ensure the Task runs on the main run loop
         Timer.scheduledTimer(withTimeInterval: 0.01, repeats: false) { [weak self] _ in
@@ -152,14 +242,32 @@ public class DatabaseBrowserViewModel: ObservableObject {
         }
     }
 
+    /// Builds the search term based on scope
+    private func buildSearchTerm() -> String {
+        let term = searchText.trimmingCharacters(in: .whitespaces)
+
+        switch searchScope {
+        case .all:
+            return term
+        case .accession:
+            return term
+        case .organism:
+            return "\(term)[Organism]"
+        case .title:
+            return "\(term)[Title]"
+        }
+    }
+
     /// Executes the actual search operation.
     private func executeSearch() async {
-        logger.info("Starting search for: \(self.searchText, privacy: .public)")
+        let searchTerm = buildSearchTerm()
+        logger.info("Starting search for: \(searchTerm, privacy: .public)")
 
         do {
             let query = SearchQuery(
-                term: searchText,
+                term: searchTerm,
                 organism: organismFilter.isEmpty ? nil : organismFilter,
+                location: locationFilter.isEmpty ? nil : locationFilter,
                 minLength: Int(minLength),
                 maxLength: Int(maxLength),
                 limit: 50
@@ -331,7 +439,7 @@ public struct DatabaseBrowserView: View {
             // Status bar and actions
             footerSection
         }
-        .frame(minWidth: 600, minHeight: 400)
+        .frame(minWidth: 650, minHeight: 450)
     }
 
     // MARK: - Sections
@@ -370,51 +478,248 @@ public struct DatabaseBrowserView: View {
 
     private var searchSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Search field
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
+            // Primary search bar with scope selector
+            primarySearchBar
 
-                TextField("Search term (e.g., Ebola virus, NC_002549)", text: $viewModel.searchText)
+            // Scope help text (when not "All Fields")
+            if viewModel.searchScope != .all {
+                searchScopeHelp
+            }
+
+            // Advanced search toggle and filters
+            advancedSearchSection
+        }
+        .padding()
+        .animation(.easeInOut(duration: 0.2), value: viewModel.isAdvancedExpanded)
+        .animation(.easeInOut(duration: 0.2), value: viewModel.searchScope)
+    }
+
+    private var primarySearchBar: some View {
+        HStack(spacing: 8) {
+            // Search field with scope menu
+            HStack(spacing: 0) {
+                // Scope selector button
+                Menu {
+                    ForEach(SearchScope.allCases) { scope in
+                        Button {
+                            viewModel.searchScope = scope
+                        } label: {
+                            Label(scope.rawValue, systemImage: scope.icon)
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: viewModel.searchScope.icon)
+                            .foregroundColor(.accentColor)
+                        Image(systemName: "chevron.down")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color(nsColor: .controlBackgroundColor))
+                    .cornerRadius(6)
+                }
+                .buttonStyle(.plain)
+                .help("Choose what fields to search")
+
+                // Divider
+                Divider()
+                    .frame(height: 20)
+                    .padding(.horizontal, 4)
+
+                // Search text field
+                TextField(searchPlaceholder, text: $viewModel.searchText)
                     .textFieldStyle(.plain)
                     .onSubmit {
                         viewModel.performSearch()
                     }
 
-                if viewModel.isSearching {
-                    ProgressView()
-                        .scaleEffect(0.7)
-                } else {
-                    Button("Search") {
-                        viewModel.performSearch()
+                // Clear button
+                if !viewModel.searchText.isEmpty {
+                    Button {
+                        viewModel.searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.secondary)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(viewModel.searchText.isEmpty)
+                    .buttonStyle(.plain)
+                    .help("Clear search")
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(Color(nsColor: .textBackgroundColor))
+            .cornerRadius(8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+            )
+
+            // Search button
+            if viewModel.isSearching {
+                ProgressView()
+                    .scaleEffect(0.8)
+                    .frame(width: 70)
+            } else {
+                Button("Search") {
+                    viewModel.performSearch()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!viewModel.isSearchTextValid)
+            }
+        }
+    }
+
+    private var searchPlaceholder: String {
+        switch viewModel.searchScope {
+        case .all:
+            return "Search all fields (accession, organism, title...)"
+        case .accession:
+            return "Enter accession number (e.g., NC_002549)"
+        case .organism:
+            return "Enter organism name (e.g., Homo sapiens)"
+        case .title:
+            return "Search in titles and descriptions"
+        }
+    }
+
+    private var searchScopeHelp: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "info.circle")
+                .font(.caption)
+            Text(viewModel.searchScope.helpText)
+                .font(.caption)
+
+            Spacer()
+
+            Button("Search all fields instead") {
+                viewModel.searchScope = .all
+            }
+            .font(.caption)
+            .buttonStyle(.plain)
+            .foregroundColor(.accentColor)
+        }
+        .foregroundColor(.secondary)
+        .padding(.horizontal, 4)
+    }
+
+    private var advancedSearchSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Toggle button with filter count badge
+            HStack {
+                Button {
+                    withAnimation {
+                        viewModel.isAdvancedExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: viewModel.isAdvancedExpanded ? "chevron.down" : "chevron.right")
+                            .font(.caption)
+                            .frame(width: 10)
+
+                        Text("Advanced Filters")
+                            .font(.callout)
+
+                        // Active filter count badge
+                        if viewModel.hasActiveFilters {
+                            Text("\(viewModel.activeFilterCount)")
+                                .font(.caption2.bold())
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.accentColor)
+                                .clipShape(Capsule())
+                        }
+                    }
+                    .foregroundColor(.primary)
+                }
+                .buttonStyle(.plain)
+                .help(viewModel.isAdvancedExpanded ? "Hide advanced filters" : "Show advanced filters")
+
+                Spacer()
+
+                // Clear filters button (only when filters are active)
+                if viewModel.hasActiveFilters {
+                    Button("Clear Filters") {
+                        withAnimation {
+                            viewModel.clearFilters()
+                        }
+                    }
+                    .font(.caption)
+                    .buttonStyle(.plain)
+                    .foregroundColor(.secondary)
                 }
             }
 
-            // Filters
+            // Expandable filters
+            if viewModel.isAdvancedExpanded {
+                advancedFiltersGrid
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+
+    private var advancedFiltersGrid: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Organism and Location row
             HStack(spacing: 16) {
-                HStack {
-                    Text("Organism:")
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Organism", systemImage: "leaf")
+                        .font(.caption)
                         .foregroundColor(.secondary)
                     TextField("e.g., Ebolavirus", text: $viewModel.organismFilter)
-                        .frame(width: 150)
+                        .textFieldStyle(.roundedBorder)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Location", systemImage: "location")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField("e.g., Africa", text: $viewModel.locationFilter)
+                        .textFieldStyle(.roundedBorder)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // Length range row
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Sequence Length", systemImage: "ruler")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    HStack(spacing: 8) {
+                        TextField("Min", text: $viewModel.minLength)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+
+                        Text("to")
+                            .foregroundColor(.secondary)
+
+                        TextField("Max", text: $viewModel.maxLength)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+
+                        Text("bp")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
 
-                HStack {
-                    Text("Length:")
-                        .foregroundColor(.secondary)
-                    TextField("Min", text: $viewModel.minLength)
-                        .frame(width: 70)
-                    Text("-")
-                    TextField("Max", text: $viewModel.maxLength)
-                        .frame(width: 70)
-                }
+                Spacer()
             }
-            .font(.callout)
+
+            // Help text
+            Text("Advanced filters are combined with AND logic. Leave empty to ignore a filter.")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .padding(.top, 4)
         }
-        .padding()
+        .padding(12)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .cornerRadius(8)
     }
 
     private var resultsSection: some View {
@@ -456,12 +761,19 @@ public struct DatabaseBrowserView: View {
 
     private var footerSection: some View {
         HStack {
+            // Cancel button
+            Button("Cancel") {
+                viewModel.onCancel?()
+            }
+            .keyboardShortcut(.cancelAction)
+
             if let error = viewModel.errorMessage {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundColor(.orange)
                 Text(error)
                     .foregroundColor(.secondary)
                     .font(.caption)
+                    .lineLimit(1)
             }
 
             Spacer()
