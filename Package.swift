@@ -143,6 +143,7 @@ let package = Package(
                 "LungfishCore",
                 "LungfishIO",
                 "LungfishUI",
+                "LungfishWorkflow",
             ],
             path: "Sources/LungfishApp"
         ),
