@@ -156,5 +156,16 @@ let package = Package(
             ],
             path: "Sources/Lungfish"
         ),
+
+        // MARK: - Integration Tests
+        .testTarget(
+            name: "LungfishIntegrationTests",
+            dependencies: [
+                "LungfishCore",
+                "LungfishIO",
+                "LungfishUI",
+            ],
+            path: "Tests/LungfishIntegrationTests"
+        ),
     ]
 )
