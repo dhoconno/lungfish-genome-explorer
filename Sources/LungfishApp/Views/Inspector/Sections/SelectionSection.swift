@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import SwiftUI
+import AppKit
 import LungfishCore
 
 /// Mode for applying color changes.
@@ -36,6 +37,9 @@ public class SelectionSectionViewModel: ObservableObject {
     /// Mode for applying color changes
     @Published public var colorApplyMode: ColorApplyMode = .thisOnly
 
+    /// Flag to prevent onChange handlers from firing during programmatic updates
+    public var isUpdatingFromSelection: Bool = false
+
     /// Callback when annotation is updated
     public var onAnnotationUpdated: ((SequenceAnnotation) -> Void)?
 
@@ -51,6 +55,13 @@ public class SelectionSectionViewModel: ObservableObject {
     ///
     /// - Parameter annotation: The newly selected annotation, or nil for no selection
     public func select(annotation: SequenceAnnotation?) {
+        // Set flag to prevent onChange handlers from firing during this update
+        isUpdatingFromSelection = true
+        defer { isUpdatingFromSelection = false }
+
+        // Force UI refresh before making changes
+        objectWillChange.send()
+
         selectedAnnotation = annotation
         if let annotation = annotation {
             name = annotation.name
@@ -67,6 +78,13 @@ public class SelectionSectionViewModel: ObservableObject {
             )
 
             // Reset apply mode when selecting a new annotation
+            colorApplyMode = .thisOnly
+        } else {
+            // Reset all properties on deselection to prevent stale values
+            name = ""
+            type = .region
+            notes = ""
+            color = .blue
             colorApplyMode = .thisOnly
         }
     }
@@ -112,7 +130,11 @@ public class SelectionSectionViewModel: ObservableObject {
     }
 
     /// Extracts an AnnotationColor from a SwiftUI Color.
+    ///
+    /// Uses NSColor conversion as a fallback for colors that don't have a direct CGColor
+    /// representation (like system colors or dynamic colors).
     private func extractAnnotationColor(from color: Color) -> AnnotationColor? {
+        // Try direct CGColor extraction first
         if let cgColor = color.cgColor,
            let components = cgColor.components,
            components.count >= 3 {
@@ -123,7 +145,27 @@ public class SelectionSectionViewModel: ObservableObject {
                 alpha: components.count > 3 ? components[3] : 1.0
             )
         }
-        return nil
+
+        // Fallback: convert through NSColor for system/dynamic colors
+        let nsColor = NSColor(color)
+        guard let rgbColor = nsColor.usingColorSpace(.sRGB) else {
+            // Final fallback: try deviceRGB color space
+            guard let deviceColor = nsColor.usingColorSpace(.deviceRGB) else {
+                return nil
+            }
+            return AnnotationColor(
+                red: deviceColor.redComponent,
+                green: deviceColor.greenComponent,
+                blue: deviceColor.blueComponent,
+                alpha: deviceColor.alphaComponent
+            )
+        }
+        return AnnotationColor(
+            red: rgbColor.redComponent,
+            green: rgbColor.greenComponent,
+            blue: rgbColor.blueComponent,
+            alpha: rgbColor.alphaComponent
+        )
     }
 
     /// Deletes the current annotation.
@@ -175,6 +217,7 @@ public struct SelectionSection: View {
                 TextField("Annotation name", text: $viewModel.name)
                     .textFieldStyle(.roundedBorder)
                     .onChange(of: viewModel.name) { _, _ in
+                        guard !viewModel.isUpdatingFromSelection else { return }
                         viewModel.commitChanges()
                     }
             }
@@ -192,6 +235,7 @@ public struct SelectionSection: View {
                 }
                 .labelsHidden()
                 .onChange(of: viewModel.type) { _, _ in
+                    guard !viewModel.isUpdatingFromSelection else { return }
                     viewModel.commitChanges()
                 }
             }
@@ -206,6 +250,7 @@ public struct SelectionSection: View {
                     ColorPicker("Annotation Color", selection: $viewModel.color, supportsOpacity: true)
                         .labelsHidden()
                         .onChange(of: viewModel.color) { _, _ in
+                            guard !viewModel.isUpdatingFromSelection else { return }
                             viewModel.commitColorChange()
                         }
 
@@ -236,6 +281,7 @@ public struct SelectionSection: View {
                             .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
                     )
                     .onChange(of: viewModel.notes) { _, _ in
+                        guard !viewModel.isUpdatingFromSelection else { return }
                         viewModel.commitChanges()
                     }
             }

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import SwiftUI
 import LungfishCore
 import UniformTypeIdentifiers
 import os.log
@@ -969,6 +970,9 @@ public class SequenceViewerView: NSView {
     /// Currently selected annotation (nil if no annotation selected)
     private var selectedAnnotation: SequenceAnnotation?
 
+    /// Popover for annotation details on double-click
+    private var annotationPopover: NSPopover?
+
     /// Track positioning (shared with header)
     var trackY: CGFloat = 20
     var trackHeight: CGFloat = 40
@@ -1231,15 +1235,28 @@ public class SequenceViewerView: NSView {
         let scale = frame.scale  // bp/pixel
 
         // Decide rendering mode based on zoom level (scale = bp/pixel)
-        // Two modes: BASE_MODE (< 10 bp/pixel) and LINE_MODE (>= 10 bp/pixel)
-        // No intermediate "rainbow" block mode - it's visually noisy and uninformative
+        // Three modes based on user feedback:
+        // - BASE_MODE: < 10 bp/pixel - Individual colored bases with letters
+        // - BLOCK_MODE: 10-300 bp/pixel - Colored blocks showing dominant base (no letters)
+        // - LINE_MODE: > 300 bp/pixel - Simple gray horizontal line
+        //
+        // User feedback: Show colors when ~300bp visible (~1% of typical sequence)
+        // This corresponds to about 0.3 bp/pixel on a 1000px screen,
+        // but the block mode threshold is set at 300 bp/pixel for the transition
+        // from colored blocks to gray line.
+        let blockModeThreshold: Double = 300.0  // Show colored blocks up to 300 bp/pixel
+
         if scale < showLettersThreshold {
             // High zoom (< 10 bp/pixel): show individual bases with letters
             // Colors: A=Green, T=Red, C=Blue, G=Orange, N=Gray
             drawBaseLevelSequence(seq, frame: frame, context: context)
+        } else if scale < blockModeThreshold {
+            // Medium zoom (10-300 bp/pixel): show colored blocks without letters
+            // Shows dominant base color per bin for pattern visualization
+            drawBlockLevelSequence(seq, frame: frame, context: context)
         } else {
-            // Low zoom (>= 10 bp/pixel): show simple gray line
-            // Colored blocks are uninformative visual noise at this scale
+            // Low zoom (>= 300 bp/pixel): show simple gray line
+            // At this scale, individual bases provide no useful information
             drawLineSequence(seq, frame: frame, context: context)
         }
 
@@ -1538,10 +1555,14 @@ public class SequenceViewerView: NSView {
                     .font: font,
                     .foregroundColor: NSColor.white,
                 ]
-                // Convert T to U if in RNA mode
+                // Handle T/U conversion based on RNA mode:
+                // - Default (DNA mode): U → T (show as DNA)
+                // - RNA mode: T → U (show as RNA)
                 var displayBase = String(baseChar).uppercased()
                 if isRNAMode && displayBase == "T" {
                     displayBase = "U"
+                } else if !isRNAMode && displayBase == "U" {
+                    displayBase = "T"
                 }
                 let strSize = (displayBase as NSString).size(withAttributes: attributes)
                 let strX = x + (pixelsPerBase - strSize.width) / 2
@@ -1649,10 +1670,11 @@ public class SequenceViewerView: NSView {
         let endX = CGFloat(endBase - Int(frame.start)) * pixelsPerBase
         let lineWidth = max(1, endX - startX)
 
-        // Draw a simple gray line to represent the sequence
+        // Draw a simple gray bar to represent the sequence
+        // Use a thicker bar that's proportional to track height for better visibility at low zoom
         let lineColor = NSColor.systemGray
         let lineY = trackY + trackHeight / 2
-        let lineThickness: CGFloat = 4
+        let lineThickness: CGFloat = max(8, trackHeight * 0.4)  // At least 8px, up to 40% of track height
 
         context.saveGState()
 
@@ -1789,9 +1811,11 @@ public class SequenceViewerView: NSView {
                 continue
             }
 
-            // Calculate screen coordinates (same as in drawAnnotations)
-            let startX = CGFloat(interval.start - visibleStart) * pixelsPerBase
+            // Calculate screen coordinates (must match drawAnnotations logic exactly)
+            let rawStartX = CGFloat(interval.start - visibleStart) * pixelsPerBase
             let endX = CGFloat(interval.end - visibleStart) * pixelsPerBase
+            // Clamp startX to view bounds (same as in drawAnnotations)
+            let startX = max(0, rawStartX)
             let width = max(2, endX - startX)
 
             // Find row assignment (same logic as drawAnnotations)
@@ -1823,6 +1847,61 @@ public class SequenceViewerView: NSView {
         return nil
     }
 
+    /// Returns the bounding rect of the annotation at the given point.
+    ///
+    /// This method uses the same logic as `annotationAtPoint` but returns the rect
+    /// for anchoring popovers.
+    ///
+    /// - Parameter point: The point to test in view coordinates
+    /// - Returns: The bounding rect of the annotation at the point, or nil if none found
+    private func annotationRectAtPoint(_ point: NSPoint) -> CGRect? {
+        guard let frame = viewController?.referenceFrame else { return nil }
+
+        let visibleBases = frame.end - frame.start
+        let pixelsPerBase = bounds.width / CGFloat(max(1, visibleBases))
+        let visibleStart = Int(frame.start)
+        let visibleEnd = Int(frame.end)
+
+        var rowEndPositions: [CGFloat] = []
+        let displayAnnotations = filteredAnnotations()
+
+        for annotation in displayAnnotations {
+            guard let interval = annotation.intervals.first else { continue }
+
+            if interval.end < visibleStart || interval.start > visibleEnd {
+                continue
+            }
+
+            let rawStartX = CGFloat(interval.start - visibleStart) * pixelsPerBase
+            let endX = CGFloat(interval.end - visibleStart) * pixelsPerBase
+            let startX = max(0, rawStartX)
+            let width = max(2, endX - startX)
+
+            var row = 0
+            for (i, endPos) in rowEndPositions.enumerated() {
+                if startX >= endPos + 2 {
+                    row = i
+                    break
+                }
+                row = i + 1
+            }
+
+            while rowEndPositions.count <= row {
+                rowEndPositions.append(0)
+            }
+            rowEndPositions[row] = startX + width
+
+            let y = annotationTrackY + CGFloat(row) * (annotationHeight + annotationRowSpacing)
+            let annotRect = CGRect(x: startX, y: y, width: width, height: annotationHeight)
+
+            if annotRect.contains(point) {
+                return annotRect
+            }
+        }
+
+        return nil
+    }
+
     /// Posts a notification that an annotation was selected.
     private func postAnnotationSelectedNotification(_ annotation: SequenceAnnotation?) {
         if let annotation = annotation {
@@ -1841,6 +1920,34 @@ public class SequenceViewerView: NSView {
             )
             logger.info("Posted annotationSelected notification (deselection)")
         }
+    }
+
+    /// Shows a popover with annotation details at the specified location.
+    ///
+    /// - Parameters:
+    ///   - annotation: The annotation to display details for
+    ///   - rect: The bounding rectangle to anchor the popover to
+    private func showAnnotationPopover(for annotation: SequenceAnnotation, at rect: CGRect) {
+        // Close any existing popover
+        annotationPopover?.close()
+
+        // Create popover content
+        let contentView = NSHostingView(rootView: AnnotationPopoverView(annotation: annotation))
+        let popoverController = NSViewController()
+        popoverController.view = contentView
+        contentView.frame = NSRect(x: 0, y: 0, width: 280, height: 200)
+
+        // Create and configure popover
+        let popover = NSPopover()
+        popover.contentViewController = popoverController
+        popover.behavior = .transient
+        popover.animates = true
+
+        // Show popover
+        popover.show(relativeTo: rect, of: self, preferredEdge: .maxY)
+        annotationPopover = popover
+
+        logger.info("Showing annotation popover for '\(annotation.name, privacy: .public)'")
     }
 
     // MARK: - Drag and Drop
@@ -1988,6 +2095,7 @@ public class SequenceViewerView: NSView {
         guard let frame = viewController?.referenceFrame else { return }
 
         let location = convert(event.locationInWindow, from: nil)
+        let isDoubleClick = event.clickCount == 2
 
         // Check for annotation click - use multi-sequence aware method if applicable
         if isMultiSequenceMode, let state = multiSequenceState {
@@ -2001,6 +2109,12 @@ public class SequenceViewerView: NSView {
                     isSelecting = false
                     setNeedsDisplay(bounds)
                     updateSelectionStatus()
+
+                    // Show popover on double-click
+                    if isDoubleClick {
+                        let annotRect = annotationRectAtPoint(location, forSequence: stackedInfo, frame: frame)
+                        showAnnotationPopover(for: annotation, at: annotRect ?? CGRect(origin: location, size: CGSize(width: 1, height: 1)))
+                    }
                     return
                 }
             }
@@ -2014,6 +2128,12 @@ public class SequenceViewerView: NSView {
                 isSelecting = false
                 setNeedsDisplay(bounds)
                 updateSelectionStatus()
+
+                // Show popover on double-click
+                if isDoubleClick {
+                    let annotRect = annotationRectAtPoint(location)
+                    showAnnotationPopover(for: annotation, at: annotRect ?? CGRect(origin: location, size: CGSize(width: 1, height: 1)))
+                }
                 return
             }
         }
@@ -3326,5 +3446,115 @@ public class ReferenceFrame {
 
         start = newStart
         end = newEnd
+    }
+}
+
+// MARK: - Annotation Popover View
+
+/// SwiftUI view for displaying annotation details in a popover.
+struct AnnotationPopoverView: View {
+    let annotation: SequenceAnnotation
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header with name and type
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(annotation.name)
+                        .font(.headline)
+
+                    Text(annotationTypeName)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                // Type color indicator
+                Circle()
+                    .fill(colorForAnnotation)
+                    .frame(width: 16, height: 16)
+            }
+
+            Divider()
+
+            // Location info
+            VStack(alignment: .leading, spacing: 4) {
+                LabeledContent("Location", value: "\(annotation.start)–\(annotation.end)")
+                LabeledContent("Length", value: "\(annotation.totalLength) bp")
+
+                if annotation.isDiscontinuous {
+                    LabeledContent("Intervals", value: "\(annotation.intervals.count) segments")
+                }
+
+                if annotation.strand != .unknown {
+                    LabeledContent("Strand", value: annotation.strand == .forward ? "Forward (+)" : "Reverse (−)")
+                }
+            }
+            .font(.callout)
+
+            // Notes if present
+            if let note = annotation.note, !note.isEmpty {
+                Divider()
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Notes")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Text(note)
+                        .font(.caption)
+                        .lineLimit(4)
+                }
+            }
+        }
+        .padding()
+        .frame(width: 260)
+    }
+
+    private var colorForAnnotation: Color {
+        let annotationColor = annotation.color ?? annotation.type.defaultColor
+        return Color(
+            red: annotationColor.red,
+            green: annotationColor.green,
+            blue: annotationColor.blue,
+            opacity: annotationColor.alpha
+        )
+    }
+
+    /// Human-readable name for annotation type
+    private var annotationTypeName: String {
+        switch annotation.type {
+        case .gene: return "Gene"
+        case .mRNA: return "mRNA"
+        case .transcript: return "Transcript"
+        case .exon: return "Exon"
+        case .intron: return "Intron"
+        case .cds: return "CDS"
+        case .utr5: return "5' UTR"
+        case .utr3: return "3' UTR"
+        case .promoter: return "Promoter"
+        case .enhancer: return "Enhancer"
+        case .silencer: return "Silencer"
+        case .terminator: return "Terminator"
+        case .polyASignal: return "PolyA Signal"
+        case .primer: return "Primer"
+        case .primerPair: return "Primer Pair"
+        case .amplicon: return "Amplicon"
+        case .restrictionSite: return "Restriction Site"
+        case .snp: return "SNP"
+        case .variation: return "Variation"
+        case .insertion: return "Insertion"
+        case .deletion: return "Deletion"
+        case .repeatRegion: return "Repeat Region"
+        case .stem_loop: return "Stem Loop"
+        case .misc_feature: return "Misc Feature"
+        case .contig: return "Contig"
+        case .gap: return "Gap"
+        case .scaffold: return "Scaffold"
+        case .region: return "Region"
+        case .source: return "Source"
+        case .custom: return "Custom"
+        }
     }
 }

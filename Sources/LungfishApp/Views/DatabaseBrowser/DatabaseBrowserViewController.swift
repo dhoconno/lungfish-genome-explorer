@@ -223,6 +223,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
     /// Maximum sequence length filter
     @Published var maxLength: String = ""
 
+    /// Whether to filter to RefSeq sequences only (for Virus search)
+    @Published var refseqOnly: Bool = false
+
     /// Search results from the API
     @Published var results: [SearchResultRecord] = []
 
@@ -288,6 +291,24 @@ public class DatabaseBrowserViewModel: ObservableObject {
     /// Current search task (for cancellation support)
     private var currentSearchTask: Task<Void, Never>?
 
+    /// Search history for autocomplete suggestions
+    @Published var searchHistory: [String] = []
+
+    /// Autocomplete suggestions filtered from search history
+    var autocompleteSuggestions: [String] {
+        guard !searchText.isEmpty else { return [] }
+        let query = searchText.lowercased()
+        return searchHistory.filter { $0.lowercased().hasPrefix(query) && $0.lowercased() != query }
+            .prefix(5)
+            .map { $0 }
+    }
+
+    /// UserDefaults key for search history
+    private static let searchHistoryKey = "DatabaseBrowserSearchHistory"
+
+    /// Maximum number of search history entries to keep
+    private static let maxHistoryEntries = 50
+
     // MARK: - Computed Properties
 
     /// Whether search text is valid (non-empty after trimming)
@@ -339,6 +360,42 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
     init(source: DatabaseSource) {
         self.source = source
+        loadSearchHistory()
+    }
+
+    // MARK: - Search History
+
+    /// Loads search history from UserDefaults
+    private func loadSearchHistory() {
+        if let history = UserDefaults.standard.stringArray(forKey: Self.searchHistoryKey) {
+            searchHistory = history
+        }
+    }
+
+    /// Saves a search term to history
+    func saveSearchTerm(_ term: String) {
+        let trimmedTerm = term.trimmingCharacters(in: .whitespaces)
+        guard !trimmedTerm.isEmpty else { return }
+
+        // Remove if already exists (to move to front)
+        searchHistory.removeAll { $0 == trimmedTerm }
+
+        // Add to front
+        searchHistory.insert(trimmedTerm, at: 0)
+
+        // Trim to max entries
+        if searchHistory.count > Self.maxHistoryEntries {
+            searchHistory = Array(searchHistory.prefix(Self.maxHistoryEntries))
+        }
+
+        // Save to UserDefaults
+        UserDefaults.standard.set(searchHistory, forKey: Self.searchHistoryKey)
+    }
+
+    /// Clears search history
+    func clearSearchHistory() {
+        searchHistory = []
+        UserDefaults.standard.removeObject(forKey: Self.searchHistoryKey)
     }
 
     // MARK: - Actions
@@ -370,6 +427,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
             return
         }
 
+        // Save search term to history for autocomplete
+        saveSearchTerm(searchText)
+
         // Cancel any existing search
         cancelSearch()
 
@@ -395,6 +455,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
         )
         let currentSource = source
         let searchType = ncbiSearchType
+        let useRefseqOnly = refseqOnly
 
         // Capture services as they are actors (safe to use across isolation boundaries)
         let ncbi = ncbiService
@@ -438,11 +499,12 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
                     case .virus:
                         // Use viral taxonomy filter
-                        logger.info("performSearch: Calling NCBI virus search")
+                        logger.info("performSearch: Calling NCBI virus search (refseqOnly=\(useRefseqOnly))")
                         let virusResult = try await ncbi.searchVirus(
                             term: query.term,
                             retmax: query.limit,
-                            retstart: query.offset
+                            retstart: query.offset,
+                            refseqOnly: useRefseqOnly
                         )
                         logger.info("performSearch: Virus search returned \(virusResult.totalCount) total, \(virusResult.ids.count) IDs")
 
@@ -531,6 +593,17 @@ public class DatabaseBrowserViewModel: ObservableObject {
                     logger.info("performSearch: Calling ENA search")
                     searchResults = try await ena.search(query)
                     logger.info("performSearch: ENA returned \(searchResults.totalCount) total, \(searchResults.records.count) records")
+
+                case .pathoplexus:
+                    performOnMainRunLoop { [weak self] in
+                        guard let self = self else { return }
+                        self.objectWillChange.send()
+                        self.searchPhase = .loadingDetails
+                    }
+                    logger.info("performSearch: Calling Pathoplexus search")
+                    let pathoplexusService = PathoplexusService()
+                    searchResults = try await pathoplexusService.search(query)
+                    logger.info("performSearch: Pathoplexus returned \(searchResults.totalCount) total, \(searchResults.records.count) records")
 
                 default:
                     throw DatabaseServiceError.invalidQuery(reason: "Unsupported database: \(currentSource)")
@@ -1141,6 +1214,14 @@ public struct DatabaseBrowserView: View {
                         .help(viewModel.ncbiSearchType.helpText)
                     }
 
+                    // RefSeq filter (only for Virus search)
+                    if viewModel.ncbiSearchType == .virus {
+                        Toggle("RefSeq Only", isOn: $viewModel.refseqOnly)
+                            .font(.caption)
+                            .toggleStyle(.checkbox)
+                            .help("Filter to NCBI Reference Sequences only (curated, representative sequences)")
+                    }
+
                     Spacer()
 
                     // Download format selector
@@ -1285,6 +1366,40 @@ public struct DatabaseBrowserView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(!viewModel.isSearchTextValid)
+            }
+        }
+        .overlay(alignment: .top) {
+            // Autocomplete suggestions dropdown
+            if !viewModel.autocompleteSuggestions.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(viewModel.autocompleteSuggestions, id: \.self) { suggestion in
+                        Button {
+                            viewModel.searchText = suggestion
+                        } label: {
+                            HStack {
+                                Image(systemName: "clock.arrow.circlepath")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text(suggestion)
+                                    .font(.body)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .background(Color(nsColor: .controlBackgroundColor))
+
+                        if suggestion != viewModel.autocompleteSuggestions.last {
+                            Divider()
+                        }
+                    }
+                }
+                .background(Color(nsColor: .windowBackgroundColor))
+                .cornerRadius(8)
+                .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+                .padding(.top, 40)  // Offset below search field
             }
         }
     }

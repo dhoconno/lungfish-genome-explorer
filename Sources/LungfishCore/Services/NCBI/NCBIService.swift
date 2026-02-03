@@ -281,10 +281,17 @@ public actor NCBIService: DatabaseService {
     public func searchVirus(
         term: String,
         retmax: Int = 20,
-        retstart: Int = 0
+        retstart: Int = 0,
+        refseqOnly: Bool = false
     ) async throws -> ESearchSearchResult {
         // Add viral taxonomy filter to the search term
-        let virusTerm = "(\(term)) AND \(NCBIDatabase.virusTaxonomyFilter)"
+        var virusTerm = "(\(term)) AND \(NCBIDatabase.virusTaxonomyFilter)"
+
+        // Optionally filter to RefSeq sequences only
+        if refseqOnly {
+            virusTerm += " AND refseq[filter]"
+        }
+
         logger.info("NCBIService.searchVirus: term='\(virusTerm, privacy: .public)'")
         return try await esearchWithCount(
             database: .nucleotide,

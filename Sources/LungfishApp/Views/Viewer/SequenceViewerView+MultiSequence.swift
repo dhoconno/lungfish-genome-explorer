@@ -944,4 +944,55 @@ extension SequenceViewerView {
 
         return nil
     }
+
+    /// Returns the bounding rect of an annotation at the given point for multi-sequence mode.
+    ///
+    /// - Parameters:
+    ///   - point: Point in view coordinates
+    ///   - stackedInfo: The stacked sequence info
+    ///   - frame: Reference frame for coordinate mapping
+    /// - Returns: The bounding rect, or nil if no annotation found
+    internal func annotationRectAtPoint(
+        _ point: NSPoint,
+        forSequence stackedInfo: StackedSequenceInfo,
+        frame: ReferenceFrame
+    ) -> CGRect? {
+        guard isPointInAnnotationArea(point, forSequence: stackedInfo) else {
+            return nil
+        }
+
+        let globalShowAnnotations = multiSequenceState?.globalShowAnnotations ?? true
+        guard globalShowAnnotations && stackedInfo.showAnnotations else {
+            return nil
+        }
+
+        let visibleBases = frame.end - frame.start
+        let basesPerPixel = visibleBases / Double(bounds.width)
+        let pixelsPerBase = Double(bounds.width) / max(1, visibleBases)
+        let clickedPosition = Int(frame.start + Double(point.x) * basesPerPixel)
+
+        // Find annotation at this position and calculate its rect
+        for annotation in stackedInfo.annotations {
+            guard annotation.belongsToSequence(named: stackedInfo.sequence.name) else {
+                continue
+            }
+
+            if annotation.overlaps(start: clickedPosition, end: clickedPosition + 1) {
+                // Calculate the annotation rect based on its genomic coordinates
+                guard let interval = annotation.intervals.first else { continue }
+
+                let startX = CGFloat(Double(interval.start) - frame.start) * CGFloat(pixelsPerBase)
+                let endX = CGFloat(Double(interval.end) - frame.start) * CGFloat(pixelsPerBase)
+                let width = max(2, endX - startX)
+
+                // Y position in annotation area (below sequence track)
+                let annotationY = stackedInfo.yOffset + stackedInfo.sequenceHeight + 2
+                let annotHeight: CGFloat = 16
+
+                return CGRect(x: max(0, startX), y: annotationY, width: width, height: annotHeight)
+            }
+        }
+
+        return nil
+    }
 }
