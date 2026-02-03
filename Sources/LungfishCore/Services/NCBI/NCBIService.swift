@@ -722,6 +722,8 @@ public actor NCBIService: DatabaseService {
             annotationType = .source
         case "variation":
             annotationType = .variation
+        case "region":
+            annotationType = .region
         default:
             annotationType = .misc_feature
         }

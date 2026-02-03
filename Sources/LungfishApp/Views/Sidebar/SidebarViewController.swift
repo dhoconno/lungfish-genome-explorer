@@ -121,7 +121,9 @@ public class SidebarViewController: NSViewController {
         // Set up key event monitoring for Delete key
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self = self,
-                  self.view.window?.firstResponder === self.outlineView else {
+                  let sidebarWindow = self.view.window,
+                  event.window === sidebarWindow,  // Ensure event is for THIS window, not sheets
+                  sidebarWindow.firstResponder === self.outlineView else {
                 return event
             }
 

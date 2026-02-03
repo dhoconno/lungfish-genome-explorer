@@ -12,6 +12,21 @@ import os.log
 /// Logger for SRA browser operations
 private let logger = Logger(subsystem: "com.lungfish.browser", category: "SRABrowser")
 
+/// Executes a MainActor-isolated block on the main thread in a way that works during modal sessions.
+/// Uses Timer with commonModes run loop mode to ensure execution during modal sheet display.
+private func performOnMainRunLoop(_ block: @escaping @MainActor @Sendable () -> Void) {
+    // Create a timer that fires immediately and runs in common modes (works during modals)
+    let timer = Timer(timeInterval: 0, repeats: false) { _ in
+        // Timer callback runs on main thread but not in MainActor context
+        // We use assumeIsolated since Timer callbacks on main thread are MainActor-safe
+        MainActor.assumeIsolated {
+            block()
+        }
+    }
+    // Add to run loop with common modes so it fires during modal sessions
+    RunLoop.main.add(timer, forMode: .common)
+}
+
 /// Controller for the SRA browser panel.
 ///
 /// Provides search interface for NCBI SRA with FASTQ download capability.
@@ -153,34 +168,40 @@ public class SRABrowserViewModel: ObservableObject {
         errorMessage = nil
         results = []
 
-        // Use Timer to ensure the Task runs on the main run loop
-        Timer.scheduledTimer(withTimeInterval: 0.01, repeats: false) { [weak self] _ in
-            guard let self = self else { return }
-            Task {
-                await self.executeSearch()
+        // Capture values for use in detached context
+        let searchTerm = searchText
+        let sra = sraService
+
+        // Use Task.detached with performOnMainRunLoop for proper MainActor context
+        Task.detached { [weak self] in
+            logger.info("Starting SRA search for: \(searchTerm, privacy: .public)")
+
+            do {
+                let query = SearchQuery(term: searchTerm, limit: 50)
+                let searchResults = try await sra.search(query)
+                let runCount = searchResults.runs.count
+
+                performOnMainRunLoop { [weak self] in
+                    guard let self = self else { return }
+                    self.objectWillChange.send()
+                    self.results = searchResults.runs
+                    self.statusMessage = "Found \(runCount) SRA runs"
+                    self.isSearching = false
+                    logger.info("SRA search completed: \(runCount, privacy: .public) results")
+                }
+
+            } catch {
+                let errorMsg = error.localizedDescription
+                performOnMainRunLoop { [weak self] in
+                    guard let self = self else { return }
+                    self.objectWillChange.send()
+                    self.errorMessage = "Search failed: \(errorMsg)"
+                    self.statusMessage = nil
+                    self.isSearching = false
+                    logger.error("SRA search failed: \(errorMsg, privacy: .public)")
+                }
             }
         }
-    }
-
-    /// Executes the actual search operation.
-    private func executeSearch() async {
-        logger.info("Starting SRA search for: \(self.searchText, privacy: .public)")
-
-        do {
-            let query = SearchQuery(term: searchText, limit: 50)
-            let searchResults = try await sraService.search(query)
-
-            results = searchResults.runs
-            statusMessage = "Found \(results.count) SRA runs"
-            logger.info("SRA search completed: \(self.results.count, privacy: .public) results")
-
-        } catch {
-            errorMessage = "Search failed: \(error.localizedDescription)"
-            logger.error("SRA search failed: \(error.localizedDescription, privacy: .public)")
-            statusMessage = nil
-        }
-
-        isSearching = false
     }
 
     /// Initiates a download operation for the selected run.
@@ -195,57 +216,64 @@ public class SRABrowserViewModel: ObservableObject {
         errorMessage = nil
         statusMessage = "Downloading \(run.accession)..."
 
-        // Use Timer to ensure the Task runs on the main run loop
-        Timer.scheduledTimer(withTimeInterval: 0.01, repeats: false) { [weak self] _ in
-            guard let self = self else { return }
-            Task {
-                await self.executeDownload(run: run)
+        // Capture values for use in detached context
+        let sra = sraService
+        let toolkitAvailable = sraToolkitAvailable
+        let completion = onDownloadComplete
+
+        // Use Task.detached with performOnMainRunLoop for proper MainActor context
+        Task.detached { [weak self] in
+            do {
+                let files: [URL]
+
+                // Try SRA Toolkit first, fall back to ENA direct download
+                if toolkitAvailable {
+                    logger.info("Downloading via SRA Toolkit: \(run.accession, privacy: .public)")
+                    files = try await sra.downloadFASTQ(
+                        accession: run.accession,
+                        progress: { [weak self] progress in
+                            performOnMainRunLoop { [weak self] in
+                                self?.downloadProgress = progress
+                            }
+                        }
+                    )
+                } else {
+                    logger.info("Downloading via ENA: \(run.accession, privacy: .public)")
+                    files = try await sra.downloadFASTQFromENA(
+                        accession: run.accession,
+                        progress: { [weak self] progress in
+                            performOnMainRunLoop { [weak self] in
+                                self?.downloadProgress = progress
+                            }
+                        }
+                    )
+                }
+
+                let fileCount = files.count
+                performOnMainRunLoop { [weak self] in
+                    guard let self = self else { return }
+                    self.objectWillChange.send()
+                    self.downloadProgress = 1.0
+                    self.statusMessage = "Downloaded \(fileCount) files for \(run.accession)"
+                    self.isDownloading = false
+                    logger.info("Downloaded \(fileCount, privacy: .public) files for \(run.accession, privacy: .public)")
+
+                    // Notify completion
+                    completion?(files)
+                }
+
+            } catch {
+                let errorMsg = error.localizedDescription
+                performOnMainRunLoop { [weak self] in
+                    guard let self = self else { return }
+                    self.objectWillChange.send()
+                    self.errorMessage = "Download failed: \(errorMsg)"
+                    self.statusMessage = nil
+                    self.isDownloading = false
+                    logger.error("Download failed: \(errorMsg, privacy: .public)")
+                }
             }
         }
-    }
-
-    /// Executes the actual download operation.
-    private func executeDownload(run: SRARunInfo) async {
-        do {
-            let files: [URL]
-
-            // Try SRA Toolkit first, fall back to ENA direct download
-            if sraToolkitAvailable {
-                logger.info("Downloading via SRA Toolkit: \(run.accession, privacy: .public)")
-                files = try await sraService.downloadFASTQ(
-                    accession: run.accession,
-                    progress: { [weak self] progress in
-                        Task { @MainActor in
-                            self?.downloadProgress = progress
-                        }
-                    }
-                )
-            } else {
-                logger.info("Downloading via ENA: \(run.accession, privacy: .public)")
-                files = try await sraService.downloadFASTQFromENA(
-                    accession: run.accession,
-                    progress: { [weak self] progress in
-                        Task { @MainActor in
-                            self?.downloadProgress = progress
-                        }
-                    }
-                )
-            }
-
-            downloadProgress = 1.0
-            statusMessage = "Downloaded \(files.count) files for \(run.accession)"
-            logger.info("Downloaded \(files.count, privacy: .public) files for \(run.accession, privacy: .public)")
-
-            // Notify completion
-            onDownloadComplete?(files)
-
-        } catch {
-            errorMessage = "Download failed: \(error.localizedDescription)"
-            logger.error("Download failed: \(error.localizedDescription, privacy: .public)")
-            statusMessage = nil
-        }
-
-        isDownloading = false
     }
 }
 

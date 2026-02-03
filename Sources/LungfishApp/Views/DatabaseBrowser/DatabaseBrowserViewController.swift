@@ -1864,6 +1864,9 @@ extension DatabaseSource {
 
 extension SearchResultRecord: Hashable {
     public func hash(into hasher: inout Hasher) {
-        hasher.combine(accession)
+        // Use `id` (NCBI UID) instead of `accession` to match auto-synthesized Equatable.
+        // Using only `accession` caused Set corruption when records had the same accession
+        // but different UIDs (e.g., multiple viral isolates), resulting in selections being lost.
+        hasher.combine(id)
     }
 }
