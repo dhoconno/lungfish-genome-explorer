@@ -412,8 +412,12 @@ public class WorkflowExecutionView: NSView {
     public func startTimer() {
         startTime = Date()
         elapsedTimer?.invalidate()
+        // Fix: Timer callback calls @MainActor isolated updateElapsedTime()
+        // Wrap in Task { @MainActor in ... } to properly handle actor isolation
         elapsedTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.updateElapsedTime()
+            Task { @MainActor in
+                self?.updateElapsedTime()
+            }
         }
         logger.info("startTimer: Timer started")
     }

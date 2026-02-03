@@ -818,6 +818,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     // MARK: - Menu Validation
 
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        // Update Sidebar menu item title based on state (Apple HIG compliance)
+        // Tag 1000 is for sidebar toggle
+        if menuItem.tag == 1000 {
+            if let isSidebarVisible = mainWindowController?.mainSplitViewController?.isSidebarVisible {
+                menuItem.title = isSidebarVisible ? "Hide Sidebar" : "Show Sidebar"
+            }
+            return true
+        }
+
         // Update Inspector menu item title based on state
         if menuItem.tag == 1001 {
             if let isInspectorVisible = mainWindowController?.mainSplitViewController?.isInspectorVisible {
@@ -972,12 +981,58 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     // MARK: - ToolsMenuActions
 
+
     @objc func runSPAdes(_ sender: Any?) {
-        showNotImplementedAlert("SPAdes Assembly")
+        showAssemblyConfigurationSheet(algorithm: .spades)
     }
 
     @objc func runMEGAHIT(_ sender: Any?) {
-        showNotImplementedAlert("MEGAHIT Assembly")
+        showAssemblyConfigurationSheet(algorithm: .megahit)
+    }
+
+    /// Shows the assembly configuration sheet with the specified algorithm pre-selected.
+    ///
+    /// - Parameter algorithm: The assembly algorithm to pre-select (or nil for auto)
+    private func showAssemblyConfigurationSheet(algorithm: AssemblyAlgorithm? = nil) {
+        guard let window = mainWindowController?.window else {
+            debugLog("showAssemblyConfigurationSheet: No main window available")
+            return
+        }
+
+        debugLog("showAssemblyConfigurationSheet: Presenting assembly configuration for \(algorithm?.rawValue ?? "auto")")
+
+        AssemblySheetPresenter.present(
+            from: window,
+            algorithm: algorithm,
+            onComplete: { outputURL in
+                debugLog("Assembly completed: \(outputURL.path)")
+
+                // Show success message
+                let alert = NSAlert()
+                alert.messageText = "Assembly Complete"
+                alert.informativeText = "Assembly output saved to:\n\(outputURL.path)"
+                alert.alertStyle = .informational
+                alert.addButton(withTitle: "Open Folder")
+                alert.addButton(withTitle: "OK")
+
+                if alert.runModal() == .alertFirstButtonReturn {
+                    NSWorkspace.shared.open(outputURL)
+                }
+            },
+            onFailed: { error in
+                debugLog("Assembly failed: \(error)")
+
+                let alert = NSAlert()
+                alert.messageText = "Assembly Failed"
+                alert.informativeText = error
+                alert.alertStyle = .critical
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
+            },
+            onCancel: {
+                debugLog("Assembly configuration cancelled")
+            }
+        )
     }
 
     @objc func designPrimers(_ sender: Any?) {

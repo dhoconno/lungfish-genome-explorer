@@ -26,6 +26,8 @@ public class MainWindowController: NSWindowController {
         static let search = NSToolbarItem.Identifier("Search")
         static let flexibleSpace = NSToolbarItem.Identifier.flexibleSpace
         static let space = NSToolbarItem.Identifier.space
+        // Apple HIG: sidebarTrackingSeparator aligns toolbar items with sidebar edge
+        static let sidebarTrackingSeparator = NSToolbarItem.Identifier.sidebarTrackingSeparator
     }
 
     // MARK: - Initialization
@@ -165,7 +167,7 @@ extension MainWindowController: NSToolbarDelegate {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "Sidebar"
             item.paletteLabel = "Toggle Sidebar"
-            item.toolTip = "Show or hide the sidebar (⌥⌘S)"
+            item.toolTip = "Show or hide the sidebar (Opt-Cmd-S)"
             // Use sidebar.leading as primary, fall back to sidebar.left
             item.image = NSImage(systemSymbolName: "sidebar.leading", accessibilityDescription: "Sidebar")
                 ?? NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Sidebar")
@@ -177,7 +179,7 @@ extension MainWindowController: NSToolbarDelegate {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "Inspector"
             item.paletteLabel = "Toggle Inspector"
-            item.toolTip = "Show or hide the inspector (⌥⌘I)"
+            item.toolTip = "Show or hide the inspector (Opt-Cmd-I)"
             // Use sidebar.trailing as primary, fall back to sidebar.right, then info.circle
             item.image = NSImage(systemSymbolName: "sidebar.trailing", accessibilityDescription: "Inspector")
                 ?? NSImage(systemSymbolName: "sidebar.right", accessibilityDescription: "Inspector")
@@ -242,6 +244,15 @@ extension MainWindowController: NSToolbarDelegate {
             item.searchField.placeholderString = "Search sequences..."
             return item
 
+        case ToolbarIdentifier.sidebarTrackingSeparator:
+            // Apple HIG: Return the system-provided tracking separator
+            // The system handles this automatically, but we need to allow it
+            return NSTrackingSeparatorToolbarItem(
+                identifier: itemIdentifier,
+                splitView: mainSplitViewController.splitView,
+                dividerIndex: 0
+            )
+
         default:
             return nil
         }
@@ -250,6 +261,9 @@ extension MainWindowController: NSToolbarDelegate {
     public func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
             ToolbarIdentifier.toggleSidebar,
+            // Apple HIG: sidebarTrackingSeparator goes after sidebar toggle
+            // to align toolbar items with sidebar edge
+            ToolbarIdentifier.sidebarTrackingSeparator,
             ToolbarIdentifier.navigation,
             ToolbarIdentifier.space,
             ToolbarIdentifier.coordinates,
@@ -263,6 +277,7 @@ extension MainWindowController: NSToolbarDelegate {
     public func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
             ToolbarIdentifier.toggleSidebar,
+            ToolbarIdentifier.sidebarTrackingSeparator,
             ToolbarIdentifier.toggleInspector,
             ToolbarIdentifier.navigation,
             ToolbarIdentifier.coordinates,

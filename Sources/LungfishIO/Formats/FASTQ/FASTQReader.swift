@@ -144,7 +144,7 @@ public struct ReadPair: Sendable, Equatable {
 /// - Standard FASTQ format
 /// - Multi-line sequences (wrapping)
 /// - Automatic quality encoding detection
-/// - Compressed files (.gz)
+/// - Compressed files (.gz) via automatic decompression
 ///
 /// ## Usage
 /// ```swift
@@ -190,6 +190,8 @@ public final class FASTQReader: Sendable {
 
     /// Returns an async stream of FASTQ records from a file.
     ///
+    /// Automatically handles gzip-compressed files (.gz extension).
+    ///
     /// - Parameter url: URL of the FASTQ file
     /// - Returns: AsyncThrowingStream of FASTQ records
     public func records(from url: URL) -> AsyncThrowingStream<FASTQRecord, Error> {
@@ -201,8 +203,10 @@ public final class FASTQReader: Sendable {
                     var currentHeader: String?
                     var currentSequence: String?
                     var currentSeparator: String?
+                    var nonEmptyLineCount = 0
 
-                    for try await line in url.lines {
+                    // Use auto-decompressing lines for gzip support
+                    for try await line in url.linesAutoDecompressing() {
                         lineNumber += 1
 
                         guard line.count <= self.maxLineLength else {
@@ -212,7 +216,8 @@ public final class FASTQReader: Sendable {
                         // Skip empty lines
                         if line.isEmpty { continue }
 
-                        let lineState = (lineNumber - 1) % 4
+                        nonEmptyLineCount += 1
+                        let lineState = (nonEmptyLineCount - 1) % 4
 
                         switch lineState {
                         case 0:
@@ -296,6 +301,8 @@ public final class FASTQReader: Sendable {
 
     /// Reads all records from a file into memory.
     ///
+    /// Automatically handles gzip-compressed files (.gz extension).
+    ///
     /// - Parameter url: URL of the FASTQ file
     /// - Returns: Array of FASTQ records
     public func readAll(from url: URL) async throws -> [FASTQRecord] {
@@ -308,12 +315,14 @@ public final class FASTQReader: Sendable {
 
     /// Counts records in a file without loading sequences.
     ///
+    /// Automatically handles gzip-compressed files (.gz extension).
+    ///
     /// - Parameter url: URL of the FASTQ file
     /// - Returns: Number of records
     public func countRecords(in url: URL) async throws -> Int {
         var count = 0
         var lineNumber = 0
-        for try await line in url.lines {
+        for try await line in url.linesAutoDecompressing() {
             if !line.isEmpty {
                 lineNumber += 1
                 if lineNumber % 4 == 0 {

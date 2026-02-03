@@ -411,9 +411,16 @@ public final class GenBankReader: Sendable {
 
             // Check for new feature (feature key starts at column 5, location at column 21)
             // Feature lines have format: "     feature_key     location"
+            // Feature keys can start with letters (gene, CDS) or digits (5'UTR, 3'UTR)
             if line.count >= 6 && line.prefix(5) == "     " && !line.hasPrefix("                     /") {
                 let featureContent = String(line.dropFirst(5))
-                if featureContent.first?.isLetter == true {
+                // Check if this looks like a new feature line:
+                // - Starts with letter (gene, CDS, exon, etc.)
+                // - Starts with digit followed by ' (5'UTR, 3'UTR)
+                let firstChar = featureContent.first
+                let isNewFeature = firstChar?.isLetter == true ||
+                                   (firstChar?.isNumber == true && featureContent.contains("'"))
+                if isNewFeature {
                     // This is a new feature
                     try finalizeCurrentFeature()
 

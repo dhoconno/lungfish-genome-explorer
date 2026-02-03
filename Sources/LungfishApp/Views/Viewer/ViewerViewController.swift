@@ -851,6 +851,8 @@ public class ProgressOverlayView: NSView {
 // MARK: - SequenceViewerView
 
 /// The main view for rendering sequence and track data.
+/// Note: Uses @MainActor for thread safety as it contains mutable UI state.
+@MainActor
 public class SequenceViewerView: NSView {
 
     /// Reference to the parent controller
@@ -3151,6 +3153,8 @@ public class ViewerStatusBar: NSView {
 // MARK: - ReferenceFrame
 
 /// Coordinate system for genomic visualization (following IGV pattern).
+/// Note: Uses @MainActor for thread safety as it contains mutable UI state.
+@MainActor
 public class ReferenceFrame {
     /// Chromosome/sequence name
     public var chromosome: String

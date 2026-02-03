@@ -353,16 +353,21 @@ public final class MainMenu {
         let viewMenuItem = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
         let viewMenu = NSMenu(title: "View")
 
-        // Sidebar toggle
-        viewMenu.addItem(
-            withTitle: "Toggle Sidebar",
+        // Sidebar toggle (Option-Command-S per HIG)
+        // Apple HIG: Title should dynamically update to "Show Sidebar" / "Hide Sidebar"
+        // Tag 1000 enables dynamic title updates in validateMenuItem
+        let sidebarItem = viewMenu.addItem(
+            withTitle: "Show Sidebar",
             action: #selector(ViewMenuActions.toggleSidebar(_:)),
             keyEquivalent: "s"
-        ).keyEquivalentModifierMask = [.command, .control]
+        )
+        sidebarItem.keyEquivalentModifierMask = [.command, .option]
+        sidebarItem.tag = 1000  // Tag for dynamic title validation
 
         // Inspector toggle
+        // Apple HIG: Title should dynamically update to "Show Inspector" / "Hide Inspector"
         let inspectorItem = viewMenu.addItem(
-            withTitle: "Toggle Inspector",
+            withTitle: "Show Inspector",
             action: #selector(ViewMenuActions.toggleInspector(_:)),
             keyEquivalent: "i"
         )
@@ -467,11 +472,11 @@ public final class MainMenu {
 
         seqMenu.addItem(.separator())
 
-        // Selection operations
+        // Selection operations (Command-L to avoid conflict with Find Next Command-G)
         seqMenu.addItem(
             withTitle: "Go to Position...",
             action: #selector(SequenceMenuActions.goToPosition(_:)),
-            keyEquivalent: "g"
+            keyEquivalent: "l"
         )
 
         seqMenu.addItem(
