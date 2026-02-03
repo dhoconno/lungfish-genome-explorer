@@ -362,6 +362,15 @@ public class SidebarViewController: NSViewController {
     public func addProjectFolder(_ folderURL: URL, documents: [LoadedDocument]) {
         logger.info("addProjectFolder: Adding folder '\(folderURL.lastPathComponent, privacy: .public)' with \(documents.count) documents")
 
+        // Idempotent: Remove existing project folder with same URL if present
+        let normalizedURL = folderURL.standardizedFileURL
+        if let existingIndex = rootItems.firstIndex(where: {
+            $0.type == .project && $0.url?.standardizedFileURL == normalizedURL
+        }) {
+            logger.info("addProjectFolder: Replacing existing folder at index \(existingIndex)")
+            rootItems.remove(at: existingIndex)
+        }
+
         // Create the project folder item
         let folderItem = SidebarItem(
             title: folderURL.lastPathComponent,
@@ -474,6 +483,38 @@ public class SidebarViewController: NSViewController {
                 logger.debug("addProjectFolder: Selected first document at row \(row)")
             }
         }
+    }
+
+    /// Refreshes a sidebar item after background loading completes.
+    ///
+    /// Called when a document finishes loading in the background. Updates
+    /// the item's visual state to reflect loaded status.
+    ///
+    /// - Parameter url: The URL of the document that finished loading
+    public func refreshItem(for url: URL) {
+        let normalizedURL = url.standardizedFileURL
+
+        // Find the item matching this URL in the sidebar hierarchy
+        func findItem(in items: [SidebarItem]) -> SidebarItem? {
+            for item in items {
+                if item.url?.standardizedFileURL == normalizedURL {
+                    return item
+                }
+                if let found = findItem(in: item.children) {
+                    return found
+                }
+            }
+            return nil
+        }
+
+        guard let item = findItem(in: rootItems) else {
+            logger.debug("refreshItem: No item found for \(url.lastPathComponent, privacy: .public)")
+            return
+        }
+
+        // Reload just this item to update its display
+        outlineView.reloadItem(item, reloadChildren: false)
+        logger.debug("refreshItem: Refreshed \(item.title, privacy: .public)")
     }
 }
 

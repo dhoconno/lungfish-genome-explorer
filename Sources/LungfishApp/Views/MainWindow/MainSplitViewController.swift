@@ -155,6 +155,14 @@ public class MainSplitViewController: NSSplitViewController {
             object: nil
         )
 
+        // Listen for project opened notifications
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleProjectOpened(_:)),
+            name: DocumentManager.projectOpenedNotification,
+            object: nil
+        )
+
         // Listen for show inspector requests (e.g., from edit annotation action)
         NotificationCenter.default.addObserver(
             self,
@@ -201,15 +209,58 @@ public class MainSplitViewController: NSSplitViewController {
 
         // If the item has a URL, check if already loaded first
         if let url = item.url {
-            // First check if document is already loaded to avoid re-loading
+            // First check if document is already registered
             if let existingDocument = DocumentManager.shared.documents.first(where: { $0.url == url }) {
-                logger.info("handleSidebarSelectionChanged: Document already loaded, displaying directly")
-                viewerController.displayDocument(existingDocument)
-                DocumentManager.shared.setActiveDocument(existingDocument)
+                // Check if the document has been fully loaded (has sequences or annotations)
+                let isFullyLoaded = !existingDocument.sequences.isEmpty || !existingDocument.annotations.isEmpty
+
+                if isFullyLoaded {
+                    logger.info("handleSidebarSelectionChanged: Document already loaded, displaying directly")
+                    viewerController.displayDocument(existingDocument)
+                    DocumentManager.shared.setActiveDocument(existingDocument)
+                    return
+                }
+
+                // Document is registered but not fully loaded (placeholder) - trigger lazy load
+                logger.info("handleSidebarSelectionChanged: Document is placeholder, triggering lazy load")
+                guard let docType = DocumentType.detect(from: url) else {
+                    logger.error("handleSidebarSelectionChanged: Could not detect document type")
+                    return
+                }
+
+                Task.detached(priority: .userInitiated) {
+                    await MainActor.run {
+                        self.viewerController.showProgress("Loading \(url.lastPathComponent)...")
+                    }
+
+                    do {
+                        let result = try await DocumentLoader.loadFile(at: url, type: docType)
+                        await MainActor.run {
+                            existingDocument.sequences = result.sequences
+                            existingDocument.annotations = result.annotations
+                            self.viewerController.hideProgress()
+                            self.viewerController.displayDocument(existingDocument)
+                            DocumentManager.shared.setActiveDocument(existingDocument)
+                            self.sidebarController.refreshItem(for: url)
+                            logger.info("handleSidebarSelectionChanged: Lazy load complete, displayed")
+                        }
+                    } catch {
+                        await MainActor.run {
+                            self.viewerController.hideProgress()
+                            logger.error("handleSidebarSelectionChanged: Lazy load failed: \(error.localizedDescription, privacy: .public)")
+                            let alert = NSAlert()
+                            alert.messageText = "Failed to Open File"
+                            alert.informativeText = error.localizedDescription
+                            alert.alertStyle = .warning
+                            alert.addButton(withTitle: "OK")
+                            alert.runModal()
+                        }
+                    }
+                }
                 return
             }
 
-            // Not loaded yet, load it
+            // Document not registered yet, load via DocumentManager
             logger.info("handleSidebarSelectionChanged: Loading document from '\(url.path, privacy: .public)'")
             Task { @MainActor in
                 viewerController.showProgress("Loading \(url.lastPathComponent)...")
@@ -260,53 +311,84 @@ public class MainSplitViewController: NSSplitViewController {
         let itemNames = displayableItems.map { $0.title }.joined(separator: ", ")
         logger.info("handleMultipleItemsSelected: Processing \(displayableItems.count) items: [\(itemNames, privacy: .public)]")
 
-        // Collect URLs that need to be loaded
-        var urlsToLoad: [URL] = []
-        var alreadyLoadedDocuments: [LoadedDocument] = []
+        // Categorize documents: fully loaded, placeholders (need lazy load), or unregistered
+        var fullyLoadedDocuments: [LoadedDocument] = []
+        var placeholderDocuments: [(LoadedDocument, URL, DocumentType)] = []
+        var unregisteredURLs: [(URL, DocumentType)] = []
 
         for item in displayableItems {
             if let url = item.url {
-                // Check if already loaded
                 if let existingDoc = DocumentManager.shared.documents.first(where: { $0.url == url }) {
-                    alreadyLoadedDocuments.append(existingDoc)
-                } else {
-                    urlsToLoad.append(url)
+                    // Check if fully loaded
+                    let isFullyLoaded = !existingDoc.sequences.isEmpty || !existingDoc.annotations.isEmpty
+                    if isFullyLoaded {
+                        fullyLoadedDocuments.append(existingDoc)
+                    } else if let docType = DocumentType.detect(from: url) {
+                        placeholderDocuments.append((existingDoc, url, docType))
+                    }
+                } else if let docType = DocumentType.detect(from: url) {
+                    unregisteredURLs.append((url, docType))
                 }
             } else if let doc = DocumentManager.shared.documents.first(where: { $0.name == item.title }) {
-                // Found by name
-                alreadyLoadedDocuments.append(doc)
+                fullyLoadedDocuments.append(doc)
             }
         }
 
-        // If we have URLs to load, do it asynchronously
-        if !urlsToLoad.isEmpty {
-            Task { @MainActor in
-                viewerController.showProgress("Loading \(urlsToLoad.count) documents...")
+        let needsLoading = !placeholderDocuments.isEmpty || !unregisteredURLs.isEmpty
 
-                var loadedDocs = alreadyLoadedDocuments
+        // If we have documents to load, do it asynchronously
+        if needsLoading {
+            Task.detached(priority: .userInitiated) {
+                let totalToLoad = placeholderDocuments.count + unregisteredURLs.count
+                await MainActor.run {
+                    self.viewerController.showProgress("Loading \(totalToLoad) documents...")
+                }
 
-                for url in urlsToLoad {
+                var loadedDocs = fullyLoadedDocuments
+
+                // Load placeholder documents via DocumentLoader
+                for (existingDoc, url, docType) in placeholderDocuments {
+                    do {
+                        let result = try await DocumentLoader.loadFile(at: url, type: docType)
+                        await MainActor.run {
+                            existingDoc.sequences = result.sequences
+                            existingDoc.annotations = result.annotations
+                            loadedDocs.append(existingDoc)
+                            self.sidebarController.refreshItem(for: url)
+                            logger.debug("handleMultipleItemsSelected: Lazy loaded '\(existingDoc.name, privacy: .public)'")
+                        }
+                    } catch {
+                        logger.error("handleMultipleItemsSelected: Failed to lazy load \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    }
+                }
+
+                // Load unregistered documents via DocumentManager
+                for (url, _) in unregisteredURLs {
                     do {
                         let document = try await DocumentManager.shared.loadDocument(at: url)
-                        loadedDocs.append(document)
-                        logger.debug("handleMultipleItemsSelected: Loaded '\(document.name, privacy: .public)'")
+                        await MainActor.run {
+                            loadedDocs.append(document)
+                            logger.debug("handleMultipleItemsSelected: Loaded '\(document.name, privacy: .public)'")
+                        }
                     } catch {
                         logger.error("handleMultipleItemsSelected: Failed to load \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
                     }
                 }
 
-                viewerController.hideProgress()
+                await MainActor.run {
+                    self.viewerController.hideProgress()
 
-                // Display all documents with multi-sequence stacking
-                if !loadedDocs.isEmpty {
-                    viewerController.displayDocuments(loadedDocs)
-                    logger.info("handleMultipleItemsSelected: Displayed \(loadedDocs.count) documents with multi-sequence stacking")
+                    // Display all documents with multi-sequence stacking
+                    if !loadedDocs.isEmpty {
+                        self.viewerController.displayDocuments(loadedDocs)
+                        logger.info("handleMultipleItemsSelected: Displayed \(loadedDocs.count) documents with multi-sequence stacking")
+                    }
                 }
             }
-        } else if !alreadyLoadedDocuments.isEmpty {
+        } else if !fullyLoadedDocuments.isEmpty {
             // All documents already loaded, display immediately
-            viewerController.displayDocuments(alreadyLoadedDocuments)
-            logger.info("handleMultipleItemsSelected: Displayed \(alreadyLoadedDocuments.count) already-loaded documents")
+            viewerController.displayDocuments(fullyLoadedDocuments)
+            logger.info("handleMultipleItemsSelected: Displayed \(fullyLoadedDocuments.count) already-loaded documents")
         }
     }
 
@@ -320,6 +402,34 @@ public class MainSplitViewController: NSSplitViewController {
 
         // Update the sidebar with the new document
         sidebarController.addLoadedDocument(document)
+    }
+
+    @objc private func handleProjectOpened(_ notification: Notification) {
+        guard let project = notification.userInfo?["project"] as? ProjectFile else {
+            logger.warning("handleProjectOpened: No project in notification")
+            return
+        }
+
+        logger.info("handleProjectOpened: Project '\(project.name, privacy: .public)' was opened")
+
+        // Add all loaded documents from the project to the sidebar
+        let documents = DocumentManager.shared.documents
+        logger.info("handleProjectOpened: Adding \(documents.count) documents to sidebar")
+
+        for document in documents {
+            sidebarController.addLoadedDocument(document)
+        }
+
+        // Display the first document if available, otherwise show empty state
+        if let firstDoc = documents.first {
+            viewerController?.hideProgress()
+            viewerController?.displayDocument(firstDoc)
+            logger.info("handleProjectOpened: Displaying first document '\(firstDoc.name, privacy: .public)'")
+        } else {
+            // Empty project - show clear "No sequence selected" state
+            viewerController?.showNoSequenceSelected()
+            logger.info("handleProjectOpened: Empty project, showing 'No sequence selected' state")
+        }
     }
 
     // MARK: - Panel State

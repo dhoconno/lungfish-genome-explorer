@@ -1,0 +1,196 @@
+// DocumentLoader.swift - Background document loading without MainActor blocking
+// Copyright (c) 2024 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
+import Foundation
+import LungfishCore
+import LungfishIO
+import os.log
+
+/// Logger for document loading operations
+private let logger = Logger(subsystem: "com.lungfish.browser", category: "DocumentLoader")
+
+// MARK: - Scan Result
+
+/// Result of scanning a folder for supported files (lightweight, no parsing).
+/// This is Sendable and can be safely passed between actors.
+public struct FileScanResult: Sendable {
+    public let url: URL
+    public let type: DocumentType
+
+    public init(url: URL, type: DocumentType) {
+        self.url = url
+        self.type = type
+    }
+}
+
+// MARK: - Load Result
+
+/// Result of loading a file's contents (full parsing).
+/// This is Sendable and can be safely passed to MainActor.
+public struct FileLoadResult: Sendable {
+    public let url: URL
+    public let type: DocumentType
+    public let sequences: [Sequence]
+    public let annotations: [SequenceAnnotation]
+    public let error: String?
+
+    public init(url: URL, type: DocumentType, sequences: [Sequence] = [], annotations: [SequenceAnnotation] = [], error: String? = nil) {
+        self.url = url
+        self.type = type
+        self.sequences = sequences
+        self.annotations = annotations
+        self.error = error
+    }
+}
+
+// MARK: - DocumentLoader
+
+/// Background file loading actor that avoids MainActor blocking.
+///
+/// DocumentLoader performs all file I/O and parsing on background actors,
+/// returning Sendable results that can be safely transferred to MainActor.
+///
+/// Usage:
+/// ```swift
+/// // Phase 1: Fast folder scan (synchronous, just reads directory entries)
+/// let files = try DocumentLoader.scanFolder(at: folderURL)
+///
+/// // Phase 2: Background loading for each file
+/// for scan in files {
+///     Task.detached(priority: .userInitiated) {
+///         let result = try await DocumentLoader.loadFile(at: scan.url, type: scan.type)
+///         await MainActor.run {
+///             // Update UI with result
+///         }
+///     }
+/// }
+/// ```
+public enum DocumentLoader {
+
+    /// Scans folder for supported files without parsing content.
+    /// This is fast - only reads directory entries and checks file extensions.
+    ///
+    /// - Parameter folderURL: The folder URL to scan
+    /// - Returns: Array of file scan results (URL + type)
+    /// - Throws: DocumentLoadError if folder cannot be accessed
+    public static func scanFolder(at folderURL: URL) throws -> [FileScanResult] {
+        logger.info("scanFolder: Scanning \(folderURL.path, privacy: .public)")
+
+        let fileManager = FileManager.default
+
+        // Verify folder exists and is a directory
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: folderURL.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            logger.error("scanFolder: Not a valid directory: \(folderURL.path, privacy: .public)")
+            throw DocumentLoadError.fileNotFound(folderURL)
+        }
+
+        var results: [FileScanResult] = []
+
+        // Enumerate all files recursively
+        guard let enumerator = fileManager.enumerator(
+            at: folderURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else {
+            logger.error("scanFolder: Failed to create enumerator")
+            throw DocumentLoadError.accessDenied(folderURL)
+        }
+
+        for case let fileURL as URL in enumerator {
+            // Check if it's a supported file type
+            if let type = DocumentType.detect(from: fileURL) {
+                results.append(FileScanResult(url: fileURL, type: type))
+                logger.debug("scanFolder: Found \(fileURL.lastPathComponent, privacy: .public) (\(type.rawValue, privacy: .public))")
+            }
+        }
+
+        logger.info("scanFolder: Found \(results.count) supported files")
+        return results
+    }
+
+    /// Loads file content on a background executor.
+    /// This performs full parsing and may be slow for large files.
+    ///
+    /// - Parameters:
+    ///   - url: The file URL to load
+    ///   - type: The document type
+    /// - Returns: FileLoadResult with parsed content
+    /// - Throws: Error if file cannot be read or parsed
+    public static func loadFile(at url: URL, type: DocumentType) async throws -> FileLoadResult {
+        logger.info("loadFile: Loading \(url.lastPathComponent, privacy: .public) as \(type.rawValue, privacy: .public)")
+
+        var sequences: [Sequence] = []
+        var annotations: [SequenceAnnotation] = []
+
+        switch type {
+        case .fasta:
+            let reader = try FASTAReader(url: url)
+            sequences = try await reader.readAll()
+            logger.info("loadFile: FASTA loaded \(sequences.count) sequences")
+
+        case .fastq:
+            let reader = FASTQReader()
+            var count = 0
+            for try await record in reader.records(from: url) {
+                let qualityValues = Array(record.quality)
+                let sequence = try Sequence(
+                    name: record.identifier,
+                    description: record.description,
+                    alphabet: .dna,
+                    bases: record.sequence,
+                    qualityScores: qualityValues
+                )
+                sequences.append(sequence)
+                count += 1
+                // Limit for memory
+                if count >= 10000 {
+                    logger.info("loadFile: FASTQ reached 10000 record limit")
+                    break
+                }
+            }
+            logger.info("loadFile: FASTQ loaded \(sequences.count) sequences")
+
+        case .genbank:
+            let reader = try GenBankReader(url: url)
+            let records = try await reader.readAll()
+            for record in records {
+                sequences.append(record.sequence)
+                annotations.append(contentsOf: record.annotations)
+            }
+            logger.info("loadFile: GenBank loaded \(sequences.count) sequences, \(annotations.count) annotations")
+
+        case .gff3:
+            let reader = GFF3Reader()
+            annotations = try await reader.readAsAnnotations(from: url)
+            logger.info("loadFile: GFF3 loaded \(annotations.count) annotations")
+
+        case .bed:
+            let reader = BEDReader()
+            annotations = try await reader.readAsAnnotations(from: url)
+            logger.info("loadFile: BED loaded \(annotations.count) annotations")
+
+        case .vcf:
+            let reader = VCFReader()
+            let variants = try await reader.readAll(from: url)
+            annotations = variants.map { $0.toAnnotation() }
+            logger.info("loadFile: VCF loaded \(annotations.count) annotations")
+
+        case .bam:
+            throw DocumentLoadError.unsupportedFormat("BAM/CRAM support coming soon")
+
+        case .lungfishProject:
+            throw DocumentLoadError.unsupportedFormat("Use openProject for .lungfish files")
+        }
+
+        return FileLoadResult(
+            url: url,
+            type: type,
+            sequences: sequences,
+            annotations: annotations,
+            error: nil
+        )
+    }
+}

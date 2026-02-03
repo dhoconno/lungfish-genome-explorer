@@ -51,9 +51,10 @@ private func scheduleOnMainRunLoop(_ block: @escaping @MainActor @Sendable () ->
     debugLog("scheduleOnMainRunLoop: CFRunLoopWakeUp called")
 }
 
-/// Result of loading file data on a background thread.
+/// Result of loading file data on a background thread using GCD sync pattern.
 /// This struct contains only Sendable data that can be safely passed between threads.
-private struct FileLoadResult: Sendable {
+/// Note: This is separate from DocumentLoader.FileLoadResult which uses async/await.
+private struct SyncFileLoadResult: Sendable {
     let url: URL
     let type: DocumentType
     let sequences: [Sequence]
@@ -78,7 +79,7 @@ private struct FileLoadResult: Sendable {
 /// - Parameters:
 ///   - url: The file URL to load
 ///   - completion: Called on the main run loop with the load result
-private func loadFileInBackground(at url: URL, completion: @escaping @Sendable (FileLoadResult) -> Void) {
+private func loadFileInBackground(at url: URL, completion: @escaping @Sendable (SyncFileLoadResult) -> Void) {
     debugLog("loadFileInBackground: Starting for \(url.path)")
 
     DispatchQueue.global(qos: .userInitiated).async {
@@ -87,7 +88,7 @@ private func loadFileInBackground(at url: URL, completion: @escaping @Sendable (
         // Detect document type
         guard let type = DocumentType.detect(from: url) else {
             debugLog("loadFileInBackground: Unsupported format \(url.pathExtension)")
-            completion(FileLoadResult(url: url, type: .fasta, error: "Unsupported file format: \(url.pathExtension)"))
+            completion(SyncFileLoadResult(url: url, type: .fasta, error: "Unsupported file format: \(url.pathExtension)"))
             return
         }
 
@@ -114,16 +115,16 @@ private func loadFileInBackground(at url: URL, completion: @escaping @Sendable (
 
             default:
                 debugLog("loadFileInBackground: Type \(type.rawValue) not yet supported for background loading")
-                completion(FileLoadResult(url: url, type: type, error: "Format not supported for this operation"))
+                completion(SyncFileLoadResult(url: url, type: type, error: "Format not supported for this operation"))
                 return
             }
 
             debugLog("loadFileInBackground: Success - sequences=\(sequences.count), annotations=\(annotations.count)")
-            completion(FileLoadResult(url: url, type: type, sequences: sequences, annotations: annotations))
+            completion(SyncFileLoadResult(url: url, type: type, sequences: sequences, annotations: annotations))
 
         } catch {
             debugLog("loadFileInBackground: Error - \(error.localizedDescription)")
-            completion(FileLoadResult(url: url, type: type, error: error.localizedDescription))
+            completion(SyncFileLoadResult(url: url, type: type, error: error.localizedDescription))
         }
     }
 }
@@ -329,11 +330,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         welcomeWindowController?.close()
         welcomeWindowController = nil
 
-        // Add the project folder to sidebar immediately for visibility
-        let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController
-        sidebarController?.addProjectFolder(projectURL, documents: [])
-
-        // Load the project/folder contents using proper async pattern
+        // Load the project/folder contents using new three-phase flow
+        // NOTE: Don't call addProjectFolder here - loadProjectFolderAsync handles it
+        // to avoid duplicate sidebar nodes
         loadProjectFolderAsync(projectURL)
     }
 
@@ -347,91 +346,98 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         welcomeWindowController = nil
     }
 
-    /// Loads project folder contents asynchronously without blocking main thread.
+    /// Loads project folder contents with proper background threading.
     ///
-    /// Note: We intentionally do NOT show a loading spinner during app launch.
-    /// The viewer shows its default placeholder state until content actually loads.
-    /// This follows professional genome browser patterns (IGV, UCSC) and eliminates
-    /// race conditions that caused the spinner to persist indefinitely.
+    /// Three-phase loading flow:
+    /// 1. **Scan** - Fast folder scan (synchronous, just reads directory entries)
+    /// 2. **Populate** - Populate sidebar immediately with placeholder items
+    /// 3. **Load** - Load each file in background, update sidebar as each completes
+    ///
+    /// This approach follows professional genome browser patterns (IGV, UCSC) and:
+    /// - Shows the file list immediately (UI remains responsive)
+    /// - Loads file content in the background without blocking MainActor
+    /// - Updates sidebar items as files are parsed
     private func loadProjectFolderAsync(_ url: URL) {
-        Task { @MainActor [weak self] in
-            guard let self = self else { return }
-            let viewerController = self.mainWindowController?.mainSplitViewController?.viewerController
-            let sidebarController = self.mainWindowController?.mainSplitViewController?.sidebarController
+        let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController
+        let viewerController = mainWindowController?.mainSplitViewController?.viewerController
 
-            do {
-                let documents = try await self.loadProjectFolderContents(url)
+        // Phase 1: Fast folder scan (synchronous, just reads directory entries)
+        let scannedFiles: [FileScanResult]
+        do {
+            scannedFiles = try DocumentLoader.scanFolder(at: url)
+        } catch {
+            debugLog("loadProjectFolderAsync: Scan failed - \(error.localizedDescription)")
+            let alert = NSAlert()
+            alert.messageText = "Failed to Scan Project"
+            alert.informativeText = error.localizedDescription
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
 
-                if !documents.isEmpty {
-                    sidebarController?.addProjectFolder(url, documents: documents)
+        guard !scannedFiles.isEmpty else {
+            debugLog("loadProjectFolderAsync: Empty folder")
+            // Still add the folder to sidebar (empty project)
+            sidebarController?.addProjectFolder(url, documents: [])
+            viewerController?.showNoSequenceSelected()
+            return
+        }
 
-                    if let firstDoc = documents.first {
-                        viewerController?.displayDocument(firstDoc)
+        debugLog("loadProjectFolderAsync: Found \(scannedFiles.count) files")
+
+        // Phase 2: Create placeholder documents for sidebar (immediate UI response)
+        var placeholderDocuments: [LoadedDocument] = []
+        for scan in scannedFiles {
+            let doc = LoadedDocument(url: scan.url, type: scan.type)
+            // Document is a placeholder - sequences/annotations are empty
+            placeholderDocuments.append(doc)
+        }
+
+        // Update sidebar with placeholder items immediately
+        sidebarController?.addProjectFolder(url, documents: placeholderDocuments)
+        debugLog("loadProjectFolderAsync: Sidebar populated with \(placeholderDocuments.count) placeholders")
+
+        // Phase 3: Background loading for each file
+        // Use a shared flag to track if first document has been displayed
+        let displayedFirst = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
+        displayedFirst.initialize(to: false)
+
+        for scan in scannedFiles {
+            Task.detached(priority: .userInitiated) { [weak self] in
+                do {
+                    let result = try await DocumentLoader.loadFile(at: scan.url, type: scan.type)
+
+                    await MainActor.run { [weak self] in
+                        guard let self = self else { return }
+                        let viewerController = self.mainWindowController?.mainSplitViewController?.viewerController
+                        let sidebarController = self.mainWindowController?.mainSplitViewController?.sidebarController
+
+                        // Create and populate document with loaded content
+                        let document = LoadedDocument(url: result.url, type: result.type)
+                        document.sequences = result.sequences
+                        document.annotations = result.annotations
+
+                        // Register with DocumentManager (replaces placeholder if exists)
+                        DocumentManager.shared.registerDocument(document)
+
+                        // Refresh sidebar item to show loaded state
+                        sidebarController?.refreshItem(for: result.url)
+
+                        // Display first successfully loaded document with sequences
+                        if !displayedFirst.pointee && !result.sequences.isEmpty {
+                            displayedFirst.pointee = true
+                            viewerController?.displayDocument(document)
+                            debugLog("loadProjectFolderAsync: Displayed first document: \(document.name)")
+                        }
                     }
-                } else {
-                    // Empty project - show clear empty state
-                    viewerController?.showNoSequenceSelected()
-                }
-            } catch {
-                let alert = NSAlert()
-                alert.messageText = "Failed to Load Project"
-                alert.informativeText = error.localizedDescription
-                alert.alertStyle = .warning
-                alert.addButton(withTitle: "OK")
-                alert.runModal()
-            }
-        }
-    }
-
-    /// Loads all documents from a project folder
-    private func loadProjectFolderContents(_ url: URL) async throws -> [LoadedDocument] {
-        var loadedDocuments: [LoadedDocument] = []
-
-        let fileManager = FileManager.default
-        guard let enumerator = fileManager.enumerator(
-            at: url,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else {
-            throw DocumentLoadError.accessDenied(url)
-        }
-
-        // Collect files to load
-        var filesToLoad: [(URL, DocumentType)] = []
-        for case let fileURL as URL in enumerator {
-            if let type = DocumentType.detect(from: fileURL) {
-                filesToLoad.append((fileURL, type))
-            }
-        }
-
-        // Load each file asynchronously
-        for (fileURL, type) in filesToLoad {
-            do {
-                let document = LoadedDocument(url: fileURL, type: type)
-
-                if type == .fasta {
-                    let reader = try FASTAReader(url: fileURL)
-                    document.sequences = try await reader.readAll()
-                } else if type == .genbank {
-                    let reader = try GenBankReader(url: fileURL)
-                    let records = try await reader.readAll()
-                    for record in records {
-                        document.sequences.append(record.sequence)
-                        document.annotations.append(contentsOf: record.annotations)
+                } catch {
+                    await MainActor.run {
+                        debugLog("loadProjectFolderAsync: Failed to load \(scan.url.lastPathComponent): \(error.localizedDescription)")
                     }
                 }
-
-                loadedDocuments.append(document)
-
-                // Register with DocumentManager so sidebar selection can find it
-                DocumentManager.shared.registerDocument(document)
-            } catch {
-                // Log error but continue loading other files
-                debugLog("Failed to load \(fileURL.lastPathComponent): \(error.localizedDescription)")
             }
         }
-
-        return loadedDocuments
     }
 
     /// Internal method for testing - loads a project folder without dialog.
