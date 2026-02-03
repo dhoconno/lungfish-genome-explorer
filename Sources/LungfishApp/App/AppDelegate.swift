@@ -293,6 +293,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         showWelcomeWindow()
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     // MARK: - Welcome Window
 
     private func showWelcomeWindow() {
@@ -517,6 +521,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             name: .annotationDeleted,
             object: nil
         )
+
+        // Register for annotation color applied to type notifications
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAnnotationColorAppliedToType(_:)),
+            name: .annotationColorAppliedToType,
+            object: nil
+        )
     }
 
     /// Handles annotation updates from the inspector.
@@ -553,6 +565,40 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // Refresh the viewer
         viewerController?.viewerView.setAnnotations(document.annotations)
         viewerController?.viewerView.needsDisplay = true
+    }
+
+    /// Handles applying a color to all annotations of a specific type.
+    ///
+    /// This notification is posted when the user applies a color to all annotations
+    /// of a particular type from the inspector. It updates all matching annotations
+    /// in the current document and refreshes the viewer.
+    @objc private func handleAnnotationColorAppliedToType(_ notification: Notification) {
+        guard let annotationType = notification.userInfo?[NotificationUserInfoKey.annotationType] as? AnnotationType,
+              let annotationColor = notification.userInfo?[NotificationUserInfoKey.annotationColor] as? AnnotationColor else {
+            return
+        }
+
+        // Get the current document
+        let viewerController = mainWindowController?.mainSplitViewController?.viewerController
+        guard let document = viewerController?.currentDocument else { return }
+
+        // Update all annotations of the matching type
+        var updatedCount = 0
+        for (index, annotation) in document.annotations.enumerated() {
+            if annotation.type == annotationType {
+                var updatedAnnotation = annotation
+                updatedAnnotation.color = annotationColor
+                document.annotations[index] = updatedAnnotation
+                updatedCount += 1
+            }
+        }
+
+        // Refresh the viewer to show updated annotations
+        if updatedCount > 0 {
+            viewerController?.viewerView.setAnnotations(document.annotations)
+            viewerController?.viewerView.needsDisplay = true
+            debugLog("handleAnnotationColorAppliedToType: Updated \(updatedCount) \(annotationType.rawValue) annotations")
+        }
     }
 
     @objc private func windowWillClose(_ notification: Notification) {
@@ -716,23 +762,177 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @objc func exportFASTA(_ sender: Any?) {
-        showExportPanel(title: "Export FASTA", defaultExtension: "fa")
+        // Get current document
+        guard let document = mainWindowController?.mainSplitViewController?.viewerController?.currentDocument else {
+            showExportError(message: "No document is currently open.")
+            return
+        }
+
+        // Check if there are sequences to export
+        guard !document.sequences.isEmpty else {
+            showExportError(message: "The current document has no sequences to export.")
+            return
+        }
+
+        // Show save panel
+        let panel = NSSavePanel()
+        panel.title = "Export FASTA"
+        panel.allowedContentTypes = [UTType(filenameExtension: "fa")!]
+        panel.nameFieldStringValue = document.name.replacingOccurrences(of: ".\(document.url.pathExtension)", with: "") + ".fa"
+
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+
+            do {
+                let writer = FASTAWriter(url: url)
+                try writer.write(document.sequences)
+
+                debugLog("exportFASTA: Successfully exported \(document.sequences.count) sequences to \(url.path)")
+
+                self?.showExportSuccess(filename: url.lastPathComponent, count: document.sequences.count, itemType: "sequence")
+            } catch {
+                debugLog("exportFASTA: Export failed - \(error.localizedDescription)")
+                self?.showExportError(message: "Failed to export FASTA: \(error.localizedDescription)")
+            }
+        }
     }
 
     @objc func exportGenBank(_ sender: Any?) {
-        showExportPanel(title: "Export GenBank", defaultExtension: "gb")
+        // Get current document
+        guard let document = mainWindowController?.mainSplitViewController?.viewerController?.currentDocument else {
+            showExportError(message: "No document is currently open.")
+            return
+        }
+
+        // Check if there are sequences to export
+        guard !document.sequences.isEmpty else {
+            showExportError(message: "The current document has no sequences to export.")
+            return
+        }
+
+        // Show save panel
+        let panel = NSSavePanel()
+        panel.title = "Export GenBank"
+        panel.allowedContentTypes = [UTType(filenameExtension: "gb")!]
+        panel.nameFieldStringValue = document.name.replacingOccurrences(of: ".\(document.url.pathExtension)", with: "") + ".gb"
+
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+
+            do {
+                // Create GenBankRecords from document sequences and annotations
+                var records: [GenBankRecord] = []
+
+                for sequence in document.sequences {
+                    // Filter annotations for this sequence
+                    let sequenceAnnotations = document.annotations.filter { annotation in
+                        // Match by chromosome field if set, otherwise include all
+                        annotation.chromosome == nil || annotation.chromosome == sequence.name
+                    }
+
+                    // Determine molecule type from sequence alphabet
+                    let moleculeType: MoleculeType
+                    switch sequence.alphabet {
+                    case .dna:
+                        moleculeType = .dna
+                    case .rna:
+                        moleculeType = .rna
+                    case .protein:
+                        moleculeType = .protein
+                    }
+
+                    // Create locus info
+                    let locus = LocusInfo(
+                        name: sequence.name,
+                        length: sequence.length,
+                        moleculeType: moleculeType,
+                        topology: .linear,
+                        division: nil,
+                        date: Self.currentDateString()
+                    )
+
+                    // Create the record
+                    let record = GenBankRecord(
+                        sequence: sequence,
+                        annotations: sequenceAnnotations,
+                        locus: locus,
+                        definition: sequence.description,
+                        accession: nil,
+                        version: nil
+                    )
+
+                    records.append(record)
+                }
+
+                let writer = GenBankWriter(url: url)
+                try writer.write(records)
+
+                debugLog("exportGenBank: Successfully exported \(records.count) records to \(url.path)")
+
+                self?.showExportSuccess(filename: url.lastPathComponent, count: records.count, itemType: "record")
+            } catch {
+                debugLog("exportGenBank: Export failed - \(error.localizedDescription)")
+                self?.showExportError(message: "Failed to export GenBank: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Returns current date in GenBank format (DD-MMM-YYYY)
+    private static func currentDateString() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd-MMM-yyyy"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter.string(from: Date()).uppercased()
     }
 
     @objc func exportGFF3(_ sender: Any?) {
-        showExportPanel(title: "Export GFF3", defaultExtension: "gff3")
+        // Get current document
+        guard let document = mainWindowController?.mainSplitViewController?.viewerController?.currentDocument else {
+            showExportError(message: "No document is currently open.")
+            return
+        }
+
+        // Check if there are annotations to export
+        guard !document.annotations.isEmpty else {
+            showExportError(message: "The current document has no annotations to export.")
+            return
+        }
+
+        // Show save panel
+        let panel = NSSavePanel()
+        panel.title = "Export GFF3"
+        panel.allowedContentTypes = [UTType(filenameExtension: "gff3")!]
+        panel.nameFieldStringValue = document.name.replacingOccurrences(of: ".\(document.url.pathExtension)", with: "") + ".gff3"
+
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+
+            Task {
+                do {
+                    try await GFF3Writer.write(document.annotations, to: url, source: "Lungfish")
+
+                    await MainActor.run {
+                        debugLog("exportGFF3: Successfully exported \(document.annotations.count) annotations to \(url.path)")
+                        self?.showExportSuccess(filename: url.lastPathComponent, count: document.annotations.count, itemType: "annotation")
+                    }
+                } catch {
+                    await MainActor.run {
+                        debugLog("exportGFF3: Export failed - \(error.localizedDescription)")
+                        self?.showExportError(message: "Failed to export GFF3: \(error.localizedDescription)")
+                    }
+                }
+            }
+        }
     }
 
     @objc func exportImage(_ sender: Any?) {
-        showExportPanel(title: "Export Image", defaultExtension: "png")
+        // Image export requires rendering the viewer - not yet implemented
+        showNotImplementedAlert("Image Export")
     }
 
     @objc func exportPDF(_ sender: Any?) {
-        showExportPanel(title: "Export PDF", defaultExtension: "pdf")
+        // PDF export requires rendering the viewer - not yet implemented
+        showNotImplementedAlert("PDF Export")
     }
 
     private func showImportPanel(title: String, types: [UTType]) {
@@ -751,18 +951,25 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
-    private func showExportPanel(title: String, defaultExtension: String) {
-        let panel = NSSavePanel()
-        panel.title = title
-        panel.allowedContentTypes = [UTType(filenameExtension: defaultExtension)!]
-        panel.nameFieldStringValue = "untitled.\(defaultExtension)"
+    /// Shows an error alert for export failures
+    private func showExportError(message: String) {
+        let alert = NSAlert()
+        alert.messageText = "Export Failed"
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
 
-        panel.begin { response in
-            if response == .OK, let url = panel.url {
-                print("Export to: \(url.path)")
-                // TODO: Implement export
-            }
-        }
+    /// Shows a success alert after export
+    private func showExportSuccess(filename: String, count: Int, itemType: String) {
+        let alert = NSAlert()
+        alert.messageText = "Export Successful"
+        let plural = count == 1 ? itemType : "\(itemType)s"
+        alert.informativeText = "Successfully exported \(count) \(plural) to \(filename)."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     // MARK: - ViewMenuActions
@@ -856,22 +1063,181 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // TODO: Implement translation
     }
 
+
     @objc func goToPosition(_ sender: Any?) {
+        // Ensure we have a viewer controller
+        guard let viewerController = mainWindowController?.mainSplitViewController?.viewerController else {
+            showAlert(title: "No Viewer", message: "No sequence viewer is available.")
+            return
+        }
+
+        // Ensure a sequence is loaded
+        guard viewerController.referenceFrame != nil else {
+            showAlert(title: "No Sequence", message: "Please load a sequence before navigating to a position.")
+            return
+        }
+
         // Show go-to-position dialog
         let alert = NSAlert()
         alert.messageText = "Go to Position"
-        alert.informativeText = "Enter a genomic position or region:"
+        alert.informativeText = "Enter a genomic position or region.\n\nSupported formats:\n  1000 (position)\n  chr1:1000 (chromosome:position)\n  chr1:1000-2000 (range with hyphen)\n  chr1:1000..2000 (range with dots)"
         alert.addButton(withTitle: "Go")
         alert.addButton(withTitle: "Cancel")
 
-        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
-        textField.placeholderString = "chr1:1000000 or chr1:1000000-2000000"
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 250, height: 24))
+        textField.placeholderString = "e.g., 1000 or chr1:1000-2000"
         alert.accessoryView = textField
 
+        // Make the text field first responder
+        alert.window.initialFirstResponder = textField
+
         if alert.runModal() == .alertFirstButtonReturn {
-            let input = textField.stringValue
-            print("Navigate to: \(input)")
-            // TODO: Parse position and navigate
+            let input = textField.stringValue.trimmingCharacters(in: .whitespaces)
+
+            guard !input.isEmpty else {
+                showAlert(title: "Invalid Input", message: "Please enter a position or range.")
+                return
+            }
+
+            // Parse the input and navigate
+            let result = parseAndNavigate(input: input, viewerController: viewerController)
+            if !result.success {
+                showAlert(title: "Navigation Error", message: result.errorMessage ?? "Failed to navigate to the specified position.")
+            }
+        }
+    }
+
+    /// Parses genomic position input and navigates the viewer.
+    ///
+    /// Supported formats:
+    /// - "1000" - single position
+    /// - "chr1:1000" - chromosome:position
+    /// - "chr1:1000-2000" or "chr1:1000..2000" - range
+    ///
+    /// - Parameters:
+    ///   - input: The user-provided position string
+    ///   - viewerController: The viewer controller to navigate
+    /// - Returns: A tuple with success status and optional error message
+    private func parseAndNavigate(input: String, viewerController: ViewerViewController) -> (success: Bool, errorMessage: String?) {
+        var chromosome: String? = nil
+        var startPosition: Int? = nil
+        var endPosition: Int? = nil
+
+        // Check if input contains a chromosome prefix (contains ":")
+        if input.contains(":") {
+            // Format: chromosome:position or chromosome:start-end
+            let colonParts = input.split(separator: ":", maxSplits: 1)
+            guard colonParts.count == 2 else {
+                return (false, "Invalid format. Expected 'chromosome:position' or 'chromosome:start-end'.")
+            }
+
+            chromosome = String(colonParts[0])
+            let positionPart = String(colonParts[1])
+
+            // Check for range separator (either "-" or "..")
+            if positionPart.contains("..") {
+                // Format: start..end
+                let rangeParts = positionPart.split(separator: ".", omittingEmptySubsequences: true)
+                guard rangeParts.count == 2,
+                      let start = Int(rangeParts[0].trimmingCharacters(in: .whitespaces)),
+                      let end = Int(rangeParts[1].trimmingCharacters(in: .whitespaces)) else {
+                    return (false, "Invalid range format. Expected 'start..end' with numeric values.")
+                }
+                startPosition = start
+                endPosition = end
+            } else if positionPart.contains("-") {
+                // Format: start-end (but need to handle negative numbers)
+                // Find the last hyphen that's preceded by a digit (to distinguish range separator from negative sign)
+                if let rangeHyphenIndex = positionPart.lastIndex(of: "-"),
+                   rangeHyphenIndex > positionPart.startIndex {
+                    let beforeHyphen = String(positionPart[positionPart.startIndex..<rangeHyphenIndex])
+                    let afterHyphen = String(positionPart[positionPart.index(after: rangeHyphenIndex)...])
+
+                    if let start = Int(beforeHyphen.trimmingCharacters(in: .whitespaces)),
+                       let end = Int(afterHyphen.trimmingCharacters(in: .whitespaces)) {
+                        startPosition = start
+                        endPosition = end
+                    } else {
+                        // Try parsing the whole thing as a single position
+                        if let pos = Int(positionPart.trimmingCharacters(in: .whitespaces)) {
+                            startPosition = pos
+                        } else {
+                            return (false, "Invalid position format. Expected numeric value.")
+                        }
+                    }
+                } else {
+                    // Single position
+                    if let pos = Int(positionPart.trimmingCharacters(in: .whitespaces)) {
+                        startPosition = pos
+                    } else {
+                        return (false, "Invalid position format. Expected numeric value.")
+                    }
+                }
+            } else {
+                // Single position
+                if let pos = Int(positionPart.trimmingCharacters(in: .whitespaces)) {
+                    startPosition = pos
+                } else {
+                    return (false, "Invalid position format. Expected numeric value.")
+                }
+            }
+        } else {
+            // No chromosome prefix - just a position or range
+            if input.contains("..") {
+                // Range with ".."
+                let rangeParts = input.split(separator: ".", omittingEmptySubsequences: true)
+                guard rangeParts.count == 2,
+                      let start = Int(String(rangeParts[0]).trimmingCharacters(in: .whitespaces)),
+                      let end = Int(String(rangeParts[1]).trimmingCharacters(in: .whitespaces)) else {
+                    return (false, "Invalid range format. Expected 'start..end' with numeric values.")
+                }
+                startPosition = start
+                endPosition = end
+            } else if input.contains("-") && input.first != "-" {
+                // Range with "-" (not starting with negative sign)
+                let rangeParts = input.split(separator: "-")
+                if rangeParts.count == 2,
+                   let start = Int(String(rangeParts[0]).trimmingCharacters(in: .whitespaces)),
+                   let end = Int(String(rangeParts[1]).trimmingCharacters(in: .whitespaces)) {
+                    startPosition = start
+                    endPosition = end
+                } else if let pos = Int(input.trimmingCharacters(in: .whitespaces)) {
+                    startPosition = pos
+                } else {
+                    return (false, "Invalid format. Expected position number or 'start-end' range.")
+                }
+            } else {
+                // Simple position number
+                if let pos = Int(input.trimmingCharacters(in: .whitespaces)) {
+                    startPosition = pos
+                } else {
+                    return (false, "Invalid position. Please enter a numeric value.")
+                }
+            }
+        }
+
+        // Validate we have at least a start position
+        guard let start = startPosition else {
+            return (false, "Could not parse the position value.")
+        }
+
+        // Convert from 1-based user input to 0-based internal coordinates
+        // Users typically think in 1-based coordinates for genomic positions
+        let zeroBasedStart = max(0, start - 1)
+        let zeroBasedEnd: Int? = endPosition.map { max(zeroBasedStart + 1, $0) }
+
+        // Navigate using the helper method
+        let success = viewerController.navigateToPosition(
+            chromosome: chromosome,
+            start: zeroBasedStart,
+            end: zeroBasedEnd
+        )
+
+        if success {
+            debugLog("goToPosition: Navigated to \(chromosome ?? "current"):\(zeroBasedStart)-\(zeroBasedEnd ?? zeroBasedStart)")
+            return (true, nil)
+        } else {
+            return (false, "Position is outside the sequence bounds.")
         }
     }
 

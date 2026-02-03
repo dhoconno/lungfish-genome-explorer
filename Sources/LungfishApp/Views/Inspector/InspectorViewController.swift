@@ -15,6 +15,9 @@ private let logger = Logger(subsystem: "com.lungfish.browser", category: "Inspec
 ///
 /// Uses SwiftUI via NSHostingView for modern, declarative UI.
 /// Integrates with the annotation system to display and edit selected annotations.
+///
+/// Note: Document loading is handled exclusively by MainSplitViewController.
+/// This controller only updates its UI state in response to sidebar selection changes.
 @MainActor
 public class InspectorViewController: NSViewController {
 
@@ -139,50 +142,19 @@ public class InspectorViewController: NSViewController {
 
     // MARK: - Notification Handlers
 
-    /// Handles sidebar selection changes to update inspector properties and load document.
+    /// Handles sidebar selection changes to update inspector UI state.
+    ///
+    /// Note: This method only updates the inspector's display state (selected item name/type).
+    /// Document loading is handled exclusively by MainSplitViewController to avoid race conditions
+    /// where both controllers attempt to load the same document concurrently.
     @objc private func selectionDidChange(_ notification: Notification) {
         guard let item = notification.userInfo?["item"] as? SidebarItem else { return }
 
+        // Update UI state only - document loading is handled by MainSplitViewController
         viewModel.selectedItem = item.title
         viewModel.selectedType = item.type.description
 
-        // If the item has a URL and is a document type, load and display it
-        if let url = item.url,
-           (item.type == .sequence || item.type == .annotation || item.type == .alignment) {
-            logger.info("selectionDidChange: Loading document at \(url.path, privacy: .public)")
-            loadAndDisplayDocument(at: url)
-        }
-    }
-
-    /// Loads a document and displays it in the viewer.
-    private func loadAndDisplayDocument(at url: URL) {
-        guard let appDelegate = NSApp.delegate as? AppDelegate,
-              let viewerController = appDelegate.mainWindowController?.mainSplitViewController?.viewerController else {
-            logger.warning("loadAndDisplayDocument: Cannot access viewer controller")
-            return
-        }
-
-        // First check if document is already loaded (avoid reloading)
-        if let existingDocument = DocumentManager.shared.documents.first(where: { $0.url == url }) {
-            logger.info("loadAndDisplayDocument: Using already-loaded document \(existingDocument.name, privacy: .public)")
-            viewerController.displayDocument(existingDocument)
-            return
-        }
-
-        viewerController.showProgress("Loading \(url.lastPathComponent)...")
-
-        // Use regular Task (not detached) since we're on MainActor and DocumentManager is @MainActor
-        Task {
-            do {
-                let document = try await DocumentManager.shared.loadDocument(at: url)
-                viewerController.hideProgress()
-                viewerController.displayDocument(document)
-                logger.info("loadAndDisplayDocument: Displayed \(document.name, privacy: .public)")
-            } catch {
-                viewerController.hideProgress()
-                logger.error("loadAndDisplayDocument: Failed to load \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            }
-        }
+        logger.debug("selectionDidChange: Updated inspector state for '\(item.title, privacy: .public)' type=\(item.type.description, privacy: .public)")
     }
 
     /// Handles annotation selection from the viewer.

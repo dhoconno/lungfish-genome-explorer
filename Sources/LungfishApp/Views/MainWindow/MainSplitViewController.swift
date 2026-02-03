@@ -71,6 +71,9 @@ public class MainSplitViewController: NSSplitViewController {
         logger.info("viewDidLoad: MainSplitViewController setup complete")
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
 
     // MARK: - Configuration
 

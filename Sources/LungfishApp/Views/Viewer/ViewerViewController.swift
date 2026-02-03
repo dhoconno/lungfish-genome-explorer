@@ -645,6 +645,91 @@ public class ViewerViewController: NSViewController {
         updateStatusBar()
     }
 
+    /// Navigates to a specific position or range in the sequence.
+    ///
+    /// This method handles various input formats for genomic navigation:
+    /// - Single position: "1000" - centers view on position 1000 with a default window
+    /// - With chromosome: "chr1:1000" - navigates to position on specified chromosome
+    /// - Range formats: "chr1:1000-2000" or "chr1:1000..2000" - shows the specified range
+    ///
+    /// - Parameters:
+    ///   - chromosome: Optional chromosome/sequence name (uses current if nil)
+    ///   - start: Start position (0-based)
+    ///   - end: End position (optional, if nil centers on start with default window)
+    /// - Returns: True if navigation succeeded, false if no sequence loaded or invalid coordinates
+    @discardableResult
+    public func navigateToPosition(chromosome: String?, start: Int, end: Int?) -> Bool {
+        guard let frame = referenceFrame else {
+            logger.warning("navigateToPosition: No reference frame available")
+            return false
+        }
+        
+        let seqLength = frame.sequenceLength
+        
+        // Validate start position
+        guard start >= 0 && start < seqLength else {
+            logger.warning("navigateToPosition: Start position \(start) out of bounds (0..<\(seqLength))")
+            return false
+        }
+        
+        let effectiveEnd: Int
+        if let end = end {
+            // Range specified - validate end position
+            guard end > start && end <= seqLength else {
+                logger.warning("navigateToPosition: End position \(end) invalid (must be >\(start) and <=\(seqLength))")
+                return false
+            }
+            effectiveEnd = end
+        } else {
+            // Single position - create a centered window
+            // Use a default window size of 1000 bp, or smaller if near boundaries
+            let defaultWindow = 1000
+            let halfWindow = defaultWindow / 2
+            
+            var windowStart = max(0, start - halfWindow)
+            var windowEnd = min(seqLength, start + halfWindow)
+            
+            // Adjust if window hits a boundary
+            if windowStart == 0 {
+                windowEnd = min(seqLength, defaultWindow)
+            }
+            if windowEnd == seqLength {
+                windowStart = max(0, seqLength - defaultWindow)
+            }
+            
+            frame.start = Double(windowStart)
+            frame.end = Double(windowEnd)
+            
+            // Update chromosome if provided
+            if let chr = chromosome {
+                frame.chromosome = chr
+            }
+            
+            viewerView.setNeedsDisplay(viewerView.bounds)
+            enhancedRulerView.setNeedsDisplay(enhancedRulerView.bounds)
+            updateStatusBar()
+            
+            logger.info("navigateToPosition: Centered on position \(start), window \(windowStart)-\(windowEnd)")
+            return true
+        }
+        
+        // Navigate to the specified range
+        frame.start = Double(start)
+        frame.end = Double(effectiveEnd)
+        
+        // Update chromosome if provided
+        if let chr = chromosome {
+            frame.chromosome = chr
+        }
+        
+        viewerView.setNeedsDisplay(viewerView.bounds)
+        enhancedRulerView.setNeedsDisplay(enhancedRulerView.bounds)
+        updateStatusBar()
+        
+        logger.info("navigateToPosition: Showing range \(start)-\(effectiveEnd)")
+        return true
+    }
+
     public func updateStatusBar() {
         guard let frame = referenceFrame else { return }
         // Preserve selection info if we have one from the viewer
