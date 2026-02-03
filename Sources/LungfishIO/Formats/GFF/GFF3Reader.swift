@@ -107,6 +107,7 @@ public struct GFF3Feature: Sendable, Identifiable {
         return SequenceAnnotation(
             type: annotationType,
             name: name,
+            chromosome: seqid,  // Associate annotation with its source sequence
             intervals: [AnnotationInterval(start: start - 1, end: end)], // Convert to 0-based
             strand: strand,
             qualifiers: qualifiers

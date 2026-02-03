@@ -945,22 +945,29 @@ extension SidebarViewController: NSOutlineViewDelegate {
     }
 
     public func outlineViewSelectionDidChange(_ notification: Notification) {
-        let selectedRow = outlineView.selectedRow
-        guard selectedRow >= 0,
-              let item = outlineView.item(atRow: selectedRow) as? SidebarItem else {
+        // Get ALL selected items for multi-selection support
+        let items = selectedItems()
+
+        guard !items.isEmpty else {
             logger.debug("outlineViewSelectionDidChange: No valid selection")
             return
         }
 
-        logger.info("outlineViewSelectionDidChange: Selected '\(item.title, privacy: .public)' type=\(String(describing: item.type)) url=\(item.url?.path ?? "nil", privacy: .public)")
+        // Log all selected items
+        let itemNames = items.map { $0.title }.joined(separator: ", ")
+        logger.info("outlineViewSelectionDidChange: Selected \(items.count) items: [\(itemNames, privacy: .public)]")
 
-        // Notify about selection change
+        // Post notification with ALL selected items
+        // Include both "item" (for backward compatibility) and "items" (for multi-selection)
         NotificationCenter.default.post(
             name: .sidebarSelectionChanged,
             object: self,
-            userInfo: ["item": item]
+            userInfo: [
+                "item": items.first as Any,  // First item for backward compatibility
+                "items": items               // All items for multi-selection support
+            ]
         )
-        logger.debug("outlineViewSelectionDidChange: Posted notification")
+        logger.debug("outlineViewSelectionDidChange: Posted notification with \(items.count) items")
     }
 }
 

@@ -10,14 +10,27 @@ import LungfishCore
 /// Manages annotation display settings like height, visibility, and filtering.
 @MainActor
 public class AnnotationSectionViewModel: ObservableObject {
+    // MARK: - Default Values
+
+    /// Default annotation track height in points
+    public static let defaultAnnotationHeight: Double = 16
+
+    /// Default spacing between annotation rows
+    public static let defaultAnnotationSpacing: Double = 2
+
+    /// Default visibility setting for annotations
+    public static let defaultShowAnnotations: Bool = true
+
+    // MARK: - Published Properties
+
     /// Annotation track height in points
-    @Published public var annotationHeight: Double = 16
+    @Published public var annotationHeight: Double = defaultAnnotationHeight
 
     /// Spacing between annotation rows
-    @Published public var annotationSpacing: Double = 2
+    @Published public var annotationSpacing: Double = defaultAnnotationSpacing
 
     /// Whether to show annotations
-    @Published public var showAnnotations: Bool = true
+    @Published public var showAnnotations: Bool = defaultShowAnnotations
 
     /// Types to show (nil = show all)
     @Published public var visibleTypes: Set<AnnotationType> = Set(AnnotationType.allCases)
@@ -52,6 +65,19 @@ public class AnnotationSectionViewModel: ObservableObject {
     /// Hides all annotation types
     public func hideAllTypes() {
         visibleTypes = []
+        onFilterChanged?(visibleTypes, filterText)
+    }
+
+    /// Resets all annotation settings to their default values.
+    ///
+    /// Resets height, spacing, visibility, type filters, and search text.
+    public func resetToDefaults() {
+        annotationHeight = Self.defaultAnnotationHeight
+        annotationSpacing = Self.defaultAnnotationSpacing
+        showAnnotations = Self.defaultShowAnnotations
+        visibleTypes = Set(AnnotationType.allCases)
+        filterText = ""
+        onSettingsChanged?()
         onFilterChanged?(visibleTypes, filterText)
     }
 }

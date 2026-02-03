@@ -15,6 +15,7 @@ import Foundation
 /// let annotation = SequenceAnnotation(
 ///     type: .gene,
 ///     name: "BRCA1",
+///     chromosome: "chr17",
 ///     intervals: [
 ///         AnnotationInterval(start: 1000, end: 2000),
 ///         AnnotationInterval(start: 3000, end: 4000)
@@ -31,6 +32,10 @@ public struct SequenceAnnotation: Identifiable, Codable, Sendable {
 
     /// Feature name
     public var name: String
+
+    /// The chromosome or sequence name this annotation belongs to.
+    /// Used to associate annotations with their parent sequence in multi-sequence views.
+    public var chromosome: String?
 
     /// The intervals making up this feature (supports discontinuous features)
     public var intervals: [AnnotationInterval]
@@ -55,6 +60,7 @@ public struct SequenceAnnotation: Identifiable, Codable, Sendable {
         id: UUID = UUID(),
         type: AnnotationType,
         name: String,
+        chromosome: String? = nil,
         intervals: [AnnotationInterval],
         strand: Strand = .unknown,
         qualifiers: [String: AnnotationQualifier] = [:],
@@ -66,6 +72,7 @@ public struct SequenceAnnotation: Identifiable, Codable, Sendable {
         self.id = id
         self.type = type
         self.name = name
+        self.chromosome = chromosome
         self.intervals = intervals.sorted { $0.start < $1.start }
         self.strand = strand
         self.qualifiers = qualifiers
@@ -79,6 +86,7 @@ public struct SequenceAnnotation: Identifiable, Codable, Sendable {
         id: UUID = UUID(),
         type: AnnotationType,
         name: String,
+        chromosome: String? = nil,
         start: Int,
         end: Int,
         strand: Strand = .unknown,
@@ -91,6 +99,7 @@ public struct SequenceAnnotation: Identifiable, Codable, Sendable {
             id: id,
             type: type,
             name: name,
+            chromosome: chromosome,
             intervals: [AnnotationInterval(start: start, end: end)],
             strand: strand,
             qualifiers: qualifiers,
@@ -145,6 +154,16 @@ public struct SequenceAnnotation: Identifiable, Codable, Sendable {
     /// Returns all values for a qualifier key (qualifiers can be multi-valued)
     public func qualifierValues(_ key: String) -> [String] {
         qualifiers[key]?.values ?? []
+    }
+
+    /// Checks if this annotation belongs to a sequence with the given name.
+    /// Matches if the chromosome field equals the sequence name, or if chromosome is nil.
+    public func belongsToSequence(named sequenceName: String) -> Bool {
+        guard let chromosome = chromosome else {
+            // If no chromosome is specified, annotation applies to all sequences
+            return true
+        }
+        return chromosome == sequenceName
     }
 }
 

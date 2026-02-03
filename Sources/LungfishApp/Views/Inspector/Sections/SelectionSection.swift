@@ -5,6 +5,14 @@
 import SwiftUI
 import LungfishCore
 
+/// Mode for applying color changes.
+public enum ColorApplyMode: String, CaseIterable, Identifiable {
+    case thisOnly = "This Only"
+    case allOfType = "All of Type"
+
+    public var id: String { rawValue }
+}
+
 /// View model for the selection section.
 ///
 /// Manages the state of the currently selected annotation for editing.
@@ -25,11 +33,17 @@ public class SelectionSectionViewModel: ObservableObject {
     /// Editable notes
     @Published public var notes: String = ""
 
+    /// Mode for applying color changes
+    @Published public var colorApplyMode: ColorApplyMode = .thisOnly
+
     /// Callback when annotation is updated
     public var onAnnotationUpdated: ((SequenceAnnotation) -> Void)?
 
     /// Callback when annotation is deleted
     public var onAnnotationDeleted: ((UUID) -> Void)?
+
+    /// Callback when color should be applied to all annotations of a type
+    public var onApplyColorToAllOfType: ((AnnotationType, AnnotationColor) -> Void)?
 
     public init() {}
 
@@ -42,20 +56,18 @@ public class SelectionSectionViewModel: ObservableObject {
             name = annotation.name
             type = annotation.type
             notes = annotation.note ?? ""
-            if let annotationColor = annotation.color {
-                color = Color(
-                    red: annotationColor.red,
-                    green: annotationColor.green,
-                    blue: annotationColor.blue,
-                    opacity: annotationColor.alpha
-                )
-            } else {
-                color = Color(
-                    red: annotation.type.defaultColor.red,
-                    green: annotation.type.defaultColor.green,
-                    blue: annotation.type.defaultColor.blue
-                )
-            }
+
+            // Set color from annotation or use type's default
+            let annotationColor = annotation.color ?? annotation.type.defaultColor
+            color = Color(
+                red: annotationColor.red,
+                green: annotationColor.green,
+                blue: annotationColor.blue,
+                opacity: annotationColor.alpha
+            )
+
+            // Reset apply mode when selecting a new annotation
+            colorApplyMode = .thisOnly
         }
     }
 
@@ -68,19 +80,50 @@ public class SelectionSectionViewModel: ObservableObject {
         annotation.note = notes.isEmpty ? nil : notes
 
         // Convert SwiftUI Color to AnnotationColor
+        if let annotationColor = extractAnnotationColor(from: color) {
+            annotation.color = annotationColor
+        }
+
+        selectedAnnotation = annotation
+        onAnnotationUpdated?(annotation)
+    }
+
+    /// Commits color change, respecting the apply mode.
+    func commitColorChange() {
+        guard var annotation = selectedAnnotation else { return }
+
+        // Convert SwiftUI Color to AnnotationColor
+        guard let annotationColor = extractAnnotationColor(from: color) else { return }
+
+        annotation.color = annotationColor
+        selectedAnnotation = annotation
+
+        switch colorApplyMode {
+        case .thisOnly:
+            // Update just this annotation
+            onAnnotationUpdated?(annotation)
+
+        case .allOfType:
+            // Update this annotation
+            onAnnotationUpdated?(annotation)
+            // Also notify to update all annotations of this type
+            onApplyColorToAllOfType?(annotation.type, annotationColor)
+        }
+    }
+
+    /// Extracts an AnnotationColor from a SwiftUI Color.
+    private func extractAnnotationColor(from color: Color) -> AnnotationColor? {
         if let cgColor = color.cgColor,
            let components = cgColor.components,
            components.count >= 3 {
-            annotation.color = AnnotationColor(
+            return AnnotationColor(
                 red: components[0],
                 green: components[1],
                 blue: components[2],
                 alpha: components.count > 3 ? components[3] : 1.0
             )
         }
-
-        selectedAnnotation = annotation
-        onAnnotationUpdated?(annotation)
+        return nil
     }
 
     /// Deletes the current annotation.
@@ -153,16 +196,31 @@ public struct SelectionSection: View {
                 }
             }
 
-            // Color picker
+            // Color picker with apply mode
             VStack(alignment: .leading, spacing: 4) {
                 Text("Color")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                ColorPicker("Annotation Color", selection: $viewModel.color, supportsOpacity: true)
-                    .labelsHidden()
-                    .onChange(of: viewModel.color) { _, _ in
-                        viewModel.commitChanges()
+
+                HStack(spacing: 8) {
+                    ColorPicker("Annotation Color", selection: $viewModel.color, supportsOpacity: true)
+                        .labelsHidden()
+                        .onChange(of: viewModel.color) { _, _ in
+                            viewModel.commitColorChange()
+                        }
+
+                    Spacer()
+                }
+
+                // Apply mode picker
+                Picker("Apply to", selection: $viewModel.colorApplyMode) {
+                    ForEach(ColorApplyMode.allCases) { mode in
+                        Text(mode == .allOfType ? "All \(viewModel.type.displayName)" : mode.rawValue)
+                            .tag(mode)
                     }
+                }
+                .pickerStyle(.segmented)
+                .help("Choose whether to apply color changes to just this annotation or all annotations of the same type")
             }
 
             // Notes editor

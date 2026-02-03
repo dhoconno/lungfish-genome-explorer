@@ -390,6 +390,12 @@ public final class MainMenu {
             keyEquivalent: "0"
         )
 
+        viewMenu.addItem(
+            withTitle: "Zoom Reset (10kb)",
+            action: #selector(ViewMenuActions.zoomReset(_:)),
+            keyEquivalent: "1"
+        )
+
         viewMenu.addItem(.separator())
 
         // Display mode submenu
@@ -691,6 +697,7 @@ public final class MainMenu {
     func zoomIn(_ sender: Any?)
     func zoomOut(_ sender: Any?)
     func zoomToFit(_ sender: Any?)
+    func zoomReset(_ sender: Any?)
     func setDisplayModeCollapsed(_ sender: Any?)
     func setDisplayModeSquished(_ sender: Any?)
     func setDisplayModeExpanded(_ sender: Any?)

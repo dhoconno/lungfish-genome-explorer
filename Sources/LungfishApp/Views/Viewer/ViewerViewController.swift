@@ -298,6 +298,99 @@ public class ViewerViewController: NSViewController {
         logger.info("displayDocument: Completed displaying document")
     }
 
+    /// Displays multiple loaded documents in the viewer with stacked sequences.
+    ///
+    /// This method collects all sequences from the provided documents and displays them
+    /// using the multi-sequence stacking system. Each sequence appears as a separate
+    /// track in the viewer, allowing side-by-side comparison.
+    ///
+    /// - Parameter documents: Array of documents to display
+    public func displayDocuments(_ documents: [LoadedDocument]) {
+        logger.info("displayDocuments: Displaying \(documents.count) documents with multi-sequence stacking")
+        
+        guard !documents.isEmpty else {
+            logger.warning("displayDocuments: No documents provided")
+            return
+        }
+        
+        // Collect all sequences from all documents
+        var allSequences: [Sequence] = []
+        var allAnnotations: [SequenceAnnotation] = []
+        
+        for document in documents {
+            allSequences.append(contentsOf: document.sequences)
+            allAnnotations.append(contentsOf: document.annotations)
+            logger.debug("displayDocuments: Added \(document.sequences.count) sequences from '\(document.name)'")
+        }
+        
+        logger.info("displayDocuments: Total collected: \(allSequences.count) sequences, \(allAnnotations.count) annotations")
+        
+        guard !allSequences.isEmpty else {
+            logger.warning("displayDocuments: No sequences found in any document")
+            return
+        }
+        
+        // Use first document as the "current" document for UI purposes
+        currentDocument = documents.first
+        
+        // Find the longest sequence to set up the reference frame
+        let longestSequence = allSequences.max(by: { $0.length < $1.length }) ?? allSequences.first!
+        let maxLength = longestSequence.length
+        
+        logger.info("displayDocuments: Longest sequence '\(longestSequence.name)' has length \(maxLength)")
+        
+        // Force layout to ensure valid bounds
+        view.layoutSubtreeIfNeeded()
+        
+        let effectiveWidth = max(800, Int(viewerView.bounds.width))
+        
+        // Create reference frame based on the longest sequence
+        referenceFrame = ReferenceFrame(
+            chromosome: longestSequence.name,
+            start: 0,
+            end: Double(maxLength),
+            pixelWidth: effectiveWidth,
+            sequenceLength: maxLength
+        )
+        logger.debug("displayDocuments: Created referenceFrame for max length \(maxLength)")
+        
+        // Pass all sequences to the viewer using multi-sequence support
+        viewerView.setSequences(allSequences)
+        viewerView.setAnnotations(allAnnotations)
+        
+        // Update header with all sequence names
+        var trackNames = allSequences.map { $0.name }
+        if !allAnnotations.isEmpty {
+            trackNames.append("Annotations")
+        }
+        headerView.setTrackNames(trackNames)
+        logger.debug("displayDocuments: Set \(trackNames.count) track names")
+        
+        // Update ruler
+        rulerView.referenceFrame = referenceFrame
+        
+        // Trigger redraw
+        viewerView.needsDisplay = true
+        rulerView.needsDisplay = true
+        headerView.needsDisplay = true
+        updateStatusBar()
+        
+        // Schedule delayed redraw for layout timing
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self = self else { return }
+            
+            if let frame = self.referenceFrame, self.viewerView.bounds.width > 0 {
+                frame.pixelWidth = Int(self.viewerView.bounds.width)
+            }
+            
+            self.viewerView.needsDisplay = true
+            self.rulerView.needsDisplay = true
+            self.headerView.needsDisplay = true
+        }
+        
+        logger.info("displayDocuments: Completed displaying \(allSequences.count) sequences stacked")
+    }
+
     // MARK: - Public API
 
     /// Zooms in on the current view
@@ -321,6 +414,34 @@ public class ViewerViewController: NSViewController {
         guard let sequence = viewerView.sequence else { return }
         referenceFrame?.start = 0
         referenceFrame?.end = Double(sequence.length)
+        viewerView.setNeedsDisplay(viewerView.bounds)
+        rulerView.setNeedsDisplay(rulerView.bounds)
+        updateStatusBar()
+    }
+
+    /// Resets zoom to show ~10kb window centered on current view
+    public func zoomReset() {
+        guard let frame = referenceFrame else { return }
+        
+        let center = (frame.start + frame.end) / 2
+        let defaultWindow: Double = 10000  // 10kb default window
+        
+        var newStart = center - defaultWindow / 2
+        var newEnd = center + defaultWindow / 2
+        
+        // Clamp to bounds
+        if newStart < 0 {
+            newStart = 0
+            newEnd = min(Double(frame.sequenceLength), defaultWindow)
+        }
+        if newEnd > Double(frame.sequenceLength) {
+            newEnd = Double(frame.sequenceLength)
+            newStart = max(0, newEnd - defaultWindow)
+        }
+        
+        frame.start = newStart
+        frame.end = newEnd
+        
         viewerView.setNeedsDisplay(viewerView.bounds)
         rulerView.setNeedsDisplay(rulerView.bounds)
         updateStatusBar()
@@ -604,6 +725,9 @@ public class SequenceViewerView: NSView {
     /// Below this threshold: show colored bars (between letters and density)
     private let showBarsThreshold: Double = 100.0
 
+    /// Above this threshold: show simple line (very zoomed out)
+    private let showLineThreshold: Double = 500.0
+
     // MARK: - Quality Score Colors
 
     /// Quality score color thresholds for overlay rendering.
@@ -804,9 +928,12 @@ public class SequenceViewerView: NSView {
         } else if scale < showBarsThreshold {
             // Medium zoom: show colored bars without letters
             drawBlockLevelSequence(seq, frame: frame, context: context)
-        } else {
+        } else if scale < showLineThreshold {
             // Low zoom: show GC content / density overview
             drawOverviewSequence(seq, frame: frame, context: context)
+        } else {
+            // Very low zoom: show simple line representation
+            drawLineSequence(seq, frame: frame, context: context)
         }
 
         // Draw selection highlight
@@ -1159,6 +1286,84 @@ public class SequenceViewerView: NSView {
 
         // Draw GC legend
         drawGCLegend(context: context)
+    }
+
+    /// Draws a simple line representation for very zoomed out view.
+    ///
+    /// When zoomed out beyond showLineThreshold, individual bases and GC content
+    /// become meaningless noise. This method draws a clean, simple line to
+    /// represent the sequence extent without visual clutter.
+    ///
+    /// - Parameters:
+    ///   - seq: The sequence to draw
+    ///   - frame: The current reference frame for coordinate mapping
+    ///   - context: The graphics context to draw into
+    private func drawLineSequence(_ seq: Sequence, frame: ReferenceFrame, context: CGContext) {
+        let startBase = max(0, Int(frame.start))
+        let endBase = min(seq.length, Int(frame.end) + 1)
+
+        let visibleBases = frame.end - frame.start
+        let pixelsPerBase = bounds.width / CGFloat(max(1, visibleBases))
+
+        // Calculate the visible portion of the sequence
+        let startX = CGFloat(startBase - Int(frame.start)) * pixelsPerBase
+        let endX = CGFloat(endBase - Int(frame.start)) * pixelsPerBase
+        let lineWidth = max(1, endX - startX)
+
+        // Draw a simple gray line to represent the sequence
+        let lineColor = NSColor.systemGray
+        let lineY = trackY + trackHeight / 2
+        let lineThickness: CGFloat = 4
+
+        context.saveGState()
+
+        // Draw sequence extent as a solid bar
+        context.setFillColor(lineColor.cgColor)
+        context.fill(CGRect(
+            x: max(0, startX),
+            y: lineY - lineThickness / 2,
+            width: lineWidth,
+            height: lineThickness
+        ))
+
+        // Draw subtle border for definition
+        context.setStrokeColor(lineColor.withAlphaComponent(0.7).cgColor)
+        context.setLineWidth(1)
+        context.stroke(CGRect(
+            x: max(0, startX),
+            y: lineY - lineThickness / 2,
+            width: lineWidth,
+            height: lineThickness
+        ))
+
+        context.restoreGState()
+
+        // Draw scale indicator
+        drawLineScaleIndicator(context: context, frame: frame)
+    }
+
+    /// Draws a scale indicator when in line mode.
+    private func drawLineScaleIndicator(context: CGContext, frame: ReferenceFrame) {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 9),
+            .foregroundColor: NSColor.secondaryLabelColor
+        ]
+
+        let visibleBases = Int(frame.end - frame.start)
+        let scaleText: String
+        if visibleBases >= 1_000_000 {
+            scaleText = "\(visibleBases / 1_000_000) Mb visible"
+        } else if visibleBases >= 1_000 {
+            scaleText = "\(visibleBases / 1_000) kb visible"
+        } else {
+            scaleText = "\(visibleBases) bp visible"
+        }
+
+        let textSize = (scaleText as NSString).size(withAttributes: attributes)
+        let textX = bounds.maxX - textSize.width - 8
+        let textY = trackY + 2
+
+        (scaleText as NSString).draw(at: CGPoint(x: textX, y: textY), withAttributes: attributes)
     }
 
     private func interpolateColor(from: NSColor, to: NSColor, factor: CGFloat) -> NSColor {

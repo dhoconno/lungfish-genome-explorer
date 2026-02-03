@@ -24,6 +24,14 @@ extension Notification.Name {
     ///
     /// The notification's `object` should be the `SequenceAnnotation` that was deleted.
     public static let annotationDeleted = Notification.Name("annotationDeleted")
+
+    /// Posted when a color should be applied to all annotations of a specific type.
+    ///
+    /// The notification's `userInfo` dictionary contains:
+    /// - `annotationType`: The `AnnotationType` to update
+    /// - `annotationColor`: The `AnnotationColor` to apply
+    /// - `changeSource`: The source of the change (e.g., "inspector")
+    public static let annotationColorAppliedToType = Notification.Name("annotationColorAppliedToType")
 }
 
 // MARK: - Appearance Notifications
@@ -65,4 +73,10 @@ public enum NotificationUserInfoKey {
 
     /// Key for the selection state associated with a notification.
     public static let selectionState = "selectionState"
+
+    /// Key for the annotation type when applying changes to all of a type.
+    public static let annotationType = "annotationType"
+
+    /// Key for the annotation color when applying color changes.
+    public static let annotationColor = "annotationColor"
 }

@@ -48,8 +48,15 @@ public struct QualityStatistics: Sendable {
 /// Manages quality overlay visibility and quality statistics display.
 @MainActor
 public class QualitySectionViewModel: ObservableObject {
+    // MARK: - Default Values
+
+    /// Default setting for quality overlay (disabled by default)
+    public static let defaultQualityOverlayEnabled: Bool = false
+
+    // MARK: - Published Properties
+
     /// Whether the quality overlay is enabled
-    @Published public var isQualityOverlayEnabled: Bool = false
+    @Published public var isQualityOverlayEnabled: Bool = defaultQualityOverlayEnabled
 
     /// Whether quality data is available (false for FASTA files)
     @Published public var hasQualityData: Bool = false
@@ -75,6 +82,15 @@ public class QualitySectionViewModel: ObservableObject {
         if !hasData {
             isQualityOverlayEnabled = false
         }
+    }
+
+    /// Resets quality overlay settings to their default values.
+    ///
+    /// Note: This only resets the overlay toggle, not the quality data/statistics
+    /// which depend on the loaded file.
+    public func resetToDefaults() {
+        isQualityOverlayEnabled = Self.defaultQualityOverlayEnabled
+        onOverlayToggleChanged?(isQualityOverlayEnabled)
     }
 }
 

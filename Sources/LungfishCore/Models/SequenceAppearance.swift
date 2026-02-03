@@ -75,7 +75,7 @@ public struct SequenceAppearance: Codable, Sendable {
                 "N": "#808080",  // Gray - Unknown
                 "U": "#FF0000"   // Red - Uracil (RNA equivalent of T)
             ],
-            trackHeight: 50.0,
+            trackHeight: 28.0,  // Reduced from 50 for more compact display
             showQualityOverlay: false
         )
     }

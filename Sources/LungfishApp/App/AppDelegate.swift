@@ -825,6 +825,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         mainWindowController?.mainSplitViewController?.viewerController?.zoomToFit()
     }
 
+    @objc func zoomReset(_ sender: Any?) {
+        mainWindowController?.mainSplitViewController?.viewerController?.zoomReset()
+    }
+
     @objc func setDisplayModeCollapsed(_ sender: Any?) {
         // TODO: Implement display mode change
     }

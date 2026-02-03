@@ -34,6 +34,10 @@ public class AppearanceSectionViewModel: ObservableObject {
     /// Callback when settings are changed
     public var onSettingsChanged: (() -> Void)?
 
+    /// Callback when reset to defaults is requested.
+    /// This allows the parent view model to coordinate resetting all appearance settings.
+    public var onResetToDefaults: (() -> Void)?
+
     // MARK: - Default Values
 
     /// Default colors following standard bioinformatics conventions
@@ -42,7 +46,7 @@ public class AppearanceSectionViewModel: ObservableObject {
     public static let defaultColorG = Color(red: 0.95, green: 0.75, blue: 0.25)  // Yellow/Gold
     public static let defaultColorC = Color(red: 0.35, green: 0.55, blue: 0.85)  // Blue
     public static let defaultColorN = Color(red: 0.60, green: 0.60, blue: 0.60)  // Gray
-    public static let defaultTrackHeight: Double = 40
+    public static let defaultTrackHeight: Double = 28  // Reduced for more compact display
 
     public init() {
         self.colorA = Self.defaultColorA
@@ -54,6 +58,10 @@ public class AppearanceSectionViewModel: ObservableObject {
     }
 
     /// Resets all appearance settings to their default values.
+    ///
+    /// This method resets only the properties managed by this view model.
+    /// For a full reset of all appearance settings (including quality overlay
+    /// and annotation settings), use the `onResetToDefaults` callback.
     public func resetToDefaults() {
         colorA = Self.defaultColorA
         colorT = Self.defaultColorT
@@ -213,7 +221,13 @@ public struct AppearanceSection: View {
     private var resetButton: some View {
         Button {
             withAnimation(.easeInOut(duration: 0.2)) {
-                viewModel.resetToDefaults()
+                // Use the coordinated reset callback if available,
+                // otherwise fall back to resetting just this view model
+                if let onResetToDefaults = viewModel.onResetToDefaults {
+                    onResetToDefaults()
+                } else {
+                    viewModel.resetToDefaults()
+                }
             }
         } label: {
             Label("Reset to Defaults", systemImage: "arrow.counterclockwise")

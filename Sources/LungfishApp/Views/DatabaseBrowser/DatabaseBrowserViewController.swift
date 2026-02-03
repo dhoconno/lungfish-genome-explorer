@@ -382,6 +382,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
         // Capture values we need for the search (value types are safe to capture)
         let searchTerm = buildSearchTerm()
+        logger.info("performSearch: Built search term: '\(searchTerm, privacy: .public)'")
+        logger.info("performSearch: Search scope: \(self.searchScope.rawValue, privacy: .public)")
+
         let query = SearchQuery(
             term: searchTerm,
             organism: organismFilter.isEmpty ? nil : organismFilter,
@@ -404,6 +407,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
         // run loop blocking task scheduling on MainActor.
         currentSearchTask = Task.detached { [weak self] in
             logger.info("performSearch: Task running, source=\(currentSource.displayName, privacy: .public), searchType=\(searchType.rawValue, privacy: .public)")
+            logger.info("performSearch: Query term='\(query.term, privacy: .public)', organism='\(query.organism ?? "nil", privacy: .public)'")
 
             do {
                 try Task.checkCancellation()
@@ -428,15 +432,19 @@ public class DatabaseBrowserViewModel: ObservableObject {
                     // Use the appropriate search method based on search type
                     switch searchType {
                     case .nucleotide:
+                        logger.info("performSearch: Calling NCBI nucleotide search")
                         searchResults = try await ncbi.search(query)
+                        logger.info("performSearch: NCBI returned \(searchResults.totalCount) total, \(searchResults.records.count) records")
 
                     case .virus:
                         // Use viral taxonomy filter
+                        logger.info("performSearch: Calling NCBI virus search")
                         let virusResult = try await ncbi.searchVirus(
                             term: query.term,
                             retmax: query.limit,
                             retstart: query.offset
                         )
+                        logger.info("performSearch: Virus search returned \(virusResult.totalCount) total, \(virusResult.ids.count) IDs")
 
                         // Get summaries for the results
                         guard !virusResult.ids.isEmpty else {
@@ -473,11 +481,13 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
                     case .genome:
                         // Search assemblies
+                        logger.info("performSearch: Calling NCBI genome search")
                         let genomeResult = try await ncbi.searchGenome(
                             term: query.term,
                             retmax: query.limit,
                             retstart: query.offset
                         )
+                        logger.info("performSearch: Genome search returned \(genomeResult.totalCount) total, \(genomeResult.ids.count) IDs")
 
                         guard !genomeResult.ids.isEmpty else {
                             let empty = SearchResults(totalCount: genomeResult.totalCount, records: [], hasMore: false)
@@ -518,7 +528,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         self.objectWillChange.send()
                         self.searchPhase = .loadingDetails
                     }
+                    logger.info("performSearch: Calling ENA search")
                     searchResults = try await ena.search(query)
+                    logger.info("performSearch: ENA returned \(searchResults.totalCount) total, \(searchResults.records.count) records")
 
                 default:
                     throw DatabaseServiceError.invalidQuery(reason: "Unsupported database: \(currentSource)")
@@ -534,6 +546,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                     self.totalResultCount = searchResults.totalCount
                     self.hasMoreResults = searchResults.hasMore
                     self.searchPhase = .complete(count: searchResults.records.count)
+                    logger.info("performSearch: UI updated with \(searchResults.records.count) results")
                 }
 
             } catch is CancellationError {
@@ -560,19 +573,47 @@ public class DatabaseBrowserViewModel: ObservableObject {
         }
     }
 
-    /// Builds the search term based on scope
+    /// Builds the search term based on scope.
+    ///
+    /// For NCBI E-utilities, the search term behavior depends on the field qualifier:
+    /// - No qualifier: NCBI searches a limited set of default fields
+    /// - `[All Fields]`: Explicitly searches ALL indexed fields including organism,
+    ///   description, keywords, features, and more
+    /// - `[Title]`, `[Organism]`, etc.: Searches only that specific field
+    ///
+    /// When "All Fields" scope is selected, we do NOT add the [All Fields] qualifier
+    /// because NCBI's default behavior (no qualifier) actually provides better results
+    /// for general searches. The [All Fields] qualifier can be too strict in some cases.
     private func buildSearchTerm() -> String {
         let term = searchText.trimmingCharacters(in: .whitespaces)
 
+        // Log the raw input for debugging
+        logger.debug("buildSearchTerm: Raw input='\(term, privacy: .public)', scope=\(self.searchScope.rawValue, privacy: .public)")
+
         switch searchScope {
         case .all:
+            // For "All Fields" scope, return the term without any qualifier.
+            // NCBI's default search behavior (no field qualifier) provides good
+            // coverage across multiple fields. Adding [All Fields] can actually
+            // be more restrictive in some cases.
+            //
+            // If the user's term already contains field qualifiers (e.g., "[Organism]"),
+            // we preserve those as-is.
+            logger.debug("buildSearchTerm: Using unqualified term for All Fields scope")
             return term
         case .accession:
+            // Accession searches work best without a field qualifier
+            // NCBI automatically matches accession patterns
+            logger.debug("buildSearchTerm: Using unqualified term for Accession scope")
             return term
         case .organism:
-            return "\(term)[Organism]"
+            let result = "\(term)[Organism]"
+            logger.debug("buildSearchTerm: Built organism query='\(result, privacy: .public)'")
+            return result
         case .title:
-            return "\(term)[Title]"
+            let result = "\(term)[Title]"
+            logger.debug("buildSearchTerm: Built title query='\(result, privacy: .public)'")
+            return result
         }
     }
 
@@ -969,6 +1010,66 @@ public class DatabaseBrowserViewModel: ObservableObject {
     }
 }
 
+// MARK: - AppKit TextField Wrapper
+
+/// An NSViewRepresentable wrapper for NSTextField that properly handles keyboard events
+/// including delete/backspace in modal contexts.
+///
+/// SwiftUI's TextField with `.plain` style can have issues with key event handling
+/// when embedded in NSHostingView, especially in modal sheets. This wrapper uses
+/// a native NSTextField to ensure proper responder chain behavior.
+struct AppKitTextField: NSViewRepresentable {
+    @Binding var text: String
+    var placeholder: String
+    var onSubmit: (() -> Void)?
+
+    func makeNSView(context: Context) -> NSTextField {
+        let textField = NSTextField()
+        textField.delegate = context.coordinator
+        textField.placeholderString = placeholder
+        textField.isBordered = false
+        textField.drawsBackground = false
+        textField.focusRingType = .none
+        textField.font = .systemFont(ofSize: NSFont.systemFontSize)
+        textField.lineBreakMode = .byTruncatingTail
+        textField.cell?.sendsActionOnEndEditing = false
+        textField.target = context.coordinator
+        textField.action = #selector(Coordinator.textFieldAction(_:))
+        return textField
+    }
+
+    func updateNSView(_ nsView: NSTextField, context: Context) {
+        // Only update if the text actually differs to avoid cursor jumping
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+        if nsView.placeholderString != placeholder {
+            nsView.placeholderString = placeholder
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: AppKitTextField
+
+        init(_ parent: AppKitTextField) {
+            self.parent = parent
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let textField = obj.object as? NSTextField else { return }
+            parent.text = textField.stringValue
+        }
+
+        @objc func textFieldAction(_ sender: NSTextField) {
+            parent.onSubmit?()
+        }
+    }
+}
+
 // MARK: - DatabaseBrowserView
 
 /// SwiftUI view for the database browser.
@@ -1142,12 +1243,15 @@ public struct DatabaseBrowserView: View {
                     .frame(height: 20)
                     .padding(.horizontal, 4)
 
-                // Search text field
-                TextField(searchPlaceholder, text: $viewModel.searchText)
-                    .textFieldStyle(.plain)
-                    .onSubmit {
+                // Search text field - using AppKit wrapper for proper key handling
+                AppKitTextField(
+                    text: $viewModel.searchText,
+                    placeholder: searchPlaceholder,
+                    onSubmit: {
                         viewModel.performSearch()
                     }
+                )
+                .frame(minWidth: 200)
 
                 // Clear button
                 if !viewModel.searchText.isEmpty {

@@ -14,10 +14,10 @@ private let logger = Logger(subsystem: "com.lungfish.browser", category: "MainSp
 ///
 /// Layout:
 /// ```
-/// ┌────────────┬────────────────────────────┬──────────┐
-/// │  Sidebar   │         Viewer             │ Inspector│
-/// │  (toggle)  │    (always visible)        │ (toggle) │
-/// └────────────┴────────────────────────────┴──────────┘
+/// +------------+----------------------------+----------+
+/// |  Sidebar   |         Viewer             | Inspector|
+/// |  (toggle)  |    (always visible)        | (toggle) |
+/// +------------+----------------------------+----------+
 /// ```
 @MainActor
 public class MainSplitViewController: NSSplitViewController {
@@ -156,6 +156,13 @@ public class MainSplitViewController: NSSplitViewController {
     }
 
     @objc private func handleSidebarSelectionChanged(_ notification: Notification) {
+        // Check for multi-selection first (new behavior)
+        if let items = notification.userInfo?["items"] as? [SidebarItem], items.count > 1 {
+            handleMultipleItemsSelected(items)
+            return
+        }
+
+        // Fall back to single item handling (backward compatibility)
         guard let item = notification.userInfo?["item"] as? SidebarItem else {
             logger.warning("handleSidebarSelectionChanged: No item in notification")
             return
@@ -207,6 +214,76 @@ public class MainSplitViewController: NSSplitViewController {
                 viewerController.displayDocument(document)
                 DocumentManager.shared.setActiveDocument(document)
             }
+        }
+    }
+
+    /// Handles multiple sidebar items being selected.
+    ///
+    /// This method collects sequences from all selected documents and displays them
+    /// stacked in the viewer using multi-sequence support.
+    ///
+    /// - Parameter items: Array of selected sidebar items
+    private func handleMultipleItemsSelected(_ items: [SidebarItem]) {
+        // Filter to only sequence-type items that can be displayed
+        let displayableItems = items.filter { item in
+            item.type == .sequence || item.type == .annotation || item.type == .alignment
+        }
+
+        guard !displayableItems.isEmpty else {
+            logger.debug("handleMultipleItemsSelected: No displayable items in selection")
+            return
+        }
+
+        let itemNames = displayableItems.map { $0.title }.joined(separator: ", ")
+        logger.info("handleMultipleItemsSelected: Processing \(displayableItems.count) items: [\(itemNames, privacy: .public)]")
+
+        // Collect URLs that need to be loaded
+        var urlsToLoad: [URL] = []
+        var alreadyLoadedDocuments: [LoadedDocument] = []
+
+        for item in displayableItems {
+            if let url = item.url {
+                // Check if already loaded
+                if let existingDoc = DocumentManager.shared.documents.first(where: { $0.url == url }) {
+                    alreadyLoadedDocuments.append(existingDoc)
+                } else {
+                    urlsToLoad.append(url)
+                }
+            } else if let doc = DocumentManager.shared.documents.first(where: { $0.name == item.title }) {
+                // Found by name
+                alreadyLoadedDocuments.append(doc)
+            }
+        }
+
+        // If we have URLs to load, do it asynchronously
+        if !urlsToLoad.isEmpty {
+            Task { @MainActor in
+                viewerController.showProgress("Loading \(urlsToLoad.count) documents...")
+
+                var loadedDocs = alreadyLoadedDocuments
+
+                for url in urlsToLoad {
+                    do {
+                        let document = try await DocumentManager.shared.loadDocument(at: url)
+                        loadedDocs.append(document)
+                        logger.debug("handleMultipleItemsSelected: Loaded '\(document.name, privacy: .public)'")
+                    } catch {
+                        logger.error("handleMultipleItemsSelected: Failed to load \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    }
+                }
+
+                viewerController.hideProgress()
+
+                // Display all documents with multi-sequence stacking
+                if !loadedDocs.isEmpty {
+                    viewerController.displayDocuments(loadedDocs)
+                    logger.info("handleMultipleItemsSelected: Displayed \(loadedDocs.count) documents with multi-sequence stacking")
+                }
+            }
+        } else if !alreadyLoadedDocuments.isEmpty {
+            // All documents already loaded, display immediately
+            viewerController.displayDocuments(alreadyLoadedDocuments)
+            logger.info("handleMultipleItemsSelected: Displayed \(alreadyLoadedDocuments.count) already-loaded documents")
         }
     }
 

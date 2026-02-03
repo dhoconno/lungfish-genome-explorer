@@ -77,9 +77,18 @@ public class InspectorViewController: NSViewController {
             self?.handleAnnotationDeletedFromInspector(annotationID)
         }
 
+        viewModel.selectionSectionViewModel.onApplyColorToAllOfType = { [weak self] annotationType, color in
+            self?.handleApplyColorToAllOfType(annotationType, color: color)
+        }
+
         // Appearance section callbacks
         viewModel.appearanceSectionViewModel.onSettingsChanged = { [weak self] in
             self?.handleAppearanceChanged()
+        }
+
+        // Appearance section reset callback - coordinates resetting ALL appearance settings
+        viewModel.appearanceSectionViewModel.onResetToDefaults = { [weak self] in
+            self?.handleResetAllAppearanceSettings()
         }
 
         // Quality section callbacks
@@ -233,6 +242,24 @@ public class InspectorViewController: NSViewController {
         }
     }
 
+    /// Handles applying a color to all annotations of a specific type.
+    ///
+    /// Posts an `annotationColorAppliedToType` notification so the viewer and document
+    /// can update all annotations of the given type.
+    private func handleApplyColorToAllOfType(_ annotationType: AnnotationType, color: AnnotationColor) {
+        logger.info("handleApplyColorToAllOfType: Applying color to all \(annotationType.rawValue, privacy: .public) annotations")
+
+        NotificationCenter.default.post(
+            name: .annotationColorAppliedToType,
+            object: self,
+            userInfo: [
+                NotificationUserInfoKey.annotationType: annotationType,
+                NotificationUserInfoKey.annotationColor: color,
+                NotificationUserInfoKey.changeSource: "inspector"
+            ]
+        )
+    }
+
     // MARK: - Appearance Handlers
 
     /// Handles appearance setting changes.
@@ -300,6 +327,67 @@ public class InspectorViewController: NSViewController {
             object: self,
             userInfo: nil
         )
+    }
+
+    /// Handles resetting ALL appearance settings to their defaults.
+    ///
+    /// This is called when the "Reset to Defaults" button is pressed in the
+    /// Appearance section. It coordinates resetting all appearance-related
+    /// settings across multiple section view models:
+    /// - Base colors (A, T, G, C, N)
+    /// - Track height
+    /// - Quality overlay
+    /// - Annotation height, spacing, visibility, and filters
+    ///
+    /// After resetting, it clears persisted settings and posts notifications
+    /// so the viewer updates immediately.
+    private func handleResetAllAppearanceSettings() {
+        logger.info("handleResetAllAppearanceSettings: Resetting ALL appearance settings to defaults")
+
+        // 1. Reset the appearance section view model (base colors, track height)
+        viewModel.appearanceSectionViewModel.resetToDefaults()
+
+        // 2. Reset the quality section view model (quality overlay)
+        viewModel.qualitySectionViewModel.resetToDefaults()
+
+        // 3. Reset the annotation section view model (height, spacing, visibility, filters)
+        viewModel.annotationSectionViewModel.resetToDefaults()
+
+        // 4. Reset the core SequenceAppearance model and clear persisted settings
+        let defaultAppearance = SequenceAppearance.resetToDefaults()
+        viewModel.appearance = defaultAppearance
+        logger.info("handleResetAllAppearanceSettings: Cleared persisted settings, using defaults")
+
+        // 5. Post notifications so the viewer updates
+        // Post appearance changed notification
+        NotificationCenter.default.post(
+            name: .appearanceChanged,
+            object: self,
+            userInfo: nil
+        )
+
+        // Post annotation settings changed notification
+        NotificationCenter.default.post(
+            name: .annotationSettingsChanged,
+            object: self,
+            userInfo: [
+                "showAnnotations": viewModel.annotationSectionViewModel.showAnnotations,
+                "annotationHeight": viewModel.annotationSectionViewModel.annotationHeight,
+                "annotationSpacing": viewModel.annotationSectionViewModel.annotationSpacing
+            ]
+        )
+
+        // Post annotation filter changed notification
+        NotificationCenter.default.post(
+            name: .annotationFilterChanged,
+            object: self,
+            userInfo: [
+                "visibleTypes": viewModel.annotationSectionViewModel.visibleTypes,
+                "filterText": viewModel.annotationSectionViewModel.filterText
+            ]
+        )
+
+        logger.info("handleResetAllAppearanceSettings: Posted all notifications for viewer update")
     }
 
     // MARK: - Public API
@@ -424,6 +512,9 @@ public class InspectorViewModel: ObservableObject {
             appearanceSectionViewModel.colorN = color(from: hexN)
         }
         appearanceSectionViewModel.trackHeight = Double(appearance.trackHeight)
+
+        // Sync quality overlay setting
+        qualitySectionViewModel.isQualityOverlayEnabled = appearance.showQualityOverlay
     }
 
     /// Converts a hex string to a SwiftUI Color.

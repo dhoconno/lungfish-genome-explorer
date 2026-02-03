@@ -5,6 +5,10 @@
 // Owner: NCBI Integration Lead (Role 12)
 
 import Foundation
+import os.log
+
+/// Logger for NCBI service operations
+private let logger = Logger(subsystem: "com.lungfish.core", category: "NCBIService")
 
 // MARK: - NCBI Service
 
@@ -78,6 +82,9 @@ public actor NCBIService: DatabaseService {
 
         let term = terms.joined(separator: " AND ")
 
+        logger.info("NCBIService.search: Final search term='\(term, privacy: .public)'")
+        logger.info("NCBIService.search: limit=\(query.limit), offset=\(query.offset)")
+
         // Use esearchWithCount to get actual total count from NCBI
         let searchResult = try await esearchWithCount(
             database: .nucleotide,
@@ -86,8 +93,11 @@ public actor NCBIService: DatabaseService {
             retstart: query.offset
         )
 
+        logger.info("NCBIService.search: esearch returned \(searchResult.totalCount) total, \(searchResult.ids.count) IDs")
+
         guard !searchResult.ids.isEmpty else {
             // Return empty but with the total count (may be 0)
+            logger.info("NCBIService.search: No results found")
             return SearchResults(
                 totalCount: searchResult.totalCount,
                 records: [],
@@ -98,6 +108,7 @@ public actor NCBIService: DatabaseService {
 
         // Get summaries for the results
         let summaries = try await esummary(database: .nucleotide, ids: searchResult.ids)
+        logger.info("NCBIService.search: Retrieved \(summaries.count) summaries")
 
         let records = summaries.map { summary in
             SearchResultRecord(
@@ -274,6 +285,7 @@ public actor NCBIService: DatabaseService {
     ) async throws -> ESearchSearchResult {
         // Add viral taxonomy filter to the search term
         let virusTerm = "(\(term)) AND \(NCBIDatabase.virusTaxonomyFilter)"
+        logger.info("NCBIService.searchVirus: term='\(virusTerm, privacy: .public)'")
         return try await esearchWithCount(
             database: .nucleotide,
             term: virusTerm,
@@ -298,6 +310,7 @@ public actor NCBIService: DatabaseService {
         retstart: Int = 0
     ) async throws -> ESearchSearchResult {
         // Search the assembly database for genome assemblies
+        logger.info("NCBIService.searchGenome: term='\(term, privacy: .public)'")
         return try await esearchWithCount(
             database: .assembly,
             term: term,
@@ -404,16 +417,27 @@ public actor NCBIService: DatabaseService {
             components.queryItems?.append(URLQueryItem(name: "api_key", value: apiKey))
         }
 
+        logger.debug("NCBIService.esearchWithCount: URL=\(components.url?.absoluteString ?? "nil", privacy: .public)")
+
         let data = try await makeRequest(url: components.url!)
+
+        // Log raw response for debugging (truncated)
+        if let responseString = String(data: data, encoding: .utf8) {
+            let truncated = String(responseString.prefix(500))
+            logger.debug("NCBIService.esearchWithCount: Response (truncated)=\(truncated, privacy: .public)")
+        }
 
         let response = try JSONDecoder().decode(ESearchResponse.self, from: data)
 
         if let error = response.esearchresult?.errorlist?.phrasesnotfound?.first {
+            logger.warning("NCBIService.esearchWithCount: Phrase not found: \(error, privacy: .public)")
             throw DatabaseServiceError.invalidQuery(reason: "Term not found: \(error)")
         }
 
         let ids = response.esearchresult?.idlist ?? []
         let totalCount = Int(response.esearchresult?.count ?? "0") ?? 0
+
+        logger.info("NCBIService.esearchWithCount: Found \(totalCount) total results, returning \(ids.count) IDs")
 
         return ESearchSearchResult(
             ids: ids,

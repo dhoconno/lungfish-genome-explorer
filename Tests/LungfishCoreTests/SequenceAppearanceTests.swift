@@ -41,7 +41,7 @@ final class SequenceAppearanceTests: XCTestCase {
     func testDefaultTrackHeight() {
         let appearance = SequenceAppearance.default
 
-        XCTAssertEqual(appearance.trackHeight, 50.0)
+        XCTAssertEqual(appearance.trackHeight, 28.0)  // Updated default from 50 to 28
     }
 
     func testDefaultShowQualityOverlay() {
@@ -408,7 +408,7 @@ final class SequenceAppearanceTests: XCTestCase {
 
         let loaded = SequenceAppearance.load()
 
-        XCTAssertEqual(loaded.trackHeight, 50.0)
+        XCTAssertEqual(loaded.trackHeight, 28.0)  // Updated default from 50 to 28
         XCTAssertFalse(loaded.showQualityOverlay)
     }
 
@@ -427,12 +427,12 @@ final class SequenceAppearanceTests: XCTestCase {
         let resetAppearance = SequenceAppearance.resetToDefaults()
 
         // Verify reset returns default values
-        XCTAssertEqual(resetAppearance.trackHeight, 50.0)
+        XCTAssertEqual(resetAppearance.trackHeight, 28.0)  // Updated default from 50 to 28
         XCTAssertFalse(resetAppearance.showQualityOverlay)
 
         // Verify load returns defaults after reset
         let loadedAfterReset = SequenceAppearance.load()
-        XCTAssertEqual(loadedAfterReset.trackHeight, 50.0)
+        XCTAssertEqual(loadedAfterReset.trackHeight, 28.0)  // Updated default from 50 to 28
         XCTAssertFalse(loadedAfterReset.showQualityOverlay)
     }
 
@@ -554,7 +554,7 @@ final class SequenceAppearanceTests: XCTestCase {
 
         Task {
             let appearance = SequenceAppearance.default
-            XCTAssertEqual(appearance.trackHeight, 50.0)
+            XCTAssertEqual(appearance.trackHeight, 28.0)  // Updated default from 50 to 28
             expectation.fulfill()
         }
 

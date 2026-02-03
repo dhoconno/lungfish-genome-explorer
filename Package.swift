@@ -147,6 +147,11 @@ let package = Package(
             ],
             path: "Sources/LungfishApp"
         ),
+        .testTarget(
+            name: "LungfishAppTests",
+            dependencies: ["LungfishApp"],
+            path: "Tests/LungfishAppTests"
+        ),
 
         // MARK: - Lungfish (Executable)
         .executableTarget(
