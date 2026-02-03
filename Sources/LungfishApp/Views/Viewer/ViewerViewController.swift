@@ -986,6 +986,13 @@ public class SequenceViewerView: NSView {
     func setAnnotations(_ annots: [SequenceAnnotation]) {
         logger.info("SequenceViewerView.setAnnotations: Setting \(annots.count) annotations")
         self.annotations = annots
+
+        // Update multi-sequence state with annotations if in multi-sequence mode
+        if isMultiSequenceMode {
+            updateMultiSequenceAnnotations(annots)
+            logger.debug("SequenceViewerView.setAnnotations: Updated multi-sequence annotations")
+        }
+
         // Clear selection if the selected annotation is no longer in the list
         if let selected = selectedAnnotation,
            !annots.contains(where: { $0.id == selected.id }) {
@@ -1023,12 +1030,22 @@ public class SequenceViewerView: NSView {
             context.stroke(bounds.insetBy(dx: 1.5, dy: 1.5))
         }
 
-        // If we have a sequence, render it
-        if let seq = sequence, let frame = viewController?.referenceFrame {
-            logger.debug("SequenceViewerView.draw: Drawing sequence '\(seq.name, privacy: .public)' in bounds \(self.bounds.width)x\(self.bounds.height)")
-            drawSequence(seq, frame: frame, context: context)
+        // Check for multi-sequence mode first
+        if let frame = viewController?.referenceFrame {
+            if shouldDrawMultiSequence, let state = multiSequenceState {
+                // Multi-sequence mode: draw stacked sequences with per-sequence annotations
+                logger.debug("SequenceViewerView.draw: Drawing \(state.stackedSequences.count) stacked sequences")
+                drawStackedSequences(state.stackedSequences, frame: frame, context: context)
+            } else if let seq = sequence {
+                // Single sequence mode
+                logger.debug("SequenceViewerView.draw: Drawing single sequence '\(seq.name, privacy: .public)' in bounds \(self.bounds.width)x\(self.bounds.height)")
+                drawSequence(seq, frame: frame, context: context)
+            } else {
+                // No sequence loaded
+                drawPlaceholder(context: context)
+            }
         } else {
-            // Placeholder message
+            // Placeholder message - no reference frame
             let hasSeq = sequence != nil
             let hasFrame = viewController?.referenceFrame != nil
             let hasVC = viewController != nil
