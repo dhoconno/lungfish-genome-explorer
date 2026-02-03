@@ -948,8 +948,14 @@ extension SidebarViewController: NSOutlineViewDelegate {
         // Get ALL selected items for multi-selection support
         let items = selectedItems()
 
-        guard !items.isEmpty else {
-            logger.debug("outlineViewSelectionDidChange: No valid selection")
+        if items.isEmpty {
+            // Post notification with empty items to signal viewer should be cleared
+            logger.debug("outlineViewSelectionDidChange: Selection cleared")
+            NotificationCenter.default.post(
+                name: .sidebarSelectionChanged,
+                object: self,
+                userInfo: ["items": [] as [SidebarItem]]
+            )
             return
         }
 

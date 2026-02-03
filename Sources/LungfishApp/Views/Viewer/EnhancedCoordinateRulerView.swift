@@ -500,7 +500,7 @@ public class EnhancedCoordinateRulerView: NSView {
         // Draw minor ticks
         context.setLineWidth(0.5)
         var minorPos = (frame.start / minorTickInterval).rounded(.up) * minorTickInterval
-        while minorPos < frame.end {
+        while minorPos <= frame.end {
             // Skip positions that will have major ticks
             if minorPos.truncatingRemainder(dividingBy: tickInterval) != 0 {
                 let x = CGFloat((minorPos - frame.start) * Double(pixelsPerBase))
@@ -520,7 +520,7 @@ public class EnhancedCoordinateRulerView: NSView {
         context.setStrokeColor(NSColor.secondaryLabelColor.cgColor)
         context.setLineWidth(1)
         var majorPos = (frame.start / tickInterval).rounded(.up) * tickInterval
-        while majorPos < frame.end {
+        while majorPos <= frame.end {
             let x = CGFloat((majorPos - frame.start) * Double(pixelsPerBase))
 
             if x >= 0 && x <= bounds.width {

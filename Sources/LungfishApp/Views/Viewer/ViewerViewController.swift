@@ -162,8 +162,8 @@ public class ViewerViewController: NSViewController {
         let statusHeight: CGFloat = 24
 
         NSLayoutConstraint.activate([
-            // Enhanced ruler spans full width above content
-            enhancedRulerView.topAnchor.constraint(equalTo: containerView.topAnchor),
+            // Enhanced ruler spans full width above content, using safe area to avoid toolbar overlap
+            enhancedRulerView.topAnchor.constraint(equalTo: containerView.safeAreaLayoutGuide.topAnchor),
             enhancedRulerView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: headerWidth),
             enhancedRulerView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             enhancedRulerView.heightAnchor.constraint(equalToConstant: rulerHeight),
@@ -367,6 +367,39 @@ public class ViewerViewController: NSViewController {
         logger.info("hideProgress: Hiding progress overlay")
         progressOverlay.stopAnimating()
         progressOverlay.isHidden = true
+    }
+
+    /// Clears the viewer, removing all displayed sequences and annotations.
+    ///
+    /// Call this when the sidebar selection is cleared to show an empty viewer.
+    public func clearViewer() {
+        logger.info("clearViewer: Clearing viewer")
+        currentDocument = nil
+        referenceFrame = nil
+
+        // Clear the viewer view
+        viewerView.clearSequences()
+        viewerView.setAnnotations([])
+
+        // Clear header
+        headerView.setTrackNames([])
+        if let emptyState = viewerView.multiSequenceState {
+            emptyState.clear()
+        }
+        headerView.setStackedSequences([])
+
+        // Clear ruler
+        enhancedRulerView.referenceFrame = nil
+
+        // Update status bar
+        statusBar.update(position: "No sequence loaded", selection: nil, scale: 1.0)
+
+        // Trigger redraw
+        viewerView.needsDisplay = true
+        enhancedRulerView.needsDisplay = true
+        headerView.needsDisplay = true
+
+        logger.info("clearViewer: Viewer cleared")
     }
 
     // MARK: - Document Display
@@ -649,9 +682,6 @@ public class ViewerViewController: NSViewController {
 
         logger.info("handleFileDrop: Processing '\(firstURL.lastPathComponent, privacy: .public)'")
 
-        // Show progress immediately
-        showProgress("Loading \(firstURL.lastPathComponent)...")
-
         // Get the project/working directory to determine if file is internal or external
         let projectURL = DocumentManager.shared.activeProject?.url
         let workingURL = (NSApp.delegate as? AppDelegate)?.getWorkingDirectoryURL()
@@ -667,24 +697,32 @@ public class ViewerViewController: NSViewController {
 
         logger.info("handleFileDrop: isInternalFile=\(isInternalFile)")
 
-        Task.detached {
-            do {
-                let urlToLoad: URL
+        // Use DispatchQueue.main.async to exit the drag operation context first,
+        // then use Task to avoid deadlock with @MainActor DocumentManager
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
 
-                if isInternalFile {
-                    // File is already in project, load directly
-                    urlToLoad = firstURL
-                    logger.info("handleFileDrop: Loading internal file directly")
-                } else {
-                    // External file - copy to project downloads folder
-                    logger.info("handleFileDrop: External file, copying to project")
-                    urlToLoad = try await self.copyExternalFileToProject(firstURL, projectURL: projectURL, workingURL: workingURL)
-                }
+            // Show progress after exiting drag context
+            self.showProgress("Loading \(firstURL.lastPathComponent)...")
 
-                let document = try await DocumentManager.shared.loadDocument(at: urlToLoad)
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
 
-                await MainActor.run { [weak self] in
-                    guard let self = self else { return }
+                do {
+                    let urlToLoad: URL
+
+                    if isInternalFile {
+                        // File is already in project, load directly
+                        urlToLoad = firstURL
+                        logger.info("handleFileDrop: Loading internal file directly")
+                    } else {
+                        // External file - copy to project downloads folder
+                        logger.info("handleFileDrop: External file, copying to project")
+                        urlToLoad = try await self.copyExternalFileToProject(firstURL, projectURL: projectURL, workingURL: workingURL)
+                    }
+
+                    let document = try await DocumentManager.shared.loadDocument(at: urlToLoad)
+
                     self.hideProgress()
                     self.displayDocument(document)
 
@@ -693,12 +731,9 @@ public class ViewerViewController: NSViewController {
                        let sidebarController = appDelegate.mainWindowController?.mainSplitViewController?.sidebarController {
                         sidebarController.addLoadedDocument(document)
                     }
-                }
-            } catch {
-                logger.error("handleFileDrop: Load failed: \(error.localizedDescription, privacy: .public)")
+                } catch {
+                    logger.error("handleFileDrop: Load failed: \(error.localizedDescription, privacy: .public)")
 
-                await MainActor.run { [weak self] in
-                    guard let self = self else { return }
                     self.hideProgress()
                     let alert = NSAlert()
                     alert.messageText = "Failed to Open File"
@@ -855,7 +890,11 @@ public class SequenceViewerView: NSView {
     var showComplementStrand: Bool = false
 
     /// Whether to display as RNA (U instead of T)
-    var isRNAMode: Bool = false
+    var isRNAMode: Bool = false {
+        didSet {
+            needsDisplay = true
+        }
+    }
 
     // MARK: - Annotation Track Layout Constants
 
@@ -1105,18 +1144,15 @@ public class SequenceViewerView: NSView {
         let scale = frame.scale  // bp/pixel
 
         // Decide rendering mode based on zoom level (scale = bp/pixel)
-        // Three modes: BASE_MODE (< 10), BLOCK_MODE (10-500), LINE_MODE (> 500)
+        // Two modes: BASE_MODE (< 10 bp/pixel) and LINE_MODE (>= 10 bp/pixel)
+        // No intermediate "rainbow" block mode - it's visually noisy and uninformative
         if scale < showLettersThreshold {
             // High zoom (< 10 bp/pixel): show individual bases with letters
             // Colors: A=Green, T=Red, C=Blue, G=Orange, N=Gray
             drawBaseLevelSequence(seq, frame: frame, context: context)
-        } else if scale < showLineThreshold {
-            // Medium zoom (10-500 bp/pixel): show colored blocks for dominant base
-            // Each block represents multiple bases, colored by the most common base
-            drawBlockLevelSequence(seq, frame: frame, context: context)
         } else {
-            // Low zoom (> 500 bp/pixel): show simple gray line
-            // At this zoom level, colored blocks are uninformative visual noise
+            // Low zoom (>= 10 bp/pixel): show simple gray line
+            // Colored blocks are uninformative visual noise at this scale
             drawLineSequence(seq, frame: frame, context: context)
         }
 
@@ -1221,8 +1257,10 @@ public class SequenceViewerView: NSView {
             }
 
             // Calculate screen coordinates
-            let startX = CGFloat(interval.start - visibleStart) * pixelsPerBase
+            let rawStartX = CGFloat(interval.start - visibleStart) * pixelsPerBase
             let endX = CGFloat(interval.end - visibleStart) * pixelsPerBase
+            // Clamp startX to view bounds to prevent drawing into gutter/outside area
+            let startX = max(0, rawStartX)
             let width = max(2, endX - startX)
 
             // Find a row that doesn't overlap
@@ -1864,27 +1902,55 @@ public class SequenceViewerView: NSView {
 
         let location = convert(event.locationInWindow, from: nil)
 
-        // First, check if the click is on an annotation
-        if let annotation = annotationAtPoint(location) {
-            // Select the annotation
-            selectedAnnotation = annotation
-            postAnnotationSelectedNotification(annotation)
-
-            // Clear any sequence selection when selecting an annotation
-            selectionRange = nil
-            selectionStartBase = nil
-            isSelecting = false
-
-            setNeedsDisplay(bounds)
-            updateSelectionStatus()
-            return
+        // Check for annotation click - use multi-sequence aware method if applicable
+        if isMultiSequenceMode, let state = multiSequenceState {
+            // Multi-sequence mode: check each track for annotation click
+            for stackedInfo in state.stackedSequences {
+                if let annotation = annotationAtPoint(location, forSequence: stackedInfo, frame: frame) {
+                    selectedAnnotation = annotation
+                    postAnnotationSelectedNotification(annotation)
+                    selectionRange = nil
+                    selectionStartBase = nil
+                    isSelecting = false
+                    setNeedsDisplay(bounds)
+                    updateSelectionStatus()
+                    return
+                }
+            }
+        } else {
+            // Single-sequence mode: use original method
+            if let annotation = annotationAtPoint(location) {
+                selectedAnnotation = annotation
+                postAnnotationSelectedNotification(annotation)
+                selectionRange = nil
+                selectionStartBase = nil
+                isSelecting = false
+                setNeedsDisplay(bounds)
+                updateSelectionStatus()
+                return
+            }
         }
 
         // If click is in the annotation track area but not on an annotation, deselect
-        if location.y >= annotationTrackY && selectedAnnotation != nil {
-            selectedAnnotation = nil
-            postAnnotationSelectedNotification(nil)
-            setNeedsDisplay(bounds)
+        if selectedAnnotation != nil {
+            // In multi-sequence mode, check if clicking in any track's annotation area
+            var inAnnotationArea = false
+            if isMultiSequenceMode, let state = multiSequenceState {
+                for stackedInfo in state.stackedSequences {
+                    if isPointInAnnotationArea(location, forSequence: stackedInfo) {
+                        inAnnotationArea = true
+                        break
+                    }
+                }
+            } else {
+                inAnnotationArea = location.y >= annotationTrackY
+            }
+
+            if inAnnotationArea {
+                selectedAnnotation = nil
+                postAnnotationSelectedNotification(nil)
+                setNeedsDisplay(bounds)
+            }
         }
 
         // Continue with existing region selection behavior for sequence track
@@ -1925,10 +1991,23 @@ public class SequenceViewerView: NSView {
 
     /// Handles right-click/control-click to show contextual menu
     public override func rightMouseDown(with event: NSEvent) {
+        guard let frame = viewController?.referenceFrame else { return }
         let location = convert(event.locationInWindow, from: nil)
 
-        // Check if right-clicking on an annotation
-        if let annotation = annotationAtPoint(location) {
+        // Check if right-clicking on an annotation - use multi-sequence aware method if applicable
+        var clickedAnnotation: SequenceAnnotation?
+        if isMultiSequenceMode, let state = multiSequenceState {
+            for stackedInfo in state.stackedSequences {
+                if let annotation = annotationAtPoint(location, forSequence: stackedInfo, frame: frame) {
+                    clickedAnnotation = annotation
+                    break
+                }
+            }
+        } else {
+            clickedAnnotation = annotationAtPoint(location)
+        }
+
+        if let annotation = clickedAnnotation {
             // Select the annotation if not already selected
             if selectedAnnotation?.id != annotation.id {
                 selectedAnnotation = annotation

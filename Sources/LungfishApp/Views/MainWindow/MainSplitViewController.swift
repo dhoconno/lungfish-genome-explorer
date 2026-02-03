@@ -152,10 +152,30 @@ public class MainSplitViewController: NSSplitViewController {
             object: nil
         )
 
-        logger.debug("configureNotifications: Registered for sidebar and document notifications")
+        // Listen for show inspector requests (e.g., from edit annotation action)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleShowInspector(_:)),
+            name: NSNotification.Name("showInspector"),
+            object: nil
+        )
+
+        logger.debug("configureNotifications: Registered for sidebar, document, and inspector notifications")
+    }
+
+    @objc private func handleShowInspector(_ notification: Notification) {
+        logger.info("handleShowInspector: Showing inspector panel")
+        setInspectorVisible(true, animated: true)
     }
 
     @objc private func handleSidebarSelectionChanged(_ notification: Notification) {
+        // Check for empty selection (viewer should be cleared)
+        if let items = notification.userInfo?["items"] as? [SidebarItem], items.isEmpty {
+            logger.info("handleSidebarSelectionChanged: Selection cleared, clearing viewer")
+            viewerController.clearViewer()
+            return
+        }
+
         // Check for multi-selection first (new behavior)
         if let items = notification.userInfo?["items"] as? [SidebarItem], items.count > 1 {
             handleMultipleItemsSelected(items)

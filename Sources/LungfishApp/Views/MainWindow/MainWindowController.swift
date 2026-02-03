@@ -166,7 +166,9 @@ extension MainWindowController: NSToolbarDelegate {
             item.label = "Sidebar"
             item.paletteLabel = "Toggle Sidebar"
             item.toolTip = "Show or hide the sidebar (⌥⌘S)"
-            item.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Sidebar")
+            // Use sidebar.leading as primary, fall back to sidebar.left
+            item.image = NSImage(systemSymbolName: "sidebar.leading", accessibilityDescription: "Sidebar")
+                ?? NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Sidebar")
             item.action = #selector(toggleSidebar(_:))
             item.target = self
             return item
@@ -176,7 +178,10 @@ extension MainWindowController: NSToolbarDelegate {
             item.label = "Inspector"
             item.paletteLabel = "Toggle Inspector"
             item.toolTip = "Show or hide the inspector (⌥⌘I)"
-            item.image = NSImage(systemSymbolName: "sidebar.right", accessibilityDescription: "Inspector")
+            // Use sidebar.trailing as primary, fall back to sidebar.right, then info.circle
+            item.image = NSImage(systemSymbolName: "sidebar.trailing", accessibilityDescription: "Inspector")
+                ?? NSImage(systemSymbolName: "sidebar.right", accessibilityDescription: "Inspector")
+                ?? NSImage(systemSymbolName: "info.circle", accessibilityDescription: "Inspector")
             item.action = #selector(toggleInspector(_:))
             item.target = self
             return item

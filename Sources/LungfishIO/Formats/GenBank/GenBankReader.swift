@@ -188,8 +188,8 @@ public final class GenBankReader: Sendable {
                     definition = currentDefinition
                 }
                 currentSection = .features
-                // Parse the features table
-                let (parsedFeatures, nextIndex) = try parseFeatures(lines: lines, startIndex: lineIndex + 1)
+                // Parse the features table, passing locus name for per-sequence annotation filtering
+                let (parsedFeatures, nextIndex) = try parseFeatures(lines: lines, startIndex: lineIndex + 1, locusName: locus?.name)
                 features = parsedFeatures
                 lineIndex = nextIndex
                 continue
@@ -324,7 +324,7 @@ public final class GenBankReader: Sendable {
 
     // MARK: - Features Parsing
 
-    private func parseFeatures(lines: [String], startIndex: Int) throws -> ([SequenceAnnotation], Int) {
+    private func parseFeatures(lines: [String], startIndex: Int, locusName: String?) throws -> ([SequenceAnnotation], Int) {
         var features: [SequenceAnnotation] = []
         var lineIndex = startIndex
 
@@ -374,10 +374,11 @@ public final class GenBankReader: Sendable {
             // Map feature type string to AnnotationType
             let annotationType = mapFeatureType(featureType)
 
-            // Create annotation
+            // Create annotation with chromosome set to locus name for per-sequence filtering
             let annotation = SequenceAnnotation(
                 type: annotationType,
                 name: name,
+                chromosome: locusName,
                 intervals: intervals,
                 strand: strand,
                 qualifiers: qualifierDict,

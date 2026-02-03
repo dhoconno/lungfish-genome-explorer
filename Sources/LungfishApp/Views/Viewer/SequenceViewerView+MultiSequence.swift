@@ -19,16 +19,14 @@ private let renderLogger = Logger(subsystem: "com.lungfish.browser", category: "
 ///
 /// These thresholds define the rendering mode based on zoom level:
 /// - BASE_MODE: < 10 bp/pixel - Individual colored bases with letters
-/// - BLOCK_MODE: 10-500 bp/pixel - Colored blocks showing dominant base in region
-/// - LINE_MODE: > 500 bp/pixel - Simple gray horizontal line
+/// - LINE_MODE: >= 10 bp/pixel - Simple gray horizontal line
+///
+/// Per user feedback: sequences should show as a simple line until zoomed in
+/// enough to resolve individual bases. No intermediate "rainbow" block mode.
 private enum SequenceZoomThresholds {
     /// Below this threshold: show individual base letters with colors
     /// At this zoom level, bases are large enough to read
     static let baseMode: Double = 10.0
-
-    /// Above this threshold: switch from colored blocks to simple line
-    /// Beyond this zoom level, colored blocks become uninformative noise
-    static let lineMode: Double = 500.0
 }
 
 // MARK: - Rendering Mode
@@ -39,20 +37,14 @@ private enum SequenceRenderingMode {
     /// Used when zoom < 10 bp/pixel
     case bases
 
-    /// Colored blocks showing dominant base in each pixel region
-    /// Used when zoom is 10-500 bp/pixel
-    case blocks
-
     /// Simple gray horizontal line showing sequence extent
-    /// Used when zoom > 500 bp/pixel
+    /// Used when zoom >= 10 bp/pixel
     case line
 
     /// Determines the rendering mode for a given bases-per-pixel scale
     static func forScale(_ basesPerPixel: Double) -> SequenceRenderingMode {
         if basesPerPixel < SequenceZoomThresholds.baseMode {
             return .bases
-        } else if basesPerPixel < SequenceZoomThresholds.lineMode {
-            return .blocks
         } else {
             return .line
         }
@@ -217,18 +209,8 @@ extension SequenceViewerView {
                 alignmentOffset: stackedInfo.alignmentOffset
             )
 
-        case .blocks:
-            // Medium zoom (10-500 bp/pixel): show colored blocks
-            drawBlockLevelSequenceInTrack(
-                seq: seq,
-                frame: frame,
-                context: context,
-                rect: sequenceRect,
-                alignmentOffset: stackedInfo.alignmentOffset
-            )
-
         case .line:
-            // Low zoom (> 500 bp/pixel): show simple gray line
+            // Low zoom (>= 10 bp/pixel): show simple gray line
             drawLineSequenceInTrack(
                 seq: seq,
                 frame: frame,
@@ -473,8 +455,10 @@ extension SequenceViewerView {
             }
 
             // Calculate screen coordinates
-            let startX = CGFloat(interval.start - visibleStart) * pixelsPerBase
+            let rawStartX = CGFloat(interval.start - visibleStart) * pixelsPerBase
             let endX = CGFloat(interval.end - visibleStart) * pixelsPerBase
+            // Clamp startX to view bounds to prevent drawing into gutter/outside area
+            let startX = max(0, rawStartX)
             let width = max(AnnotationTrackLayout.minimumFeatureWidth, endX - startX)
 
             // Find a row that doesn't overlap
