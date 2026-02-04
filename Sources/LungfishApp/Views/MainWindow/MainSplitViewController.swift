@@ -9,6 +9,12 @@ import os.log
 /// Logger for main split view operations
 private let logger = Logger(subsystem: "com.lungfish.browser", category: "MainSplitViewController")
 
+/// Options for handling duplicate files during import
+enum DuplicateResolution {
+    case replace    // Replace the existing file
+    case keepBoth   // Keep both files (rename the new one)
+    case skip       // Skip importing, use existing file
+}
 
 /// The main split view controller managing sidebar, viewer, and inspector panels.
 ///
@@ -171,7 +177,16 @@ public class MainSplitViewController: NSSplitViewController {
             object: nil
         )
 
-        logger.debug("configureNotifications: Registered for sidebar, document, and inspector notifications")
+        // Listen for file drops on the sidebar
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleSidebarFileDropped(_:)),
+            name: .sidebarFileDropped,
+            object: nil
+        )
+
+        logger.info("configureNotifications: Registered for sidebar, document, file drop, and inspector notifications")
+        logger.info("configureNotifications: sidebarFileDropped observer registered for name '\(Notification.Name.sidebarFileDropped.rawValue)'")
     }
 
     @objc private func handleShowInspector(_ notification: Notification) {
@@ -394,9 +409,23 @@ public class MainSplitViewController: NSSplitViewController {
             return
         }
 
-        logger.info("handleDocumentLoaded: Document '\(document.name, privacy: .public)' was loaded, updating sidebar")
+        logger.info("handleDocumentLoaded: Document '\(document.name, privacy: .public)' was loaded")
 
-        // Update the sidebar with the new document
+        // With the filesystem-backed sidebar model:
+        // - Files inside the project are shown via FileSystemWatcher (no manual add needed)
+        // - Files outside the project can optionally be shown in "Open Documents"
+        // For now, only add to sidebar if NOT inside the current project
+        if let projectURL = sidebarController.currentProjectURL {
+            let docPath = document.url.standardizedFileURL.path
+            let projectPath = projectURL.standardizedFileURL.path
+            if docPath.hasPrefix(projectPath) {
+                // File is inside project - FileSystemWatcher will handle sidebar refresh
+                logger.debug("handleDocumentLoaded: File is inside project, sidebar updated via FileSystemWatcher")
+                return
+            }
+        }
+        
+        // File is outside project - add to "Open Documents" section (legacy behavior)
         sidebarController.addLoadedDocument(document)
     }
 
@@ -408,15 +437,12 @@ public class MainSplitViewController: NSSplitViewController {
 
         logger.info("handleProjectOpened: Project '\(project.name, privacy: .public)' was opened")
 
-        // Add all loaded documents from the project to the sidebar
-        let documents = DocumentManager.shared.documents
-        logger.info("handleProjectOpened: Adding \(documents.count) documents to sidebar")
-
-        for document in documents {
-            sidebarController.addLoadedDocument(document)
-        }
+        // Use the new filesystem-backed sidebar model
+        // This will scan the project directory and set up file watching
+        sidebarController.openProject(at: project.url)
 
         // Display the first document if available, otherwise show empty state
+        let documents = DocumentManager.shared.documents
         if let firstDoc = documents.first {
             viewerController?.hideProgress()
             viewerController?.displayDocument(firstDoc)
@@ -426,6 +452,159 @@ public class MainSplitViewController: NSSplitViewController {
             viewerController?.showNoSequenceSelected()
             logger.info("handleProjectOpened: Empty project, showing 'No sequence selected' state")
         }
+    }
+
+    @objc private func handleSidebarFileDropped(_ notification: Notification) {
+        logger.info("handleSidebarFileDropped: Notification received!")
+        logger.info("handleSidebarFileDropped: userInfo = \(String(describing: notification.userInfo))")
+        
+        guard let url = notification.userInfo?["url"] as? URL else {
+            logger.warning("handleSidebarFileDropped: No URL in notification userInfo")
+            return
+        }
+
+        logger.info("handleSidebarFileDropped: Processing dropped file '\(url.lastPathComponent, privacy: .public)' at path '\(url.path, privacy: .public)'")
+
+        // Determine destination - use the new filesystem-backed project URL
+        let destinationItem = notification.userInfo?["destination"] as? SidebarItem
+        var urlToLoad = url
+
+        // Get project URL from either the sidebar (new model) or DocumentManager (legacy)
+        let projectURL = sidebarController.currentProjectURL ?? DocumentManager.shared.activeProject?.url
+        
+        // If we have an active project, copy the file there
+        if let projectURL = projectURL {
+            // Determine the target directory based on the destination item
+            let targetDir: URL
+            if let destItem = destinationItem, destItem.type == .folder, let folderURL = destItem.url {
+                // Drop onto a folder - use that folder
+                targetDir = folderURL
+            } else {
+                // Drop onto project root or no specific destination - use project root
+                targetDir = projectURL
+            }
+
+            // Create target directory if needed
+            let fileManager = FileManager.default
+            if !fileManager.fileExists(atPath: targetDir.path) {
+                do {
+                    try fileManager.createDirectory(at: targetDir, withIntermediateDirectories: true)
+                    logger.debug("handleSidebarFileDropped: Created target directory: \(targetDir.path, privacy: .public)")
+                } catch {
+                    logger.error("handleSidebarFileDropped: Failed to create target directory: \(error.localizedDescription, privacy: .public)")
+                }
+            }
+
+            // Copy file to project
+            let destinationURL = targetDir.appendingPathComponent(url.lastPathComponent)
+            if !fileManager.fileExists(atPath: destinationURL.path) {
+                do {
+                    try fileManager.copyItem(at: url, to: destinationURL)
+                    urlToLoad = destinationURL
+                    logger.info("handleSidebarFileDropped: Copied file to project at \(destinationURL.path, privacy: .public)")
+                    // Explicitly refresh sidebar since DispatchSource may not detect all changes
+                    sidebarController.reloadFromFilesystem()
+                } catch {
+                    logger.error("handleSidebarFileDropped: Failed to copy file: \(error.localizedDescription, privacy: .public)")
+                    // Continue with original URL
+                }
+            } else {
+                // File already exists - prompt user for action
+                logger.info("handleSidebarFileDropped: File '\(url.lastPathComponent, privacy: .public)' already exists, prompting user")
+                
+                let resolution = showDuplicateFileDialog(filename: url.lastPathComponent)
+                switch resolution {
+                case .replace:
+                    // Replace existing file
+                    do {
+                        try fileManager.removeItem(at: destinationURL)
+                        try fileManager.copyItem(at: url, to: destinationURL)
+                        urlToLoad = destinationURL
+                        logger.info("handleSidebarFileDropped: Replaced existing file")
+                        sidebarController.reloadFromFilesystem()
+                    } catch {
+                        logger.error("handleSidebarFileDropped: Failed to replace file: \(error.localizedDescription, privacy: .public)")
+                    }
+                case .keepBoth:
+                    // Generate unique name and copy
+                    let uniqueURL = generateUniqueFilename(for: url, in: targetDir)
+                    do {
+                        try fileManager.copyItem(at: url, to: uniqueURL)
+                        urlToLoad = uniqueURL
+                        logger.info("handleSidebarFileDropped: Created copy with unique name: \(uniqueURL.lastPathComponent, privacy: .public)")
+                        sidebarController.reloadFromFilesystem()
+                    } catch {
+                        logger.error("handleSidebarFileDropped: Failed to copy with unique name: \(error.localizedDescription, privacy: .public)")
+                    }
+                case .skip:
+                    // Use existing file
+                    urlToLoad = destinationURL
+                    logger.info("handleSidebarFileDropped: Using existing file")
+                }
+            }
+        }
+        
+        // Load the document and display it
+        Task { @MainActor in
+            viewerController.showProgress("Loading \(urlToLoad.lastPathComponent)...")
+            do {
+                let document = try await DocumentManager.shared.loadDocument(at: urlToLoad)
+                viewerController.hideProgress()
+                viewerController.displayDocument(document)
+                // Note: Sidebar is now filesystem-backed, so FileSystemWatcher will refresh it
+                // when the file is copied. No manual sidebar update needed.
+                logger.info("handleSidebarFileDropped: Successfully loaded and displayed '\(document.name, privacy: .public)'")
+            } catch {
+                viewerController.hideProgress()
+                logger.error("handleSidebarFileDropped: Failed to load file: \(error.localizedDescription, privacy: .public)")
+                let alert = NSAlert()
+                alert.messageText = "Failed to Open File"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
+            }
+        }
+    }
+
+    // MARK: - Duplicate File Handling
+
+    /// Shows a dialog asking the user how to handle a duplicate file
+    private func showDuplicateFileDialog(filename: String) -> DuplicateResolution {
+        let alert = NSAlert()
+        alert.messageText = "File Already Exists"
+        alert.informativeText = "A file named \"\(filename)\" already exists in this location. What would you like to do?"
+        alert.alertStyle = .warning
+        
+        alert.addButton(withTitle: "Replace")    // First button = index 1000
+        alert.addButton(withTitle: "Keep Both")  // Second button = index 1001
+        alert.addButton(withTitle: "Skip")       // Third button = index 1002
+        
+        let response = alert.runModal()
+        
+        switch response {
+        case .alertFirstButtonReturn:  // Replace
+            return .replace
+        case .alertSecondButtonReturn: // Keep Both
+            return .keepBoth
+        default:                       // Skip or Cancel
+            return .skip
+        }
+    }
+
+    /// Generates a unique filename by appending a number suffix
+    private func generateUniqueFilename(for sourceURL: URL, in targetDir: URL) -> URL {
+        let baseName = sourceURL.deletingPathExtension().lastPathComponent
+        let ext = sourceURL.pathExtension
+        var counter = 1
+        var newURL = targetDir.appendingPathComponent("\(baseName) 2.\(ext)")
+        
+        while FileManager.default.fileExists(atPath: newURL.path) {
+            counter += 1
+            newURL = targetDir.appendingPathComponent("\(baseName) \(counter + 1).\(ext)")
+        }
+        
+        return newURL
     }
 
     // MARK: - Panel State
