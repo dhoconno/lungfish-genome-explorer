@@ -85,8 +85,31 @@ public final class ProjectStore {
             withIntermediateDirectories: true
         )
 
-        // Open database
-        let dbPath = url.appendingPathComponent("project.db").path
+        // Migrate from old project.db to hidden .project.db if needed
+        let legacyDBPath = url.appendingPathComponent("project.db")
+        let hiddenDBPath = url.appendingPathComponent(".project.db")
+        
+        if FileManager.default.fileExists(atPath: legacyDBPath.path) &&
+           !FileManager.default.fileExists(atPath: hiddenDBPath.path) {
+            do {
+                try FileManager.default.moveItem(at: legacyDBPath, to: hiddenDBPath)
+                Self.logger.info("ProjectStore: Migrated project.db to .project.db")
+            } catch {
+                Self.logger.warning("ProjectStore: Failed to migrate database: \(error.localizedDescription, privacy: .public)")
+                // Fall back to legacy path if migration fails
+            }
+        }
+
+        // Open database (prefer hidden, fall back to legacy)
+        let dbPath: String
+        if FileManager.default.fileExists(atPath: hiddenDBPath.path) {
+            dbPath = hiddenDBPath.path
+        } else if FileManager.default.fileExists(atPath: legacyDBPath.path) {
+            dbPath = legacyDBPath.path
+        } else {
+            // New project - use hidden path
+            dbPath = hiddenDBPath.path
+        }
 
         var dbPointer: OpaquePointer?
         let result = sqlite3_open_v2(

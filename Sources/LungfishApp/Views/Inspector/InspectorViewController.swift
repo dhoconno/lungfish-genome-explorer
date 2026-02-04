@@ -563,6 +563,9 @@ extension SidebarItemType: CustomStringConvertible {
         case .alignment: return "Alignment"
         case .coverage: return "Coverage"
         case .project: return "Project"
+        case .document: return "Document"
+        case .image: return "Image"
+        case .unknown: return "File"
         }
     }
 }

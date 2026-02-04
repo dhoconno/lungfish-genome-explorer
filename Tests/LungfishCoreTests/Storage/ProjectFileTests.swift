@@ -47,7 +47,7 @@ final class ProjectFileTests: XCTestCase {
         let projectDir = projectURL.appendingPathExtension("lungfish")
         XCTAssertTrue(FileManager.default.fileExists(atPath: projectDir.path))
         XCTAssertTrue(FileManager.default.fileExists(
-            atPath: projectDir.appendingPathComponent("project.db").path
+            atPath: projectDir.appendingPathComponent(".project.db").path
         ))
         XCTAssertTrue(FileManager.default.fileExists(
             atPath: projectDir.appendingPathComponent("metadata.json").path

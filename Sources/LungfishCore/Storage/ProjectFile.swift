@@ -12,24 +12,28 @@ import os.log
 /// Represents a Lungfish project file (.lungfish).
 ///
 /// A .lungfish project is a directory bundle containing:
-/// - `project.db` - SQLite database with sequences, versions, annotations
+/// - `.project.db` - Hidden SQLite database with sequences, versions, annotations
 /// - `metadata.json` - Project-level metadata
-/// - `sequences/` - Optional raw sequence files (for large sequences)
-/// - `cache/` - Cached data (track tiles, indices)
+/// - `sequences/` - Sequence files (FASTA, GenBank, etc.)
+/// - `annotations/` - Annotation files (GFF3, BED, VCF)
+/// - `downloads/` - Files downloaded from NCBI/ENA
+/// - User-created folders
 ///
 /// ## File Format
 ///
 /// The project directory structure:
 /// ```
 /// MyProject.lungfish/
-/// ├── project.db          # SQLite database (primary storage)
+/// ├── .project.db         # Hidden SQLite database (edit tracking, versioning)
 /// ├── metadata.json       # Project metadata
-/// ├── sequences/          # Raw sequence storage (for large files)
-/// │   └── {uuid}.seq      # Memory-mapped sequence data
-/// ├── indices/            # Search indices
-/// │   └── {uuid}.fai      # FASTA index files
-/// └── cache/              # Cached data
-///     └── tiles/          # Rendered track tiles
+/// ├── sequences/          # User's sequence files
+/// │   ├── chr1.fasta
+/// │   └── chr2.fasta
+/// ├── annotations/        # Annotation files
+/// │   ├── genes.gff3
+/// │   └── variants.vcf
+/// └── downloads/          # Downloaded files
+///     └── NC_000001.gb
 /// ```
 ///
 /// ## Example

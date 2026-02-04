@@ -599,40 +599,49 @@ public class SidebarViewController: NSViewController {
         }
 
         switch ext {
+        // Genomics sequence formats
         case "fasta", "fa", "fna", "ffn", "faa", "frn", "fas":
             return (.sequence, "doc.text")
         case "fastq", "fq":
             return (.sequence, "doc.text")
         case "gb", "gbk", "genbank":
             return (.sequence, "doc.richtext")
+        // Genomics annotation formats
         case "gff", "gff3", "gtf":
             return (.annotation, "list.bullet.rectangle")
         case "bed":
             return (.annotation, "list.bullet.rectangle")
         case "vcf":
             return (.annotation, "chart.bar.xaxis")
+        // Alignment formats
         case "bam", "sam", "cram":
             return (.alignment, "chart.bar")
+        // Document formats (QuickLook preview)
+        case "pdf":
+            return (.document, "doc.richtext")
+        case "txt", "text", "md", "markdown", "rtf", "rtfd":
+            return (.document, "doc.plaintext")
+        case "csv", "tsv":
+            return (.document, "tablecells")
+        // Image formats (QuickLook preview)
+        case "png", "jpg", "jpeg", "gif", "tiff", "tif", "bmp", "svg", "heic", "heif", "webp":
+            return (.image, "photo")
         default:
-            return (.sequence, "doc")
+            // Unknown file type - still allow import, will use QuickLook
+            return (.unknown, "doc.questionmark")
         }
     }
 
     /// Checks if a file extension is supported.
+    /// Note: Now allows all file types since non-genomics files use QuickLook preview.
     private func isSupportedFileExtension(_ ext: String) -> Bool {
-        let supported = [
-            // Sequence formats
-            "fasta", "fa", "fna", "ffn", "faa", "frn", "fas",
-            "fastq", "fq",
-            "gb", "gbk", "genbank",
-            // Annotation formats
-            "gff", "gff3", "gtf", "bed", "vcf",
-            // Alignment formats
-            "bam", "sam", "cram",
-            // Compressed
-            "gz"
-        ]
-        return supported.contains(ext)
+        // Hidden files are not supported
+        if ext.isEmpty {
+            return false
+        }
+        // All file types are supported - genomics files get native viewer,
+        // other files get QuickLook preview
+        return true
     }
 
     /// Counts the total number of items in a tree.
@@ -1726,6 +1735,9 @@ public enum SidebarItemType {
     case alignment
     case coverage
     case project
+    case document  // PDFs, text files, etc. - uses QuickLook preview
+    case image     // Image files - uses QuickLook preview
+    case unknown   // Unknown file type - uses QuickLook preview
 
     var tintColor: NSColor {
         switch self {
@@ -1736,6 +1748,19 @@ public enum SidebarItemType {
         case .alignment: return .systemPurple
         case .coverage: return .systemTeal
         case .project: return .systemGray
+        case .document: return .systemBrown
+        case .image: return .systemPink
+        case .unknown: return .tertiaryLabelColor
+        }
+    }
+    
+    /// Whether this item type should use QuickLook for preview
+    var usesQuickLook: Bool {
+        switch self {
+        case .document, .image, .unknown:
+            return true
+        default:
+            return false
         }
     }
 }

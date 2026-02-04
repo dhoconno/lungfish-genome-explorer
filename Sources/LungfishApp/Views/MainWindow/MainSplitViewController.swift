@@ -24,6 +24,8 @@ enum DuplicateResolution {
 /// |  Sidebar   |         Viewer             | Inspector|
 /// |  (toggle)  |    (always visible)        | (toggle) |
 /// +------------+----------------------------+----------+
+/// |            Activity Indicator Bar                   |
+/// +-----------------------------------------------------+
 /// ```
 @MainActor
 public class MainSplitViewController: NSSplitViewController {
@@ -38,6 +40,9 @@ public class MainSplitViewController: NSSplitViewController {
 
     /// The inspector panel (selection details)
     public private(set) var inspectorController: InspectorViewController!
+
+    /// The shared activity indicator for showing progress across the app
+    public private(set) var activityIndicator: ActivityIndicatorView!
 
     // MARK: - Split View Items
 
@@ -71,6 +76,7 @@ public class MainSplitViewController: NSSplitViewController {
         logger.info("viewDidLoad: MainSplitViewController loading")
         configureSplitView()
         configureChildControllers()
+        configureActivityIndicator()
         configureKeyboardShortcuts()
         configureNotifications()
         restorePanelState()
@@ -92,6 +98,20 @@ public class MainSplitViewController: NSSplitViewController {
 
         // Autosave configuration
         splitView.autosaveName = "MainSplitView"
+    }
+
+    private func configureActivityIndicator() {
+        // Create and add the activity indicator at the bottom of the view
+        activityIndicator = ActivityIndicatorView()
+        view.addSubview(activityIndicator)
+
+        NSLayoutConstraint.activate([
+            activityIndicator.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            activityIndicator.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            activityIndicator.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+
+        logger.info("configureActivityIndicator: Activity indicator configured")
     }
 
     private func configureChildControllers() {
@@ -219,6 +239,13 @@ public class MainSplitViewController: NSSplitViewController {
         // Skip folder/project items - they don't have displayable content
         if item.type == .folder || item.type == .project || item.type == .group {
             logger.debug("handleSidebarSelectionChanged: Skipping container item type")
+            return
+        }
+        
+        // Check if this is a QuickLook-previewed file type (document, image, unknown)
+        if item.type.usesQuickLook, let url = item.url {
+            logger.info("handleSidebarSelectionChanged: Using QuickLook preview for '\(item.title, privacy: .public)'")
+            viewerController.displayQuickLookPreview(url: url)
             return
         }
 

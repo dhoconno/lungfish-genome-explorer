@@ -183,45 +183,13 @@ public final class MainMenu {
 
         fileMenu.addItem(.separator())
 
-        // Import submenu
-        let importItem = NSMenuItem(title: "Import", action: nil, keyEquivalent: "")
-        let importMenu = NSMenu(title: "Import")
-
-        importMenu.addItem(
-            withTitle: "FASTA Sequences...",
-            action: #selector(FileMenuActions.importFASTA(_:)),
-            keyEquivalent: ""
+        // Import - single unified option with auto-detection
+        let importItem = fileMenu.addItem(
+            withTitle: "Import Files...",
+            action: #selector(FileMenuActions.importFiles(_:)),
+            keyEquivalent: "i"
         )
-        importMenu.addItem(
-            withTitle: "FASTQ Reads...",
-            action: #selector(FileMenuActions.importFASTQ(_:)),
-            keyEquivalent: ""
-        )
-        importMenu.addItem(
-            withTitle: "GenBank File...",
-            action: #selector(FileMenuActions.importGenBank(_:)),
-            keyEquivalent: ""
-        )
-        importMenu.addItem(.separator())
-        importMenu.addItem(
-            withTitle: "GFF3 Annotations...",
-            action: #selector(FileMenuActions.importGFF3(_:)),
-            keyEquivalent: ""
-        )
-        importMenu.addItem(
-            withTitle: "BED Annotations...",
-            action: #selector(FileMenuActions.importBED(_:)),
-            keyEquivalent: ""
-        )
-        importMenu.addItem(.separator())
-        importMenu.addItem(
-            withTitle: "BAM/CRAM Alignments...",
-            action: #selector(FileMenuActions.importBAM(_:)),
-            keyEquivalent: ""
-        )
-
-        importItem.submenu = importMenu
-        fileMenu.addItem(importItem)
+        importItem.keyEquivalentModifierMask = [.command, .shift]
 
         // Export submenu
         let exportItem = NSMenuItem(title: "Export", action: nil, keyEquivalent: "")
@@ -692,12 +660,8 @@ public final class MainMenu {
 /// File menu action handlers.
 @MainActor
 @objc protocol FileMenuActions {
-    func importFASTA(_ sender: Any?)
-    func importFASTQ(_ sender: Any?)
-    func importGenBank(_ sender: Any?)
-    func importGFF3(_ sender: Any?)
-    func importBED(_ sender: Any?)
-    func importBAM(_ sender: Any?)
+    /// Unified import with format auto-detection
+    func importFiles(_ sender: Any?)
     func exportFASTA(_ sender: Any?)
     func exportGenBank(_ sender: Any?)
     func exportGFF3(_ sender: Any?)

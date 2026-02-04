@@ -71,8 +71,18 @@ public enum DocumentType: String, CaseIterable, Sendable {
     }
 
     /// Detect document type from file extension.
+    /// Handles gzip-compressed files (e.g., .fasta.gz, .fastq.gz)
     public static func detect(from url: URL) -> DocumentType? {
-        let ext = url.pathExtension.lowercased()
+        var ext = url.pathExtension.lowercased()
+        var urlToCheck = url
+        
+        // Handle gzip-compressed files: strip .gz and check the underlying extension
+        if ext == "gz" {
+            urlToCheck = url.deletingPathExtension()
+            ext = urlToCheck.pathExtension.lowercased()
+            logger.debug("DocumentType.detect: Stripped .gz, checking extension='\(ext, privacy: .public)'")
+        }
+        
         let detected = DocumentType.allCases.first { $0.extensions.contains(ext) }
         logger.debug("DocumentType.detect: extension='\(ext, privacy: .public)' -> \(detected?.rawValue ?? "nil", privacy: .public)")
         return detected

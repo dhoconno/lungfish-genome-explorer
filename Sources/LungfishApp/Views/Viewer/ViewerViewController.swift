@@ -6,6 +6,7 @@ import AppKit
 import SwiftUI
 import LungfishCore
 import UniformTypeIdentifiers
+import Quartz  // For QLPreviewView
 import os.log
 
 // MARK: - Logging
@@ -75,6 +76,12 @@ public class ViewerViewController: NSViewController {
 
     /// Progress indicator overlay
     private var progressOverlay: ProgressOverlayView!
+    
+    /// QuickLook preview view for non-genomics files (PDF, images, etc.)
+    private var quickLookView: QLPreviewView?
+    
+    /// URL currently being previewed with QuickLook
+    private var quickLookURL: URL?
 
     // MARK: - State
 
@@ -204,16 +211,11 @@ public class ViewerViewController: NSViewController {
         // Set background color
         view.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
 
-        // Create initial reference frame with a reasonable default width
-        // (bounds may not be set yet at this point)
-        let initialWidth = max(800, Int(view.bounds.width))
-        referenceFrame = ReferenceFrame(
-            chromosome: "chr1",
-            start: 0,
-            end: 10000,
-            pixelWidth: initialWidth
-        )
-        logger.debug("viewDidLoad: Created initial referenceFrame with width=\(initialWidth)")
+        // Don't create a default reference frame - start with nil
+        // The reference frame will be created when a sequence is actually loaded
+        // This ensures the viewer shows "No sequence selected" for empty projects
+        referenceFrame = nil
+        logger.debug("viewDidLoad: Starting with nil referenceFrame (empty state)")
 
         // Set up accessibility
         setupAccessibility()
@@ -448,6 +450,9 @@ public class ViewerViewController: NSViewController {
     /// Displays a loaded document in the viewer.
     public func displayDocument(_ document: LoadedDocument) {
         logger.info("displayDocument: Starting to display '\(document.name, privacy: .public)'")
+        
+        // Hide any QuickLook preview when showing a genomics document
+        hideQuickLookPreview()
         logger.info("displayDocument: Document has \(document.sequences.count) sequences, \(document.annotations.count) annotations")
 
         currentDocument = document
@@ -512,6 +517,83 @@ public class ViewerViewController: NSViewController {
         }
 
         logger.info("displayDocument: Completed displaying document")
+    }
+    
+    /// Displays a file using QuickLook preview (for non-genomics files like PDF, images, etc.)
+    ///
+    /// This method creates a QLPreviewView to display files that Lungfish can't natively render,
+    /// such as PDFs, images, and text documents. The QuickLook view replaces the sequence viewer
+    /// while the file is being previewed.
+    ///
+    /// - Parameter url: The URL of the file to preview
+    public func displayQuickLookPreview(url: URL) {
+        logger.info("displayQuickLookPreview: Starting preview for '\(url.lastPathComponent, privacy: .public)'")
+        
+        // Hide the genomics viewer components
+        hideGenomicsViewer()
+        
+        // Remove any existing QuickLook view
+        quickLookView?.removeFromSuperview()
+        
+        // Create a new QuickLook preview view
+        let previewView = QLPreviewView(frame: .zero, style: .normal)
+        previewView?.translatesAutoresizingMaskIntoConstraints = false
+        previewView?.autostarts = true
+        
+        guard let preview = previewView else {
+            logger.error("displayQuickLookPreview: Failed to create QLPreviewView")
+            showNoSequenceSelected()
+            return
+        }
+        
+        // Add to the container view
+        view.addSubview(preview)
+        
+        // Position below the ruler, above the status bar
+        NSLayoutConstraint.activate([
+            preview.topAnchor.constraint(equalTo: enhancedRulerView.bottomAnchor),
+            preview.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            preview.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            preview.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+        ])
+        
+        // Set the preview item
+        preview.previewItem = url as QLPreviewItem
+        
+        quickLookView = preview
+        quickLookURL = url
+        
+        // Update status bar
+        statusBar.positionLabel.stringValue = "Previewing: \(url.lastPathComponent)"
+        statusBar.selectionLabel.stringValue = ""
+        
+        logger.info("displayQuickLookPreview: Preview displayed successfully")
+    }
+    
+    /// Hides the QuickLook preview and shows the genomics viewer
+    public func hideQuickLookPreview() {
+        guard quickLookView != nil else { return }
+        
+        logger.info("hideQuickLookPreview: Removing QuickLook preview")
+        
+        quickLookView?.removeFromSuperview()
+        quickLookView = nil
+        quickLookURL = nil
+        
+        // Show the genomics viewer components
+        showGenomicsViewer()
+    }
+    
+    /// Hides the genomics viewer components (for QuickLook preview)
+    private func hideGenomicsViewer() {
+        viewerView.isHidden = true
+        headerView.isHidden = true
+    }
+    
+    /// Shows the genomics viewer components (after QuickLook preview)
+    private func showGenomicsViewer() {
+        viewerView.isHidden = false
+        headerView.isHidden = false
     }
 
     /// Displays multiple loaded documents in the viewer with stacked sequences.
@@ -852,10 +934,22 @@ public class ViewerViewController: NSViewController {
                     self.hideProgress()
                     self.displayDocument(document)
 
-                    // Add to sidebar if we have access to it
+                    // With filesystem-backed sidebar: if file is inside project, watcher handles refresh
+                    // Otherwise add to "Open Documents" section
                     if let appDelegate = NSApp.delegate as? AppDelegate,
                        let sidebarController = appDelegate.mainWindowController?.mainSplitViewController?.sidebarController {
-                        sidebarController.addLoadedDocument(document)
+                        if let projectURL = sidebarController.currentProjectURL {
+                            let docPath = document.url.standardizedFileURL.path
+                            let projectPath = projectURL.standardizedFileURL.path
+                            if !docPath.hasPrefix(projectPath) {
+                                // File is outside project - add to sidebar
+                                sidebarController.addLoadedDocument(document)
+                            }
+                            // Else: File is inside project, FileSystemWatcher handles it
+                        } else {
+                            // No project open - add to sidebar
+                            sidebarController.addLoadedDocument(document)
+                        }
                     }
                 } catch {
                     logger.error("handleFileDrop: Load failed: \(error.localizedDescription, privacy: .public)")

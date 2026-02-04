@@ -333,10 +333,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         welcomeWindowController?.close()
         welcomeWindowController = nil
 
-        // Load the project/folder contents using new three-phase flow
-        // NOTE: Don't call addProjectFolder here - loadProjectFolderAsync handles it
-        // to avoid duplicate sidebar nodes
-        loadProjectFolderAsync(projectURL)
+        // Use the new filesystem-backed sidebar model via DocumentManager
+        // This posts projectOpenedNotification which triggers sidebarController.openProject(at:)
+        // The FileSystemWatcher will automatically refresh the sidebar when files change
+        do {
+            let _ = try DocumentManager.shared.openProject(at: projectURL)
+            debugLog("showMainWindowWithProject: Opened project via DocumentManager")
+        } catch {
+            debugLog("showMainWindowWithProject: Failed to open project: \(error.localizedDescription)")
+            // Fall back to just showing the sidebar with filesystem view
+            mainWindowController?.mainSplitViewController?.sidebarController.openProject(at: projectURL)
+        }
     }
 
     private func showMainWindowWithoutProject() {
@@ -710,11 +717,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             // Set as working directory
             self.workingDirectoryURL = url
 
-            // Add to sidebar and load asynchronously
-            let sidebarController = self.mainWindowController?.mainSplitViewController?.sidebarController
-            sidebarController?.addProjectFolder(url, documents: [])
-
-            self.loadProjectFolderAsync(url)
+            // Use the new filesystem-backed sidebar model
+            // This automatically scans the directory and sets up FileSystemWatcher
+            do {
+                let _ = try DocumentManager.shared.openProject(at: url)
+                debugLog("openProjectFolder: Opened project via DocumentManager")
+            } catch {
+                debugLog("openProjectFolder: Failed to open project: \(error.localizedDescription)")
+                // Fall back to just showing the sidebar with filesystem view
+                let sidebarController = self.mainWindowController?.mainSplitViewController?.sidebarController
+                sidebarController?.openProject(at: url)
+            }
         }
     }
 
@@ -725,64 +738,116 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     // MARK: - FileMenuActions
 
-    @objc func importFASTA(_ sender: Any?) {
-        showImportPanel(
-            title: "Import FASTA Sequences",
-            types: [
-                UTType(filenameExtension: "fa")!,
-                UTType(filenameExtension: "fasta")!,
-                UTType(filenameExtension: "fna")!,
-            ]
-        )
-    }
-
-    @objc func importFASTQ(_ sender: Any?) {
-        showImportPanel(
-            title: "Import FASTQ Reads",
-            types: [
-                UTType(filenameExtension: "fq")!,
-                UTType(filenameExtension: "fastq")!,
-            ]
-        )
-    }
-
-    @objc func importGenBank(_ sender: Any?) {
-        showImportPanel(
-            title: "Import GenBank File",
-            types: [
-                UTType(filenameExtension: "gb")!,
-                UTType(filenameExtension: "gbk")!,
-            ]
-        )
-    }
-
-    @objc func importGFF3(_ sender: Any?) {
-        showImportPanel(
-            title: "Import GFF3 Annotations",
-            types: [
-                UTType(filenameExtension: "gff")!,
-                UTType(filenameExtension: "gff3")!,
-            ]
-        )
-    }
-
-    @objc func importBED(_ sender: Any?) {
-        showImportPanel(
-            title: "Import BED Annotations",
-            types: [
-                UTType(filenameExtension: "bed")!,
-            ]
-        )
-    }
-
-    @objc func importBAM(_ sender: Any?) {
-        showImportPanel(
-            title: "Import BAM/CRAM Alignments",
-            types: [
-                UTType(filenameExtension: "bam")!,
-                UTType(filenameExtension: "cram")!,
-            ]
-        )
+    @objc func importFiles(_ sender: Any?) {
+        debugLog("importFiles: Menu action triggered")
+        
+        // Get current project URL
+        guard let projectURL = workingDirectoryURL else {
+            // No project open - show alert
+            let alert = NSAlert()
+            alert.messageText = "No Project Open"
+            alert.informativeText = "Please open or create a project before importing files."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+        
+        guard let window = mainWindowController?.window else {
+            debugLog("importFiles: No main window available")
+            return
+        }
+        
+        debugLog("importFiles: Showing import dialog")
+        
+        // Show import dialog directly using NSOpenPanel
+        // We avoid Task{} here because it doesn't execute reliably from @objc menu actions
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.allowsOtherFileTypes = true
+        panel.message = "Select files to import into the project"
+        panel.prompt = "Import"
+        
+        // Use beginSheetModal with completion handler
+        panel.beginSheetModal(for: window) { [weak self] response in
+            debugLog("importFiles: Panel response: \(response.rawValue)")
+            
+            guard response == .OK else {
+                debugLog("importFiles: User cancelled")
+                return
+            }
+            
+            let selectedURLs = panel.urls
+            guard !selectedURLs.isEmpty else {
+                debugLog("importFiles: No files selected")
+                return
+            }
+            
+            debugLog("importFiles: Selected \(selectedURLs.count) file(s)")
+            
+            // Schedule the file copy operation via CFRunLoop to ensure it executes
+            // even during modal session transitions
+            scheduleOnMainRunLoop {
+                guard let self = self else { return }
+                debugLog("importFiles: Starting file copy operation")
+                
+                // Get references to UI components
+                let activityIndicator = self.mainWindowController?.mainSplitViewController?.activityIndicator
+                let sidebarController = self.mainWindowController?.mainSplitViewController?.sidebarController
+                
+                // Show progress indicator
+                let fileCount = selectedURLs.count
+                activityIndicator?.show(
+                    message: "Importing \(fileCount) file\(fileCount == 1 ? "" : "s")...",
+                    style: .indeterminate
+                )
+                
+                var importedURLs: [URL] = []
+                var skippedCount = 0
+                var errorCount = 0
+                
+                for (index, sourceURL) in selectedURLs.enumerated() {
+                    let filename = sourceURL.lastPathComponent
+                    let destinationURL = projectURL.appendingPathComponent(filename)
+                    
+                    // Update progress message
+                    activityIndicator?.updateMessage("Importing \(filename) (\(index + 1)/\(fileCount))...")
+                    
+                    debugLog("importFiles: Copying \(filename) to project")
+                    
+                    // Check for duplicate
+                    if FileManager.default.fileExists(atPath: destinationURL.path) {
+                        debugLog("importFiles: File already exists, skipping: \(filename)")
+                        skippedCount += 1
+                        continue
+                    }
+                    
+                    do {
+                        try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+                        importedURLs.append(destinationURL)
+                        debugLog("importFiles: Successfully copied \(filename)")
+                    } catch {
+                        debugLog("importFiles: Failed to copy \(filename): \(error.localizedDescription)")
+                        errorCount += 1
+                    }
+                }
+                
+                // Hide progress indicator
+                activityIndicator?.hide()
+                
+                // Force sidebar refresh immediately (don't wait for FileSystemWatcher)
+                sidebarController?.reloadFromFilesystem()
+                debugLog("importFiles: Triggered sidebar refresh")
+                
+                if importedURLs.isEmpty && skippedCount == 0 && errorCount == 0 {
+                    debugLog("importFiles: No files imported")
+                } else {
+                    debugLog("importFiles: Imported \(importedURLs.count), skipped \(skippedCount), errors \(errorCount)")
+                }
+            }
+        }
     }
 
     @objc func exportFASTA(_ sender: Any?) {
@@ -957,22 +1022,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     @objc func exportPDF(_ sender: Any?) {
         // PDF export requires rendering the viewer - not yet implemented
         showNotImplementedAlert("PDF Export")
-    }
-
-    private func showImportPanel(title: String, types: [UTType]) {
-        let panel = NSOpenPanel()
-        panel.title = title
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = false
-        panel.allowedContentTypes = types
-
-        panel.begin { response in
-            if response == .OK {
-                for url in panel.urls {
-                    _ = self.openDocument(at: url)
-                }
-            }
-        }
     }
 
     /// Shows an error alert for export failures
@@ -1731,7 +1780,21 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
                 viewerController?.hideProgress()
                 viewerController?.displayDocument(document)
-                sidebarController?.addLoadedDocument(document)
+                
+                // With filesystem-backed sidebar: if file is inside project, watcher handles refresh
+                // Otherwise add to "Open Documents" section
+                if let projectURL = sidebarController?.currentProjectURL {
+                    let docPath = document.url.standardizedFileURL.path
+                    let projectPath = projectURL.standardizedFileURL.path
+                    if !docPath.hasPrefix(projectPath) {
+                        // File is outside project - add to sidebar
+                        sidebarController?.addLoadedDocument(document)
+                    }
+                    // Else: File is inside project, FileSystemWatcher handles it
+                } else {
+                    // No project open - add to sidebar
+                    sidebarController?.addLoadedDocument(document)
+                }
                 debugLog("loadDownloadedFile Task: Document displayed and added to sidebar")
             } catch {
                 debugLog("loadDownloadedFile Task: Load failed with error: \(error)")
