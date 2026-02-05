@@ -1,0 +1,133 @@
+LOCUS       TestGene_001            2500 bp    DNA     linear   SYN 01-JAN-2024
+DEFINITION  Synthetic test sequence with comprehensive annotations.
+ACCESSION   LF000001
+VERSION     LF000001.1
+FEATURES             Location/Qualifiers
+     source          1..2500
+                     /organism="Synthetic construct"
+                     /mol_type="genomic DNA"
+     gene            100..1500
+                     /gene="testGene1"
+                     /locus_tag="LF_0001"
+                     /note="Test gene on forward strand"
+     gene            complement(1600..2400)
+                     /gene="testGene2"
+                     /locus_tag="LF_0002"
+                     /note="Test gene on reverse strand"
+     CDS             join(150..300,400..700,800..1200,1300..1450)
+                     /gene="testGene1"
+                     /codon_start=1
+                     /protein_id="LFP_0001"
+                     /translation="MSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKL
+                     TLKFICTTGKLPVPWPTLVTTLTYGVQCFSRYPDHMKQHDFFKSAMPEGY"
+     CDS             complement(1650..2350)
+                     /gene="testGene2"
+                     /protein_id="LFP_0002"
+                     /translation="MVTSKGEEL"
+     exon            100..300
+     exon            400..700
+     exon            800..1200
+     exon            1300..1500
+     intron          301..399
+     intron          701..799
+     intron          1201..1299
+     mRNA            join(100..300,400..700,800..1200,1300..1500)
+                     /gene="testGene1"
+     promoter        50..99
+                     /note="TATA box"
+     5'UTR           100..149
+     3'UTR           1451..1500
+     repeat_region   2000..2100
+                     /rpt_type="tandem"
+                     /rpt_unit_seq="ATGC"
+     variation       500
+                     /note="SNP A>G"
+                     /replace="G"
+     variation       800..810
+                     /note="Indel"
+     misc_feature    1..50
+                     /note="5-prime flanking region"
+     misc_feature    2450..2500
+                     /note="3-prime flanking region"
+ORIGIN
+        1 gcgcgcgcgc gcgcgcgcgc gcgcgcgcgc gcgcgcgcgc gcgcgctata aaagcgcgcg
+       61 atcgatcgat cgatcgatcg atcgatcgat cgatcgatcg atcgatcgat cgatcgatcg
+      121 atcgatcgat cgatcgatcg atcgatcgat cgatcgatcg atcgatcgat cgatcgatcg
+      181 atcgatcgat cgatcgatcg atcgatcgat cgatcgatcg atcgatcgat cgatcgatcg
+      241 atcgatcgat cgatcgatcg atcgatcgat cgatcgatcg atcgatcgat cgatcgatcg
+      301 atgctgcatg ctgcatgctg catgctgcat gctgcatgct gcatgctgca tgctgcatgc
+      361 tgcatgctgc atgctgcatg ctgcatgctg catgctgcat gctgcatgct gcatgctgca
+      421 tgctgcatgc tgcatgctgc atgctgcatg ctgcatgctg catgctgcat gctgcatgct
+      481 gcatgctgca tgctgcatgc tgcatgctgc aagcttgcat gctgcatgct gcatgctgca
+      541 tgctgcatgc tgcatgctgc atgctgcatg ctgcatgctg catgctgcat gctgcatgct
+      601 gcatgctgca tgctgcatgc tgcatgctgc atgctgcatg ctgcatgctg catgctgcat
+      661 gctgcatgct gcatgctgca tgctgcatgc tgcatgctgc atgcttaagc tagctagcta
+      721 gctagctagc tagctagcta gctagctagc tagctagcta gctagctagc tagctagcta
+      781 gctagctagc tagctagcta gctagctagc tagctagcta gctagctagc tagctagcta
+      841 gctagctagc tagctagcta gctagctagc tagctagcta gctagctagc tagctagcta
+      901 gctagctagc tagctagcta gctagctagc tagctagcta gctagctagc tagctagcta
+      961 gctagctagc tagctagcta gctagctagc tagctagcta gctagctagc tagctagcta
+     1021 gctagctagc tagctagcta gctagctagc tagctagcta gctagctagc tagctagcta
+     1081 gctagctagc tagctagcta gctagctagc tagctagcta gctagctagc tagctagcta
+     1141 gctagctagc tagctagcta gctagctagc tagctagcta gctagctagc tagctagcta
+     1201 atgcaatgca atgcaatgca atgcaatgca atgcaatgca atgcaatgca atgcaatgca
+     1261 atgcaatgca atgcaatgca atgcaatgca atgcaatgca atgcaatgca atgcaatgca
+     1321 atgcaatgca atgcaatgca atgcaatgca atgcaatgca atgcaatgca atgcaatgca
+     1381 atgcaatgca atgcaatgca atgcaatgca atgcaatgca atgcaatgca atgcaatgca
+     1441 atgcaatgca atgcaatgca atgcaatgca atgcaatgca atgcaatgca atgcaatgca
+     1501 tacgatacga tacgatacga tacgatacga tacgatacga tacgatacga tacgatacga
+     1561 tacgatacga tacgatacga tacgatacga tacgatacga tacgatacga tacgatacga
+     1621 tacgatacga tacgatacga tacgatacga tacgatacga ttgcagtcag tgcagtcagt
+     1681 gcagtcagtg cagtcagtgc agtcagtgca gtcagtgcag tcagtgcagt cagtgcagtc
+     1741 agtgcagtca gtgcagtcag tgcagtcagt gcagtcagtg cagtcagtgc agtcagtgca
+     1801 gtcagtgcag tcagtgcagt cagtgcagtc agtgcagtca gtgcagtcag tgcagtcagt
+     1861 gcagtcagtg cagtcagtgc agtcagtgca gtcagtgcag tcagtgcagt cagtgcagtc
+     1921 agtgcagtca gtgcagtcag tgcagtcagt gcagtcagtg cagtcagtgc agtcagtgca
+     1981 gtcagtgcag tcagtgcagt cagtgcagtc atgcatgcat gcatgcatgc atgcatgcat
+     2041 gcatgcatgc atgcatgcat gcatgcatgc atgcatgcat gcatgcatgc atgcatgcat
+     2101 gcaccgtacg tacgtacgta cgtacgtacg tacgtacgta cgtacgtacg tacgtacgta
+     2161 cgtacgtacg tacgtacgta cgtacgtacg tacgtacgta cgtacgtacg tacgtacgta
+     2221 cgtacgtacg tacgtacgta cgtacgtacg tacgtacgta cgtacgtacg tacgtacgta
+     2281 cgtacgtacg tacgtacgta cgtacgtacg tacgtacgta cgtacgtacg tacgtacgta
+     2341 cgtacgtacg tacgtacgta cgtacgtacg tacgtacgta cgtacgtacg tacgtacgta
+     2401 cgtacgtacg tacgtacgta cgtacgtacg tacgtacgta cgtacgtacg tacgtacgta
+     2461 cgtacgtacg taccagttga ctgactgact gactgactga
+//
+LOCUS       TestGene_002            1200 bp    DNA     linear   SYN 01-JAN-2024
+DEFINITION  Second test sequence with RNA features.
+ACCESSION   LF000002
+VERSION     LF000002.1
+FEATURES             Location/Qualifiers
+     source          1..1200
+                     /organism="Synthetic construct"
+                     /mol_type="genomic DNA"
+     gene            100..800
+                     /gene="rnaGene1"
+     CDS             150..750
+                     /gene="rnaGene1"
+                     /protein_id="LFP_0003"
+                     /translation="MVTSK"
+     stem_loop       900..950
+                     /note="Predicted stem-loop structure"
+ORIGIN
+        1 atcgatcgat cgatcgatcg atcgatcgat cgatcgatcg atcgatcgat cgatcgatcg
+       61 atcgatcgat cgatcgatcg atcgatcgat cgatcgatcg atcgatcgat cgatcgatcg
+      121 atcgatcgat cgatcgatcg atcgatcgat gctagctagc tagctagcta gctagctagc
+      181 tagctagcta gctagctagc tagctagcta gctagctagc tagctagcta gctagctagc
+      241 tagctagcta gctagctagc tagctagcta gctagctagc tagctagcta gctagctagc
+      301 tagctagcta gctagctagc tagctagcta gctagctagc tagctagcta gctagctagc
+      361 tagctagcta gctagctagc tagctagcta gctagctagc tagctagcta gctagctagc
+      421 tagctagcta gctagctagc tagctagcta gctagctagc tagctagcta gctagctagc
+      481 tagctagcta gctagctagc tagctagcta gctagctagc tagctagcta gctagctagc
+      541 tagctagcta gctagctagc tagctagcta gctagctagc tagctagcta gctagctagc
+      601 tagctagcta gctagctagc tagctagcta gctagctagc tagctagcta gctagctagc
+      661 tagctagcta gctagctagc tagctagcta gctagctagc tagctagcta gctagctagc
+      721 tagctagcta gctagctagc tagctagcta gctagctagc tagctagcta gctatgcaag
+      781 cttgcaagct tgcaagcttg caagcttgca agcttgcaag cttgcaagct tgcaagcttg
+      841 caagcttgca agcttgcaag cttgcaagct tgcaagcttg caagcttgca agcttgcaag
+      901 cttgcaagct tgcaagcttg caagcttgca agcttgcaag cttgcaagct tgcaagcttg
+      961 caagcttgca agcttacgta cgtacgtacg tacgtacgta cgtacgtacg tacgtacgta
+     1021 cgtacgtacg tacgtacgta cgtacgtacg tacgtacgta cgtacgtacg tacgtacgta
+     1081 cgtacgtacg tacgtacgta cgtacgtacg tacgtacgta cgtacgtacg tacgtacgta
+     1141 cgtacgtacg tacgtacgta cgtacgtacg tacgtacgta cgtacgtacg tacgtacgta
+//

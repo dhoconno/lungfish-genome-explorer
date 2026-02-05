@@ -75,11 +75,15 @@ struct ConvertCommand: AsyncParsableCommand {
             print(formatter.info("Converting \(inputURL.lastPathComponent) to \(toFormat.uppercased())..."))
         }
 
-        // Detect input format and read
+        // Detect input format and read - strip .gz extension for format detection
         let sequences: [Sequence]
         let annotations: [SequenceAnnotation]
 
-        let ext = inputURL.pathExtension.lowercased()
+        var detectURL = inputURL
+        if detectURL.pathExtension.lowercased() == "gz" {
+            detectURL = detectURL.deletingPathExtension()
+        }
+        let ext = detectURL.pathExtension.lowercased()
         switch ext {
         case "fa", "fasta", "fna", "faa":
             let reader = try FASTAReader(url: inputURL)

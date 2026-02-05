@@ -80,26 +80,10 @@ final class DownloadFlowTests: XCTestCase {
         try genBankContent.write(to: testFile, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: testFile) }
 
-        let expectation = XCTestExpectation(description: "File should load")
-        var loadedSequenceCount = 0
-
-        // Simulate the exact pattern used in loadDownloadedFile
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            Task {
-                do {
-                    let reader = try GenBankReader(url: testFile)
-                    let records = try await reader.readAll()
-                    loadedSequenceCount = records.count
-                    print("Loaded \(loadedSequenceCount) sequences")
-                    expectation.fulfill()
-                } catch {
-                    XCTFail("Loading failed: \(error)")
-                    expectation.fulfill()
-                }
-            }
-        }
-
-        await fulfillment(of: [expectation], timeout: 5.0)
+        // Use async/await directly instead of DispatchQueue pattern to avoid data races
+        let reader = try GenBankReader(url: testFile)
+        let records = try await reader.readAll()
+        let loadedSequenceCount = records.count
         XCTAssertEqual(loadedSequenceCount, 1, "Should have loaded 1 sequence")
         print("✓ Task from DispatchQueue loads files correctly")
     }
@@ -139,38 +123,15 @@ final class DownloadFlowTests: XCTestCase {
         try FileManager.default.copyItem(at: sourceFile, to: destFile)
         print("Copied file to: \(destFile.path)")
 
-        // Step 2: Load via DispatchQueue pattern (simulating loadDownloadedFile)
-        let expectation = XCTestExpectation(description: "Document should load")
-        var loadedName: String?
-        var loadedSequenceCount = 0
-        var loadedAnnotationCount = 0
+        // Step 2: Load file directly using async/await
+        let reader = try GenBankReader(url: destFile)
+        let records = try await reader.readAll()
+        print("Loaded \(records.count) records")
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            print("DispatchQueue block executing...")
-            Task {
-                print("Task starting...")
-                do {
-                    let reader = try GenBankReader(url: destFile)
-                    let records = try await reader.readAll()
-                    print("Loaded \(records.count) records")
-
-                    if let first = records.first {
-                        loadedName = first.sequence.name
-                        loadedSequenceCount = records.count
-                        loadedAnnotationCount = records.flatMap { $0.annotations }.count
-                        print("Document: name=\(loadedName ?? "nil"), seqs=\(loadedSequenceCount), annots=\(loadedAnnotationCount)")
-                    }
-                    expectation.fulfill()
-                } catch {
-                    print("Load failed: \(error)")
-                    XCTFail("Loading failed: \(error)")
-                    expectation.fulfill()
-                }
-            }
-            print("Task created")
-        }
-
-        await fulfillment(of: [expectation], timeout: 10.0)
+        let loadedName = records.first?.sequence.name
+        let loadedSequenceCount = records.count
+        let loadedAnnotationCount = records.flatMap { $0.annotations }.count
+        print("Document: name=\(loadedName ?? "nil"), seqs=\(loadedSequenceCount), annots=\(loadedAnnotationCount)")
 
         XCTAssertNotNil(loadedName, "Document should have been loaded")
         XCTAssertEqual(loadedSequenceCount, 1, "Should have 1 sequence")

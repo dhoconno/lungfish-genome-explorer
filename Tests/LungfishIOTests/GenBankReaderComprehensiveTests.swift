@@ -12,7 +12,7 @@ final class GenBankReaderComprehensiveTests: XCTestCase {
 
     /// Tests comprehensive parsing of test_annotated.gb
     func testParseAnnotatedGenBankFile() async throws {
-        let testFileURL = URL(fileURLWithPath: "/Users/dho/Desktop/test2/My Genome Project.lungfish/test_annotated.gb")
+        let testFileURL = Bundle.module.url(forResource: "test_annotated", withExtension: "gb", subdirectory: "Resources")!
 
         guard FileManager.default.fileExists(atPath: testFileURL.path) else {
             XCTFail("Test file not found at \(testFileURL.path)")
@@ -295,7 +295,7 @@ final class GenBankReaderComprehensiveTests: XCTestCase {
 
     /// Tests that feature type mapping handles unmapped types gracefully
     func testFeatureTypeMapping() async throws {
-        let testFileURL = URL(fileURLWithPath: "/Users/dho/Desktop/test2/My Genome Project.lungfish/test_annotated.gb")
+        let testFileURL = Bundle.module.url(forResource: "test_annotated", withExtension: "gb", subdirectory: "Resources")!
 
         guard FileManager.default.fileExists(atPath: testFileURL.path) else {
             XCTFail("Test file not found")
@@ -329,7 +329,7 @@ final class GenBankReaderComprehensiveTests: XCTestCase {
 
     /// Tests that the reader handles sequences correctly for annotation filtering
     func testAnnotationBelongsToSequence() async throws {
-        let testFileURL = URL(fileURLWithPath: "/Users/dho/Desktop/test2/My Genome Project.lungfish/test_annotated.gb")
+        let testFileURL = Bundle.module.url(forResource: "test_annotated", withExtension: "gb", subdirectory: "Resources")!
 
         guard FileManager.default.fileExists(atPath: testFileURL.path) else {
             XCTFail("Test file not found")

@@ -9,16 +9,20 @@ final class FASTQReaderTests: XCTestCase {
 
     // MARK: - Test File Paths
 
-    /// Path to the regular FASTQ test file
-    let regularFastqPath = "/Users/dho/Desktop/test2/My Genome Project.lungfish/test_reads.fastq"
+    /// URL for the regular FASTQ test file from bundle resources
+    var regularFastqURL: URL {
+        Bundle.module.url(forResource: "test_reads", withExtension: "fastq", subdirectory: "Resources")!
+    }
 
-    /// Path to the gzip-compressed FASTQ test file
-    let gzipFastqPath = "/Users/dho/Desktop/test2/My Genome Project.lungfish/test_reads.fastq.gz"
+    /// URL for the gzip-compressed FASTQ test file from bundle resources
+    var gzipFastqURL: URL {
+        Bundle.module.url(forResource: "test_reads.fastq", withExtension: "gz", subdirectory: "Resources")!
+    }
 
     // MARK: - Basic Parsing Tests
 
     func testReadRegularFastqFile() async throws {
-        let url = URL(fileURLWithPath: regularFastqPath)
+        let url = regularFastqURL
         let reader = FASTQReader()
 
         let records = try await reader.readAll(from: url)
@@ -34,7 +38,7 @@ final class FASTQReaderTests: XCTestCase {
     }
 
     func testReadGzipCompressedFastqFile() async throws {
-        let url = URL(fileURLWithPath: gzipFastqPath)
+        let url = gzipFastqURL
         let reader = FASTQReader()
 
         let records = try await reader.readAll(from: url)
@@ -49,8 +53,8 @@ final class FASTQReaderTests: XCTestCase {
     }
 
     func testGzipAndRegularFileMatchExactly() async throws {
-        let regularURL = URL(fileURLWithPath: regularFastqPath)
-        let gzipURL = URL(fileURLWithPath: gzipFastqPath)
+        let regularURL = regularFastqURL
+        let gzipURL = gzipFastqURL
         let reader = FASTQReader()
 
         let regularRecords = try await reader.readAll(from: regularURL)
@@ -69,7 +73,7 @@ final class FASTQReaderTests: XCTestCase {
     // MARK: - Read Name Parsing Tests
 
     func testReadNamesParsedCorrectly() async throws {
-        let url = URL(fileURLWithPath: regularFastqPath)
+        let url = regularFastqURL
         let reader = FASTQReader()
 
         let records = try await reader.readAll(from: url)
@@ -107,7 +111,7 @@ final class FASTQReaderTests: XCTestCase {
     // MARK: - Quality Score Tests
 
     func testQualityScoresDecodedCorrectly() async throws {
-        let url = URL(fileURLWithPath: regularFastqPath)
+        let url = regularFastqURL
         let reader = FASTQReader()
 
         let records = try await reader.readAll(from: url)
@@ -123,7 +127,7 @@ final class FASTQReaderTests: XCTestCase {
     }
 
     func testVariableQualityScores() async throws {
-        let url = URL(fileURLWithPath: regularFastqPath)
+        let url = regularFastqURL
         let reader = FASTQReader()
 
         let records = try await reader.readAll(from: url)
@@ -138,7 +142,7 @@ final class FASTQReaderTests: XCTestCase {
     }
 
     func testQualityToErrorProbability() async throws {
-        let url = URL(fileURLWithPath: regularFastqPath)
+        let url = regularFastqURL
         let reader = FASTQReader()
 
         let records = try await reader.readAll(from: url)
@@ -161,7 +165,7 @@ final class FASTQReaderTests: XCTestCase {
     // MARK: - Sequence/Quality Length Matching Tests
 
     func testSequenceQualityLengthsMatch() async throws {
-        let url = URL(fileURLWithPath: regularFastqPath)
+        let url = regularFastqURL
         let reader = FASTQReader()
 
         let records = try await reader.readAll(from: url)
@@ -176,7 +180,7 @@ final class FASTQReaderTests: XCTestCase {
     }
 
     func testVariableLengthReads() async throws {
-        let url = URL(fileURLWithPath: regularFastqPath)
+        let url = regularFastqURL
         let reader = FASTQReader()
 
         let records = try await reader.readAll(from: url)
@@ -197,7 +201,7 @@ final class FASTQReaderTests: XCTestCase {
     // MARK: - Quality Statistics Tests
 
     func testQualityStatistics() async throws {
-        let url = URL(fileURLWithPath: regularFastqPath)
+        let url = regularFastqURL
         let reader = FASTQReader()
 
         let records = try await reader.readAll(from: url)
@@ -212,7 +216,7 @@ final class FASTQReaderTests: XCTestCase {
     }
 
     func testQ20Q30Percentages() async throws {
-        let url = URL(fileURLWithPath: regularFastqPath)
+        let url = regularFastqURL
         let reader = FASTQReader()
 
         let records = try await reader.readAll(from: url)
@@ -256,7 +260,7 @@ final class FASTQReaderTests: XCTestCase {
     // MARK: - Record Count Tests
 
     func testCountRecords() async throws {
-        let url = URL(fileURLWithPath: regularFastqPath)
+        let url = regularFastqURL
         let reader = FASTQReader()
 
         let count = try await reader.countRecords(in: url)
@@ -264,7 +268,7 @@ final class FASTQReaderTests: XCTestCase {
     }
 
     func testCountRecordsGzip() async throws {
-        let url = URL(fileURLWithPath: gzipFastqPath)
+        let url = gzipFastqURL
         let reader = FASTQReader()
 
         let count = try await reader.countRecords(in: url)
@@ -274,7 +278,7 @@ final class FASTQReaderTests: XCTestCase {
     // MARK: - Streaming Tests
 
     func testStreamingRecords() async throws {
-        let url = URL(fileURLWithPath: regularFastqPath)
+        let url = regularFastqURL
         let reader = FASTQReader()
 
         var count = 0
@@ -379,7 +383,7 @@ final class FASTQReaderTests: XCTestCase {
     // MARK: - GC Content Tests
 
     func testGCContentCalculation() async throws {
-        let url = URL(fileURLWithPath: regularFastqPath)
+        let url = regularFastqURL
         let reader = FASTQReader()
 
         let records = try await reader.readAll(from: url)
@@ -393,23 +397,17 @@ final class FASTQReaderTests: XCTestCase {
     // MARK: - Gzip Specific Tests
 
     func testGzipMagicBytesDetection() async throws {
-        let url = URL(fileURLWithPath: gzipFastqPath)
-        XCTAssertTrue(url.isGzipCompressed)
-
-        let regularURL = URL(fileURLWithPath: regularFastqPath)
-        XCTAssertFalse(regularURL.isGzipCompressed)
+        XCTAssertTrue(gzipFastqURL.isGzipCompressed)
+        XCTAssertFalse(regularFastqURL.isGzipCompressed)
     }
 
     func testGzipDecompressionPreservesContent() async throws {
-        let gzipURL = URL(fileURLWithPath: gzipFastqPath)
-        let regularURL = URL(fileURLWithPath: regularFastqPath)
-
         // Read regular file content
-        let regularContent = try String(contentsOf: regularURL, encoding: .utf8)
+        let regularContent = try String(contentsOf: regularFastqURL, encoding: .utf8)
         let regularLines = regularContent.split(separator: "\n", omittingEmptySubsequences: false)
 
         // Read gzip file via our decompression
-        let gzipStream = try GzipInputStream(url: gzipURL)
+        let gzipStream = try GzipInputStream(url: gzipFastqURL)
         var gzipLines: [String] = []
         for try await line in gzipStream.lines() {
             gzipLines.append(line)
@@ -487,11 +485,12 @@ final class FASTQReaderTests: XCTestCase {
 
 final class GzipInputStreamTests: XCTestCase {
 
-    let gzipPath = "/Users/dho/Desktop/test2/My Genome Project.lungfish/test_reads.fastq.gz"
+    var gzipURL: URL {
+        Bundle.module.url(forResource: "test_reads.fastq", withExtension: "gz", subdirectory: "Resources")!
+    }
 
     func testGzipStreamLines() async throws {
-        let url = URL(fileURLWithPath: gzipPath)
-        let stream = try GzipInputStream(url: url)
+        let stream = try GzipInputStream(url: gzipURL)
 
         var lineCount = 0
         for try await line in stream.lines() {
@@ -507,8 +506,7 @@ final class GzipInputStreamTests: XCTestCase {
     }
 
     func testGzipReadAll() async throws {
-        let url = URL(fileURLWithPath: gzipPath)
-        let stream = try GzipInputStream(url: url)
+        let stream = try GzipInputStream(url: gzipURL)
 
         let content = try await stream.readAll()
 

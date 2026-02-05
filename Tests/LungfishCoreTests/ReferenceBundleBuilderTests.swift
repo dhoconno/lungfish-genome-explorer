@@ -271,10 +271,10 @@ final class ReferenceBundleBuilderTests: XCTestCase {
             compressFASTA: true
         )
 
-        var progressUpdates: [(BuildStep, Double, String)] = []
+        let progressCollector = BuildProgressCollector()
 
         let bundleURL = try await builder.build(configuration: config) { step, progress, message in
-            progressUpdates.append((step, progress, message))
+            progressCollector.append(step: step, progress: progress, message: message)
         }
 
         // Verify bundle was created
@@ -289,6 +289,7 @@ final class ReferenceBundleBuilderTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: genomeDir.path))
 
         // Verify progress was reported
+        let progressUpdates = progressCollector.values
         XCTAssertFalse(progressUpdates.isEmpty)
 
         // Verify final progress is complete
@@ -483,5 +484,23 @@ final class ReferenceBundleBuilderTests: XCTestCase {
         XCTAssertEqual(manifest.genome.chromosomes.count, 2)
         XCTAssertEqual(manifest.genome.chromosomes[0].name, "chr1")
         XCTAssertEqual(manifest.genome.chromosomes[1].name, "chr2")
+    }
+}
+
+/// Thread-safe collector for build progress callback values
+private final class BuildProgressCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _values: [(BuildStep, Double, String)] = []
+
+    var values: [(BuildStep, Double, String)] {
+        lock.lock()
+        defer { lock.unlock() }
+        return _values
+    }
+
+    func append(step: BuildStep, progress: Double, message: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        _values.append((step, progress, message))
     }
 }

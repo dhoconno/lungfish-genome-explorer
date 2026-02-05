@@ -74,9 +74,13 @@ struct StatsSubcommand: AsyncParsableCommand {
 
         let inputURL = URL(fileURLWithPath: input)
 
-        // Read sequences
+        // Read sequences - strip .gz extension for format detection
         let sequences: [Sequence]
-        let ext = inputURL.pathExtension.lowercased()
+        var detectURL = inputURL
+        if detectURL.pathExtension.lowercased() == "gz" {
+            detectURL = detectURL.deletingPathExtension()
+        }
+        let ext = detectURL.pathExtension.lowercased()
 
         switch ext {
         case "fa", "fasta", "fna", "faa":
@@ -255,7 +259,11 @@ struct FileValidateSubcommand: AsyncParsableCommand {
             }
 
             let url = URL(fileURLWithPath: file)
-            let ext = url.pathExtension.lowercased()
+            var detectURL = url
+            if detectURL.pathExtension.lowercased() == "gz" {
+                detectURL = detectURL.deletingPathExtension()
+            }
+            let ext = detectURL.pathExtension.lowercased()
             var errors: [String] = []
             var format: String? = nil
 

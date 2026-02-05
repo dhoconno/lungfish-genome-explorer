@@ -285,6 +285,150 @@ final class DocumentLoaderTests: XCTestCase {
         XCTAssertEqual(totalAnnotations, 1)  // From GFF3
     }
 
+    // MARK: - GenBank Loading Tests
+
+    func testLoadGenBankFile() async throws {
+        let gbURL = tempDir.appendingPathComponent("test.gb")
+        let gbContent = """
+        LOCUS       TEST_SEQ                 50 bp    DNA     linear   UNK
+        DEFINITION  Test sequence for loader
+        ACCESSION   TEST001
+        VERSION     TEST001.1
+        FEATURES             Location/Qualifiers
+             gene            1..30
+                             /gene="testGene"
+        ORIGIN
+                1 atgcgatcga tcgatcgatc gatcgatcga tcgatcgatc gatcgatcga
+        //
+        """
+        try gbContent.write(to: gbURL, atomically: true, encoding: .utf8)
+
+        let result = try await DocumentLoader.loadFile(at: gbURL, type: .genbank)
+
+        XCTAssertEqual(result.sequences.count, 1)
+        XCTAssertEqual(result.sequences[0].name, "TEST_SEQ")
+        XCTAssertEqual(result.sequences[0].length, 50)
+        XCTAssertGreaterThan(result.annotations.count, 0)
+        XCTAssertNil(result.error)
+    }
+
+    // MARK: - FASTQ Loading Tests
+
+    func testLoadFASTQFile() async throws {
+        let fqURL = tempDir.appendingPathComponent("test.fastq")
+        let fqContent = """
+        @read1
+        ATCGATCGATCG
+        +
+        IIIIIIIIIIII
+        @read2
+        GCTAGCTAGCTA
+        +
+        HHHHHHHHHHHH
+        """
+        try fqContent.write(to: fqURL, atomically: true, encoding: .utf8)
+
+        let result = try await DocumentLoader.loadFile(at: fqURL, type: .fastq)
+
+        XCTAssertEqual(result.sequences.count, 2)
+        XCTAssertEqual(result.sequences[0].name, "read1")
+        XCTAssertEqual(result.sequences[1].name, "read2")
+        XCTAssertTrue(result.annotations.isEmpty)
+        XCTAssertNil(result.error)
+    }
+
+    // MARK: - Error Path Tests
+
+    func testLoadBAMThrows() async {
+        let bamURL = tempDir.appendingPathComponent("test.bam")
+        try? "fake bam".write(to: bamURL, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await DocumentLoader.loadFile(at: bamURL, type: .bam)
+            XCTFail("Expected unsupportedFormat error")
+        } catch let error as DocumentLoadError {
+            if case .unsupportedFormat(let msg) = error {
+                XCTAssertTrue(msg.contains("BAM"))
+            } else {
+                XCTFail("Expected unsupportedFormat, got \(error)")
+            }
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testLoadLungfishProjectThrows() async {
+        let projURL = tempDir.appendingPathComponent("test.lungfish")
+        try? FileManager.default.createDirectory(at: projURL, withIntermediateDirectories: true)
+
+        do {
+            _ = try await DocumentLoader.loadFile(at: projURL, type: .lungfishProject)
+            XCTFail("Expected unsupportedFormat error")
+        } catch let error as DocumentLoadError {
+            if case .unsupportedFormat(let msg) = error {
+                XCTAssertTrue(msg.contains("lungfish"))
+            } else {
+                XCTFail("Expected unsupportedFormat, got \(error)")
+            }
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    // MARK: - Gzip Extension Detection Tests
+
+    func testScanFolderDetectsGzipFiles() throws {
+        // Create a .fasta.gz file (content doesn't need to be real gzip for scan)
+        let gzURL = tempDir.appendingPathComponent("test.fasta.gz")
+        try "fake gzip".write(to: gzURL, atomically: true, encoding: .utf8)
+
+        let results = try DocumentLoader.scanFolder(at: tempDir)
+
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results.first?.type, .fasta)
+    }
+
+    func testScanFolderDetectsMultipleGzipFormats() throws {
+        let faGz = tempDir.appendingPathComponent("seq.fa.gz")
+        try "x".write(to: faGz, atomically: true, encoding: .utf8)
+
+        let fqGz = tempDir.appendingPathComponent("reads.fq.gz")
+        try "x".write(to: fqGz, atomically: true, encoding: .utf8)
+
+        let gbGz = tempDir.appendingPathComponent("gene.gb.gz")
+        try "x".write(to: gbGz, atomically: true, encoding: .utf8)
+
+        let results = try DocumentLoader.scanFolder(at: tempDir)
+
+        XCTAssertEqual(results.count, 3)
+        let types = Set(results.map { $0.type })
+        XCTAssertTrue(types.contains(.fasta))
+        XCTAssertTrue(types.contains(.fastq))
+        XCTAssertTrue(types.contains(.genbank))
+    }
+
+    // MARK: - FileLoadResult Tests
+
+    func testFileLoadResultWithError() {
+        let url = URL(fileURLWithPath: "/test/file.fa")
+        let result = FileLoadResult(url: url, type: .fasta, error: "Something went wrong")
+
+        XCTAssertEqual(result.url.lastPathComponent, "file.fa")
+        XCTAssertEqual(result.type, .fasta)
+        XCTAssertTrue(result.sequences.isEmpty)
+        XCTAssertTrue(result.annotations.isEmpty)
+        XCTAssertEqual(result.error, "Something went wrong")
+    }
+
+    func testFileLoadResultDefaults() {
+        let url = URL(fileURLWithPath: "/test/file.gb")
+        let result = FileLoadResult(url: url, type: .genbank)
+
+        XCTAssertTrue(result.sequences.isEmpty)
+        XCTAssertTrue(result.annotations.isEmpty)
+        XCTAssertNil(result.error)
+    }
+
     // MARK: - Performance Tests
 
     func testScanFolderPerformance() throws {

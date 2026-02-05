@@ -212,16 +212,17 @@ final class VariantConverterTests: XCTestCase {
         let outputURL = tempDirectory.appendingPathComponent("output.bcf")
         let converter = VariantConverter()
 
-        var progressValues: [(Double, String)] = []
+        let progressCollector = ProgressCollector()
 
         _ = try await converter.convertToBCF(
             from: vcfURL,
             output: outputURL,
             progress: { progress, message in
-                progressValues.append((progress, message))
+                progressCollector.append(progress: progress, message: message)
             }
         )
 
+        let progressValues = progressCollector.values
         XCTAssertFalse(progressValues.isEmpty)
         XCTAssertEqual(progressValues.last?.0, 1.0)
     }
@@ -326,5 +327,23 @@ final class VariantConverterTests: XCTestCase {
 
         let noVariantsError = VariantConversionError.noVariants
         XCTAssertNotNil(noVariantsError.recoverySuggestion)
+    }
+}
+
+/// Thread-safe collector for progress callback values
+private final class ProgressCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _values: [(Double, String)] = []
+
+    var values: [(Double, String)] {
+        lock.lock()
+        defer { lock.unlock() }
+        return _values
+    }
+
+    func append(progress: Double, message: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        _values.append((progress, message))
     }
 }

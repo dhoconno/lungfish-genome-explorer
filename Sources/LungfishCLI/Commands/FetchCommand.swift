@@ -784,7 +784,7 @@ struct ENAFastaSubcommand: AsyncParsableCommand {
                 let result = ENAFastaResult(
                     accession: accession,
                     outputFile: saveTo,
-                    length: fasta.filter { !$0.isWhitespace && $0 != ">" }.count
+                    length: fasta.split(separator: "\n").filter { !$0.hasPrefix(">") }.joined().count
                 )
                 let handler = JSONOutputHandler()
                 handler.writeData(result, label: nil)

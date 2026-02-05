@@ -11,7 +11,7 @@ final class GenBankReaderTests: XCTestCase {
     /// Tests reading a real GenBank file downloaded from NCBI
     func testReadKF015279() async throws {
         // This test file should exist in test-data/
-        let testFileURL = URL(fileURLWithPath: #file)
+        let testFileURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()

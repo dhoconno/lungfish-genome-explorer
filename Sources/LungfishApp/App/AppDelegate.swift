@@ -7,20 +7,22 @@ import LungfishCore
 import LungfishIO
 import UniformTypeIdentifiers
 
-/// Debug logging to file for troubleshooting
+/// Debug logging to file for troubleshooting (only writes to disk in DEBUG builds)
 private func debugLog(_ message: String) {
+    #if DEBUG
     let timestamp = ISO8601DateFormatter().string(from: Date())
     let threadInfo = Thread.isMainThread ? "main" : "bg"
     let logMessage = "[\(timestamp)][\(threadInfo)] \(message)\n"
     print("[\(threadInfo)] \(message)")  // Also print to console
     if let data = logMessage.data(using: .utf8) {
-        let logURL = URL(fileURLWithPath: "/tmp/lungfish-debug.log")
+        let logURL = FileManager.default.temporaryDirectory.appendingPathComponent("lungfish-debug.log")
         if let fileHandle = try? FileHandle(forWritingTo: logURL) {
             fileHandle.seekToEndOfFile()
             fileHandle.write(data)
             fileHandle.closeFile()
         }
     }
+    #endif
 }
 
 /// Schedules a MainActor-isolated block to execute on the main run loop.
@@ -412,9 +414,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         debugLog("loadProjectFolderAsync: Sidebar populated with \(placeholderDocuments.count) placeholders")
 
         // Phase 3: Background loading for each file
-        // Track first document display using a local class for thread-safe mutation
+        // Track first document display using lock-protected state for thread safety
         final class DisplayTracker: @unchecked Sendable {
-            var displayedFirst = false
+            private let lock = NSLock()
+            private var _displayedFirst = false
+            var displayedFirst: Bool {
+                get { lock.lock(); defer { lock.unlock() }; return _displayedFirst }
+                set { lock.lock(); defer { lock.unlock() }; _displayedFirst = newValue }
+            }
         }
         let tracker = DisplayTracker()
 

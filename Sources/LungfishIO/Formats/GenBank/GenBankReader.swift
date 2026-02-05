@@ -896,18 +896,15 @@ public final class GenBankWriter: Sendable {
     }
 
     private func formatLocusLine(_ locus: LocusInfo) -> String {
-        var parts = ["LOCUS"]
-        parts.append(String(format: "%-16s", locus.name))
-        parts.append(String(format: "%11d bp", locus.length))
-        parts.append(String(format: "    %s", locus.moleculeType.rawValue))
-        parts.append(String(format: "  %@", locus.topology.rawValue))
+        let paddedName = locus.name.padding(toLength: 16, withPad: " ", startingAt: 0)
+        var line = "LOCUS       \(paddedName)\(String(format: "%11d", locus.length)) bp    \(locus.moleculeType.rawValue)  \(locus.topology.rawValue)"
         if let division = locus.division {
-            parts.append(String(format: " %@", division))
+            line += " \(division)"
         }
         if let date = locus.date {
-            parts.append(String(format: " %@", date))
+            line += " \(date)"
         }
-        return parts.joined(separator: " ")
+        return line
     }
 
     private func formatFeature(_ annotation: SequenceAnnotation) -> [String] {
@@ -916,8 +913,8 @@ public final class GenBankWriter: Sendable {
         // Feature key and location
         let featureType = annotation.type.rawValue.lowercased()
         let location = formatLocation(annotation)
-        let firstLine = String(format: "     %-15s %@", featureType, location)
-        lines.append(firstLine)
+        let paddedType = featureType.padding(toLength: 15, withPad: " ", startingAt: 0)
+        lines.append("     \(paddedType) \(location)")
 
         // Qualifiers
         for (key, qualifier) in annotation.qualifiers.sorted(by: { $0.key < $1.key }) {
