@@ -1,0 +1,87 @@
+{
+  "format_version": "1.0",
+  "name": "Test Genome Bundle",
+  "identifier": "com.lungfish.testgenome",
+  "description": "A test reference genome bundle for development and testing",
+  "created_date": "2024-12-01T00:00:00Z",
+  "modified_date": "2024-12-01T00:00:00Z",
+  "source": {
+    "organism": "Test organism",
+    "common_name": "Testy McTestface",
+    "assembly": "TestAssembly_v1",
+    "database": "Lungfish Test Database",
+    "source_url": "https://example.com/testgenome"
+  },
+  "genome": {
+    "path": "genome/sequence.fa",
+    "index_path": "genome/sequence.fa.fai",
+    "total_length": 884,
+    "chromosomes": [
+      {
+        "name": "chr1",
+        "length": 520,
+        "offset": 6,
+        "line_bases": 52,
+        "line_width": 53,
+        "aliases": ["1", "chromosome1"],
+        "is_primary": true,
+        "is_mitochondrial": false
+      },
+      {
+        "name": "chr2",
+        "length": 260,
+        "offset": 542,
+        "line_bases": 52,
+        "line_width": 53,
+        "aliases": ["2", "chromosome2"],
+        "is_primary": true,
+        "is_mitochondrial": false
+      },
+      {
+        "name": "chrM",
+        "length": 104,
+        "offset": 813,
+        "line_bases": 52,
+        "line_width": 53,
+        "aliases": ["MT", "mitochondrion"],
+        "is_primary": false,
+        "is_mitochondrial": true
+      }
+    ]
+  },
+  "annotations": [
+    {
+      "id": "genes",
+      "name": "Gene Annotations",
+      "description": "Mock gene annotations for testing",
+      "path": "annotations/genes.bb",
+      "annotation_type": "gene",
+      "feature_count": 5,
+      "source": "Lungfish Test",
+      "version": "1.0"
+    }
+  ],
+  "variants": [
+    {
+      "id": "testsnps",
+      "name": "Test SNPs",
+      "description": "Mock SNP variants for testing",
+      "path": "variants/snps.bcf",
+      "index_path": "variants/snps.bcf.csi",
+      "variant_type": "snp",
+      "variant_count": 10,
+      "source": "Lungfish Test"
+    }
+  ],
+  "tracks": [
+    {
+      "id": "gc_content",
+      "name": "GC Content",
+      "description": "GC percentage in sliding windows",
+      "path": "tracks/gc_content.bw",
+      "signal_type": "gcContent",
+      "min_value": 0.0,
+      "max_value": 100.0
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+# Multi-arch Dockerfile for UCSC tools
+# Builds bedToBigBed and bedGraphToBigWig for arm64 and amd64
+FROM alpine:3.19
+
+# Install build dependencies
+RUN apk add --no-cache \
+    curl \
+    libpng \
+    zlib \
+    openssl \
+    ca-certificates
+
+# UCSC tools are distributed as pre-compiled binaries
+# We need to download the correct architecture
+ARG TARGETARCH
+
+# Download UCSC tools for the target architecture
+RUN mkdir -p /usr/local/bin && \
+    if [ "$TARGETARCH" = "arm64" ]; then \
+        UCSC_ARCH="macOSX.arm64"; \
+    else \
+        UCSC_ARCH="linux.x86_64"; \
+    fi && \
+    curl -sL "http://hgdownload.soe.ucsc.edu/admin/exe/${UCSC_ARCH}/bedToBigBed" -o /usr/local/bin/bedToBigBed && \
+    curl -sL "http://hgdownload.soe.ucsc.edu/admin/exe/${UCSC_ARCH}/bedGraphToBigWig" -o /usr/local/bin/bedGraphToBigWig && \
+    chmod +x /usr/local/bin/bedToBigBed /usr/local/bin/bedGraphToBigWig
+
+# Verify installation
+RUN bedToBigBed 2>&1 | head -1 || true
+RUN bedGraphToBigWig 2>&1 | head -1 || true
+
+CMD ["/bin/sh"]

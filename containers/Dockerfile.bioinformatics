@@ -1,0 +1,28 @@
+# Multi-arch Dockerfile for bioinformatics tools
+# Uses conda-forge/mambaforge which supports arm64 and amd64
+# This single image contains all tools needed for reference bundle creation
+FROM condaforge/mambaforge:latest
+
+LABEL maintainer="Lungfish Contributors"
+LABEL description="Multi-arch bioinformatics tools for Lungfish reference bundle creation"
+
+# Install all bioinformatics tools via conda/mamba
+# These packages are available for both arm64 and amd64 via bioconda
+RUN mamba install -y -c conda-forge -c bioconda \
+    samtools=1.18 \
+    bcftools=1.18 \
+    htslib=1.18 \
+    && mamba clean -afy
+
+# Verify installations
+RUN samtools --version && \
+    bcftools --version && \
+    bgzip --version && \
+    tabix --version
+
+# Note: UCSC tools (bedToBigBed, bedGraphToBigWig) are not available via bioconda for arm64
+# We'll need to handle those separately or use alternative tools
+
+WORKDIR /workspace
+
+CMD ["/bin/bash"]

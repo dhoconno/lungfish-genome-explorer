@@ -7,11 +7,11 @@
 
 import Foundation
 import os.log
-
-#if canImport(Containerization)
 import Containerization
 import ContainerizationOCI
-#endif
+import ContainerizationArchive
+import ContainerizationExtras
+import ContainerizationError
 
 // MARK: - AppleContainerRuntime
 
@@ -32,34 +32,16 @@ import ContainerizationOCI
 /// - macOS 26.0+ (Tahoe)
 /// - Apple Silicon (M1/M2/M3/M4)
 /// - Swift 6.2+
+/// - Linux kernel binary for VM
 ///
-/// ## Example Usage
+/// ## Current Status
 ///
-/// ```swift
-/// // Create the runtime
-/// let runtime = try await AppleContainerRuntime()
+/// Container execution requires additional setup including:
+/// - A Linux kernel binary (can be obtained from the containerization project)
+/// - An initfs image (vminit)
 ///
-/// // Pull an image
-/// let image = try await runtime.pullImage(reference: "biocontainers/bwa:0.7.17")
-///
-/// // Create and run a container
-/// let config = ContainerConfiguration(cpuCount: 4, memoryBytes: 8.gib())
-/// let container = try await runtime.createContainer(
-///     name: "bwa-alignment",
-///     image: image,
-///     config: config
-/// )
-/// try await runtime.startContainer(container)
-///
-/// // Execute a command
-/// let process = try await runtime.exec(
-///     in: container,
-///     command: "bwa",
-///     arguments: ["mem", "ref.fa", "reads.fq"],
-///     environment: [:],
-///     workingDirectory: "/workspace"
-/// )
-/// ```
+/// Until full container support is configured, the bundle builder falls back to
+/// basic file copying without format conversion.
 @available(macOS 26, *)
 public actor AppleContainerRuntime: ContainerRuntimeProtocol {
     // MARK: - Properties
@@ -71,16 +53,14 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
         category: "AppleContainerRuntime"
     )
 
-    #if canImport(Containerization)
-    /// Virtual machine manager for container VMs.
-    private let vmManager: VirtualMachineManager
-
-    /// OCI image store for managing pulled images.
-    private let imageStore: OCIImageStore
-    #endif
+    /// Container manager that handles image pulling and container lifecycle.
+    private var containerManager: ContainerManager?
 
     /// Active containers managed by this runtime.
     private var activeContainers: [String: Container] = [:]
+
+    /// Active native containers indexed by container ID.
+    private var nativeContainers: [String: LinuxContainer] = [:]
 
     /// Cache of pulled images.
     private var imageCache: [String: ContainerImage] = [:]
@@ -88,14 +68,20 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
     /// Path to the local image store.
     private let imageStorePath: URL
 
+    /// Path to the Linux kernel binary (required for containers).
+    private let kernelPath: URL?
+
     // MARK: - Initialization
 
     /// Creates a new Apple Container runtime.
     ///
-    /// - Parameter imageStorePath: Optional custom path for the image store.
-    ///   Defaults to `~/Library/Caches/com.lungfish.containers`
+    /// - Parameters:
+    ///   - imageStorePath: Optional custom path for the image store.
+    ///     Defaults to `~/Library/Caches/com.lungfish.containers`
+    ///   - kernelPath: Optional path to a Linux kernel binary.
+    ///     If not provided, the runtime will look for a bundled kernel in Resources/Containerization.
     /// - Throws: `ContainerRuntimeError.runtimeNotAvailable` if initialization fails
-    public init(imageStorePath: URL? = nil) async throws {
+    public init(imageStorePath: URL? = nil, kernelPath: URL? = nil) async throws {
         // Verify platform requirements
         #if !arch(arm64)
         throw ContainerRuntimeError.runtimeNotAvailable(
@@ -117,100 +103,106 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
             withIntermediateDirectories: true
         )
 
-        #if canImport(Containerization)
-        // Initialize the virtual machine manager
-        self.vmManager = try VirtualMachineManager()
+        // Find kernel path - use provided path or look for bundled kernel
+        let resolvedKernelPath = Self.resolveKernelPath(kernelPath)
+        self.kernelPath = resolvedKernelPath
+        
+        // Debug: print kernel path resolution to stderr
+        if let kp = resolvedKernelPath {
+            fputs("[DEBUG] Resolved kernel path: \(kp.path)\n", stderr)
+            logger.info("Resolved kernel path: \(kp.path)")
+        } else {
+            fputs("[DEBUG] No kernel path resolved\n", stderr)
+            fputs("[DEBUG] Bundle.module.bundlePath: \(Bundle.module.bundlePath)\n", stderr)
+            logger.warning("No kernel path resolved")
+        }
 
-        // Initialize the OCI image store
-        self.imageStore = try OCIImageStore(path: storePath)
+        // Initialize container manager if kernel is available
+        if let kernelPath = resolvedKernelPath,
+           FileManager.default.fileExists(atPath: kernelPath.path) {
+            do {
+                fputs("[DEBUG] Creating Kernel object...\n", stderr)
+                let kernel = Kernel(
+                    path: kernelPath,
+                    platform: .linuxArm
+                )
+
+                // Load bundled initfs into image store if needed
+                fputs("[DEBUG] Loading bundled initfs...\n", stderr)
+                try await Self.loadBundledInitfs(storePath: storePath, logger: logger)
+
+                // Use NAT networking which doesn't require com.apple.vm.networking entitlement
+                // NAT uses VZNATNetworkDeviceAttachment which is available without special entitlements
+                fputs("[DEBUG] Creating NAT network (no entitlement required)...\n", stderr)
+                let natNetwork = NATNetwork()
+                fputs("[DEBUG] NAT network created successfully\n", stderr)
+
+                fputs("[DEBUG] Creating ContainerManager with NAT network and Rosetta emulation...\n", stderr)
+                self.containerManager = try await ContainerManager(
+                    kernel: kernel,
+                    initfsReference: "vminit:latest",
+                    root: storePath,
+                    network: natNetwork,
+                    rosetta: true  // Enable x86_64 emulation for biocontainers (amd64 only)
+                )
+                fputs("[DEBUG] ContainerManager created successfully with Rosetta!\n", stderr)
+                logger.info("Apple Container runtime initialized with kernel at \(kernelPath.path)")
+            } catch {
+                fputs("[DEBUG] Failed to initialize ContainerManager: \(error)\n", stderr)
+                fputs("[DEBUG] Error type: \(type(of: error))\n", stderr)
+                logger.error("Failed to initialize ContainerManager: \(error)")
+                self.containerManager = nil
+            }
+        } else {
+            self.containerManager = nil
+            if resolvedKernelPath == nil {
+                fputs("[DEBUG] Kernel path is nil\n", stderr)
+            } else {
+                fputs("[DEBUG] Kernel file does not exist at resolved path\n", stderr)
+            }
+            logger.info("Apple Container runtime initialized without kernel (limited functionality)")
+        }
 
         logger.info("Apple Container runtime initialized at \(storePath.path)")
-        #else
-        logger.error("Containerization framework not available")
-        throw ContainerRuntimeError.runtimeNotAvailable(
-            .appleContainerization,
-            reason: "Containerization framework not available in this build"
-        )
-        #endif
     }
 
     // MARK: - ContainerRuntimeProtocol
 
     public func isAvailable() async -> Bool {
-        #if canImport(Containerization)
-        // Apple Containerization is always available on macOS 26+ arm64
-        // when the framework is imported
-        return true
-        #else
-        return false
-        #endif
+        // Runtime is available if we have a properly initialized container manager
+        return containerManager != nil
     }
 
     public func version() async throws -> String {
-        #if canImport(Containerization)
-        // Return the Containerization framework version
-        // The actual version comes from the framework bundle
-        return "1.0.0"
-        #else
-        throw ContainerRuntimeError.runtimeNotAvailable(
-            .appleContainerization,
-            reason: "Containerization framework not available"
-        )
-        #endif
+        return "0.24.5" // Apple Containerization package version
     }
 
     public func pullImage(reference: String) async throws -> ContainerImage {
         logger.info("Pulling image: \(reference, privacy: .public)")
 
-        #if canImport(Containerization)
         // Check cache first
         if let cached = imageCache[reference] {
             logger.info("Image found in cache: \(reference, privacy: .public)")
             return cached
         }
 
-        do {
-            // Parse the image reference
-            let imageRef = try OCIImageReference(reference)
-
-            // Check local store
-            if let existing = try? await imageStore.image(for: imageRef) {
-                let image = ContainerImage(
-                    id: existing.digest ?? UUID().uuidString,
-                    reference: reference,
-                    digest: existing.digest,
-                    rootfsPath: existing.rootfsPath,
-                    sizeBytes: existing.sizeBytes,
-                    pulledAt: Date(),
-                    architecture: "arm64",
-                    os: "linux",
-                    runtimeType: .appleContainerization
-                )
-                imageCache[reference] = image
-                logger.info("Image found in local store: \(reference, privacy: .public)")
-                return image
-            }
-
-            // Pull from registry
-            logger.info("Pulling from registry: \(reference, privacy: .public)")
-
-            let pullOptions = OCIPullOptions(
-                platform: OCIPlatform(os: "linux", architecture: "arm64"),
-                progressHandler: { [weak self] progress in
-                    self?.logger.debug(
-                        "Pull progress: \(progress.fractionCompleted * 100, format: .fixed(precision: 1))%"
-                    )
-                }
+        guard let manager = containerManager else {
+            throw ContainerRuntimeError.runtimeNotAvailable(
+                .appleContainerization,
+                reason: "Container manager not initialized. A Linux kernel binary is required for container operations."
             )
+        }
 
-            let pulledImage = try await imageStore.pull(imageRef, options: pullOptions)
+        do {
+            // Pull the image using the image store
+            let pulledImage = try await manager.imageStore.get(reference: reference, pull: true)
 
             let image = ContainerImage(
                 id: pulledImage.digest ?? UUID().uuidString,
                 reference: reference,
                 digest: pulledImage.digest,
-                rootfsPath: pulledImage.rootfsPath,
-                sizeBytes: pulledImage.sizeBytes,
+                rootfsPath: nil, // Managed by ContainerManager
+                sizeBytes: nil,
                 pulledAt: Date(),
                 architecture: "arm64",
                 os: "linux",
@@ -223,18 +215,22 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
             return image
 
         } catch {
+            // Log detailed error information for debugging
+            fputs("[DEBUG] Image pull error type: \(type(of: error))\n", stderr)
+            fputs("[DEBUG] Image pull error: \(error)\n", stderr)
+            if let containerError = error as? ContainerizationError {
+                fputs("[DEBUG] ContainerizationError code: \(containerError.code)\n", stderr)
+                fputs("[DEBUG] ContainerizationError message: \(containerError.message)\n", stderr)
+                if let cause = containerError.cause {
+                    fputs("[DEBUG] ContainerizationError cause: \(cause)\n", stderr)
+                }
+            }
             logger.error("Failed to pull image \(reference, privacy: .public): \(error.localizedDescription)")
             throw ContainerRuntimeError.imagePullFailed(
                 reference: reference,
-                reason: error.localizedDescription
+                reason: "\(error)"
             )
         }
-        #else
-        throw ContainerRuntimeError.runtimeNotAvailable(
-            .appleContainerization,
-            reason: "Containerization framework not available"
-        )
-        #endif
     }
 
     public func createContainer(
@@ -243,24 +239,27 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
         config: ContainerConfiguration
     ) async throws -> Container {
         logger.info("Creating container: \(name, privacy: .public)")
+        fputs("[DEBUG] createContainer: name=\(name), image=\(image.reference)\n", stderr)
 
-        #if canImport(Containerization)
-        guard let rootfsPath = image.rootfsPath else {
-            throw ContainerRuntimeError.containerCreationFailed(
-                name: name,
-                reason: "Image does not have a local rootfs path"
+        guard var manager = containerManager else {
+            throw ContainerRuntimeError.runtimeNotAvailable(
+                .appleContainerization,
+                reason: "Container manager not initialized. A Linux kernel binary is required for container operations."
             )
         }
 
         do {
-            // Create rootfs mount from extracted image
-            let rootfsMount = try RootFSMount(path: rootfsPath)
+            let containerID = UUID().uuidString
+            fputs("[DEBUG] createContainer: containerID=\(containerID)\n", stderr)
+            fputs("[DEBUG] createContainer: mounts=\(config.mounts.map { "\($0.source) -> \($0.destination)" })\n", stderr)
 
-            // Create the Linux container
-            let linuxContainer = try LinuxContainer(
-                name,
-                rootfs: rootfsMount,
-                vmm: vmManager
+            // Create the Linux container using ContainerManager
+            fputs("[DEBUG] createContainer: calling manager.create...\n", stderr)
+            fputs("[DEBUG] createContainer: command=\(config.command ?? [])\n", stderr)
+            let linuxContainer = try await manager.create(
+                containerID,
+                reference: image.reference,
+                rootfsSizeInBytes: 8.gib()
             ) { containerConfig in
                 // Resource allocation
                 if let cpuCount = config.cpuCount {
@@ -278,33 +277,35 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
                 // Hostname
                 containerConfig.hostname = config.hostname ?? name
 
-                // Network configuration
-                switch config.networkMode {
-                case .vmnetShared:
-                    containerConfig.networking = .vmnet(mode: .shared)
-                case .vmnetBridged:
-                    containerConfig.networking = .vmnet(mode: .bridged)
-                case .none:
-                    containerConfig.networking = .none
-                default:
-                    // Default to shared vmnet for other modes
-                    containerConfig.networking = .vmnet(mode: .shared)
+                // Process configuration (command to run)
+                if let command = config.command, !command.isEmpty {
+                    containerConfig.process.arguments = command
+                    fputs("[DEBUG] createContainer: set process.arguments=\(command)\n", stderr)
                 }
 
-                // Mount bindings
-                containerConfig.mounts = config.mounts.map { mount in
-                    ContainerMount.bind(
+                // Working directory
+                if let workingDir = config.workingDirectory {
+                    containerConfig.process.workingDirectory = workingDir
+                }
+
+                // Environment variables
+                for (key, value) in config.environment {
+                    containerConfig.process.environmentVariables.append("\(key)=\(value)")
+                }
+
+                // Mount bindings using virtiofs shares
+                for mount in config.mounts {
+                    let czMount = Mount.share(
                         source: mount.source,
                         destination: mount.destination,
-                        readOnly: mount.readOnly
+                        options: mount.readOnly ? ["ro"] : []
                     )
+                    containerConfig.mounts.append(czMount)
                 }
             }
 
-            // Create the container (provisions VM)
-            try await linuxContainer.create()
-
-            let containerID = UUID().uuidString
+            // Store the native container
+            nativeContainers[containerID] = linuxContainer
 
             let container = Container(
                 id: containerID,
@@ -314,7 +315,7 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
                 image: image,
                 configuration: config,
                 hostname: config.hostname ?? name,
-                nativeContainer: AnySendable(linuxContainer)
+                nativeContainer: AnySendable(containerID) // Store ID, we manage LinuxContainer separately
             )
 
             activeContainers[containerID] = container
@@ -324,72 +325,78 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
             return container
 
         } catch {
+            fputs("[DEBUG] createContainer failed: \(error)\n", stderr)
+            fputs("[DEBUG] error type: \(type(of: error))\n", stderr)
+            if let containerError = error as? ContainerizationError {
+                fputs("[DEBUG] ContainerizationError code: \(containerError.code)\n", stderr)
+                fputs("[DEBUG] ContainerizationError message: \(containerError.message)\n", stderr)
+                if let cause = containerError.cause {
+                    fputs("[DEBUG] ContainerizationError cause: \(cause)\n", stderr)
+                }
+            }
             logger.error("Failed to create container \(name, privacy: .public): \(error.localizedDescription)")
             throw ContainerRuntimeError.containerCreationFailed(
                 name: name,
                 reason: error.localizedDescription
             )
         }
-        #else
-        throw ContainerRuntimeError.runtimeNotAvailable(
-            .appleContainerization,
-            reason: "Containerization framework not available"
-        )
-        #endif
     }
 
     public func startContainer(_ container: Container) async throws {
         logger.info("Starting container: \(container.name, privacy: .public)")
+        fputs("[DEBUG] startContainer: \(container.name)\n", stderr)
 
-        #if canImport(Containerization)
-        guard let linuxContainer = container.nativeContainerAs(LinuxContainer.self) else {
+        guard let linuxContainer = nativeContainers[container.id] else {
+            fputs("[DEBUG] startContainer: native container not found for ID \(container.id)\n", stderr)
             throw ContainerRuntimeError.containerStartFailed(
                 containerID: container.id,
-                reason: "Invalid native container handle"
+                reason: "Native container not found"
             )
         }
 
         do {
+            fputs("[DEBUG] startContainer: calling linuxContainer.create()...\n", stderr)
+            try await linuxContainer.create()
+            fputs("[DEBUG] startContainer: linuxContainer.create() completed\n", stderr)
+
+            fputs("[DEBUG] startContainer: calling linuxContainer.start()...\n", stderr)
             try await linuxContainer.start()
+            fputs("[DEBUG] startContainer: linuxContainer.start() completed\n", stderr)
 
             // Update container state
             if var updatedContainer = activeContainers[container.id] {
                 try updatedContainer.updateState(.running)
-
-                // Get IP address if available
-                if let networkConfig = await linuxContainer.networkConfiguration,
-                   let ipAddress = networkConfig.ipAddress {
-                    updatedContainer.setIPAddress(ipAddress)
-                }
-
                 activeContainers[container.id] = updatedContainer
             }
 
             logger.info("Container started: \(container.name, privacy: .public)")
+            fputs("[DEBUG] startContainer: container started successfully\n", stderr)
 
         } catch {
+            fputs("[DEBUG] startContainer failed: \(error)\n", stderr)
+            fputs("[DEBUG] error type: \(type(of: error))\n", stderr)
+            if let containerError = error as? ContainerizationError {
+                fputs("[DEBUG] ContainerizationError code: \(containerError.code)\n", stderr)
+                fputs("[DEBUG] ContainerizationError message: \(containerError.message)\n", stderr)
+                if let cause = containerError.cause {
+                    fputs("[DEBUG] ContainerizationError cause: \(cause)\n", stderr)
+                }
+            }
             logger.error("Failed to start container \(container.name, privacy: .public): \(error.localizedDescription)")
             throw ContainerRuntimeError.containerStartFailed(
                 containerID: container.id,
                 reason: error.localizedDescription
             )
         }
-        #else
-        throw ContainerRuntimeError.runtimeNotAvailable(
-            .appleContainerization,
-            reason: "Containerization framework not available"
-        )
-        #endif
     }
 
     public func stopContainer(_ container: Container) async throws {
         logger.info("Stopping container: \(container.name, privacy: .public)")
 
-        #if canImport(Containerization)
-        guard let linuxContainer = container.nativeContainerAs(LinuxContainer.self) else {
+        guard let linuxContainer = nativeContainers[container.id] else {
             throw ContainerRuntimeError.containerStopFailed(
                 containerID: container.id,
-                reason: "Invalid native container handle"
+                reason: "Native container not found"
             )
         }
 
@@ -417,12 +424,66 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
                 reason: error.localizedDescription
             )
         }
-        #else
-        throw ContainerRuntimeError.runtimeNotAvailable(
-            .appleContainerization,
-            reason: "Containerization framework not available"
-        )
-        #endif
+    }
+
+    /// Runs a container with a command and waits for it to complete.
+    ///
+    /// This is the preferred method for running commands in Apple Containerization,
+    /// as it sets the command as the container's main process rather than using exec.
+    ///
+    /// - Parameters:
+    ///   - container: The container to run (must have command set in config)
+    /// - Returns: The exit code of the container process
+    public func runAndWait(_ container: Container) async throws -> Int32 {
+        logger.info("Running container: \(container.name, privacy: .public)")
+        fputs("[DEBUG] runAndWait: container=\(container.name)\n", stderr)
+
+        guard let linuxContainer = nativeContainers[container.id] else {
+            fputs("[DEBUG] runAndWait: native container not found\n", stderr)
+            throw ContainerRuntimeError.containerStartFailed(
+                containerID: container.id,
+                reason: "Native container not found"
+            )
+        }
+
+        do {
+            fputs("[DEBUG] runAndWait: calling linuxContainer.create()...\n", stderr)
+            try await linuxContainer.create()
+            fputs("[DEBUG] runAndWait: calling linuxContainer.start()...\n", stderr)
+            try await linuxContainer.start()
+
+            // Update container state
+            if var updatedContainer = activeContainers[container.id] {
+                try updatedContainer.updateState(.running)
+                activeContainers[container.id] = updatedContainer
+            }
+
+            fputs("[DEBUG] runAndWait: calling linuxContainer.wait()...\n", stderr)
+            let exitStatus = try await linuxContainer.wait()
+            let exitCode = exitStatus.exitCode
+            fputs("[DEBUG] runAndWait: container exited with code \(exitCode)\n", stderr)
+
+            // Update state to stopped
+            if var updatedContainer = activeContainers[container.id] {
+                try updatedContainer.updateState(.stopped)
+                updatedContainer.setExitCode(exitCode)
+                activeContainers[container.id] = updatedContainer
+            }
+
+            logger.info("Container \(container.name, privacy: .public) exited with code \(exitCode)")
+            return exitCode
+
+        } catch {
+            fputs("[DEBUG] runAndWait failed: \(error)\n", stderr)
+            if let containerError = error as? ContainerizationError {
+                fputs("[DEBUG] ContainerizationError code: \(containerError.code)\n", stderr)
+                fputs("[DEBUG] ContainerizationError message: \(containerError.message)\n", stderr)
+            }
+            throw ContainerRuntimeError.containerStartFailed(
+                containerID: container.id,
+                reason: error.localizedDescription
+            )
+        }
     }
 
     public func exec(
@@ -433,17 +494,19 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
         workingDirectory: String
     ) async throws -> ContainerProcess {
         logger.info("Exec in container \(container.name, privacy: .public): \(command, privacy: .public)")
+        fputs("[DEBUG] exec: container=\(container.name), cmd=\(command), args=\(arguments), cwd=\(workingDirectory)\n", stderr)
 
-        #if canImport(Containerization)
-        guard let linuxContainer = container.nativeContainerAs(LinuxContainer.self) else {
+        guard let linuxContainer = nativeContainers[container.id] else {
+            fputs("[DEBUG] exec: native container not found\n", stderr)
             throw ContainerRuntimeError.execFailed(
                 containerID: container.id,
                 command: command,
-                reason: "Invalid native container handle"
+                reason: "Native container not found"
             )
         }
 
         guard container.state == .running else {
+            fputs("[DEBUG] exec: container not running, state=\(container.state)\n", stderr)
             throw ContainerRuntimeError.invalidContainerState(
                 containerID: container.id,
                 expected: .running,
@@ -451,71 +514,44 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
             )
         }
 
-        // Storage for native process reference
-        var nativeProcess: ContainerExecProcess?
+        // Execute the command in the container synchronously
+        let execID = UUID().uuidString
+        fputs("[DEBUG] exec: calling linuxContainer.exec with ID \(execID)...\n", stderr)
+        let execProcess = try await linuxContainer.exec(execID) { execConfig in
+            execConfig.arguments = [command] + arguments
+            execConfig.workingDirectory = workingDirectory
 
+            for (key, value) in environment {
+                execConfig.environmentVariables.append("\(key)=\(value)")
+            }
+        }
+        fputs("[DEBUG] exec: linuxContainer.exec returned successfully\n", stderr)
+
+        // Start the process
+        fputs("[DEBUG] exec: calling execProcess.start()...\n", stderr)
+        try await execProcess.start()
+        fputs("[DEBUG] exec: execProcess.start() completed\n", stderr)
+
+        // Create a wrapper that holds the process reference
         let process = ContainerProcess(
             command: command,
             arguments: arguments,
             environment: environment,
             workingDirectory: workingDirectory,
             containerID: container.id,
-            startHandler: { [weak self] in
-                guard let self = self else { return }
-
-                // Execute the command in the container
-                let execProcess = try await linuxContainer.exec(command) { execConfig in
-                    execConfig.arguments = arguments
-                    execConfig.workingDirectory = workingDirectory
-
-                    for (key, value) in environment {
-                        execConfig.environment[key] = value
-                    }
-
-                    execConfig.attachStdin = false
-                    execConfig.attachStdout = true
-                    execConfig.attachStderr = true
-                }
-
-                nativeProcess = execProcess
-
-                // Start output streaming
-                Task {
-                    for await data in execProcess.stdout {
-                        await process.writeStdout(data)
-                    }
-                }
-
-                Task {
-                    for await data in execProcess.stderr {
-                        await process.writeStderr(data)
-                    }
-                }
-
-                try await execProcess.start()
-
-                self.logger.debug("Process started: \(command, privacy: .public)")
+            startHandler: {
+                // Already started above
             },
-            waitHandler: {
-                guard let execProcess = nativeProcess else {
-                    return -1
-                }
-                return try await execProcess.wait()
+            waitHandler: { [execProcess] in
+                let status = try await execProcess.wait()
+                return status.exitCode
             },
-            signalHandler: { signal in
-                guard let execProcess = nativeProcess else { return }
-                try await execProcess.signal(signal)
+            signalHandler: { [execProcess] signal in
+                try await execProcess.kill(signal)
             }
         )
 
         return process
-
-        #else
-        throw ContainerRuntimeError.runtimeNotAvailable(
-            .appleContainerization,
-            reason: "Containerization framework not available"
-        )
-        #endif
     }
 
     public func removeContainer(_ container: Container) async throws {
@@ -531,6 +567,7 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
 
         // Remove from active containers
         activeContainers.removeValue(forKey: container.id)
+        nativeContainers.removeValue(forKey: container.id)
 
         logger.info("Container removed: \(container.name, privacy: .public)")
     }
@@ -557,129 +594,195 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
         imageCache.removeAll()
         logger.info("Image cache cleared")
     }
-}
 
-// MARK: - Placeholder Types for Non-macOS 26 Builds
+    /// Checks if the runtime has a kernel configured for full container support.
+    public func hasKernel() -> Bool {
+        containerManager != nil
+    }
 
-#if !canImport(Containerization)
-// These placeholder types allow the code to compile on macOS versions
-// that don't have the Containerization framework.
+    // MARK: - Bundled Resource Helpers
 
-/// Placeholder for VirtualMachineManager when Containerization is unavailable.
-private struct VirtualMachineManager {}
+    /// Resolves the kernel path, checking for bundled kernel if no path provided.
+    private static func resolveKernelPath(_ providedPath: URL?) -> URL? {
+        if let path = providedPath {
+            return path
+        }
 
-/// Placeholder for OCIImageStore when Containerization is unavailable.
-private struct OCIImageStore {
-    init(path: URL) throws {
-        fatalError("Containerization framework not available")
+        // Check SPM Bundle resources first (works for both debug and release builds)
+        if let bundleKernel = Bundle.module.url(forResource: "vmlinux", withExtension: nil, subdirectory: "Containerization") {
+            if FileManager.default.fileExists(atPath: bundleKernel.path) {
+                return bundleKernel
+            }
+        }
+        
+        // SPM flat bundle structure - check directly in bundle path
+        let bundlePath = Bundle.module.bundlePath
+        let flatBundleKernel = URL(fileURLWithPath: bundlePath)
+            .appendingPathComponent("Containerization")
+            .appendingPathComponent("vmlinux")
+        if FileManager.default.fileExists(atPath: flatBundleKernel.path) {
+            return flatBundleKernel
+        }
+
+        // Look for bundled kernel in Resources/Containerization
+        // Check relative to the executable
+        let executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+        let resourcesDir = executableURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("LungfishGenomeBrowser_LungfishWorkflow.bundle")
+            .appendingPathComponent("Containerization")
+
+        let bundledKernel = resourcesDir.appendingPathComponent("vmlinux")
+        if FileManager.default.fileExists(atPath: bundledKernel.path) {
+            return bundledKernel
+        }
+
+        return nil
+    }
+
+    /// Loads the bundled initfs tarball into the image store if not already present.
+    /// The tarball contains a raw rootfs filesystem, not an OCI image, so we use
+    /// InitImage.create to convert it to an OCI image.
+    private static func loadBundledInitfs(storePath: URL, logger: Logger) async throws {
+        // Create content store first, then image store with the content store
+        let contentStorePath = storePath.appendingPathComponent("content")
+        try FileManager.default.createDirectory(at: contentStorePath, withIntermediateDirectories: true)
+        let contentStore = try LocalContentStore(path: contentStorePath)
+        let imageStore = try ImageStore(path: storePath, contentStore: contentStore)
+        
+        // Check if vminit:latest already exists in the image store
+        do {
+            _ = try await imageStore.get(reference: "vminit:latest")
+            logger.debug("Initfs already loaded in image store")
+            fputs("[DEBUG] Initfs already loaded in image store\n", stderr)
+            return
+        } catch {
+            // Image not found, need to create it
+            fputs("[DEBUG] Initfs not found in image store, will create it\n", stderr)
+        }
+
+        // Find the bundled initfs tarball
+        // Check SPM Bundle resources first
+        var initfsTarball: URL?
+        
+        if let bundleInitfs = Bundle.module.url(forResource: "init.rootfs.tar", withExtension: "gz", subdirectory: "Containerization") {
+            if FileManager.default.fileExists(atPath: bundleInitfs.path) {
+                initfsTarball = bundleInitfs
+            }
+        }
+        
+        // SPM flat bundle structure - check directly in bundle path
+        if initfsTarball == nil {
+            let bundlePath = Bundle.module.bundlePath
+            let flatBundleInitfs = URL(fileURLWithPath: bundlePath)
+                .appendingPathComponent("Containerization")
+                .appendingPathComponent("init.rootfs.tar.gz")
+            if FileManager.default.fileExists(atPath: flatBundleInitfs.path) {
+                initfsTarball = flatBundleInitfs
+            }
+        }
+
+        if initfsTarball == nil {
+            let executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+            let resourcesDir = executableURL
+                .deletingLastPathComponent()
+                .appendingPathComponent("LungfishGenomeBrowser_LungfishWorkflow.bundle")
+                .appendingPathComponent("Containerization")
+
+            let execInitfs = resourcesDir.appendingPathComponent("init.rootfs.tar.gz")
+            if FileManager.default.fileExists(atPath: execInitfs.path) {
+                initfsTarball = execInitfs
+            }
+        }
+
+        guard let initfsTarball = initfsTarball else {
+            logger.warning("Bundled initfs not found in any search location")
+            fputs("[DEBUG] Bundled initfs not found in any search location\n", stderr)
+            return
+        }
+
+        logger.info("Loading bundled initfs from \(initfsTarball.path)")
+        fputs("[DEBUG] Loading bundled initfs from \(initfsTarball.path)\n", stderr)
+
+        // The tarball contains a raw rootfs filesystem (bin/, sbin/, etc.), not an OCI image.
+        // Use InitImage.create to convert the rootfs tarball into an OCI image.
+        do {
+            let platform = Platform(arch: "arm64", os: "linux", variant: "v8")
+            
+            fputs("[DEBUG] Creating InitImage from rootfs tarball...\n", stderr)
+            _ = try await InitImage.create(
+                reference: "vminit:latest",
+                rootfs: initfsTarball,
+                platform: platform,
+                labels: [
+                    "org.opencontainers.image.title": "vminit",
+                    "org.opencontainers.image.description": "Lungfish VM init image"
+                ],
+                imageStore: imageStore,
+                contentStore: contentStore
+            )
+
+            logger.info("Successfully created initfs OCI image in store")
+            fputs("[DEBUG] Successfully created initfs OCI image in store\n", stderr)
+        } catch {
+            logger.warning("Failed to create initfs image: \(error)")
+            fputs("[DEBUG] Failed to create initfs image: \(error)\n", stderr)
+            throw error
+        }
     }
 }
 
-/// Placeholder for OCIImageReference when Containerization is unavailable.
-private struct OCIImageReference {
-    init(_ reference: String) throws {
-        fatalError("Containerization framework not available")
-    }
-}
+// MARK: - NAT Network Implementation
 
-/// Placeholder for OCIPullOptions when Containerization is unavailable.
-private struct OCIPullOptions {
-    init(platform: OCIPlatform, progressHandler: ((ImagePullProgress) -> Void)?) {}
-}
+/// A network implementation using NAT that doesn't require the com.apple.vm.networking entitlement.
+/// This uses VZNATNetworkDeviceAttachment which provides outbound internet access via NAT
+/// without requiring special entitlements.
+@available(macOS 26, *)
+public struct NATNetwork: ContainerManager.Network, Sendable {
+    /// The base subnet for NAT addresses (these are virtual addresses used inside the VM)
+    private let subnet: CIDRv4
 
-/// Placeholder for OCIPlatform when Containerization is unavailable.
-private struct OCIPlatform {
-    let os: String
-    let architecture: String
-}
+    /// Counter for allocating IP addresses
+    private var nextAddress: UInt32
 
-/// Placeholder for RootFSMount when Containerization is unavailable.
-private struct RootFSMount {
-    init(path: URL) throws {
-        fatalError("Containerization framework not available")
-    }
-}
+    /// Track allocated addresses by container ID
+    private var allocations: [String: UInt32]
 
-/// Placeholder for LinuxContainer when Containerization is unavailable.
-private final class LinuxContainer: @unchecked Sendable {
-    init(_ name: String, rootfs: RootFSMount, vmm: VirtualMachineManager, configure: (ContainerConfig) -> Void) throws {
-        fatalError("Containerization framework not available")
+    public init() {
+        // Use a private subnet for NAT - the actual networking is handled by macOS
+        // These addresses are used for configuring the network inside the VM
+        // The gateway (192.168.64.1) is the host from the VM's perspective
+        let baseAddress = try! IPv4Address("192.168.64.0")
+        let prefix = Prefix.ipv4(24)!
+        self.subnet = try! CIDRv4(baseAddress, prefix: prefix)
+        self.nextAddress = 2  // Start at .2 (.1 is gateway)
+        self.allocations = [:]
     }
 
-    func create() async throws {}
-    func start() async throws {}
-    func stop() async throws {}
-    func exec(_ command: String, configure: (ExecConfig) -> Void) async throws -> ContainerExecProcess {
-        fatalError("Containerization framework not available")
+    public mutating func create(_ id: String) throws -> Interface? {
+        // Allocate the next IP address
+        let addressValue = subnet.lower.value + nextAddress
+        let address = IPv4Address(addressValue)
+        let cidr = try CIDRv4(address, prefix: subnet.prefix)
+
+        // Gateway is .1 in the subnet
+        let gateway = IPv4Address(subnet.lower.value + 1)
+
+        // Store allocation and increment
+        allocations[id] = nextAddress
+        nextAddress += 1
+
+        // Return a NATInterface which uses VZNATNetworkDeviceAttachment
+        return NATInterface(
+            ipv4Address: cidr,
+            ipv4Gateway: gateway,
+            macAddress: nil,
+            mtu: 1500
+        )
     }
 
-    var networkConfiguration: NetworkConfiguration? { nil }
-}
-
-/// Placeholder for ContainerConfig when Containerization is unavailable.
-private struct ContainerConfig {
-    var cpus: Int = 0
-    var memoryInBytes: UInt64 = 0
-    var hostname: String = ""
-    var networking: NetworkingConfig = .none
-    var mounts: [ContainerMount] = []
-}
-
-/// Placeholder for NetworkingConfig when Containerization is unavailable.
-private enum NetworkingConfig {
-    case none
-    case vmnet(mode: VmnetMode)
-}
-
-/// Placeholder for VmnetMode when Containerization is unavailable.
-private enum VmnetMode {
-    case shared
-    case bridged
-}
-
-/// Placeholder for ContainerMount when Containerization is unavailable.
-private enum ContainerMount {
-    static func bind(source: String, destination: String, readOnly: Bool) -> ContainerMount {
-        fatalError("Containerization framework not available")
+    public mutating func release(_ id: String) throws {
+        // Just remove the allocation - we don't recycle addresses for simplicity
+        allocations.removeValue(forKey: id)
     }
 }
-
-/// Placeholder for ExecConfig when Containerization is unavailable.
-private struct ExecConfig {
-    var arguments: [String] = []
-    var workingDirectory: String = ""
-    var environment: [String: String] = [:]
-    var attachStdin: Bool = false
-    var attachStdout: Bool = false
-    var attachStderr: Bool = false
-}
-
-/// Placeholder for ContainerExecProcess when Containerization is unavailable.
-private final class ContainerExecProcess: @unchecked Sendable {
-    var stdout: AsyncStream<Data> { AsyncStream { _ in } }
-    var stderr: AsyncStream<Data> { AsyncStream { _ in } }
-
-    func start() async throws {}
-    func wait() async throws -> Int32 { -1 }
-    func signal(_ signal: Int32) async throws {}
-}
-
-/// Placeholder for NetworkConfiguration when Containerization is unavailable.
-private struct NetworkConfiguration {
-    var ipAddress: String? { nil }
-}
-
-/// Placeholder for pulled image when Containerization is unavailable.
-private struct PulledOCIImage {
-    var digest: String? { nil }
-    var rootfsPath: URL { URL(fileURLWithPath: "/") }
-    var sizeBytes: UInt64? { nil }
-}
-
-extension OCIImageStore {
-    func image(for ref: OCIImageReference) async throws -> PulledOCIImage? { nil }
-    func pull(_ ref: OCIImageReference, options: OCIPullOptions) async throws -> PulledOCIImage {
-        fatalError("Containerization framework not available")
-    }
-}
-#endif

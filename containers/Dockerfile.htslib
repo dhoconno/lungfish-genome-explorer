@@ -1,0 +1,14 @@
+# Multi-arch Dockerfile for htslib (bgzip, tabix)
+# Builds for both arm64 and amd64
+FROM alpine:3.19
+
+# Install htslib tools
+RUN apk add --no-cache \
+    htslib=1.18-r0 \
+    htslib-tools=1.18-r0 \
+    && rm -rf /var/cache/apk/*
+
+# Verify installation
+RUN bgzip --version && tabix --version
+
+CMD ["/bin/sh"]

@@ -1,0 +1,16 @@
+# Multi-arch Dockerfile for samtools
+# Builds for both arm64 and amd64
+FROM alpine:3.19
+
+# Install samtools and dependencies
+RUN apk add --no-cache \
+    samtools=1.18-r0 \
+    htslib=1.18-r0 \
+    bcftools=1.18-r0 \
+    && rm -rf /var/cache/apk/*
+
+# Verify installation
+RUN samtools --version && bcftools --version && bgzip --version
+
+# Default command
+CMD ["/bin/sh"]

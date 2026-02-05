@@ -1,0 +1,24 @@
+Lungfish Bundled Bioinformatics Tools
+======================================
+
+This directory contains pre-built bioinformatics tools bundled with Lungfish.
+All tools are open source and distributed under MIT-compatible licenses.
+
+Versions:
+- samtools: 1.21 (MIT/Expat license)
+- bcftools: 1.21 (MIT/Expat license)
+- htslib (bgzip, tabix): 1.21 (MIT/Expat license)
+- UCSC tools (bedToBigBed, bedGraphToBigWig): 469 (MIT license)
+
+Build date: 2026-02-05 01:27:04 UTC
+Build architecture: arm64
+
+Source URLs:
+- samtools: https://github.com/samtools/samtools/releases/download/1.21/samtools-1.21.tar.bz2
+- bcftools: https://github.com/samtools/bcftools/releases/download/1.21/bcftools-1.21.tar.bz2
+- htslib: https://github.com/samtools/htslib/releases/download/1.21/htslib-1.21.tar.bz2
+- UCSC tools: https://hgdownload.soe.ucsc.edu/admin/exe/macOSX.x86_64/
+
+Licenses:
+- samtools/bcftools/htslib: https://github.com/samtools/samtools/blob/develop/LICENSE
+- UCSC tools: https://genome-source.gi.ucsc.edu/gitlist/kent.git/blob/master/src/LICENSE

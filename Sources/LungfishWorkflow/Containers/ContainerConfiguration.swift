@@ -92,6 +92,14 @@ public struct ContainerConfiguration: Sendable, Codable, Equatable {
     /// Apple Containerization uses dedicated IPs, so port mappings are not needed.
     public var portMappings: [PortMapping]
 
+    // MARK: - Process Configuration
+
+    /// Command and arguments to run in the container.
+    ///
+    /// If set, this command will be executed as the main process when the container starts.
+    /// The first element is the executable path, followed by arguments.
+    public var command: [String]?
+
     // MARK: - Runtime-Specific Options
 
     /// Additional Docker-specific options.
@@ -120,6 +128,7 @@ public struct ContainerConfiguration: Sendable, Codable, Equatable {
     ///   - environment: Environment variables
     ///   - networkMode: Network configuration mode
     ///   - portMappings: Port mappings (Docker only)
+    ///   - command: Command and arguments to run
     ///   - dockerOptions: Additional Docker options
     ///   - userID: User ID for processes
     ///   - groupID: Group ID for processes
@@ -132,6 +141,7 @@ public struct ContainerConfiguration: Sendable, Codable, Equatable {
         environment: [String: String] = [:],
         networkMode: NetworkMode = .bridge,
         portMappings: [PortMapping] = [],
+        command: [String]? = nil,
         dockerOptions: [String] = [],
         userID: UInt32? = nil,
         groupID: UInt32? = nil
@@ -144,6 +154,7 @@ public struct ContainerConfiguration: Sendable, Codable, Equatable {
         self.environment = environment
         self.networkMode = networkMode
         self.portMappings = portMappings
+        self.command = command
         self.dockerOptions = dockerOptions
         self.userID = userID
         self.groupID = groupID

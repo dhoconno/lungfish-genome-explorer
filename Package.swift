@@ -1,4 +1,4 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.2
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -6,7 +6,7 @@ import PackageDescription
 let package = Package(
     name: "LungfishGenomeBrowser",
     platforms: [
-        .macOS(.v14)  // macOS 14 Sonoma minimum
+        .macOS(.v26)  // macOS 26 Tahoe minimum - required for Apple Containerization
     ],
     products: [
         // The main application executable
@@ -61,6 +61,8 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-system.git", from: "1.3.0"),
         // Swift Async Algorithms for async sequence processing
         .package(url: "https://github.com/apple/swift-async-algorithms.git", from: "1.0.0"),
+        // Apple Containerization for running Linux containers on macOS 26+
+        .package(url: "https://github.com/apple/containerization.git", from: "0.1.0"),
     ],
     targets: [
         // MARK: - LungfishCore
@@ -132,8 +134,15 @@ let package = Package(
             dependencies: [
                 "LungfishCore",
                 "LungfishIO",
+                .product(name: "Containerization", package: "containerization"),
+                .product(name: "ContainerizationOCI", package: "containerization"),
+                .product(name: "ContainerizationArchive", package: "containerization"),
+                .product(name: "ContainerizationExtras", package: "containerization"),
             ],
-            path: "Sources/LungfishWorkflow"
+            path: "Sources/LungfishWorkflow",
+            resources: [
+                .copy("Resources/Containerization")
+            ]
         ),
         .testTarget(
             name: "LungfishWorkflowTests",
