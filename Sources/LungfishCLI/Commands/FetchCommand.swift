@@ -5,6 +5,7 @@
 import ArgumentParser
 import Foundation
 import LungfishCore
+import LungfishWorkflow
 
 /// Fetch sequences from remote databases
 struct FetchCommand: AsyncParsableCommand {
@@ -16,6 +17,7 @@ struct FetchCommand: AsyncParsableCommand {
             SearchSubcommand.self,
             SRASubcommand.self,
             ENASubcommand.self,
+            GenomeSubcommand.self,
         ],
         defaultSubcommand: NCBISubcommand.self
     )
@@ -831,4 +833,351 @@ struct ENAFastaResult: Codable {
     let accession: String
     let outputFile: String?
     let length: Int
+}
+
+// MARK: - Genome Subcommand
+
+/// Download genome assemblies from NCBI and create indexed bundles
+struct GenomeSubcommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "genome",
+        abstract: "Download genome assemblies from NCBI and create indexed bundles",
+        discussion: """
+            Downloads a genome assembly from NCBI Datasets, including the FASTA sequence
+            and GFF3 annotations, then creates a .lungfishref bundle with proper indices.
+
+            The bundle contains:
+            - Compressed, indexed FASTA (bgzip + samtools faidx)
+            - BigBed annotations (converted from GFF3)
+            - Manifest with metadata
+
+            Examples:
+              lungfish fetch genome GCF_003047895.1 --output-dir ./genomes
+              lungfish fetch genome GCF_000001405.40 --name "Human GRCh38" --output-dir ./
+              lungfish fetch genome GCF_003047895.1 --fasta-only --output-dir ./
+            """
+    )
+
+    @Argument(help: "Assembly accession (e.g., GCF_003047895.1, GCA_000001405.29)")
+    var accession: String
+
+    @Option(
+        name: .customLong("output-dir"),
+        help: "Output directory for the bundle (default: current directory)"
+    )
+    var outputDir: String = "."
+
+    @Option(
+        name: .long,
+        help: "Bundle name (default: derived from assembly)"
+    )
+    var name: String?
+
+    @Flag(
+        name: .customLong("fasta-only"),
+        help: "Download only the FASTA sequence (no annotations, no bundle)"
+    )
+    var fastaOnly: Bool = false
+
+    @Flag(
+        name: .customLong("no-bundle"),
+        help: "Download files but don't create a .lungfishref bundle"
+    )
+    var noBundle: Bool = false
+
+    @Option(
+        name: .customLong("api-key"),
+        help: "NCBI API key for higher rate limits"
+    )
+    var apiKey: String?
+
+    @OptionGroup var globalOptions: GlobalOptions
+
+    func run() async throws {
+        let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+        let fileManager = FileManager.default
+
+        // Create output directory if needed
+        let outputURL = URL(fileURLWithPath: outputDir)
+        try fileManager.createDirectory(at: outputURL, withIntermediateDirectories: true)
+
+        if !globalOptions.quiet {
+            print(formatter.header("Downloading Genome Assembly"))
+            print("Accession: \(accession)")
+            print("Output: \(outputURL.path)")
+            print("")
+        }
+
+        // Step 1: Search for the assembly to get metadata
+        if !globalOptions.quiet {
+            print(formatter.info("Searching for assembly \(accession)..."))
+        }
+
+        let ncbiService = NCBIService(apiKey: apiKey)
+
+        // Search the assembly database
+        let searchResult = try await ncbiService.searchGenome(term: accession, retmax: 1)
+
+        guard !searchResult.ids.isEmpty else {
+            throw CLIError.networkError(reason: "Assembly not found: \(accession)")
+        }
+
+        // Get assembly summary
+        let summaries = try await ncbiService.assemblyEsummary(ids: searchResult.ids)
+
+        guard let summary = summaries.first else {
+            throw CLIError.networkError(reason: "Could not retrieve assembly metadata for \(accession)")
+        }
+
+        let assemblyAccession = summary.assemblyAccession ?? accession
+        let organism = summary.organism ?? summary.speciesName ?? "Unknown"
+        let bundleName = name ?? "\(organism.replacingOccurrences(of: " ", with: "_"))_\(assemblyAccession)"
+
+        if !globalOptions.quiet {
+            print(formatter.success("Found: \(organism)"))
+            print("  Assembly: \(assemblyAccession)")
+            if let coverage = summary.coverage {
+                print("  Coverage: \(coverage)")
+            }
+            print("")
+        }
+
+        // Step 2: Get download URLs and download files
+        if !globalOptions.quiet {
+            print(formatter.info("Getting download URLs..."))
+        }
+
+        let genomeFileInfo = try await ncbiService.getGenomeFileInfo(for: summary)
+
+        // Create a temp directory for downloads
+        let tempDir = outputURL.appendingPathComponent(".lungfish-temp-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        defer {
+            // Clean up temp directory
+            try? fileManager.removeItem(at: tempDir)
+        }
+
+        // Download FASTA
+        if !globalOptions.quiet {
+            let sizeStr = genomeFileInfo.estimatedSize.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "unknown size"
+            print(formatter.info("Downloading FASTA (\(sizeStr))..."))
+        }
+
+        let fastaGzPath = tempDir.appendingPathComponent(genomeFileInfo.filename)
+        _ = try await ncbiService.downloadGenomeFile(genomeFileInfo, to: fastaGzPath) { downloaded, total in
+            if !globalOptions.quiet && globalOptions.outputFormat == .text {
+                let downloadedStr = ByteCountFormatter.string(fromByteCount: downloaded, countStyle: .file)
+                if let total = total {
+                    let totalStr = ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
+                    let percent = Int(Double(downloaded) / Double(total) * 100)
+                    print("\r  \(downloadedStr) / \(totalStr) (\(percent)%)", terminator: "")
+                } else {
+                    print("\r  \(downloadedStr)", terminator: "")
+                }
+                fflush(stdout)
+            }
+        }
+
+        if !globalOptions.quiet {
+            print("") // newline after progress
+            print(formatter.success("FASTA downloaded"))
+        }
+
+        // Download GFF3 annotations (if not fasta-only)
+        var gffPath: URL?
+        if !fastaOnly {
+            if !globalOptions.quiet {
+                print(formatter.info("Downloading annotations (GFF3)..."))
+            }
+
+            // Construct GFF3 URL from FTP path
+            if let ftpPath = summary.ftpPathRefSeq ?? summary.ftpPathGenBank {
+                let pathComponents = ftpPath.components(separatedBy: "/")
+                if let assemblyDirName = pathComponents.last, !assemblyDirName.isEmpty {
+                    let gffFilename = "\(assemblyDirName)_genomic.gff.gz"
+                    var httpPath = ftpPath
+                    if httpPath.hasPrefix("ftp://") {
+                        httpPath = httpPath.replacingOccurrences(of: "ftp://", with: "https://")
+                    } else if !httpPath.hasPrefix("https://") && !httpPath.hasPrefix("http://") {
+                        httpPath = "https://\(httpPath)"
+                    }
+
+                    if let gffURL = URL(string: "\(httpPath)/\(gffFilename)") {
+                        let downloadedGffPath = tempDir.appendingPathComponent(gffFilename)
+
+                        do {
+                            let (tempURL, response) = try await URLSession.shared.download(from: gffURL)
+                            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
+                                try fileManager.moveItem(at: tempURL, to: downloadedGffPath)
+                                gffPath = downloadedGffPath
+                                if !globalOptions.quiet {
+                                    print(formatter.success("Annotations downloaded"))
+                                }
+                            } else {
+                                if !globalOptions.quiet {
+                                    print(formatter.warning("Annotations not available for this assembly"))
+                                }
+                            }
+                        } catch {
+                            if !globalOptions.quiet {
+                                print(formatter.warning("Could not download annotations: \(error.localizedDescription)"))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // If fasta-only or no-bundle, just decompress and save
+        if fastaOnly || noBundle {
+            let finalFastaPath = outputURL.appendingPathComponent("\(bundleName).fna.gz")
+            try fileManager.copyItem(at: fastaGzPath, to: finalFastaPath)
+
+            if let gff = gffPath {
+                let finalGffPath = outputURL.appendingPathComponent("\(bundleName).gff.gz")
+                try fileManager.copyItem(at: gff, to: finalGffPath)
+            }
+
+            if !globalOptions.quiet {
+                print("")
+                print(formatter.success("Files saved:"))
+                print("  FASTA: \(outputURL.appendingPathComponent("\(bundleName).fna.gz").path)")
+                if gffPath != nil {
+                    print("  GFF3: \(outputURL.appendingPathComponent("\(bundleName).gff.gz").path)")
+                }
+            }
+
+            if globalOptions.outputFormat == .json {
+                let result = GenomeDownloadResult(
+                    accession: assemblyAccession,
+                    organism: organism,
+                    fastaPath: outputURL.appendingPathComponent("\(bundleName).fna.gz").path,
+                    gffPath: gffPath != nil ? outputURL.appendingPathComponent("\(bundleName).gff.gz").path : nil,
+                    bundlePath: nil
+                )
+                let handler = JSONOutputHandler()
+                handler.writeData(result, label: nil)
+            }
+            return
+        }
+
+        // Step 3: Create the .lungfishref bundle with proper indices
+        if !globalOptions.quiet {
+            print("")
+            print(formatter.header("Creating Indexed Bundle"))
+        }
+
+        // Use NativeBundleBuilder to create the bundle
+        let builder = await NativeBundleBuilder()
+
+        // Check for required tools
+        if let missingInfo = await builder.checkRequiredTools() {
+            if !globalOptions.quiet {
+                print(formatter.warning("Native bioinformatics tools not available."))
+                print(formatter.warning("Missing: \(missingInfo.missingTools.map { $0.rawValue }.joined(separator: ", "))"))
+                print(formatter.info("Creating basic bundle without optimized indices..."))
+            }
+        }
+
+        // Decompress FASTA for bundle builder (it will re-compress with bgzip)
+        let uncompressedFastaPath = tempDir.appendingPathComponent("sequence.fna")
+        let decompressProcess = Process()
+        decompressProcess.executableURL = URL(fileURLWithPath: "/usr/bin/gunzip")
+        decompressProcess.arguments = ["-c", fastaGzPath.path]
+        let outputPipe = Pipe()
+        decompressProcess.standardOutput = outputPipe
+        try decompressProcess.run()
+
+        let fastaData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        decompressProcess.waitUntilExit()
+        try fastaData.write(to: uncompressedFastaPath)
+
+        // Prepare annotation inputs
+        var annotationInputs: [AnnotationInput] = []
+        if let gff = gffPath {
+            // Decompress GFF for bundle builder
+            let uncompressedGffPath = tempDir.appendingPathComponent("annotations.gff3")
+            let gffDecompressProcess = Process()
+            gffDecompressProcess.executableURL = URL(fileURLWithPath: "/usr/bin/gunzip")
+            gffDecompressProcess.arguments = ["-c", gff.path]
+            let gffOutputPipe = Pipe()
+            gffDecompressProcess.standardOutput = gffOutputPipe
+            try gffDecompressProcess.run()
+
+            let gffData = gffOutputPipe.fileHandleForReading.readDataToEndOfFile()
+            gffDecompressProcess.waitUntilExit()
+            try gffData.write(to: uncompressedGffPath)
+
+            annotationInputs.append(AnnotationInput(url: uncompressedGffPath, name: "genes"))
+        }
+
+        // Create build configuration
+        let config = BuildConfiguration(
+            name: name ?? organism,
+            identifier: "com.ncbi.\(assemblyAccession.lowercased().replacingOccurrences(of: ".", with: "-"))",
+            fastaURL: uncompressedFastaPath,
+            annotationFiles: annotationInputs,
+            variantFiles: [],
+            signalFiles: [],
+            outputDirectory: outputURL,
+            source: SourceInfo(
+                organism: organism,
+                commonName: nil,
+                taxonomyId: summary.taxid,
+                assembly: assemblyAccession,
+                assemblyAccession: assemblyAccession,
+                database: "NCBI",
+                sourceURL: URL(string: "https://www.ncbi.nlm.nih.gov/datasets/genome/\(assemblyAccession)/"),
+                downloadDate: Date(),
+                notes: nil
+            ),
+            compressFASTA: true
+        )
+
+        // Build the bundle
+        let bundleURL = try await builder.build(configuration: config) { step, progress, message in
+            if !globalOptions.quiet && globalOptions.outputFormat == .text {
+                let progressPercent = Int(progress * 100)
+                print("\r  [\(progressPercent)%] \(message)", terminator: "")
+                fflush(stdout)
+            }
+        }
+
+        if !globalOptions.quiet {
+            print("") // newline after progress
+            print("")
+            print(formatter.success("Bundle created successfully!"))
+            print("")
+            print("Bundle location: \(bundleURL.path)")
+            print("")
+            print("Contents:")
+            print("  - Indexed FASTA sequence (bgzip + faidx)")
+            if !annotationInputs.isEmpty {
+                print("  - BigBed annotations")
+            }
+            print("  - Manifest with metadata")
+        }
+
+        if globalOptions.outputFormat == .json {
+            let result = GenomeDownloadResult(
+                accession: assemblyAccession,
+                organism: organism,
+                fastaPath: nil,
+                gffPath: nil,
+                bundlePath: bundleURL.path
+            )
+            let handler = JSONOutputHandler()
+            handler.writeData(result, label: nil)
+        }
+    }
+}
+
+/// JSON output for genome download
+struct GenomeDownloadResult: Codable {
+    let accession: String
+    let organism: String
+    let fastaPath: String?
+    let gffPath: String?
+    let bundlePath: String?
 }

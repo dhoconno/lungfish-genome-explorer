@@ -5,9 +5,35 @@
 import AppKit
 import SwiftUI
 import LungfishCore
+import LungfishIO
 import UniformTypeIdentifiers
 import Quartz  // For QLPreviewView
+import PDFKit  // For PDF rendering (more reliable than QLPreviewView for PDFs)
 import os.log
+
+// MARK: - QuickLookItem
+
+/// Wrapper class that properly implements QLPreviewItem protocol.
+///
+/// Direct casting of URL to QLPreviewItem is unreliable - QuickLook may not
+/// correctly resolve the file and shows an indefinite loading spinner.
+/// This wrapper ensures proper protocol implementation.
+final class QuickLookItem: NSObject, QLPreviewItem {
+    let url: URL
+    
+    init(url: URL) {
+        self.url = url
+        super.init()
+    }
+    
+    @objc dynamic var previewItemURL: URL? {
+        return url
+    }
+    
+    @objc dynamic var previewItemTitle: String? {
+        return url.lastPathComponent
+    }
+}
 
 // MARK: - Logging
 
@@ -77,10 +103,13 @@ public class ViewerViewController: NSViewController {
     /// Progress indicator overlay
     private var progressOverlay: ProgressOverlayView!
     
-    /// QuickLook preview view for non-genomics files (PDF, images, etc.)
+    /// QuickLook preview view for non-genomics files (images, text, etc.)
     private var quickLookView: QLPreviewView?
     
-    /// URL currently being previewed with QuickLook
+    /// PDF view for displaying PDF files (more reliable than QLPreviewView)
+    private var pdfView: PDFView?
+    
+    /// URL currently being previewed with QuickLook or PDFKit
     private var quickLookURL: URL?
 
     // MARK: - State
@@ -519,65 +548,274 @@ public class ViewerViewController: NSViewController {
         logger.info("displayDocument: Completed displaying document")
     }
     
-    /// Displays a file using QuickLook preview (for non-genomics files like PDF, images, etc.)
+    /// Displays a file using QuickLook preview or PDFKit (for non-genomics files).
     ///
-    /// This method creates a QLPreviewView to display files that Lungfish can't natively render,
-    /// such as PDFs, images, and text documents. The QuickLook view replaces the sequence viewer
-    /// while the file is being previewed.
+    /// For PDF files, uses PDFKit which provides more reliable embedded rendering.
+    /// For other files (images, text, etc.), uses QLPreviewView with a proper
+    /// QuickLookItem wrapper to ensure the preview loads correctly.
     ///
     /// - Parameter url: The URL of the file to preview
     public func displayQuickLookPreview(url: URL) {
+        // DEBUG: Print to console for immediate visibility in Xcode debugger
+        print("🔍 [PREVIEW DEBUG] displayQuickLookPreview ENTRY")
+        print("🔍 [PREVIEW DEBUG] URL: \(url)")
+        print("🔍 [PREVIEW DEBUG] isFileURL: \(url.isFileURL)")
+        print("🔍 [PREVIEW DEBUG] pathExtension: \(url.pathExtension)")
+        
         logger.info("displayQuickLookPreview: Starting preview for '\(url.lastPathComponent, privacy: .public)'")
+        logger.info("displayQuickLookPreview: Full path: '\(url.path, privacy: .public)'")
         
-        // Hide the genomics viewer components
-        hideGenomicsViewer()
+        // Ensure we have a proper file URL
+        let fileURL: URL
+        if url.isFileURL {
+            fileURL = url
+        } else {
+            fileURL = URL(fileURLWithPath: url.path)
+        }
         
-        // Remove any existing QuickLook view
-        quickLookView?.removeFromSuperview()
-        
-        // Create a new QuickLook preview view
-        let previewView = QLPreviewView(frame: .zero, style: .normal)
-        previewView?.translatesAutoresizingMaskIntoConstraints = false
-        previewView?.autostarts = true
-        
-        guard let preview = previewView else {
-            logger.error("displayQuickLookPreview: Failed to create QLPreviewView")
+        // Verify file exists and is readable
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            logger.error("displayQuickLookPreview: File does not exist at path")
             showNoSequenceSelected()
             return
         }
         
-        // Add to the container view
-        view.addSubview(preview)
+        guard fileManager.isReadableFile(atPath: fileURL.path) else {
+            logger.error("displayQuickLookPreview: File is not readable")
+            print("❌ [PREVIEW DEBUG] File is NOT readable!")
+            showNoSequenceSelected()
+            return
+        }
         
-        // Position below the ruler, above the status bar
+        print("✅ [PREVIEW DEBUG] File exists and is readable")
+        print("🔍 [PREVIEW DEBUG] View hierarchy state:")
+        print("   - view.bounds: \(view.bounds)")
+        print("   - view.frame: \(view.frame)")
+        print("   - view.superview: \(String(describing: view.superview))")
+        print("   - view.window: \(String(describing: view.window))")
+        
+        // Hide the progress overlay first - it may be covering the view area
+        hideProgress()
+        print("🔍 [PREVIEW DEBUG] Progress hidden")
+        
+        // Hide the genomics viewer components including the ruler
+        hideGenomicsViewer()
+        print("🔍 [PREVIEW DEBUG] Genomics viewer hidden")
+        
+        // Remove any existing preview views
+        removePreviewViews()
+        print("🔍 [PREVIEW DEBUG] Previous preview views removed")
+        
+        // Store the URL
+        quickLookURL = fileURL
+        
+        // For PDFs, use PDFKit (more reliable than QLPreviewView for embedded use)
+        let ext = fileURL.pathExtension.lowercased()
+        print("🔍 [PREVIEW DEBUG] File extension: '\(ext)'")
+        
+        if ext == "pdf" {
+            print("📄 [PREVIEW DEBUG] Routing to PDFKit preview...")
+            displayPDFPreview(url: fileURL)
+            return
+        }
+        
+        // For other files, use QLPreviewView with proper QuickLookItem wrapper
+        print("📋 [PREVIEW DEBUG] Routing to QLPreviewView...")
+        displayQLPreview(url: fileURL)
+    }
+    
+    /// Displays a PDF file using PDFKit.
+    ///
+    /// PDFKit provides more reliable embedded rendering than QLPreviewView,
+    /// especially within NSSplitViewController hierarchies.
+    private func displayPDFPreview(url: URL) {
+        print("📄 [PDF DEBUG] displayPDFPreview ENTRY")
+        print("📄 [PDF DEBUG] URL: \(url)")
+        logger.info("displayPDFPreview: Loading PDF from '\(url.lastPathComponent, privacy: .public)'")
+        
+        guard let pdfDocument = PDFDocument(url: url) else {
+            logger.error("displayPDFPreview: Failed to create PDFDocument")
+            print("❌ [PDF DEBUG] Failed to create PDFDocument from URL!")
+            showNoSequenceSelected()
+            return
+        }
+        
+        print("✅ [PDF DEBUG] PDFDocument created, pageCount: \(pdfDocument.pageCount)")
+        
+        // Create PDF view
+        let pdfDisplayView = PDFView()
+        pdfDisplayView.translatesAutoresizingMaskIntoConstraints = false
+        
+        // CRITICAL: Enable layer backing for proper rendering in layer-backed view hierarchies
+        pdfDisplayView.wantsLayer = true
+        pdfDisplayView.layer?.backgroundColor = NSColor.white.cgColor
+        
+        // Configure display options
+        pdfDisplayView.displayMode = .singlePageContinuous
+        pdfDisplayView.displaysAsBook = false
+        pdfDisplayView.displayDirection = .vertical
+        pdfDisplayView.backgroundColor = .white  // Use white for PDF content visibility
+        
+        print("📄 [PDF DEBUG] PDFView configured, adding to view hierarchy...")
+        print("📄 [PDF DEBUG] Parent view bounds: \(view.bounds)")
+        print("📄 [PDF DEBUG] Parent view.wantsLayer: \(view.wantsLayer)")
+        
+        // Add to view hierarchy BEFORE setting document
+        view.addSubview(pdfDisplayView)
+        
+        // Position to fill the entire viewer area (excluding status bar)
         NSLayoutConstraint.activate([
-            preview.topAnchor.constraint(equalTo: enhancedRulerView.bottomAnchor),
+            pdfDisplayView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            pdfDisplayView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            pdfDisplayView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            pdfDisplayView.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+        ])
+        
+        // Force layout to get valid bounds
+        view.layoutSubtreeIfNeeded()
+        
+        print("📄 [PDF DEBUG] After layout - PDFView bounds: \(pdfDisplayView.bounds)")
+        print("📄 [PDF DEBUG] After layout - PDFView frame: \(pdfDisplayView.frame)")
+        
+        // Now set the document AFTER the view has valid bounds
+        pdfDisplayView.document = pdfDocument
+        
+        // Set auto-scaling AFTER document is set and view has bounds
+        pdfDisplayView.autoScales = true
+        
+        // Force a scale to fit if autoScales doesn't work immediately
+        if pdfDisplayView.bounds.width > 0 {
+            pdfDisplayView.scaleFactor = pdfDisplayView.scaleFactorForSizeToFit
+        }
+        
+        print("📄 [PDF DEBUG] PDFView.isHidden: \(pdfDisplayView.isHidden)")
+        print("📄 [PDF DEBUG] PDFView.alphaValue: \(pdfDisplayView.alphaValue)")
+        print("📄 [PDF DEBUG] PDFView.scaleFactor: \(pdfDisplayView.scaleFactor)")
+        print("📄 [PDF DEBUG] PDFView.scaleFactorForSizeToFit: \(pdfDisplayView.scaleFactorForSizeToFit)")
+        
+        // Force redraw
+        pdfDisplayView.needsDisplay = true
+        pdfDisplayView.needsLayout = true
+        
+        pdfView = pdfDisplayView
+        
+        // Update status bar
+        let pageCount = pdfDocument.pageCount
+        statusBar.positionLabel.stringValue = "\(url.lastPathComponent) (\(pageCount) page\(pageCount == 1 ? "" : "s"))"
+        statusBar.selectionLabel.stringValue = ""
+        
+        print("✅ [PDF DEBUG] displayPDFPreview COMPLETE - \(pageCount) pages")
+        logger.info("displayPDFPreview: PDF loaded successfully with \(pageCount) pages")
+    }
+    
+    /// Displays a file using QLPreviewView with proper QuickLookItem wrapper.
+    private func displayQLPreview(url: URL) {
+        print("📋 [QL DEBUG] displayQLPreview ENTRY")
+        print("📋 [QL DEBUG] URL: \(url)")
+        logger.info("displayQLPreview: Creating QLPreviewView for '\(url.lastPathComponent, privacy: .public)'")
+        
+        // Create a new QuickLook preview view
+        // Use .normal style which works better in embedded contexts
+        let previewView = QLPreviewView(frame: view.bounds, style: .normal)
+        previewView?.translatesAutoresizingMaskIntoConstraints = false
+        
+        guard let preview = previewView else {
+            logger.error("displayQLPreview: Failed to create QLPreviewView")
+            print("❌ [QL DEBUG] Failed to create QLPreviewView!")
+            showNoSequenceSelected()
+            return
+        }
+        
+        print("✅ [QL DEBUG] QLPreviewView created")
+        print("📋 [QL DEBUG] Parent view bounds before adding: \(view.bounds)")
+        
+        // Add to the container view FIRST (before setting constraints or preview item)
+        view.addSubview(preview)
+        print("📋 [QL DEBUG] Added to view hierarchy")
+        
+        // Position to fill the entire viewer area (excluding status bar)
+        NSLayoutConstraint.activate([
+            preview.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             preview.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             preview.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             preview.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
         ])
+        print("📋 [QL DEBUG] Constraints activated")
         
-        // Set the preview item
-        preview.previewItem = url as QLPreviewItem
+        // Force layout before setting the preview item - QLPreviewView needs valid bounds
+        view.layoutSubtreeIfNeeded()
+        print("📋 [QL DEBUG] Layout forced")
+        
+        // Verify bounds are valid
+        guard !preview.bounds.isEmpty else {
+            logger.error("displayQLPreview: Preview bounds are empty after layout")
+            print("❌ [QL DEBUG] Preview bounds are EMPTY after layout!")
+            preview.removeFromSuperview()
+            showNoSequenceSelected()
+            return
+        }
+        
+        print("📋 [QL DEBUG] Preview bounds: \(preview.bounds)")
+        print("📋 [QL DEBUG] Preview frame: \(preview.frame)")
+        print("📋 [QL DEBUG] Preview.isHidden: \(preview.isHidden)")
+        print("📋 [QL DEBUG] Preview.alphaValue: \(preview.alphaValue)")
+        logger.info("displayQLPreview: Preview bounds: \(NSStringFromRect(preview.bounds), privacy: .public)")
+        
+        // Create a proper QuickLookItem wrapper - this is critical!
+        // Direct URL casting to QLPreviewItem is unreliable and causes infinite spinner
+        let quickLookItem = QuickLookItem(url: url)
+        print("📋 [QL DEBUG] QuickLookItem created:")
+        print("   - url: \(quickLookItem.url)")
+        print("   - previewItemURL: \(String(describing: quickLookItem.previewItemURL))")
+        print("   - previewItemTitle: \(String(describing: quickLookItem.previewItemTitle))")
+        
+        // Set the preview item using the wrapper
+        print("📋 [QL DEBUG] Setting preview.previewItem...")
+        preview.previewItem = quickLookItem
+        print("📋 [QL DEBUG] previewItem set")
+        
+        // Refresh the preview to trigger loading
+        print("📋 [QL DEBUG] Calling refreshPreviewItem()...")
+        preview.refreshPreviewItem()
+        print("📋 [QL DEBUG] refreshPreviewItem() called")
         
         quickLookView = preview
-        quickLookURL = url
         
         // Update status bar
         statusBar.positionLabel.stringValue = "Previewing: \(url.lastPathComponent)"
         statusBar.selectionLabel.stringValue = ""
         
-        logger.info("displayQuickLookPreview: Preview displayed successfully")
+        // Debug: Check view hierarchy after setup
+        print("📋 [QL DEBUG] Final state:")
+        print("   - preview.previewItem: \(String(describing: preview.previewItem))")
+        print("   - preview.superview: \(String(describing: preview.superview))")
+        print("   - preview.subviews.count: \(preview.subviews.count)")
+        for (i, subview) in preview.subviews.enumerated() {
+            print("   - subview[\(i)]: \(type(of: subview)), hidden=\(subview.isHidden), bounds=\(subview.bounds)")
+        }
+        
+        print("✅ [QL DEBUG] displayQLPreview COMPLETE")
+        logger.info("displayQLPreview: QLPreviewView configured for '\(url.lastPathComponent, privacy: .public)'")
     }
     
-    /// Hides the QuickLook preview and shows the genomics viewer
-    public func hideQuickLookPreview() {
-        guard quickLookView != nil else { return }
-        
-        logger.info("hideQuickLookPreview: Removing QuickLook preview")
-        
+    /// Removes any existing preview views (QuickLook or PDF).
+    private func removePreviewViews() {
+        quickLookView?.close()
         quickLookView?.removeFromSuperview()
         quickLookView = nil
+        
+        pdfView?.removeFromSuperview()
+        pdfView = nil
+    }
+    
+    /// Hides the QuickLook/PDF preview and shows the genomics viewer
+    public func hideQuickLookPreview() {
+        guard quickLookView != nil || pdfView != nil else { return }
+        
+        logger.info("hideQuickLookPreview: Removing preview views")
+        
+        removePreviewViews()
         quickLookURL = nil
         
         // Show the genomics viewer components
@@ -588,12 +826,14 @@ public class ViewerViewController: NSViewController {
     private func hideGenomicsViewer() {
         viewerView.isHidden = true
         headerView.isHidden = true
+        enhancedRulerView.isHidden = true
     }
     
     /// Shows the genomics viewer components (after QuickLook preview)
     private func showGenomicsViewer() {
         viewerView.isHidden = false
         headerView.isHidden = false
+        enhancedRulerView.isHidden = false
     }
 
     /// Displays multiple loaded documents in the viewer with stacked sequences.
@@ -696,6 +936,89 @@ public class ViewerViewController: NSViewController {
         
         logger.info("displayDocuments: Completed displaying \(allSequences.count) sequences stacked")
     }
+    
+    // MARK: - Reference Bundle Display
+    
+    /// Displays a reference genome bundle in the viewer.
+    ///
+    /// This method loads and displays a `.lungfishref` bundle, using the indexed
+    /// readers for efficient random access to the compressed genome sequence
+    /// and BigBed annotations.
+    ///
+    /// - Parameter bundle: The ReferenceBundle to display
+    public func displayReferenceBundle(_ bundle: LungfishIO.ReferenceBundle) async {
+        print("[DEBUG] displayReferenceBundle: Starting to display bundle '\(bundle.name)'")
+        logger.info("displayReferenceBundle: Starting to display bundle '\(bundle.name, privacy: .public)'")
+        
+        // Hide any QuickLook preview
+        hideQuickLookPreview()
+        
+        // Store bundle reference for later use
+        currentReferenceBundle = bundle
+        currentDocument = nil  // Bundle replaces regular document
+        
+        // Force layout to ensure valid bounds
+        view.layoutSubtreeIfNeeded()
+        let effectiveWidth = max(800, Int(viewerView.bounds.width))
+        
+        // Get the first chromosome to display
+        guard let firstChrom = bundle.manifest.genome.chromosomes.first else {
+            logger.error("displayReferenceBundle: No chromosomes in bundle")
+            return
+        }
+        
+        let chromLength = Int(firstChrom.length)
+        logger.info("displayReferenceBundle: First chromosome '\(firstChrom.name, privacy: .public)' length=\(chromLength)")
+        
+        // Create reference frame for the chromosome
+        referenceFrame = ReferenceFrame(
+            chromosome: firstChrom.name,
+            start: 0,
+            end: Double(min(chromLength, 10000)),  // Start zoomed to first 10kb
+            pixelWidth: effectiveWidth,
+            sequenceLength: chromLength
+        )
+        
+        // Set up the viewer with bundle information
+        viewerView.setReferenceBundle(bundle)
+        
+        // Update header with chromosome names
+        let trackNames = [firstChrom.name] + bundle.annotationTrackIds.map { "Annotations: \($0)" }
+        headerView.setTrackNames(trackNames)
+        
+        // Update ruler
+        enhancedRulerView.referenceFrame = referenceFrame
+        
+        // Update status bar
+        updateStatusBar()
+        
+        print("[DEBUG] displayReferenceBundle: referenceFrame=\(referenceFrame?.chromosome ?? "nil"):\(referenceFrame?.start ?? 0)-\(referenceFrame?.end ?? 0), viewerView.bounds=\(viewerView.bounds.width)x\(viewerView.bounds.height)")
+        
+        // Trigger redraw
+        viewerView.needsDisplay = true
+        enhancedRulerView.needsDisplay = true
+        headerView.needsDisplay = true
+        
+        // Schedule delayed redraw for layout timing
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self = self else { return }
+            
+            if let frame = self.referenceFrame, self.viewerView.bounds.width > 0 {
+                frame.pixelWidth = Int(self.viewerView.bounds.width)
+            }
+            
+            print("[DEBUG] displayReferenceBundle (delayed): triggering redraw, viewerView.bounds=\(self.viewerView.bounds.width)x\(self.viewerView.bounds.height)")
+            self.viewerView.needsDisplay = true
+            self.enhancedRulerView.needsDisplay = true
+            self.headerView.needsDisplay = true
+        }
+        
+        print("[DEBUG] displayReferenceBundle: Completed displaying bundle")
+        logger.info("displayReferenceBundle: Completed displaying bundle")
+    }
+    
+    /// The currently displayed reference bundle, if any.
+    public private(set) var currentReferenceBundle: LungfishIO.ReferenceBundle?
 
     // MARK: - Public API
 
@@ -1015,7 +1338,7 @@ public class ProgressOverlayView: NSView {
 
     private var spinner: NSProgressIndicator!
     private var messageLabel: NSTextField!
-    private var timeoutTimer: Timer?
+    private nonisolated(unsafe) var timeoutTimer: Timer?
 
     /// Default timeout in seconds before auto-hiding the progress overlay.
     /// This prevents stuck spinners from indefinite operations.
@@ -1114,6 +1437,24 @@ public class SequenceViewerView: NSView {
 
     /// Annotations to overlay
     private var annotations: [SequenceAnnotation] = []
+    
+    /// The reference bundle being displayed (for .lungfishref bundles)
+    private(set) var currentReferenceBundle: ReferenceBundle?
+    
+    /// Cached sequence data for the current visible region (for bundle mode)
+    private var cachedBundleSequence: String?
+    
+    /// The region for which we have cached sequence data
+    private var cachedSequenceRegion: GenomicRegion?
+    
+    /// Error message from the last failed bundle fetch, if any
+    private var bundleFetchError: String?
+    
+    /// Cached annotations for the current visible region (for bundle mode)
+    private var cachedBundleAnnotations: [SequenceAnnotation] = []
+    
+    /// Whether we're currently fetching bundle data
+    private var isFetchingBundleData: Bool = false
 
     /// Whether drag is active (for highlighting)
     private var isDragActive = false
@@ -1321,6 +1662,52 @@ public class SequenceViewerView: NSView {
         setNeedsDisplay(bounds)
         logger.debug("SequenceViewerView.setAnnotations: Requested display refresh")
     }
+    
+    /// Sets a reference bundle for display.
+    ///
+    /// When a reference bundle is set, the viewer fetches sequence and annotation
+    /// data on-demand using the bundle's indexed readers for efficient random access.
+    ///
+    /// - Parameter bundle: The ReferenceBundle to display
+    func setReferenceBundle(_ bundle: ReferenceBundle) {
+        print("[DEBUG] SequenceViewerView.setReferenceBundle: Setting bundle '\(bundle.name)'")
+        logger.info("SequenceViewerView.setReferenceBundle: Setting bundle '\(bundle.name, privacy: .public)'")
+        
+        // Store the bundle reference
+        self.currentReferenceBundle = bundle
+        
+        // Clear any existing sequence/annotations since we'll fetch on-demand
+        self.sequence = nil
+        self.annotations = []
+        
+        // Clear cached bundle data
+        self.cachedBundleSequence = nil
+        self.cachedSequenceRegion = nil
+        self.cachedBundleAnnotations = []
+        self.isFetchingBundleData = false
+        self.bundleFetchError = nil
+        
+        // Clear multi-sequence state if active
+        if isMultiSequenceMode {
+            clearSequences()
+        }
+        
+        // Request display refresh - drawing will fetch data based on visible region
+        needsDisplay = true
+        
+        logger.info("SequenceViewerView.setReferenceBundle: Bundle set, ready for on-demand fetching")
+    }
+    
+    /// Clears the current reference bundle.
+    func clearReferenceBundle() {
+        logger.info("SequenceViewerView.clearReferenceBundle: Clearing bundle")
+        self.currentReferenceBundle = nil
+        self.cachedBundleSequence = nil
+        self.cachedSequenceRegion = nil
+        self.cachedBundleAnnotations = []
+        self.isFetchingBundleData = false
+        needsDisplay = true
+    }
 
     // MARK: - Drawing
 
@@ -1331,6 +1718,7 @@ public class SequenceViewerView: NSView {
 
         guard let context = NSGraphicsContext.current?.cgContext else {
             logger.warning("SequenceViewerView.draw: No graphics context available")
+            print("[DEBUG] SequenceViewerView.draw: No graphics context!")
             return
         }
 
@@ -1351,27 +1739,377 @@ public class SequenceViewerView: NSView {
         }
 
         // Check for multi-sequence mode first
+        let hasBundle = currentReferenceBundle != nil
+        let hasFrame = viewController?.referenceFrame != nil
+        let hasVC = viewController != nil
+        print("[DEBUG] SequenceViewerView.draw: hasVC=\(hasVC), hasFrame=\(hasFrame), hasBundle=\(hasBundle), bounds=\(self.bounds.width)x\(self.bounds.height)")
+        logger.debug("SequenceViewerView.draw: hasVC=\(hasVC), hasFrame=\(hasFrame), hasBundle=\(hasBundle), bounds=\(self.bounds.width)x\(self.bounds.height)")
+        
         if let frame = viewController?.referenceFrame {
             if shouldDrawMultiSequence, let state = multiSequenceState {
                 // Multi-sequence mode: draw stacked sequences with per-sequence annotations
                 logger.debug("SequenceViewerView.draw: Drawing \(state.stackedSequences.count) stacked sequences")
                 drawStackedSequences(state.stackedSequences, frame: frame, context: context)
+            } else if currentReferenceBundle != nil {
+                // Reference bundle mode: draw from cached bundle data
+                print("[DEBUG] SequenceViewerView.draw: Drawing bundle content for \(frame.chromosome)")
+                logger.info("SequenceViewerView.draw: Drawing bundle content for \(frame.chromosome)")
+                drawBundleContent(frame: frame, context: context)
             } else if let seq = sequence {
                 // Single sequence mode
                 logger.debug("SequenceViewerView.draw: Drawing single sequence '\(seq.name, privacy: .public)' in bounds \(self.bounds.width)x\(self.bounds.height)")
                 drawSequence(seq, frame: frame, context: context)
             } else {
                 // No sequence loaded
+                logger.debug("SequenceViewerView.draw: No content to draw, showing placeholder")
                 drawPlaceholder(context: context)
             }
         } else {
             // Placeholder message - no reference frame
-            let hasSeq = sequence != nil
-            let hasFrame = viewController?.referenceFrame != nil
-            let hasVC = viewController != nil
-            logger.debug("SequenceViewerView.draw: Drawing placeholder (sequence=\(hasSeq), frame=\(hasFrame), viewController=\(hasVC))")
+            logger.debug("SequenceViewerView.draw: No reference frame, showing placeholder")
             drawPlaceholder(context: context)
         }
+    }
+    
+    /// Draws content from a reference bundle.
+    ///
+    /// This method handles the asynchronous nature of bundle data fetching by:
+    /// 1. Drawing cached data if available for the current region
+    /// 2. Triggering an async fetch if data is not cached
+    /// 3. Redrawing when fetch completes
+    private func drawBundleContent(frame: ReferenceFrame, context: CGContext) {
+        guard let bundle = currentReferenceBundle else {
+            print("[DEBUG] drawBundleContent: currentReferenceBundle is nil!")
+            logger.warning("drawBundleContent: currentReferenceBundle is nil")
+            return
+        }
+        
+        // Build the current visible region
+        let visibleRegion = GenomicRegion(
+            chromosome: frame.chromosome,
+            start: Int(frame.start),
+            end: Int(frame.end)
+        )
+        
+        print("[DEBUG] drawBundleContent: visibleRegion=\(visibleRegion.description), isFetching=\(self.isFetchingBundleData), hasCached=\(self.cachedBundleSequence != nil)")
+        logger.debug("drawBundleContent: visibleRegion=\(visibleRegion.description), isFetching=\(self.isFetchingBundleData), hasCached=\(self.cachedBundleSequence != nil)")
+        
+        // Check if there was a fetch error
+        if let errorMessage = bundleFetchError {
+            drawLoadingIndicator(context: context, message: "Error: \(errorMessage)")
+            return
+        }
+        
+        // Check if we have cached data for this region
+        if let cached = cachedBundleSequence,
+           let cachedRegion = cachedSequenceRegion,
+           cachedRegion.chromosome == visibleRegion.chromosome,
+           cachedRegion.start <= visibleRegion.start,
+           cachedRegion.end >= visibleRegion.end {
+            // We have valid cached data - draw it
+            logger.debug("drawBundleContent: Drawing cached sequence (\(cached.count) bp)")
+            drawBundleSequence(cached, region: cachedRegion, frame: frame, context: context)
+            drawBundleAnnotations(cachedBundleAnnotations, frame: frame, context: context)
+        } else {
+            // Need to fetch data - draw loading indicator and trigger fetch
+            let message = isFetchingBundleData 
+                ? "Loading \(visibleRegion.chromosome):\(visibleRegion.start)-\(visibleRegion.end)..."
+                : "Fetching \(visibleRegion.chromosome):\(visibleRegion.start)-\(visibleRegion.end)..."
+            drawLoadingIndicator(context: context, message: message)
+            
+            if !isFetchingBundleData {
+                logger.info("drawBundleContent: Starting fetch for \(visibleRegion.description)")
+                fetchBundleData(bundle: bundle, region: visibleRegion)
+            }
+        }
+    }
+    
+    /// Fetches bundle data synchronously and triggers a redraw when complete.
+    ///
+    /// Note: This uses synchronous fetching because Swift Tasks don't execute properly
+    /// when called from notification handlers in this app context.
+    private func fetchBundleData(bundle: ReferenceBundle, region: GenomicRegion) {
+        isFetchingBundleData = true
+        bundleFetchError = nil  // Clear any previous error
+        
+        // Get chromosome length to clamp the expanded region
+        let chromLength = bundle.chromosomeLength(named: region.chromosome) ?? Int64(region.end + 1000)
+        
+        print("[DEBUG] fetchBundleData: Starting SYNC fetch for \(region.description), chromLength=\(chromLength)")
+        logger.info("fetchBundleData: Starting SYNC fetch for \(region.description), chromLength=\(chromLength)")
+        
+        // Expand the region slightly to reduce re-fetching on small pans, but clamp to chromosome bounds
+        let expandedStart = max(0, region.start - 1000)
+        let expandedEnd = min(Int(chromLength), region.end + 1000)
+        let expandedRegion = GenomicRegion(
+            chromosome: region.chromosome,
+            start: expandedStart,
+            end: expandedEnd
+        )
+        
+        logger.info("fetchBundleData: Expanded region: \(expandedRegion.description)")
+        
+        // Use synchronous fetching since Tasks don't execute from notification handlers
+        do {
+            print("[DEBUG] fetchBundleData: Calling bundle.fetchSequenceSync for \(expandedRegion.description)")
+            logger.info("fetchBundleData: Calling bundle.fetchSequenceSync...")
+            
+            // Fetch sequence data synchronously
+            let sequence = try bundle.fetchSequenceSync(region: expandedRegion)
+            print("[DEBUG] fetchBundleData: Got sequence of \(sequence.count) bp")
+            logger.info("fetchBundleData: Got sequence of \(sequence.count) bp")
+            
+            // Skip annotations for now - they still require async BigBed reading
+            // TODO: Add synchronous annotation fetching if needed
+            let allAnnotations: [SequenceAnnotation] = []
+            
+            // Update cache
+            self.cachedBundleSequence = sequence
+            self.cachedSequenceRegion = expandedRegion
+            self.cachedBundleAnnotations = allAnnotations
+            self.isFetchingBundleData = false
+            self.bundleFetchError = nil
+            
+            // Trigger redraw
+            self.needsDisplay = true
+            
+            print("[DEBUG] SequenceViewerView.fetchBundleData: SUCCESS - Fetched \(sequence.count) bp")
+            logger.info("SequenceViewerView.fetchBundleData: SUCCESS - Fetched \(sequence.count) bp")
+            
+        } catch {
+            let errorMsg = error.localizedDescription
+            print("[DEBUG] SequenceViewerView.fetchBundleData: FAILED - \(errorMsg)")
+            logger.error("SequenceViewerView.fetchBundleData: FAILED - \(errorMsg, privacy: .public)")
+            self.isFetchingBundleData = false
+            self.bundleFetchError = errorMsg
+            
+            // Trigger redraw to show error
+            self.needsDisplay = true
+        }
+    }
+    
+    /// Draws sequence data from a bundle.
+    private func drawBundleSequence(_ sequenceString: String, region: GenomicRegion, frame: ReferenceFrame, context: CGContext) {
+        let scale = frame.scale  // bp/pixel
+        
+        // Calculate the offset within the cached sequence for the visible region
+        let visibleStart = Int(frame.start)
+        let visibleEnd = Int(frame.end)
+        let offsetInCache = visibleStart - region.start
+        
+        // Extract the visible portion of the sequence
+        let startIndex = sequenceString.index(sequenceString.startIndex, offsetBy: max(0, offsetInCache))
+        let endIndex = sequenceString.index(startIndex, offsetBy: min(visibleEnd - visibleStart, sequenceString.count - offsetInCache), limitedBy: sequenceString.endIndex) ?? sequenceString.endIndex
+        let visibleSequence = String(sequenceString[startIndex..<endIndex])
+        
+        // Draw based on zoom level
+        if scale < showLettersThreshold {
+            // High zoom: draw individual bases with letters
+            drawBasesWithLetters(visibleSequence, startPosition: visibleStart, frame: frame, context: context)
+        } else if scale < showLineThreshold {
+            // Medium zoom: draw colored blocks
+            drawColoredBlocks(visibleSequence, startPosition: visibleStart, frame: frame, context: context)
+        } else {
+            // Low zoom: draw simple line
+            drawSequenceLine(frame: frame, context: context)
+        }
+    }
+    
+    /// Draws bases with individual letters (high zoom level).
+    private func drawBasesWithLetters(_ sequence: String, startPosition: Int, frame: ReferenceFrame, context: CGContext) {
+        let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .medium)
+        let pixelsPerBase = bounds.width / CGFloat(max(1, frame.end - frame.start))
+        
+        for (index, base) in sequence.enumerated() {
+            let position = startPosition + index
+            let x = frame.screenPosition(for: Double(position))
+            let baseWidth = pixelsPerBase
+            
+            // Draw background
+            let color = BaseColors.color(for: base)
+            context.setFillColor(color.cgColor)
+            let rect = CGRect(x: x, y: trackY, width: baseWidth, height: trackHeight)
+            context.fill(rect)
+            
+            // Draw letter if space permits
+            if baseWidth >= 8 {
+                let displayChar = isRNAMode && base.uppercased() == "T" ? "U" : String(base).uppercased()
+                let attributes: [NSAttributedString.Key: Any] = [
+                    .font: font,
+                    .foregroundColor: NSColor.white
+                ]
+                let size = (displayChar as NSString).size(withAttributes: attributes)
+                let letterRect = CGRect(
+                    x: x + (baseWidth - size.width) / 2,
+                    y: trackY + (trackHeight - size.height) / 2,
+                    width: size.width,
+                    height: size.height
+                )
+                (displayChar as NSString).draw(in: letterRect, withAttributes: attributes)
+            }
+        }
+    }
+    
+    /// Draws colored blocks for bases (medium zoom level).
+    private func drawColoredBlocks(_ sequence: String, startPosition: Int, frame: ReferenceFrame, context: CGContext) {
+        // Group consecutive bases of the same type for efficient drawing
+        var currentBase: Character?
+        var blockStart = startPosition
+        
+        for (index, base) in sequence.enumerated() {
+            let position = startPosition + index
+            
+            if base != currentBase {
+                // Draw previous block if any
+                if let prevBase = currentBase {
+                    let x = frame.screenPosition(for: Double(blockStart))
+                    let width = frame.screenPosition(for: Double(position)) - x
+                    let color = BaseColors.color(for: prevBase)
+                    context.setFillColor(color.cgColor)
+                    let rect = CGRect(x: x, y: trackY, width: max(1, width), height: trackHeight)
+                    context.fill(rect)
+                }
+                
+                currentBase = base
+                blockStart = position
+            }
+        }
+        
+        // Draw final block
+        if let prevBase = currentBase {
+            let x = frame.screenPosition(for: Double(blockStart))
+            let endX = frame.screenPosition(for: Double(startPosition + sequence.count))
+            let width = endX - x
+            let color = BaseColors.color(for: prevBase)
+            context.setFillColor(color.cgColor)
+            let rect = CGRect(x: x, y: trackY, width: max(1, width), height: trackHeight)
+            context.fill(rect)
+        }
+    }
+    
+    /// Draws a simple line representing the sequence (low zoom level).
+    private func drawSequenceLine(frame: ReferenceFrame, context: CGContext) {
+        let startX = frame.screenPosition(for: frame.start)
+        let endX = frame.screenPosition(for: frame.end)
+        let centerY = trackY + trackHeight / 2
+        
+        context.setStrokeColor(NSColor.systemGray.cgColor)
+        context.setLineWidth(2)
+        context.move(to: CGPoint(x: startX, y: centerY))
+        context.addLine(to: CGPoint(x: endX, y: centerY))
+        context.strokePath()
+    }
+    
+    /// Draws annotations from a bundle.
+    private func drawBundleAnnotations(_ annotations: [SequenceAnnotation], frame: ReferenceFrame, context: CGContext) {
+        guard showAnnotations, !annotations.isEmpty else { return }
+        
+        // Filter annotations to visible region
+        let visibleStart = Int(frame.start)
+        let visibleEnd = Int(frame.end)
+        let visibleAnnotations = annotations.filter { annot in
+            annot.end > visibleStart && annot.start < visibleEnd
+        }
+        
+        // Apply type filter if set
+        let filteredAnnotations: [SequenceAnnotation]
+        if let typeFilter = visibleAnnotationTypes {
+            filteredAnnotations = visibleAnnotations.filter { typeFilter.contains($0.type) }
+        } else {
+            filteredAnnotations = visibleAnnotations
+        }
+        
+        // Apply text filter if set
+        let finalAnnotations: [SequenceAnnotation]
+        if !annotationFilterText.isEmpty {
+            let filterLower = annotationFilterText.lowercased()
+            finalAnnotations = filteredAnnotations.filter { annot in
+                annot.name.lowercased().contains(filterLower)
+            }
+        } else {
+            finalAnnotations = filteredAnnotations
+        }
+        
+        // Draw annotations using row layout to avoid overlap
+        var rows: [[SequenceAnnotation]] = []
+        
+        for annot in finalAnnotations {
+            var placed = false
+            for rowIndex in 0..<rows.count {
+                let lastInRow = rows[rowIndex].last!
+                if annot.start >= lastInRow.end + 5 {  // Add small gap
+                    rows[rowIndex].append(annot)
+                    placed = true
+                    break
+                }
+            }
+            if !placed {
+                rows.append([annot])
+            }
+        }
+        
+        // Draw each row
+        for (rowIndex, row) in rows.enumerated() {
+            let y = annotationTrackY + CGFloat(rowIndex) * (annotationHeight + annotationRowSpacing)
+            
+            for annot in row {
+                let startX = frame.screenPosition(for: Double(annot.start))
+                let endX = frame.screenPosition(for: Double(annot.end))
+                let width = max(3, endX - startX)  // Minimum width for visibility
+                
+                // Get annotation color
+                let annotColor = annot.color ?? annot.type.defaultColor
+                let color = NSColor(
+                    calibratedRed: CGFloat(annotColor.red),
+                    green: CGFloat(annotColor.green),
+                    blue: CGFloat(annotColor.blue),
+                    alpha: 1.0
+                )
+                
+                // Draw annotation box
+                let rect = CGRect(x: startX, y: y, width: width, height: annotationHeight)
+                context.setFillColor(color.withAlphaComponent(0.7).cgColor)
+                context.fill(rect)
+                
+                // Draw border
+                context.setStrokeColor(color.cgColor)
+                context.setLineWidth(1)
+                context.stroke(rect)
+                
+                // Draw label if space permits
+                if width > 40 {
+                    let font = NSFont.systemFont(ofSize: 10)
+                    let attributes: [NSAttributedString.Key: Any] = [
+                        .font: font,
+                        .foregroundColor: NSColor.textColor
+                    ]
+                    let labelRect = CGRect(x: startX + 2, y: y + 1, width: width - 4, height: annotationHeight - 2)
+                    (annot.name as NSString).draw(in: labelRect, withAttributes: attributes)
+                }
+            }
+        }
+    }
+    
+    /// Draws a loading indicator.
+    private func drawLoadingIndicator(context: CGContext, message: String) {
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .center
+        
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 14, weight: .medium),
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .paragraphStyle: paragraphStyle,
+        ]
+        
+        let size = (message as NSString).size(withAttributes: attributes)
+        let rect = NSRect(
+            x: (bounds.width - size.width) / 2,
+            y: (bounds.height - size.height) / 2,
+            width: size.width,
+            height: size.height
+        )
+        
+        (message as NSString).draw(in: rect, withAttributes: attributes)
     }
 
     private func drawPlaceholder(context: CGContext) {

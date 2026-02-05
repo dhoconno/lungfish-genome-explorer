@@ -566,6 +566,7 @@ extension SidebarItemType: CustomStringConvertible {
         case .document: return "Document"
         case .image: return "Image"
         case .unknown: return "File"
+        case .referenceBundle: return "Reference Bundle"
         }
     }
 }

@@ -225,7 +225,7 @@ public actor SRAService {
     public func downloadFASTQ(
         accession: String,
         outputDir: URL? = nil,
-        progress: ((Double) -> Void)? = nil
+        progress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> [URL] {
         guard let toolkitPath = sraToolkitPath else {
             throw SRAError.toolkitNotFound
@@ -304,7 +304,7 @@ public actor SRAService {
     public func downloadFASTQFromENA(
         accession: String,
         outputDir: URL? = nil,
-        progress: ((Double) -> Void)? = nil
+        progress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> [URL] {
         let outputDirectory = outputDir ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("sra_downloads")

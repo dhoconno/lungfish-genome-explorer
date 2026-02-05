@@ -41,7 +41,7 @@ public final class FileSystemWatcher {
     private let onChange: @MainActor () -> Void
     
     /// Timer for periodic content scanning
-    private var scanTimer: Timer?
+    private nonisolated(unsafe) var scanTimer: Timer?
     
     /// The directory currently being watched
     private var watchedDirectory: URL?

@@ -1,0 +1,51 @@
+{
+  "annotations" : [
+    {
+      "annotation_type" : "custom",
+      "feature_count" : 20,
+      "id" : "annotations",
+      "name" : "genes",
+      "path" : "annotations\/annotations.bb"
+    }
+  ],
+  "created_date" : "2026-02-05T02:30:02Z",
+  "format_version" : "1.0",
+  "genome" : {
+    "chromosomes" : [
+      {
+        "aliases" : [
+
+        ],
+        "is_mitochondrial" : false,
+        "is_primary" : true,
+        "length" : 3221,
+        "line_bases" : 80,
+        "line_width" : 81,
+        "name" : "NC_075132.1",
+        "offset" : 54
+      }
+    ],
+    "gzip_index_path" : "genome\/sequence.fa.gz.gzi",
+    "index_path" : "genome\/sequence.fa.gz.fai",
+    "path" : "genome\/sequence.fa.gz",
+    "total_length" : 3221
+  },
+  "identifier" : "com.ncbi.gcf_003047895-1",
+  "modified_date" : "2026-02-05T02:30:02Z",
+  "name" : "HepatitisB",
+  "source" : {
+    "assembly" : "GCF_003047895.1",
+    "assembly_accession" : "GCF_003047895.1",
+    "database" : "NCBI",
+    "download_date" : "2026-02-05T02:30:02Z",
+    "organism" : "Hepatitis B virus (viruses)",
+    "source_url" : "https:\/\/www.ncbi.nlm.nih.gov\/datasets\/genome\/GCF_003047895.1\/",
+    "taxonomy_id" : 10407
+  },
+  "tracks" : [
+
+  ],
+  "variants" : [
+
+  ]
+}

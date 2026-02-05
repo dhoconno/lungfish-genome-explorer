@@ -412,12 +412,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         debugLog("loadProjectFolderAsync: Sidebar populated with \(placeholderDocuments.count) placeholders")
 
         // Phase 3: Background loading for each file
-        // Use a shared flag to track if first document has been displayed
-        let displayedFirst = UnsafeMutablePointer<Bool>.allocate(capacity: 1)
-        displayedFirst.initialize(to: false)
+        // Track first document display using a local class for thread-safe mutation
+        final class DisplayTracker: @unchecked Sendable {
+            var displayedFirst = false
+        }
+        let tracker = DisplayTracker()
 
         for scan in scannedFiles {
-            Task.detached(priority: .userInitiated) { [weak self] in
+            Task { [weak self] in
                 do {
                     let result = try await DocumentLoader.loadFile(at: scan.url, type: scan.type)
 
@@ -438,16 +440,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         sidebarController?.refreshItem(for: result.url)
 
                         // Display first successfully loaded document with sequences
-                        if !displayedFirst.pointee && !result.sequences.isEmpty {
-                            displayedFirst.pointee = true
+                        if !tracker.displayedFirst && !result.sequences.isEmpty {
+                            tracker.displayedFirst = true
                             viewerController?.displayDocument(document)
                             debugLog("loadProjectFolderAsync: Displayed first document: \(document.name)")
                         }
                     }
                 } catch {
-                    await MainActor.run {
-                        debugLog("loadProjectFolderAsync: Failed to load \(scan.url.lastPathComponent): \(error.localizedDescription)")
-                    }
+                    debugLog("loadProjectFolderAsync: Failed to load \(scan.url.lastPathComponent): \(error.localizedDescription)")
                 }
             }
         }

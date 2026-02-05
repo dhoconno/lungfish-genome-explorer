@@ -245,6 +245,45 @@ public final class IndexedFASTAReader: Sendable {
     public var sequenceNames: [String] {
         index.sequenceNames
     }
+
+    /// Fetches a subsequence from the FASTA file synchronously.
+    ///
+    /// This is useful when Swift Tasks are not executing properly in certain contexts.
+    ///
+    /// - Parameter region: The genomic region to fetch
+    /// - Returns: The subsequence as a string
+    /// - Throws: `FASTAError.regionOutOfBounds` if region exceeds sequence length
+    public func fetchSync(region: GenomicRegion) throws -> String {
+        guard let entry = index.entry(for: region.chromosome) else {
+            throw FASTAError.invalidIndex("Sequence '\(region.chromosome)' not found in index")
+        }
+
+        guard region.start >= 0 && region.end <= entry.length else {
+            throw FASTAError.regionOutOfBounds(region, sequenceLength: entry.length)
+        }
+
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+
+        // Calculate byte positions
+        let startOffset = index.byteOffset(for: region.start, in: entry)
+        let endOffset = index.byteOffset(for: region.end - 1, in: entry) + 1
+
+        // Seek to start position
+        try handle.seek(toOffset: UInt64(startOffset))
+
+        // Read the required bytes
+        let data = handle.readData(ofLength: endOffset - startOffset + entry.lineWidth)
+        guard let rawSequence = String(data: data, encoding: .utf8) else {
+            throw FASTAError.invalidEncoding
+        }
+
+        // Remove newlines from the sequence
+        let sequence = rawSequence.replacingOccurrences(of: "\n", with: "")
+        let clampedLength = min(region.length, sequence.count)
+
+        return String(sequence.prefix(clampedLength))
+    }
 }
 
 // MARK: - FASTAIndexBuilder

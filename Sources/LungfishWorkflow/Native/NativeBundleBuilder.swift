@@ -489,8 +489,9 @@ public final class NativeBundleBuilder: ObservableObject {
                 progressHandler
             )
 
-            let outputPath = "annotations/\(input.id).bb"
-            let outputURL = annotationsDir.appendingPathComponent("\(input.id).bb")
+            let bigBedOutputPath = "annotations/\(input.id).bb"
+            let bedOutputPath = "annotations/\(input.id).bed"
+            let bigBedOutputURL = annotationsDir.appendingPathComponent("\(input.id).bb")
 
             // Convert annotation to BED format first
             let bedURL = annotationsDir.appendingPathComponent("\(input.id).bed")
@@ -499,24 +500,25 @@ public final class NativeBundleBuilder: ObservableObject {
                 to: bedURL
             )
 
+            // Clip BED coordinates to chromosome boundaries for bedToBigBed compatibility
+            try clipBEDCoordinates(bedURL: bedURL, chromosomeSizes: chromosomeSizes)
+
             // Try to convert BED to BigBed using native tool
             let hasBedToBigBed = await toolRunner.isToolAvailable(.bedToBigBed)
+            var usedBigBed = false
 
             if hasBedToBigBed {
                 let result = try await toolRunner.convertBEDtoBigBed(
                     bedPath: bedURL,
                     chromSizesPath: chromSizesURL,
-                    outputPath: outputURL
+                    outputPath: bigBedOutputURL
                 )
 
                 if !result.isSuccess {
                     logger.warning("bedToBigBed failed for \(input.name): \(result.stderr)")
-                    // Keep BED file as fallback
-                    let bedOutputURL = annotationsDir.appendingPathComponent("\(input.id).bed")
-                    if bedURL != bedOutputURL {
-                        try? FileManager.default.moveItem(at: bedURL, to: bedOutputURL)
-                    }
+                    // Keep BED file as fallback - it's already in the right place
                 } else {
+                    usedBigBed = true
                     try? FileManager.default.removeItem(at: bedURL)
                 }
             } else {
@@ -524,11 +526,14 @@ public final class NativeBundleBuilder: ObservableObject {
                 logger.info("bedToBigBed not available, keeping BED format for \(input.name)")
             }
 
+            // Use the correct path based on which format we actually have
+            let actualPath = usedBigBed ? bigBedOutputPath : bedOutputPath
+
             let trackInfo = AnnotationTrackInfo(
                 id: input.id,
                 name: input.name,
                 description: input.description,
-                path: outputPath,
+                path: actualPath,
                 annotationType: input.annotationType,
                 featureCount: featureCount
             )
@@ -773,6 +778,61 @@ public final class NativeBundleBuilder: ObservableObject {
         return content.components(separatedBy: .newlines)
             .filter { !$0.isEmpty && !$0.hasPrefix("#") }
             .count
+    }
+
+    /// Clips BED coordinates to chromosome boundaries to ensure bedToBigBed compatibility.
+    /// bedToBigBed requires all coordinates to be within the chromosome size.
+    private func clipBEDCoordinates(bedURL: URL, chromosomeSizes: [(String, Int64)]) throws {
+        let chromSizeMap = Dictionary(uniqueKeysWithValues: chromosomeSizes)
+
+        guard let content = try? String(contentsOf: bedURL, encoding: .utf8) else {
+            return
+        }
+
+        var clippedLines: [String] = []
+        var clippedCount = 0
+
+        for line in content.components(separatedBy: .newlines) {
+            if line.isEmpty || line.hasPrefix("#") {
+                clippedLines.append(line)
+                continue
+            }
+
+            let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
+            guard fields.count >= 3,
+                  let chrom = fields.first.map(String.init),
+                  let chromSize = chromSizeMap[chrom],
+                  let start = Int64(fields[1]),
+                  let end = Int64(fields[2]) else {
+                clippedLines.append(line)
+                continue
+            }
+
+            // Clip coordinates to chromosome boundaries
+            let clippedStart = max(0, min(start, chromSize))
+            let clippedEnd = max(clippedStart, min(end, chromSize))
+
+            if clippedStart != start || clippedEnd != end {
+                clippedCount += 1
+                // Skip features that would have zero or negative length after clipping
+                if clippedEnd <= clippedStart {
+                    continue
+                }
+            }
+
+            // Rebuild the line with clipped coordinates
+            var newFields = fields.map(String.init)
+            newFields[1] = String(clippedStart)
+            newFields[2] = String(clippedEnd)
+            clippedLines.append(newFields.joined(separator: "\t"))
+        }
+
+        if clippedCount > 0 {
+            logger.info("Clipped \(clippedCount) BED features to chromosome boundaries")
+        }
+
+        let clippedContent = clippedLines.joined(separator: "\n")
+        try clippedContent.write(to: bedURL, atomically: true, encoding: .utf8)
     }
 
     private func countVariantsInVCF(_ url: URL) throws -> Int {

@@ -407,6 +407,31 @@ private struct CacheEntry<Content: Sendable>: Sendable {
 /// Coordinates multiple tile caches for different data types.
 ///
 /// The coordinator manages caches for:
+/// A type-erased sendable container for feature data.
+///
+/// This wraps `[Any]` to satisfy Sendable requirements in Swift 6.
+/// The underlying data should only contain Sendable types.
+public struct SendableFeatureData: Sendable {
+    /// The underlying feature data, stored as an opaque container.
+    /// SAFETY: This is marked @unchecked because the actual data
+    /// stored should be Sendable types (like SequenceAnnotation).
+    nonisolated(unsafe) private let _storage: [Any]
+
+    /// Creates feature data from an array.
+    public init(_ data: [Any]) {
+        self._storage = data
+    }
+
+    /// The underlying array.
+    public var data: [Any] { _storage }
+
+    /// The number of features.
+    public var count: Int { _storage.count }
+
+    /// Whether there are no features.
+    public var isEmpty: Bool { _storage.isEmpty }
+}
+
 /// - Rendered images
 /// - Feature data
 /// - Coverage data
@@ -417,7 +442,7 @@ public actor TileCacheCoordinator {
     public let imageCache: TileCache<Data>
 
     /// Cache for feature data
-    public let featureCache: TileCache<[Any]>
+    public let featureCache: TileCache<SendableFeatureData>
 
     /// Cache for coverage data
     public let coverageCache: TileCache<[Float]>
@@ -448,7 +473,7 @@ public actor TileCacheCoordinator {
     }
 
     /// Returns combined statistics.
-    public func combinedStatistics() async -> (images: TileCache<Data>.Statistics, features: TileCache<[Any]>.Statistics, coverage: TileCache<[Float]>.Statistics) {
+    public func combinedStatistics() async -> (images: TileCache<Data>.Statistics, features: TileCache<SendableFeatureData>.Statistics, coverage: TileCache<[Float]>.Statistics) {
         return (
             await imageCache.statistics(),
             await featureCache.statistics(),

@@ -229,7 +229,9 @@ final class AnnotationConverterTests: XCTestCase {
         let outputURL = tempDirectory.appendingPathComponent("output.bed")
         let converter = AnnotationConverter()
 
-        var progressValues: [(Double, String)] = []
+        // Use nonisolated(unsafe) to allow mutation from the progress callback
+        // This is safe because the callback is called sequentially during conversion
+        nonisolated(unsafe) var progressValues: [(Double, String)] = []
 
         _ = try await converter.convertToBED(
             from: gff3URL,

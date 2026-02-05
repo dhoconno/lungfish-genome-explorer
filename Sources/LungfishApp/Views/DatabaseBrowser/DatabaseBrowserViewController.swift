@@ -793,8 +793,8 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         let sraService = SRAService()
                         let fastqFiles = try await sraService.downloadFASTQFromENA(
                             accession: accession,
-                            progress: { progress in
-                                performOnMainRunLoop { [weak self] in
+                            progress: { [weak self] progress in
+                                Task { @MainActor [weak self] in
                                     // Scale progress: 0.3 to 0.9 for download
                                     self?.objectWillChange.send()
                                     self?.downloadProgress = 0.3 + (progress * 0.6)
@@ -984,7 +984,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             let destURL = batchDir.appendingPathComponent(filename)
                             let totalBytes = fileInfo.estimatedSize
                             
-                            fileURL = try await ncbi.downloadGenomeFile(fileInfo, to: destURL) { bytesDownloaded, expectedTotal in
+                            fileURL = try await ncbi.downloadGenomeFile(fileInfo, to: destURL) { [weak self] bytesDownloaded, expectedTotal in
                                 let total = expectedTotal ?? totalBytes
                                 let progressFraction: Double
                                 if let total = total, total > 0 {
@@ -995,7 +995,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                                 let downloadedStr = formatFileSize(bytesDownloaded)
                                 let totalStr = total.map { formatFileSize($0) } ?? "?"
                                 
-                                performOnMainRunLoop { [weak self] in
+                                performOnMainRunLoop {
                                     self?.objectWillChange.send()
                                     self?.downloadProgress = progressFraction
                                     self?._statusMessage = "Downloading \(record.accession): \(downloadedStr) / \(totalStr)"

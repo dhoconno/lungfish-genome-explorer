@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishCore
+import LungfishIO
 import os.log
 
 /// Logger for main split view operations
@@ -120,6 +121,9 @@ public class MainSplitViewController: NSSplitViewController {
         viewerController = ViewerViewController()
         inspectorController = InspectorViewController()
         logger.info("configureChildControllers: Created all three view controllers")
+        
+        // Set up delegate for direct selection handling (avoids async Task issues)
+        sidebarController.selectionDelegate = self
 
         // Create split view items with appropriate behaviors
 
@@ -215,122 +219,14 @@ public class MainSplitViewController: NSSplitViewController {
     }
 
     @objc private func handleSidebarSelectionChanged(_ notification: Notification) {
-        // Check for empty selection (viewer should be cleared)
-        if let items = notification.userInfo?["items"] as? [SidebarItem], items.isEmpty {
-            logger.info("handleSidebarSelectionChanged: Selection cleared, clearing viewer")
-            viewerController.clearViewer()
-            return
-        }
-
-        // Check for multi-selection first (new behavior)
-        if let items = notification.userInfo?["items"] as? [SidebarItem], items.count > 1 {
-            handleMultipleItemsSelected(items)
-            return
-        }
-
-        // Fall back to single item handling (backward compatibility)
-        guard let item = notification.userInfo?["item"] as? SidebarItem else {
-            logger.warning("handleSidebarSelectionChanged: No item in notification")
-            return
-        }
-
-        logger.info("handleSidebarSelectionChanged: Selected '\(item.title, privacy: .public)' type=\(String(describing: item.type))")
-
-        // Skip folder/project items - they don't have displayable content
-        if item.type == .folder || item.type == .project || item.type == .group {
-            logger.debug("handleSidebarSelectionChanged: Skipping container item type")
-            return
-        }
+        // NOTE: Document loading is now handled by SidebarSelectionDelegate (sidebarDidSelectItem).
+        // This notification handler is kept only for other observers (e.g., InspectorViewController)
+        // that may need to know about selection changes but don't load documents.
+        //
+        // DO NOT add document loading code here - it will cause Swift Task execution issues.
+        // See SWIFT-CONCURRENCY-APPKIT-MODAL.md for details.
         
-        // Check if this is a QuickLook-previewed file type (document, image, unknown)
-        if item.type.usesQuickLook, let url = item.url {
-            logger.info("handleSidebarSelectionChanged: Using QuickLook preview for '\(item.title, privacy: .public)'")
-            viewerController.displayQuickLookPreview(url: url)
-            return
-        }
-
-        // If the item has a URL, check if already loaded first
-        if let url = item.url {
-            // First check if document is already registered
-            if let existingDocument = DocumentManager.shared.documents.first(where: { $0.url == url }) {
-                // Check if the document has been fully loaded (has sequences or annotations)
-                let isFullyLoaded = !existingDocument.sequences.isEmpty || !existingDocument.annotations.isEmpty
-
-                if isFullyLoaded {
-                    logger.info("handleSidebarSelectionChanged: Document already loaded, displaying directly")
-                    viewerController.displayDocument(existingDocument)
-                    DocumentManager.shared.setActiveDocument(existingDocument)
-                    return
-                }
-
-                // Document is registered but not fully loaded (placeholder) - trigger lazy load
-                logger.info("handleSidebarSelectionChanged: Document is placeholder, triggering lazy load")
-                guard let docType = DocumentType.detect(from: url) else {
-                    logger.error("handleSidebarSelectionChanged: Could not detect document type")
-                    return
-                }
-
-                Task.detached(priority: .userInitiated) {
-                    await MainActor.run {
-                        self.viewerController.showProgress("Loading \(url.lastPathComponent)...")
-                    }
-
-                    do {
-                        let result = try await DocumentLoader.loadFile(at: url, type: docType)
-                        await MainActor.run {
-                            existingDocument.sequences = result.sequences
-                            existingDocument.annotations = result.annotations
-                            self.viewerController.hideProgress()
-                            self.viewerController.displayDocument(existingDocument)
-                            DocumentManager.shared.setActiveDocument(existingDocument)
-                            self.sidebarController.refreshItem(for: url)
-                            logger.info("handleSidebarSelectionChanged: Lazy load complete, displayed")
-                        }
-                    } catch {
-                        await MainActor.run {
-                            self.viewerController.hideProgress()
-                            logger.error("handleSidebarSelectionChanged: Lazy load failed: \(error.localizedDescription, privacy: .public)")
-                            let alert = NSAlert()
-                            alert.messageText = "Failed to Open File"
-                            alert.informativeText = error.localizedDescription
-                            alert.alertStyle = .warning
-                            alert.addButton(withTitle: "OK")
-                            alert.runModal()
-                        }
-                    }
-                }
-                return
-            }
-
-            // Document not registered yet, load via DocumentManager
-            logger.info("handleSidebarSelectionChanged: Loading document from '\(url.path, privacy: .public)'")
-            Task { @MainActor in
-                viewerController.showProgress("Loading \(url.lastPathComponent)...")
-                do {
-                    let document = try await DocumentManager.shared.loadDocument(at: url)
-                    viewerController.hideProgress()
-                    viewerController.displayDocument(document)
-                    logger.info("handleSidebarSelectionChanged: Document loaded and displayed")
-                } catch {
-                    viewerController.hideProgress()
-                    logger.error("handleSidebarSelectionChanged: Failed to load document: \(error.localizedDescription, privacy: .public)")
-                    let alert = NSAlert()
-                    alert.messageText = "Failed to Open File"
-                    alert.informativeText = error.localizedDescription
-                    alert.alertStyle = .warning
-                    alert.addButton(withTitle: "OK")
-                    alert.runModal()
-                }
-            }
-        } else if item.type == .sequence || item.type == .annotation || item.type == .alignment {
-            // Check if this is a document that's already loaded (by name match)
-            logger.debug("handleSidebarSelectionChanged: Checking for already loaded document matching '\(item.title, privacy: .public)'")
-            if let document = DocumentManager.shared.documents.first(where: { $0.name == item.title }) {
-                logger.info("handleSidebarSelectionChanged: Found matching document by name, displaying")
-                viewerController.displayDocument(document)
-                DocumentManager.shared.setActiveDocument(document)
-            }
-        }
+        logger.debug("handleSidebarSelectionChanged: Notification received (delegate handles loading)")
     }
 
     /// Handles multiple sidebar items being selected.
@@ -778,5 +674,181 @@ extension MainSplitViewController {
 
     public func getAccessibilityChildren() -> [NSView] {
         [sidebarController.view, viewerController.view, inspectorController.view]
+    }
+}
+
+// MARK: - SidebarSelectionDelegate
+
+extension MainSplitViewController: SidebarSelectionDelegate {
+    
+    public func sidebarDidSelectItem(_ item: SidebarItem?) {
+        guard let item = item else {
+            logger.info("sidebarDidSelectItem: Selection cleared, clearing viewer")
+            viewerController.clearViewer()
+            return
+        }
+        
+        displayContent(for: item)
+    }
+    
+    public func sidebarDidSelectItems(_ items: [SidebarItem]) {
+        // Filter to displayable items
+        let displayableItems = items.filter { item in
+            item.type != .folder && item.type != .project && item.type != .group
+        }
+        
+        guard !displayableItems.isEmpty else { return }
+        
+        if displayableItems.count == 1 {
+            displayContent(for: displayableItems[0])
+        } else {
+            // Multi-selection - delegate to existing handler
+            handleMultipleItemsSelected(displayableItems)
+        }
+    }
+    
+    /// Unified content dispatch - synchronous for reliability.
+    ///
+    /// This method handles all content display decisions synchronously,
+    /// avoiding Swift Task issues that occur when called from notification handlers.
+    private func displayContent(for item: SidebarItem) {
+        logger.info("displayContent: Selected '\(item.title, privacy: .public)' type=\(String(describing: item.type))")
+        
+        // Skip non-displayable container types
+        guard item.type != .folder && item.type != .project && item.type != .group else {
+            logger.debug("displayContent: Skipping container item type")
+            return
+        }
+        
+        // QuickLook preview for document, image, unknown types
+        if item.type.usesQuickLook, let url = item.url {
+            logger.info("displayContent: Using QuickLook preview for '\(item.title, privacy: .public)'")
+            viewerController.displayQuickLookPreview(url: url)
+            return
+        }
+        
+        // Reference genome bundles (.lungfishref)
+        if item.type == .referenceBundle, let url = item.url {
+            displayReferenceBundle(at: url)
+            return
+        }
+        
+        // Genomics files - check cache first
+        if let url = item.url {
+            displayGenomicsFile(url: url)
+        } else if item.type == .sequence || item.type == .annotation || item.type == .alignment {
+            // Check for already-loaded document by name
+            if let document = DocumentManager.shared.documents.first(where: { $0.name == item.title }) {
+                logger.info("displayContent: Found matching document by name, displaying")
+                viewerController.displayDocument(document)
+                DocumentManager.shared.setActiveDocument(document)
+            }
+        }
+    }
+    
+    /// Display reference bundle - fully synchronous loading.
+    private func displayReferenceBundle(at url: URL) {
+        logger.info("displayReferenceBundle: Opening '\(url.lastPathComponent, privacy: .public)'")
+        
+        do {
+            // Read manifest synchronously
+            let manifestURL = url.appendingPathComponent("manifest.json")
+            let manifestData = try Data(contentsOf: manifestURL)
+            
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let manifest = try decoder.decode(LungfishIO.BundleManifest.self, from: manifestData)
+            
+            // Create bundle with pre-loaded manifest
+            let bundle = LungfishIO.ReferenceBundle(url: url, manifest: manifest)
+            
+            // Set up viewer
+            viewerController.viewerView.setReferenceBundle(bundle)
+            
+            // Configure reference frame
+            if let firstChrom = manifest.genome.chromosomes.first {
+                let chromLength = Int(firstChrom.length)
+                let effectiveWidth = max(800, Int(viewerController.viewerView.bounds.width))
+                
+                viewerController.referenceFrame = ReferenceFrame(
+                    chromosome: firstChrom.name,
+                    start: 0,
+                    end: Double(min(chromLength, 10000)),
+                    pixelWidth: effectiveWidth,
+                    sequenceLength: chromLength
+                )
+            }
+            
+            viewerController.viewerView.needsDisplay = true
+            logger.info("displayReferenceBundle: Bundle displayed successfully")
+            
+        } catch {
+            logger.error("displayReferenceBundle: Failed - \(error.localizedDescription, privacy: .public)")
+            let alert = NSAlert()
+            alert.messageText = "Failed to Open Reference Bundle"
+            alert.informativeText = error.localizedDescription
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
+    }
+    
+    /// Display genomics file - cache-first, then load via DocumentManager.
+    private func displayGenomicsFile(url: URL) {
+        // Check if already loaded
+        if let existingDocument = DocumentManager.shared.documents.first(where: { $0.url == url }) {
+            let isFullyLoaded = !existingDocument.sequences.isEmpty || !existingDocument.annotations.isEmpty
+            
+            if isFullyLoaded {
+                logger.info("displayGenomicsFile: Document cached, displaying directly")
+                viewerController.displayDocument(existingDocument)
+                DocumentManager.shared.setActiveDocument(existingDocument)
+                return
+            }
+        }
+        
+        // Not cached - load via DocumentManager using GCD wrapper
+        loadGenomicsFileInBackground(url: url)
+    }
+    
+    /// Background loading using GCD + async bridge.
+    ///
+    /// Uses DispatchQueue to start the operation, then bridges to async
+    /// for the actual loading, with CFRunLoopPerformBlock for UI updates.
+    private func loadGenomicsFileInBackground(url: URL) {
+        logger.info("loadGenomicsFileInBackground: Loading '\(url.lastPathComponent, privacy: .public)'")
+        viewerController.showProgress("Loading \(url.lastPathComponent)...")
+        
+        // Use a detached task started from GCD to avoid the notification handler context
+        DispatchQueue.global(qos: .userInitiated).async {
+            // Create a new Task in this GCD context - this should work
+            Task {
+                do {
+                    let document = try await DocumentManager.shared.loadDocument(at: url)
+                    
+                    // Update UI on main thread
+                    await MainActor.run { [weak self] in
+                        guard let self = self else { return }
+                        self.viewerController.hideProgress()
+                        self.viewerController.displayDocument(document)
+                        self.sidebarController.refreshItem(for: url)
+                        logger.info("loadGenomicsFileInBackground: Loaded and displayed")
+                    }
+                } catch {
+                    await MainActor.run { [weak self] in
+                        guard let self = self else { return }
+                        self.viewerController.hideProgress()
+                        logger.error("loadGenomicsFileInBackground: Failed - \(error.localizedDescription)")
+                        
+                        let alert = NSAlert()
+                        alert.messageText = "Failed to Open File"
+                        alert.informativeText = error.localizedDescription
+                        alert.alertStyle = .warning
+                        alert.addButton(withTitle: "OK")
+                        alert.runModal()
+                    }
+                }
+            }
+        }
     }
 }

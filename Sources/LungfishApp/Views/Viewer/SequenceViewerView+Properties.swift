@@ -15,8 +15,8 @@ private let propLogger = Logger(subsystem: "com.lungfish.browser", category: "Mu
 
 // MARK: - Associated Object Keys
 
-private var multiSequenceStateKey: UInt8 = 0
-private var isMultiSequenceModeKey: UInt8 = 1
+private nonisolated(unsafe) var multiSequenceStateKey: UInt8 = 0
+private nonisolated(unsafe) var isMultiSequenceModeKey: UInt8 = 1
 
 // MARK: - SequenceViewerView Multi-Sequence Properties
 

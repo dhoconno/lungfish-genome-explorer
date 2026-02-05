@@ -16,8 +16,8 @@ private let integrationLogger = Logger(subsystem: "com.lungfish.browser", catego
 
 // MARK: - Method Swizzling Keys
 
-private var originalDrawIMP: IMP?
-private var originalMouseDownIMP: IMP?
+private nonisolated(unsafe) var originalDrawIMP: IMP?
+private nonisolated(unsafe) var originalMouseDownIMP: IMP?
 
 // MARK: - Public Setup
 

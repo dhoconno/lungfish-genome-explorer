@@ -215,9 +215,9 @@ struct ContainerSubcommand: AsyncParsableCommand {
 
     @Option(
         name: .customLong("test-image"),
-        help: "Image to use for testing"
+        help: "Image to use for testing (must have arm64/linux support)"
     )
-    var testImage: String = "alpine:latest"
+    var testImage: String = "docker.io/condaforge/mambaforge:latest"
 
     @OptionGroup var globalOptions: GlobalOptions
 
@@ -237,8 +237,34 @@ struct ContainerSubcommand: AsyncParsableCommand {
 
             if pullTest {
                 print("\n" + formatter.info("Testing image pull: \(testImage)"))
-                // TODO: Implement actual container pull test
-                print(formatter.warning("Pull test not yet implemented"))
+                print(formatter.info("Note: Uses mambaforge which supports linux/arm64 for Apple Silicon"))
+                print(formatter.info("Bioinformatics tools are installed via mamba at container startup"))
+                do {
+                    // Ensure image reference has domain
+                    let fullReference: String
+                    if testImage.contains(".") {
+                        // Already has domain (e.g., docker.io/library/alpine)
+                        fullReference = testImage
+                    } else if testImage.contains("/") {
+                        // Has path but no domain (e.g., library/alpine)
+                        fullReference = "docker.io/\(testImage)"
+                    } else {
+                        // Just image name (e.g., alpine)
+                        fullReference = "docker.io/library/\(testImage)"
+                    }
+                    print(formatter.dim("  Full reference: \(fullReference)"))
+                    
+                    let runtime = try await AppleContainerRuntime()
+                    print(formatter.success("Container runtime initialized"))
+                    
+                    print(formatter.info("Pulling image (this may take a while)..."))
+                    let image = try await runtime.pullImage(reference: fullReference)
+                    print(formatter.success("Successfully pulled image: \(image.reference)"))
+                    print(formatter.dim("  Digest: \(image.digest)"))
+                } catch {
+                    print(formatter.error("Pull test failed: \(error.localizedDescription)"))
+                    fputs("DEBUG: \(error)\n", stderr)
+                }
             }
         } else {
             print(formatter.error("Apple Containerization requires macOS 26 or later"))

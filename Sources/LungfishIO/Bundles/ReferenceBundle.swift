@@ -107,6 +107,20 @@ public final class ReferenceBundle: Sendable {
 
         logger.info("Opened bundle: \(self.manifest.name) (\(self.manifest.identifier))")
     }
+    
+    /// Creates a ReferenceBundle from a pre-loaded manifest.
+    ///
+    /// This synchronous initializer is useful when the manifest has already been loaded
+    /// and validated separately.
+    ///
+    /// - Parameters:
+    ///   - url: URL to the `.lungfishref` bundle directory
+    ///   - manifest: Pre-loaded bundle manifest
+    public init(url: URL, manifest: BundleManifest) {
+        self.url = url
+        self.manifest = manifest
+        logger.info("Created bundle from pre-loaded manifest: \(manifest.name) (\(manifest.identifier))")
+    }
 
     // MARK: - Bundle Information
 
@@ -174,15 +188,68 @@ public final class ReferenceBundle: Sendable {
         }
 
         let genomeURL = url.appendingPathComponent(manifest.genome.path)
-        let indexURL = url.appendingPathComponent(manifest.genome.indexPath)
+        let faiURL = url.appendingPathComponent(manifest.genome.indexPath)
 
-        // Use indexed FASTA reader for random access
-        let reader = try IndexedFASTAReader(url: genomeURL, indexURL: indexURL)
-        let sequence = try await reader.fetch(region: region)
+        // Check if we have a bgzip-compressed file with GZI index
+        if let gzipIndexPath = manifest.genome.gzipIndexPath {
+            let gziURL = url.appendingPathComponent(gzipIndexPath)
+            
+            // Use bgzip-aware reader for random access to compressed files
+            let reader = try await BgzipIndexedFASTAReader(url: genomeURL, faiURL: faiURL, gziURL: gziURL)
+            let sequence = try await reader.fetch(region: region)
+            
+            logger.debug("Fetched sequence (bgzip): \(region.chromosome):\(region.start)-\(region.end) (\(sequence.count) bp)")
+            return sequence
+        } else {
+            // Fall back to uncompressed indexed FASTA reader
+            let reader = try IndexedFASTAReader(url: genomeURL, indexURL: faiURL)
+            let sequence = try await reader.fetch(region: region)
+            
+            logger.debug("Fetched sequence: \(region.chromosome):\(region.start)-\(region.end) (\(sequence.count) bp)")
+            return sequence
+        }
+    }
 
-        logger.debug("Fetched sequence: \(region.chromosome):\(region.start)-\(region.end) (\(sequence.count) bp)")
+    /// Synchronously fetches sequence data for a genomic region.
+    ///
+    /// This version reads the FASTA file directly without async, useful when
+    /// Swift Tasks are not executing properly in the app context.
+    ///
+    /// - Parameter region: The genomic region to fetch
+    /// - Returns: The sequence string for the region
+    /// - Throws: `ReferenceBundleError` if the sequence cannot be fetched
+    public func fetchSequenceSync(region: GenomicRegion) throws -> String {
+        // Validate chromosome exists
+        guard let chromInfo = chromosome(named: region.chromosome) else {
+            throw ReferenceBundleError.chromosomeNotFound(region.chromosome)
+        }
 
-        return sequence
+        // Validate region bounds
+        guard region.start >= 0 && region.end <= chromInfo.length else {
+            throw ReferenceBundleError.regionOutOfBounds(region, chromInfo.length)
+        }
+
+        let genomeURL = url.appendingPathComponent(manifest.genome.path)
+        let faiURL = url.appendingPathComponent(manifest.genome.indexPath)
+
+        // Check if we have a bgzip-compressed file with GZI index
+        if let gzipIndexPath = manifest.genome.gzipIndexPath {
+            let gziURL = url.appendingPathComponent(gzipIndexPath)
+            
+            // Use synchronous bgzip reader
+            let reader = try SyncBgzipFASTAReader(url: genomeURL, faiURL: faiURL, gziURL: gziURL)
+            let sequence = try reader.fetchSync(region: region)
+            
+            logger.debug("Fetched sequence (sync bgzip): \(region.chromosome):\(region.start)-\(region.end) (\(sequence.count) bp)")
+            return sequence
+        } else {
+            // Use the synchronous indexed FASTA reader for uncompressed files
+            let reader = try IndexedFASTAReader(url: genomeURL, indexURL: faiURL)
+            let sequence = try reader.fetchSync(region: region)
+            
+            logger.debug("Fetched sequence (sync): \(region.chromosome):\(region.start)-\(region.end) (\(sequence.count) bp)")
+            return sequence
+        }
     }
 
     /// Fetches sequence data for multiple regions.
@@ -234,11 +301,63 @@ public final class ReferenceBundle: Sendable {
             throw ReferenceBundleError.missingFile(trackInfo.path)
         }
 
-        // TODO: Implement BigBed reader for actual annotation fetching
-        // For now, return empty array as placeholder
-        logger.debug("getAnnotations: \(trackId) for \(region.description) - BigBed reader not yet implemented")
-
-        return []
+        // Use BigBed reader for efficient random access to annotations
+        do {
+            let reader = try await BigBedReader(url: trackURL)
+            let features = try await reader.features(region: region)
+            
+            // Convert BigBedFeature to SequenceAnnotation
+            let annotations = features.map { feature in
+                // Determine strand
+                let strand: Strand
+                if let strandChar = feature.strand {
+                    switch strandChar {
+                    case "+": strand = .forward
+                    case "-": strand = .reverse
+                    default: strand = .unknown
+                    }
+                } else {
+                    strand = .unknown
+                }
+                
+                // Build color from RGB if available
+                var color: AnnotationColor?
+                if let rgb = feature.itemRgb {
+                    color = AnnotationColor(
+                        red: Double(rgb.r) / 255.0,
+                        green: Double(rgb.g) / 255.0,
+                        blue: Double(rgb.b) / 255.0
+                    )
+                }
+                
+                // Build qualifiers from extra fields
+                var qualifiers: [String: AnnotationQualifier] = [:]
+                if let score = feature.score {
+                    qualifiers["score"] = AnnotationQualifier(String(score))
+                }
+                if let extraFields = feature.extraFields {
+                    qualifiers["extra"] = AnnotationQualifier(extraFields)
+                }
+                
+                return SequenceAnnotation(
+                    type: .gene,  // Default type - could be inferred from track info
+                    name: feature.name ?? "unknown",
+                    chromosome: feature.chromosome,
+                    start: feature.start,
+                    end: feature.end,
+                    strand: strand,
+                    qualifiers: qualifiers,
+                    color: color
+                )
+            }
+            
+            logger.debug("Fetched \(annotations.count) annotations from \(trackId) for \(region.description)")
+            return annotations
+            
+        } catch {
+            logger.error("Failed to read BigBed annotations: \(error.localizedDescription)")
+            throw ReferenceBundleError.annotationReadFailed(error.localizedDescription)
+        }
     }
 
     // MARK: - Variant Access

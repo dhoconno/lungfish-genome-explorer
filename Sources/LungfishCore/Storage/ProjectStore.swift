@@ -59,7 +59,9 @@ public final class ProjectStore {
     public let projectURL: URL
 
     /// The SQLite database connection
-    private var db: OpaquePointer?
+    /// Note: nonisolated(unsafe) is needed because deinit in Swift 6 requires access to this
+    /// for cleanup, but OpaquePointer is not Sendable. The db is only accessed from MainActor.
+    nonisolated(unsafe) private var db: OpaquePointer?
 
     /// Logger for store operations
     private static let logger = Logger(

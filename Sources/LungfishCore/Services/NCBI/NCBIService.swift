@@ -490,7 +490,7 @@ public actor NCBIService: DatabaseService {
     // MARK: - E-utilities Methods
 
     /// Result of an NCBI esearch, including total count for pagination
-    public struct ESearchSearchResult {
+    public struct ESearchSearchResult: Sendable {
         public let ids: [String]
         public let totalCount: Int
         public let retmax: Int

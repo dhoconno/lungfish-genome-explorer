@@ -216,33 +216,29 @@ public class SRABrowserViewModel: ObservableObject {
         errorMessage = nil
         statusMessage = "Downloading \(run.accession)..."
 
-        // Capture values for use in detached context
-        let sra = sraService
-        let toolkitAvailable = sraToolkitAvailable
-        let completion = onDownloadComplete
-
-        // Use Task.detached with performOnMainRunLoop for proper MainActor context
-        Task.detached { [weak self] in
+        // Use Task since we're already on MainActor
+        Task { [weak self] in
+            guard let self = self else { return }
             do {
                 let files: [URL]
 
                 // Try SRA Toolkit first, fall back to ENA direct download
-                if toolkitAvailable {
+                if self.sraToolkitAvailable {
                     logger.info("Downloading via SRA Toolkit: \(run.accession, privacy: .public)")
-                    files = try await sra.downloadFASTQ(
+                    files = try await self.sraService.downloadFASTQ(
                         accession: run.accession,
                         progress: { [weak self] progress in
-                            performOnMainRunLoop { [weak self] in
+                            Task { @MainActor [weak self] in
                                 self?.downloadProgress = progress
                             }
                         }
                     )
                 } else {
                     logger.info("Downloading via ENA: \(run.accession, privacy: .public)")
-                    files = try await sra.downloadFASTQFromENA(
+                    files = try await self.sraService.downloadFASTQFromENA(
                         accession: run.accession,
                         progress: { [weak self] progress in
-                            performOnMainRunLoop { [weak self] in
+                            Task { @MainActor [weak self] in
                                 self?.downloadProgress = progress
                             }
                         }
@@ -250,28 +246,22 @@ public class SRABrowserViewModel: ObservableObject {
                 }
 
                 let fileCount = files.count
-                performOnMainRunLoop { [weak self] in
-                    guard let self = self else { return }
-                    self.objectWillChange.send()
-                    self.downloadProgress = 1.0
-                    self.statusMessage = "Downloaded \(fileCount) files for \(run.accession)"
-                    self.isDownloading = false
-                    logger.info("Downloaded \(fileCount, privacy: .public) files for \(run.accession, privacy: .public)")
+                self.objectWillChange.send()
+                self.downloadProgress = 1.0
+                self.statusMessage = "Downloaded \(fileCount) files for \(run.accession)"
+                self.isDownloading = false
+                logger.info("Downloaded \(fileCount, privacy: .public) files for \(run.accession, privacy: .public)")
 
-                    // Notify completion
-                    completion?(files)
-                }
+                // Notify completion
+                self.onDownloadComplete?(files)
 
             } catch {
                 let errorMsg = error.localizedDescription
-                performOnMainRunLoop { [weak self] in
-                    guard let self = self else { return }
-                    self.objectWillChange.send()
-                    self.errorMessage = "Download failed: \(errorMsg)"
-                    self.statusMessage = nil
-                    self.isDownloading = false
-                    logger.error("Download failed: \(errorMsg, privacy: .public)")
-                }
+                self.objectWillChange.send()
+                self.errorMessage = "Download failed: \(errorMsg)"
+                self.statusMessage = nil
+                self.isDownloading = false
+                logger.error("Download failed: \(errorMsg, privacy: .public)")
             }
         }
     }

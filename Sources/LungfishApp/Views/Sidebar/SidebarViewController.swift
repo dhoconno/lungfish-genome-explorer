@@ -212,6 +212,15 @@ public class SidebarViewController: NSViewController {
     /// File system watcher for auto-refreshing when files change
     private var fileSystemWatcher: FileSystemWatcher?
 
+    // MARK: - Delegate
+    
+    /// Delegate for selection change callbacks.
+    ///
+    /// Use this delegate instead of observing `sidebarSelectionChanged` notifications
+    /// for reliable, synchronous handling of selection changes. This avoids Swift
+    /// concurrency issues where Tasks don't execute from notification handlers.
+    public weak var selectionDelegate: SidebarSelectionDelegate?
+
     // MARK: - Lifecycle
 
     public override func loadView() {
@@ -571,8 +580,14 @@ public class SidebarViewController: NSViewController {
             fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory)
 
             if isDirectory.boolValue {
-                itemType = .folder
-                icon = "folder"
+                // Check if it's a reference bundle (.lungfishref)
+                if url.pathExtension.lowercased() == "lungfishref" {
+                    itemType = .referenceBundle
+                    icon = "cylinder.split.1x2"  // Database-like icon for genome bundles
+                } else {
+                    itemType = .folder
+                    icon = "folder"
+                }
             } else {
                 // Detect file type from extension
                 let (type, iconName) = detectFileType(url: url)
@@ -590,9 +605,10 @@ public class SidebarViewController: NSViewController {
             url: url
         )
 
-        // If it's a directory, scan children
+        // If it's a directory, scan children (unless it's a bundle)
+        // Bundles (.lungfishref) appear as single items and don't show internal structure
         var isDirectory: ObjCBool = false
-        if fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue {
+        if fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue && !itemType.isBundle {
             do {
                 let contents = try fileManager.contentsOfDirectory(
                     at: url,
@@ -1729,8 +1745,12 @@ extension SidebarViewController: NSOutlineViewDelegate {
         let items = selectedItems()
 
         if items.isEmpty {
-            // Post notification with empty items to signal viewer should be cleared
             logger.debug("outlineViewSelectionDidChange: Selection cleared")
+            
+            // Call delegate directly - synchronous, no Task needed
+            selectionDelegate?.sidebarDidSelectItem(nil)
+            
+            // Keep notification for other observers (e.g., InspectorViewController)
             NotificationCenter.default.post(
                 name: .sidebarSelectionChanged,
                 object: self,
@@ -1743,17 +1763,25 @@ extension SidebarViewController: NSOutlineViewDelegate {
         let itemNames = items.map { $0.title }.joined(separator: ", ")
         logger.info("outlineViewSelectionDidChange: Selected \(items.count) items: [\(itemNames, privacy: .public)]")
 
-        // Post notification with ALL selected items
-        // Include both "item" (for backward compatibility) and "items" (for multi-selection)
+        // Call delegate directly - synchronous, reliable
+        // This is the primary way to handle selection changes for content display
+        if items.count == 1 {
+            selectionDelegate?.sidebarDidSelectItem(items.first)
+        } else {
+            selectionDelegate?.sidebarDidSelectItems(items)
+        }
+
+        // Keep notification for other observers (e.g., InspectorViewController)
+        // but document loading should NOT be triggered by this notification
         NotificationCenter.default.post(
             name: .sidebarSelectionChanged,
             object: self,
             userInfo: [
-                "item": items.first as Any,  // First item for backward compatibility
-                "items": items               // All items for multi-selection support
+                "item": items.first as Any,
+                "items": items
             ]
         )
-        logger.debug("outlineViewSelectionDidChange: Posted notification with \(items.count) items")
+        logger.debug("outlineViewSelectionDidChange: Called delegate and posted notification with \(items.count) items")
     }
 }
 
@@ -1789,6 +1817,7 @@ public enum SidebarItemType {
     case document  // PDFs, text files, etc. - uses QuickLook preview
     case image     // Image files - uses QuickLook preview
     case unknown   // Unknown file type - uses QuickLook preview
+    case referenceBundle  // .lungfishref reference genome bundle
 
     var tintColor: NSColor {
         switch self {
@@ -1802,13 +1831,24 @@ public enum SidebarItemType {
         case .document: return .systemBrown
         case .image: return .systemPink
         case .unknown: return .tertiaryLabelColor
+        case .referenceBundle: return .systemIndigo
         }
     }
-    
+
     /// Whether this item type should use QuickLook for preview
     var usesQuickLook: Bool {
         switch self {
         case .document, .image, .unknown:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Whether this item type is a bundle that should appear as a single item
+    var isBundle: Bool {
+        switch self {
+        case .referenceBundle:
             return true
         default:
             return false
@@ -1857,10 +1897,28 @@ extension SidebarViewController: NSMenuDelegate {
         guard !items.isEmpty else { return }
 
         // Check what types we have selected
-        let hasFiles = items.contains { $0.type != .group && $0.type != .project && $0.type != .folder }
+        let hasFiles = items.contains { $0.type != .group && $0.type != .project && $0.type != .folder && $0.type != .referenceBundle }
         let hasFolders = items.contains { $0.type == .folder || $0.type == .project }
         let hasGroups = items.contains { $0.type == .group }
         let hasDeletable = items.contains { $0.type != .group && $0.type != .project }
+        let hasBundles = items.contains { $0.type == .referenceBundle }
+
+        // Single bundle selected - show bundle-specific options
+        if items.count == 1 && hasBundles {
+            let openItem = NSMenuItem(title: "Open Bundle", action: #selector(contextMenuOpen(_:)), keyEquivalent: "")
+            openItem.target = self
+            menu.addItem(openItem)
+
+            let showContentsItem = NSMenuItem(title: "Show Package Contents", action: #selector(contextMenuShowBundleContents(_:)), keyEquivalent: "")
+            showContentsItem.target = self
+            menu.addItem(showContentsItem)
+
+            let getInfoItem = NSMenuItem(title: "Get Bundle Info", action: #selector(contextMenuGetBundleInfo(_:)), keyEquivalent: "")
+            getInfoItem.target = self
+            menu.addItem(getInfoItem)
+
+            menu.addItem(NSMenuItem.separator())
+        }
 
         // Single item selected - show Open
         if items.count == 1 && hasFiles {
@@ -1942,6 +2000,105 @@ extension SidebarViewController: NSMenuDelegate {
             object: self,
             userInfo: ["item": item]
         )
+    }
+
+    /// Shows the internal contents of a bundle in Finder (like "Show Package Contents" in macOS).
+    @objc private func contextMenuShowBundleContents(_ sender: Any?) {
+        let items = selectedItems()
+        guard let item = items.first, item.type == .referenceBundle, let url = item.url else { return }
+
+        logger.info("contextMenuShowBundleContents: Showing contents of '\(item.title, privacy: .public)'")
+
+        // Open the bundle directory in Finder to show its internal structure
+        NSWorkspace.shared.open(url)
+    }
+
+    /// Shows bundle metadata info in an alert dialog.
+    @objc private func contextMenuGetBundleInfo(_ sender: Any?) {
+        let items = selectedItems()
+        guard let item = items.first, item.type == .referenceBundle, let url = item.url else { return }
+
+        logger.info("contextMenuGetBundleInfo: Getting info for '\(item.title, privacy: .public)'")
+
+        // Try to load the bundle manifest
+        let manifestURL = url.appendingPathComponent("manifest.json")
+        
+        Task { @MainActor in
+            var infoText = "Bundle: \(item.title)\n"
+            infoText += "Location: \(url.path)\n\n"
+            
+            if FileManager.default.fileExists(atPath: manifestURL.path) {
+                do {
+                    let data = try Data(contentsOf: manifestURL)
+                    if let manifest = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        // Extract key info from manifest
+                        if let name = manifest["name"] as? String {
+                            infoText += "Name: \(name)\n"
+                        }
+                        if let identifier = manifest["identifier"] as? String {
+                            infoText += "Identifier: \(identifier)\n"
+                        }
+                        if let description = manifest["description"] as? String {
+                            infoText += "Description: \(description)\n"
+                        }
+                        if let formatVersion = manifest["formatVersion"] as? String {
+                            infoText += "Format Version: \(formatVersion)\n"
+                        }
+                        
+                        // Source info
+                        if let source = manifest["source"] as? [String: Any] {
+                            infoText += "\nSource:\n"
+                            if let organism = source["organism"] as? String {
+                                infoText += "  Organism: \(organism)\n"
+                            }
+                            if let assembly = source["assembly"] as? String {
+                                infoText += "  Assembly: \(assembly)\n"
+                            }
+                        }
+                        
+                        // Genome info
+                        if let genome = manifest["genome"] as? [String: Any] {
+                            infoText += "\nGenome:\n"
+                            if let totalLength = genome["totalLength"] as? Int {
+                                infoText += "  Total Length: \(totalLength.formatted()) bp\n"
+                            }
+                            if let chromosomes = genome["chromosomes"] as? [[String: Any]] {
+                                infoText += "  Chromosomes: \(chromosomes.count)\n"
+                            }
+                        }
+                        
+                        // Track counts
+                        if let annotations = manifest["annotations"] as? [[String: Any]] {
+                            infoText += "\nAnnotation Tracks: \(annotations.count)\n"
+                        }
+                        if let variants = manifest["variants"] as? [[String: Any]] {
+                            infoText += "Variant Tracks: \(variants.count)\n"
+                        }
+                        if let tracks = manifest["tracks"] as? [[String: Any]] {
+                            infoText += "Signal Tracks: \(tracks.count)\n"
+                        }
+                    }
+                } catch {
+                    infoText += "Error reading manifest: \(error.localizedDescription)\n"
+                    logger.error("contextMenuGetBundleInfo: Failed to read manifest - \(error.localizedDescription, privacy: .public)")
+                }
+            } else {
+                infoText += "No manifest.json found in bundle.\n"
+            }
+            
+            // Show info alert
+            let alert = NSAlert()
+            alert.messageText = "Bundle Info"
+            alert.informativeText = infoText
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "OK")
+            
+            if let window = self.view.window {
+                alert.beginSheetModal(for: window)
+            } else {
+                alert.runModal()
+            }
+        }
     }
 
     @objc private func contextMenuShowInFinder(_ sender: Any?) {

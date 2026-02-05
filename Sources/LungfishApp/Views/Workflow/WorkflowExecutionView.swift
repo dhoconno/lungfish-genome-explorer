@@ -97,7 +97,7 @@ public class WorkflowExecutionView: NSView {
     }
 
     /// Timer for elapsed time updates
-    private var elapsedTimer: Timer?
+    private nonisolated(unsafe) var elapsedTimer: Timer?
 
     /// Start time of execution
     private var startTime: Date?
