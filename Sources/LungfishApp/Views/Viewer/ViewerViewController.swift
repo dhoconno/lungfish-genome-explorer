@@ -1802,27 +1802,32 @@ public class SequenceViewerView: NSView {
             return
         }
         
-        // Check if we have cached data for this region
+        // If we don't have cached data, fetch synchronously before drawing.
+        // This must happen before the draw check so data is available in the same draw cycle.
+        if cachedBundleSequence == nil
+            || cachedSequenceRegion?.chromosome != visibleRegion.chromosome
+            || (cachedSequenceRegion?.start ?? Int.max) > visibleRegion.start
+            || (cachedSequenceRegion?.end ?? Int.min) < visibleRegion.end {
+            if !isFetchingBundleData {
+                logger.info("drawBundleContent: Starting fetch for \(visibleRegion.description)")
+                fetchBundleData(bundle: bundle, region: visibleRegion)
+            }
+        }
+
+        // Draw cached data if available, otherwise show loading indicator
         if let cached = cachedBundleSequence,
            let cachedRegion = cachedSequenceRegion,
            cachedRegion.chromosome == visibleRegion.chromosome,
            cachedRegion.start <= visibleRegion.start,
            cachedRegion.end >= visibleRegion.end {
-            // We have valid cached data - draw it
             logger.debug("drawBundleContent: Drawing cached sequence (\(cached.count) bp)")
             drawBundleSequence(cached, region: cachedRegion, frame: frame, context: context)
             drawBundleAnnotations(cachedBundleAnnotations, frame: frame, context: context)
         } else {
-            // Need to fetch data - draw loading indicator and trigger fetch
-            let message = isFetchingBundleData 
+            let message = isFetchingBundleData
                 ? "Loading \(visibleRegion.chromosome):\(visibleRegion.start)-\(visibleRegion.end)..."
                 : "Fetching \(visibleRegion.chromosome):\(visibleRegion.start)-\(visibleRegion.end)..."
             drawLoadingIndicator(context: context, message: message)
-            
-            if !isFetchingBundleData {
-                logger.info("drawBundleContent: Starting fetch for \(visibleRegion.description)")
-                fetchBundleData(bundle: bundle, region: visibleRegion)
-            }
         }
     }
     
@@ -1874,6 +1879,9 @@ public class SequenceViewerView: NSView {
             self.isFetchingBundleData = false
             self.bundleFetchError = nil
             logger.info("fetchBundleData: SUCCESS - Fetched \(sequence.count) bp and \(allAnnotations.count) annotations")
+
+            // Trigger redraw with sequence + annotations
+            self.needsDisplay = true
 
         } catch {
             let errorMsg = error.localizedDescription
