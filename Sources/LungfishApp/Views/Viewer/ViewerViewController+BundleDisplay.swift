@@ -13,6 +13,9 @@ import os.log
 /// Logger for bundle display operations
 private let bundleLogger = Logger(subsystem: "com.lungfish.browser", category: "ViewerBundleDisplay")
 
+/// Width of the chromosome navigator drawer.
+private let navigatorWidth: CGFloat = 180
+
 // MARK: - ViewerViewController Bundle Display Extension
 
 extension ViewerViewController: ChromosomeNavigatorDelegate {
@@ -20,13 +23,6 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
     // MARK: - Bundle Display
 
     /// Displays a reference genome bundle in the viewer with a chromosome navigator.
-    ///
-    /// This method sets up the complete bundle viewing experience:
-    /// 1. Creates a `BundleDataProvider` for on-demand data access
-    /// 2. Shows a `ChromosomeNavigatorView` on the left side of the viewer
-    /// 3. Configures the `ReferenceFrame` for the first chromosome
-    /// 4. Passes the underlying `ReferenceBundle` to the `SequenceViewerView`
-    ///    for on-demand sequence and annotation rendering
     ///
     /// - Parameter url: URL of the `.lungfishref` bundle directory
     /// - Throws: Error if the manifest cannot be loaded or the bundle is invalid
@@ -52,11 +48,6 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         // Hide any QuickLook preview and ensure genomics viewer is visible
         hideQuickLookPreview()
 
-        // Note: ViewerViewController.currentReferenceBundle has private(set) access,
-        // so we cannot assign it from this extension file. Instead, we rely on
-        // viewerView.setReferenceBundle(bundle) below, which stores the bundle on the
-        // SequenceViewerView where the drawing code actually reads it.
-
         // Set up chromosome navigator
         configureChromosomeNavigator(with: manifest.genome.chromosomes)
 
@@ -64,12 +55,12 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         view.layoutSubtreeIfNeeded()
         let effectiveWidth = max(800, Int(viewerView.bounds.width))
 
-        // Set up the viewer with bundle - this stores the bundle on SequenceViewerView
-        // for on-demand sequence and annotation rendering in draw(_:)
+        // Set up the viewer with bundle
         viewerView.setReferenceBundle(bundle)
 
-        // Navigate to the first chromosome
-        guard let firstChrom = manifest.genome.chromosomes.first else {
+        // Navigate to the first chromosome (in natural sort order)
+        let sortedChroms = naturalChromosomeSort(manifest.genome.chromosomes)
+        guard let firstChrom = sortedChroms.first else {
             bundleLogger.error("displayBundle: No chromosomes in bundle")
             showNoSequenceSelected()
             return
@@ -115,24 +106,31 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
             self.headerView.needsDisplay = true
         }
 
+        // Notify that bundle has been loaded (for annotation search index building, toolbar updates)
+        NotificationCenter.default.post(
+            name: .bundleDidLoad,
+            object: self,
+            userInfo: [
+                NotificationUserInfoKey.bundleURL: url,
+                NotificationUserInfoKey.chromosomes: manifest.genome.chromosomes,
+            ]
+        )
+
         bundleLogger.info("displayBundle: Bundle displayed successfully with \(manifest.genome.chromosomes.count) chromosomes")
     }
 
     // MARK: - Chromosome Navigator
 
-    /// Configures the chromosome navigator panel on the left side of the viewer.
-    ///
-    /// If a navigator already exists, it is updated with the new chromosome list.
-    /// Otherwise, a new navigator is created and installed in the view hierarchy
-    /// alongside the existing viewer components.
-    ///
-    /// - Parameter chromosomes: The chromosome list from the bundle manifest
+    /// Configures the chromosome navigator drawer on the left side of the viewer.
     private func configureChromosomeNavigator(with chromosomes: [ChromosomeInfo]) {
         if let existing = chromosomeNavigatorView {
-            // Update existing navigator
             existing.chromosomes = chromosomes
             existing.selectedChromosomeIndex = 0
             existing.isHidden = false
+            // Ensure drawer is open
+            if !isChromosomeDrawerOpen {
+                toggleChromosomeDrawer()
+            }
             bundleLogger.debug("configureChromosomeNavigator: Updated existing navigator with \(chromosomes.count) chromosomes")
             return
         }
@@ -144,99 +142,99 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         navigator.chromosomes = chromosomes
         navigator.selectedChromosomeIndex = 0
 
-        // Insert into view hierarchy at the leading edge
         view.addSubview(navigator)
 
-        // The navigator sits between the header and the viewer, sharing the header's
-        // column space. We adjust the header to accommodate the navigator above the
-        // track labels.
-        let navigatorWidth: CGFloat = 160
+        // Create the leading constraint (start open)
+        let leadingConstraint = navigator.leadingAnchor.constraint(equalTo: view.leadingAnchor)
 
-        // Store constraints so we can remove them later when hiding the navigator
         let constraints = [
             navigator.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            navigator.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            leadingConstraint,
             navigator.widthAnchor.constraint(equalToConstant: navigatorWidth),
             navigator.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
         ]
         NSLayoutConstraint.activate(constraints)
         chromosomeNavigatorConstraints = constraints
+        chromosomeDrawerLeadingConstraint = leadingConstraint
 
-        // Adjust existing views: push headerView and viewerView to the right of navigator
-        adjustViewerLayoutForNavigator(width: navigatorWidth)
+        // Store the header leading constraint for animation
+        findAndStoreHeaderLeadingConstraint()
 
+        // Adjust existing views: push headerView to the right
+        headerLeadingConstraint?.constant = navigatorWidth
+
+        view.layoutSubtreeIfNeeded()
+        isChromosomeDrawerOpen = true
         chromosomeNavigatorView = navigator
-        bundleLogger.info("configureChromosomeNavigator: Created navigator with \(chromosomes.count) chromosomes, width=\(navigatorWidth)")
+
+        bundleLogger.info("configureChromosomeNavigator: Created navigator with \(chromosomes.count) chromosomes")
     }
 
-    /// Adjusts the existing viewer layout to accommodate the chromosome navigator panel.
-    ///
-    /// Updates the leading constraint of the header view so the header and viewer
-    /// shift to the right of the navigator panel.
-    ///
-    /// - Parameter width: Width of the navigator panel
-    private func adjustViewerLayoutForNavigator(width: CGFloat) {
-        // Update the header's leading anchor to sit after the navigator
-        // The header is constrained to container.leadingAnchor in loadView().
-        // We need to update that constraint.
+    /// Finds and caches the header view's leading constraint for drawer animation.
+    private func findAndStoreHeaderLeadingConstraint() {
+        if headerLeadingConstraint != nil { return }
+
         for constraint in view.constraints {
             if constraint.firstItem === headerView,
                constraint.firstAttribute == .leading,
                constraint.secondItem === view,
                constraint.secondAttribute == .leading {
-                constraint.constant = width
-                break
+                headerLeadingConstraint = constraint
+                return
             }
         }
-
-        view.layoutSubtreeIfNeeded()
-        bundleLogger.debug("adjustViewerLayoutForNavigator: Layout adjusted for navigator width=\(width)")
     }
+
+    // MARK: - Drawer Toggle
+
+    /// Toggles the chromosome drawer open/closed with animation.
+    public func toggleChromosomeDrawer() {
+        guard let leadingConstraint = chromosomeDrawerLeadingConstraint else { return }
+        findAndStoreHeaderLeadingConstraint()
+
+        let isOpen = isChromosomeDrawerOpen
+        let drawerTarget: CGFloat = isOpen ? -navigatorWidth : 0
+        let headerTarget: CGFloat = isOpen ? 0 : navigatorWidth
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.25
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.allowsImplicitAnimation = true
+
+            leadingConstraint.animator().constant = drawerTarget
+            self.headerLeadingConstraint?.animator().constant = headerTarget
+            self.view.layoutSubtreeIfNeeded()
+        }
+
+        isChromosomeDrawerOpen = !isOpen
+        bundleLogger.info("toggleChromosomeDrawer: Drawer now \(self.isChromosomeDrawerOpen ? "open" : "closed")")
+    }
+
+    // MARK: - Hide / Remove
 
     /// Hides the chromosome navigator panel, restoring the default viewer layout.
     public func hideChromosomeNavigator() {
-        guard let navigator = chromosomeNavigatorView else { return }
-
-        navigator.isHidden = true
-
-        // Restore header leading constraint
-        for constraint in view.constraints {
-            if constraint.firstItem === headerView,
-               constraint.firstAttribute == .leading,
-               constraint.secondItem === view,
-               constraint.secondAttribute == .leading {
-                constraint.constant = 0
-                break
-            }
+        guard chromosomeNavigatorView != nil else { return }
+        if isChromosomeDrawerOpen {
+            toggleChromosomeDrawer()
         }
-
-        view.layoutSubtreeIfNeeded()
-        bundleLogger.info("hideChromosomeNavigator: Navigator hidden, layout restored")
     }
 
     /// Removes the chromosome navigator from the view hierarchy entirely.
     public func removeChromosomeNavigator() {
         guard let navigator = chromosomeNavigatorView else { return }
 
-        // Deactivate and remove constraints
         if let constraints = chromosomeNavigatorConstraints {
             NSLayoutConstraint.deactivate(constraints)
         }
         chromosomeNavigatorConstraints = nil
+        chromosomeDrawerLeadingConstraint = nil
 
         navigator.removeFromSuperview()
         chromosomeNavigatorView = nil
 
-        // Restore header leading constraint
-        for constraint in view.constraints {
-            if constraint.firstItem === headerView,
-               constraint.firstAttribute == .leading,
-               constraint.secondItem === view,
-               constraint.secondAttribute == .leading {
-                constraint.constant = 0
-                break
-            }
-        }
+        headerLeadingConstraint?.constant = 0
+        isChromosomeDrawerOpen = false
 
         view.layoutSubtreeIfNeeded()
         bundleLogger.info("removeChromosomeNavigator: Navigator removed from view hierarchy")
@@ -250,7 +248,6 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         let chromLength = Int(chromosome.length)
         let effectiveWidth = max(800, Int(viewerView.bounds.width))
 
-        // Update reference frame for the new chromosome
         referenceFrame = ReferenceFrame(
             chromosome: chromosome.name,
             start: 0,
@@ -259,7 +256,6 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
             sequenceLength: chromLength
         )
 
-        // Update header - show the selected chromosome as the first track
         if let provider = currentBundleDataProvider {
             let trackNames = [chromosome.name] + provider.annotationTrackIds.map { "Annotations: \($0)" }
             headerView.setTrackNames(trackNames)
@@ -267,14 +263,9 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
             headerView.setTrackNames([chromosome.name])
         }
 
-        // Update ruler
         enhancedRulerView.referenceFrame = referenceFrame
-
-        // Update status bar
         updateStatusBar()
 
-        // Trigger redraw - the SequenceViewerView will fetch data for the new chromosome
-        // using the reference bundle's on-demand readers
         viewerView.needsDisplay = true
         enhancedRulerView.needsDisplay = true
         headerView.needsDisplay = true
@@ -282,63 +273,102 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         bundleLogger.info("chromosomeNavigator: Navigation to '\(chromosome.name, privacy: .public)' complete")
     }
 
+    // MARK: - Cross-Chromosome Navigation
+
+    /// Navigates to a specific position on a specific chromosome.
+    ///
+    /// Creates a new reference frame for the target chromosome and zooms to the
+    /// specified region. Also updates the chromosome navigator selection.
+    ///
+    /// - Parameters:
+    ///   - chromosome: Target chromosome name
+    ///   - chromosomeLength: Length of the target chromosome in base pairs
+    ///   - start: Start position (0-based)
+    ///   - end: End position (0-based, exclusive)
+    public func navigateToChromosomeAndPosition(chromosome: String, chromosomeLength: Int, start: Int, end: Int) {
+        bundleLogger.info("navigateToChromosomeAndPosition: \(chromosome, privacy: .public):\(start)-\(end)")
+
+        let effectiveWidth = max(800, Int(viewerView.bounds.width))
+        let clampedStart = max(0, start)
+        let clampedEnd = min(chromosomeLength, end)
+
+        referenceFrame = ReferenceFrame(
+            chromosome: chromosome,
+            start: Double(clampedStart),
+            end: Double(clampedEnd),
+            pixelWidth: effectiveWidth,
+            sequenceLength: chromosomeLength
+        )
+
+        // Update chromosome navigator selection
+        chromosomeNavigatorView?.selectChromosome(named: chromosome)
+
+        // Update header
+        if let provider = currentBundleDataProvider {
+            let trackNames = [chromosome] + provider.annotationTrackIds.map { "Annotations: \($0)" }
+            headerView.setTrackNames(trackNames)
+        } else {
+            headerView.setTrackNames([chromosome])
+        }
+
+        enhancedRulerView.referenceFrame = referenceFrame
+        updateStatusBar()
+
+        viewerView.needsDisplay = true
+        enhancedRulerView.needsDisplay = true
+        headerView.needsDisplay = true
+
+        bundleLogger.info("navigateToChromosomeAndPosition: Complete")
+    }
+
     // MARK: - Bundle State Management
 
     /// Clears all bundle display state, removing the navigator and data provider.
-    ///
-    /// Call this when switching away from a bundle to a regular document or
-    /// when the viewer is cleared entirely.
     public func clearBundleDisplay() {
         bundleLogger.info("clearBundleDisplay: Clearing bundle state")
-
         currentBundleDataProvider = nil
         removeChromosomeNavigator()
-
-        // The existing clearViewer() handles clearing currentReferenceBundle
-        // and viewer state, so we only clean up bundle-specific state here.
     }
 }
 
 // MARK: - ViewerViewController Stored Properties for Bundle Display
 
-/// Extension to add stored properties via associated objects.
-///
-/// Swift extensions cannot add stored properties directly, so we use
-/// Objective-C associated objects for the chromosome navigator and
-/// bundle data provider references.
 extension ViewerViewController {
 
     private static var chromosomeNavigatorKey: UInt8 = 0
     private static var chromosomeNavigatorConstraintsKey: UInt8 = 0
     private static var bundleDataProviderKey: UInt8 = 0
+    private static var drawerLeadingConstraintKey: UInt8 = 0
+    private static var headerLeadingConstraintKey: UInt8 = 0
+    private static var drawerOpenKey: UInt8 = 0
 
-    /// The chromosome navigator view, if currently displayed.
     var chromosomeNavigatorView: ChromosomeNavigatorView? {
-        get {
-            objc_getAssociatedObject(self, &Self.chromosomeNavigatorKey) as? ChromosomeNavigatorView
-        }
-        set {
-            objc_setAssociatedObject(self, &Self.chromosomeNavigatorKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        }
+        get { objc_getAssociatedObject(self, &Self.chromosomeNavigatorKey) as? ChromosomeNavigatorView }
+        set { objc_setAssociatedObject(self, &Self.chromosomeNavigatorKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
-    /// Layout constraints for the chromosome navigator.
     var chromosomeNavigatorConstraints: [NSLayoutConstraint]? {
-        get {
-            objc_getAssociatedObject(self, &Self.chromosomeNavigatorConstraintsKey) as? [NSLayoutConstraint]
-        }
-        set {
-            objc_setAssociatedObject(self, &Self.chromosomeNavigatorConstraintsKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        }
+        get { objc_getAssociatedObject(self, &Self.chromosomeNavigatorConstraintsKey) as? [NSLayoutConstraint] }
+        set { objc_setAssociatedObject(self, &Self.chromosomeNavigatorConstraintsKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
-    /// The current bundle data provider for on-demand data access.
     public var currentBundleDataProvider: BundleDataProvider? {
-        get {
-            objc_getAssociatedObject(self, &Self.bundleDataProviderKey) as? BundleDataProvider
-        }
-        set {
-            objc_setAssociatedObject(self, &Self.bundleDataProviderKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        }
+        get { objc_getAssociatedObject(self, &Self.bundleDataProviderKey) as? BundleDataProvider }
+        set { objc_setAssociatedObject(self, &Self.bundleDataProviderKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+
+    var chromosomeDrawerLeadingConstraint: NSLayoutConstraint? {
+        get { objc_getAssociatedObject(self, &Self.drawerLeadingConstraintKey) as? NSLayoutConstraint }
+        set { objc_setAssociatedObject(self, &Self.drawerLeadingConstraintKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+
+    var headerLeadingConstraint: NSLayoutConstraint? {
+        get { objc_getAssociatedObject(self, &Self.headerLeadingConstraintKey) as? NSLayoutConstraint }
+        set { objc_setAssociatedObject(self, &Self.headerLeadingConstraintKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+
+    var isChromosomeDrawerOpen: Bool {
+        get { (objc_getAssociatedObject(self, &Self.drawerOpenKey) as? NSNumber)?.boolValue ?? false }
+        set { objc_setAssociatedObject(self, &Self.drawerOpenKey, NSNumber(value: newValue), .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 }

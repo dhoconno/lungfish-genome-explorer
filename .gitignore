@@ -30,6 +30,7 @@ build/
 
 # Test data (local only)
 test-data/
+test-genomes/
 
 # IDE
 .idea/

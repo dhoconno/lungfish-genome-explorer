@@ -9,65 +9,98 @@ import os.log
 /// Logger for chromosome navigator operations
 private let logger = Logger(subsystem: "com.lungfish.browser", category: "ChromosomeNavigator")
 
+// MARK: - Chromosome Sort Utilities
+
+/// Sort mode for the chromosome list.
+enum ChromosomeSortMode: Int {
+    case natural = 0
+    case alphabetical = 1
+    case bySize = 2
+}
+
+/// Returns a comparable sort key for a chromosome name.
+///
+/// Natural karyotype order: chr1..chr22, chrX, chrY, chrW, chrZ, chrM/MT, then others alphabetically.
+private func chromosomeSortKey(_ name: String) -> (Int, Int, String) {
+    var stripped = name
+    for prefix in ["chromosome", "Chromosome", "CHROMOSOME", "chr", "Chr", "CHR"] {
+        if stripped.hasPrefix(prefix) {
+            stripped = String(stripped.dropFirst(prefix.count))
+            break
+        }
+    }
+    // Strip leading underscores/hyphens from scaffold-style names
+    stripped = stripped.trimmingCharacters(in: CharacterSet(charactersIn: "_-"))
+
+    if let num = Int(stripped) {
+        return (0, num, "")
+    }
+
+    switch stripped.uppercased() {
+    case "X": return (1, 0, "")
+    case "Y": return (1, 1, "")
+    case "W": return (1, 2, "")
+    case "Z": return (1, 3, "")
+    case "M", "MT": return (2, 0, "")
+    default: return (3, 0, name)
+    }
+}
+
+/// Sorts chromosomes in natural karyotype order.
+func naturalChromosomeSort(_ chromosomes: [ChromosomeInfo]) -> [ChromosomeInfo] {
+    chromosomes.sorted { chromosomeSortKey($0.name) < chromosomeSortKey($1.name) }
+}
+
 // MARK: - ChromosomeNavigatorDelegate
 
 /// Delegate protocol for chromosome selection events.
-///
-/// Implement this protocol to receive callbacks when the user selects a chromosome
-/// from the navigator list. The delegate is called synchronously from the table
-/// view selection handler.
 @MainActor
 protocol ChromosomeNavigatorDelegate: AnyObject {
-    /// Called when a chromosome is selected in the navigator.
-    ///
-    /// - Parameters:
-    ///   - navigator: The navigator view that sent the event
-    ///   - chromosome: The selected chromosome information
     func chromosomeNavigator(_ navigator: ChromosomeNavigatorView, didSelectChromosome chromosome: ChromosomeInfo)
 }
 
 // MARK: - ChromosomeNavigatorView
 
-/// A panel view that displays a list of chromosomes from a reference bundle manifest.
+/// A drawer panel that displays a sortable, filterable list of chromosomes.
 ///
-/// The navigator shows each chromosome's name and formatted length (e.g., "1.2 Mb")
-/// in a single-column `NSTableView`. Clicking a row notifies the delegate to navigate
-/// the viewer to that chromosome. The currently displayed chromosome is highlighted.
-///
-/// ## Usage
-///
-/// ```swift
-/// let navigator = ChromosomeNavigatorView()
-/// navigator.delegate = self
-/// navigator.chromosomes = manifest.genome.chromosomes
-/// navigator.selectedChromosomeIndex = 0
-/// ```
-///
-/// ## Keyboard Navigation
-///
-/// The table view supports standard up/down arrow key navigation. Pressing Return
-/// on a selected row also triggers the delegate callback.
+/// The navigator shows each chromosome's name and formatted length in an `NSTableView`.
+/// Includes a sort popup (natural/alphabetical/by-size) and a filter search field.
 @MainActor
 public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableViewDelegate {
 
     // MARK: - Properties
 
-    /// Delegate that receives chromosome selection events.
     weak var delegate: ChromosomeNavigatorDelegate?
 
-    /// The chromosomes to display in the list.
-    var chromosomes: [ChromosomeInfo] = [] {
-        didSet {
-            tableView.reloadData()
-            logger.debug("ChromosomeNavigatorView: Reloaded with \(self.chromosomes.count) chromosomes")
+    /// The full (unfiltered, unsorted) chromosome list.
+    private var allChromosomes: [ChromosomeInfo] = []
+
+    /// The displayed (sorted and filtered) chromosome list that drives the table view.
+    private(set) var displayedChromosomes: [ChromosomeInfo] = []
+
+    /// Sets the chromosome list, applying current sort and filter.
+    var chromosomes: [ChromosomeInfo] {
+        get { allChromosomes }
+        set {
+            allChromosomes = newValue
+            updateDisplayedChromosomes()
+            logger.debug("ChromosomeNavigatorView: Loaded \(self.allChromosomes.count) chromosomes")
         }
     }
 
-    /// Index of the currently selected chromosome.
+    /// Current sort mode.
+    var sortMode: ChromosomeSortMode = .natural {
+        didSet { updateDisplayedChromosomes() }
+    }
+
+    /// Current filter text (empty = no filter).
+    private var filterText: String = ""
+
+    /// Index of the currently selected chromosome (in displayedChromosomes).
     var selectedChromosomeIndex: Int = 0 {
         didSet {
             guard selectedChromosomeIndex >= 0,
-                  selectedChromosomeIndex < chromosomes.count else { return }
+                  selectedChromosomeIndex < displayedChromosomes.count else { return }
             tableView.selectRowIndexes(IndexSet(integer: selectedChromosomeIndex), byExtendingSelection: false)
             tableView.scrollRowToVisible(selectedChromosomeIndex)
         }
@@ -78,11 +111,10 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
     private let headerLabel = NSTextField(labelWithString: "Chromosomes")
+    private let sortPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let filterField = NSSearchField()
 
-    /// Reuse identifier for table cells.
     private static let cellIdentifier = NSUserInterfaceItemIdentifier("ChromosomeCell")
-
-    /// Column identifier for the main column.
     private static let columnIdentifier = NSUserInterfaceItemIdentifier("ChromosomeColumn")
 
     // MARK: - Initialization
@@ -107,7 +139,29 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
         headerLabel.font = .systemFont(ofSize: 11, weight: .semibold)
         headerLabel.textColor = .secondaryLabelColor
         headerLabel.translatesAutoresizingMaskIntoConstraints = false
+        headerLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
         addSubview(headerLabel)
+
+        // Sort popup
+        sortPopup.addItems(withTitles: ["Natural", "A-Z", "Size"])
+        sortPopup.font = .systemFont(ofSize: 10)
+        sortPopup.controlSize = .mini
+        sortPopup.translatesAutoresizingMaskIntoConstraints = false
+        sortPopup.target = self
+        sortPopup.action = #selector(sortModeChanged(_:))
+        sortPopup.setAccessibilityLabel("Sort chromosomes")
+        addSubview(sortPopup)
+
+        // Filter search field
+        filterField.placeholderString = "Filter"
+        filterField.font = .systemFont(ofSize: 11)
+        filterField.controlSize = .small
+        filterField.translatesAutoresizingMaskIntoConstraints = false
+        filterField.sendsSearchStringImmediately = true
+        filterField.target = self
+        filterField.action = #selector(filterFieldChanged(_:))
+        filterField.setAccessibilityLabel("Filter chromosomes")
+        addSubview(filterField)
 
         // Configure table view
         let column = NSTableColumn(identifier: Self.columnIdentifier)
@@ -136,13 +190,20 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
         scrollView.drawsBackground = false
         addSubview(scrollView)
 
-        // Layout constraints
+        // Layout: header + sort on same row, filter below, table fills rest
         NSLayoutConstraint.activate([
             headerLabel.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             headerLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            headerLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
 
-            scrollView.topAnchor.constraint(equalTo: headerLabel.bottomAnchor, constant: 4),
+            sortPopup.centerYAnchor.constraint(equalTo: headerLabel.centerYAnchor),
+            sortPopup.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            sortPopup.leadingAnchor.constraint(greaterThanOrEqualTo: headerLabel.trailingAnchor, constant: 4),
+
+            filterField.topAnchor.constraint(equalTo: headerLabel.bottomAnchor, constant: 6),
+            filterField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            filterField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+
+            scrollView.topAnchor.constraint(equalTo: filterField.bottomAnchor, constant: 4),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -161,13 +222,51 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
         logger.info("ChromosomeNavigatorView: Setup complete")
     }
 
+    // MARK: - Sort / Filter
+
+    private func updateDisplayedChromosomes() {
+        // 1. Filter
+        var result = allChromosomes
+        if !filterText.isEmpty {
+            let lowered = filterText.lowercased()
+            result = result.filter { chrom in
+                chrom.name.lowercased().contains(lowered)
+                || chrom.aliases.contains(where: { $0.lowercased().contains(lowered) })
+            }
+        }
+
+        // 2. Sort
+        switch sortMode {
+        case .natural:
+            result = naturalChromosomeSort(result)
+        case .alphabetical:
+            result.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        case .bySize:
+            result.sort { $0.length > $1.length }
+        }
+
+        displayedChromosomes = result
+        tableView.reloadData()
+    }
+
+    @objc private func sortModeChanged(_ sender: NSPopUpButton) {
+        sortMode = ChromosomeSortMode(rawValue: sender.indexOfSelectedItem) ?? .natural
+        logger.debug("ChromosomeNavigatorView: Sort mode changed to \(sender.indexOfSelectedItem)")
+    }
+
+    @objc private func filterFieldChanged(_ sender: NSSearchField) {
+        filterText = sender.stringValue
+        updateDisplayedChromosomes()
+        logger.debug("ChromosomeNavigatorView: Filter text: '\(self.filterText, privacy: .public)'")
+    }
+
     // MARK: - Actions
 
     @objc private func tableViewDoubleClicked(_ sender: Any) {
         let row = tableView.clickedRow
-        guard row >= 0, row < chromosomes.count else { return }
+        guard row >= 0, row < displayedChromosomes.count else { return }
 
-        let chromosome = chromosomes[row]
+        let chromosome = displayedChromosomes[row]
         logger.info("ChromosomeNavigatorView: Double-clicked chromosome '\(chromosome.name, privacy: .public)'")
         delegate?.chromosomeNavigator(self, didSelectChromosome: chromosome)
     }
@@ -175,17 +274,16 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
     // MARK: - NSTableViewDataSource
 
     public func numberOfRows(in tableView: NSTableView) -> Int {
-        chromosomes.count
+        displayedChromosomes.count
     }
 
     // MARK: - NSTableViewDelegate
 
     public func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard row < chromosomes.count else { return nil }
+        guard row < displayedChromosomes.count else { return nil }
 
-        let chromosome = chromosomes[row]
+        let chromosome = displayedChromosomes[row]
 
-        // Reuse or create cell view
         let cellView: ChromosomeCellView
         if let existing = tableView.makeView(withIdentifier: Self.cellIdentifier, owner: nil) as? ChromosomeCellView {
             cellView = existing
@@ -204,10 +302,10 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
 
     public func tableViewSelectionDidChange(_ notification: Notification) {
         let row = tableView.selectedRow
-        guard row >= 0, row < chromosomes.count else { return }
+        guard row >= 0, row < displayedChromosomes.count else { return }
 
         selectedChromosomeIndex = row
-        let chromosome = chromosomes[row]
+        let chromosome = displayedChromosomes[row]
         logger.info("ChromosomeNavigatorView: Selected chromosome '\(chromosome.name, privacy: .public)' at index \(row)")
         delegate?.chromosomeNavigator(self, didSelectChromosome: chromosome)
     }
@@ -215,16 +313,15 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
     // MARK: - Public API
 
     /// Selects a chromosome by name, scrolling it into view.
-    ///
-    /// - Parameter name: The chromosome name to select
-    /// - Returns: `true` if the chromosome was found and selected, `false` otherwise
     @discardableResult
     func selectChromosome(named name: String) -> Bool {
-        guard let index = chromosomes.firstIndex(where: { $0.name == name }) else {
+        guard let index = displayedChromosomes.firstIndex(where: { $0.name == name }) else {
             logger.debug("ChromosomeNavigatorView: Chromosome '\(name, privacy: .public)' not found")
             return false
         }
-        selectedChromosomeIndex = index
+        // Set directly on tableView to avoid triggering delegate callback
+        tableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
+        tableView.scrollRowToVisible(index)
         return true
     }
 }
@@ -232,9 +329,6 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
 // MARK: - ChromosomeCellView
 
 /// Custom cell view for a chromosome row in the navigator.
-///
-/// Displays the chromosome name on the left and a formatted length on the right.
-/// The length is formatted as human-readable units (bp, Kb, Mb, Gb).
 private class ChromosomeCellView: NSTableCellView {
 
     private let nameLabel = NSTextField(labelWithString: "")
@@ -274,21 +368,12 @@ private class ChromosomeCellView: NSTableCellView {
         ])
     }
 
-    /// Configures the cell with chromosome information.
-    ///
-    /// - Parameter chromosome: The chromosome info to display
     func configure(with chromosome: ChromosomeInfo) {
         nameLabel.stringValue = chromosome.name
         lengthLabel.stringValue = Self.formatLength(chromosome.length)
-
-        // Accessibility
         setAccessibilityLabel("\(chromosome.name), \(Self.formatLength(chromosome.length))")
     }
 
-    /// Formats a base pair count into a human-readable string.
-    ///
-    /// - Parameter length: Length in base pairs
-    /// - Returns: Formatted string (e.g., "1.2 Mb", "345 Kb", "89 bp")
     static func formatLength(_ length: Int64) -> String {
         switch length {
         case 0..<1_000:

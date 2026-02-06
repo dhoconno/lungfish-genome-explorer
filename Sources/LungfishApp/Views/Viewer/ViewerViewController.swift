@@ -1197,6 +1197,17 @@ public class ViewerViewController: NSViewController {
             selection: selectionInfo,
             scale: frame.scale
         )
+
+        // Notify toolbar / other observers about coordinate changes
+        NotificationCenter.default.post(
+            name: .viewerCoordinatesChanged,
+            object: self,
+            userInfo: [
+                NotificationUserInfoKey.chromosome: frame.chromosome,
+                NotificationUserInfoKey.start: Int(frame.start),
+                NotificationUserInfoKey.end: Int(frame.end),
+            ]
+        )
     }
 
     /// Updates track heights in all views when appearance settings change.
@@ -2006,17 +2017,41 @@ public class SequenceViewerView: NSView {
         context.strokePath()
     }
     
-    /// Draws annotations from a bundle.
+    // MARK: - Annotation Rendering Thresholds (inspired by IGV)
+    //
+    // Three rendering tiers based on zoom level:
+    // - DENSITY MODE:  > 50,000 bp/pixel — feature density histogram
+    // - SQUISHED MODE: 500–50,000 bp/pixel — packed thin rectangles, no labels
+    // - EXPANDED MODE: < 500 bp/pixel — full boxes with labels, strand arrows
+
+    /// Above this threshold (bp/pixel): draw density histogram instead of features
+    private let annotationDensityThreshold: Double = 50_000
+
+    /// Above this threshold (bp/pixel): draw squished (thin, no labels) features
+    private let annotationSquishedThreshold: Double = 500
+
+    /// Maximum annotation rows before showing "+N more" indicator
+    private let maxAnnotationRows: Int = 50
+
+    /// Minimum pixel width for a feature to show a label
+    private let minLabelWidth: CGFloat = 40
+
+    /// Minimum pixel gap between features in the same row during packing
+    private let minPixelGap: CGFloat = 2
+
+    /// Draws annotations from a bundle using zoom-dependent rendering tiers.
     private func drawBundleAnnotations(_ annotations: [SequenceAnnotation], frame: ReferenceFrame, context: CGContext) {
         guard showAnnotations, !annotations.isEmpty else { return }
-        
-        // Filter annotations to visible region
+
+        let scale = frame.scale  // bp/pixel
         let visibleStart = Int(frame.start)
         let visibleEnd = Int(frame.end)
+
+        // Filter annotations to visible region
         let visibleAnnotations = annotations.filter { annot in
             annot.end > visibleStart && annot.start < visibleEnd
         }
-        
+
         // Apply type filter if set
         let filteredAnnotations: [SequenceAnnotation]
         if let typeFilter = visibleAnnotationTypes {
@@ -2024,7 +2059,7 @@ public class SequenceViewerView: NSView {
         } else {
             filteredAnnotations = visibleAnnotations
         }
-        
+
         // Apply text filter if set
         let finalAnnotations: [SequenceAnnotation]
         if !annotationFilterText.isEmpty {
@@ -2035,35 +2070,117 @@ public class SequenceViewerView: NSView {
         } else {
             finalAnnotations = filteredAnnotations
         }
-        
-        // Draw annotations using row layout to avoid overlap
-        var rows: [[SequenceAnnotation]] = []
-        
-        for annot in finalAnnotations {
-            var placed = false
-            for rowIndex in 0..<rows.count {
-                let lastInRow = rows[rowIndex].last!
-                if annot.start >= lastInRow.end + 5 {  // Add small gap
-                    rows[rowIndex].append(annot)
-                    placed = true
-                    break
-                }
-            }
-            if !placed {
-                rows.append([annot])
+
+        guard !finalAnnotations.isEmpty else { return }
+
+        if scale > annotationDensityThreshold {
+            drawAnnotationDensity(finalAnnotations, frame: frame, context: context)
+        } else if scale > annotationSquishedThreshold {
+            drawAnnotationsSquished(finalAnnotations, frame: frame, context: context)
+        } else {
+            drawAnnotationsExpanded(finalAnnotations, frame: frame, context: context)
+        }
+    }
+
+    // MARK: - Density Histogram (whole-chromosome zoom level)
+
+    /// Draws a density histogram of annotation counts per pixel column.
+    private func drawAnnotationDensity(_ annotations: [SequenceAnnotation], frame: ReferenceFrame, context: CGContext) {
+        let viewWidth = CGFloat(frame.pixelWidth)
+        let binCount = max(1, Int(viewWidth))
+        let bpPerBin = (frame.end - frame.start) / Double(binCount)
+
+        // Build density histogram
+        var bins = [Int](repeating: 0, count: binCount)
+        for annot in annotations {
+            let startBin = max(0, Int((Double(annot.start) - frame.start) / bpPerBin))
+            let endBin = min(binCount - 1, Int((Double(annot.end) - frame.start) / bpPerBin))
+            for bin in startBin...endBin {
+                bins[bin] += 1
             }
         }
-        
-        // Draw each row
+
+        let maxCount = bins.max() ?? 1
+        guard maxCount > 0 else { return }
+
+        let trackHeight: CGFloat = 30
+        let y = annotationTrackY
+
+        // Draw background
+        context.setFillColor(NSColor.controlBackgroundColor.withAlphaComponent(0.3).cgColor)
+        context.fill(CGRect(x: 0, y: y, width: viewWidth, height: trackHeight))
+
+        // Draw density bars
+        let barColor = NSColor.systemBlue
+        for (i, count) in bins.enumerated() {
+            guard count > 0 else { continue }
+            let barHeight = trackHeight * CGFloat(count) / CGFloat(maxCount)
+            let rect = CGRect(x: CGFloat(i), y: y + trackHeight - barHeight, width: 1, height: barHeight)
+            context.setFillColor(barColor.withAlphaComponent(0.6).cgColor)
+            context.fill(rect)
+        }
+
+        // Draw label
+        let labelText = "\(annotations.count) features (zoom in to see details)"
+        let font = NSFont.systemFont(ofSize: 10)
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ]
+        let labelRect = CGRect(x: 4, y: y + 2, width: viewWidth - 8, height: 14)
+        (labelText as NSString).draw(in: labelRect, withAttributes: attrs)
+    }
+
+    // MARK: - Squished Mode (medium zoom — thin features, no labels)
+
+    /// Draws annotations as thin packed rectangles without labels.
+    private func drawAnnotationsSquished(_ annotations: [SequenceAnnotation], frame: ReferenceFrame, context: CGContext) {
+        let squishedHeight: CGFloat = 6
+        let squishedSpacing: CGFloat = 1
+        let (rows, overflow) = packAnnotationsPixelBased(annotations, frame: frame)
+
         for (rowIndex, row) in rows.enumerated() {
-            let y = annotationTrackY + CGFloat(rowIndex) * (annotationHeight + annotationRowSpacing)
-            
+            let y = annotationTrackY + CGFloat(rowIndex) * (squishedHeight + squishedSpacing)
+
             for annot in row {
                 let startX = frame.screenPosition(for: Double(annot.start))
                 let endX = frame.screenPosition(for: Double(annot.end))
-                let width = max(3, endX - startX)  // Minimum width for visibility
-                
-                // Get annotation color
+                let width = max(1, endX - startX)
+
+                let annotColor = annot.color ?? annot.type.defaultColor
+                let color = NSColor(
+                    calibratedRed: CGFloat(annotColor.red),
+                    green: CGFloat(annotColor.green),
+                    blue: CGFloat(annotColor.blue),
+                    alpha: 0.7
+                )
+
+                let rect = CGRect(x: startX, y: y, width: width, height: squishedHeight)
+                context.setFillColor(color.cgColor)
+                context.fill(rect)
+            }
+        }
+
+        if overflow > 0 {
+            drawOverflowIndicator(rowCount: rows.count, height: squishedHeight + squishedSpacing,
+                                  overflow: overflow, frame: frame, context: context)
+        }
+    }
+
+    // MARK: - Expanded Mode (close zoom — full detail with labels)
+
+    /// Draws annotations as full-height boxes with labels and strand indicators.
+    private func drawAnnotationsExpanded(_ annotations: [SequenceAnnotation], frame: ReferenceFrame, context: CGContext) {
+        let (rows, overflow) = packAnnotationsPixelBased(annotations, frame: frame)
+
+        for (rowIndex, row) in rows.enumerated() {
+            let y = annotationTrackY + CGFloat(rowIndex) * (annotationHeight + annotationRowSpacing)
+
+            for annot in row {
+                let startX = frame.screenPosition(for: Double(annot.start))
+                let endX = frame.screenPosition(for: Double(annot.end))
+                let width = max(3, endX - startX)
+
                 let annotColor = annot.color ?? annot.type.defaultColor
                 let color = NSColor(
                     calibratedRed: CGFloat(annotColor.red),
@@ -2071,29 +2188,118 @@ public class SequenceViewerView: NSView {
                     blue: CGFloat(annotColor.blue),
                     alpha: 1.0
                 )
-                
+
                 // Draw annotation box
                 let rect = CGRect(x: startX, y: y, width: width, height: annotationHeight)
                 context.setFillColor(color.withAlphaComponent(0.7).cgColor)
                 context.fill(rect)
-                
+
                 // Draw border
                 context.setStrokeColor(color.cgColor)
                 context.setLineWidth(1)
                 context.stroke(rect)
-                
+
                 // Draw label if space permits
-                if width > 40 {
+                if width > minLabelWidth {
                     let font = NSFont.systemFont(ofSize: 10)
                     let attributes: [NSAttributedString.Key: Any] = [
                         .font: font,
-                        .foregroundColor: NSColor.textColor
+                        .foregroundColor: NSColor.textColor,
                     ]
                     let labelRect = CGRect(x: startX + 2, y: y + 1, width: width - 4, height: annotationHeight - 2)
                     (annot.name as NSString).draw(in: labelRect, withAttributes: attributes)
                 }
+
+                // Draw strand arrow if feature is wide enough
+                if width > 8 {
+                    drawStrandArrow(strand: annot.strand, rect: rect, context: context)
+                }
             }
         }
+
+        if overflow > 0 {
+            drawOverflowIndicator(rowCount: rows.count, height: annotationHeight + annotationRowSpacing,
+                                  overflow: overflow, frame: frame, context: context)
+        }
+    }
+
+    // MARK: - Pixel-Based Row Packing
+
+    /// Packs annotations into rows using pixel-based gap detection.
+    /// Returns the packed rows and number of overflow features that couldn't be placed.
+    private func packAnnotationsPixelBased(
+        _ annotations: [SequenceAnnotation],
+        frame: ReferenceFrame
+    ) -> (rows: [[SequenceAnnotation]], overflow: Int) {
+        var rows: [[SequenceAnnotation]] = []
+        var rowEndPixels: [CGFloat] = []  // Track rightmost pixel in each row
+        var overflow = 0
+
+        for annot in annotations {
+            let startX = frame.screenPosition(for: Double(annot.start))
+
+            var placed = false
+            for rowIndex in 0..<rows.count {
+                if startX >= rowEndPixels[rowIndex] + minPixelGap {
+                    rows[rowIndex].append(annot)
+                    let endX = frame.screenPosition(for: Double(annot.end))
+                    rowEndPixels[rowIndex] = max(endX, startX + 3)  // min 3px feature width
+                    placed = true
+                    break
+                }
+            }
+
+            if !placed {
+                if rows.count < maxAnnotationRows {
+                    rows.append([annot])
+                    let endX = frame.screenPosition(for: Double(annot.end))
+                    rowEndPixels.append(max(endX, startX + 3))
+                } else {
+                    overflow += 1
+                }
+            }
+        }
+
+        return (rows, overflow)
+    }
+
+    // MARK: - Annotation Drawing Helpers
+
+    /// Draws a small strand arrow inside an annotation rect.
+    private func drawStrandArrow(strand: Strand, rect: CGRect, context: CGContext) {
+        guard strand == .forward || strand == .reverse else { return }
+
+        let arrowSize: CGFloat = 4
+        let midY = rect.midY
+        context.setStrokeColor(NSColor.textColor.withAlphaComponent(0.5).cgColor)
+        context.setLineWidth(1)
+
+        if strand == .forward {
+            let x = rect.maxX - arrowSize - 2
+            context.move(to: CGPoint(x: x, y: midY - arrowSize / 2))
+            context.addLine(to: CGPoint(x: x + arrowSize, y: midY))
+            context.addLine(to: CGPoint(x: x, y: midY + arrowSize / 2))
+        } else {
+            let x = rect.minX + 2
+            context.move(to: CGPoint(x: x + arrowSize, y: midY - arrowSize / 2))
+            context.addLine(to: CGPoint(x: x, y: midY))
+            context.addLine(to: CGPoint(x: x + arrowSize, y: midY + arrowSize / 2))
+        }
+        context.strokePath()
+    }
+
+    /// Draws a "+N more features" indicator below the last row.
+    private func drawOverflowIndicator(rowCount: Int, height: CGFloat, overflow: Int,
+                                       frame: ReferenceFrame, context: CGContext) {
+        let y = annotationTrackY + CGFloat(rowCount) * height
+        let text = "+\(overflow) more features"
+        let font = NSFont.systemFont(ofSize: 9)
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ]
+        let labelRect = CGRect(x: 4, y: y, width: CGFloat(frame.pixelWidth) - 8, height: 12)
+        (text as NSString).draw(in: labelRect, withAttributes: attrs)
     }
     
     /// Draws a loading indicator.

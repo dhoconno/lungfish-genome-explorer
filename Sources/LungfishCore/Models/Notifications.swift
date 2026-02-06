@@ -55,6 +55,20 @@ extension Notification.Name {
     public static let annotationFilterChanged = Notification.Name("annotationFilterChanged")
 }
 
+// MARK: - Viewer Navigation Notifications
+
+extension Notification.Name {
+    /// Posted when the viewer's coordinate position changes (scroll, zoom, chromosome switch).
+    ///
+    /// Contains userInfo keys: "chromosome" (String), "start" (Int), "end" (Int)
+    public static let viewerCoordinatesChanged = Notification.Name("viewerCoordinatesChanged")
+
+    /// Posted when a reference bundle is loaded into the viewer.
+    ///
+    /// Contains userInfo keys: "bundleURL" (URL), "chromosomes" ([ChromosomeInfo])
+    public static let bundleDidLoad = Notification.Name("bundleDidLoad")
+}
+
 // MARK: - Notification UserInfo Keys
 
 /// Keys used in notification userInfo dictionaries.
@@ -79,4 +93,22 @@ public enum NotificationUserInfoKey {
 
     /// Key for the annotation color when applying color changes.
     public static let annotationColor = "annotationColor"
+
+    /// Key for the active sequence index in multi-sequence views.
+    public static let activeSequenceIndex = "activeSequenceIndex"
+
+    /// Key for annotation visibility state (Bool).
+    public static let annotationVisible = "annotationVisible"
+
+    /// Key for start position (Int).
+    public static let start = "start"
+
+    /// Key for end position (Int).
+    public static let end = "end"
+
+    /// Key for bundle URL.
+    public static let bundleURL = "bundleURL"
+
+    /// Key for chromosomes array.
+    public static let chromosomes = "chromosomes"
 }

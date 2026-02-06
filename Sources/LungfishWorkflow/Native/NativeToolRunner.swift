@@ -441,18 +441,28 @@ extension NativeToolRunner {
     /// - Returns: Result of the compression.
     public func bgzipCompress(
         inputPath: URL,
-        keepOriginal: Bool = false
+        keepOriginal: Bool = false,
+        threads: Int? = nil
     ) async throws -> NativeToolResult {
         var args = ["-f"]  // Force overwrite
         if keepOriginal {
             args.append("-k")  // Keep original
         }
+        let threadCount = threads ?? max(1, ProcessInfo.processInfo.activeProcessorCount - 1)
+        if threadCount > 1 {
+            args.append(contentsOf: ["-@", "\(threadCount)"])
+        }
         args.append(inputPath.path)
-        
+
+        // bgzip on large genomes (3+ GB) can take 10+ minutes single-threaded
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: inputPath.path)[.size] as? Int64) ?? 0
+        let estimatedTimeout: TimeInterval = max(600, Double(fileSize) / 10_000_000) // ~10 MB/s minimum
+
         return try await run(
             .bgzip,
             arguments: args,
-            workingDirectory: inputPath.deletingLastPathComponent()
+            workingDirectory: inputPath.deletingLastPathComponent(),
+            timeout: estimatedTimeout
         )
     }
     
@@ -461,10 +471,15 @@ extension NativeToolRunner {
     /// - Parameter fastaPath: Path to the FASTA file (can be compressed).
     /// - Returns: Result of the indexing.
     public func indexFASTA(fastaPath: URL) async throws -> NativeToolResult {
+        // samtools faidx on large genomes can take several minutes
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: fastaPath.path)[.size] as? Int64) ?? 0
+        let estimatedTimeout: TimeInterval = max(600, Double(fileSize) / 10_000_000)
+
         return try await run(
             .samtools,
             arguments: ["faidx", fastaPath.path],
-            workingDirectory: fastaPath.deletingLastPathComponent()
+            workingDirectory: fastaPath.deletingLastPathComponent(),
+            timeout: estimatedTimeout
         )
     }
     
@@ -476,17 +491,24 @@ extension NativeToolRunner {
     /// - Returns: Result of the conversion.
     public func convertVCFtoBCF(
         vcfPath: URL,
-        outputPath: URL
+        outputPath: URL,
+        threads: Int? = nil
     ) async throws -> NativeToolResult {
+        let threadCount = threads ?? max(1, ProcessInfo.processInfo.activeProcessorCount - 1)
+        var args = [
+            "view",
+            "-O", "b",  // Output BCF
+            "-o", outputPath.path,
+        ]
+        if threadCount > 1 {
+            args.append(contentsOf: ["--threads", "\(threadCount)"])
+        }
+        args.append(vcfPath.path)
+
         // Convert to BCF
         let convertResult = try await run(
             .bcftools,
-            arguments: [
-                "view",
-                "-O", "b",  // Output BCF
-                "-o", outputPath.path,
-                vcfPath.path
-            ],
+            arguments: args,
             workingDirectory: vcfPath.deletingLastPathComponent()
         )
         
@@ -514,6 +536,10 @@ extension NativeToolRunner {
         chromSizesPath: URL,
         outputPath: URL
     ) async throws -> NativeToolResult {
+        // bedToBigBed on millions of features can take several minutes
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: bedPath.path)[.size] as? Int64) ?? 0
+        let estimatedTimeout: TimeInterval = max(600, Double(fileSize) / 5_000_000)
+
         return try await run(
             .bedToBigBed,
             arguments: [
@@ -521,7 +547,8 @@ extension NativeToolRunner {
                 chromSizesPath.path,
                 outputPath.path
             ],
-            workingDirectory: bedPath.deletingLastPathComponent()
+            workingDirectory: bedPath.deletingLastPathComponent(),
+            timeout: estimatedTimeout
         )
     }
     

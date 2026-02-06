@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishCore
+import LungfishIO
 
 /// Controller for the main application window.
 ///
@@ -23,17 +24,30 @@ public class MainWindowController: NSWindowController {
         static let zoom = NSToolbarItem.Identifier("Zoom")
         static let toggleSidebar = NSToolbarItem.Identifier("ToggleSidebar")
         static let toggleInspector = NSToolbarItem.Identifier("ToggleInspector")
+        static let toggleChromosomeDrawer = NSToolbarItem.Identifier("ToggleChromosomeDrawer")
         static let search = NSToolbarItem.Identifier("Search")
         static let flexibleSpace = NSToolbarItem.Identifier.flexibleSpace
         static let space = NSToolbarItem.Identifier.space
-        // Apple HIG: sidebarTrackingSeparator aligns toolbar items with sidebar edge
         static let sidebarTrackingSeparator = NSToolbarItem.Identifier.sidebarTrackingSeparator
     }
+
+    // MARK: - Toolbar State
+
+    /// Stored reference to the coordinates combobox for two-way binding.
+    private var coordinateComboBox: NSComboBox?
+
+    /// Stored reference to the search toolbar item.
+    private var searchToolbarItem: NSSearchToolbarItem?
+
+    /// Annotation search index for the current bundle.
+    private var annotationSearchIndex: AnnotationSearchIndex?
+
+    /// Flag to suppress combobox delegate callbacks during programmatic updates.
+    private var isUpdatingCoordinatesProgrammatically = false
 
     // MARK: - Initialization
 
     public convenience init() {
-        // Create window with appropriate style
         let window = Self.createMainWindow()
         self.init(window: window)
         configureWindow()
@@ -47,7 +61,7 @@ public class MainWindowController: NSWindowController {
             .closable,
             .miniaturizable,
             .resizable,
-            .fullSizeContentView  // Modern macOS style
+            .fullSizeContentView
         ]
 
         let window = NSWindow(
@@ -64,11 +78,8 @@ public class MainWindowController: NSWindowController {
         window.titleVisibility = .visible
         window.toolbarStyle = .unified
 
-        // Enable window tabs
         window.tabbingMode = .automatic
         window.tabbingIdentifier = "LungfishMainWindow"
-
-        // Center on screen
         window.center()
 
         return window
@@ -77,15 +88,80 @@ public class MainWindowController: NSWindowController {
     private func configureWindow() {
         guard let window = window else { return }
 
-        // Create the split view controller hierarchy
         mainSplitViewController = MainSplitViewController()
         window.contentViewController = mainSplitViewController
 
-        // Configure toolbar
         configureToolbar()
+        setupNotificationObservers()
 
-        // Set window delegate
         window.delegate = self
+    }
+
+    // MARK: - Notification Observers
+
+    private func setupNotificationObservers() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleCoordinatesChanged(_:)),
+            name: .viewerCoordinatesChanged,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleBundleLoaded(_:)),
+            name: .bundleDidLoad,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    // MARK: - Coordinate Sync
+
+    @objc private func handleCoordinatesChanged(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let chromosome = userInfo[NotificationUserInfoKey.chromosome] as? String,
+              let start = userInfo[NotificationUserInfoKey.start] as? Int,
+              let end = userInfo[NotificationUserInfoKey.end] as? Int else { return }
+
+        isUpdatingCoordinatesProgrammatically = true
+        let formatted = formatCoordinateString(chromosome: chromosome, start: start, end: end)
+        coordinateComboBox?.stringValue = formatted
+        isUpdatingCoordinatesProgrammatically = false
+    }
+
+    private func formatCoordinateString(chromosome: String, start: Int, end: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        let startStr = formatter.string(from: NSNumber(value: start + 1)) ?? "\(start + 1)"
+        let endStr = formatter.string(from: NSNumber(value: end)) ?? "\(end)"
+        return "\(chromosome):\(startStr)-\(endStr)"
+    }
+
+    // MARK: - Bundle Loaded → Index Building & Combobox Population
+
+    @objc private func handleBundleLoaded(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let chromosomes = userInfo[NotificationUserInfoKey.chromosomes] as? [ChromosomeInfo] else { return }
+
+        // Populate combobox dropdown with chromosome names
+        let sorted = naturalChromosomeSort(chromosomes)
+        coordinateComboBox?.removeAllItems()
+        coordinateComboBox?.addItems(withObjectValues: sorted.map { $0.name })
+
+        // Build annotation search index
+        guard let viewerController = mainSplitViewController?.viewerController,
+              let bundle = viewerController.viewerView?.currentReferenceBundle else { return }
+
+        let index = AnnotationSearchIndex()
+        annotationSearchIndex = index
+
+        Task {
+            await index.buildIndex(bundle: bundle, chromosomes: chromosomes)
+        }
     }
 
     // MARK: - Toolbar Configuration
@@ -112,6 +188,10 @@ public class MainWindowController: NSWindowController {
         mainSplitViewController.toggleInspector()
     }
 
+    @objc public func toggleChromosomeDrawer(_ sender: Any?) {
+        mainSplitViewController.viewerController?.toggleChromosomeDrawer()
+    }
+
     // MARK: - Navigation Actions
 
     @objc public func goBack(_ sender: Any?) {
@@ -132,6 +212,170 @@ public class MainWindowController: NSWindowController {
 
     @objc public func zoomToFit(_ sender: Any?) {
         mainSplitViewController.viewerController?.zoomToFit()
+    }
+
+    // MARK: - Coordinate Input Handling
+
+    private func handleCoordinateInput(_ input: String) {
+        guard let viewerController = mainSplitViewController?.viewerController else { return }
+
+        // Strip commas from user input (they may copy "chr1:1,000-10,000")
+        let cleaned = input.replacingOccurrences(of: ",", with: "")
+            .trimmingCharacters(in: .whitespaces)
+        guard !cleaned.isEmpty else { return }
+
+        // Check if input is just a chromosome name (no colon)
+        if !cleaned.contains(":") && !cleaned.contains("-") && !cleaned.contains("..") {
+            // Might be a chromosome name from the dropdown
+            if let provider = viewerController.currentBundleDataProvider,
+               let chromInfo = provider.chromosomeInfo(named: cleaned) {
+                viewerController.navigateToChromosomeAndPosition(
+                    chromosome: chromInfo.name,
+                    chromosomeLength: Int(chromInfo.length),
+                    start: 0,
+                    end: min(Int(chromInfo.length), 10000)
+                )
+                return
+            }
+        }
+
+        // Parse coordinate string: chr:start-end, chr:start..end, start-end, position
+        var chromosome: String?
+        var startPosition: Int?
+        var endPosition: Int?
+
+        if cleaned.contains(":") {
+            let colonParts = cleaned.split(separator: ":", maxSplits: 1)
+            guard colonParts.count == 2 else { NSSound.beep(); return }
+            chromosome = String(colonParts[0])
+            parseRange(String(colonParts[1]), start: &startPosition, end: &endPosition)
+        } else {
+            parseRange(cleaned, start: &startPosition, end: &endPosition)
+        }
+
+        guard let start = startPosition else { NSSound.beep(); return }
+
+        // Convert 1-based user input to 0-based
+        let zeroBasedStart = max(0, start - 1)
+        let zeroBasedEnd: Int? = endPosition.map { max(zeroBasedStart + 1, $0) }
+
+        // For bundle mode with chromosome switch
+        if let chrom = chromosome,
+           let provider = viewerController.currentBundleDataProvider,
+           let chromInfo = provider.chromosomeInfo(named: chrom) {
+            let end = zeroBasedEnd ?? min(zeroBasedStart + 10000, Int(chromInfo.length))
+            viewerController.navigateToChromosomeAndPosition(
+                chromosome: chrom,
+                chromosomeLength: Int(chromInfo.length),
+                start: zeroBasedStart,
+                end: end
+            )
+        } else {
+            viewerController.navigateToPosition(
+                chromosome: chromosome,
+                start: zeroBasedStart,
+                end: zeroBasedEnd
+            )
+        }
+    }
+
+    /// Parses "start-end", "start..end", or a single position.
+    private func parseRange(_ input: String, start: inout Int?, end: inout Int?) {
+        if input.contains("..") {
+            let parts = input.split(separator: ".", omittingEmptySubsequences: true)
+            if parts.count == 2 {
+                start = Int(parts[0].trimmingCharacters(in: .whitespaces))
+                end = Int(parts[1].trimmingCharacters(in: .whitespaces))
+            }
+        } else if input.contains("-"), input.first != "-" {
+            if let hyphen = input.lastIndex(of: "-"), hyphen > input.startIndex {
+                let before = String(input[input.startIndex..<hyphen])
+                let after = String(input[input.index(after: hyphen)...])
+                if let s = Int(before.trimmingCharacters(in: .whitespaces)),
+                   let e = Int(after.trimmingCharacters(in: .whitespaces)) {
+                    start = s
+                    end = e
+                } else {
+                    start = Int(input.trimmingCharacters(in: .whitespaces))
+                }
+            }
+        } else {
+            start = Int(input.trimmingCharacters(in: .whitespaces))
+        }
+    }
+
+    // MARK: - Annotation Search
+
+    private func performAnnotationSearch(query: String) {
+        guard let searchField = searchToolbarItem?.searchField else { return }
+
+        guard !query.isEmpty, let index = annotationSearchIndex else {
+            return
+        }
+
+        if index.isBuilding {
+            // Show building message
+            let menu = NSMenu()
+            let item = NSMenuItem(title: "Building index...", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+            showSearchMenu(menu, relativeTo: searchField)
+            return
+        }
+
+        let results = index.search(query: query, limit: 20)
+        let menu = NSMenu()
+
+        if results.isEmpty {
+            let item = NSMenuItem(title: "No results for \"\(query)\"", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+        } else {
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .decimal
+            for result in results {
+                let startStr = formatter.string(from: NSNumber(value: result.start)) ?? "\(result.start)"
+                let endStr = formatter.string(from: NSNumber(value: result.end)) ?? "\(result.end)"
+                let title = "\(result.name)  (\(result.chromosome):\(startStr)-\(endStr))"
+                let item = NSMenuItem(title: title, action: #selector(searchResultSelected(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = result
+                menu.addItem(item)
+            }
+        }
+
+        showSearchMenu(menu, relativeTo: searchField)
+    }
+
+    private func showSearchMenu(_ menu: NSMenu, relativeTo searchField: NSSearchField) {
+        let point = NSPoint(x: 0, y: searchField.bounds.maxY + 2)
+        menu.popUp(positioning: nil, at: point, in: searchField)
+    }
+
+    @objc private func searchResultSelected(_ sender: NSMenuItem) {
+        guard let result = sender.representedObject as? AnnotationSearchIndex.SearchResult,
+              let viewerController = mainSplitViewController?.viewerController else { return }
+
+        let buffer = 1000  // 1kb buffer on each side
+
+        if let provider = viewerController.currentBundleDataProvider,
+           let chromInfo = provider.chromosomeInfo(named: result.chromosome) {
+            viewerController.navigateToChromosomeAndPosition(
+                chromosome: result.chromosome,
+                chromosomeLength: Int(chromInfo.length),
+                start: max(0, result.start - buffer),
+                end: min(Int(chromInfo.length), result.end + buffer)
+            )
+        } else {
+            viewerController.navigateToPosition(
+                chromosome: result.chromosome,
+                start: max(0, result.start - buffer),
+                end: result.end + buffer
+            )
+        }
+
+        // Clear search field after navigation
+        searchToolbarItem?.searchField.stringValue = ""
     }
 }
 
@@ -168,7 +412,6 @@ extension MainWindowController: NSToolbarDelegate {
             item.label = "Sidebar"
             item.paletteLabel = "Toggle Sidebar"
             item.toolTip = "Show or hide the sidebar (Opt-Cmd-S)"
-            // Use sidebar.leading as primary, fall back to sidebar.left
             item.image = NSImage(systemSymbolName: "sidebar.leading", accessibilityDescription: "Sidebar")
                 ?? NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Sidebar")
             item.action = #selector(toggleSidebar(_:))
@@ -180,11 +423,21 @@ extension MainWindowController: NSToolbarDelegate {
             item.label = "Inspector"
             item.paletteLabel = "Toggle Inspector"
             item.toolTip = "Show or hide the inspector (Opt-Cmd-I)"
-            // Use sidebar.trailing as primary, fall back to sidebar.right, then info.circle
             item.image = NSImage(systemSymbolName: "sidebar.trailing", accessibilityDescription: "Inspector")
                 ?? NSImage(systemSymbolName: "sidebar.right", accessibilityDescription: "Inspector")
                 ?? NSImage(systemSymbolName: "info.circle", accessibilityDescription: "Inspector")
             item.action = #selector(toggleInspector(_:))
+            item.target = self
+            return item
+
+        case ToolbarIdentifier.toggleChromosomeDrawer:
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = "Chromosomes"
+            item.paletteLabel = "Toggle Chromosome Drawer"
+            item.toolTip = "Show or hide the chromosome drawer"
+            item.image = NSImage(systemSymbolName: "list.bullet.rectangle", accessibilityDescription: "Chromosomes")
+                ?? NSImage(systemSymbolName: "rectangle.split.3x1", accessibilityDescription: "Chromosomes")
+            item.action = #selector(toggleChromosomeDrawer(_:))
             item.target = self
             return item
 
@@ -236,17 +489,19 @@ extension MainWindowController: NSToolbarDelegate {
             comboBox.isEditable = true
             comboBox.completes = true
             comboBox.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+            comboBox.delegate = self
             item.view = comboBox
+            coordinateComboBox = comboBox
             return item
 
         case ToolbarIdentifier.search:
             let item = NSSearchToolbarItem(itemIdentifier: itemIdentifier)
-            item.searchField.placeholderString = "Search sequences..."
+            item.searchField.placeholderString = "Search annotations..."
+            item.searchField.delegate = self
+            searchToolbarItem = item
             return item
 
         case ToolbarIdentifier.sidebarTrackingSeparator:
-            // Apple HIG: Return the system-provided tracking separator
-            // The system handles this automatically, but we need to allow it
             return NSTrackingSeparatorToolbarItem(
                 identifier: itemIdentifier,
                 splitView: mainSplitViewController.splitView,
@@ -261,9 +516,8 @@ extension MainWindowController: NSToolbarDelegate {
     public func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
             ToolbarIdentifier.toggleSidebar,
-            // Apple HIG: sidebarTrackingSeparator goes after sidebar toggle
-            // to align toolbar items with sidebar edge
             ToolbarIdentifier.sidebarTrackingSeparator,
+            ToolbarIdentifier.toggleChromosomeDrawer,
             ToolbarIdentifier.navigation,
             ToolbarIdentifier.space,
             ToolbarIdentifier.coordinates,
@@ -279,6 +533,7 @@ extension MainWindowController: NSToolbarDelegate {
             ToolbarIdentifier.toggleSidebar,
             ToolbarIdentifier.sidebarTrackingSeparator,
             ToolbarIdentifier.toggleInspector,
+            ToolbarIdentifier.toggleChromosomeDrawer,
             ToolbarIdentifier.navigation,
             ToolbarIdentifier.coordinates,
             ToolbarIdentifier.zoom,
@@ -286,5 +541,49 @@ extension MainWindowController: NSToolbarDelegate {
             ToolbarIdentifier.flexibleSpace,
             ToolbarIdentifier.space,
         ]
+    }
+}
+
+// MARK: - NSComboBoxDelegate & NSSearchFieldDelegate
+
+extension MainWindowController: NSComboBoxDelegate, NSSearchFieldDelegate {
+
+    /// Called when user presses Return in the coordinate combobox or selects an item.
+    public func comboBoxSelectionDidChange(_ notification: Notification) {
+        guard let comboBox = notification.object as? NSComboBox,
+              comboBox === coordinateComboBox,
+              !isUpdatingCoordinatesProgrammatically else { return }
+
+        let index = comboBox.indexOfSelectedItem
+        guard index >= 0, index < comboBox.numberOfItems else { return }
+
+        if let value = comboBox.itemObjectValue(at: index) as? String {
+            handleCoordinateInput(value)
+        }
+    }
+
+    public func controlTextDidEndEditing(_ obj: Notification) {
+        // Handle Return key in coordinate combobox
+        if let comboBox = obj.object as? NSComboBox,
+           comboBox === coordinateComboBox,
+           !isUpdatingCoordinatesProgrammatically {
+            let input = comboBox.stringValue
+            if !input.isEmpty {
+                handleCoordinateInput(input)
+            }
+            return
+        }
+    }
+
+    /// Called as user types in the search field.
+    public func controlTextDidChange(_ obj: Notification) {
+        if let searchField = obj.object as? NSSearchField,
+           searchField === searchToolbarItem?.searchField {
+            let query = searchField.stringValue
+            if query.count >= 2 {
+                performAnnotationSearch(query: query)
+            }
+            return
+        }
     }
 }

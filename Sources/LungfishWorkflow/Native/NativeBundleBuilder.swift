@@ -396,8 +396,17 @@ public final class NativeBundleBuilder: ObservableObject {
             if result.isSuccess {
                 finalFASTAPath = URL(fileURLWithPath: destinationFASTA.path + ".gz")
                 logger.info("FASTA compressed successfully")
+                // Remove uncompressed original if bgzip didn't (belt and suspenders)
+                if FileManager.default.fileExists(atPath: destinationFASTA.path) {
+                    try? FileManager.default.removeItem(at: destinationFASTA)
+                }
             } else {
-                logger.warning("bgzip compression failed: \(result.stderr)")
+                logger.warning("bgzip compression failed (exit \(result.exitCode)): \(result.stderr)")
+                // Clean up partial .gz if bgzip failed (e.g. timeout)
+                let partialGz = URL(fileURLWithPath: destinationFASTA.path + ".gz")
+                if FileManager.default.fileExists(atPath: partialGz.path) {
+                    try? FileManager.default.removeItem(at: partialGz)
+                }
                 // Fall back to uncompressed
             }
 
@@ -766,9 +775,20 @@ public final class NativeBundleBuilder: ObservableObject {
     private func convertAnnotationToBED(from sourceURL: URL, to outputURL: URL) async throws -> Int {
         let converter = AnnotationConverter()
 
+        // Filter to gene-level features only (like IGV).
+        // Excludes whole-chromosome "region" features, redundant sub-gene features
+        // (mRNA, CDS, exon, UTR) that create ~10x duplication per gene locus,
+        // and structural features (match, match_part) that aren't useful for display.
+        let options = AnnotationConverter.ConversionOptions(
+            featureTypes: ["gene", "pseudogene", "ncRNA_gene", "lnc_RNA", "miRNA",
+                           "rRNA", "tRNA", "snRNA", "snoRNA", "V_gene_segment",
+                           "D_gene_segment", "J_gene_segment", "C_gene_segment"]
+        )
+
         _ = try await converter.convertToBED(
             from: sourceURL,
-            output: outputURL
+            output: outputURL,
+            options: options
         )
 
         guard let content = try? String(contentsOf: outputURL, encoding: .utf8) else {
