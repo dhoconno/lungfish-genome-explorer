@@ -282,6 +282,11 @@ public final class SyncBigBedReader {
         let count = UInt16(nodeHeader[2]) | (UInt16(nodeHeader[3]) << 8)
 
         if isLeaf {
+            // Collect ALL leaf items first, then read data blocks.
+            // readDataBlock seeks the fileHandle to a different position, so we
+            // must finish reading all 32-byte leaf items before seeking elsewhere.
+            var dataBlocks: [(offset: UInt64, size: Int)] = []
+
             for _ in 0..<count {
                 guard let item = try fileHandle.read(upToCount: 32) else { break }
 
@@ -305,17 +310,22 @@ public final class SyncBigBedReader {
                     }
 
                     if overlaps {
-                        let blockFeatures = try readDataBlock(
-                            offset: dataOffset,
-                            size: Int(dataSize),
-                            chromId: chromId,
-                            chromName: chromName,
-                            queryStart: start,
-                            queryEnd: end
-                        )
-                        features.append(contentsOf: blockFeatures)
+                        dataBlocks.append((dataOffset, Int(dataSize)))
                     }
                 }
+            }
+
+            // Now read and parse each data block (safe to seek)
+            for block in dataBlocks {
+                let blockFeatures = try readDataBlock(
+                    offset: block.offset,
+                    size: block.size,
+                    chromId: chromId,
+                    chromName: chromName,
+                    queryStart: start,
+                    queryEnd: end
+                )
+                features.append(contentsOf: blockFeatures)
             }
         } else {
             var childNodes: [(offset: UInt64, overlaps: Bool)] = []

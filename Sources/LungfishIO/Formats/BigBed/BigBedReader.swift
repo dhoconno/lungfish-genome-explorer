@@ -433,20 +433,23 @@ public actor BigBedReader {
         let count = UInt16(nodeHeader[2]) | (UInt16(nodeHeader[3]) << 8)
         
         if isLeaf {
-            // Leaf node - read data block references
+            // Collect ALL leaf items first, then read data blocks.
+            // readDataBlock seeks the fileHandle to a different position, so we
+            // must finish reading all 32-byte leaf items before seeking elsewhere.
+            var dataBlocks: [(offset: UInt64, size: Int)] = []
+
             for _ in 0..<count {
                 guard let item = try fileHandle.read(upToCount: 32) else { break }
-                
+
                 let itemStartChromIx = item.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 0, as: UInt32.self) }
                 let itemStartBase = item.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 4, as: UInt32.self) }
                 let itemEndChromIx = item.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 8, as: UInt32.self) }
                 let itemEndBase = item.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 12, as: UInt32.self) }
                 let dataOffset = item.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 16, as: UInt64.self) }
                 let dataSize = item.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 24, as: UInt64.self) }
-                
+
                 // Check if this block overlaps our query region
                 if itemEndChromIx >= chromId && itemStartChromIx <= chromId {
-                    // Overlaps on chromosome - check position
                     let overlaps: Bool
                     if itemStartChromIx == chromId && itemEndChromIx == chromId {
                         overlaps = itemEndBase > start && itemStartBase < end
@@ -457,20 +460,24 @@ public actor BigBedReader {
                     } else {
                         overlaps = true  // Spans our chromosome entirely
                     }
-                    
+
                     if overlaps {
-                        // Read and parse the data block
-                        let blockFeatures = try readDataBlock(
-                            offset: dataOffset,
-                            size: Int(dataSize),
-                            chromId: chromId,
-                            chromName: chromName,
-                            queryStart: start,
-                            queryEnd: end
-                        )
-                        features.append(contentsOf: blockFeatures)
+                        dataBlocks.append((dataOffset, Int(dataSize)))
                     }
                 }
+            }
+
+            // Now read and parse each data block (safe to seek)
+            for block in dataBlocks {
+                let blockFeatures = try readDataBlock(
+                    offset: block.offset,
+                    size: block.size,
+                    chromId: chromId,
+                    chromName: chromName,
+                    queryStart: start,
+                    queryEnd: end
+                )
+                features.append(contentsOf: blockFeatures)
             }
         } else {
             // Non-leaf node - traverse children
