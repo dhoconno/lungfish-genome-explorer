@@ -1483,8 +1483,14 @@ public class SequenceViewerView: NSView {
     /// Whether we're currently fetching bundle data (sequence)
     private var isFetchingBundleData: Bool = false
 
+    /// Timestamp when the current sequence fetch started (for stuck-state detection)
+    private var sequenceFetchStartTime: Date?
+
     /// Whether we're currently fetching annotation data
     private var isFetchingAnnotations: Bool = false
+
+    /// Timestamp when the current annotation fetch started (for stuck-state detection)
+    private var annotationFetchStartTime: Date?
 
     /// Cached variant annotations for the current visible region (rendered alongside gene annotations)
     private var cachedVariantAnnotations: [SequenceAnnotation] = []
@@ -1807,6 +1813,8 @@ public class SequenceViewerView: NSView {
         self.isFetchingBundleData = false
         self.isFetchingAnnotations = false
         self.isFetchingVariants = false
+        self.sequenceFetchStartTime = nil
+        self.annotationFetchStartTime = nil
         self.bundleFetchError = nil
         self.failedFetchRegion = nil
 
@@ -1825,7 +1833,7 @@ public class SequenceViewerView: NSView {
 
         logger.info("SequenceViewerView.setReferenceBundle: Bundle set, ready for on-demand fetching")
     }
-    
+
     /// Clears the current reference bundle.
     func clearReferenceBundle() {
         logger.info("SequenceViewerView.clearReferenceBundle: Clearing bundle")
@@ -1839,6 +1847,8 @@ public class SequenceViewerView: NSView {
         self.isFetchingBundleData = false
         self.isFetchingAnnotations = false
         self.isFetchingVariants = false
+        self.sequenceFetchStartTime = nil
+        self.annotationFetchStartTime = nil
 
         // Clear rendering caches
         typeColorCache.removeAll()
@@ -1954,6 +1964,22 @@ public class SequenceViewerView: NSView {
             && (cachedAnnotationRegion?.start ?? Int.max) <= visibleRegion.start
             && (cachedAnnotationRegion?.end ?? Int.min) >= visibleRegion.end
 
+        // Detect stuck fetch states — if a fetch has been running for more than 10 seconds,
+        // assume it failed silently and reset the flag to allow retry.
+        let stuckThreshold: TimeInterval = 10.0
+        if isFetchingAnnotations, let startTime = annotationFetchStartTime,
+           Date().timeIntervalSince(startTime) > stuckThreshold {
+            logger.warning("drawBundleContent: Annotation fetch stuck for >\(stuckThreshold)s, resetting")
+            isFetchingAnnotations = false
+            annotationFetchStartTime = nil
+        }
+        if isFetchingBundleData, let startTime = sequenceFetchStartTime,
+           Date().timeIntervalSince(startTime) > stuckThreshold {
+            logger.warning("drawBundleContent: Sequence fetch stuck for >\(stuckThreshold)s, resetting")
+            isFetchingBundleData = false
+            sequenceFetchStartTime = nil
+        }
+
         // Fetch annotations if cache is stale (only when zoomed in enough).
         // Always fetch asynchronously to avoid blocking the main thread — the sync path
         // caused hangs when first zooming past the 100Kbp threshold on a chromosome.
@@ -2026,6 +2052,23 @@ public class SequenceViewerView: NSView {
                 drawBundleAnnotations(combined, frame: frame, context: context)
             }
         }
+
+        // Show "Fetching annotations..." indicator when annotations are loading
+        if needsAnnotations && isFetchingAnnotations && cachedBundleAnnotations.isEmpty {
+            let label = "Fetching annotations..." as NSString
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 10),
+                .foregroundColor: NSColor.secondaryLabelColor
+            ]
+            let size = label.size(withAttributes: attributes)
+            let labelRect = CGRect(
+                x: (bounds.width - size.width) / 2,
+                y: annotationTrackY + 4,
+                width: size.width,
+                height: size.height
+            )
+            label.draw(in: labelRect, withAttributes: attributes)
+        }
     }
 
     /// Fetches annotations asynchronously for the visible region from BigBed files.
@@ -2035,6 +2078,7 @@ public class SequenceViewerView: NSView {
 
     private func fetchAnnotationsAsync(bundle: ReferenceBundle, region: GenomicRegion) {
         isFetchingAnnotations = true
+        annotationFetchStartTime = Date()
 
         let chromLength = bundle.chromosomeLength(named: region.chromosome) ?? Int64(region.end + 1000)
         // Pre-fetch 200% extra on each side so panning doesn't invalidate cache.
@@ -2046,7 +2090,7 @@ public class SequenceViewerView: NSView {
         let expandedRegion = GenomicRegion(chromosome: region.chromosome, start: expandedStart, end: expandedEnd)
         let trackIds = bundle.annotationTrackIds
 
-        logger.info("fetchAnnotationsAsync: Fetching \(expandedRegion.description) on background thread")
+        logger.info("fetchAnnotationsAsync: Fetching \(expandedRegion.description) (\(trackIds.count) tracks) on background thread")
 
         Self.annotationFetchQueue.async { [weak self] in
             // Create readers once per fetch and reuse across the query.
@@ -2056,8 +2100,11 @@ public class SequenceViewerView: NSView {
             for trackId in trackIds {
                 guard let trackInfo = bundle.annotationTrack(id: trackId) else { continue }
                 let trackURL = bundle.url.appendingPathComponent(trackInfo.path)
-                if let reader = try? SyncBigBedReader(url: trackURL) {
+                do {
+                    let reader = try SyncBigBedReader(url: trackURL)
                     readers[trackId] = reader
+                } catch {
+                    logger.error("fetchAnnotationsAsync: Failed to create BigBed reader for \(trackId): \(error.localizedDescription)")
                 }
             }
 
@@ -2072,19 +2119,30 @@ public class SequenceViewerView: NSView {
                         allAnnotations.append(contentsOf: annotations)
                     }
                 } catch {
-                    // Errors logged at the BigBed reader level
+                    logger.error("fetchAnnotationsAsync: BigBed query failed for track \(trackId) region \(expandedRegion.description): \(error.localizedDescription)")
                 }
             }
 
             let count = allAnnotations.count
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.cachedBundleAnnotations = allAnnotations
-                self.cachedAnnotationRegion = expandedRegion
-                self.isFetchingAnnotations = false
-                self.invalidateAnnotationTile()
-                logger.info("fetchAnnotationsAsync: Cached \(count) annotations")
-                self.needsDisplay = true
+            logger.info("fetchAnnotationsAsync: Background work done, \(count) annotations found, dispatching to main")
+
+            guard let viewer = self else {
+                logger.error("fetchAnnotationsAsync: self is nil, \(count) annotations lost")
+                return
+            }
+
+            DispatchQueue.main.async {
+                viewer.cachedBundleAnnotations = allAnnotations
+                viewer.cachedAnnotationRegion = expandedRegion
+                viewer.isFetchingAnnotations = false
+                viewer.annotationFetchStartTime = nil
+                viewer.invalidateAnnotationTile()
+                logger.info("fetchAnnotationsAsync: Cached \(count) annotations for \(expandedRegion.description), triggering redraw")
+                viewer.setNeedsDisplay(viewer.bounds)
+                // Schedule a backup redraw in case the first needsDisplay is dropped
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak viewer] in
+                    viewer?.setNeedsDisplay(viewer?.bounds ?? .zero)
+                }
             }
         }
     }
@@ -2132,7 +2190,7 @@ public class SequenceViewerView: NSView {
                 viewer.isFetchingVariants = false
                 viewer.invalidateAnnotationTile()
                 logger.info("fetchVariantsAsync: Cached \(count) variant annotations")
-                viewer.needsDisplay = true
+                viewer.setNeedsDisplay(viewer.bounds)
             }
         }
     }
@@ -2149,6 +2207,7 @@ public class SequenceViewerView: NSView {
 
     private func fetchSequenceAsync(bundle: ReferenceBundle, region: GenomicRegion) {
         isFetchingBundleData = true
+        sequenceFetchStartTime = Date()
         bundleFetchError = nil
 
         let chromLength = bundle.chromosomeLength(named: region.chromosome) ?? Int64(region.end + 1000)
@@ -2188,10 +2247,15 @@ public class SequenceViewerView: NSView {
                     viewer.cachedBundleSequence = sequence
                     viewer.cachedSequenceRegion = expandedRegion
                     viewer.isFetchingBundleData = false
+                    viewer.sequenceFetchStartTime = nil
                     viewer.bundleFetchError = nil
                     viewer.failedFetchRegion = nil
                     logger.info("fetchSequenceAsync: Cached \(count) bp for \(expandedRegion.description), triggering redraw")
-                    viewer.needsDisplay = true
+                    viewer.setNeedsDisplay(viewer.bounds)
+                    // Schedule a backup redraw in case the first one is dropped
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak viewer] in
+                        viewer?.setNeedsDisplay(viewer?.bounds ?? .zero)
+                    }
                 }
             } catch {
                 let errorDesc = error.localizedDescription
@@ -2204,8 +2268,9 @@ public class SequenceViewerView: NSView {
                     logger.error("fetchSequenceAsync: Error delivered to main thread - \(errorDesc, privacy: .public)")
                     viewer.failedFetchRegion = expandedRegion
                     viewer.isFetchingBundleData = false
+                    viewer.sequenceFetchStartTime = nil
                     viewer.bundleFetchError = errorDesc
-                    viewer.needsDisplay = true
+                    viewer.setNeedsDisplay(viewer.bounds)
                 }
             }
         }
