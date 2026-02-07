@@ -254,12 +254,19 @@ public enum AnnotationType: String, Codable, Sendable, CaseIterable {
     /// Default color for this annotation type
     public var defaultColor: AnnotationColor {
         switch self {
-        case .gene: return AnnotationColor(red: 0.2, green: 0.6, blue: 0.8)
-        case .cds: return AnnotationColor(red: 0.8, green: 0.4, blue: 0.2)
-        case .exon: return AnnotationColor(red: 0.6, green: 0.6, blue: 0.2)
+        case .gene: return AnnotationColor(red: 0.2, green: 0.6, blue: 0.8)       // Blue
+        case .mRNA: return AnnotationColor(red: 0.2, green: 0.5, blue: 0.9)       // Darker blue
+        case .transcript: return AnnotationColor(red: 0.4, green: 0.4, blue: 0.7) // Muted indigo
+        case .cds: return AnnotationColor(red: 0.8, green: 0.4, blue: 0.2)        // Orange
+        case .exon: return AnnotationColor(red: 0.6, green: 0.6, blue: 0.2)       // Yellow-green
+        case .intron: return AnnotationColor(red: 0.6, green: 0.5, blue: 0.4)     // Tan
+        case .utr5, .utr3: return AnnotationColor(red: 0.7, green: 0.3, blue: 0.3) // Muted red
+        case .region: return AnnotationColor(red: 0.5, green: 0.5, blue: 0.5)     // Gray
+        case .promoter, .enhancer: return AnnotationColor(red: 0.9, green: 0.6, blue: 0.1) // Gold
         case .primer, .primerPair: return AnnotationColor(red: 0.2, green: 0.8, blue: 0.2)
         case .restrictionSite: return AnnotationColor(red: 0.8, green: 0.2, blue: 0.2)
         case .snp, .variation: return AnnotationColor(red: 0.8, green: 0.2, blue: 0.8)
+        case .repeatRegion: return AnnotationColor(red: 0.6, green: 0.3, blue: 0.6) // Purple
         default: return AnnotationColor(red: 0.5, green: 0.5, blue: 0.5)
         }
     }

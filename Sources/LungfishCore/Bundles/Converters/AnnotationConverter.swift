@@ -310,6 +310,15 @@ public final class AnnotationConverter: Sendable {
             // Parse score
             let score = Int(fields[5]) ?? 0
 
+            // Collect key attributes for extra column 14
+            var extraAttrs: [String] = []
+            for key in ["description", "gene_biotype", "Dbxref", "gene"] {
+                if let val = attributes[key] {
+                    extraAttrs.append("\(key)=\(val)")
+                }
+            }
+            let attrStr = extraAttrs.isEmpty ? nil : extraAttrs.joined(separator: ";")
+
             // Convert to 0-based coordinates (GFF3 is 1-based)
             let entry = BEDEntry(
                 chrom: seqid,
@@ -323,7 +332,9 @@ public final class AnnotationConverter: Sendable {
                 itemRgb: "0",
                 blockCount: 1,
                 blockSizes: [end - start + 1],
-                blockStarts: [0]
+                blockStarts: [0],
+                featureType: featureType,
+                featureAttributes: attrStr
             )
             entries.append(entry)
         }
@@ -597,6 +608,14 @@ public final class AnnotationConverter: Sendable {
                 fields.append(entry.blockStarts.map(String.init).joined(separator: ",") + ",")
             }
 
+            // Extra columns 13-14: feature type and attributes (for GFF3-sourced data)
+            if entry.featureType != nil || entry.featureAttributes != nil {
+                fields.append(entry.featureType ?? ".")
+                if let attrs = entry.featureAttributes {
+                    fields.append(attrs)
+                }
+            }
+
             lines.append(fields.joined(separator: "\t"))
         }
 
@@ -621,6 +640,21 @@ struct BEDEntry: Sendable {
     let blockCount: Int
     let blockSizes: [Int]
     let blockStarts: [Int]
+    /// GFF3 feature type (e.g., "gene", "mRNA", "CDS") — written as extra column 13
+    let featureType: String?
+    /// Key GFF3 attributes (e.g., "description=...;gene_biotype=...") — written as extra column 14
+    let featureAttributes: String?
+
+    init(chrom: String, chromStart: Int, chromEnd: Int, name: String, score: Int,
+         strand: String, thickStart: Int, thickEnd: Int, itemRgb: String,
+         blockCount: Int, blockSizes: [Int], blockStarts: [Int],
+         featureType: String? = nil, featureAttributes: String? = nil) {
+        self.chrom = chrom; self.chromStart = chromStart; self.chromEnd = chromEnd
+        self.name = name; self.score = score; self.strand = strand
+        self.thickStart = thickStart; self.thickEnd = thickEnd; self.itemRgb = itemRgb
+        self.blockCount = blockCount; self.blockSizes = blockSizes; self.blockStarts = blockStarts
+        self.featureType = featureType; self.featureAttributes = featureAttributes
+    }
 }
 
 // MARK: - AnnotationConversionError

@@ -5,6 +5,10 @@
 import Foundation
 import Compression
 import LungfishCore
+import os.log
+
+/// Logger for bgzip FASTA operations
+private let bgzipLogger = Logger(subsystem: "com.lungfish.browser", category: "BgzipFASTA")
 
 // MARK: - GZI Index
 
@@ -533,58 +537,70 @@ public final class SyncBgzipFASTAReader: Sendable {
     /// - Parameter region: The genomic region to fetch
     /// - Returns: The sequence string
     public func fetchSync(region: GenomicRegion) throws -> String {
+        bgzipLogger.info("fetchSync: START \(region.description) (\(region.length) bp)")
+
         guard let entry = fastaIndex.entry(for: region.chromosome) else {
+            bgzipLogger.error("fetchSync: Chromosome '\(region.chromosome)' not found in FAI index")
             throw BgzipError.sequenceNotFound(region.chromosome)
         }
-        
+
         guard region.start >= 0 && region.end <= entry.length else {
+            bgzipLogger.error("fetchSync: Region out of bounds: \(region.description) > \(entry.length)")
             throw BgzipError.regionOutOfBounds(region, entry.length)
         }
-        
+
         // Calculate byte range in uncompressed FASTA
         let startByteOffset = fastaIndex.byteOffset(for: region.start, in: entry)
         let endByteOffset = fastaIndex.byteOffset(for: region.end - 1, in: entry)
-        
+
         // We need to read enough bytes to cover the region plus potential newlines
         let bytesToRead = endByteOffset - startByteOffset + entry.lineWidth + 1
-        
+        bgzipLogger.info("fetchSync: byteRange=\(startByteOffset)-\(startByteOffset + bytesToRead), bytesToRead=\(bytesToRead)")
+
         // Read and decompress the required range
         let rawData = try readUncompressedRange(
             startOffset: UInt64(startByteOffset),
             length: bytesToRead
         )
-        
+        bgzipLogger.info("fetchSync: readUncompressedRange returned \(rawData.count) bytes")
+
         // Convert to string and remove newlines
         guard let rawString = String(data: rawData, encoding: .utf8) else {
+            bgzipLogger.error("fetchSync: Invalid UTF-8 in decompressed data")
             throw BgzipError.decompressionFailed("Invalid UTF-8 in sequence data")
         }
-        
+
         // Remove newlines and trim to exact length
         let sequence = rawString.replacingOccurrences(of: "\n", with: "")
         let clampedLength = min(region.length, sequence.count)
-        
+
+        bgzipLogger.info("fetchSync: DONE \(region.description) -> \(clampedLength) bases")
         return String(sequence.prefix(clampedLength))
     }
     
     /// Reads and decompresses a range of uncompressed bytes.
     private func readUncompressedRange(startOffset: UInt64, length: Int) throws -> Data {
+        bgzipLogger.info("readUncompressedRange: opening file at \(self.url.lastPathComponent)")
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
-        
+
         var result = Data()
         result.reserveCapacity(length)
-        
+
         var currentUncompressedOffset = startOffset
         let endOffset = startOffset + UInt64(length)
-        
+        var blockCount = 0
+
         while currentUncompressedOffset < endOffset {
             // Find the block containing this offset
             guard let (blockEntry, offsetInBlock) = gziIndex.findBlock(for: currentUncompressedOffset) else {
+                bgzipLogger.warning("readUncompressedRange: findBlock returned nil at offset \(currentUncompressedOffset)")
                 break  // No more blocks available
             }
 
             // Read and decompress the block
             let blockData = try readAndDecompressBlock(at: blockEntry.compressedOffset, handle: handle)
+            blockCount += 1
 
             // Calculate how much data we need from this block
             let startInBlock = Int(offsetInBlock)
@@ -599,11 +615,13 @@ public final class SyncBgzipFASTAReader: Sendable {
             // Move to next block
             let nextOffset = blockEntry.uncompressedOffset + UInt64(blockData.count)
             if nextOffset <= currentUncompressedOffset {
+                bgzipLogger.warning("readUncompressedRange: no progress at block \(blockCount)")
                 break  // No progress - reached end of available data
             }
             currentUncompressedOffset = nextOffset
         }
-        
+
+        bgzipLogger.info("readUncompressedRange: read \(blockCount) blocks, \(result.count)/\(length) bytes")
         return result
     }
     

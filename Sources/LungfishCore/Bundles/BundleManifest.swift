@@ -338,6 +338,10 @@ public struct AnnotationTrackInfo: Codable, Sendable, Equatable, Identifiable {
     /// Relative path to the BigBed file.
     public let path: String
 
+    /// Relative path to the SQLite annotation database (for fast search/filtering).
+    /// Nil for older bundles that pre-date this feature.
+    public let databasePath: String?
+
     /// Type of annotations in this track.
     public let annotationType: AnnotationTrackType
 
@@ -356,6 +360,7 @@ public struct AnnotationTrackInfo: Codable, Sendable, Equatable, Identifiable {
         name: String,
         description: String? = nil,
         path: String,
+        databasePath: String? = nil,
         annotationType: AnnotationTrackType = .gene,
         featureCount: Int? = nil,
         source: String? = nil,
@@ -365,6 +370,7 @@ public struct AnnotationTrackInfo: Codable, Sendable, Equatable, Identifiable {
         self.name = name
         self.description = description
         self.path = path
+        self.databasePath = databasePath
         self.annotationType = annotationType
         self.featureCount = featureCount
         self.source = source
@@ -376,6 +382,7 @@ public struct AnnotationTrackInfo: Codable, Sendable, Equatable, Identifiable {
         case name
         case description
         case path
+        case databasePath = "database_path"
         case annotationType = "annotation_type"
         case featureCount = "feature_count"
         case source

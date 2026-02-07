@@ -44,6 +44,72 @@ import LungfishCore
 /// // Get signal values
 /// let coverage = try await bundle.getSignal(trackId: "coverage", region: region, bins: 100)
 /// ```
+// MARK: - Annotation Type Inference
+
+/// Infers annotation type from BigBed feature name and metadata.
+///
+/// Since GFF3 feature types are lost during BED conversion, this uses NCBI naming
+/// conventions and size heuristics to infer the most likely type.
+///
+/// Priority:
+/// 1. Explicit type in extra fields column 13 (future bundles)
+/// 2. NCBI accession prefix patterns (XM_, NM_, XR_, NR_, LOC, etc.)
+/// 3. GFF3-derived name patterns (gene-, rna-, cds-, exon-, id-)
+/// 4. Size heuristic fallback
+private func inferAnnotationType(name: String, featureSize: Int, extraFields: String?) -> AnnotationType {
+    // 1. Check extra fields for explicit type (column 13 in future bundles)
+    if let extra = extraFields {
+        let parts = extra.split(separator: "\t")
+        // Column 13 (index 0 in extra fields after the standard 12) = feature type
+        if let typeStr = parts.first {
+            switch typeStr.lowercased() {
+            case "gene": return .gene
+            case "mrna": return .mRNA
+            case "transcript": return .transcript
+            case "exon": return .exon
+            case "cds": return .cds
+            case "region": return .region
+            case "5'utr", "five_prime_utr": return .utr5
+            case "3'utr", "three_prime_utr": return .utr3
+            default: break
+            }
+        }
+    }
+
+    // 2. NCBI accession prefix patterns
+    let upper = name.uppercased()
+    if upper.hasPrefix("XM_") || upper.hasPrefix("NM_") {
+        return .mRNA
+    }
+    if upper.hasPrefix("XR_") || upper.hasPrefix("NR_") {
+        return .transcript
+    }
+    if upper.hasPrefix("LOC") {
+        // LOC followed by digits = predicted gene
+        let afterLOC = name.dropFirst(3)
+        if afterLOC.first?.isNumber == true {
+            return .gene
+        }
+    }
+    if upper.hasPrefix("MIR") || upper.hasPrefix("SNORD") || upper.hasPrefix("SNORA") || upper.hasPrefix("TRNA") {
+        return .transcript
+    }
+
+    // 3. GFF3-derived name patterns (e.g., gene-LOC123, rna-XM_456, cds-XM_789)
+    let lower = name.lowercased()
+    if lower.hasPrefix("gene-") { return .gene }
+    if lower.hasPrefix("rna-") || lower.hasPrefix("mrna-") { return .mRNA }
+    if lower.hasPrefix("cds-") { return .cds }
+    if lower.hasPrefix("exon-") { return .exon }
+    if lower.hasPrefix("id-") { return .region }
+
+    // 4. Size heuristic fallback
+    if featureSize < 300 { return .exon }
+    if featureSize > 100_000 { return .region }
+
+    return .gene
+}
+
 public final class ReferenceBundle: Sendable {
 
     // MARK: - Properties
@@ -219,13 +285,17 @@ public final class ReferenceBundle: Sendable {
     /// - Returns: The sequence string for the region
     /// - Throws: `ReferenceBundleError` if the sequence cannot be fetched
     public func fetchSequenceSync(region: GenomicRegion) throws -> String {
+        logger.info("fetchSequenceSync: START \(region.description)")
+
         // Validate chromosome exists
         guard let chromInfo = chromosome(named: region.chromosome) else {
+            logger.error("fetchSequenceSync: Chromosome '\(region.chromosome)' not found in manifest")
             throw ReferenceBundleError.chromosomeNotFound(region.chromosome)
         }
 
         // Validate region bounds
         guard region.start >= 0 && region.end <= chromInfo.length else {
+            logger.error("fetchSequenceSync: Region out of bounds: end=\(region.end) > length=\(chromInfo.length)")
             throw ReferenceBundleError.regionOutOfBounds(region, chromInfo.length)
         }
 
@@ -235,19 +305,21 @@ public final class ReferenceBundle: Sendable {
         // Check if we have a bgzip-compressed file with GZI index
         if let gzipIndexPath = manifest.genome.gzipIndexPath {
             let gziURL = url.appendingPathComponent(gzipIndexPath)
-            
+
+            logger.info("fetchSequenceSync: Creating SyncBgzipFASTAReader for \(genomeURL.lastPathComponent)")
             // Use synchronous bgzip reader
             let reader = try SyncBgzipFASTAReader(url: genomeURL, faiURL: faiURL, gziURL: gziURL)
+            logger.info("fetchSequenceSync: Reader created, calling fetchSync")
             let sequence = try reader.fetchSync(region: region)
-            
-            logger.debug("Fetched sequence (sync bgzip): \(region.chromosome):\(region.start)-\(region.end) (\(sequence.count) bp)")
+
+            logger.info("fetchSequenceSync: DONE (bgzip) \(region.chromosome):\(region.start)-\(region.end) -> \(sequence.count) bp")
             return sequence
         } else {
             // Use the synchronous indexed FASTA reader for uncompressed files
             let reader = try IndexedFASTAReader(url: genomeURL, indexURL: faiURL)
             let sequence = try reader.fetchSync(region: region)
-            
-            logger.debug("Fetched sequence (sync): \(region.chromosome):\(region.start)-\(region.end) (\(sequence.count) bp)")
+
+            logger.info("fetchSequenceSync: DONE (uncompressed) \(region.chromosome):\(region.start)-\(region.end) -> \(sequence.count) bp")
             return sequence
         }
     }
@@ -339,9 +411,15 @@ public final class ReferenceBundle: Sendable {
                     qualifiers["extra"] = AnnotationQualifier(extraFields)
                 }
                 
+                let featureName = feature.name ?? "unknown"
+                let featureSize = feature.end - feature.start
+                let annotationType = inferAnnotationType(
+                    name: featureName, featureSize: featureSize, extraFields: feature.extraFields
+                )
+
                 return SequenceAnnotation(
-                    type: .gene,  // Default type - could be inferred from track info
-                    name: feature.name ?? "unknown",
+                    type: annotationType,
+                    name: featureName,
                     chromosome: feature.chromosome,
                     start: feature.start,
                     end: feature.end,
@@ -414,9 +492,15 @@ public final class ReferenceBundle: Sendable {
                     qualifiers["extra"] = AnnotationQualifier(extraFields)
                 }
 
+                let featureName = feature.name ?? "unknown"
+                let featureSize = feature.end - feature.start
+                let annotationType = inferAnnotationType(
+                    name: featureName, featureSize: featureSize, extraFields: feature.extraFields
+                )
+
                 return SequenceAnnotation(
-                    type: .gene,
-                    name: feature.name ?? "unknown",
+                    type: annotationType,
+                    name: featureName,
                     chromosome: feature.chromosome,
                     start: feature.start,
                     end: feature.end,
@@ -431,6 +515,77 @@ public final class ReferenceBundle: Sendable {
 
         } catch {
             logger.error("Failed to read BigBed annotations (sync): \(error.localizedDescription)")
+            throw ReferenceBundleError.annotationReadFailed(error.localizedDescription)
+        }
+    }
+
+    /// Fetches annotations using a pre-created reader (avoids re-opening FileHandle and re-parsing header).
+    ///
+    /// This overload is for callers that cache `SyncBigBedReader` instances for reuse across
+    /// multiple queries, which avoids the overhead of re-opening the file and re-parsing the
+    /// BigBed header and chromosome B+ tree on every call.
+    ///
+    /// - Parameters:
+    ///   - reader: A pre-created `SyncBigBedReader` for the annotation track
+    ///   - region: The genomic region to query
+    /// - Returns: Array of sequence annotations in the region
+    /// - Throws: `ReferenceBundleError` if annotations cannot be fetched
+    public func getAnnotationsSync(reader: SyncBigBedReader, region: GenomicRegion) throws -> [SequenceAnnotation] {
+        do {
+            let features = try reader.features(region: region)
+
+            let annotations = features.map { feature in
+                let strand: Strand
+                if let strandChar = feature.strand {
+                    switch strandChar {
+                    case "+": strand = .forward
+                    case "-": strand = .reverse
+                    default: strand = .unknown
+                    }
+                } else {
+                    strand = .unknown
+                }
+
+                var color: AnnotationColor?
+                if let rgb = feature.itemRgb {
+                    color = AnnotationColor(
+                        red: Double(rgb.r) / 255.0,
+                        green: Double(rgb.g) / 255.0,
+                        blue: Double(rgb.b) / 255.0
+                    )
+                }
+
+                var qualifiers: [String: AnnotationQualifier] = [:]
+                if let score = feature.score {
+                    qualifiers["score"] = AnnotationQualifier(String(score))
+                }
+                if let extraFields = feature.extraFields {
+                    qualifiers["extra"] = AnnotationQualifier(extraFields)
+                }
+
+                let featureName = feature.name ?? "unknown"
+                let featureSize = feature.end - feature.start
+                let annotationType = inferAnnotationType(
+                    name: featureName, featureSize: featureSize, extraFields: feature.extraFields
+                )
+
+                return SequenceAnnotation(
+                    type: annotationType,
+                    name: featureName,
+                    chromosome: feature.chromosome,
+                    start: feature.start,
+                    end: feature.end,
+                    strand: strand,
+                    qualifiers: qualifiers,
+                    color: color
+                )
+            }
+
+            logger.debug("Fetched \(annotations.count) annotations (sync, cached reader) for \(region.description)")
+            return annotations
+
+        } catch {
+            logger.error("Failed to read BigBed annotations (sync, cached reader): \(error.localizedDescription)")
             throw ReferenceBundleError.annotationReadFailed(error.localizedDescription)
         }
     }

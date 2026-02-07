@@ -25,7 +25,7 @@ public class MainWindowController: NSWindowController {
         static let toggleSidebar = NSToolbarItem.Identifier("ToggleSidebar")
         static let toggleInspector = NSToolbarItem.Identifier("ToggleInspector")
         static let toggleChromosomeDrawer = NSToolbarItem.Identifier("ToggleChromosomeDrawer")
-        static let search = NSToolbarItem.Identifier("Search")
+        static let toggleAnnotationDrawer = NSToolbarItem.Identifier("ToggleAnnotationDrawer")
         static let flexibleSpace = NSToolbarItem.Identifier.flexibleSpace
         static let space = NSToolbarItem.Identifier.space
         static let sidebarTrackingSeparator = NSToolbarItem.Identifier.sidebarTrackingSeparator
@@ -35,9 +35,6 @@ public class MainWindowController: NSWindowController {
 
     /// Stored reference to the coordinates combobox for two-way binding.
     private var coordinateComboBox: NSComboBox?
-
-    /// Stored reference to the search toolbar item.
-    private var searchToolbarItem: NSSearchToolbarItem?
 
     /// Annotation search index for the current bundle.
     private var annotationSearchIndex: AnnotationSearchIndex?
@@ -152,16 +149,21 @@ public class MainWindowController: NSWindowController {
         coordinateComboBox?.removeAllItems()
         coordinateComboBox?.addItems(withObjectValues: sorted.map { $0.name })
 
-        // Build annotation search index
+        // Build annotation search index on background thread
         guard let viewerController = mainSplitViewController?.viewerController,
               let bundle = viewerController.viewerView?.currentReferenceBundle else { return }
 
         let index = AnnotationSearchIndex()
         annotationSearchIndex = index
 
-        Task {
-            await index.buildIndex(bundle: bundle, chromosomes: chromosomes)
+        // Set callback to populate annotation drawer when index is ready
+        index.onBuildComplete = { [weak self, weak viewerController] in
+            guard let self, let viewerController else { return }
+            viewerController.annotationSearchIndex = self.annotationSearchIndex
         }
+
+        // Starts background thread I/O — won't block the UI
+        index.buildIndex(bundle: bundle, chromosomes: chromosomes)
     }
 
     // MARK: - Toolbar Configuration
@@ -178,6 +180,26 @@ public class MainWindowController: NSWindowController {
         window.toolbar = toolbar
     }
 
+    // MARK: - Toolbar Button Helper
+
+    /// Creates an NSButton suitable for use as a toolbar item view.
+    /// Uses SF Symbols with fallback chain for cross-version compatibility.
+    private func makeToolbarButton(symbolName: String, fallbacks: [String], accessibilityLabel: String) -> NSButton {
+        var image: NSImage?
+        for name in [symbolName] + fallbacks {
+            if let img = NSImage(systemSymbolName: name, accessibilityDescription: accessibilityLabel) {
+                image = img
+                break
+            }
+        }
+        let button = NSButton(frame: NSRect(x: 0, y: 0, width: 38, height: 24))
+        button.bezelStyle = .toolbar
+        button.image = image ?? NSImage(named: NSImage.infoName)
+        button.imagePosition = .imageOnly
+        button.setAccessibilityLabel(accessibilityLabel)
+        return button
+    }
+
     // MARK: - Panel Toggle Actions
 
     @objc public func toggleSidebar(_ sender: Any?) {
@@ -190,6 +212,10 @@ public class MainWindowController: NSWindowController {
 
     @objc public func toggleChromosomeDrawer(_ sender: Any?) {
         mainSplitViewController.viewerController?.toggleChromosomeDrawer()
+    }
+
+    @objc public func toggleAnnotationDrawer(_ sender: Any?) {
+        mainSplitViewController.viewerController?.toggleAnnotationDrawer()
     }
 
     // MARK: - Navigation Actions
@@ -304,79 +330,6 @@ public class MainWindowController: NSWindowController {
         }
     }
 
-    // MARK: - Annotation Search
-
-    private func performAnnotationSearch(query: String) {
-        guard let searchField = searchToolbarItem?.searchField else { return }
-
-        guard !query.isEmpty, let index = annotationSearchIndex else {
-            return
-        }
-
-        if index.isBuilding {
-            // Show building message
-            let menu = NSMenu()
-            let item = NSMenuItem(title: "Building index...", action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            menu.addItem(item)
-            showSearchMenu(menu, relativeTo: searchField)
-            return
-        }
-
-        let results = index.search(query: query, limit: 20)
-        let menu = NSMenu()
-
-        if results.isEmpty {
-            let item = NSMenuItem(title: "No results for \"\(query)\"", action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            menu.addItem(item)
-        } else {
-            let formatter = NumberFormatter()
-            formatter.numberStyle = .decimal
-            for result in results {
-                let startStr = formatter.string(from: NSNumber(value: result.start)) ?? "\(result.start)"
-                let endStr = formatter.string(from: NSNumber(value: result.end)) ?? "\(result.end)"
-                let title = "\(result.name)  (\(result.chromosome):\(startStr)-\(endStr))"
-                let item = NSMenuItem(title: title, action: #selector(searchResultSelected(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = result
-                menu.addItem(item)
-            }
-        }
-
-        showSearchMenu(menu, relativeTo: searchField)
-    }
-
-    private func showSearchMenu(_ menu: NSMenu, relativeTo searchField: NSSearchField) {
-        let point = NSPoint(x: 0, y: searchField.bounds.maxY + 2)
-        menu.popUp(positioning: nil, at: point, in: searchField)
-    }
-
-    @objc private func searchResultSelected(_ sender: NSMenuItem) {
-        guard let result = sender.representedObject as? AnnotationSearchIndex.SearchResult,
-              let viewerController = mainSplitViewController?.viewerController else { return }
-
-        let buffer = 1000  // 1kb buffer on each side
-
-        if let provider = viewerController.currentBundleDataProvider,
-           let chromInfo = provider.chromosomeInfo(named: result.chromosome) {
-            viewerController.navigateToChromosomeAndPosition(
-                chromosome: result.chromosome,
-                chromosomeLength: Int(chromInfo.length),
-                start: max(0, result.start - buffer),
-                end: min(Int(chromInfo.length), result.end + buffer)
-            )
-        } else {
-            viewerController.navigateToPosition(
-                chromosome: result.chromosome,
-                start: max(0, result.start - buffer),
-                end: result.end + buffer
-            )
-        }
-
-        // Clear search field after navigation
-        searchToolbarItem?.searchField.stringValue = ""
-    }
 }
 
 // MARK: - NSWindowDelegate
@@ -412,10 +365,14 @@ extension MainWindowController: NSToolbarDelegate {
             item.label = "Sidebar"
             item.paletteLabel = "Toggle Sidebar"
             item.toolTip = "Show or hide the sidebar (Opt-Cmd-S)"
-            item.image = NSImage(systemSymbolName: "sidebar.leading", accessibilityDescription: "Sidebar")
-                ?? NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Sidebar")
-            item.action = #selector(toggleSidebar(_:))
-            item.target = self
+            let button = makeToolbarButton(
+                symbolName: "sidebar.leading",
+                fallbacks: ["sidebar.left", "sidebar.squares.leading"],
+                accessibilityLabel: "Toggle Sidebar"
+            )
+            button.target = self
+            button.action = #selector(toggleSidebar(_:))
+            item.view = button
             return item
 
         case ToolbarIdentifier.toggleInspector:
@@ -423,11 +380,14 @@ extension MainWindowController: NSToolbarDelegate {
             item.label = "Inspector"
             item.paletteLabel = "Toggle Inspector"
             item.toolTip = "Show or hide the inspector (Opt-Cmd-I)"
-            item.image = NSImage(systemSymbolName: "sidebar.trailing", accessibilityDescription: "Inspector")
-                ?? NSImage(systemSymbolName: "sidebar.right", accessibilityDescription: "Inspector")
-                ?? NSImage(systemSymbolName: "info.circle", accessibilityDescription: "Inspector")
-            item.action = #selector(toggleInspector(_:))
-            item.target = self
+            let button = makeToolbarButton(
+                symbolName: "sidebar.trailing",
+                fallbacks: ["sidebar.right", "info.circle"],
+                accessibilityLabel: "Toggle Inspector"
+            )
+            button.target = self
+            button.action = #selector(toggleInspector(_:))
+            item.view = button
             return item
 
         case ToolbarIdentifier.toggleChromosomeDrawer:
@@ -435,10 +395,29 @@ extension MainWindowController: NSToolbarDelegate {
             item.label = "Chromosomes"
             item.paletteLabel = "Toggle Chromosome Drawer"
             item.toolTip = "Show or hide the chromosome drawer"
-            item.image = NSImage(systemSymbolName: "list.bullet.rectangle", accessibilityDescription: "Chromosomes")
-                ?? NSImage(systemSymbolName: "rectangle.split.3x1", accessibilityDescription: "Chromosomes")
-            item.action = #selector(toggleChromosomeDrawer(_:))
-            item.target = self
+            let button = makeToolbarButton(
+                symbolName: "list.bullet.rectangle",
+                fallbacks: ["rectangle.split.3x1", "list.bullet"],
+                accessibilityLabel: "Toggle Chromosome Drawer"
+            )
+            button.target = self
+            button.action = #selector(toggleChromosomeDrawer(_:))
+            item.view = button
+            return item
+
+        case ToolbarIdentifier.toggleAnnotationDrawer:
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = "Annotations"
+            item.paletteLabel = "Toggle Annotation Drawer"
+            item.toolTip = "Show or hide the annotation table"
+            let button = makeToolbarButton(
+                symbolName: "tablecells",
+                fallbacks: ["tablecells.badge.ellipsis", "list.dash"],
+                accessibilityLabel: "Toggle Annotation Drawer"
+            )
+            button.target = self
+            button.action = #selector(toggleAnnotationDrawer(_:))
+            item.view = button
             return item
 
         case ToolbarIdentifier.navigation:
@@ -494,13 +473,6 @@ extension MainWindowController: NSToolbarDelegate {
             coordinateComboBox = comboBox
             return item
 
-        case ToolbarIdentifier.search:
-            let item = NSSearchToolbarItem(itemIdentifier: itemIdentifier)
-            item.searchField.placeholderString = "Search annotations..."
-            item.searchField.delegate = self
-            searchToolbarItem = item
-            return item
-
         case ToolbarIdentifier.sidebarTrackingSeparator:
             return NSTrackingSeparatorToolbarItem(
                 identifier: itemIdentifier,
@@ -518,12 +490,12 @@ extension MainWindowController: NSToolbarDelegate {
             ToolbarIdentifier.toggleSidebar,
             ToolbarIdentifier.sidebarTrackingSeparator,
             ToolbarIdentifier.toggleChromosomeDrawer,
+            ToolbarIdentifier.toggleAnnotationDrawer,
             ToolbarIdentifier.navigation,
             ToolbarIdentifier.space,
             ToolbarIdentifier.coordinates,
             ToolbarIdentifier.flexibleSpace,
             ToolbarIdentifier.zoom,
-            ToolbarIdentifier.search,
             ToolbarIdentifier.toggleInspector,
         ]
     }
@@ -534,19 +506,19 @@ extension MainWindowController: NSToolbarDelegate {
             ToolbarIdentifier.sidebarTrackingSeparator,
             ToolbarIdentifier.toggleInspector,
             ToolbarIdentifier.toggleChromosomeDrawer,
+            ToolbarIdentifier.toggleAnnotationDrawer,
             ToolbarIdentifier.navigation,
             ToolbarIdentifier.coordinates,
             ToolbarIdentifier.zoom,
-            ToolbarIdentifier.search,
             ToolbarIdentifier.flexibleSpace,
             ToolbarIdentifier.space,
         ]
     }
 }
 
-// MARK: - NSComboBoxDelegate & NSSearchFieldDelegate
+// MARK: - NSComboBoxDelegate
 
-extension MainWindowController: NSComboBoxDelegate, NSSearchFieldDelegate {
+extension MainWindowController: NSComboBoxDelegate {
 
     /// Called when user presses Return in the coordinate combobox or selects an item.
     public func comboBoxSelectionDidChange(_ notification: Notification) {
@@ -570,18 +542,6 @@ extension MainWindowController: NSComboBoxDelegate, NSSearchFieldDelegate {
             let input = comboBox.stringValue
             if !input.isEmpty {
                 handleCoordinateInput(input)
-            }
-            return
-        }
-    }
-
-    /// Called as user types in the search field.
-    public func controlTextDidChange(_ obj: Notification) {
-        if let searchField = obj.object as? NSSearchField,
-           searchField === searchToolbarItem?.searchField {
-            let query = searchField.stringValue
-            if query.count >= 2 {
-                performAnnotationSearch(query: query)
             }
             return
         }

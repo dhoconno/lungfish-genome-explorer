@@ -5,6 +5,7 @@
 import Foundation
 import os.log
 import LungfishCore
+import LungfishIO
 
 // MARK: - NativeBundleBuilder
 
@@ -512,6 +513,16 @@ public final class NativeBundleBuilder: ObservableObject {
             // Clip BED coordinates to chromosome boundaries for bedToBigBed compatibility
             try clipBEDCoordinates(bedURL: bedURL, chromosomeSizes: chromosomeSizes)
 
+            // Create SQLite annotation database from the BED file for fast search/filtering
+            let dbOutputPath = "annotations/\(input.id).db"
+            let dbOutputURL = annotationsDir.appendingPathComponent("\(input.id).db")
+            let dbRecordCount = try AnnotationDatabase.createFromBED(bedURL: bedURL, outputURL: dbOutputURL)
+            logger.info("Created annotation database with \(dbRecordCount) records for \(input.name)")
+
+            // Strip extra columns (13+) for bedToBigBed — it only handles standard BED12.
+            // The SQLite DB was already created above from the full BED with type in col 12.
+            try stripExtraBEDColumns(bedURL: bedURL, keepColumns: 12)
+
             // Try to convert BED to BigBed using native tool
             let hasBedToBigBed = await toolRunner.isToolAvailable(.bedToBigBed)
             var usedBigBed = false
@@ -543,6 +554,7 @@ public final class NativeBundleBuilder: ObservableObject {
                 name: input.name,
                 description: input.description,
                 path: actualPath,
+                databasePath: dbRecordCount > 0 ? dbOutputPath : nil,
                 annotationType: input.annotationType,
                 featureCount: featureCount
             )
@@ -775,12 +787,14 @@ public final class NativeBundleBuilder: ObservableObject {
     private func convertAnnotationToBED(from sourceURL: URL, to outputURL: URL) async throws -> Int {
         let converter = AnnotationConverter()
 
-        // Keep all GFF3 feature types in the BigBed. Display-time filtering in the
-        // viewer handles zoom-dependent visibility (density histogram when zoomed out,
-        // size-based deduplication at intermediate zoom, full detail when zoomed in).
+        // Use BED12 format so feature type lands in column 12 (standard BigBed layout)
+        // and extra columns 13-14 carry the GFF3 feature type + attributes.
+        // Display-time filtering in the viewer handles zoom-dependent visibility.
+        let options = AnnotationConverter.ConversionOptions(bedFormat: .bed12)
         _ = try await converter.convertToBED(
             from: sourceURL,
-            output: outputURL
+            output: outputURL,
+            options: options
         )
 
         guard let content = try? String(contentsOf: outputURL, encoding: .utf8) else {
@@ -845,6 +859,29 @@ public final class NativeBundleBuilder: ObservableObject {
 
         let clippedContent = clippedLines.joined(separator: "\n")
         try clippedContent.write(to: bedURL, atomically: true, encoding: .utf8)
+    }
+
+    /// Strips extra columns beyond `keepColumns` from a BED file in-place.
+    /// bedToBigBed only handles standard BED3-12 columns; extra columns (like
+    /// feature type and attributes in columns 13-14) must be removed first.
+    private func stripExtraBEDColumns(bedURL: URL, keepColumns: Int) throws {
+        guard let content = try? String(contentsOf: bedURL, encoding: .utf8) else { return }
+
+        var strippedLines: [String] = []
+        for line in content.components(separatedBy: .newlines) {
+            if line.isEmpty || line.hasPrefix("#") {
+                strippedLines.append(line)
+                continue
+            }
+            let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
+            if fields.count > keepColumns {
+                strippedLines.append(fields.prefix(keepColumns).joined(separator: "\t"))
+            } else {
+                strippedLines.append(line)
+            }
+        }
+
+        try strippedLines.joined(separator: "\n").write(to: bedURL, atomically: true, encoding: .utf8)
     }
 
     private func countVariantsInVCF(_ url: URL) throws -> Int {
