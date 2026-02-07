@@ -18,17 +18,11 @@ public class MainWindowController: NSWindowController {
 
     /// Toolbar item identifiers
     private enum ToolbarIdentifier {
-        static let toolbar = NSToolbar.Identifier("MainToolbar")
-        static let navigation = NSToolbarItem.Identifier("Navigation")
-        static let coordinates = NSToolbarItem.Identifier("Coordinates")
-        static let zoom = NSToolbarItem.Identifier("Zoom")
-        static let toggleSidebar = NSToolbarItem.Identifier("ToggleSidebar")
+        static let toolbar = NSToolbar.Identifier("MainToolbarMinimal")
         static let toggleInspector = NSToolbarItem.Identifier("ToggleInspector")
         static let toggleChromosomeDrawer = NSToolbarItem.Identifier("ToggleChromosomeDrawer")
         static let toggleAnnotationDrawer = NSToolbarItem.Identifier("ToggleAnnotationDrawer")
         static let flexibleSpace = NSToolbarItem.Identifier.flexibleSpace
-        static let space = NSToolbarItem.Identifier.space
-        static let sidebarTrackingSeparator = NSToolbarItem.Identifier.sidebarTrackingSeparator
     }
 
     // MARK: - Toolbar State
@@ -174,7 +168,7 @@ public class MainWindowController: NSWindowController {
         let toolbar = NSToolbar(identifier: ToolbarIdentifier.toolbar)
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
-        toolbar.allowsUserCustomization = true
+        toolbar.allowsUserCustomization = false
         toolbar.autosavesConfiguration = true
 
         window.toolbar = toolbar
@@ -184,17 +178,29 @@ public class MainWindowController: NSWindowController {
 
     /// Creates an NSButton suitable for use as a toolbar item view.
     /// Uses SF Symbols with fallback chain for cross-version compatibility.
-    private func makeToolbarButton(symbolName: String, fallbacks: [String], accessibilityLabel: String) -> NSButton {
-        var image: NSImage?
-        for name in [symbolName] + fallbacks {
-            if let img = NSImage(systemSymbolName: name, accessibilityDescription: accessibilityLabel) {
-                image = img
-                break
+    private func makeToolbarImage(symbolName: String, fallbacks: [String], accessibilityLabel: String) -> NSImage {
+        let candidates = [symbolName] + fallbacks + ["questionmark.circle", "line.3.horizontal", "square.grid.2x2"]
+        for name in candidates {
+            if let image = NSImage(systemSymbolName: name, accessibilityDescription: accessibilityLabel) {
+                image.isTemplate = true
+                return image
             }
         }
+        let generated = NSImage(size: NSSize(width: 14, height: 14))
+        generated.lockFocus()
+        let path = NSBezierPath(ovalIn: NSRect(x: 1, y: 1, width: 12, height: 12))
+        NSColor.labelColor.setStroke()
+        path.lineWidth = 1.5
+        path.stroke()
+        generated.unlockFocus()
+        generated.isTemplate = true
+        return generated
+    }
+
+    private func makeToolbarButton(symbolName: String, fallbacks: [String], accessibilityLabel: String) -> NSButton {
         let button = NSButton(frame: NSRect(x: 0, y: 0, width: 38, height: 24))
         button.bezelStyle = .toolbar
-        button.image = image ?? NSImage(named: NSImage.infoName)
+        button.image = makeToolbarImage(symbolName: symbolName, fallbacks: fallbacks, accessibilityLabel: accessibilityLabel)
         button.imagePosition = .imageOnly
         button.setAccessibilityLabel(accessibilityLabel)
         return button
@@ -360,21 +366,6 @@ extension MainWindowController: NSToolbarDelegate {
     ) -> NSToolbarItem? {
 
         switch itemIdentifier {
-        case ToolbarIdentifier.toggleSidebar:
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Sidebar"
-            item.paletteLabel = "Toggle Sidebar"
-            item.toolTip = "Show or hide the sidebar (Opt-Cmd-S)"
-            let button = makeToolbarButton(
-                symbolName: "sidebar.leading",
-                fallbacks: ["sidebar.left", "sidebar.squares.leading"],
-                accessibilityLabel: "Toggle Sidebar"
-            )
-            button.target = self
-            button.action = #selector(toggleSidebar(_:))
-            item.view = button
-            return item
-
         case ToolbarIdentifier.toggleInspector:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "Inspector"
@@ -420,66 +411,6 @@ extension MainWindowController: NSToolbarDelegate {
             item.view = button
             return item
 
-        case ToolbarIdentifier.navigation:
-            let group = NSToolbarItemGroup(itemIdentifier: itemIdentifier)
-            group.label = "Navigation"
-            group.paletteLabel = "Navigation"
-
-            let backItem = NSToolbarItem(itemIdentifier: .init("Back"))
-            backItem.image = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: "Back")
-            backItem.action = #selector(goBack(_:))
-            backItem.target = self
-
-            let forwardItem = NSToolbarItem(itemIdentifier: .init("Forward"))
-            forwardItem.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: "Forward")
-            forwardItem.action = #selector(goForward(_:))
-            forwardItem.target = self
-
-            group.subitems = [backItem, forwardItem]
-            group.controlRepresentation = .expanded
-            return group
-
-        case ToolbarIdentifier.zoom:
-            let group = NSToolbarItemGroup(itemIdentifier: itemIdentifier)
-            group.label = "Zoom"
-            group.paletteLabel = "Zoom Controls"
-
-            let zoomOutItem = NSToolbarItem(itemIdentifier: .init("ZoomOut"))
-            zoomOutItem.image = NSImage(systemSymbolName: "minus.magnifyingglass", accessibilityDescription: "Zoom Out")
-            zoomOutItem.action = #selector(zoomOut(_:))
-            zoomOutItem.target = self
-
-            let zoomInItem = NSToolbarItem(itemIdentifier: .init("ZoomIn"))
-            zoomInItem.image = NSImage(systemSymbolName: "plus.magnifyingglass", accessibilityDescription: "Zoom In")
-            zoomInItem.action = #selector(zoomIn(_:))
-            zoomInItem.target = self
-
-            group.subitems = [zoomOutItem, zoomInItem]
-            group.controlRepresentation = .expanded
-            return group
-
-        case ToolbarIdentifier.coordinates:
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Coordinates"
-            item.paletteLabel = "Genomic Coordinates"
-
-            let comboBox = NSComboBox(frame: NSRect(x: 0, y: 0, width: 250, height: 24))
-            comboBox.placeholderString = "chr1:1,000-10,000"
-            comboBox.isEditable = true
-            comboBox.completes = true
-            comboBox.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-            comboBox.delegate = self
-            item.view = comboBox
-            coordinateComboBox = comboBox
-            return item
-
-        case ToolbarIdentifier.sidebarTrackingSeparator:
-            return NSTrackingSeparatorToolbarItem(
-                identifier: itemIdentifier,
-                splitView: mainSplitViewController.splitView,
-                dividerIndex: 0
-            )
-
         default:
             return nil
         }
@@ -487,31 +418,20 @@ extension MainWindowController: NSToolbarDelegate {
 
     public func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
-            ToolbarIdentifier.toggleSidebar,
-            ToolbarIdentifier.sidebarTrackingSeparator,
             ToolbarIdentifier.toggleChromosomeDrawer,
-            ToolbarIdentifier.toggleAnnotationDrawer,
-            ToolbarIdentifier.navigation,
-            ToolbarIdentifier.space,
-            ToolbarIdentifier.coordinates,
             ToolbarIdentifier.flexibleSpace,
-            ToolbarIdentifier.zoom,
+            ToolbarIdentifier.toggleAnnotationDrawer,
+            ToolbarIdentifier.flexibleSpace,
             ToolbarIdentifier.toggleInspector,
         ]
     }
 
     public func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
-            ToolbarIdentifier.toggleSidebar,
-            ToolbarIdentifier.sidebarTrackingSeparator,
             ToolbarIdentifier.toggleInspector,
             ToolbarIdentifier.toggleChromosomeDrawer,
             ToolbarIdentifier.toggleAnnotationDrawer,
-            ToolbarIdentifier.navigation,
-            ToolbarIdentifier.coordinates,
-            ToolbarIdentifier.zoom,
             ToolbarIdentifier.flexibleSpace,
-            ToolbarIdentifier.space,
         ]
     }
 }
