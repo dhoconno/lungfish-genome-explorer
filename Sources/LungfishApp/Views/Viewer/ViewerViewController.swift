@@ -1486,11 +1486,17 @@ public class SequenceViewerView: NSView {
     /// Timestamp when the current sequence fetch started (for stuck-state detection)
     private var sequenceFetchStartTime: Date?
 
+    /// Generation counter for sequence fetches — prevents stale results from overwriting newer ones
+    private var sequenceFetchGeneration: Int = 0
+
     /// Whether we're currently fetching annotation data
     private var isFetchingAnnotations: Bool = false
 
     /// Timestamp when the current annotation fetch started (for stuck-state detection)
     private var annotationFetchStartTime: Date?
+
+    /// Generation counter for annotation fetches — prevents stale results from overwriting newer ones
+    private var annotationFetchGeneration: Int = 0
 
     /// Cached variant annotations for the current visible region (rendered alongside gene annotations)
     private var cachedVariantAnnotations: [SequenceAnnotation] = []
@@ -1500,6 +1506,9 @@ public class SequenceViewerView: NSView {
 
     /// Whether we're currently fetching variant data
     private var isFetchingVariants: Bool = false
+
+    /// Generation counter for variant fetches — prevents stale results from overwriting newer ones
+    private var variantFetchGeneration: Int = 0
 
     /// Whether drag is active (for highlighting)
     private var isDragActive = false
@@ -1860,6 +1869,9 @@ public class SequenceViewerView: NSView {
 
     /// Clears sequence fetch error state, allowing retry for a new region.
     func clearSequenceFetchError() {
+        if bundleFetchError != nil {
+            logger.info("clearSequenceFetchError: Clearing error '\(self.bundleFetchError ?? "nil", privacy: .public)' for region \(self.failedFetchRegion?.description ?? "nil")")
+        }
         bundleFetchError = nil
         failedFetchRegion = nil
     }
@@ -1964,6 +1976,17 @@ public class SequenceViewerView: NSView {
             && (cachedAnnotationRegion?.start ?? Int.max) <= visibleRegion.start
             && (cachedAnnotationRegion?.end ?? Int.min) >= visibleRegion.end
 
+        // Diagnostic: log cache state at key decision points
+        logger.debug("""
+            drawBundleContent: scale=\(scale, format: .fixed(precision: 2)) bp/px, \
+            span=\(visibleSpan) bp, \
+            needsSeq=\(needsSequence), needsAnnot=\(needsAnnotations), \
+            annotCovered=\(annotationsCovered), fetchingAnnot=\(self.isFetchingAnnotations), \
+            cachedAnnotCount=\(self.cachedBundleAnnotations.count), \
+            fetchingSeq=\(self.isFetchingBundleData), \
+            cachedSeqLen=\(self.cachedBundleSequence?.count ?? 0)
+            """)
+
         // Detect stuck fetch states — if a fetch has been running for more than 10 seconds,
         // assume it failed silently and reset the flag to allow retry.
         let stuckThreshold: TimeInterval = 10.0
@@ -1984,7 +2007,10 @@ public class SequenceViewerView: NSView {
         // Always fetch asynchronously to avoid blocking the main thread — the sync path
         // caused hangs when first zooming past the 100Kbp threshold on a chromosome.
         if needsAnnotations && !annotationsCovered && !isFetchingAnnotations {
+            logger.info("drawBundleContent: Triggering annotation fetch for \(visibleRegion.description)")
             fetchAnnotationsAsync(bundle: bundle, region: visibleRegion)
+        } else if needsAnnotations && !annotationsCovered && isFetchingAnnotations {
+            logger.debug("drawBundleContent: Annotation fetch already in progress, waiting")
         }
 
         // Clear fetch error when user has navigated to a completely different region
@@ -1992,6 +2018,7 @@ public class SequenceViewerView: NSView {
         if bundleFetchError != nil, let failed = failedFetchRegion {
             if failed.chromosome != visibleRegion.chromosome
                 || visibleRegion.end < failed.start || visibleRegion.start > failed.end {
+                logger.info("drawBundleContent: Auto-clearing fetch error (navigated away from failed region \(failed.description))")
                 bundleFetchError = nil
                 failedFetchRegion = nil
             }
@@ -2019,14 +2046,14 @@ public class SequenceViewerView: NSView {
                 logger.debug("drawBundleContent: Drawing sequence at scale=\(scale) bp/px, cached=\(cached.count) bp, region=\(cachedRegion.description)")
                 drawBundleSequence(cached, region: cachedRegion, frame: frame, context: context)
             } else if let fetchError = bundleFetchError {
-                logger.info("drawBundleContent: Sequence fetch failed: \(fetchError)")
+                logger.debug("drawBundleContent: Sequence fetch failed (showing error): \(fetchError)")
                 drawSequenceError(fetchError, frame: frame, context: context)
             } else {
                 let hasCached = cachedBundleSequence != nil
                 let cachedChrom = cachedSequenceRegion?.chromosome ?? "nil"
                 let cachedStart = cachedSequenceRegion?.start ?? -1
                 let cachedEnd = cachedSequenceRegion?.end ?? -1
-                logger.info("drawBundleContent: No sequence cache for visible region. hasCached=\(hasCached), cachedChrom=\(cachedChrom), cachedRange=\(cachedStart)-\(cachedEnd), visibleRange=\(visibleRegion.start)-\(visibleRegion.end), fetching=\(self.isFetchingBundleData)")
+                logger.debug("drawBundleContent: No sequence cache for visible region. hasCached=\(hasCached), cachedChrom=\(cachedChrom), cachedRange=\(cachedStart)-\(cachedEnd), visibleRange=\(visibleRegion.start)-\(visibleRegion.end), fetching=\(self.isFetchingBundleData)")
                 drawSequenceLine(frame: frame, context: context)
             }
         } else {
@@ -2049,7 +2076,10 @@ public class SequenceViewerView: NSView {
             || cachedVariantRegion?.chromosome == visibleRegion.chromosome {
             let combined = cachedBundleAnnotations + cachedVariantAnnotations
             if !combined.isEmpty {
+                logger.debug("drawBundleContent: Drawing \(combined.count) annotations (\(self.cachedBundleAnnotations.count) annot + \(self.cachedVariantAnnotations.count) variant)")
                 drawBundleAnnotations(combined, frame: frame, context: context)
+            } else {
+                logger.debug("drawBundleContent: No annotations to draw (cache empty for current chromosome)")
             }
         }
 
@@ -2077,6 +2107,8 @@ public class SequenceViewerView: NSView {
     private static let annotationFetchQueue = DispatchQueue(label: "com.lungfish.annotationFetch", qos: .userInteractive)
 
     private func fetchAnnotationsAsync(bundle: ReferenceBundle, region: GenomicRegion) {
+        annotationFetchGeneration += 1
+        let thisGeneration = annotationFetchGeneration
         isFetchingAnnotations = true
         annotationFetchStartTime = Date()
 
@@ -2090,7 +2122,7 @@ public class SequenceViewerView: NSView {
         let expandedRegion = GenomicRegion(chromosome: region.chromosome, start: expandedStart, end: expandedEnd)
         let trackIds = bundle.annotationTrackIds
 
-        logger.info("fetchAnnotationsAsync: Fetching \(expandedRegion.description) (\(trackIds.count) tracks) on background thread")
+        logger.info("fetchAnnotationsAsync: gen=\(thisGeneration), Fetching \(expandedRegion.description) (\(trackIds.count) tracks) on background thread")
 
         Self.annotationFetchQueue.async { [weak self] in
             // Create readers once per fetch and reuse across the query.
@@ -2124,25 +2156,32 @@ public class SequenceViewerView: NSView {
             }
 
             let count = allAnnotations.count
-            logger.info("fetchAnnotationsAsync: Background work done, \(count) annotations found, dispatching to main")
+            logger.info("fetchAnnotationsAsync: gen=\(thisGeneration), background done, \(count) annotations found, dispatching to MainActor")
 
-            guard let viewer = self else {
-                logger.error("fetchAnnotationsAsync: self is nil, \(count) annotations lost")
-                return
-            }
-
-            DispatchQueue.main.async {
+            // Use Task { @MainActor in } instead of DispatchQueue.main.async.
+            // In Swift 6.2, DispatchQueue.main.async dispatches a @Sendable closure
+            // that is not @MainActor-isolated. When this closure accesses @MainActor
+            // state, the runtime routes it through the cooperative executor which
+            // AppKit's display cycle doesn't drain — so the closure never executes.
+            Task { @MainActor [weak self] in
+                logger.info("fetchAnnotationsAsync: gen=\(thisGeneration), MainActor Task executing")
+                guard let viewer = self else {
+                    logger.error("fetchAnnotationsAsync: self is nil in MainActor Task, \(count) annotations lost")
+                    return
+                }
+                // Check generation counter: discard stale results from superseded fetches
+                guard thisGeneration == viewer.annotationFetchGeneration else {
+                    logger.info("fetchAnnotationsAsync: Discarding stale result gen=\(thisGeneration) (current=\(viewer.annotationFetchGeneration))")
+                    return
+                }
+                let elapsed = viewer.annotationFetchStartTime.map { Date().timeIntervalSince($0) } ?? 0
                 viewer.cachedBundleAnnotations = allAnnotations
                 viewer.cachedAnnotationRegion = expandedRegion
                 viewer.isFetchingAnnotations = false
                 viewer.annotationFetchStartTime = nil
                 viewer.invalidateAnnotationTile()
-                logger.info("fetchAnnotationsAsync: Cached \(count) annotations for \(expandedRegion.description), triggering redraw")
+                logger.info("fetchAnnotationsAsync: Cached \(count) annotations for \(expandedRegion.description) in \(elapsed, format: .fixed(precision: 3))s, triggering redraw")
                 viewer.setNeedsDisplay(viewer.bounds)
-                // Schedule a backup redraw in case the first needsDisplay is dropped
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak viewer] in
-                    viewer?.setNeedsDisplay(viewer?.bounds ?? .zero)
-                }
             }
         }
     }
@@ -2156,7 +2195,10 @@ public class SequenceViewerView: NSView {
         let variantTrackIds = bundle.variantTrackIds
         guard !variantTrackIds.isEmpty else { return }
 
+        variantFetchGeneration += 1
+        let thisGeneration = variantFetchGeneration
         isFetchingVariants = true
+        let fetchStart = Date()
 
         let chromLength = bundle.chromosomeLength(named: region.chromosome) ?? Int64(region.end + 1000)
         let visibleSpan = region.end - region.start
@@ -2165,7 +2207,7 @@ public class SequenceViewerView: NSView {
         let expandedEnd = min(Int(chromLength), region.end + expandAmount)
         let expandedRegion = GenomicRegion(chromosome: region.chromosome, start: expandedStart, end: expandedEnd)
 
-        logger.info("fetchVariantsAsync: Fetching variants for \(expandedRegion.description)")
+        logger.info("fetchVariantsAsync: gen=\(thisGeneration), Fetching variants for \(expandedRegion.description)")
 
         Self.variantFetchQueue.async { [weak self] in
             var allVariantAnnotations: [SequenceAnnotation] = []
@@ -2179,25 +2221,29 @@ public class SequenceViewerView: NSView {
             }
 
             let count = allVariantAnnotations.count
-            guard let viewer = self else {
-                logger.error("fetchVariantsAsync: self is nil after successful fetch, \(count) variants lost")
-                return
-            }
+            logger.info("fetchVariantsAsync: gen=\(thisGeneration), background done, \(count) variants found")
 
-            DispatchQueue.main.async {
+            Task { @MainActor [weak self] in
+                logger.info("fetchVariantsAsync: gen=\(thisGeneration), MainActor Task executing")
+                guard let viewer = self else {
+                    logger.error("fetchVariantsAsync: self is nil in MainActor Task, \(count) variants lost")
+                    return
+                }
+                guard thisGeneration == viewer.variantFetchGeneration else {
+                    logger.info("fetchVariantsAsync: Discarding stale result gen=\(thisGeneration) (current=\(viewer.variantFetchGeneration))")
+                    return
+                }
+                let elapsed = Date().timeIntervalSince(fetchStart)
                 viewer.cachedVariantAnnotations = allVariantAnnotations
                 viewer.cachedVariantRegion = expandedRegion
                 viewer.isFetchingVariants = false
                 viewer.invalidateAnnotationTile()
-                logger.info("fetchVariantsAsync: Cached \(count) variant annotations")
+                logger.info("fetchVariantsAsync: Cached \(count) variant annotations in \(elapsed, format: .fixed(precision: 3))s")
                 viewer.setNeedsDisplay(viewer.bounds)
             }
         }
     }
 
-    /// Fetches annotations synchronously for the initial load.
-    /// Blocks the main thread but ensures annotations appear on the first draw.
-    /// Only used when the cache is completely empty (first chromosome load).
     /// Fetches sequence data asynchronously from bgzip-compressed FASTA.
     /// Runs decompression on a background thread to avoid blocking the UI.
     /// Only called when zoomed in enough to display sequence (<500 bp/pixel).
@@ -2206,6 +2252,8 @@ public class SequenceViewerView: NSView {
     private static let sequenceFetchQueue = DispatchQueue(label: "com.lungfish.sequenceFetch", qos: .userInteractive)
 
     private func fetchSequenceAsync(bundle: ReferenceBundle, region: GenomicRegion) {
+        sequenceFetchGeneration += 1
+        let thisGeneration = sequenceFetchGeneration
         isFetchingBundleData = true
         sequenceFetchStartTime = Date()
         bundleFetchError = nil
@@ -2222,50 +2270,53 @@ public class SequenceViewerView: NSView {
         let expandedEnd = min(Int(chromLength), center + halfFetch)
         let expandedRegion = GenomicRegion(chromosome: region.chromosome, start: expandedStart, end: expandedEnd)
 
-        logger.info("fetchSequenceAsync: Fetching \(expandedRegion.description) (\(expandedRegion.length) bp)")
+        logger.info("fetchSequenceAsync: gen=\(thisGeneration), Fetching \(expandedRegion.description) (\(expandedRegion.length) bp)")
 
         // Use a dedicated serial queue rather than DispatchQueue.global to prevent
         // thread starvation when the annotation search index is doing heavy BigBed
         // scanning on the global concurrent queue.
         Self.sequenceFetchQueue.async { [weak self] in
-            logger.info("fetchSequenceAsync: Background block started for \(expandedRegion.description), self alive: \(self != nil)")
+            logger.info("fetchSequenceAsync: gen=\(thisGeneration), background block started, self alive: \(self != nil)")
             do {
                 let sequence = try bundle.fetchSequenceSync(region: expandedRegion)
                 let count = sequence.count
-                logger.info("fetchSequenceAsync: fetchSequenceSync returned \(count) bp, self alive: \(self != nil)")
+                logger.info("fetchSequenceAsync: gen=\(thisGeneration), fetchSequenceSync returned \(count) bp")
 
-                // Unwrap self to a strong reference. Since the view is visible and
-                // owned by ViewerViewController, it should be alive. The strong
-                // reference keeps the view alive through the main queue dispatch,
-                // which is a one-shot closure with no retain cycle risk.
-                guard let viewer = self else {
-                    logger.error("fetchSequenceAsync: CRITICAL - self is nil after successful fetch! \(count) bp of sequence data lost. SequenceViewerView was deallocated during background fetch.")
-                    return
-                }
-
-                DispatchQueue.main.async {
+                Task { @MainActor [weak self] in
+                    logger.info("fetchSequenceAsync: gen=\(thisGeneration), MainActor Task executing")
+                    guard let viewer = self else {
+                        logger.error("fetchSequenceAsync: CRITICAL - self is nil in MainActor Task! \(count) bp lost.")
+                        return
+                    }
+                    guard thisGeneration == viewer.sequenceFetchGeneration else {
+                        logger.info("fetchSequenceAsync: Discarding stale result gen=\(thisGeneration) (current=\(viewer.sequenceFetchGeneration))")
+                        return
+                    }
+                    let elapsed = viewer.sequenceFetchStartTime.map { Date().timeIntervalSince($0) } ?? 0
                     viewer.cachedBundleSequence = sequence
                     viewer.cachedSequenceRegion = expandedRegion
                     viewer.isFetchingBundleData = false
                     viewer.sequenceFetchStartTime = nil
                     viewer.bundleFetchError = nil
                     viewer.failedFetchRegion = nil
-                    logger.info("fetchSequenceAsync: Cached \(count) bp for \(expandedRegion.description), triggering redraw")
+                    logger.info("fetchSequenceAsync: Cached \(count) bp for \(expandedRegion.description) in \(elapsed, format: .fixed(precision: 3))s, triggering redraw")
                     viewer.setNeedsDisplay(viewer.bounds)
-                    // Schedule a backup redraw in case the first one is dropped
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak viewer] in
-                        viewer?.setNeedsDisplay(viewer?.bounds ?? .zero)
-                    }
                 }
             } catch {
                 let errorDesc = error.localizedDescription
-                logger.error("fetchSequenceAsync: FAILED on background thread - \(errorDesc, privacy: .public)")
-                guard let viewer = self else {
-                    logger.error("fetchSequenceAsync: self is nil when handling error on background thread")
-                    return
-                }
-                DispatchQueue.main.async {
-                    logger.error("fetchSequenceAsync: Error delivered to main thread - \(errorDesc, privacy: .public)")
+                logger.error("fetchSequenceAsync: gen=\(thisGeneration), FAILED - \(errorDesc, privacy: .public)")
+
+                Task { @MainActor [weak self] in
+                    logger.info("fetchSequenceAsync: gen=\(thisGeneration), MainActor Task (error path) executing")
+                    guard let viewer = self else {
+                        logger.error("fetchSequenceAsync: self is nil in MainActor Task (error path)")
+                        return
+                    }
+                    guard thisGeneration == viewer.sequenceFetchGeneration else {
+                        logger.info("fetchSequenceAsync: Discarding stale error gen=\(thisGeneration) (current=\(viewer.sequenceFetchGeneration))")
+                        return
+                    }
+                    logger.error("fetchSequenceAsync: Error delivered to MainActor - \(errorDesc, privacy: .public)")
                     viewer.failedFetchRegion = expandedRegion
                     viewer.isFetchingBundleData = false
                     viewer.sequenceFetchStartTime = nil

@@ -119,15 +119,21 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
     // MARK: - AnnotationTableDrawerDelegate
 
     public func annotationDrawer(_ drawer: AnnotationTableDrawerView, didSelectAnnotation result: AnnotationSearchIndex.SearchResult) {
-        annotDrawerLogger.info("annotationDrawer: Navigating to '\(result.name, privacy: .public)' at \(result.chromosome, privacy: .public):\(result.start)-\(result.end)")
+        annotDrawerLogger.info("annotationDrawer: Navigating to '\(result.name, privacy: .public)' type=\(result.type, privacy: .public) at \(result.chromosome, privacy: .public):\(result.start)-\(result.end) strand=\(result.strand, privacy: .public)")
 
         let buffer = 1000 // 1kb buffer on each side
 
         // Clear any previous sequence fetch error so the new region can be fetched
         viewerView.clearSequenceFetchError()
 
+        // Log current viewer state before navigation
+        let currentChrom = referenceFrame?.chromosome ?? "nil"
+        let currentScale = referenceFrame?.scale ?? 0
+        annotDrawerLogger.info("annotationDrawer: Pre-nav state: currentChrom=\(currentChrom, privacy: .public), scale=\(currentScale, format: .fixed(precision: 2)) bp/px")
+
         if let provider = currentBundleDataProvider,
            let chromInfo = provider.chromosomeInfo(named: result.chromosome) {
+            annotDrawerLogger.info("annotationDrawer: Using bundle provider, chromLength=\(chromInfo.length)")
             navigateToChromosomeAndPosition(
                 chromosome: result.chromosome,
                 chromosomeLength: Int(chromInfo.length),
@@ -135,6 +141,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
                 end: min(Int(chromInfo.length), result.end + buffer)
             )
         } else {
+            annotDrawerLogger.info("annotationDrawer: No bundle provider, using navigateToPosition")
             navigateToPosition(
                 chromosome: result.chromosome,
                 start: max(0, result.start - buffer),

@@ -289,7 +289,7 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
     ///   - start: Start position (0-based)
     ///   - end: End position (0-based, exclusive)
     public func navigateToChromosomeAndPosition(chromosome: String, chromosomeLength: Int, start: Int, end: Int) {
-        bundleLogger.info("navigateToChromosomeAndPosition: \(chromosome, privacy: .public):\(start)-\(end)")
+        bundleLogger.info("navigateToChromosomeAndPosition: \(chromosome, privacy: .public):\(start)-\(end) (chromLen=\(chromosomeLength))")
 
         // Clear sequence fetch error for the new position
         viewerView.clearSequenceFetchError()
@@ -297,6 +297,10 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         let effectiveWidth = max(800, Int(viewerView.bounds.width))
         let clampedStart = max(0, start)
         let clampedEnd = min(chromosomeLength, end)
+        let span = clampedEnd - clampedStart
+        let scale = Double(span) / Double(effectiveWidth)
+
+        bundleLogger.info("navigateToChromosomeAndPosition: Creating frame span=\(span) bp, pixelWidth=\(effectiveWidth), scale=\(scale, format: .fixed(precision: 2)) bp/px")
 
         referenceFrame = ReferenceFrame(
             chromosome: chromosome,
@@ -324,7 +328,7 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         enhancedRulerView.needsDisplay = true
         headerView.needsDisplay = true
 
-        bundleLogger.info("navigateToChromosomeAndPosition: Complete")
+        bundleLogger.info("navigateToChromosomeAndPosition: Complete, display invalidated")
     }
 
     // MARK: - Bundle State Management

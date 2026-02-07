@@ -237,8 +237,10 @@ public final class AnnotationSearchIndex {
             let count = results.count
             searchLogger.info("AnnotationSearchIndex: Built index with \(count) entries (background thread)")
 
-            // Update on main thread
-            DispatchQueue.main.async { [weak self] in
+            // Use Task { @MainActor in } instead of DispatchQueue.main.async.
+            // In Swift 6.2, DispatchQueue.main.async closures dispatched from
+            // non-MainActor contexts may never execute when accessing @MainActor state.
+            Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.entries = results
                 self.isBuilding = false
