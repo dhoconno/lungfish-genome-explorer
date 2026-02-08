@@ -301,6 +301,113 @@ public actor NCBIService: DatabaseService {
         )
     }
 
+    // MARK: - NCBI Datasets v2 Virus Search
+
+    /// Searches the NCBI Datasets v2 virus database for a given taxon.
+    ///
+    /// Uses the Datasets v2 REST API which provides rich virus-specific metadata
+    /// (host, location, completeness, pangolin classification) that Entrez doesn't expose.
+    ///
+    /// - Parameters:
+    ///   - taxon: Taxonomy name or ID (e.g., "SARS-CoV-2", "Ebolavirus", "2697049")
+    ///   - pageSize: Number of results per page (default 20)
+    ///   - pageToken: Opaque cursor for pagination (from previous response's `nextPageToken`)
+    ///   - refseqOnly: Restrict to RefSeq sequences
+    ///   - annotatedOnly: Only return annotated sequences
+    ///   - completeness: Filter by completeness: "COMPLETE" or "PARTIAL"
+    ///   - host: Host organism filter (e.g., "Homo sapiens")
+    ///   - geoLocation: Geographic location filter (e.g., "USA")
+    ///   - releasedSince: Only return records released after this date (YYYY-MM-DD)
+    /// - Returns: Search results with virus-enriched metadata
+    public func searchVirusDatasets(
+        taxon: String,
+        pageSize: Int = 20,
+        pageToken: String? = nil,
+        refseqOnly: Bool = false,
+        annotatedOnly: Bool = false,
+        completeness: String? = nil,
+        host: String? = nil,
+        geoLocation: String? = nil,
+        releasedSince: String? = nil
+    ) async throws -> SearchResults {
+        let encodedTaxon = taxon.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? taxon
+        var urlString = "https://api.ncbi.nlm.nih.gov/datasets/v2/virus/taxon/\(encodedTaxon)/dataset_report?page_size=\(pageSize)"
+
+        if let pageToken {
+            if let encoded = pageToken.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+                urlString += "&page_token=\(encoded)"
+            }
+        }
+        if refseqOnly {
+            urlString += "&filter.refseq_only=true"
+        }
+        if annotatedOnly {
+            urlString += "&filter.annotated_only=true"
+        }
+        if let completeness, !completeness.isEmpty {
+            urlString += "&filter.completeness=\(completeness)"
+        }
+        if let host, !host.isEmpty {
+            if let encoded = host.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+                urlString += "&filter.host=\(encoded)"
+            }
+        }
+        if let geoLocation, !geoLocation.isEmpty {
+            if let encoded = geoLocation.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+                urlString += "&filter.geo_location=\(encoded)"
+            }
+        }
+        if let releasedSince, !releasedSince.isEmpty {
+            urlString += "&filter.released_since=\(releasedSince)"
+        }
+
+        guard let url = URL(string: urlString) else {
+            throw DatabaseServiceError.invalidQuery(reason: "Invalid virus search URL")
+        }
+
+        logger.info("searchVirusDatasets: GET \(urlString, privacy: .public)")
+
+        let data = try await makeRequest(url: url)
+        let decoder = JSONDecoder()
+        let report = try decoder.decode(VirusDatasetReport.self, from: data)
+
+        let records = report.reports.compactMap { virusReport -> SearchResultRecord? in
+            guard let accession = virusReport.accession else { return nil }
+
+            // Parse release date
+            var releaseDate: Date?
+            if let dateStr = virusReport.releaseDate {
+                releaseDate = ISO8601DateFormatter().date(from: dateStr)
+                    ?? VirusDatasetReport.looseDateFormatter.date(from: dateStr)
+            }
+
+            return SearchResultRecord(
+                id: accession,
+                accession: accession,
+                title: virusReport.isolate?.name ?? virusReport.virus?.organismName ?? accession,
+                organism: virusReport.virus?.organismName,
+                length: virusReport.length,
+                date: releaseDate,
+                source: .ncbi,
+                host: virusReport.host?.organismName,
+                geoLocation: virusReport.location?.geographicLocation,
+                collectionDate: virusReport.isolate?.collectionDate,
+                completeness: virusReport.completeness,
+                isolateName: virusReport.isolate?.name,
+                sourceDatabase: virusReport.sourceDatabase,
+                pangolinClassification: virusReport.virus?.pangolinClassification
+            )
+        }
+
+        let hasMore = report.nextPageToken != nil
+        return SearchResults(
+            totalCount: report.totalCount ?? records.count,
+            records: records,
+            hasMore: hasMore,
+            nextCursor: report.nextPageToken
+        )
+    }
+
     /// Searches the nucleotide (GenBank) database with optional RefSeq restriction.
     ///
     /// - Parameters:
@@ -1371,6 +1478,110 @@ public enum NCBISearchType: String, CaseIterable, Identifiable, Sendable {
         case .virus:
             return "Search viral sequences from NCBI Virus database"
         }
+    }
+}
+
+// MARK: - Datasets v2 Virus Response Models
+
+/// Top-level response from the NCBI Datasets v2 virus dataset report endpoint.
+public struct VirusDatasetReport: Codable, Sendable {
+    public let reports: [VirusReport]
+    public let totalCount: Int?
+    public let nextPageToken: String?
+
+    enum CodingKeys: String, CodingKey {
+        case reports
+        case totalCount = "total_count"
+        case nextPageToken = "next_page_token"
+    }
+
+    /// Fallback date formatter for dates without timezone info.
+    static let looseDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+}
+
+/// A single virus report from the Datasets v2 API.
+public struct VirusReport: Codable, Sendable {
+    public let accession: String?
+    public let isAnnotated: Bool?
+    public let isolate: VirusIsolate?
+    public let sourceDatabase: String?
+    public let proteinCount: Int?
+    public let host: VirusHost?
+    public let virus: VirusInfo?
+    public let location: VirusLocation?
+    public let completeness: String?
+    public let length: Int?
+    public let releaseDate: String?
+    public let updateDate: String?
+    public let biosample: String?
+    public let bioprojects: [String]?
+    public let purposeOfSampling: String?
+
+    enum CodingKeys: String, CodingKey {
+        case accession
+        case isAnnotated = "is_annotated"
+        case isolate
+        case sourceDatabase = "source_database"
+        case proteinCount = "protein_count"
+        case host, virus, location, completeness, length
+        case releaseDate = "release_date"
+        case updateDate = "update_date"
+        case biosample, bioprojects
+        case purposeOfSampling = "purpose_of_sampling"
+    }
+}
+
+/// Virus isolate information.
+public struct VirusIsolate: Codable, Sendable {
+    public let name: String?
+    public let source: String?
+    public let collectionDate: String?
+
+    enum CodingKeys: String, CodingKey {
+        case name, source
+        case collectionDate = "collection_date"
+    }
+}
+
+/// Virus host information.
+public struct VirusHost: Codable, Sendable {
+    public let taxId: Int?
+    public let organismName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case taxId = "tax_id"
+        case organismName = "organism_name"
+    }
+}
+
+/// Virus taxonomic information.
+public struct VirusInfo: Codable, Sendable {
+    public let taxId: Int?
+    public let organismName: String?
+    public let pangolinClassification: String?
+
+    enum CodingKeys: String, CodingKey {
+        case taxId = "tax_id"
+        case organismName = "organism_name"
+        case pangolinClassification = "pangolin_classification"
+    }
+}
+
+/// Geographic location information.
+public struct VirusLocation: Codable, Sendable {
+    public let geographicLocation: String?
+    public let geographicRegion: String?
+    public let usaState: String?
+
+    enum CodingKeys: String, CodingKey {
+        case geographicLocation = "geographic_location"
+        case geographicRegion = "geographic_region"
+        case usaState = "usa_state"
     }
 }
 

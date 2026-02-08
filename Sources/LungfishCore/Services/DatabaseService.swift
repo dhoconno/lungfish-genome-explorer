@@ -157,6 +157,29 @@ public struct SearchResultRecord: Sendable, Identifiable, Equatable {
     /// Source database
     public let source: DatabaseSource
 
+    // MARK: - Virus-Specific Metadata
+
+    /// Host organism (e.g., "Homo sapiens"). Populated by Datasets v2 virus searches.
+    public let host: String?
+
+    /// Geographic location (e.g., "USA: Minnesota"). Populated by Datasets v2 virus searches.
+    public let geoLocation: String?
+
+    /// Collection date as a string (e.g., "2026-01-20"). Populated by Datasets v2 virus searches.
+    public let collectionDate: String?
+
+    /// Sequence completeness (e.g., "COMPLETE", "PARTIAL"). Populated by Datasets v2 virus searches.
+    public let completeness: String?
+
+    /// Isolate name (e.g., "SARS-CoV-2/human/USA/MN-MDH-49571/2026").
+    public let isolateName: String?
+
+    /// Source database name (e.g., "GenBank", "RefSeq").
+    public let sourceDatabase: String?
+
+    /// Pangolin lineage classification (e.g., "XFG.14.1.1").
+    public let pangolinClassification: String?
+
     public init(
         id: String,
         accession: String,
@@ -164,7 +187,14 @@ public struct SearchResultRecord: Sendable, Identifiable, Equatable {
         organism: String? = nil,
         length: Int? = nil,
         date: Date? = nil,
-        source: DatabaseSource
+        source: DatabaseSource,
+        host: String? = nil,
+        geoLocation: String? = nil,
+        collectionDate: String? = nil,
+        completeness: String? = nil,
+        isolateName: String? = nil,
+        sourceDatabase: String? = nil,
+        pangolinClassification: String? = nil
     ) {
         self.id = id
         self.accession = accession
@@ -173,6 +203,13 @@ public struct SearchResultRecord: Sendable, Identifiable, Equatable {
         self.length = length
         self.date = date
         self.source = source
+        self.host = host
+        self.geoLocation = geoLocation
+        self.collectionDate = collectionDate
+        self.completeness = completeness
+        self.isolateName = isolateName
+        self.sourceDatabase = sourceDatabase
+        self.pangolinClassification = pangolinClassification
     }
 }
 

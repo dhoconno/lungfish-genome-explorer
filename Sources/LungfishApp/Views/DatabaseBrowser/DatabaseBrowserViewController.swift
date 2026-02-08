@@ -292,6 +292,26 @@ public enum SequencePropertyFilter: String, CaseIterable, Identifiable, Sendable
     }
 }
 
+// MARK: - Virus Completeness Filter
+
+/// Completeness options for NCBI Datasets v2 virus searches.
+public enum VirusCompletenessFilter: String, CaseIterable, Identifiable, Sendable {
+    case any = "Any"
+    case complete = "Complete"
+    case partial = "Partial"
+
+    public var id: String { rawValue }
+
+    /// API value for the `filter.completeness` query parameter, or nil for "Any".
+    var apiValue: String? {
+        switch self {
+        case .any: return nil
+        case .complete: return "COMPLETE"
+        case .partial: return "PARTIAL"
+        }
+    }
+}
+
 // MARK: - DatabaseBrowserViewModel
 
 /// View model for the database browser.
@@ -351,6 +371,26 @@ public class DatabaseBrowserViewModel: ObservableObject {
     /// Sequence property filters (Has CDS, Has Gene, etc.)
     @Published var propertyFilters: Set<SequencePropertyFilter> = []
 
+    // MARK: Virus-Specific Filters (Datasets v2)
+
+    /// Host organism filter for virus searches (e.g., "Homo sapiens")
+    @Published var virusHostFilter: String = ""
+
+    /// Geographic location filter for virus searches (e.g., "USA", "China")
+    @Published var virusGeoLocationFilter: String = ""
+
+    /// Completeness filter for virus searches
+    @Published var virusCompletenessFilter: VirusCompletenessFilter = .any
+
+    /// Released-since date filter for virus searches (YYYY-MM-DD)
+    @Published var virusReleasedSinceFilter: String = ""
+
+    /// Whether to filter to annotated sequences only (virus searches)
+    @Published var virusAnnotatedOnly: Bool = false
+
+    /// Opaque page token for Datasets v2 cursor-based pagination
+    @Published var virusNextPageToken: String?
+
     /// Search results from the API
     @Published var results: [SearchResultRecord] = []
 
@@ -364,7 +404,11 @@ public class DatabaseBrowserViewModel: ObservableObject {
         return results.filter { record in
             record.accession.lowercased().contains(filter) ||
             record.title.lowercased().contains(filter) ||
-            (record.organism?.lowercased().contains(filter) ?? false)
+            (record.organism?.lowercased().contains(filter) ?? false) ||
+            (record.host?.lowercased().contains(filter) ?? false) ||
+            (record.geoLocation?.lowercased().contains(filter) ?? false) ||
+            (record.isolateName?.lowercased().contains(filter) ?? false) ||
+            (record.pangolinClassification?.lowercased().contains(filter) ?? false)
         }
     }
 
@@ -444,16 +488,27 @@ public class DatabaseBrowserViewModel: ObservableObject {
     /// Count of active advanced filters
     var activeFilterCount: Int {
         var count = 0
-        if !organismFilter.isEmpty { count += 1 }
-        if !locationFilter.isEmpty { count += 1 }
-        if !geneFilter.isEmpty { count += 1 }
-        if !authorFilter.isEmpty { count += 1 }
-        if !journalFilter.isEmpty { count += 1 }
-        if !minLength.isEmpty || !maxLength.isEmpty { count += 1 }
-        if refseqOnly && (ncbiSearchType == .nucleotide || ncbiSearchType == .virus) { count += 1 }
-        if moleculeType != .any { count += 1 }
-        if !pubDateFrom.isEmpty || !pubDateTo.isEmpty { count += 1 }
-        count += propertyFilters.count
+        if ncbiSearchType == .virus {
+            // Virus-specific filters (Datasets v2)
+            if !virusHostFilter.isEmpty { count += 1 }
+            if !virusGeoLocationFilter.isEmpty { count += 1 }
+            if virusCompletenessFilter != .any { count += 1 }
+            if !virusReleasedSinceFilter.isEmpty { count += 1 }
+            if virusAnnotatedOnly { count += 1 }
+            if refseqOnly { count += 1 }
+        } else {
+            // Entrez-based filters (nucleotide, genome)
+            if !organismFilter.isEmpty { count += 1 }
+            if !locationFilter.isEmpty { count += 1 }
+            if !geneFilter.isEmpty { count += 1 }
+            if !authorFilter.isEmpty { count += 1 }
+            if !journalFilter.isEmpty { count += 1 }
+            if !minLength.isEmpty || !maxLength.isEmpty { count += 1 }
+            if refseqOnly && ncbiSearchType == .nucleotide { count += 1 }
+            if moleculeType != .any { count += 1 }
+            if !pubDateFrom.isEmpty || !pubDateTo.isEmpty { count += 1 }
+            count += propertyFilters.count
+        }
         return count
     }
 
@@ -543,6 +598,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
     /// Clears all advanced filters
     func clearFilters() {
+        // Entrez filters
         organismFilter = ""
         locationFilter = ""
         geneFilter = ""
@@ -555,6 +611,12 @@ public class DatabaseBrowserViewModel: ObservableObject {
         pubDateFrom = ""
         pubDateTo = ""
         propertyFilters = []
+        // Virus Datasets v2 filters
+        virusHostFilter = ""
+        virusGeoLocationFilter = ""
+        virusCompletenessFilter = .any
+        virusReleasedSinceFilter = ""
+        virusAnnotatedOnly = false
     }
 
     /// Cancels the current search operation
@@ -608,6 +670,15 @@ public class DatabaseBrowserViewModel: ObservableObject {
         let currentSource = source
         let searchType = ncbiSearchType
         let useRefseqOnly = refseqOnly
+
+        // Capture virus-specific filters for Datasets v2 API
+        // For virus search, the taxon is the raw search text (not the Entrez-qualified term)
+        let virusTaxon = searchText.trimmingCharacters(in: .whitespaces)
+        let capturedVirusHost = virusHostFilter.trimmingCharacters(in: .whitespaces)
+        let capturedVirusGeoLocation = virusGeoLocationFilter.trimmingCharacters(in: .whitespaces)
+        let capturedVirusCompleteness = virusCompletenessFilter.apiValue
+        let capturedVirusReleasedSince = virusReleasedSinceFilter.trimmingCharacters(in: .whitespaces)
+        let capturedVirusAnnotatedOnly = virusAnnotatedOnly
 
         // Capture services as they are actors (safe to use across isolation boundaries)
         let ncbi = ncbiService
@@ -686,47 +757,37 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         )
 
                     case .virus:
-                        // Use viral taxonomy filter
-                        logger.info("performSearch: Calling NCBI virus search (refseqOnly=\(useRefseqOnly))")
-                        let virusResult = try await ncbi.searchVirus(
-                            term: query.term,
-                            retmax: query.limit,
-                            retstart: query.offset,
-                            refseqOnly: useRefseqOnly
+                        // Use NCBI Datasets v2 API for rich virus metadata
+                        logger.info("performSearch: Calling NCBI Datasets v2 virus search for taxon='\(virusTaxon, privacy: .public)'")
+                        searchResults = try await ncbi.searchVirusDatasets(
+                            taxon: virusTaxon,
+                            pageSize: query.limit,
+                            pageToken: nil,
+                            refseqOnly: useRefseqOnly,
+                            annotatedOnly: capturedVirusAnnotatedOnly,
+                            completeness: capturedVirusCompleteness,
+                            host: capturedVirusHost.isEmpty ? nil : capturedVirusHost,
+                            geoLocation: capturedVirusGeoLocation.isEmpty ? nil : capturedVirusGeoLocation,
+                            releasedSince: capturedVirusReleasedSince.isEmpty ? nil : capturedVirusReleasedSince
                         )
-                        logger.info("performSearch: Virus search returned \(virusResult.totalCount) total, \(virusResult.ids.count) IDs")
+                        logger.info("performSearch: Datasets v2 virus search returned \(searchResults.totalCount) total, \(searchResults.records.count) records")
 
-                        // Get summaries for the results
-                        guard !virusResult.ids.isEmpty else {
+                        // Store the page token for "Load More" pagination
+                        let nextToken = searchResults.nextCursor
+                        performOnMainRunLoop { [weak self] in
+                            self?.virusNextPageToken = nextToken
+                        }
+
+                        guard !searchResults.records.isEmpty else {
                             performOnMainRunLoop { [weak self] in
                                 self?.objectWillChange.send()
                                 self?.results = []
-                                self?.totalResultCount = virusResult.totalCount
+                                self?.totalResultCount = searchResults.totalCount
                                 self?.hasMoreResults = false
                                 self?.searchPhase = .complete(count: 0)
                             }
                             return
                         }
-
-                        let summaries = try await ncbi.esummary(database: .nucleotide, ids: virusResult.ids)
-                        let records = summaries.map { summary in
-                            SearchResultRecord(
-                                id: summary.uid,
-                                accession: summary.accessionVersion ?? summary.uid,
-                                title: summary.title ?? "Unknown",
-                                organism: summary.organism,
-                                length: summary.length,
-                                date: summary.createDate,
-                                source: .ncbi
-                            )
-                        }
-                        let hasMore = virusResult.totalCount > (query.offset + records.count)
-                        searchResults = SearchResults(
-                            totalCount: virusResult.totalCount,
-                            records: records,
-                            hasMore: hasMore,
-                            nextCursor: hasMore ? String(query.offset + records.count) : nil
-                        )
 
                     case .genome:
                         // Search assemblies
@@ -1183,6 +1244,10 @@ public class DatabaseBrowserViewModel: ObservableObject {
             downloadTitle = totalCount == 1
                 ? recordsToDownload[0].accession
                 : "Genome: \(accessionList)\(accessionSuffix)"
+        } else if currentSource == .ncbi && searchType == .virus {
+            downloadTitle = totalCount == 1
+                ? recordsToDownload[0].accession
+                : "Virus: \(accessionList)\(accessionSuffix)"
         } else {
             downloadTitle = totalCount == 1
                 ? recordsToDownload[0].accession
@@ -1892,13 +1957,92 @@ public struct DatabaseBrowserView: View {
                 }
             }
 
-            // Expandable filters
+            // Expandable filters — virus gets its own filter set
             if viewModel.isAdvancedExpanded {
-                advancedFiltersGrid
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                if viewModel.ncbiSearchType == .virus {
+                    virusFiltersGrid
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                } else {
+                    advancedFiltersGrid
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
             }
         }
     }
+
+    // MARK: - Virus Filters Grid (Datasets v2)
+
+    private var virusFiltersGrid: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Host and Geographic Location row
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Host", systemImage: "person")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField("e.g., Homo sapiens", text: $viewModel.virusHostFilter)
+                        .textFieldStyle(.roundedBorder)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Geographic Location", systemImage: "location")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField("e.g., USA, China", text: $viewModel.virusGeoLocationFilter)
+                        .textFieldStyle(.roundedBorder)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // Completeness and Released Since row
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Completeness", systemImage: "checkmark.circle")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Picker("", selection: $viewModel.virusCompletenessFilter) {
+                        ForEach(VirusCompletenessFilter.allCases) { filter in
+                            Text(filter.rawValue).tag(filter)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 140)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Released Since", systemImage: "calendar")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField("YYYY-MM-DD", text: $viewModel.virusReleasedSinceFilter)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 140)
+                }
+
+                Spacer()
+            }
+
+            // Checkbox options
+            HStack(spacing: 16) {
+                Toggle("Annotated Only", isOn: $viewModel.virusAnnotatedOnly)
+                    .font(.caption)
+                    .toggleStyle(.checkbox)
+                    .help("Show only sequences with gene annotations")
+            }
+
+            // Help text
+            Text("Virus filters use the NCBI Datasets v2 API. Use RefSeq Only (above) for curated reference sequences.")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .padding(.top, 4)
+        }
+        .padding(12)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .cornerRadius(8)
+    }
+
+    // MARK: - Entrez Filters Grid
 
     private var advancedFiltersGrid: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -2341,6 +2485,15 @@ struct SearchResultRow: View {
                 Text(record.accession)
                     .font(.headline.monospaced())
 
+                if let db = record.sourceDatabase {
+                    Text(db)
+                        .font(.caption2.bold())
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(db == "RefSeq" ? Color.blue.opacity(0.15) : Color.gray.opacity(0.15))
+                        .cornerRadius(3)
+                }
+
                 Spacer()
 
                 if let length = record.length {
@@ -2362,10 +2515,43 @@ struct SearchResultRow: View {
                         .foregroundColor(.green)
                 }
 
-                if let date = record.date {
+                if let collectionDate = record.collectionDate {
+                    Label(collectionDate, systemImage: "calendar")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else if let date = record.date {
                     Label(formatDate(date), systemImage: "calendar")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                }
+            }
+
+            // Virus-specific metadata row
+            if record.host != nil || record.geoLocation != nil || record.completeness != nil || record.pangolinClassification != nil {
+                HStack(spacing: 10) {
+                    if let host = record.host {
+                        Label(host, systemImage: "person")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
+                    if let location = record.geoLocation {
+                        Label(location, systemImage: "location")
+                            .font(.caption)
+                            .foregroundColor(.blue)
+                    }
+                    if let completeness = record.completeness {
+                        Text(completeness)
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(completeness == "COMPLETE" ? Color.green.opacity(0.2) : Color.yellow.opacity(0.2))
+                            .cornerRadius(3)
+                    }
+                    if let pangolin = record.pangolinClassification {
+                        Text(pangolin)
+                            .font(.caption.monospaced())
+                            .foregroundColor(.purple)
+                    }
                 }
             }
         }
@@ -2415,6 +2601,15 @@ struct SearchResultRowWithCheckbox: View {
                     Text(record.accession)
                         .font(.headline.monospaced())
 
+                    if let db = record.sourceDatabase {
+                        Text(db)
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(db == "RefSeq" ? Color.blue.opacity(0.15) : Color.gray.opacity(0.15))
+                            .cornerRadius(3)
+                    }
+
                     Spacer()
 
                     if let length = record.length {
@@ -2436,10 +2631,43 @@ struct SearchResultRowWithCheckbox: View {
                             .foregroundColor(.green)
                     }
 
-                    if let date = record.date {
+                    if let collectionDate = record.collectionDate {
+                        Label(collectionDate, systemImage: "calendar")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else if let date = record.date {
                         Label(formatDate(date), systemImage: "calendar")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                    }
+                }
+
+                // Virus-specific metadata row
+                if record.host != nil || record.geoLocation != nil || record.completeness != nil || record.pangolinClassification != nil {
+                    HStack(spacing: 10) {
+                        if let host = record.host {
+                            Label(host, systemImage: "person")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                        }
+                        if let location = record.geoLocation {
+                            Label(location, systemImage: "location")
+                                .font(.caption)
+                                .foregroundColor(.blue)
+                        }
+                        if let completeness = record.completeness {
+                            Text(completeness)
+                                .font(.caption2.bold())
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(completeness == "COMPLETE" ? Color.green.opacity(0.2) : Color.yellow.opacity(0.2))
+                                .cornerRadius(3)
+                        }
+                        if let pangolin = record.pangolinClassification {
+                            Text(pangolin)
+                                .font(.caption.monospaced())
+                                .foregroundColor(.purple)
+                        }
                     }
                 }
             }
