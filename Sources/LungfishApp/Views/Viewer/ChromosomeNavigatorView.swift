@@ -192,11 +192,23 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.drawsBackground = false
+        scrollView.drawsBackground = true
         addSubview(scrollView)
+
+        // Right-edge separator (matches inspector thin divider style)
+        let separator = NSBox()
+        separator.boxType = .separator
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(separator)
 
         // Layout: header + sort on same row, filter below, table fills rest
         NSLayoutConstraint.activate([
+            // Separator on right edge
+            separator.topAnchor.constraint(equalTo: topAnchor),
+            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
+            separator.bottomAnchor.constraint(equalTo: bottomAnchor),
+            separator.widthAnchor.constraint(equalToConstant: 1),
+
             headerLabel.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             headerLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
 

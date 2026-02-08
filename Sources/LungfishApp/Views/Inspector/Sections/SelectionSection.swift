@@ -268,7 +268,7 @@ public struct SelectionSection: View {
                             .tag(mode)
                     }
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.menu)
                 .help("Choose whether to apply color changes to just this annotation or all annotations of the same type")
             }
 

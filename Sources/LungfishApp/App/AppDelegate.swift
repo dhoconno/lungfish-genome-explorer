@@ -575,17 +575,16 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
-        // Update the annotation in the current document
         let viewerController = mainWindowController?.mainSplitViewController?.viewerController
-        guard let document = viewerController?.currentDocument else { return }
 
-        // Find and replace the annotation in the document
-        if let index = document.annotations.firstIndex(where: { $0.id == annotation.id }) {
+        // Update in-memory document annotations if available
+        if let document = viewerController?.currentDocument,
+           let index = document.annotations.firstIndex(where: { $0.id == annotation.id }) {
             document.annotations[index] = annotation
-            // Refresh the viewer to show updated annotation
-            viewerController?.viewerView.setAnnotations(document.annotations)
-            viewerController?.viewerView.needsDisplay = true
         }
+
+        // Update the viewer (handles both document and bundle mode)
+        viewerController?.viewerView.updateAnnotation(annotation)
     }
 
     /// Handles annotation deletions from the inspector.
@@ -607,36 +606,27 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     /// Handles applying a color to all annotations of a specific type.
     ///
-    /// This notification is posted when the user applies a color to all annotations
-    /// of a particular type from the inspector. It updates all matching annotations
-    /// in the current document and refreshes the viewer.
+    /// Updates all matching annotations in both the document (if loaded) and
+    /// the viewer's bundle caches, then triggers a redraw.
     @objc private func handleAnnotationColorAppliedToType(_ notification: Notification) {
         guard let annotationType = notification.userInfo?[NotificationUserInfoKey.annotationType] as? AnnotationType,
               let annotationColor = notification.userInfo?[NotificationUserInfoKey.annotationColor] as? AnnotationColor else {
             return
         }
 
-        // Get the current document
         let viewerController = mainWindowController?.mainSplitViewController?.viewerController
-        guard let document = viewerController?.currentDocument else { return }
 
-        // Update all annotations of the matching type
-        var updatedCount = 0
-        for (index, annotation) in document.annotations.enumerated() {
-            if annotation.type == annotationType {
-                var updatedAnnotation = annotation
-                updatedAnnotation.color = annotationColor
-                document.annotations[index] = updatedAnnotation
-                updatedCount += 1
+        // Update in-memory document annotations if available
+        if let document = viewerController?.currentDocument {
+            for (index, annotation) in document.annotations.enumerated() where annotation.type == annotationType {
+                var updated = annotation
+                updated.color = annotationColor
+                document.annotations[index] = updated
             }
         }
 
-        // Refresh the viewer to show updated annotations
-        if updatedCount > 0 {
-            viewerController?.viewerView.setAnnotations(document.annotations)
-            viewerController?.viewerView.needsDisplay = true
-            debugLog("handleAnnotationColorAppliedToType: Updated \(updatedCount) \(annotationType.rawValue) annotations")
-        }
+        // Update the viewer (handles both document and bundle mode)
+        viewerController?.viewerView.applyColorToType(annotationType, color: annotationColor)
     }
 
     @objc private func windowWillClose(_ notification: Notification) {

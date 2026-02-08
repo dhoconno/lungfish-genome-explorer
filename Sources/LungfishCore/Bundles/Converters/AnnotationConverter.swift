@@ -256,25 +256,51 @@ public final class AnnotationConverter: Sendable {
 
     // MARK: - Format-specific Readers
 
+    /// Feature types that represent transcript-level annotations whose children
+    /// (exons) should be aggregated into BED12 blocks.
+    private static let transcriptTypes: Set<String> = [
+        "mRNA", "transcript", "lnc_RNA", "rRNA", "tRNA", "snRNA", "snoRNA",
+        "miRNA", "ncRNA", "primary_transcript", "V_gene_segment",
+        "D_gene_segment", "J_gene_segment", "C_gene_segment"
+    ]
+
+    /// Feature types that represent exon-level intervals (children of transcripts).
+    private static let exonTypes: Set<String> = ["exon"]
+
+    /// Feature types that define the coding region (thick start/end) of a transcript.
+    private static let cdsTypes: Set<String> = ["CDS"]
+
+    /// Parsed GFF3 feature for the two-pass aggregation algorithm.
+    private struct GFF3Feature {
+        let seqid: String
+        let featureType: String
+        let start: Int        // 1-based
+        let end: Int          // 1-based inclusive
+        let score: Int
+        let strand: String
+        let id: String?
+        let parentID: String?
+        let name: String
+        let attributes: [String: String]
+    }
+
     private func readGFF3AsBED(
         from url: URL,
         options: ConversionOptions
     ) async throws -> [BEDEntry] {
-        var entries: [BEDEntry] = []
+        // ── Pass 1: Read all features ──
+        var allFeatures: [GFF3Feature] = []
+        var featuresByID: [String: Int] = [:]  // ID → index in allFeatures
+        var childrenByParent: [String: [Int]] = [:]  // parentID → [child indices]
 
-        // Read GFF3 file line by line
         for try await line in url.lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
 
-            // Skip empty lines, comments, and directives
             if trimmed.isEmpty || trimmed.hasPrefix("#") {
-                if trimmed.hasPrefix("##FASTA") {
-                    break // End of GFF section
-                }
+                if trimmed.hasPrefix("##FASTA") { break }
                 continue
             }
 
-            // Parse GFF3 line
             let fields = trimmed.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
             guard fields.count >= 9 else { continue }
 
@@ -283,18 +309,6 @@ public final class AnnotationConverter: Sendable {
             guard let start = Int(fields[3]),
                   let end = Int(fields[4]) else { continue }
 
-            // Filter by feature type if specified
-            if let allowedTypes = options.featureTypes,
-               !allowedTypes.contains(featureType) {
-                continue
-            }
-
-            // Filter by length
-            let length = end - start + 1
-            if let minLen = options.minLength, length < minLen { continue }
-            if let maxLen = options.maxLength, length > maxLen { continue }
-
-            // Parse strand
             let strandStr = fields[6]
             let strand: String
             switch strandStr {
@@ -303,37 +317,148 @@ public final class AnnotationConverter: Sendable {
             default: strand = "."
             }
 
-            // Parse attributes for name
-            let attributes = parseGFF3Attributes(fields[8])
-            let name = attributes["Name"] ?? attributes["ID"] ?? featureType
-
-            // Parse score
+            let attrs = parseGFF3Attributes(fields[8])
+            let name = attrs["Name"] ?? attrs["ID"] ?? featureType
             let score = Int(fields[5]) ?? 0
+
+            let feature = GFF3Feature(
+                seqid: seqid,
+                featureType: featureType,
+                start: start,
+                end: end,
+                score: score,
+                strand: strand,
+                id: attrs["ID"],
+                parentID: attrs["Parent"],
+                name: name,
+                attributes: attrs
+            )
+
+            let index = allFeatures.count
+            allFeatures.append(feature)
+
+            if let id = attrs["ID"] {
+                featuresByID[id] = index
+            }
+            if let parentID = attrs["Parent"] {
+                childrenByParent[parentID, default: []].append(index)
+            }
+        }
+
+        // ── Pass 2: Build BED entries with parent-child aggregation ──
+        // Track which features are consumed as children of transcripts
+        var consumedIndices: Set<Int> = []
+        var entries: [BEDEntry] = []
+
+        for (index, feature) in allFeatures.enumerated() {
+            if consumedIndices.contains(index) { continue }
+
+            // Filter by feature type if specified
+            if let allowedTypes = options.featureTypes,
+               !allowedTypes.contains(feature.featureType) {
+                continue
+            }
+
+            let length = feature.end - feature.start + 1
+            if let minLen = options.minLength, length < minLen { continue }
+            if let maxLen = options.maxLength, length > maxLen { continue }
 
             // Collect key attributes for extra column 14
             var extraAttrs: [String] = []
             for key in ["description", "gene_biotype", "Dbxref", "gene"] {
-                if let val = attributes[key] {
+                if let val = feature.attributes[key] {
                     extraAttrs.append("\(key)=\(val)")
                 }
             }
             let attrStr = extraAttrs.isEmpty ? nil : extraAttrs.joined(separator: ";")
 
-            // Convert to 0-based coordinates (GFF3 is 1-based)
+            // Check if this is a transcript-level feature with exon children
+            if Self.transcriptTypes.contains(feature.featureType),
+               let featureID = feature.id,
+               let childIndices = childrenByParent[featureID] {
+
+                // Collect exon children for block data
+                var exonIntervals: [(start: Int, end: Int)] = []
+                var cdsStart: Int?
+                var cdsEnd: Int?
+
+                for childIdx in childIndices {
+                    let child = allFeatures[childIdx]
+                    if Self.exonTypes.contains(child.featureType) {
+                        exonIntervals.append((start: child.start - 1, end: child.end))  // 0-based
+                        consumedIndices.insert(childIdx)
+                    } else if Self.cdsTypes.contains(child.featureType) {
+                        let cs = child.start - 1  // 0-based
+                        let ce = child.end
+                        cdsStart = min(cdsStart ?? cs, cs)
+                        cdsEnd = max(cdsEnd ?? ce, ce)
+                        consumedIndices.insert(childIdx)
+                    }
+                }
+
+                if exonIntervals.count > 1 {
+                    // Sort exons by position
+                    exonIntervals.sort { $0.start < $1.start }
+
+                    let chromStart = feature.start - 1  // 0-based
+                    let chromEnd = feature.end
+
+                    // Clip exon blocks to parent feature boundaries
+                    var clippedBlocks: [(size: Int, start: Int)] = []
+                    for exon in exonIntervals {
+                        let clippedStart = max(exon.start, chromStart)
+                        let clippedEnd = min(exon.end, chromEnd)
+                        if clippedEnd > clippedStart {
+                            clippedBlocks.append((size: clippedEnd - clippedStart, start: clippedStart - chromStart))
+                        }
+                    }
+                    // Fall through to single-block if clipping eliminated all blocks
+                    if clippedBlocks.count > 1 {
+                        let blockCount = clippedBlocks.count
+                        let blockSizes = clippedBlocks.map(\.size)
+                        let blockStarts = clippedBlocks.map(\.start)
+
+                        // Clip CDS thick region to feature boundaries
+                        let clippedThickStart = max(chromStart, min(cdsStart ?? chromStart, chromEnd))
+                        let clippedThickEnd = max(chromStart, min(cdsEnd ?? chromEnd, chromEnd))
+
+                        let entry = BEDEntry(
+                            chrom: feature.seqid,
+                            chromStart: chromStart,
+                            chromEnd: chromEnd,
+                            name: feature.name,
+                            score: min(1000, max(0, feature.score)),
+                            strand: feature.strand,
+                            thickStart: clippedThickStart,
+                            thickEnd: clippedThickEnd,
+                            itemRgb: "0",
+                            blockCount: blockCount,
+                            blockSizes: blockSizes,
+                            blockStarts: blockStarts,
+                            featureType: feature.featureType,
+                            featureAttributes: attrStr
+                        )
+                        entries.append(entry)
+                        continue
+                    }
+                }
+            }
+
+            // Default: single-block BED entry (continuous)
             let entry = BEDEntry(
-                chrom: seqid,
-                chromStart: start - 1,
-                chromEnd: end,
-                name: name,
-                score: min(1000, max(0, score)),
-                strand: strand,
-                thickStart: start - 1,
-                thickEnd: end,
+                chrom: feature.seqid,
+                chromStart: feature.start - 1,
+                chromEnd: feature.end,
+                name: feature.name,
+                score: min(1000, max(0, feature.score)),
+                strand: feature.strand,
+                thickStart: feature.start - 1,
+                thickEnd: feature.end,
                 itemRgb: "0",
                 blockCount: 1,
-                blockSizes: [end - start + 1],
+                blockSizes: [feature.end - feature.start + 1],
                 blockStarts: [0],
-                featureType: featureType,
+                featureType: feature.featureType,
                 featureAttributes: attrStr
             )
             entries.append(entry)

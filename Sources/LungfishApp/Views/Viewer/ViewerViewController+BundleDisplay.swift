@@ -144,24 +144,19 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
 
         view.addSubview(navigator)
 
-        // Create the leading constraint (start open)
-        let leadingConstraint = navigator.leadingAnchor.constraint(equalTo: view.leadingAnchor)
-
         let constraints = [
             navigator.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            leadingConstraint,
+            navigator.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             navigator.widthAnchor.constraint(equalToConstant: navigatorWidth),
             navigator.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
         ]
         NSLayoutConstraint.activate(constraints)
         chromosomeNavigatorConstraints = constraints
-        chromosomeDrawerLeadingConstraint = leadingConstraint
 
-        // Store the header leading constraint for animation
-        findAndStoreHeaderLeadingConstraint()
-
-        // Adjust existing views: push headerView to the right
-        headerLeadingConstraint?.constant = navigatorWidth
+        // Push content to the right
+        for constraint in contentLeadingConstraints {
+            constraint.constant = navigatorWidth
+        }
 
         view.layoutSubtreeIfNeeded()
         isChromosomeDrawerOpen = true
@@ -170,39 +165,24 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         bundleLogger.info("configureChromosomeNavigator: Created navigator with \(chromosomes.count) chromosomes")
     }
 
-    /// Finds and caches the header view's leading constraint for drawer animation.
-    private func findAndStoreHeaderLeadingConstraint() {
-        if headerLeadingConstraint != nil { return }
-
-        for constraint in view.constraints {
-            if constraint.firstItem === headerView,
-               constraint.firstAttribute == .leading,
-               constraint.secondItem === view,
-               constraint.secondAttribute == .leading {
-                headerLeadingConstraint = constraint
-                return
-            }
-        }
-    }
-
     // MARK: - Drawer Toggle
 
     /// Toggles the chromosome drawer open/closed with animation.
     public func toggleChromosomeDrawer() {
-        guard let leadingConstraint = chromosomeDrawerLeadingConstraint else { return }
-        findAndStoreHeaderLeadingConstraint()
+        guard chromosomeNavigatorView != nil else { return }
 
         let isOpen = isChromosomeDrawerOpen
-        let drawerTarget: CGFloat = isOpen ? -navigatorWidth : 0
-        let headerTarget: CGFloat = isOpen ? 0 : navigatorWidth
+        let contentTarget: CGFloat = isOpen ? 0 : navigatorWidth
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.25
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             context.allowsImplicitAnimation = true
 
-            leadingConstraint.animator().constant = drawerTarget
-            self.headerLeadingConstraint?.animator().constant = headerTarget
+            for constraint in self.contentLeadingConstraints {
+                constraint.animator().constant = contentTarget
+            }
+            self.chromosomeNavigatorView?.animator().isHidden = isOpen
             self.view.layoutSubtreeIfNeeded()
         }
 
@@ -228,12 +208,15 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
             NSLayoutConstraint.deactivate(constraints)
         }
         chromosomeNavigatorConstraints = nil
-        chromosomeDrawerLeadingConstraint = nil
 
         navigator.removeFromSuperview()
         chromosomeNavigatorView = nil
 
-        headerLeadingConstraint?.constant = 0
+        // Reset content leading constraints
+        for constraint in contentLeadingConstraints {
+            constraint.constant = 0
+        }
+
         isChromosomeDrawerOpen = false
 
         view.layoutSubtreeIfNeeded()
@@ -348,8 +331,6 @@ extension ViewerViewController {
     private static var chromosomeNavigatorKey: UInt8 = 0
     private static var chromosomeNavigatorConstraintsKey: UInt8 = 0
     private static var bundleDataProviderKey: UInt8 = 0
-    private static var drawerLeadingConstraintKey: UInt8 = 0
-    private static var headerLeadingConstraintKey: UInt8 = 0
     private static var drawerOpenKey: UInt8 = 0
 
     var chromosomeNavigatorView: ChromosomeNavigatorView? {
@@ -365,16 +346,6 @@ extension ViewerViewController {
     public var currentBundleDataProvider: BundleDataProvider? {
         get { objc_getAssociatedObject(self, &Self.bundleDataProviderKey) as? BundleDataProvider }
         set { objc_setAssociatedObject(self, &Self.bundleDataProviderKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
-    }
-
-    var chromosomeDrawerLeadingConstraint: NSLayoutConstraint? {
-        get { objc_getAssociatedObject(self, &Self.drawerLeadingConstraintKey) as? NSLayoutConstraint }
-        set { objc_setAssociatedObject(self, &Self.drawerLeadingConstraintKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
-    }
-
-    var headerLeadingConstraint: NSLayoutConstraint? {
-        get { objc_getAssociatedObject(self, &Self.headerLeadingConstraintKey) as? NSLayoutConstraint }
-        set { objc_setAssociatedObject(self, &Self.headerLeadingConstraintKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
     var isChromosomeDrawerOpen: Bool {

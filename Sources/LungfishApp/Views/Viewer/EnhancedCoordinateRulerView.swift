@@ -54,7 +54,10 @@ public class EnhancedCoordinateRulerView: NSView {
     private static let minimumThumbWidth: CGFloat = 8
 
     /// Button width for zoom controls
-    private static let buttonWidth: CGFloat = 40
+    private static let zoomButtonSize: CGFloat = 22
+
+    /// Width of the position text field
+    private static let positionFieldWidth: CGFloat = 180
 
     /// Padding between elements
     private static let horizontalPadding: CGFloat = 8
@@ -99,15 +102,6 @@ public class EnhancedCoordinateRulerView: NSView {
         NSColor.labelColor
     }
 
-    /// Button background color (normal state)
-    private var buttonBackgroundColor: NSColor {
-        NSColor.quaternarySystemFill
-    }
-
-    /// Button background color (hover state)
-    private var buttonHoverColor: NSColor {
-        NSColor.tertiarySystemFill
-    }
 
     // MARK: - State
 
@@ -115,6 +109,7 @@ public class EnhancedCoordinateRulerView: NSView {
     public var referenceFrame: ReferenceFrame? {
         didSet {
             needsDisplay = true
+            updatePositionField()
         }
     }
 
@@ -130,14 +125,59 @@ public class EnhancedCoordinateRulerView: NSView {
     /// Drag start origin of the window
     private var dragStartOrigin: Double = 0
 
-    /// Mouse is hovering over zoom-to-fit button
-    private var isHoveringFitButton = false
-
-    /// Mouse is hovering over zoom-reset button
-    private var isHoveringResetButton = false
-
     /// Tracking area for mouse events
     private var trackingArea: NSTrackingArea?
+
+    /// Position text field for direct coordinate input
+    private let positionField: NSTextField = {
+        let field = NSTextField()
+        field.translatesAutoresizingMaskIntoConstraints = false
+        field.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
+        field.alignment = .center
+        field.placeholderString = "chr:start-end"
+        field.bezelStyle = .roundedBezel
+        field.controlSize = .small
+        field.isEditable = true
+        field.isBordered = true
+        field.drawsBackground = true
+        field.usesSingleLineMode = true
+        field.lineBreakMode = .byTruncatingTail
+        field.setAccessibilityLabel("Position")
+        field.setAccessibilityIdentifier("ruler-position-field")
+        return field
+    }()
+
+    /// Zoom-out button (-)
+    private let zoomOutButton: NSButton = {
+        let button = NSButton(frame: .zero)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.bezelStyle = .toolbar
+        button.controlSize = .small
+        button.title = ""
+        if let image = NSImage(systemSymbolName: "minus", accessibilityDescription: "Zoom Out") {
+            button.image = image
+        }
+        button.imagePosition = .imageOnly
+        button.toolTip = "Zoom Out"
+        button.setAccessibilityLabel("Zoom Out")
+        return button
+    }()
+
+    /// Zoom-in button (+)
+    private let zoomInButton: NSButton = {
+        let button = NSButton(frame: .zero)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.bezelStyle = .toolbar
+        button.controlSize = .small
+        button.title = ""
+        if let image = NSImage(systemSymbolName: "plus", accessibilityDescription: "Zoom In") {
+            button.image = image
+        }
+        button.imagePosition = .imageOnly
+        button.toolTip = "Zoom In"
+        button.setAccessibilityLabel("Zoom In")
+        return button
+    }()
 
     // MARK: - Computed Properties
 
@@ -162,21 +202,6 @@ public class EnhancedCoordinateRulerView: NSView {
                height: Self.rulerHeight)
     }
 
-    /// Rectangle for the zoom-to-fit button
-    private var fitButtonRect: NSRect {
-        NSRect(x: bounds.width - Self.buttonWidth * 2 - Self.horizontalPadding * 2,
-               y: 2,
-               width: Self.buttonWidth,
-               height: Self.infoBarHeight - 4)
-    }
-
-    /// Rectangle for the zoom-reset button
-    private var resetButtonRect: NSRect {
-        NSRect(x: bounds.width - Self.buttonWidth - Self.horizontalPadding,
-               y: 2,
-               width: Self.buttonWidth,
-               height: Self.infoBarHeight - 4)
-    }
 
     // MARK: - Initialization
 
@@ -192,7 +217,81 @@ public class EnhancedCoordinateRulerView: NSView {
 
     private func setupView() {
         wantsLayer = true
+        setupInfoBarControls()
         setupAccessibility()
+    }
+
+    private func setupInfoBarControls() {
+        // Add controls to info bar area
+        addSubview(positionField)
+        addSubview(zoomOutButton)
+        addSubview(zoomInButton)
+
+        // Wire actions
+        zoomOutButton.target = self
+        zoomOutButton.action = #selector(zoomOutButtonClicked(_:))
+        zoomInButton.target = self
+        zoomInButton.action = #selector(zoomInButtonClicked(_:))
+        positionField.delegate = self
+        positionField.target = self
+        positionField.action = #selector(positionFieldAction(_:))
+
+        let buttonSize = Self.zoomButtonSize
+
+        NSLayoutConstraint.activate([
+            // Zoom-in button on the right
+            zoomInButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.horizontalPadding),
+            zoomInButton.centerYAnchor.constraint(equalTo: topAnchor, constant: Self.infoBarHeight / 2),
+            zoomInButton.widthAnchor.constraint(equalToConstant: buttonSize),
+            zoomInButton.heightAnchor.constraint(equalToConstant: buttonSize),
+
+            // Zoom-out button to the left of zoom-in
+            zoomOutButton.trailingAnchor.constraint(equalTo: zoomInButton.leadingAnchor, constant: -2),
+            zoomOutButton.centerYAnchor.constraint(equalTo: zoomInButton.centerYAnchor),
+            zoomOutButton.widthAnchor.constraint(equalToConstant: buttonSize),
+            zoomOutButton.heightAnchor.constraint(equalToConstant: buttonSize),
+
+            // Position field to the left of zoom-out
+            positionField.trailingAnchor.constraint(equalTo: zoomOutButton.leadingAnchor, constant: -6),
+            positionField.centerYAnchor.constraint(equalTo: zoomInButton.centerYAnchor),
+            positionField.widthAnchor.constraint(equalToConstant: Self.positionFieldWidth),
+            positionField.heightAnchor.constraint(equalToConstant: Self.infoBarHeight - 4),
+        ])
+    }
+
+    @objc private func zoomOutButtonClicked(_ sender: Any?) {
+        delegate?.rulerDidRequestZoomOut(self)
+        needsDisplay = true
+    }
+
+    @objc private func zoomInButtonClicked(_ sender: Any?) {
+        delegate?.rulerDidRequestZoomIn(self)
+        needsDisplay = true
+    }
+
+    @objc private func positionFieldAction(_ sender: Any?) {
+        let input = positionField.stringValue.trimmingCharacters(in: .whitespaces)
+        guard !input.isEmpty else { return }
+        delegate?.ruler(self, didRequestPositionInput: input)
+    }
+
+    /// Updates the position field display to reflect the current visible range.
+    /// Skips update when the user is actively editing the field.
+    public func updatePositionField() {
+        // Don't overwrite user input while they're editing
+        if positionField.currentEditor() != nil { return }
+
+        guard let frame = referenceFrame else {
+            positionField.stringValue = ""
+            return
+        }
+        let start = Int(frame.start) + 1  // 1-based display
+        let end = Int(frame.end)
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        let startStr = formatter.string(from: NSNumber(value: start)) ?? "\(start)"
+        let endStr = formatter.string(from: NSNumber(value: end)) ?? "\(end)"
+        positionField.stringValue = "\(frame.chromosome):\(startStr)-\(endStr)"
     }
 
     private func setupAccessibility() {
@@ -234,6 +333,9 @@ public class EnhancedCoordinateRulerView: NSView {
         super.draw(dirtyRect)
 
         guard let context = NSGraphicsContext.current?.cgContext else { return }
+
+        // Keep position field in sync with current frame
+        updatePositionField()
 
         // Background
         context.setFillColor(NSColor.windowBackgroundColor.cgColor)
@@ -313,8 +415,6 @@ public class EnhancedCoordinateRulerView: NSView {
         (totalText as NSString).draw(at: CGPoint(x: totalX, y: totalY),
                                       withAttributes: secondaryAttributes)
 
-        // Draw zoom buttons
-        drawZoomButtons(context: context)
     }
 
     private func drawPlaceholderInfoBar(context: CGContext) {
@@ -331,55 +431,6 @@ public class EnhancedCoordinateRulerView: NSView {
                                             withAttributes: attributes)
     }
 
-    private func drawZoomButtons(context: CGContext) {
-        // Zoom-to-fit button
-        drawButton(
-            context: context,
-            rect: fitButtonRect,
-            title: "Fit",
-            shortcut: "0",
-            isHovering: isHoveringFitButton
-        )
-
-        // Zoom reset button - show current zoom percentage
-        let zoomPercent = calculateZoomPercent()
-        let zoomTitle = "\(Int(zoomPercent))%"
-        drawButton(
-            context: context,
-            rect: resetButtonRect,
-            title: zoomTitle,
-            shortcut: "1",
-            isHovering: isHoveringResetButton
-        )
-    }
-
-    private func drawButton(context: CGContext, rect: NSRect, title: String, shortcut: String, isHovering: Bool) {
-        // Button background
-        let bgColor = isHovering ? buttonHoverColor : buttonBackgroundColor
-        context.setFillColor(bgColor.cgColor)
-
-        let path = CGPath(roundedRect: rect, cornerWidth: 4, cornerHeight: 4, transform: nil)
-        context.addPath(path)
-        context.fillPath()
-
-        // Button border
-        context.setStrokeColor(NSColor.separatorColor.cgColor)
-        context.setLineWidth(0.5)
-        context.addPath(path)
-        context.strokePath()
-
-        // Button text
-        let font = NSFont.systemFont(ofSize: 10, weight: .medium)
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: primaryTextColor
-        ]
-
-        let textSize = (title as NSString).size(withAttributes: attributes)
-        let textX = rect.midX - textSize.width / 2
-        let textY = rect.midY - textSize.height / 2
-        (title as NSString).draw(at: CGPoint(x: textX, y: textY), withAttributes: attributes)
-    }
 
     // MARK: - Mini-Map Drawing
 
@@ -668,17 +719,6 @@ public class EnhancedCoordinateRulerView: NSView {
     public override func mouseDown(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
 
-        // Check button clicks
-        if fitButtonRect.contains(location) {
-            handleZoomToFit()
-            return
-        }
-
-        if resetButtonRect.contains(location) {
-            handleZoomReset()
-            return
-        }
-
         // Check mini-map interaction
         if miniMapRect.contains(location) {
             handleMiniMapMouseDown(location: location)
@@ -709,12 +749,6 @@ public class EnhancedCoordinateRulerView: NSView {
     public override func mouseMoved(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
 
-        let wasHoveringFit = isHoveringFitButton
-        let wasHoveringReset = isHoveringResetButton
-
-        isHoveringFitButton = fitButtonRect.contains(location)
-        isHoveringResetButton = resetButtonRect.contains(location)
-
         // Update cursor for mini-map thumb
         if let frame = referenceFrame {
             let thumbRect = calculateThumbRect(in: miniMapRect, frame: frame)
@@ -726,17 +760,10 @@ public class EnhancedCoordinateRulerView: NSView {
                 NSCursor.arrow.set()
             }
         }
-
-        if wasHoveringFit != isHoveringFitButton || wasHoveringReset != isHoveringResetButton {
-            needsDisplay = true
-        }
     }
 
     public override func mouseExited(with event: NSEvent) {
-        isHoveringFitButton = false
-        isHoveringResetButton = false
         NSCursor.arrow.set()
-        needsDisplay = true
     }
 
     // MARK: - Mini-Map Interaction
@@ -850,6 +877,26 @@ public class EnhancedCoordinateRulerView: NSView {
     }
 }
 
+// MARK: - NSTextFieldDelegate
+
+extension EnhancedCoordinateRulerView: NSTextFieldDelegate {
+    public func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if commandSelector == #selector(insertNewline(_:)) {
+            positionFieldAction(control)
+            // Resign first responder to dismiss focus
+            window?.makeFirstResponder(self)
+            return true
+        }
+        if commandSelector == #selector(cancelOperation(_:)) {
+            // Escape: restore display and resign focus
+            updatePositionField()
+            window?.makeFirstResponder(self)
+            return true
+        }
+        return false
+    }
+}
+
 // MARK: - Delegate Protocol
 
 /// Delegate protocol for EnhancedCoordinateRulerView navigation callbacks.
@@ -857,22 +904,22 @@ public class EnhancedCoordinateRulerView: NSView {
 public protocol EnhancedCoordinateRulerDelegate: AnyObject {
 
     /// Called when the user requests navigation to a specific range.
-    ///
-    /// - Parameters:
-    ///   - ruler: The ruler view making the request
-    ///   - start: Start position in base pairs
-    ///   - end: End position in base pairs
     func ruler(_ ruler: EnhancedCoordinateRulerView, didRequestNavigation start: Double, end: Double)
 
     /// Called when the user requests zoom-to-fit (Cmd+0).
-    ///
-    /// - Parameter ruler: The ruler view making the request
     func rulerDidRequestZoomToFit(_ ruler: EnhancedCoordinateRulerView)
 
     /// Called when the user requests zoom reset (Cmd+1).
-    ///
-    /// - Parameter ruler: The ruler view making the request
     func rulerDidRequestZoomReset(_ ruler: EnhancedCoordinateRulerView)
+
+    /// Called when the user requests zoom in.
+    func rulerDidRequestZoomIn(_ ruler: EnhancedCoordinateRulerView)
+
+    /// Called when the user requests zoom out.
+    func rulerDidRequestZoomOut(_ ruler: EnhancedCoordinateRulerView)
+
+    /// Called when the user enters a position string in the position field.
+    func ruler(_ ruler: EnhancedCoordinateRulerView, didRequestPositionInput input: String)
 }
 
 // MARK: - Integration Extension for ViewerViewController
@@ -921,6 +968,98 @@ extension ViewerViewController: EnhancedCoordinateRulerDelegate {
         viewerView.setNeedsDisplay(viewerView.bounds)
         ruler.needsDisplay = true
         updateStatusBar()
+    }
+
+    public func rulerDidRequestZoomIn(_ ruler: EnhancedCoordinateRulerView) {
+        zoomIn()
+    }
+
+    public func rulerDidRequestZoomOut(_ ruler: EnhancedCoordinateRulerView) {
+        zoomOut()
+    }
+
+    public func ruler(_ ruler: EnhancedCoordinateRulerView, didRequestPositionInput input: String) {
+        // Strip commas from user input (they may copy "chr1:1,000-10,000")
+        let cleaned = input.replacingOccurrences(of: ",", with: "")
+            .trimmingCharacters(in: .whitespaces)
+        guard !cleaned.isEmpty else { return }
+
+        // Check if input is just a chromosome name (no colon)
+        if !cleaned.contains(":") && !cleaned.contains("-") && !cleaned.contains("..") {
+            if let provider = currentBundleDataProvider,
+               let chromInfo = provider.chromosomeInfo(named: cleaned) {
+                navigateToChromosomeAndPosition(
+                    chromosome: chromInfo.name,
+                    chromosomeLength: Int(chromInfo.length),
+                    start: 0,
+                    end: Int(chromInfo.length)
+                )
+                return
+            }
+        }
+
+        // Parse coordinate string: chr:start-end, chr:start..end, start-end, position
+        var chromosome: String?
+        var startPosition: Int?
+        var endPosition: Int?
+
+        if cleaned.contains(":") {
+            let colonParts = cleaned.split(separator: ":", maxSplits: 1)
+            guard colonParts.count == 2 else { NSSound.beep(); return }
+            chromosome = String(colonParts[0])
+            parsePositionRange(String(colonParts[1]), start: &startPosition, end: &endPosition)
+        } else {
+            parsePositionRange(cleaned, start: &startPosition, end: &endPosition)
+        }
+
+        guard let start = startPosition else { NSSound.beep(); return }
+
+        // Convert 1-based user input to 0-based
+        let zeroBasedStart = max(0, start - 1)
+        let zeroBasedEnd = endPosition.map { max(0, $0) }
+
+        if let chrom = chromosome,
+           let provider = currentBundleDataProvider,
+           let chromInfo = provider.chromosomeInfo(named: chrom) {
+            let end = zeroBasedEnd ?? min(zeroBasedStart + 10000, Int(chromInfo.length))
+            navigateToChromosomeAndPosition(
+                chromosome: chrom,
+                chromosomeLength: Int(chromInfo.length),
+                start: zeroBasedStart,
+                end: end
+            )
+        } else {
+            navigateToPosition(
+                chromosome: chromosome,
+                start: zeroBasedStart,
+                end: zeroBasedEnd
+            )
+        }
+    }
+
+    /// Parses "start-end", "start..end", or a single position.
+    private func parsePositionRange(_ input: String, start: inout Int?, end: inout Int?) {
+        if input.contains("..") {
+            let parts = input.split(separator: ".", omittingEmptySubsequences: true)
+            if parts.count == 2 {
+                start = Int(parts[0].trimmingCharacters(in: .whitespaces))
+                end = Int(parts[1].trimmingCharacters(in: .whitespaces))
+            }
+        } else if input.contains("-"), input.first != "-" {
+            if let hyphen = input.lastIndex(of: "-"), hyphen > input.startIndex {
+                let before = String(input[input.startIndex..<hyphen])
+                let after = String(input[input.index(after: hyphen)...])
+                if let s = Int(before.trimmingCharacters(in: .whitespaces)),
+                   let e = Int(after.trimmingCharacters(in: .whitespaces)) {
+                    start = s
+                    end = e
+                } else {
+                    start = Int(input.trimmingCharacters(in: .whitespaces))
+                }
+            }
+        } else {
+            start = Int(input.trimmingCharacters(in: .whitespaces))
+        }
     }
 }
 

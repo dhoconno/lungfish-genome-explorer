@@ -110,6 +110,67 @@ private func inferAnnotationType(name: String, featureSize: Int, extraFields: St
     return .gene
 }
 
+/// Converts a BigBedFeature into a SequenceAnnotation, preserving block data as intervals.
+private func bigBedFeatureToAnnotation(_ feature: BigBedFeature) -> SequenceAnnotation {
+    let strand: Strand
+    if let strandChar = feature.strand {
+        switch strandChar {
+        case "+": strand = .forward
+        case "-": strand = .reverse
+        default: strand = .unknown
+        }
+    } else {
+        strand = .unknown
+    }
+
+    var color: AnnotationColor?
+    if let rgb = feature.itemRgb {
+        color = AnnotationColor(
+            red: Double(rgb.r) / 255.0,
+            green: Double(rgb.g) / 255.0,
+            blue: Double(rgb.b) / 255.0
+        )
+    }
+
+    var qualifiers: [String: AnnotationQualifier] = [:]
+    if let score = feature.score {
+        qualifiers["score"] = AnnotationQualifier(String(score))
+    }
+    if let extraFields = feature.extraFields {
+        qualifiers["extra"] = AnnotationQualifier(extraFields)
+    }
+
+    let featureName = feature.name ?? "unknown"
+    let featureSize = feature.end - feature.start
+    let annotationType = inferAnnotationType(
+        name: featureName, featureSize: featureSize, extraFields: feature.extraFields
+    )
+
+    // Build intervals from block data if available (BED12 multi-part features)
+    var intervals: [AnnotationInterval]
+    if let blockCount = feature.blockCount, blockCount > 1,
+       let blockSizes = feature.blockSizes, blockSizes.count == blockCount,
+       let blockStarts = feature.blockStarts, blockStarts.count == blockCount {
+        intervals = (0..<blockCount).map { i in
+            let start = feature.start + blockStarts[i]
+            let end = start + blockSizes[i]
+            return AnnotationInterval(start: start, end: end)
+        }
+    } else {
+        intervals = [AnnotationInterval(start: feature.start, end: feature.end)]
+    }
+
+    return SequenceAnnotation(
+        type: annotationType,
+        name: featureName,
+        chromosome: feature.chromosome,
+        intervals: intervals,
+        strand: strand,
+        qualifiers: qualifiers,
+        color: color
+    )
+}
+
 public final class ReferenceBundle: Sendable {
 
     // MARK: - Properties
@@ -378,56 +439,8 @@ public final class ReferenceBundle: Sendable {
             let reader = try await BigBedReader(url: trackURL)
             let features = try await reader.features(region: region)
             
-            // Convert BigBedFeature to SequenceAnnotation
-            let annotations = features.map { feature in
-                // Determine strand
-                let strand: Strand
-                if let strandChar = feature.strand {
-                    switch strandChar {
-                    case "+": strand = .forward
-                    case "-": strand = .reverse
-                    default: strand = .unknown
-                    }
-                } else {
-                    strand = .unknown
-                }
-                
-                // Build color from RGB if available
-                var color: AnnotationColor?
-                if let rgb = feature.itemRgb {
-                    color = AnnotationColor(
-                        red: Double(rgb.r) / 255.0,
-                        green: Double(rgb.g) / 255.0,
-                        blue: Double(rgb.b) / 255.0
-                    )
-                }
-                
-                // Build qualifiers from extra fields
-                var qualifiers: [String: AnnotationQualifier] = [:]
-                if let score = feature.score {
-                    qualifiers["score"] = AnnotationQualifier(String(score))
-                }
-                if let extraFields = feature.extraFields {
-                    qualifiers["extra"] = AnnotationQualifier(extraFields)
-                }
-                
-                let featureName = feature.name ?? "unknown"
-                let featureSize = feature.end - feature.start
-                let annotationType = inferAnnotationType(
-                    name: featureName, featureSize: featureSize, extraFields: feature.extraFields
-                )
-
-                return SequenceAnnotation(
-                    type: annotationType,
-                    name: featureName,
-                    chromosome: feature.chromosome,
-                    start: feature.start,
-                    end: feature.end,
-                    strand: strand,
-                    qualifiers: qualifiers,
-                    color: color
-                )
-            }
+            // Convert BigBedFeature to SequenceAnnotation (preserving block intervals)
+            let annotations = features.map { bigBedFeatureToAnnotation($0) }
             
             logger.debug("Fetched \(annotations.count) annotations from \(trackId) for \(region.description)")
             return annotations
@@ -463,52 +476,7 @@ public final class ReferenceBundle: Sendable {
             let reader = try SyncBigBedReader(url: trackURL)
             let features = try reader.features(region: region)
 
-            let annotations = features.map { feature in
-                let strand: Strand
-                if let strandChar = feature.strand {
-                    switch strandChar {
-                    case "+": strand = .forward
-                    case "-": strand = .reverse
-                    default: strand = .unknown
-                    }
-                } else {
-                    strand = .unknown
-                }
-
-                var color: AnnotationColor?
-                if let rgb = feature.itemRgb {
-                    color = AnnotationColor(
-                        red: Double(rgb.r) / 255.0,
-                        green: Double(rgb.g) / 255.0,
-                        blue: Double(rgb.b) / 255.0
-                    )
-                }
-
-                var qualifiers: [String: AnnotationQualifier] = [:]
-                if let score = feature.score {
-                    qualifiers["score"] = AnnotationQualifier(String(score))
-                }
-                if let extraFields = feature.extraFields {
-                    qualifiers["extra"] = AnnotationQualifier(extraFields)
-                }
-
-                let featureName = feature.name ?? "unknown"
-                let featureSize = feature.end - feature.start
-                let annotationType = inferAnnotationType(
-                    name: featureName, featureSize: featureSize, extraFields: feature.extraFields
-                )
-
-                return SequenceAnnotation(
-                    type: annotationType,
-                    name: featureName,
-                    chromosome: feature.chromosome,
-                    start: feature.start,
-                    end: feature.end,
-                    strand: strand,
-                    qualifiers: qualifiers,
-                    color: color
-                )
-            }
+            let annotations = features.map { bigBedFeatureToAnnotation($0) }
 
             logger.debug("Fetched \(annotations.count) annotations (sync) from \(trackId) for \(region.description)")
             return annotations
@@ -534,52 +502,7 @@ public final class ReferenceBundle: Sendable {
         do {
             let features = try reader.features(region: region)
 
-            let annotations = features.map { feature in
-                let strand: Strand
-                if let strandChar = feature.strand {
-                    switch strandChar {
-                    case "+": strand = .forward
-                    case "-": strand = .reverse
-                    default: strand = .unknown
-                    }
-                } else {
-                    strand = .unknown
-                }
-
-                var color: AnnotationColor?
-                if let rgb = feature.itemRgb {
-                    color = AnnotationColor(
-                        red: Double(rgb.r) / 255.0,
-                        green: Double(rgb.g) / 255.0,
-                        blue: Double(rgb.b) / 255.0
-                    )
-                }
-
-                var qualifiers: [String: AnnotationQualifier] = [:]
-                if let score = feature.score {
-                    qualifiers["score"] = AnnotationQualifier(String(score))
-                }
-                if let extraFields = feature.extraFields {
-                    qualifiers["extra"] = AnnotationQualifier(extraFields)
-                }
-
-                let featureName = feature.name ?? "unknown"
-                let featureSize = feature.end - feature.start
-                let annotationType = inferAnnotationType(
-                    name: featureName, featureSize: featureSize, extraFields: feature.extraFields
-                )
-
-                return SequenceAnnotation(
-                    type: annotationType,
-                    name: featureName,
-                    chromosome: feature.chromosome,
-                    start: feature.start,
-                    end: feature.end,
-                    strand: strand,
-                    qualifiers: qualifiers,
-                    color: color
-                )
-            }
+            let annotations = features.map { bigBedFeatureToAnnotation($0) }
 
             logger.debug("Fetched \(annotations.count) annotations (sync, cached reader) for \(region.description)")
             return annotations

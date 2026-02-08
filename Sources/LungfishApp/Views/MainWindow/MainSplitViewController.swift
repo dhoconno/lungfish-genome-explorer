@@ -158,8 +158,8 @@ public class MainSplitViewController: NSSplitViewController {
         addSplitViewItem(inspectorItem)
         logger.info("configureChildControllers: Added all three split view items, count=\(self.splitViewItems.count)")
 
-        // Inspector starts collapsed by default
-        inspectorItem.isCollapsed = true
+        // Inspector starts visible by default
+        inspectorItem.isCollapsed = false
         logger.info("configureChildControllers: Inspector initial state isCollapsed=\(self.inspectorItem.isCollapsed)")
     }
 
@@ -209,12 +209,25 @@ public class MainSplitViewController: NSSplitViewController {
             object: nil
         )
 
-        logger.info("configureNotifications: Registered for sidebar, document, file drop, and inspector notifications")
+        // Show inspector when a reference bundle is loaded
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleBundleDidLoad(_:)),
+            name: .bundleDidLoad,
+            object: nil
+        )
+
+        logger.info("configureNotifications: Registered for sidebar, document, file drop, bundle, and inspector notifications")
         logger.info("configureNotifications: sidebarFileDropped observer registered for name '\(Notification.Name.sidebarFileDropped.rawValue)'")
     }
 
     @objc private func handleShowInspector(_ notification: Notification) {
         logger.info("handleShowInspector: Showing inspector panel")
+        setInspectorVisible(true, animated: true)
+    }
+
+    @objc private func handleBundleDidLoad(_ notification: Notification) {
+        logger.info("handleBundleDidLoad: Bundle loaded, ensuring inspector is visible")
         setInspectorVisible(true, animated: true)
     }
 
@@ -546,7 +559,7 @@ public class MainSplitViewController: NSSplitViewController {
             sidebarItem.isCollapsed = defaults.bool(forKey: "SidebarCollapsed")
         }
 
-        // Restore inspector state (default: collapsed)
+        // Restore inspector state (default: visible)
         if defaults.object(forKey: "InspectorCollapsed") != nil {
             inspectorItem.isCollapsed = defaults.bool(forKey: "InspectorCollapsed")
         }
@@ -571,39 +584,15 @@ public class MainSplitViewController: NSSplitViewController {
     public func toggleInspector() {
         logger.info("toggleInspector: isCollapsed=\(self.inspectorItem.isCollapsed)")
 
-        let shouldExpand = self.inspectorItem.isCollapsed
-
-        if shouldExpand {
-            // Expanding: set isCollapsed to false and manually position the divider
-            // to ensure proper layout
-            self.inspectorItem.isCollapsed = false
-            let inspectorWidth = inspectorDefaultWidth
-            let totalWidth = splitView.frame.width
-            let targetPosition = totalWidth - inspectorWidth
-
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.25
-                context.allowsImplicitAnimation = true
-                self.splitView.animator().setPosition(targetPosition, ofDividerAt: 1)
-            } completionHandler: { [weak self] in
-                Task { @MainActor in
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.25
+            context.allowsImplicitAnimation = true
+            self.inspectorItem.animator().isCollapsed.toggle()
+        } completionHandler: { [weak self] in
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
                     self?.savePanelState()
-                    logger.info("toggleInspector: expand complete")
-                }
-            }
-        } else {
-            // Collapsing: animate to edge then set collapsed
-            let totalWidth = splitView.frame.width
-
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.2
-                context.allowsImplicitAnimation = true
-                self.splitView.animator().setPosition(totalWidth, ofDividerAt: 1)
-            } completionHandler: { [weak self] in
-                Task { @MainActor in
-                    self?.inspectorItem.isCollapsed = true
-                    self?.savePanelState()
-                    logger.info("toggleInspector: collapse complete")
+                    logger.info("toggleInspector: toggle complete, isCollapsed=\(self?.inspectorItem.isCollapsed ?? true)")
                 }
             }
         }

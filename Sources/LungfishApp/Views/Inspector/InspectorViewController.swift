@@ -249,42 +249,13 @@ public class InspectorViewController: NSViewController {
     private func handleAppearanceChanged() {
         logger.info("handleAppearanceChanged: Appearance change detected")
 
-        // Build and save appearance settings
         var appearance = viewModel.appearance
-
-        // Update base colors from view model
-        let colorA = viewModel.appearanceSectionViewModel.colorA
-        let colorT = viewModel.appearanceSectionViewModel.colorT
-        let colorG = viewModel.appearanceSectionViewModel.colorG
-        let colorC = viewModel.appearanceSectionViewModel.colorC
-        let colorN = viewModel.appearanceSectionViewModel.colorN
-
-        let hexA = hexString(from: colorA)
-        let hexT = hexString(from: colorT)
-        let hexG = hexString(from: colorG)
-        let hexC = hexString(from: colorC)
-        let hexN = hexString(from: colorN)
-
-        logger.info("handleAppearanceChanged: A=\(hexA, privacy: .public) T=\(hexT, privacy: .public) G=\(hexG, privacy: .public) C=\(hexC, privacy: .public) N=\(hexN, privacy: .public)")
-
-        appearance.baseColors = [
-            "A": hexA,
-            "T": hexT,
-            "G": hexG,
-            "C": hexC,
-            "N": hexN,
-            "U": hexT  // Uracil uses same color as Thymine
-        ]
-
         appearance.trackHeight = CGFloat(viewModel.appearanceSectionViewModel.trackHeight)
         logger.info("handleAppearanceChanged: Track height = \(appearance.trackHeight, privacy: .public)")
 
-        // Save and update view model
         appearance.save()
         viewModel.appearance = appearance
-        logger.info("handleAppearanceChanged: Saved appearance settings")
 
-        // Notify viewers to redraw
         NotificationCenter.default.post(
             name: .appearanceChanged,
             object: self,
@@ -385,28 +356,6 @@ public class InspectorViewController: NSViewController {
         viewModel.qualitySectionViewModel.update(hasData: hasData, statistics: statistics)
     }
 
-    // MARK: - Helper Methods
-
-    /// Converts a SwiftUI Color to a hex string.
-    ///
-    /// Uses NSColor conversion to properly resolve the color components,
-    /// as SwiftUI Color's cgColor property can return nil for some colors.
-    private func hexString(from color: Color) -> String {
-        // Convert SwiftUI Color to NSColor for reliable component access
-        let nsColor = NSColor(color)
-
-        // Convert to sRGB color space for consistent color representation
-        guard let rgbColor = nsColor.usingColorSpace(.sRGB) else {
-            return "#808080"
-        }
-
-        let red = Int(round(rgbColor.redComponent * 255))
-        let green = Int(round(rgbColor.greenComponent * 255))
-        let blue = Int(round(rgbColor.blueComponent * 255))
-
-        return String(format: "#%02X%02X%02X", red, green, blue)
-    }
-
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
@@ -479,46 +428,10 @@ public final class InspectorViewModel {
 
     /// Syncs the main appearance settings to the appearance section view model.
     private func syncAppearanceToSectionViewModel() {
-        // Convert hex colors to SwiftUI Colors
-        if let hexA = appearance.baseColors["A"] {
-            appearanceSectionViewModel.colorA = color(from: hexA)
-        }
-        if let hexT = appearance.baseColors["T"] {
-            appearanceSectionViewModel.colorT = color(from: hexT)
-        }
-        if let hexG = appearance.baseColors["G"] {
-            appearanceSectionViewModel.colorG = color(from: hexG)
-        }
-        if let hexC = appearance.baseColors["C"] {
-            appearanceSectionViewModel.colorC = color(from: hexC)
-        }
-        if let hexN = appearance.baseColors["N"] {
-            appearanceSectionViewModel.colorN = color(from: hexN)
-        }
         appearanceSectionViewModel.trackHeight = Double(appearance.trackHeight)
-
-        // Sync quality overlay setting
         qualitySectionViewModel.isQualityOverlayEnabled = appearance.showQualityOverlay
     }
 
-    /// Converts a hex string to a SwiftUI Color.
-    private func color(from hexString: String) -> Color {
-        var hex = hexString.trimmingCharacters(in: .whitespacesAndNewlines)
-        if hex.hasPrefix("#") {
-            hex = String(hex.dropFirst())
-        }
-
-        guard hex.count == 6,
-              let hexValue = UInt32(hex, radix: 16) else {
-            return .gray
-        }
-
-        let red = Double((hexValue >> 16) & 0xFF) / 255.0
-        let green = Double((hexValue >> 8) & 0xFF) / 255.0
-        let blue = Double(hexValue & 0xFF) / 255.0
-
-        return Color(red: red, green: green, blue: blue)
-    }
 }
 
 // MARK: - InspectorView (SwiftUI)
@@ -527,7 +440,7 @@ public final class InspectorViewModel {
 ///
 /// Displays style and editing sections:
 /// - Selection: Shows and edits the currently selected annotation
-/// - Sequence Style: Configures base colors and sequence track geometry
+/// - Sequence Style: Configures sequence track geometry
 /// - Annotation Style: Configures annotation display and type visibility
 /// - Read Style: Placeholder controls for mapped-read appearance
 public struct InspectorView: View {

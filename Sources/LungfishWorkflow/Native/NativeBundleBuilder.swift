@@ -850,7 +850,52 @@ public final class NativeBundleBuilder: ObservableObject {
             let clippedStart = max(0, min(start, chromSize))
             let clippedEnd = max(clippedStart, min(end, chromSize))
 
-            if clippedStart != start || clippedEnd != end {
+            var needsClip = clippedStart != start || clippedEnd != end
+
+            // Rebuild the line with clipped coordinates
+            var newFields = fields.map(String.init)
+            newFields[1] = String(clippedStart)
+            newFields[2] = String(clippedEnd)
+
+            // Also clip thickStart/thickEnd to chromEnd (BED12 validity)
+            if fields.count >= 8 {
+                if let thick6 = Int64(fields[6]) {
+                    let ct6 = max(clippedStart, min(thick6, clippedEnd))
+                    if ct6 != thick6 { needsClip = true }
+                    newFields[6] = String(ct6)
+                }
+                if let thick7 = Int64(fields[7]) {
+                    let ct7 = max(clippedStart, min(thick7, clippedEnd))
+                    if ct7 != thick7 { needsClip = true }
+                    newFields[7] = String(ct7)
+                }
+            }
+
+            // Clip block sizes so no block extends past chromEnd
+            if fields.count >= 12 {
+                let featureLen = clippedEnd - clippedStart
+                let sizes = fields[10].split(separator: ",").compactMap { Int64($0) }
+                let starts = fields[11].split(separator: ",").compactMap { Int64($0) }
+                if sizes.count == starts.count && !sizes.isEmpty {
+                    var clippedSizes: [Int64] = []
+                    var clippedStarts: [Int64] = []
+                    for i in 0..<sizes.count {
+                        let bs = max(0, min(starts[i], featureLen))
+                        let be = max(bs, min(starts[i] + sizes[i], featureLen))
+                        if be > bs {
+                            clippedStarts.append(bs)
+                            clippedSizes.append(be - bs)
+                        }
+                    }
+                    if !clippedSizes.isEmpty {
+                        newFields[9] = String(clippedSizes.count)
+                        newFields[10] = clippedSizes.map(String.init).joined(separator: ",") + ","
+                        newFields[11] = clippedStarts.map(String.init).joined(separator: ",") + ","
+                    }
+                }
+            }
+
+            if needsClip {
                 clippedCount += 1
                 // Skip features that would have zero or negative length after clipping
                 if clippedEnd <= clippedStart {
@@ -858,10 +903,6 @@ public final class NativeBundleBuilder: ObservableObject {
                 }
             }
 
-            // Rebuild the line with clipped coordinates
-            var newFields = fields.map(String.init)
-            newFields[1] = String(clippedStart)
-            newFields[2] = String(clippedEnd)
             clippedLines.append(newFields.joined(separator: "\t"))
         }
 

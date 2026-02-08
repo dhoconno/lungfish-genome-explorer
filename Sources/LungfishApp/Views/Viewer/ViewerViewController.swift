@@ -102,6 +102,9 @@ public class ViewerViewController: NSViewController {
 
     /// Progress indicator overlay
     private var progressOverlay: ProgressOverlayView!
+
+    /// Leading constraints for ruler, viewer, and overlay — animated by chromosome drawer
+    var contentLeadingConstraints: [NSLayoutConstraint] = []
     
     /// QuickLook preview view for non-genomics files (images, text, etc.)
     private var quickLookView: QLPreviewView?
@@ -165,14 +168,10 @@ public class ViewerViewController: NSViewController {
         enhancedRulerView.delegate = self
         containerView.addSubview(enhancedRulerView)
 
-        // Create track header view - sync with SequenceStackLayout values
+        // Header view no longer displayed — left margin removed for cleaner layout
         headerView = TrackHeaderView()
         headerView.translatesAutoresizingMaskIntoConstraints = false
-        headerView.trackY = SequenceStackLayout.defaultTrackHeight  // Use same startY as layout (20)
-        headerView.trackHeight = SequenceStackLayout.defaultTrackHeight
-        headerView.trackSpacing = SequenceStackLayout.trackSpacing
-        headerView.delegate = self
-        containerView.addSubview(headerView)
+        headerView.isHidden = true
 
         // Create main viewer view
         viewerView = SequenceViewerView()
@@ -193,27 +192,26 @@ public class ViewerViewController: NSViewController {
         progressOverlay.isHidden = true
         containerView.addSubview(progressOverlay)
 
-        // Layout
-        let headerWidth: CGFloat = 100
+        // Layout — leading constraints stored for chromosome drawer resize
         let rulerHeight: CGFloat = EnhancedCoordinateRulerView.recommendedHeight  // 56px with info bar, mini-map, ruler
         let statusHeight: CGFloat = 24
+
+        let rulerLeading = enhancedRulerView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor)
+        let viewerLeading = viewerView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor)
+        let overlayLeading = progressOverlay.leadingAnchor.constraint(equalTo: containerView.leadingAnchor)
+
+        contentLeadingConstraints = [rulerLeading, viewerLeading, overlayLeading]
 
         NSLayoutConstraint.activate([
             // Enhanced ruler spans full width above content, using safe area to avoid toolbar overlap
             enhancedRulerView.topAnchor.constraint(equalTo: containerView.safeAreaLayoutGuide.topAnchor),
-            enhancedRulerView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: headerWidth),
+            rulerLeading,
             enhancedRulerView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             enhancedRulerView.heightAnchor.constraint(equalToConstant: rulerHeight),
 
-            // Header on the left
-            headerView.topAnchor.constraint(equalTo: enhancedRulerView.bottomAnchor),
-            headerView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            headerView.widthAnchor.constraint(equalToConstant: headerWidth),
-            headerView.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
-
-            // Viewer fills the main area
+            // Viewer fills the main area (full width)
             viewerView.topAnchor.constraint(equalTo: enhancedRulerView.bottomAnchor),
-            viewerView.leadingAnchor.constraint(equalTo: headerView.trailingAnchor),
+            viewerLeading,
             viewerView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             viewerView.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
 
@@ -225,7 +223,7 @@ public class ViewerViewController: NSViewController {
 
             // Progress overlay covers the viewer area
             progressOverlay.topAnchor.constraint(equalTo: enhancedRulerView.bottomAnchor),
-            progressOverlay.leadingAnchor.constraint(equalTo: headerView.trailingAnchor),
+            overlayLeading,
             progressOverlay.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             progressOverlay.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
         ])
@@ -1814,10 +1812,74 @@ public class SequenceViewerView: NSView {
            !annots.contains(where: { $0.id == selected.id }) {
             selectedAnnotation = nil
         }
+        invalidateAnnotationTile()
         setNeedsDisplay(bounds)
         logger.debug("SequenceViewerView.setAnnotations: Requested display refresh")
     }
-    
+
+    /// Updates a single annotation in-place (both document and bundle caches).
+    ///
+    /// Used when the inspector changes an annotation's color, name, or other properties.
+    /// Handles both document mode (`annotations`) and bundle mode (`cachedBundleAnnotations`).
+    func updateAnnotation(_ annotation: SequenceAnnotation) {
+        var updated = false
+
+        // Update in document-mode annotations
+        if let index = annotations.firstIndex(where: { $0.id == annotation.id }) {
+            annotations[index] = annotation
+            updated = true
+        }
+
+        // Update in bundle-mode cached annotations
+        if let index = cachedBundleAnnotations.firstIndex(where: { $0.id == annotation.id }) {
+            cachedBundleAnnotations[index] = annotation
+            updated = true
+        }
+
+        // Update in variant annotations
+        if let index = cachedVariantAnnotations.firstIndex(where: { $0.id == annotation.id }) {
+            cachedVariantAnnotations[index] = annotation
+            updated = true
+        }
+
+        if updated {
+            invalidateAnnotationTile()
+            setNeedsDisplay(bounds)
+        }
+    }
+
+    /// Applies a color to all annotations of a given type (both document and bundle caches).
+    ///
+    /// Used when the inspector applies a color to all annotations of a specific type.
+    func applyColorToType(_ type: AnnotationType, color: AnnotationColor) {
+        var updatedCount = 0
+
+        // Update in document-mode annotations
+        for (index, annotation) in annotations.enumerated() where annotation.type == type {
+            var updated = annotation
+            updated.color = color
+            annotations[index] = updated
+            updatedCount += 1
+        }
+
+        // Update in bundle-mode cached annotations
+        for (index, annotation) in cachedBundleAnnotations.enumerated() where annotation.type == type {
+            var updated = annotation
+            updated.color = color
+            cachedBundleAnnotations[index] = updated
+            updatedCount += 1
+        }
+
+        if updatedCount > 0 {
+            // Clear CGColor caches since type colors changed
+            typeColorCache.removeAll()
+            typeDensityColorCache.removeAll()
+            invalidateAnnotationTile()
+            setNeedsDisplay(bounds)
+            logger.info("applyColorToType: Updated \(updatedCount) \(type.rawValue) annotations")
+        }
+    }
+
     /// Sets a reference bundle for display.
     ///
     /// When a reference bundle is set, the viewer fetches sequence and annotation
@@ -2801,14 +2863,38 @@ public class SequenceViewerView: NSView {
             let y = annotationTrackY + CGFloat(rowIndex) * (squishedHeight + squishedSpacing)
 
             for annot in row {
-                let startX = frame.screenPosition(for: Double(annot.start))
-                let endX = frame.screenPosition(for: Double(annot.end))
-                let width = max(1, endX - startX)
-
                 let colors = cachedColors(for: annot)
-                let rect = CGRect(x: startX, y: y, width: width, height: squishedHeight)
-                context.setFillColor(colors.fill)
-                context.fill(rect)
+
+                if annot.isDiscontinuous {
+                    // Discontiguous: connector line + block rectangles
+                    let fullStartX = frame.screenPosition(for: Double(annot.start))
+                    let fullEndX = frame.screenPosition(for: Double(annot.end))
+                    let midY = y + squishedHeight / 2
+
+                    // Draw connector line through intron regions
+                    context.setStrokeColor(colors.fill)
+                    context.setLineWidth(1)
+                    context.move(to: CGPoint(x: fullStartX, y: midY))
+                    context.addLine(to: CGPoint(x: fullEndX, y: midY))
+                    context.strokePath()
+
+                    // Draw each interval (exon) as a filled block
+                    context.setFillColor(colors.fill)
+                    for interval in annot.intervals {
+                        let ix = frame.screenPosition(for: Double(interval.start))
+                        let ix2 = frame.screenPosition(for: Double(interval.end))
+                        let iw = max(1, ix2 - ix)
+                        context.fill(CGRect(x: ix, y: y, width: iw, height: squishedHeight))
+                    }
+                } else {
+                    // Continuous: single filled rectangle
+                    let startX = frame.screenPosition(for: Double(annot.start))
+                    let endX = frame.screenPosition(for: Double(annot.end))
+                    let width = max(1, endX - startX)
+                    let rect = CGRect(x: startX, y: y, width: width, height: squishedHeight)
+                    context.setFillColor(colors.fill)
+                    context.fill(rect)
+                }
             }
         }
 
@@ -2821,6 +2907,8 @@ public class SequenceViewerView: NSView {
     // MARK: - Expanded Mode (close zoom — full detail with labels)
 
     /// Draws annotations as full-height boxes with labels and strand indicators.
+    /// Discontiguous features (e.g., transcripts with exons) are rendered with a
+    /// thin connector line and thick blocks for each interval, like IGV/Geneious.
     private func drawAnnotationsExpanded(_ annotations: [SequenceAnnotation], frame: ReferenceFrame, context: CGContext) {
         let (rows, overflow) = packAnnotationsLayered(annotations, frame: frame)
         let rowCount = rows.count
@@ -2835,38 +2923,87 @@ public class SequenceViewerView: NSView {
 
                 let colors = cachedColors(for: annot)
 
-                // Draw annotation box
-                let rect = CGRect(x: startX, y: y, width: width, height: annotationHeight)
-                context.setFillColor(colors.fill)
-                context.fill(rect)
+                if annot.isDiscontinuous {
+                    // Discontiguous: connector line + block rectangles (IGV-style)
+                    let midY = y + annotationHeight / 2
+                    let connectorHeight: CGFloat = 2
 
-                // Draw border
-                context.setStrokeColor(colors.stroke)
-                context.setLineWidth(1)
-                context.stroke(rect)
+                    // Draw connector line (thin bar through intron regions)
+                    context.setFillColor(colors.fill)
+                    context.fill(CGRect(x: startX, y: midY - connectorHeight / 2,
+                                        width: width, height: connectorHeight))
 
-                // Draw label if space permits
-                if shouldRenderExpandedLabel(for: annot, width: width, rowCount: rowCount) {
-                    let label = displayLabel(for: annot)
-                    let paragraph = NSMutableParagraphStyle()
-                    paragraph.lineBreakMode = .byTruncatingTail
-                    let font = NSFont.systemFont(ofSize: 10)
-                    let attributes: [NSAttributedString.Key: Any] = [
-                        .font: font,
-                        .foregroundColor: NSColor.textColor,
-                        .paragraphStyle: paragraph,
-                    ]
-                    let labelRect = CGRect(x: startX + 2, y: y + 1, width: width - 4, height: annotationHeight - 2)
-                    (label as NSString).draw(
-                        with: labelRect,
-                        options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
-                        attributes: attributes
-                    )
-                }
+                    // Draw each interval (exon) as a full-height filled block
+                    for interval in annot.intervals {
+                        let ix = frame.screenPosition(for: Double(interval.start))
+                        let ix2 = frame.screenPosition(for: Double(interval.end))
+                        let iw = max(1, ix2 - ix)
+                        let blockRect = CGRect(x: ix, y: y, width: iw, height: annotationHeight)
+                        context.setFillColor(colors.fill)
+                        context.fill(blockRect)
+                        context.setStrokeColor(colors.stroke)
+                        context.setLineWidth(1)
+                        context.stroke(blockRect)
+                    }
 
-                // Draw strand arrow if feature is wide enough
-                if width > 8 {
-                    drawStrandArrow(strand: annot.strand, rect: rect, context: context)
+                    // Draw strand arrows on connector if feature is wide enough
+                    let boundingRect = CGRect(x: startX, y: y, width: width, height: annotationHeight)
+                    if width > 8 {
+                        drawStrandArrow(strand: annot.strand, rect: boundingRect, context: context)
+                    }
+
+                    // Draw label above or inside the feature
+                    if shouldRenderExpandedLabel(for: annot, width: width, rowCount: rowCount) {
+                        let label = displayLabel(for: annot)
+                        let paragraph = NSMutableParagraphStyle()
+                        paragraph.lineBreakMode = .byTruncatingTail
+                        let font = NSFont.systemFont(ofSize: 10)
+                        let attributes: [NSAttributedString.Key: Any] = [
+                            .font: font,
+                            .foregroundColor: NSColor.textColor,
+                            .paragraphStyle: paragraph,
+                        ]
+                        let labelRect = CGRect(x: startX + 2, y: y + 1, width: width - 4, height: annotationHeight - 2)
+                        (label as NSString).draw(
+                            with: labelRect,
+                            options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+                            attributes: attributes
+                        )
+                    }
+                } else {
+                    // Continuous: single filled rectangle with border
+                    let rect = CGRect(x: startX, y: y, width: width, height: annotationHeight)
+                    context.setFillColor(colors.fill)
+                    context.fill(rect)
+
+                    // Draw border
+                    context.setStrokeColor(colors.stroke)
+                    context.setLineWidth(1)
+                    context.stroke(rect)
+
+                    // Draw label if space permits
+                    if shouldRenderExpandedLabel(for: annot, width: width, rowCount: rowCount) {
+                        let label = displayLabel(for: annot)
+                        let paragraph = NSMutableParagraphStyle()
+                        paragraph.lineBreakMode = .byTruncatingTail
+                        let font = NSFont.systemFont(ofSize: 10)
+                        let attributes: [NSAttributedString.Key: Any] = [
+                            .font: font,
+                            .foregroundColor: NSColor.textColor,
+                            .paragraphStyle: paragraph,
+                        ]
+                        let labelRect = CGRect(x: startX + 2, y: y + 1, width: width - 4, height: annotationHeight - 2)
+                        (label as NSString).draw(
+                            with: labelRect,
+                            options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+                            attributes: attributes
+                        )
+                    }
+
+                    // Draw strand arrow if feature is wide enough
+                    if width > 8 {
+                        drawStrandArrow(strand: annot.strand, rect: rect, context: context)
+                    }
                 }
             }
         }
@@ -3607,16 +3744,18 @@ public class SequenceViewerView: NSView {
         let displayAnnotations = filteredAnnotations()
 
         for annotation in displayAnnotations {
-            guard let interval = annotation.intervals.first else { continue }
+            // Use bounding region for both continuous and discontiguous annotations
+            let annotStart = annotation.start
+            let annotEnd = annotation.end
 
             // Check if annotation is visible
-            if interval.end < visibleStart || interval.start > visibleEnd {
+            if annotEnd < visibleStart || annotStart > visibleEnd {
                 continue
             }
 
             // Calculate screen coordinates (must match drawAnnotations logic exactly)
-            let rawStartX = CGFloat(interval.start - visibleStart) * pixelsPerBase
-            let endX = CGFloat(interval.end - visibleStart) * pixelsPerBase
+            let rawStartX = CGFloat(annotStart - visibleStart) * pixelsPerBase
+            let endX = CGFloat(annotEnd - visibleStart) * pixelsPerBase
             // Clamp startX to view bounds (same as in drawAnnotations)
             let startX = max(0, rawStartX)
             let width = max(2, endX - startX)
@@ -3669,14 +3808,15 @@ public class SequenceViewerView: NSView {
         let displayAnnotations = filteredAnnotations()
 
         for annotation in displayAnnotations {
-            guard let interval = annotation.intervals.first else { continue }
+            let annotStart = annotation.start
+            let annotEnd = annotation.end
 
-            if interval.end < visibleStart || interval.start > visibleEnd {
+            if annotEnd < visibleStart || annotStart > visibleEnd {
                 continue
             }
 
-            let rawStartX = CGFloat(interval.start - visibleStart) * pixelsPerBase
-            let endX = CGFloat(interval.end - visibleStart) * pixelsPerBase
+            let rawStartX = CGFloat(annotStart - visibleStart) * pixelsPerBase
+            let endX = CGFloat(annotEnd - visibleStart) * pixelsPerBase
             let startX = max(0, rawStartX)
             let width = max(2, endX - startX)
 
