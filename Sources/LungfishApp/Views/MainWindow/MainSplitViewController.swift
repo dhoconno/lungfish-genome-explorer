@@ -51,6 +51,23 @@ public class MainSplitViewController: NSSplitViewController {
     private var viewerItem: NSSplitViewItem!
     private var inspectorItem: NSSplitViewItem!
 
+    // MARK: - Inspector Toggle State
+
+    /// True while an inspector collapse/expand animation is in progress.
+    private var inspectorTransitionInFlight = false
+
+    /// Queued collapsed state requested while an animation is running.
+    private var queuedInspectorCollapsedState: Bool?
+
+    /// Monotonic serial for guarding completion/fallback callbacks.
+    private var inspectorTransitionSerial: Int = 0
+
+    /// Uptime timestamp when the current inspector transition began.
+    private var inspectorTransitionStartTime: TimeInterval = 0
+
+    /// Collapsed target for the active inspector transition.
+    private var inspectorTransitionTargetCollapsedState: Bool?
+
     // MARK: - Configuration
 
     /// Minimum sidebar width
@@ -120,6 +137,7 @@ public class MainSplitViewController: NSSplitViewController {
         sidebarController = SidebarViewController()
         viewerController = ViewerViewController()
         inspectorController = InspectorViewController()
+        _ = inspectorController.view
         logger.info("configureChildControllers: Created all three view controllers")
 
         // Set up delegate for direct selection handling (avoids async Task issues)
@@ -223,12 +241,12 @@ public class MainSplitViewController: NSSplitViewController {
 
     @objc private func handleShowInspector(_ notification: Notification) {
         logger.info("handleShowInspector: Showing inspector panel")
-        setInspectorVisible(true, animated: true)
+        setInspectorVisible(true, animated: false, source: "notification.showInspector")
     }
 
     @objc private func handleBundleDidLoad(_ notification: Notification) {
         logger.info("handleBundleDidLoad: Bundle loaded, ensuring inspector is visible")
-        setInspectorVisible(true, animated: true)
+        setInspectorVisible(true, animated: false, source: "notification.bundleDidLoad")
     }
 
     @objc private func handleSidebarSelectionChanged(_ notification: Notification) {
@@ -581,21 +599,11 @@ public class MainSplitViewController: NSSplitViewController {
     }
 
     /// Toggles the inspector visibility with animation.
-    public func toggleInspector() {
-        logger.info("toggleInspector: isCollapsed=\(self.inspectorItem.isCollapsed)")
-
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.25
-            context.allowsImplicitAnimation = true
-            self.inspectorItem.animator().isCollapsed.toggle()
-        } completionHandler: { [weak self] in
-            DispatchQueue.main.async { [weak self] in
-                MainActor.assumeIsolated {
-                    self?.savePanelState()
-                    logger.info("toggleInspector: toggle complete, isCollapsed=\(self?.inspectorItem.isCollapsed ?? true)")
-                }
-            }
-        }
+    public func toggleInspector(source: String = "api.toggleInspector") {
+        let beforeCollapsed = inspectorItem.isCollapsed
+        let targetVisible = beforeCollapsed
+        logger.info("toggleInspector[\(source, privacy: .public)]: pressed (isCollapsed=\(beforeCollapsed), targetVisible=\(targetVisible))")
+        setInspectorVisible(targetVisible, animated: false, source: source)
     }
 
     /// Shows or hides the sidebar.
@@ -611,15 +619,133 @@ public class MainSplitViewController: NSSplitViewController {
     }
 
     /// Shows or hides the inspector.
-    public func setInspectorVisible(_ visible: Bool, animated: Bool = true) {
-        guard inspectorItem.isCollapsed == visible else { return }
+    public func setInspectorVisible(_ visible: Bool, animated: Bool = true, source: String = "api.setInspectorVisible") {
+        let targetCollapsedState = !visible
+        let now = ProcessInfo.processInfo.systemUptime
+        logger.info(
+            "setInspectorVisible[\(source, privacy: .public)]: requested visible=\(visible), animated=\(animated), currentIsCollapsed=\(self.inspectorItem.isCollapsed), targetIsCollapsed=\(targetCollapsedState), inFlight=\(self.inspectorTransitionInFlight)"
+        )
+
+        if inspectorTransitionInFlight {
+            let transitionAge = now - inspectorTransitionStartTime
+            if transitionAge > 0.8 {
+                logger.error(
+                    "setInspectorVisible[\(source, privacy: .public)]: stale in-flight transition detected age=\(transitionAge, privacy: .public)s target=\(String(describing: self.inspectorTransitionTargetCollapsedState), privacy: .public); forcing recovery"
+                )
+                inspectorTransitionInFlight = false
+                inspectorTransitionTargetCollapsedState = nil
+                queuedInspectorCollapsedState = nil
+            } else {
+            if queuedInspectorCollapsedState == targetCollapsedState {
+                logger.info(
+                    "animateInspectorCollapse[\(source, privacy: .public)]: in-flight, duplicate queued target ignored isCollapsed=\(targetCollapsedState)"
+                )
+            } else {
+                queuedInspectorCollapsedState = targetCollapsedState
+                logger.info(
+                    "animateInspectorCollapse[\(source, privacy: .public)]: in-flight, queued target isCollapsed=\(targetCollapsedState)"
+                )
+            }
+            return
+            }
+        }
+
+        guard inspectorItem.isCollapsed != targetCollapsedState else {
+            logger.info("setInspectorVisible[\(source, privacy: .public)]: no-op (already at target)")
+            if visible {
+                // Keep inspector controls and viewer state synchronized even if no
+                // split-view transition was needed.
+                inspectorController.inspectorVisibilityDidChange(isVisible: true)
+            }
+            return
+        }
 
         if animated {
-            toggleInspector()
+            animateInspectorCollapse(to: targetCollapsedState, source: source)
         } else {
-            inspectorItem.isCollapsed = !visible
-            savePanelState()
+            inspectorItem.isCollapsed = targetCollapsedState
+            queuedInspectorCollapsedState = nil
+            finalizeInspectorVisibilityChange(source: source)
         }
+    }
+
+    /// Runs an inspector collapse/expand animation, serializing concurrent requests.
+    private func animateInspectorCollapse(to targetCollapsedState: Bool, source: String) {
+        inspectorTransitionInFlight = true
+        inspectorTransitionSerial += 1
+        inspectorTransitionStartTime = ProcessInfo.processInfo.systemUptime
+        inspectorTransitionTargetCollapsedState = targetCollapsedState
+        let serial = inspectorTransitionSerial
+
+        logger.info(
+            "animateInspectorCollapse[\(source, privacy: .public)]: start from isCollapsed=\(self.inspectorItem.isCollapsed) to isCollapsed=\(targetCollapsedState)"
+        )
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.25
+            context.allowsImplicitAnimation = true
+            self.inspectorItem.animator().isCollapsed = targetCollapsedState
+        } completionHandler: { [weak self] in
+            logger.info("animateInspectorCollapse[\(source, privacy: .public)]: completion callback fired for serial=\(serial)")
+            DispatchQueue.main.async { [weak self] in
+                self?.completeInspectorCollapseAnimation(serial: serial, source: "\(source).completion")
+            }
+        }
+
+        // Fallback finalization path for cases where AppKit doesn't invoke
+        // split-view animation completion callbacks reliably.
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            await MainActor.run {
+                logger.info("animateInspectorCollapse[\(source, privacy: .public)]: fallback callback fired for serial=\(serial)")
+                self?.completeInspectorCollapseAnimation(serial: serial, source: "\(source).fallback")
+            }
+        }
+    }
+
+    /// Completes an inspector animation exactly once for a transition serial.
+    private func completeInspectorCollapseAnimation(serial: Int, source: String) {
+        guard serial == inspectorTransitionSerial else {
+            logger.debug(
+                "completeInspectorCollapseAnimation[\(source, privacy: .public)]: stale serial \(serial) (current=\(self.inspectorTransitionSerial)), ignoring"
+            )
+            return
+        }
+
+        guard inspectorTransitionInFlight else {
+            logger.debug(
+                "completeInspectorCollapseAnimation[\(source, privacy: .public)]: already finalized"
+            )
+            return
+        }
+
+        inspectorTransitionInFlight = false
+        inspectorTransitionTargetCollapsedState = nil
+        finalizeInspectorVisibilityChange(source: source)
+
+        guard let queuedTarget = queuedInspectorCollapsedState else { return }
+        queuedInspectorCollapsedState = nil
+
+        guard queuedTarget != inspectorItem.isCollapsed else {
+            logger.info(
+                "animateInspectorCollapse[\(source, privacy: .public)]: queued target already satisfied isCollapsed=\(queuedTarget)"
+            )
+            return
+        }
+
+        logger.info(
+            "animateInspectorCollapse[\(source, privacy: .public)]: applying queued target isCollapsed=\(queuedTarget)"
+        )
+        animateInspectorCollapse(to: queuedTarget, source: "queued")
+    }
+
+    /// Persists state and notifies inspector after visibility transitions.
+    private func finalizeInspectorVisibilityChange(source: String) {
+        savePanelState()
+        inspectorController.inspectorVisibilityDidChange(isVisible: !inspectorItem.isCollapsed)
+        logger.info(
+            "finalizeInspectorVisibilityChange[\(source, privacy: .public)]: isCollapsed=\(self.inspectorItem.isCollapsed), queued=\(String(describing: self.queuedInspectorCollapsedState), privacy: .public)"
+        )
     }
 
     /// Whether the sidebar is currently visible.
@@ -649,7 +775,17 @@ public class MainSplitViewController: NSSplitViewController {
     }
 
     public override func splitViewDidResizeSubviews(_ notification: Notification) {
-        // Placeholder for future toolbar tracking separator updates if needed
+        guard inspectorTransitionInFlight else { return }
+        guard let targetCollapsed = inspectorTransitionTargetCollapsedState else { return }
+        guard inspectorItem.isCollapsed == targetCollapsed else { return }
+
+        logger.info(
+            "splitViewDidResizeSubviews: transition reached target isCollapsed=\(targetCollapsed), forcing completion"
+        )
+        completeInspectorCollapseAnimation(
+            serial: inspectorTransitionSerial,
+            source: "splitViewDidResizeSubviews"
+        )
     }
 }
 

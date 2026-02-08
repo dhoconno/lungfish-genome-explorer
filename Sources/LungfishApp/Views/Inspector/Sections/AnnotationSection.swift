@@ -47,26 +47,83 @@ public final class AnnotationSectionViewModel {
 
     public init() {}
 
+    /// Notifies listeners that annotation display settings changed.
+    ///
+    /// Falls back to posting a global notification when the inspector controller
+    /// callback is not attached (e.g., during panel lifecycle transitions).
+    public func notifySettingsChanged() {
+        NSLog(
+            "AnnotationSectionViewModel.notifySettingsChanged: show=%@ height=%.1f spacing=%.1f callback=%@",
+            showAnnotations ? "true" : "false",
+            annotationHeight,
+            annotationSpacing,
+            onSettingsChanged == nil ? "nil" : "set"
+        )
+        if let onSettingsChanged {
+            onSettingsChanged()
+            return
+        }
+
+        NotificationCenter.default.post(
+            name: .annotationSettingsChanged,
+            object: self,
+            userInfo: [
+                "showAnnotations": showAnnotations,
+                "annotationHeight": annotationHeight,
+                "annotationSpacing": annotationSpacing
+            ]
+        )
+    }
+
+    /// Notifies listeners that annotation type/text filters changed.
+    ///
+    /// Falls back to posting a global notification when the inspector controller
+    /// callback is not attached (e.g., during panel lifecycle transitions).
+    public func notifyFilterChanged() {
+        NSLog(
+            "AnnotationSectionViewModel.notifyFilterChanged: visibleTypes=%ld filter='%@' callback=%@",
+            visibleTypes.count,
+            filterText,
+            onFilterChanged == nil ? "nil" : "set"
+        )
+        if let onFilterChanged {
+            onFilterChanged(visibleTypes, filterText)
+            return
+        }
+
+        NotificationCenter.default.post(
+            name: .annotationFilterChanged,
+            object: self,
+            userInfo: [
+                "visibleTypes": visibleTypes,
+                "filterText": filterText
+            ]
+        )
+    }
+
     /// Toggles visibility of an annotation type
     public func toggleType(_ type: AnnotationType) {
+        NSLog("AnnotationSectionViewModel.toggleType: type=%@", type.rawValue)
         if visibleTypes.contains(type) {
             visibleTypes.remove(type)
         } else {
             visibleTypes.insert(type)
         }
-        onFilterChanged?(visibleTypes, filterText)
+        notifyFilterChanged()
     }
 
     /// Shows all annotation types
     public func showAllTypes() {
+        NSLog("AnnotationSectionViewModel.showAllTypes")
         visibleTypes = Set(AnnotationType.allCases)
-        onFilterChanged?(visibleTypes, filterText)
+        notifyFilterChanged()
     }
 
     /// Hides all annotation types
     public func hideAllTypes() {
+        NSLog("AnnotationSectionViewModel.hideAllTypes")
         visibleTypes = []
-        onFilterChanged?(visibleTypes, filterText)
+        notifyFilterChanged()
     }
 
     /// Resets all annotation settings to their default values.
@@ -78,8 +135,8 @@ public final class AnnotationSectionViewModel {
         showAnnotations = Self.defaultShowAnnotations
         visibleTypes = Set(AnnotationType.allCases)
         filterText = ""
-        onSettingsChanged?()
-        onFilterChanged?(visibleTypes, filterText)
+        notifySettingsChanged()
+        notifyFilterChanged()
     }
 }
 
@@ -126,7 +183,7 @@ public struct AnnotationSection: View {
         .toggleStyle(.switch)
         .controlSize(.small)
         .onChange(of: viewModel.showAnnotations) { _, _ in
-            viewModel.onSettingsChanged?()
+            viewModel.notifySettingsChanged()
         }
     }
 
@@ -152,7 +209,7 @@ public struct AnnotationSection: View {
 
             Slider(value: $viewModel.annotationHeight, in: 8...32, step: 2)
                 .onChange(of: viewModel.annotationHeight) { _, _ in
-                    viewModel.onSettingsChanged?()
+                    viewModel.notifySettingsChanged()
                 }
 
             // Row spacing
@@ -168,7 +225,7 @@ public struct AnnotationSection: View {
 
             Slider(value: $viewModel.annotationSpacing, in: 0...10, step: 1)
                 .onChange(of: viewModel.annotationSpacing) { _, _ in
-                    viewModel.onSettingsChanged?()
+                    viewModel.notifySettingsChanged()
                 }
         }
     }

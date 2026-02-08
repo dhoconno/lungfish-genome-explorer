@@ -32,6 +32,12 @@ public class InspectorViewController: NSViewController {
     /// Cancellables for Combine subscriptions
     private var cancellables = Set<AnyCancellable>()
 
+    /// Prevents duplicate NotificationCenter observer registration.
+    private var hasRegisteredNotificationObservers = false
+
+    /// Tracks last split-view visibility reported by MainSplitViewController.
+    private var wasInspectorVisible = true
+
     // MARK: - Lifecycle
 
     public override func loadView() {
@@ -44,14 +50,37 @@ public class InspectorViewController: NSViewController {
 
     public override func viewDidLoad() {
         super.viewDidLoad()
-        setupNotificationObservers()
-        setupViewModelCallbacks()
+        ensureInspectorWiring()
+    }
+
+    public override func viewWillAppear() {
+        super.viewWillAppear()
+        logger.info("viewWillAppear: Inspector view appearing")
+        wasInspectorVisible = true
+        ensureInspectorWiring()
+        syncAnnotationStateToViewer()
+    }
+
+    // MARK: - Hosting View Refresh
+
+    /// Forces SwiftUI to re-establish @Bindable observation tracking after the
+    /// inspector is uncollapsed from an NSSplitViewItem hide/show cycle.
+    ///
+    /// When the inspector's NSSplitViewItem is collapsed, the @Bindable wrappers
+    /// in section views (AppearanceSection, AnnotationSection, etc.) can lose
+    /// their two-way binding connections to @Observable view models. Reassigning
+    /// rootView creates a fresh SwiftUI view tree that re-binds to the same
+    /// view model instances, restoring slider/toggle/picker interactivity.
+    public func refreshHostingView() {
+        hostingView.rootView = InspectorView(viewModel: viewModel)
     }
 
     // MARK: - Setup
 
     /// Sets up notification observers for annotation and appearance changes.
     private func setupNotificationObservers() {
+        guard !hasRegisteredNotificationObservers else { return }
+
         // Listen for sidebar selection changes
         NotificationCenter.default.addObserver(
             self,
@@ -67,6 +96,8 @@ public class InspectorViewController: NSViewController {
             name: .annotationSelected,
             object: nil
         )
+
+        hasRegisteredNotificationObservers = true
     }
 
     /// Sets up callbacks for view model section changes.
@@ -110,6 +141,30 @@ public class InspectorViewController: NSViewController {
         viewModel.annotationSectionViewModel.onFilterChanged = { [weak self] visibleTypes, filterText in
             self?.handleAnnotationFilterChanged(visibleTypes: visibleTypes, filterText: filterText)
         }
+    }
+
+    /// Ensures notification observers and section callbacks are bound.
+    ///
+    /// Rebinding callbacks on appearance keeps inspector controls active across
+    /// inspector show/hide and view lifecycle transitions.
+    private func ensureInspectorWiring() {
+        setupNotificationObservers()
+        setupViewModelCallbacks()
+        logger.debug(
+            "ensureInspectorWiring: callbacks settings=\(self.viewModel.annotationSectionViewModel.onSettingsChanged == nil ? "nil" : "set", privacy: .public) filter=\(self.viewModel.annotationSectionViewModel.onFilterChanged == nil ? "nil" : "set", privacy: .public)"
+        )
+    }
+
+    /// Broadcasts current annotation inspector state to viewers.
+    ///
+    /// Keeps viewer rendering synchronized when switching content and when the
+    /// inspector panel is re-shown.
+    private func syncAnnotationStateToViewer() {
+        handleAnnotationSettingsChanged()
+        handleAnnotationFilterChanged(
+            visibleTypes: viewModel.annotationSectionViewModel.visibleTypes,
+            filterText: viewModel.annotationSectionViewModel.filterText
+        )
     }
 
     /// Handles annotation display settings changes.
@@ -156,6 +211,10 @@ public class InspectorViewController: NSViewController {
         // Update UI state only - document loading is handled by MainSplitViewController
         viewModel.selectedItem = item.title
         viewModel.selectedType = item.type.description
+
+        if item.type == .sequence || item.type == .annotation || item.type == .alignment || item.type == .referenceBundle {
+            syncAnnotationStateToViewer()
+        }
 
         logger.debug("selectionDidChange: Updated inspector state for '\(item.title, privacy: .public)' type=\(item.type.description, privacy: .public)")
     }
@@ -354,6 +413,25 @@ public class InspectorViewController: NSViewController {
         viewModel.hasQualityData = hasData
         viewModel.qualityStats = statistics
         viewModel.qualitySectionViewModel.update(hasData: hasData, statistics: statistics)
+    }
+
+    /// Called by the split view controller when inspector visibility changes.
+    ///
+    /// Ensures control callbacks and current annotation settings remain active
+    /// after collapse/expand transitions.
+    public func inspectorVisibilityDidChange(isVisible: Bool) {
+        logger.info(
+            "inspectorVisibilityDidChange: isVisible=\(isVisible), wasVisible=\(self.wasInspectorVisible)"
+        )
+        wasInspectorVisible = isVisible
+
+        guard isVisible else { return }
+
+        logger.info("inspectorVisibilityDidChange: refreshing hosting view for visible inspector")
+        refreshHostingView()
+
+        ensureInspectorWiring()
+        syncAnnotationStateToViewer()
     }
 
     deinit {

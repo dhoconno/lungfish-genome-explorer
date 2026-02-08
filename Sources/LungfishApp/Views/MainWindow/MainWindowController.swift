@@ -33,6 +33,12 @@ public class MainWindowController: NSWindowController {
     /// Annotation search index for the current bundle.
     private var annotationSearchIndex: AnnotationSearchIndex?
 
+    /// Last toolbar inspector-toggle action dispatch time (uptime seconds).
+    private var lastInspectorToggleActionTime: TimeInterval = 0
+
+    /// Last AppKit event number handled by the inspector toggle action.
+    private var lastInspectorToggleEventNumber: Int?
+
     /// Flag to suppress combobox delegate callbacks during programmatic updates.
     private var isUpdatingCoordinatesProgrammatically = false
 
@@ -199,9 +205,12 @@ public class MainWindowController: NSWindowController {
 
     private func makeToolbarButton(symbolName: String, fallbacks: [String], accessibilityLabel: String) -> NSButton {
         let button = NSButton(frame: NSRect(x: 0, y: 0, width: 38, height: 24))
+        button.setButtonType(.momentaryPushIn)
         button.bezelStyle = .toolbar
         button.image = makeToolbarImage(symbolName: symbolName, fallbacks: fallbacks, accessibilityLabel: accessibilityLabel)
         button.imagePosition = .imageOnly
+        button.isContinuous = false
+        button.sendAction(on: [.leftMouseUp])
         button.setAccessibilityLabel(accessibilityLabel)
         return button
     }
@@ -213,7 +222,45 @@ public class MainWindowController: NSWindowController {
     }
 
     @objc public func toggleInspector(_ sender: Any?) {
-        mainSplitViewController.toggleInspector()
+        let senderType = sender.map { String(describing: type(of: $0)) } ?? "nil"
+        let now = ProcessInfo.processInfo.systemUptime
+        let event = NSApp.currentEvent
+        let eventType = event.map { String(describing: $0.type) } ?? "nil"
+        let eventNumber = event?.eventNumber
+        let clickCount = event?.clickCount ?? 0
+
+        if let eventNumber, lastInspectorToggleEventNumber == eventNumber {
+            NSLog(
+                "toggleInspector[MainWindowController]: duplicate action ignored sender=%@ eventType=%@ eventNumber=%ld clickCount=%ld",
+                senderType,
+                eventType,
+                eventNumber,
+                clickCount
+            )
+            return
+        }
+
+        if now - lastInspectorToggleActionTime < 0.25 {
+            NSLog(
+                "toggleInspector[MainWindowController]: duplicate action ignored sender=%@ eventType=%@ dt=%.3f",
+                senderType,
+                eventType,
+                now - lastInspectorToggleActionTime
+            )
+            return
+        }
+
+        lastInspectorToggleActionTime = now
+        lastInspectorToggleEventNumber = eventNumber
+        NSLog(
+            "toggleInspector[MainWindowController]: sender=%@ eventType=%@ eventNumber=%@ clickCount=%ld keyWindow=%@",
+            senderType,
+            eventType,
+            eventNumber.map(String.init) ?? "nil",
+            clickCount,
+            (window?.isKeyWindow == true) ? "true" : "false"
+        )
+        mainSplitViewController.toggleInspector(source: "MainWindowController.toggleInspector")
     }
 
     @objc public func toggleChromosomeDrawer(_ sender: Any?) {

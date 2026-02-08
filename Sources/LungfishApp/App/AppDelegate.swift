@@ -1049,7 +1049,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @objc func toggleInspector(_ sender: Any?) {
-        mainWindowController?.mainSplitViewController?.toggleInspector()
+        let senderType = sender.map { String(describing: type(of: $0)) } ?? "nil"
+        debugLog("toggleInspector[AppDelegate]: sender=\(senderType)")
+        mainWindowController?.mainSplitViewController?.toggleInspector(source: "AppDelegate.toggleInspector")
     }
 
     @objc func zoomIn(_ sender: Any?) {
