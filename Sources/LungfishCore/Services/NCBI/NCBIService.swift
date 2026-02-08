@@ -369,14 +369,17 @@ public actor NCBIService: DatabaseService {
             components.queryItems?.append(URLQueryItem(name: "api_key", value: apiKey))
         }
 
+        logger.info("assemblyEsummary: Fetching \(ids.count) assembly summary(ies) for ids=\(ids.joined(separator: ","), privacy: .public)")
         let data = try await makeRequest(url: components.url!)
 
         // Parse assembly-specific response
         let response = try JSONDecoder().decode(AssemblyESummaryResponse.self, from: data)
 
-        return ids.compactMap { id in
+        let summaries = ids.compactMap { id in
             response.result?[id]
         }
+        logger.info("assemblyEsummary: Got \(summaries.count) summaries, ftpRefSeq=\(summaries.first?.ftpPathRefSeq ?? "nil", privacy: .public)")
+        return summaries
     }
 
     // MARK: - Genome Download Methods
@@ -434,7 +437,9 @@ public actor NCBIService: DatabaseService {
         // Get file size using HEAD request
         var request = URLRequest(url: fileURL)
         request.httpMethod = "HEAD"
+        request.timeoutInterval = 30
 
+        logger.info("getGenomeFileInfo: HEAD \(fileURL.absoluteString, privacy: .public)")
         let (_, response) = try await URLSession.shared.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {

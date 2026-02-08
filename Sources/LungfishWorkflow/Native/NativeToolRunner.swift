@@ -535,6 +535,26 @@ extension NativeToolRunner {
         )
     }
     
+    /// Decompresses a gzip/bgzip file using `bgzip -d`.
+    ///
+    /// This handles both standard gzip and bgzip-compressed files.
+    /// The compressed file is replaced by the decompressed output.
+    ///
+    /// - Parameter inputPath: Path to the `.gz` file to decompress.
+    /// - Returns: The tool result.
+    public func bgzipDecompress(inputPath: URL) async throws -> NativeToolResult {
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: inputPath.path)[.size] as? Int64) ?? 0
+        // Decompression is faster than compression, but still needs generous timeout for large files
+        let estimatedTimeout: TimeInterval = max(300, Double(fileSize) / 20_000_000)
+
+        return try await run(
+            .bgzip,
+            arguments: ["-d", "-f", inputPath.path],
+            workingDirectory: inputPath.deletingLastPathComponent(),
+            timeout: estimatedTimeout
+        )
+    }
+
     /// Creates a FASTA index using samtools faidx.
     ///
     /// - Parameter fastaPath: Path to the FASTA file (can be compressed).
