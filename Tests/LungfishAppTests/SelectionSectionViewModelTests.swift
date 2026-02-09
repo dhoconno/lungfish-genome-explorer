@@ -202,6 +202,42 @@ final class SelectionSectionViewModelTests: XCTestCase {
         XCTAssertTrue(keys.contains("Product"), "Product should be supplemented from database")
     }
 
+    func testSettingDatabaseAfterSelectionRefreshesEnrichment() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("inspector_late_db_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bedContent = "chr1\t100\t500\tgeneA\t0\t+\t100\t500\t0,0,0\t1\t400\t0\tgene\tgene=BRCA1;product=some%20protein"
+        let bedURL = tempDir.appendingPathComponent("annotations.bed")
+        try bedContent.write(to: bedURL, atomically: true, encoding: .utf8)
+        let dbURL = tempDir.appendingPathComponent("annotations.db")
+        try AnnotationDatabase.createFromBED(bedURL: bedURL, outputURL: dbURL)
+        let db = try AnnotationDatabase(url: dbURL)
+
+        let vm = SelectionSectionViewModel()
+
+        let annotation = SequenceAnnotation(
+            type: .gene,
+            name: "geneA",
+            chromosome: "chr1",
+            intervals: [AnnotationInterval(start: 100, end: 500)],
+            strand: .forward,
+            qualifiers: [:]
+        )
+
+        // Select first with no DB: no enrichment.
+        vm.select(annotation: annotation)
+        XCTAssertTrue(vm.qualifierPairs.isEmpty)
+
+        // Wire DB afterward: enrichment should refresh without re-selection.
+        vm.annotationDatabase = db
+
+        let keys = vm.qualifierPairs.map(\.key)
+        XCTAssertTrue(keys.contains("Gene"))
+        XCTAssertTrue(keys.contains("Product"))
+    }
+
     // MARK: - makeDbxrefURL
 
     func testMakeDbxrefURLForKnownDatabases() {

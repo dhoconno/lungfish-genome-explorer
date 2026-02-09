@@ -66,7 +66,15 @@ public final class SelectionSectionViewModel {
 
     /// Optional reference to the annotation database for enrichment lookups.
     @ObservationIgnored
-    public var annotationDatabase: AnnotationDatabase?
+    public var annotationDatabase: AnnotationDatabase? {
+        didSet {
+            // If a selection already exists, refresh enrichment immediately when
+            // database wiring changes (e.g. index build completes after selection).
+            if let selectedAnnotation {
+                extractEnrichment(from: selectedAnnotation)
+            }
+        }
+    }
 
     public init() {}
 
