@@ -321,7 +321,7 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
             object: self,
             userInfo: [
                 NotificationUserInfoKey.chromosome: chromosome,
-                "switchTab": true,
+                NotificationUserInfoKey.switchInspectorTab: true,
             ]
         )
         logger.info("ChromosomeNavigatorView: Show in Inspector requested for '\(chromosome.name, privacy: .public)'")

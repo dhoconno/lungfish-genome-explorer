@@ -135,4 +135,7 @@ public enum NotificationUserInfoKey {
 
     /// Key for the inspector tab to switch to (String).
     public static let inspectorTab = "tab"
+
+    /// Key indicating whether chromosome inspector requests should switch to Document tab (Bool).
+    public static let switchInspectorTab = "switchTab"
 }
