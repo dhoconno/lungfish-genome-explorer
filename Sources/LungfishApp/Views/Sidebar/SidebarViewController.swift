@@ -498,9 +498,10 @@ public class SidebarViewController: NSViewController {
             }
         }
 
-        // Create the item
+        // Create the item (strip .lungfishref extension for display)
+        let displayName = itemType == .referenceBundle ? url.deletingPathExtension().lastPathComponent : filename
         let item = SidebarItem(
-            title: filename,
+            title: displayName,
             type: itemType,
             icon: icon,
             children: [],
