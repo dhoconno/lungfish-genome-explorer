@@ -303,15 +303,12 @@ public class InspectorViewController: NSViewController {
 
     /// Handles chromosome inspector requests and updates chromosome details state.
     ///
-    /// When `switchTab` is true in userInfo (e.g., from context menu "Show in Inspector"),
-    /// the inspector switches to the Document tab. Regular navigation updates chromosome
-    /// details without changing the active tab.
+    /// Always switches to the Document tab when a chromosome is selected so the
+    /// chromosome metadata is immediately visible in the inspector.
     @objc private func handleChromosomeInspectorRequested(_ notification: Notification) {
         let chromosome = notification.userInfo?[NotificationUserInfoKey.chromosome] as? ChromosomeInfo
         updateSelectedChromosome(chromosome)
-
-        let shouldSwitchTab = notification.userInfo?["switchTab"] as? Bool ?? false
-        if chromosome != nil && shouldSwitchTab {
+        if chromosome != nil {
             viewModel.selectedTab = .document
         }
     }
@@ -500,10 +497,6 @@ public class InspectorViewController: NSViewController {
     ///   - bundleURL: The URL of the loaded bundle
     public func updateBundleMetadata(manifest: BundleManifest?, bundleURL: URL?) {
         viewModel.documentSectionViewModel.update(manifest: manifest, bundleURL: bundleURL)
-        // Auto-switch to Document tab when a bundle loads
-        if manifest != nil {
-            viewModel.selectedTab = .document
-        }
     }
 
     /// Updates the chromosome selection in the Document tab.
