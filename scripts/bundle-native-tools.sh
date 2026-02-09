@@ -28,9 +28,9 @@
 set -e
 
 # Configuration
-SAMTOOLS_VERSION="1.21"
-BCFTOOLS_VERSION="1.21"
-HTSLIB_VERSION="1.21"
+SAMTOOLS_VERSION="1.22.1"
+BCFTOOLS_VERSION="1.22"
+HTSLIB_VERSION="1.22.1"
 UCSC_TOOLS_VERSION="469"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -153,26 +153,28 @@ build_htslib() {
 
     # Extract source
     if [ ! -d "$build_dir" ]; then
-        tar -xzf "$BUILD_DIR/src/htslib-$HTSLIB_VERSION.tar.bz2" -C "$BUILD_DIR/$arch"
+        tar -xjf "$BUILD_DIR/src/htslib-$HTSLIB_VERSION.tar.bz2" -C "$BUILD_DIR/$arch"
     fi
 
     cd "$build_dir"
 
-    # Configure for architecture
+    # Configure for architecture (--disable-shared ensures samtools/bcftools link statically)
     if [ "$arch" = "arm64" ]; then
         ./configure --prefix="$BUILD_DIR/$arch/install" \
             CC="clang -arch arm64" \
             CFLAGS="-O2 -arch arm64" \
             --disable-libcurl \
             --disable-gcs \
-            --disable-s3
+            --disable-s3 \
+            --disable-shared
     else
         ./configure --prefix="$BUILD_DIR/$arch/install" \
             CC="clang -arch x86_64" \
             CFLAGS="-O2 -arch x86_64" \
             --disable-libcurl \
             --disable-gcs \
-            --disable-s3
+            --disable-s3 \
+            --disable-shared
     fi
 
     make -j$(sysctl -n hw.ncpu)
@@ -190,23 +192,23 @@ build_samtools() {
 
     # Extract source
     if [ ! -d "$build_dir" ]; then
-        tar -xzf "$BUILD_DIR/src/samtools-$SAMTOOLS_VERSION.tar.bz2" -C "$BUILD_DIR/$arch"
+        tar -xjf "$BUILD_DIR/src/samtools-$SAMTOOLS_VERSION.tar.bz2" -C "$BUILD_DIR/$arch"
     fi
 
     cd "$build_dir"
 
-    # Configure for architecture
+    # Configure with htslib source dir (builds htslib internally, links statically)
     if [ "$arch" = "arm64" ]; then
         ./configure --prefix="$BUILD_DIR/$arch/install" \
             CC="clang -arch arm64" \
             CFLAGS="-O2 -arch arm64" \
-            --with-htslib="$BUILD_DIR/$arch/install" \
+            --with-htslib="$BUILD_DIR/$arch/htslib-$HTSLIB_VERSION" \
             --without-curses
     else
         ./configure --prefix="$BUILD_DIR/$arch/install" \
             CC="clang -arch x86_64" \
             CFLAGS="-O2 -arch x86_64" \
-            --with-htslib="$BUILD_DIR/$arch/install" \
+            --with-htslib="$BUILD_DIR/$arch/htslib-$HTSLIB_VERSION" \
             --without-curses
     fi
 
@@ -225,23 +227,23 @@ build_bcftools() {
 
     # Extract source
     if [ ! -d "$build_dir" ]; then
-        tar -xzf "$BUILD_DIR/src/bcftools-$BCFTOOLS_VERSION.tar.bz2" -C "$BUILD_DIR/$arch"
+        tar -xjf "$BUILD_DIR/src/bcftools-$BCFTOOLS_VERSION.tar.bz2" -C "$BUILD_DIR/$arch"
     fi
 
     cd "$build_dir"
 
-    # Configure for architecture
+    # Configure with htslib source dir (builds htslib internally, links statically)
     if [ "$arch" = "arm64" ]; then
         ./configure --prefix="$BUILD_DIR/$arch/install" \
             CC="clang -arch arm64" \
             CFLAGS="-O2 -arch arm64" \
-            --with-htslib="$BUILD_DIR/$arch/install" \
+            --with-htslib="$BUILD_DIR/$arch/htslib-$HTSLIB_VERSION" \
             --disable-perl-filters
     else
         ./configure --prefix="$BUILD_DIR/$arch/install" \
             CC="clang -arch x86_64" \
             CFLAGS="-O2 -arch x86_64" \
-            --with-htslib="$BUILD_DIR/$arch/install" \
+            --with-htslib="$BUILD_DIR/$arch/htslib-$HTSLIB_VERSION" \
             --disable-perl-filters
     fi
 
