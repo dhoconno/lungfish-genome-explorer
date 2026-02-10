@@ -597,8 +597,8 @@ public struct SelectionSection: View {
                 }
             }
 
-            // Translation section (for CDS annotations or annotations with stored translations)
-            if viewModel.type == .cds || viewModel.fullTranslation != nil {
+            // Translation section (for CDS/mRNA annotations or annotations with stored translations)
+            if viewModel.type == .cds || viewModel.type == .mRNA || viewModel.fullTranslation != nil {
                 translationSection
             }
 
