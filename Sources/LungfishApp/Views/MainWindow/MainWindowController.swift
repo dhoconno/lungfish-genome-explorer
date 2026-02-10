@@ -25,6 +25,7 @@ public class MainWindowController: NSWindowController {
         static let toggleChromosomeDrawer = NSToolbarItem.Identifier("ToggleChromosomeDrawer")
         static let toggleAnnotationDrawer = NSToolbarItem.Identifier("ToggleAnnotationDrawer")
         static let downloads = NSToolbarItem.Identifier("Downloads")
+        static let translateTool = NSToolbarItem.Identifier("TranslateTool")
         static let flexibleSpace = NSToolbarItem.Identifier.flexibleSpace
     }
 
@@ -288,6 +289,41 @@ public class MainWindowController: NSWindowController {
         downloadsPopover = popover
     }
 
+    // MARK: - Translation Tool
+
+    @objc public func showTranslationTool(_ sender: Any?) {
+        guard let window = window else { return }
+        // Don't open a second sheet if one is already attached
+        if window.attachedSheet != nil { return }
+
+        let sheetWindow = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+
+        var toolView = TranslationToolView()
+        toolView.onApply = { [weak self, weak sheetWindow] config in
+            guard let sheetWindow else { return }
+            window.endSheet(sheetWindow)
+            guard let viewerView = self?.mainSplitViewController.viewerController?.viewerView else { return }
+            viewerView.translationColorScheme = config.colorScheme
+            if config.frames.isEmpty {
+                viewerView.hideTranslation()
+            } else {
+                viewerView.applyFrameTranslation(frames: config.frames, table: config.codonTable)
+            }
+        }
+        toolView.onCancel = { [weak sheetWindow] in
+            guard let sheetWindow else { return }
+            window.endSheet(sheetWindow)
+        }
+
+        sheetWindow.contentViewController = NSHostingController(rootView: toolView)
+        window.beginSheet(sheetWindow)
+    }
+
     // MARK: - Navigation Actions
 
     @objc public func zoomIn(_ sender: Any?) {
@@ -364,6 +400,21 @@ extension MainWindowController: NSToolbarDelegate {
             item.view = button
             return item
 
+        case ToolbarIdentifier.translateTool:
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = "Translate"
+            item.paletteLabel = "Translation Tool"
+            item.toolTip = "Open the translation tool"
+            let button = makeToolbarButton(
+                symbolName: "character.textbox",
+                fallbacks: ["textformat.abc", "text.alignleft"],
+                accessibilityLabel: "Translation Tool"
+            )
+            button.target = self
+            button.action = #selector(showTranslationTool(_:))
+            item.view = button
+            return item
+
         case ToolbarIdentifier.downloads:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "Downloads"
@@ -390,6 +441,8 @@ extension MainWindowController: NSToolbarDelegate {
         [
             ToolbarIdentifier.toggleChromosomeDrawer,
             ToolbarIdentifier.flexibleSpace,
+            ToolbarIdentifier.translateTool,
+            ToolbarIdentifier.flexibleSpace,
             ToolbarIdentifier.downloads,
             ToolbarIdentifier.flexibleSpace,
             ToolbarIdentifier.toggleAnnotationDrawer,
@@ -403,6 +456,7 @@ extension MainWindowController: NSToolbarDelegate {
             ToolbarIdentifier.toggleInspector,
             ToolbarIdentifier.toggleChromosomeDrawer,
             ToolbarIdentifier.toggleAnnotationDrawer,
+            ToolbarIdentifier.translateTool,
             ToolbarIdentifier.downloads,
             ToolbarIdentifier.flexibleSpace,
         ]
