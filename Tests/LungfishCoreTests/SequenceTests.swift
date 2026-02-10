@@ -795,20 +795,45 @@ final class StrandTests: XCTestCase {
 
 final class ReadingFrameTests: XCTestCase {
 
-    func testReadingFrameOffset() {
-        XCTAssertEqual(ReadingFrame.frame1.offset, 0)
-        XCTAssertEqual(ReadingFrame.frame2.offset, 1)
-        XCTAssertEqual(ReadingFrame.frame3.offset, 2)
+    func testForwardFrameOffsets() {
+        XCTAssertEqual(ReadingFrame.plus1.offset, 0)
+        XCTAssertEqual(ReadingFrame.plus2.offset, 1)
+        XCTAssertEqual(ReadingFrame.plus3.offset, 2)
     }
 
-    func testReadingFrameRawValue() {
-        XCTAssertEqual(ReadingFrame.frame1.rawValue, 0)
-        XCTAssertEqual(ReadingFrame.frame2.rawValue, 1)
-        XCTAssertEqual(ReadingFrame.frame3.rawValue, 2)
+    func testReverseFrameOffsets() {
+        XCTAssertEqual(ReadingFrame.minus1.offset, 0)
+        XCTAssertEqual(ReadingFrame.minus2.offset, 1)
+        XCTAssertEqual(ReadingFrame.minus3.offset, 2)
+    }
+
+    func testForwardFramesNotReverse() {
+        XCTAssertFalse(ReadingFrame.plus1.isReverse)
+        XCTAssertFalse(ReadingFrame.plus2.isReverse)
+        XCTAssertFalse(ReadingFrame.plus3.isReverse)
+    }
+
+    func testReverseFramesAreReverse() {
+        XCTAssertTrue(ReadingFrame.minus1.isReverse)
+        XCTAssertTrue(ReadingFrame.minus2.isReverse)
+        XCTAssertTrue(ReadingFrame.minus3.isReverse)
+    }
+
+    func testRawValues() {
+        XCTAssertEqual(ReadingFrame.plus1.rawValue, "+1")
+        XCTAssertEqual(ReadingFrame.minus3.rawValue, "-3")
     }
 
     func testCaseIterable() {
         let allFrames = ReadingFrame.allCases
-        XCTAssertEqual(allFrames.count, 3)
+        XCTAssertEqual(allFrames.count, 6)
+    }
+
+    func testForwardFramesCollection() {
+        XCTAssertEqual(ReadingFrame.forwardFrames, [.plus1, .plus2, .plus3])
+    }
+
+    func testReverseFramesCollection() {
+        XCTAssertEqual(ReadingFrame.reverseFrames, [.minus1, .minus2, .minus3])
     }
 }

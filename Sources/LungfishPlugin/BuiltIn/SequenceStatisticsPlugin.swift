@@ -5,6 +5,7 @@
 // Owner: Storage & Indexing Lead (Role 18)
 
 import Foundation
+import LungfishCore
 
 // MARK: - Sequence Statistics Plugin
 

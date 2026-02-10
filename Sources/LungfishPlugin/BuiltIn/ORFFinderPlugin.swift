@@ -5,6 +5,7 @@
 // Owner: Sequence Viewer Specialist (Role 03)
 
 import Foundation
+import LungfishCore
 
 // MARK: - ORF Finder Plugin
 
@@ -234,41 +235,4 @@ public struct ORFFinderPlugin: AnnotationGeneratorPlugin {
     }
 }
 
-// MARK: - Reading Frame
-
-/// Represents a reading frame for ORF finding.
-public enum ReadingFrame: String, CaseIterable, Sendable, Codable {
-    case plus1 = "+1"
-    case plus2 = "+2"
-    case plus3 = "+3"
-    case minus1 = "-1"
-    case minus2 = "-2"
-    case minus3 = "-3"
-
-    /// The offset from the sequence start (0, 1, or 2)
-    public var offset: Int {
-        switch self {
-        case .plus1, .minus1: return 0
-        case .plus2, .minus2: return 1
-        case .plus3, .minus3: return 2
-        }
-    }
-
-    /// Whether this is a reverse strand frame
-    public var isReverse: Bool {
-        switch self {
-        case .plus1, .plus2, .plus3: return false
-        case .minus1, .minus2, .minus3: return true
-        }
-    }
-
-    /// Forward frames only
-    public static var forwardFrames: [ReadingFrame] {
-        [.plus1, .plus2, .plus3]
-    }
-
-    /// Reverse frames only
-    public static var reverseFrames: [ReadingFrame] {
-        [.minus1, .minus2, .minus3]
-    }
-}
+// ReadingFrame is now imported from LungfishCore (SequenceAlphabet.swift)

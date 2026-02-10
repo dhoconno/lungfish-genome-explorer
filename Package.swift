@@ -124,7 +124,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishPluginTests",
-            dependencies: ["LungfishPlugin"],
+            dependencies: ["LungfishPlugin", "LungfishCore"],
             path: "Tests/LungfishPluginTests"
         ),
 

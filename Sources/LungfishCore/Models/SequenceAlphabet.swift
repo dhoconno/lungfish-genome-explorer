@@ -84,12 +84,39 @@ public enum Strand: String, Codable, Sendable {
     }
 }
 
-/// Reading frame for translation
-public enum ReadingFrame: Int, Codable, Sendable, CaseIterable {
-    case frame1 = 0
-    case frame2 = 1
-    case frame3 = 2
+/// Reading frame for translation (6-frame: three forward, three reverse).
+public enum ReadingFrame: String, CaseIterable, Sendable, Codable {
+    case plus1 = "+1"
+    case plus2 = "+2"
+    case plus3 = "+3"
+    case minus1 = "-1"
+    case minus2 = "-2"
+    case minus3 = "-3"
 
-    /// The offset in bases from the start
-    public var offset: Int { rawValue }
+    /// The offset from the sequence start (0, 1, or 2).
+    public var offset: Int {
+        switch self {
+        case .plus1, .minus1: return 0
+        case .plus2, .minus2: return 1
+        case .plus3, .minus3: return 2
+        }
+    }
+
+    /// Whether this is a reverse strand frame.
+    public var isReverse: Bool {
+        switch self {
+        case .plus1, .plus2, .plus3: return false
+        case .minus1, .minus2, .minus3: return true
+        }
+    }
+
+    /// Forward frames only.
+    public static var forwardFrames: [ReadingFrame] {
+        [.plus1, .plus2, .plus3]
+    }
+
+    /// Reverse frames only.
+    public static var reverseFrames: [ReadingFrame] {
+        [.minus1, .minus2, .minus3]
+    }
 }

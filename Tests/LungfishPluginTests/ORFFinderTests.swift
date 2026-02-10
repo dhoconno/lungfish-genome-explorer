@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+@testable import LungfishCore
 @testable import LungfishPlugin
 
 final class ORFFinderTests: XCTestCase {
