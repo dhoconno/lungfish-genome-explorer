@@ -56,19 +56,25 @@ public final class SelectionSectionViewModel {
     /// Callback to create a new annotation from current viewer selection.
     public var onAddAnnotationRequested: (() -> Void)?
 
-    // MARK: - Enrichment Fields (read-only, from GFF3 attributes)
+    // MARK: - Enrichment Fields (read-only, from qualifiers + SQLite)
 
-    /// Description from GFF3 attributes
-    public var annotationDescription: String?
+    /// All displayable qualifier key-value pairs.
+    public var qualifierPairs: [(key: String, value: String)] = []
 
-    /// Gene biotype from GFF3 attributes
-    public var geneBiotype: String?
+    /// Parsed database cross-references with clickable URLs.
+    public var dbxrefLinks: [(database: String, id: String, url: URL?)] = []
 
-    /// Gene symbol from GFF3 attributes
-    public var geneSymbol: String?
-
-    /// Database cross-references from GFF3 attributes
-    public var dbxref: String?
+    /// Optional reference to the annotation database for enrichment lookups.
+    @ObservationIgnored
+    public var annotationDatabase: AnnotationDatabase? {
+        didSet {
+            // If a selection already exists, refresh enrichment immediately when
+            // database wiring changes (e.g. index build completes after selection).
+            if let selectedAnnotation {
+                extractEnrichment(from: selectedAnnotation)
+            }
+        }
+    }
 
     public init() {}
 
@@ -108,39 +114,151 @@ public final class SelectionSectionViewModel {
             notes = ""
             color = .blue
             colorApplyMode = .thisOnly
-            annotationDescription = nil
-            geneBiotype = nil
-            geneSymbol = nil
-            dbxref = nil
+            qualifierPairs = []
+            dbxrefLinks = []
         }
     }
 
-    /// Extracts GFF3 enrichment data from annotation qualifiers.
+    /// Extracts all qualifier data from the annotation and optional SQLite database.
+    ///
+    /// Merges qualifiers from two sources:
+    /// 1. `qualifiers["extra"]` on the annotation (BED extra columns / GFF3 attributes)
+    /// 2. SQLite annotation database `attributes` column (if database is available)
+    ///
+    /// Internal keys (`score`, `extra`) and very long values (`translation`) are excluded.
+    /// `db_xref`/`Dbxref` entries are parsed into clickable links.
     private func extractEnrichment(from annotation: SequenceAnnotation) {
-        annotationDescription = nil
-        geneBiotype = nil
-        geneSymbol = nil
-        dbxref = nil
+        qualifierPairs = []
+        dbxrefLinks = []
 
-        guard let extraStr = annotation.qualifier("extra") else { return }
+        var parsed: [String: String] = [:]
 
-        // Parse the raw GFF3 attributes from qualifiers["extra"]
-        // Format: may be "type\tkey=val;key=val" (tab-separated with type first)
-        // or just "key=val;key=val"
-        let attrString: String
-        if extraStr.contains("\t") {
-            // First field is feature type, second is attributes
-            let parts = extraStr.split(separator: "\t", maxSplits: 1)
-            attrString = parts.count > 1 ? String(parts[1]) : extraStr
-        } else {
-            attrString = extraStr
+        // Source 1: qualifiers["extra"] from the annotation object
+        if let extraStr = annotation.qualifier("extra") {
+            let attrString: String
+            if extraStr.contains("\t") {
+                let parts = extraStr.split(separator: "\t", maxSplits: 1)
+                attrString = parts.count > 1 ? String(parts[1]) : extraStr
+            } else {
+                attrString = extraStr
+            }
+            parsed = LungfishIO.AnnotationDatabase.parseAttributes(attrString)
         }
 
-        let parsed = LungfishIO.AnnotationDatabase.parseAttributes(attrString)
-        annotationDescription = parsed["description"]
-        geneBiotype = parsed["gene_biotype"]
-        geneSymbol = parsed["gene"]
-        dbxref = parsed["Dbxref"]
+        // Source 2: SQLite annotation database (richer data, if available)
+        if let db = annotationDatabase {
+            let record = db.lookupAnnotation(
+                name: annotation.name,
+                chromosome: annotation.chromosome ?? "",
+                start: annotation.start,
+                end: annotation.end
+            )
+            if let attrs = record?.attributes, !attrs.isEmpty {
+                let dbParsed = LungfishIO.AnnotationDatabase.parseAttributes(attrs)
+                // Merge: database values supplement annotation values
+                for (key, value) in dbParsed where parsed[key] == nil {
+                    parsed[key] = value
+                }
+            }
+        }
+
+        guard !parsed.isEmpty else { return }
+
+        // Keys to exclude from display
+        let excludedKeys: Set<String> = ["score", "extra", "_lf_raw_feature_type"]
+
+        // Build qualifier pairs (excluding internal keys and very long values)
+        let displayOrder = [
+            "gene", "product", "description", "gene_biotype", "protein_id",
+            "transcript_id", "note", "function",
+        ]
+
+        // Ordered keys first, then remaining alphabetically
+        var orderedKeys: [String] = []
+        for key in displayOrder where parsed[key] != nil {
+            orderedKeys.append(key)
+        }
+        let remaining = parsed.keys.sorted().filter {
+            !displayOrder.contains($0) && !excludedKeys.contains($0)
+                && $0 != "db_xref" && $0 != "Dbxref"
+        }
+        orderedKeys.append(contentsOf: remaining)
+
+        for key in orderedKeys {
+            guard let value = parsed[key] else { continue }
+            // Truncate translation (amino acid sequences) to avoid overwhelming the UI
+            if key == "translation" && value.count > 80 {
+                qualifierPairs.append((key: Self.displayKeyName(key), value: String(value.prefix(80)) + "..."))
+            } else {
+                qualifierPairs.append((key: Self.displayKeyName(key), value: value))
+            }
+        }
+
+        // Parse db_xref / Dbxref into clickable links
+        let dbxrefRaw = parsed["db_xref"] ?? parsed["Dbxref"] ?? ""
+        if !dbxrefRaw.isEmpty {
+            // Can be comma-separated: "GeneID:12345,UniProt:P12345"
+            let refs = dbxrefRaw.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+            for ref in refs {
+                let parts = ref.split(separator: ":", maxSplits: 1)
+                if parts.count == 2 {
+                    let database = String(parts[0])
+                    let id = String(parts[1])
+                    dbxrefLinks.append((database: database, id: id, url: Self.makeDbxrefURL(database: database, id: id)))
+                } else {
+                    // No colon — show as-is
+                    dbxrefLinks.append((database: ref, id: "", url: nil))
+                }
+            }
+        }
+    }
+
+    /// Maps qualifier key names to human-readable display names.
+    static func displayKeyName(_ key: String) -> String {
+        switch key {
+        case "gene": return "Gene"
+        case "product": return "Product"
+        case "description": return "Description"
+        case "gene_biotype": return "Biotype"
+        case "protein_id": return "Protein ID"
+        case "transcript_id": return "Transcript ID"
+        case "note": return "Note"
+        case "function": return "Function"
+        case "codon_start": return "Codon Start"
+        case "transl_table": return "Translation Table"
+        case "translation": return "Translation"
+        case "organism": return "Organism"
+        case "mol_type": return "Molecule Type"
+        default: return key
+        }
+    }
+
+    /// Generates a URL for a database cross-reference.
+    static func makeDbxrefURL(database: String, id: String) -> URL? {
+        switch database {
+        case "GeneID":
+            return URL(string: "https://www.ncbi.nlm.nih.gov/gene/\(id)")
+        case "UniProt", "UniProtKB/Swiss-Prot", "UniProtKB/TrEMBL":
+            return URL(string: "https://www.uniprot.org/uniprot/\(id)")
+        case "taxon":
+            return URL(string: "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=\(id)")
+        case "InterPro":
+            return URL(string: "https://www.ebi.ac.uk/interpro/entry/InterPro/\(id)/")
+        case "PFAM", "Pfam":
+            return URL(string: "https://www.ebi.ac.uk/interpro/entry/pfam/\(id)/")
+        case "GO":
+            return URL(string: "https://amigo.geneontology.org/amigo/term/GO:\(id)")
+        case "PDB":
+            return URL(string: "https://www.rcsb.org/structure/\(id)")
+        case "HGNC":
+            return URL(string: "https://www.genenames.org/data/gene-symbol-report/#!/hgnc_id/HGNC:\(id)")
+        case "MGI":
+            return URL(string: "https://www.informatics.jax.org/marker/MGI:\(id)")
+        case "MIM", "OMIM":
+            return URL(string: "https://www.omim.org/entry/\(id)")
+        default:
+            return nil
+        }
     }
 
     /// Commits current edits to the annotation.
@@ -253,7 +371,7 @@ public struct SelectionSection: View {
                 noSelectionView
             }
         } label: {
-            Label("Selection", systemImage: "selection.pin.in.out")
+            Text("Selection")
                 .font(.headline)
         }
     }
@@ -364,39 +482,59 @@ public struct SelectionSection: View {
                 }
                 .font(.callout)
 
-                // GFF3 enrichment details
-                if viewModel.annotationDescription != nil || viewModel.geneBiotype != nil ||
-                   viewModel.geneSymbol != nil || viewModel.dbxref != nil {
+                // Qualifier details (from GFF3 / GenBank / SQLite)
+                if !viewModel.qualifierPairs.isEmpty || !viewModel.dbxrefLinks.isEmpty {
                     Divider()
                         .padding(.vertical, 4)
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        if let desc = viewModel.annotationDescription {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Description")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                Text(desc)
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(Array(viewModel.qualifierPairs.enumerated()), id: \.offset) { _, pair in
+                            if pair.value.count > 60 {
+                                // Long values get a stacked layout
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(pair.key)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                    Text(pair.value)
+                                        .font(.callout)
+                                        .textSelection(.enabled)
+                                }
+                            } else {
+                                LabeledContent(pair.key, value: pair.value)
                                     .font(.callout)
-                                    .textSelection(.enabled)
                             }
                         }
-                        if let biotype = viewModel.geneBiotype {
-                            LabeledContent("Biotype", value: biotype)
-                                .font(.callout)
-                        }
-                        if let gene = viewModel.geneSymbol {
-                            LabeledContent("Gene", value: gene)
-                                .font(.callout)
-                        }
-                        if let ref = viewModel.dbxref {
-                            VStack(alignment: .leading, spacing: 2) {
+
+                        // Database cross-references with clickable links
+                        if !viewModel.dbxrefLinks.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
                                 Text("References")
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
-                                Text(ref)
-                                    .font(.callout)
-                                    .textSelection(.enabled)
+                                ForEach(Array(viewModel.dbxrefLinks.enumerated()), id: \.offset) { _, link in
+                                    if let url = link.url {
+                                        Link(destination: url) {
+                                            HStack(spacing: 4) {
+                                                Text(link.database)
+                                                    .foregroundStyle(.secondary)
+                                                Text(link.id)
+                                                Image(systemName: "arrow.up.right.square")
+                                                    .font(.caption2)
+                                            }
+                                            .font(.callout)
+                                        }
+                                    } else {
+                                        HStack(spacing: 4) {
+                                            Text(link.database)
+                                                .foregroundStyle(.secondary)
+                                            if !link.id.isEmpty {
+                                                Text(link.id)
+                                            }
+                                        }
+                                        .font(.callout)
+                                        .textSelection(.enabled)
+                                    }
+                                }
                             }
                         }
                     }
@@ -478,6 +616,8 @@ extension AnnotationType {
         case .silencer: return "Silencer"
         case .terminator: return "Terminator"
         case .polyASignal: return "PolyA Signal"
+        case .regulatory: return "Regulatory"
+        case .ncRNA: return "ncRNA"
         case .primer: return "Primer"
         case .primerPair: return "Primer Pair"
         case .amplicon: return "Amplicon"
@@ -489,6 +629,11 @@ extension AnnotationType {
         case .repeatRegion: return "Repeat Region"
         case .stem_loop: return "Stem Loop"
         case .misc_feature: return "Misc Feature"
+        case .mat_peptide: return "Mature Peptide"
+        case .sig_peptide: return "Signal Peptide"
+        case .transit_peptide: return "Transit Peptide"
+        case .misc_binding: return "Misc Binding"
+        case .protein_bind: return "Protein Binding"
         case .contig: return "Contig"
         case .gap: return "Gap"
         case .scaffold: return "Scaffold"

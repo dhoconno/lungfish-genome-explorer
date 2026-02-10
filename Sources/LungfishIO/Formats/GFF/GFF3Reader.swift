@@ -76,27 +76,7 @@ public struct GFF3Feature: Sendable, Identifiable {
 
     /// Converts to a SequenceAnnotation.
     public func toAnnotation() -> SequenceAnnotation {
-        let annotationType: AnnotationType
-        switch type.lowercased() {
-        case "gene":
-            annotationType = .gene
-        case "cds", "coding_sequence":
-            annotationType = .cds
-        case "exon":
-            annotationType = .exon
-        case "mrna", "transcript":
-            annotationType = .mRNA
-        case "intron":
-            annotationType = .intron
-        case "5'utr", "five_prime_utr":
-            annotationType = .utr5
-        case "3'utr", "three_prime_utr":
-            annotationType = .utr3
-        case "promoter":
-            annotationType = .promoter
-        default:
-            annotationType = .region
-        }
+        let annotationType = AnnotationType.from(rawString: type) ?? .region
 
         // Convert qualifiers
         var qualifiers: [String: AnnotationQualifier] = [:]
@@ -755,6 +735,8 @@ public final class GFF3Writer {
         case .silencer: return "silencer"
         case .terminator: return "terminator"
         case .polyASignal: return "polyA_signal"
+        case .regulatory: return "regulatory"
+        case .ncRNA: return "ncRNA"
         case .primer: return "primer"
         case .primerPair: return "primer_pair"
         case .amplicon: return "amplicon"
@@ -766,6 +748,11 @@ public final class GFF3Writer {
         case .repeatRegion: return "repeat_region"
         case .stem_loop: return "stem_loop"
         case .misc_feature: return "misc_feature"
+        case .mat_peptide: return "mat_peptide"
+        case .sig_peptide: return "sig_peptide"
+        case .transit_peptide: return "transit_peptide"
+        case .misc_binding: return "misc_binding"
+        case .protein_bind: return "protein_bind"
         case .contig: return "contig"
         case .gap: return "gap"
         case .scaffold: return "scaffold"

@@ -117,7 +117,7 @@ public struct QualitySection: View {
                 noQualityDataView
             }
         } label: {
-            Label("Quality", systemImage: "chart.bar.fill")
+            Text("Quality")
                 .font(.headline)
         }
     }

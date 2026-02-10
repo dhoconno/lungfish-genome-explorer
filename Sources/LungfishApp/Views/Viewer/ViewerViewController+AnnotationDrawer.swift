@@ -148,6 +148,24 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
                 end: result.end + buffer
             )
         }
+
+        // Build a SequenceAnnotation from the SearchResult so the Inspector updates.
+        let strand: Strand = switch result.strand {
+        case "+": .forward
+        case "-": .reverse
+        default: .unknown
+        }
+        let annotationType = AnnotationType.from(rawString: result.type) ?? .gene
+        let annotation = SequenceAnnotation(
+            type: annotationType,
+            name: result.name,
+            chromosome: result.chromosome,
+            intervals: [AnnotationInterval(start: result.start, end: result.end)],
+            strand: strand
+        )
+        viewerView.selectedAnnotation = annotation
+        viewerView.postAnnotationSelectedNotification(annotation)
+        viewerView.setNeedsDisplay(viewerView.bounds)
     }
 }
 

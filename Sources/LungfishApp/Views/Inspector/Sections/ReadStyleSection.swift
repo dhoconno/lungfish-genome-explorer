@@ -64,7 +64,7 @@ public struct ReadStyleSection: View {
             }
             .padding(.top, 8)
         } label: {
-            Label("Read Style", systemImage: "align.horizontal.left")
+            Text("Read Style")
                 .font(.headline)
         }
     }

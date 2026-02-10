@@ -221,6 +221,8 @@ public enum AnnotationType: String, Codable, Sendable, CaseIterable {
     case silencer
     case terminator
     case polyASignal = "polyA_signal"
+    case regulatory
+    case ncRNA
 
     // Primers and PCR
     case primer
@@ -240,6 +242,15 @@ public enum AnnotationType: String, Codable, Sendable, CaseIterable {
     case repeatRegion = "repeat_region"
     case stem_loop
     case misc_feature
+
+    // Protein processing
+    case mat_peptide
+    case sig_peptide
+    case transit_peptide
+
+    // Binding
+    case misc_binding
+    case protein_bind
 
     // Assembly
     case contig
@@ -261,13 +272,82 @@ public enum AnnotationType: String, Codable, Sendable, CaseIterable {
         case .exon: return AnnotationColor(red: 0.6, green: 0.6, blue: 0.2)       // Yellow-green
         case .intron: return AnnotationColor(red: 0.6, green: 0.5, blue: 0.4)     // Tan
         case .utr5, .utr3: return AnnotationColor(red: 0.7, green: 0.3, blue: 0.3) // Muted red
-        case .region: return AnnotationColor(red: 0.5, green: 0.5, blue: 0.5)     // Gray
-        case .promoter, .enhancer: return AnnotationColor(red: 0.9, green: 0.6, blue: 0.1) // Gold
+        case .region: return AnnotationColor(red: 0.55, green: 0.5, blue: 0.45)   // Warm neutral
+        case .promoter: return AnnotationColor(red: 0.9, green: 0.6, blue: 0.1)   // Gold
+        case .enhancer: return AnnotationColor(red: 0.85, green: 0.7, blue: 0.2)  // Amber
+        case .silencer: return AnnotationColor(red: 0.7, green: 0.5, blue: 0.2)   // Brown-gold
+        case .terminator: return AnnotationColor(red: 0.6, green: 0.4, blue: 0.3) // Brown
+        case .polyASignal: return AnnotationColor(red: 0.8, green: 0.55, blue: 0.15) // Dark gold
+        case .regulatory: return AnnotationColor(red: 0.95, green: 0.5, blue: 0.1) // Bright orange
+        case .ncRNA: return AnnotationColor(red: 0.3, green: 0.7, blue: 0.5)      // Teal-green
         case .primer, .primerPair: return AnnotationColor(red: 0.2, green: 0.8, blue: 0.2)
         case .restrictionSite: return AnnotationColor(red: 0.8, green: 0.2, blue: 0.2)
         case .snp, .variation: return AnnotationColor(red: 0.8, green: 0.2, blue: 0.8)
+        case .insertion: return AnnotationColor(red: 0.2, green: 0.7, blue: 0.3)  // Green
+        case .deletion: return AnnotationColor(red: 0.9, green: 0.3, blue: 0.3)   // Red
         case .repeatRegion: return AnnotationColor(red: 0.6, green: 0.3, blue: 0.6) // Purple
-        default: return AnnotationColor(red: 0.5, green: 0.5, blue: 0.5)
+        case .stem_loop: return AnnotationColor(red: 0.5, green: 0.6, blue: 0.4)  // Sage
+        case .misc_feature: return AnnotationColor(red: 0.55, green: 0.55, blue: 0.55) // Medium gray
+        case .mat_peptide: return AnnotationColor(red: 0.7, green: 0.2, blue: 0.5) // Magenta
+        case .sig_peptide: return AnnotationColor(red: 0.5, green: 0.8, blue: 0.3) // Lime green
+        case .transit_peptide: return AnnotationColor(red: 0.3, green: 0.5, blue: 0.7) // Steel blue
+        case .misc_binding: return AnnotationColor(red: 0.6, green: 0.4, blue: 0.8) // Lavender
+        case .protein_bind: return AnnotationColor(red: 0.4, green: 0.3, blue: 0.7) // Dark lavender
+        case .amplicon: return AnnotationColor(red: 0.3, green: 0.6, blue: 0.3)    // Forest green
+        case .contig: return AnnotationColor(red: 0.45, green: 0.45, blue: 0.55)  // Cool gray
+        case .gap: return AnnotationColor(red: 0.6, green: 0.6, blue: 0.6)        // Light gray
+        case .scaffold: return AnnotationColor(red: 0.5, green: 0.45, blue: 0.4)  // Warm gray
+        case .source: return AnnotationColor(red: 0.4, green: 0.4, blue: 0.4)     // Dark gray
+        case .custom: return AnnotationColor(red: 0.5, green: 0.5, blue: 0.5)     // Gray
+        }
+    }
+}
+
+extension AnnotationType {
+    /// Maps a raw type string (from GenBank/GFF3/SQLite) to an AnnotationType.
+    /// Handles case-insensitive matching and common GenBank feature type names.
+    public static func from(rawString: String) -> AnnotationType? {
+        // Try exact rawValue match first
+        if let exact = AnnotationType(rawValue: rawString) { return exact }
+        // Case-insensitive match for all known types
+        switch rawString.lowercased() {
+        case "gene": return .gene
+        case "mrna": return .mRNA
+        case "transcript": return .transcript
+        case "exon": return .exon
+        case "intron": return .intron
+        case "cds", "coding_sequence": return .cds
+        case "5'utr", "five_prime_utr": return .utr5
+        case "3'utr", "three_prime_utr": return .utr3
+        case "promoter": return .promoter
+        case "enhancer": return .enhancer
+        case "silencer": return .silencer
+        case "terminator": return .terminator
+        case "polya_signal": return .polyASignal
+        case "primer", "primer_bind": return .primer
+        case "primer_pair": return .primerPair
+        case "amplicon": return .amplicon
+        case "restriction_site": return .restrictionSite
+        case "snp": return .snp
+        case "variation": return .variation
+        case "insertion": return .insertion
+        case "deletion": return .deletion
+        case "repeat_region": return .repeatRegion
+        case "stem_loop": return .stem_loop
+        case "misc_feature": return .misc_feature
+        case "contig": return .contig
+        case "gap": return .gap
+        case "scaffold": return .scaffold
+        case "region": return .region
+        case "source": return .source
+        case "mat_peptide": return .mat_peptide
+        case "sig_peptide": return .sig_peptide
+        case "transit_peptide": return .transit_peptide
+        case "regulatory": return .regulatory
+        case "ncrna": return .ncRNA
+        case "misc_binding": return .misc_binding
+        case "protein_bind": return .protein_bind
+        default: return nil
         }
     }
 }

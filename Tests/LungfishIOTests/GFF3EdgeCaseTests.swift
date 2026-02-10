@@ -179,7 +179,7 @@ final class GFF3EdgeCaseTests: XCTestCase {
         XCTAssertEqual(annotations[1].type, .cds)
         XCTAssertEqual(annotations[2].type, .exon)
         XCTAssertEqual(annotations[3].type, .mRNA)
-        XCTAssertEqual(annotations[4].type, .mRNA) // transcript -> mRNA
+        XCTAssertEqual(annotations[4].type, .transcript) // transcript is its own type
         XCTAssertEqual(annotations[5].type, .intron)
         XCTAssertEqual(annotations[6].type, .utr5)
         XCTAssertEqual(annotations[7].type, .utr3)

@@ -62,7 +62,7 @@ public struct AppearanceSection: View {
             }
             .padding(.top, 8)
         } label: {
-            Label("Sequence Style", systemImage: "swatchpalette")
+            Text("Sequence Style")
                 .font(.headline)
         }
     }

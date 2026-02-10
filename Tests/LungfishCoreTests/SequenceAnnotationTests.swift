@@ -560,6 +560,227 @@ final class SequenceAnnotationTests: XCTestCase {
         XCTAssertEqual(decoded.values, qualifier.values)
     }
 
+    // MARK: - New AnnotationType Cases Tests
+
+    func testNewAnnotationTypesExist() {
+        // Verify all new protein processing types
+        XCTAssertEqual(AnnotationType.mat_peptide.rawValue, "mat_peptide")
+        XCTAssertEqual(AnnotationType.sig_peptide.rawValue, "sig_peptide")
+        XCTAssertEqual(AnnotationType.transit_peptide.rawValue, "transit_peptide")
+
+        // Verify new regulatory types
+        XCTAssertEqual(AnnotationType.regulatory.rawValue, "regulatory")
+        XCTAssertEqual(AnnotationType.ncRNA.rawValue, "ncRNA")
+
+        // Verify new binding types
+        XCTAssertEqual(AnnotationType.misc_binding.rawValue, "misc_binding")
+        XCTAssertEqual(AnnotationType.protein_bind.rawValue, "protein_bind")
+
+        // Verify they are all in CaseIterable
+        let allCases = AnnotationType.allCases
+        XCTAssertTrue(allCases.contains(.mat_peptide))
+        XCTAssertTrue(allCases.contains(.sig_peptide))
+        XCTAssertTrue(allCases.contains(.transit_peptide))
+        XCTAssertTrue(allCases.contains(.regulatory))
+        XCTAssertTrue(allCases.contains(.ncRNA))
+        XCTAssertTrue(allCases.contains(.misc_binding))
+        XCTAssertTrue(allCases.contains(.protein_bind))
+    }
+
+    func testAnnotationTypeColorsDistinct() {
+        // Every type should have a distinct default color (no two types share the same RGB)
+        var colorsByRGB: [String: AnnotationType] = [:]
+        var duplicates: [(AnnotationType, AnnotationType, String)] = []
+
+        for type in AnnotationType.allCases {
+            let color = type.defaultColor
+            let key = String(format: "%.2f,%.2f,%.2f", color.red, color.green, color.blue)
+            if let existing = colorsByRGB[key] {
+                duplicates.append((existing, type, key))
+            } else {
+                colorsByRGB[key] = type
+            }
+        }
+
+        // Some deliberate sharing is acceptable (utr5/utr3, snp/variation, primer/primerPair)
+        // but we should have far fewer duplicates than types
+        let allowedSharing: Set<String> = [
+            "5'UTR|3'UTR", "3'UTR|5'UTR",
+            "SNP|variation", "variation|SNP",
+            "primer|primer_pair", "primer_pair|primer",
+        ]
+        let unexpectedDuplicates = duplicates.filter { dup in
+            let pair1 = "\(dup.0.rawValue)|\(dup.1.rawValue)"
+            let pair2 = "\(dup.1.rawValue)|\(dup.0.rawValue)"
+            return !allowedSharing.contains(pair1) && !allowedSharing.contains(pair2)
+        }
+
+        XCTAssertTrue(unexpectedDuplicates.isEmpty,
+                      "Unexpected color duplicates: \(unexpectedDuplicates.map { "\($0.0.rawValue) and \($0.1.rawValue) both use \($0.2)" }.joined(separator: "; "))")
+    }
+
+    func testNewAnnotationTypeColors() {
+        // Each new type should have a non-gray, distinct color
+        let newTypes: [AnnotationType] = [
+            .mat_peptide, .sig_peptide, .transit_peptide,
+            .regulatory, .ncRNA, .misc_binding, .protein_bind
+        ]
+
+        for type in newTypes {
+            let color = type.defaultColor
+            // Colors should be in valid range
+            XCTAssertTrue(color.red >= 0 && color.red <= 1, "\(type.rawValue) red out of range")
+            XCTAssertTrue(color.green >= 0 && color.green <= 1, "\(type.rawValue) green out of range")
+            XCTAssertTrue(color.blue >= 0 && color.blue <= 1, "\(type.rawValue) blue out of range")
+
+            // Should not be plain gray (i.e., not all components equal)
+            let isGray = abs(color.red - color.green) < 0.01 && abs(color.green - color.blue) < 0.01
+            XCTAssertFalse(isGray, "\(type.rawValue) has a gray color — should be distinct")
+        }
+    }
+
+    // MARK: - AnnotationType.from(rawString:) Tests
+
+    func testAnnotationTypeFromRawStringExactMatch() {
+        // Exact rawValue matches
+        XCTAssertEqual(AnnotationType.from(rawString: "gene"), .gene)
+        XCTAssertEqual(AnnotationType.from(rawString: "CDS"), .cds)
+        XCTAssertEqual(AnnotationType.from(rawString: "5'UTR"), .utr5)
+        XCTAssertEqual(AnnotationType.from(rawString: "3'UTR"), .utr3)
+        XCTAssertEqual(AnnotationType.from(rawString: "SNP"), .snp)
+        XCTAssertEqual(AnnotationType.from(rawString: "polyA_signal"), .polyASignal)
+        XCTAssertEqual(AnnotationType.from(rawString: "mat_peptide"), .mat_peptide)
+        XCTAssertEqual(AnnotationType.from(rawString: "regulatory"), .regulatory)
+        XCTAssertEqual(AnnotationType.from(rawString: "ncRNA"), .ncRNA)
+    }
+
+    func testAnnotationTypeFromRawStringCaseInsensitive() {
+        // Case-insensitive matches
+        XCTAssertEqual(AnnotationType.from(rawString: "cds"), .cds)
+        XCTAssertEqual(AnnotationType.from(rawString: "Cds"), .cds)
+        XCTAssertEqual(AnnotationType.from(rawString: "GENE"), .gene)
+        XCTAssertEqual(AnnotationType.from(rawString: "mRNA"), .mRNA)
+        XCTAssertEqual(AnnotationType.from(rawString: "mrna"), .mRNA)
+        XCTAssertEqual(AnnotationType.from(rawString: "MRNA"), .mRNA)
+        XCTAssertEqual(AnnotationType.from(rawString: "ncrna"), .ncRNA)
+        XCTAssertEqual(AnnotationType.from(rawString: "NCRNA"), .ncRNA)
+    }
+
+    func testAnnotationTypeFromRawStringGenBankTypes() {
+        // Common GenBank feature type strings
+        XCTAssertEqual(AnnotationType.from(rawString: "gene"), .gene)
+        XCTAssertEqual(AnnotationType.from(rawString: "CDS"), .cds)
+        XCTAssertEqual(AnnotationType.from(rawString: "mRNA"), .mRNA)
+        XCTAssertEqual(AnnotationType.from(rawString: "exon"), .exon)
+        XCTAssertEqual(AnnotationType.from(rawString: "intron"), .intron)
+        XCTAssertEqual(AnnotationType.from(rawString: "mat_peptide"), .mat_peptide)
+        XCTAssertEqual(AnnotationType.from(rawString: "sig_peptide"), .sig_peptide)
+        XCTAssertEqual(AnnotationType.from(rawString: "transit_peptide"), .transit_peptide)
+        XCTAssertEqual(AnnotationType.from(rawString: "regulatory"), .regulatory)
+        XCTAssertEqual(AnnotationType.from(rawString: "misc_feature"), .misc_feature)
+        XCTAssertEqual(AnnotationType.from(rawString: "primer_bind"), .primer)
+        XCTAssertEqual(AnnotationType.from(rawString: "repeat_region"), .repeatRegion)
+        XCTAssertEqual(AnnotationType.from(rawString: "stem_loop"), .stem_loop)
+        XCTAssertEqual(AnnotationType.from(rawString: "variation"), .variation)
+        XCTAssertEqual(AnnotationType.from(rawString: "promoter"), .promoter)
+        XCTAssertEqual(AnnotationType.from(rawString: "enhancer"), .enhancer)
+        XCTAssertEqual(AnnotationType.from(rawString: "misc_binding"), .misc_binding)
+        XCTAssertEqual(AnnotationType.from(rawString: "protein_bind"), .protein_bind)
+    }
+
+    func testAnnotationTypeFromRawStringGFF3Aliases() {
+        // GFF3-specific type names
+        XCTAssertEqual(AnnotationType.from(rawString: "five_prime_utr"), .utr5)
+        XCTAssertEqual(AnnotationType.from(rawString: "three_prime_utr"), .utr3)
+        XCTAssertEqual(AnnotationType.from(rawString: "coding_sequence"), .cds)
+        XCTAssertEqual(AnnotationType.from(rawString: "5'utr"), .utr5)
+        XCTAssertEqual(AnnotationType.from(rawString: "3'utr"), .utr3)
+    }
+
+    func testAnnotationTypeFromRawStringReturnsNilForUnknown() {
+        XCTAssertNil(AnnotationType.from(rawString: "unknown_type"))
+        XCTAssertNil(AnnotationType.from(rawString: ""))
+        XCTAssertNil(AnnotationType.from(rawString: "UNKNOWN"))
+        XCTAssertNil(AnnotationType.from(rawString: "hypothetical_protein"))
+    }
+
+    func testAnnotationTypeFromRawStringCoversAllCases() {
+        // Every AnnotationType case should be reachable via from(rawString:) using its rawValue
+        for type in AnnotationType.allCases {
+            if type == .custom { continue } // custom is special
+            let result = AnnotationType.from(rawString: type.rawValue)
+            XCTAssertEqual(result, type, "from(rawString: \"\(type.rawValue)\") should return .\(type)")
+        }
+    }
+
+    // MARK: - Improved Color Differentiation Tests
+
+    func testEnhancerHasDistinctColorFromPromoter() {
+        let promoterColor = AnnotationType.promoter.defaultColor
+        let enhancerColor = AnnotationType.enhancer.defaultColor
+        XCTAssertNotEqual(promoterColor, enhancerColor,
+                          "Enhancer and promoter should have distinct colors")
+    }
+
+    func testInsertionAndDeletionHaveDistinctColors() {
+        let insertionColor = AnnotationType.insertion.defaultColor
+        let deletionColor = AnnotationType.deletion.defaultColor
+        XCTAssertNotEqual(insertionColor, deletionColor,
+                          "Insertion and deletion should have distinct colors")
+    }
+
+    func testAnnotationTypeFromRawStringMixedCaseAliases() {
+        // Verify case-insensitive matching works for GFF3/GenBank aliases
+        XCTAssertEqual(AnnotationType.from(rawString: "CODING_SEQUENCE"), .cds)
+        XCTAssertEqual(AnnotationType.from(rawString: "Coding_Sequence"), .cds)
+        XCTAssertEqual(AnnotationType.from(rawString: "FIVE_PRIME_UTR"), .utr5)
+        XCTAssertEqual(AnnotationType.from(rawString: "THREE_PRIME_UTR"), .utr3)
+        XCTAssertEqual(AnnotationType.from(rawString: "PRIMER_BIND"), .primer)
+        XCTAssertEqual(AnnotationType.from(rawString: "MAT_PEPTIDE"), .mat_peptide)
+        XCTAssertEqual(AnnotationType.from(rawString: "SIG_PEPTIDE"), .sig_peptide)
+        XCTAssertEqual(AnnotationType.from(rawString: "TRANSIT_PEPTIDE"), .transit_peptide)
+        XCTAssertEqual(AnnotationType.from(rawString: "REGULATORY"), .regulatory)
+        XCTAssertEqual(AnnotationType.from(rawString: "MISC_BINDING"), .misc_binding)
+        XCTAssertEqual(AnnotationType.from(rawString: "PROTEIN_BIND"), .protein_bind)
+        XCTAssertEqual(AnnotationType.from(rawString: "REPEAT_REGION"), .repeatRegion)
+        XCTAssertEqual(AnnotationType.from(rawString: "STEM_LOOP"), .stem_loop)
+        XCTAssertEqual(AnnotationType.from(rawString: "MISC_FEATURE"), .misc_feature)
+        XCTAssertEqual(AnnotationType.from(rawString: "POLYA_SIGNAL"), .polyASignal)
+    }
+
+    func testAnnotationTypeFromRawStringCustom() {
+        // .custom has rawValue "custom" — the rawValue init path should find it
+        let result = AnnotationType.from(rawString: "custom")
+        XCTAssertEqual(result, .custom)
+
+        // "Custom" should return nil (no case in switch, rawValue init is case-sensitive)
+        XCTAssertNil(AnnotationType.from(rawString: "Custom"))
+    }
+
+    func testNewAnnotationTypesCodableRoundTrip() throws {
+        let newTypes: [AnnotationType] = [
+            .mat_peptide, .sig_peptide, .transit_peptide,
+            .regulatory, .ncRNA, .misc_binding, .protein_bind
+        ]
+
+        for type in newTypes {
+            let annotation = SequenceAnnotation(
+                type: type,
+                name: "test_\(type.rawValue)",
+                start: 100,
+                end: 200,
+                strand: .forward
+            )
+
+            let encoded = try JSONEncoder().encode(annotation)
+            let decoded = try JSONDecoder().decode(SequenceAnnotation.self, from: encoded)
+
+            XCTAssertEqual(decoded.type, type,
+                           "\(type.rawValue) should survive JSON round trip")
+            XCTAssertEqual(decoded.name, "test_\(type.rawValue)")
+        }
+    }
+
     // MARK: - Gene Structure Hierarchy Tests
 
     func testGeneHierarchy() {

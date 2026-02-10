@@ -129,10 +129,13 @@ public class MainWindowController: NSWindowController {
         let index = AnnotationSearchIndex()
         annotationSearchIndex = index
 
-        // Set callback to populate annotation drawer when index is ready
-        index.onBuildComplete = { [weak self, weak viewerController] in
+        // Set callback to populate annotation drawer and inspector when index is ready
+        let inspectorController = mainSplitViewController?.inspectorController
+        index.onBuildComplete = { [weak self, weak viewerController, weak inspectorController] in
             guard let self, let viewerController else { return }
             viewerController.annotationSearchIndex = self.annotationSearchIndex
+            // Wire annotation database to inspector selection view model for qualifier enrichment
+            inspectorController?.selectionSectionViewModel.annotationDatabase = self.annotationSearchIndex?.annotationDatabase
         }
 
         // Starts background thread I/O — won't block the UI

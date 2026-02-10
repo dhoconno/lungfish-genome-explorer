@@ -181,4 +181,36 @@ final class GFF3ReaderTests: XCTestCase {
         XCTAssertEqual(grouped["chr1"]?.count, 2)
         XCTAssertEqual(grouped["chr2"]?.count, 1)
     }
+
+    func testConvertToAnnotationSupportsExtendedTypes() async throws {
+        let gff = """
+        chr1\ttest\tmat_peptide\t10\t20\t.\t+\t.\tID=a1
+        chr1\ttest\tncRNA\t30\t40\t.\t+\t.\tID=a2
+        chr1\ttest\tprotein_bind\t50\t60\t.\t+\t.\tID=a3
+        """
+        let url = try createTempFile(content: gff)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = GFF3Reader()
+        let annotations = try await reader.readAsAnnotations(from: url)
+
+        XCTAssertEqual(annotations.count, 3)
+        XCTAssertEqual(annotations[0].type, .mat_peptide)
+        XCTAssertEqual(annotations[1].type, .ncRNA)
+        XCTAssertEqual(annotations[2].type, .protein_bind)
+    }
+
+    func testConvertToAnnotationUnknownTypeFallsBackToRegion() async throws {
+        let gff = """
+        chr1\ttest\tunknown_type\t10\t20\t.\t+\t.\tID=a1
+        """
+        let url = try createTempFile(content: gff)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = GFF3Reader()
+        let annotations = try await reader.readAsAnnotations(from: url)
+
+        XCTAssertEqual(annotations.count, 1)
+        XCTAssertEqual(annotations[0].type, .region)
+    }
 }

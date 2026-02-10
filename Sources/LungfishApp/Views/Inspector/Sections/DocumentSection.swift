@@ -53,6 +53,12 @@ public final class DocumentSectionViewModel {
 public struct DocumentSection: View {
     var viewModel: DocumentSectionViewModel
 
+    @State private var isSourceExpanded = true
+    @State private var isGenomeExpanded = true
+    @State private var isChromosomeExpanded = true
+    @State private var expandedMetadataGroups: Set<String> = []
+    @State private var trackedManifestName: String?
+
     public init(viewModel: DocumentSectionViewModel) {
         self.viewModel = viewModel
     }
@@ -60,8 +66,27 @@ public struct DocumentSection: View {
     public var body: some View {
         if let manifest = viewModel.manifest {
             bundleContent(manifest)
+                .onChange(of: manifest.name) { _, newName in
+                    expandAllSections(manifest: manifest)
+                    trackedManifestName = newName
+                }
+                .onAppear {
+                    if trackedManifestName != manifest.name {
+                        expandAllSections(manifest: manifest)
+                        trackedManifestName = manifest.name
+                    }
+                }
         } else {
             noDocumentView
+        }
+    }
+
+    private func expandAllSections(manifest: BundleManifest) {
+        isSourceExpanded = true
+        isGenomeExpanded = true
+        isChromosomeExpanded = true
+        if let groups = manifest.metadata {
+            expandedMetadataGroups = Set(groups.map(\.name))
         }
     }
 
@@ -134,7 +159,7 @@ public struct DocumentSection: View {
 
     @ViewBuilder
     private func sourceSection(_ source: SourceInfo) -> some View {
-        DisclosureGroup {
+        DisclosureGroup(isExpanded: $isSourceExpanded) {
             VStack(alignment: .leading, spacing: 6) {
                 metadataRow(label: "Organism", value: source.organism)
 
@@ -175,7 +200,7 @@ public struct DocumentSection: View {
 
     @ViewBuilder
     private func genomeSection(_ genome: GenomeInfo, annotations: [AnnotationTrackInfo], variants: [VariantTrackInfo]) -> some View {
-        DisclosureGroup {
+        DisclosureGroup(isExpanded: $isGenomeExpanded) {
             VStack(alignment: .leading, spacing: 6) {
                 metadataRow(label: "Total Length", value: formatBases(genome.totalLength))
                 metadataRow(label: "Chromosomes", value: "\(genome.chromosomes.count)")
@@ -202,7 +227,7 @@ public struct DocumentSection: View {
             }
             .padding(.top, 4)
         } label: {
-            Label("Genome", systemImage: "dna")
+            Text("Genome")
                 .font(.headline)
         }
     }
@@ -211,7 +236,7 @@ public struct DocumentSection: View {
 
     @ViewBuilder
     private func metadataGroupSection(_ group: MetadataGroup) -> some View {
-        DisclosureGroup {
+        DisclosureGroup(isExpanded: metadataGroupBinding(for: group.name)) {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(group.items) { item in
                     metadataRow(label: item.label, value: item.value)
@@ -219,16 +244,29 @@ public struct DocumentSection: View {
             }
             .padding(.top, 4)
         } label: {
-            Label(group.name, systemImage: "tag")
+            Text(group.name)
                 .font(.headline)
         }
+    }
+
+    private func metadataGroupBinding(for name: String) -> Binding<Bool> {
+        Binding(
+            get: { expandedMetadataGroups.contains(name) },
+            set: { newValue in
+                if newValue {
+                    expandedMetadataGroups.insert(name)
+                } else {
+                    expandedMetadataGroups.remove(name)
+                }
+            }
+        )
     }
 
     // MARK: - Chromosome Section
 
     @ViewBuilder
     private func chromosomeSection(_ chromosome: ChromosomeInfo) -> some View {
-        DisclosureGroup {
+        DisclosureGroup(isExpanded: $isChromosomeExpanded) {
             VStack(alignment: .leading, spacing: 6) {
                 metadataRow(label: "Name", value: chromosome.name)
                 metadataRow(label: "Length", value: formatBases(chromosome.length))

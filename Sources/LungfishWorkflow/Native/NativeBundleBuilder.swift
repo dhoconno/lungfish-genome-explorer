@@ -791,7 +791,28 @@ public final class NativeBundleBuilder: ObservableObject {
         try indexContent.write(to: indexURL, atomically: true, encoding: .utf8)
     }
 
+    /// Converts an annotation file to BED12+ format.
+    ///
+    /// Detects GenBank files by extension and routes them through the full
+    /// ``GenBankReader`` pipeline, which preserves real feature types and all
+    /// qualifiers. Other formats (GFF3, BED) are handled by ``AnnotationConverter``.
+    ///
+    /// - Parameters:
+    ///   - sourceURL: The annotation file to convert.
+    ///   - outputURL: The BED output file path.
+    /// - Returns: The number of features written.
     private func convertAnnotationToBED(from sourceURL: URL, to outputURL: URL) async throws -> Int {
+        // Detect GenBank format and use the full GenBankReader pipeline
+        var detectionURL = sourceURL
+        if detectionURL.pathExtension.lowercased() == "gz" {
+            detectionURL = detectionURL.deletingPathExtension()
+        }
+        let ext = detectionURL.pathExtension.lowercased()
+        if ["gb", "gbk", "genbank", "gbff"].contains(ext) {
+            return try await convertGenBankToBED(from: sourceURL, to: outputURL)
+        }
+
+        // Existing code for GFF3/BED formats
         let converter = AnnotationConverter()
 
         // Use BED12 format so feature type lands in column 12 (standard BigBed layout)
@@ -811,6 +832,132 @@ public final class NativeBundleBuilder: ObservableObject {
         return content.components(separatedBy: .newlines)
             .filter { !$0.isEmpty && !$0.hasPrefix("#") }
             .count
+    }
+
+    /// Converts a GenBank file to BED12+ format using the full ``GenBankReader`` pipeline.
+    ///
+    /// Each ``SequenceAnnotation`` is converted to a BED12 line with two extra columns:
+    /// - Column 13: the real GenBank feature type (e.g. "CDS", "gene", "mRNA")
+    /// - Column 14: all qualifiers serialized as `key=value;key=value`
+    ///
+    /// Multi-interval features (join locations) are represented using proper BED12
+    /// blocks (blockCount, blockSizes, blockStarts). Source features are skipped
+    /// since they span the entire sequence and are not useful for display.
+    ///
+    /// - Parameters:
+    ///   - sourceURL: The GenBank file to convert (may be .gz compressed).
+    ///   - outputURL: The BED output file path.
+    /// - Returns: The number of features written.
+    func convertGenBankToBED(from sourceURL: URL, to outputURL: URL) async throws -> Int {
+        logger.info("Converting GenBank file to BED12+: \(sourceURL.lastPathComponent)")
+
+        let reader = try GenBankReader(url: sourceURL)
+        let records = try await reader.readAll()
+
+        // Collect all BED lines with sort keys, then sort by chromosome + start
+        struct BEDEntry {
+            let chromosome: String
+            let start: Int
+            let line: String
+        }
+
+        var entries: [BEDEntry] = []
+
+        // Character set for qualifier value percent-encoding.
+        // We must encode characters that would break the key=value;key=value format:
+        // semicolons, equals signs, tabs, newlines, and percent itself.
+        var allowedCharacters = CharacterSet.urlQueryAllowed
+        allowedCharacters.remove(charactersIn: ";=\t\n%")
+
+        for record in records {
+            let chromName = record.locus.name
+
+            for annotation in record.annotations {
+                // Skip source features — they span the entire sequence
+                if annotation.type == .source {
+                    continue
+                }
+
+                let chromosome = annotation.chromosome ?? chromName
+                let intervals = annotation.intervals.sorted { $0.start < $1.start }
+                let featureStart = intervals.first?.start ?? 0
+                let featureEnd = intervals.last?.end ?? 0
+
+                // BED columns 1-3: chrom, chromStart, chromEnd
+                // BED column 4: name
+                let name = annotation.name
+
+                // BED column 5: score (0-1000, use 0 as default)
+                let score = 0
+
+                // BED column 6: strand
+                let strand = annotation.strand.rawValue
+
+                // BED columns 7-8: thickStart, thickEnd (same as feature bounds)
+                let thickStart = featureStart
+                let thickEnd = featureEnd
+
+                // BED column 9: itemRgb (use type default color)
+                let color = annotation.type.defaultColor
+                let r = Int(color.red * 255)
+                let g = Int(color.green * 255)
+                let b = Int(color.blue * 255)
+                let itemRgb = "\(r),\(g),\(b)"
+
+                // BED columns 10-12: blockCount, blockSizes, blockStarts
+                let blockCount = intervals.count
+                let blockSizes = intervals.map { "\($0.end - $0.start)" }.joined(separator: ",") + ","
+                let blockStarts = intervals.map { "\($0.start - featureStart)" }.joined(separator: ",") + ","
+
+                // Column 13: real GenBank feature type (preserve original key when present)
+                let featureType = annotation.qualifiers[GenBankReader.rawFeatureTypeQualifierKey]?.firstValue
+                    ?? annotation.type.rawValue
+
+                // Column 14: all qualifiers as key=value;key=value
+                let qualifierPairs: [String] = annotation.qualifiers
+                    .filter { $0.key != GenBankReader.rawFeatureTypeQualifierKey }
+                    .sorted { $0.key < $1.key }
+                    .map { key, qualifier in
+                        let joinedValues = qualifier.values.joined(separator: ",")
+                        let encodedValues = joinedValues.addingPercentEncoding(withAllowedCharacters: allowedCharacters) ?? joinedValues
+                        return "\(key)=\(encodedValues)"
+                    }
+                let qualifiersString = qualifierPairs.joined(separator: ";")
+
+                let bedLine = [
+                    chromosome,
+                    String(featureStart),
+                    String(featureEnd),
+                    name,
+                    String(score),
+                    strand,
+                    String(thickStart),
+                    String(thickEnd),
+                    itemRgb,
+                    String(blockCount),
+                    blockSizes,
+                    blockStarts,
+                    featureType,
+                    qualifiersString
+                ].joined(separator: "\t")
+
+                entries.append(BEDEntry(chromosome: chromosome, start: featureStart, line: bedLine))
+            }
+        }
+
+        // Sort by chromosome then start position
+        entries.sort { a, b in
+            if a.chromosome != b.chromosome {
+                return a.chromosome < b.chromosome
+            }
+            return a.start < b.start
+        }
+
+        let bedContent = entries.map(\.line).joined(separator: "\n")
+        try bedContent.write(to: outputURL, atomically: true, encoding: .utf8)
+
+        logger.info("GenBank conversion complete: \(entries.count) features written")
+        return entries.count
     }
 
     /// Clips BED coordinates to chromosome boundaries to ensure bedToBigBed compatibility.

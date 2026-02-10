@@ -1547,8 +1547,9 @@ public class SequenceViewerView: NSView {
     /// Whether we're currently dragging to select
     private var isSelecting = false
 
-    /// Currently selected annotation (nil if no annotation selected)
-    private var selectedAnnotation: SequenceAnnotation?
+    /// Currently selected annotation (nil if no annotation selected).
+    /// Internal so the AnnotationDrawer extension can set it from table selection.
+    var selectedAnnotation: SequenceAnnotation?
 
     /// Popover for annotation details on double-click
     private var annotationPopover: NSPopover?
@@ -2217,6 +2218,10 @@ public class SequenceViewerView: NSView {
         let expandedRegion = GenomicRegion(chromosome: region.chromosome, start: expandedStart, end: expandedEnd)
         let trackIds = bundle.annotationTrackIds
 
+        // Capture SQLite annotation database for type enrichment on background thread.
+        // AnnotationDatabase is @unchecked Sendable — safe to use off the main actor.
+        let annotationDB = viewController?.annotationSearchIndex?.annotationDatabase
+
         logger.info("fetchAnnotationsAsync: gen=\(thisGeneration), Fetching \(expandedRegion.description) (\(trackIds.count) tracks) on background thread")
 
         Self.annotationFetchQueue.async { [weak self] in
@@ -2247,6 +2252,47 @@ public class SequenceViewerView: NSView {
                     }
                 } catch {
                     logger.error("fetchAnnotationsAsync: BigBed query failed for track \(trackId) region \(expandedRegion.description): \(error.localizedDescription)")
+                }
+            }
+
+            // Enrich annotation types from SQLite database.
+            // BigBed features may have inferred types (heuristic-based) while the
+            // SQLite database has the real GenBank/GFF3 feature type. Override
+            // inferred types with authoritative database types where available.
+            if let db = annotationDB {
+                // Avoid silent truncation from queryByRegion's default limit in dense regions.
+                let enrichmentLimit = max(10_000, allAnnotations.count * 2)
+                let dbRecords = db.queryByRegion(
+                    chromosome: expandedRegion.chromosome,
+                    start: expandedRegion.start,
+                    end: expandedRegion.end,
+                    limit: enrichmentLimit
+                )
+                if !dbRecords.isEmpty {
+                    // Build lookup: "name|start|end" → type string
+                    var typeLookup: [String: String] = [:]
+                    for record in dbRecords {
+                        let key = "\(record.name)|\(record.start)|\(record.end)"
+                        typeLookup[key] = record.type
+                    }
+                    var enrichedCount = 0
+                    for i in allAnnotations.indices {
+                        let ann = allAnnotations[i]
+                        let firstStart = ann.intervals.first!.start
+                        let lastEnd = ann.intervals.last!.end
+                        let key = "\(ann.name)|\(firstStart)|\(lastEnd)"
+                        if let dbType = typeLookup[key],
+                           let mapped = AnnotationType.from(rawString: dbType),
+                           mapped != ann.type {
+                            allAnnotations[i].type = mapped
+                            // Clear explicit color so it falls back to type.defaultColor
+                            allAnnotations[i].color = nil
+                            enrichedCount += 1
+                        }
+                    }
+                    if enrichedCount > 0 {
+                        logger.info("fetchAnnotationsAsync: Enriched \(enrichedCount)/\(allAnnotations.count) annotation types from SQLite")
+                    }
                 }
             }
 
@@ -3846,7 +3892,8 @@ public class SequenceViewerView: NSView {
     }
 
     /// Posts a notification that an annotation was selected.
-    private func postAnnotationSelectedNotification(_ annotation: SequenceAnnotation?) {
+    /// Internal so the AnnotationDrawer extension can post from table selection.
+    func postAnnotationSelectedNotification(_ annotation: SequenceAnnotation?) {
         if let annotation = annotation {
             NotificationCenter.default.post(
                 name: .annotationSelected,
@@ -4652,7 +4699,6 @@ public class SequenceViewerView: NSView {
                     if let attrs = record?.attributes {
                         let parsed = LungfishIO.AnnotationDatabase.parseAttributes(attrs)
                         if annot.qualifier("extra") == nil {
-                            // Only add if not already enriched from qualifiers
                             if let desc = parsed["description"] {
                                 tooltip += "\n\(desc)"
                             }
@@ -4663,7 +4709,11 @@ public class SequenceViewerView: NSView {
                         if let gene = parsed["gene"] {
                             tooltip += "\nGene: \(gene)"
                         }
-                        if let dbxref = parsed["Dbxref"] {
+                        if let product = parsed["product"] {
+                            tooltip += "\nProduct: \(product)"
+                        }
+                        let dbxref = parsed["Dbxref"] ?? parsed["db_xref"]
+                        if let dbxref {
                             tooltip += "\nRef: \(dbxref)"
                         }
                     }
@@ -5756,6 +5806,8 @@ struct AnnotationPopoverView: View {
         case .silencer: return "Silencer"
         case .terminator: return "Terminator"
         case .polyASignal: return "PolyA Signal"
+        case .regulatory: return "Regulatory"
+        case .ncRNA: return "ncRNA"
         case .primer: return "Primer"
         case .primerPair: return "Primer Pair"
         case .amplicon: return "Amplicon"
@@ -5767,6 +5819,11 @@ struct AnnotationPopoverView: View {
         case .repeatRegion: return "Repeat Region"
         case .stem_loop: return "Stem Loop"
         case .misc_feature: return "Misc Feature"
+        case .mat_peptide: return "Mature Peptide"
+        case .sig_peptide: return "Signal Peptide"
+        case .transit_peptide: return "Transit Peptide"
+        case .misc_binding: return "Misc Binding"
+        case .protein_bind: return "Protein Binding"
         case .contig: return "Contig"
         case .gap: return "Gap"
         case .scaffold: return "Scaffold"

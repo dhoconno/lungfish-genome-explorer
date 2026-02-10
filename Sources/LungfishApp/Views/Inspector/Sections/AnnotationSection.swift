@@ -168,7 +168,7 @@ public struct AnnotationSection: View {
             }
             .padding(.top, 8)
         } label: {
-            Label("Annotation Style", systemImage: "tag")
+            Text("Annotation Style")
                 .font(.headline)
         }
     }

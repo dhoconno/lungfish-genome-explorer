@@ -43,6 +43,11 @@ public class InspectorViewController: NSViewController {
     /// View model for the inspector
     private var viewModel = InspectorViewModel()
 
+    /// Public access to the selection section view model for wiring enrichment data.
+    public var selectionSectionViewModel: SelectionSectionViewModel {
+        viewModel.selectionSectionViewModel
+    }
+
     /// Cancellables for Combine subscriptions
     private var cancellables = Set<AnyCancellable>()
 

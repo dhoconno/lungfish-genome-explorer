@@ -11,13 +11,21 @@ import os.log
 private let searchLogger = Logger(subsystem: "com.lungfish.browser", category: "AnnotationSearch")
 
 /// Annotation types to include in the search index table.
-/// Sub-gene features (exons, CDS, UTR) are excluded because they balloon the count
+/// Sub-gene features (exons, introns, UTR) are excluded because they balloon the count
 /// from ~30K gene-level features to ~3M rows, making the table unusable.
 private let indexableTypes: Set<String> = [
     "gene", "mRNA", "transcript", "region", "promoter", "enhancer",
     "primer", "primer_pair", "amplicon", "SNP", "variation",
     "restriction_site", "repeat_region", "origin_of_replication",
     "misc_feature", "silencer", "terminator", "polyA_signal",
+    // Protein processing
+    "CDS", "mat_peptide", "sig_peptide", "transit_peptide",
+    // Regulatory & binding
+    "regulatory", "ncRNA", "misc_binding", "protein_bind",
+    // Structural
+    "stem_loop",
+    // GenBank raw key aliases
+    "primer_bind",
 ]
 
 // MARK: - AnnotationSearchIndex
@@ -33,7 +41,7 @@ private let indexableTypes: Set<String> = [
 ///    builds an in-memory index.
 ///
 /// Only gene-level features (genes, mRNA, transcripts, etc.) are indexed.
-/// Sub-gene features like exons, CDS, and UTRs are excluded to keep the table
+/// Sub-gene features like exons, introns, and UTRs are excluded to keep the table
 /// responsive with ~30K entries instead of ~3M.
 @MainActor
 public final class AnnotationSearchIndex {
@@ -160,7 +168,7 @@ public final class AnnotationSearchIndex {
     /// Builds the index by scanning all annotation tracks across all chromosomes.
     ///
     /// The heavy BigBed I/O runs on a background thread to avoid blocking the UI.
-    /// Only gene-level features are indexed (exons, CDS, UTR are excluded).
+    /// Only selected feature types are indexed (exons, introns, UTR are excluded).
     ///
     /// - Parameters:
     ///   - bundle: The reference bundle containing annotation tracks

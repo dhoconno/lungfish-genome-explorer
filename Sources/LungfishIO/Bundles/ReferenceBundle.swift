@@ -59,18 +59,9 @@ private func inferAnnotationType(name: String, featureSize: Int, extraFields: St
     if let extra = extraFields {
         let parts = extra.split(separator: "\t")
         // Column 13 (index 0 in extra fields after the standard 12) = feature type
-        if let typeStr = parts.first {
-            switch typeStr.lowercased() {
-            case "gene": return .gene
-            case "mrna": return .mRNA
-            case "transcript": return .transcript
-            case "exon": return .exon
-            case "cds": return .cds
-            case "region": return .region
-            case "5'utr", "five_prime_utr": return .utr5
-            case "3'utr", "three_prime_utr": return .utr3
-            default: break
-            }
+        if let typeStr = parts.first,
+           let mapped = AnnotationType.from(rawString: String(typeStr)) {
+            return mapped
         }
     }
 

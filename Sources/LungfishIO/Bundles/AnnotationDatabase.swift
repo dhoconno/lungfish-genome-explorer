@@ -270,6 +270,66 @@ public final class AnnotationDatabase: @unchecked Sendable {
         )
     }
 
+    /// Queries annotations in a genomic region for type enrichment.
+    ///
+    /// Returns all annotations overlapping the specified region. Used to enrich
+    /// BigBed features with correct types at read time.
+    ///
+    /// - Parameters:
+    ///   - chromosome: Chromosome name
+    ///   - start: Start coordinate (0-based)
+    ///   - end: End coordinate
+    ///   - limit: Maximum results (default 10000)
+    /// - Returns: Array of matching records with attributes
+    public func queryByRegion(chromosome: String, start: Int, end: Int, limit: Int = 10000) -> [AnnotationDatabaseRecord] {
+        guard let db else { return [] }
+
+        let columns = hasAttributesColumn
+            ? "name, type, chromosome, start, end, strand, attributes"
+            : "name, type, chromosome, start, end, strand"
+
+        let sql = """
+        SELECT \(columns)
+        FROM annotations
+        WHERE chromosome = ? AND end > ? AND start < ?
+        ORDER BY start ASC, end ASC, name COLLATE NOCASE ASC
+        LIMIT ?
+        """
+
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            dbLogger.error("Failed to prepare queryByRegion: \(sql)")
+            return []
+        }
+
+        sqlite3_bind_text(stmt, 1, (chromosome as NSString).utf8String, -1, nil)
+        sqlite3_bind_int64(stmt, 2, Int64(start))
+        sqlite3_bind_int64(stmt, 3, Int64(end))
+        sqlite3_bind_int64(stmt, 4, Int64(limit))
+
+        var results: [AnnotationDatabaseRecord] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let rName = sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? ""
+            let rType = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
+            let rChrom = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? ""
+            let rStart = Int(sqlite3_column_int64(stmt, 3))
+            let rEnd = Int(sqlite3_column_int64(stmt, 4))
+            let rStrand = sqlite3_column_text(stmt, 5).map { String(cString: $0) } ?? "."
+            let rAttrs: String? = hasAttributesColumn
+                ? sqlite3_column_text(stmt, 6).map { String(cString: $0) }
+                : nil
+
+            results.append(AnnotationDatabaseRecord(
+                name: rName, type: rType, chromosome: rChrom,
+                start: rStart, end: rEnd, strand: rStrand,
+                attributes: rAttrs
+            ))
+        }
+
+        return results
+    }
+
     // MARK: - Attribute Parsing
 
     /// Parses a GFF3-style attributes string into a dictionary.
@@ -299,7 +359,7 @@ public final class AnnotationDatabase: @unchecked Sendable {
     /// end (col 2), name (col 3), strand (col 5), feature type (col 12 if present),
     /// and GFF3 attributes (col 13 if present).
     ///
-    /// Only gene-level features are indexed (exons, CDS, UTR are excluded).
+    /// Only selected feature types are indexed (exons, introns, UTR are excluded).
     ///
     /// - Parameters:
     ///   - bedURL: URL to the BED file
@@ -345,6 +405,16 @@ public final class AnnotationDatabase: @unchecked Sendable {
             "primer", "primer_pair", "amplicon", "SNP", "variation",
             "restriction_site", "repeat_region", "origin_of_replication",
             "misc_feature", "silencer", "terminator", "polyA_signal",
+            // Protein processing
+            "CDS", "mat_peptide", "sig_peptide", "transit_peptide",
+            // UTRs
+            "5'UTR", "3'UTR", "five_prime_UTR", "three_prime_UTR",
+            // Regulatory & binding
+            "regulatory", "ncRNA", "misc_binding", "protein_bind",
+            // Structural
+            "stem_loop",
+            // GenBank raw key aliases
+            "primer_bind",
         ]
 
         // Begin transaction for bulk insert
@@ -395,8 +465,9 @@ public final class AnnotationDatabase: @unchecked Sendable {
             // Only index gene-level features
             guard indexableTypes.contains(type) else { continue }
 
-            // Deduplicate by name+chrom+start+end
-            let key = "\(name)|\(chrom)|\(start)|\(end)"
+            // Deduplicate by name+type+chrom+start+end (type included so gene and CDS
+            // at the same coordinates are both kept)
+            let key = "\(name)|\(type)|\(chrom)|\(start)|\(end)"
             guard seenKeys.insert(key).inserted else { continue }
 
             sqlite3_reset(insertStmt)
