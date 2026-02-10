@@ -322,6 +322,31 @@ public class ViewerViewController: NSViewController {
             object: nil
         )
         logger.debug("ViewerViewController: Registered annotationFilterChanged observer")
+
+        // Observer for CDS translation toggle from inspector
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleShowCDSTranslationRequested(_:)),
+            name: .showCDSTranslationRequested,
+            object: nil
+        )
+        logger.debug("ViewerViewController: Registered showCDSTranslationRequested observer")
+    }
+
+    /// Handles the toggle of CDS translation display from the inspector.
+    @objc private func handleShowCDSTranslationRequested(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let annotation = userInfo["annotation"] as? SequenceAnnotation,
+              let visible = userInfo["visible"] as? Bool else {
+            logger.warning("handleShowCDSTranslationRequested: Missing userInfo keys")
+            return
+        }
+
+        if visible {
+            viewerView?.showCDSTranslation(for: annotation)
+        } else {
+            viewerView?.hideTranslation()
+        }
     }
 
     /// Handles annotation settings change notifications.
@@ -1568,11 +1593,41 @@ public class SequenceViewerView: NSView {
         }
     }
 
+    // MARK: - Translation Track State
+
+    /// Whether the translation track is visible below the sequence track.
+    var showTranslationTrack: Bool = false
+
+    /// Pre-computed CDS translation result (set when user clicks "Translate" on a CDS annotation).
+    var activeTranslationResult: TranslationResult?
+
+    /// Color scheme for amino acid rendering.
+    var translationColorScheme: AminoAcidColorScheme = .zappo
+
+    /// Reading frames to display in frame-translation mode (empty = CDS mode).
+    var frameTranslationFrames: [ReadingFrame] = []
+
+    /// Codon table for frame translations.
+    var frameTranslationTable: CodonTable = .standard
+
     // MARK: - Annotation Track Layout Constants
 
-    /// Y offset where annotation track starts (immediately below sequence track)
+    /// Y offset where annotation track starts (below sequence + optional translation track)
     private var annotationTrackY: CGFloat {
-        trackY + trackHeight + 4
+        var y = trackY + trackHeight + 4
+        if showTranslationTrack {
+            y += translationTrackTotalHeight + 4
+        }
+        return y
+    }
+
+    /// Total height of the translation track area.
+    private var translationTrackTotalHeight: CGFloat {
+        if !frameTranslationFrames.isEmpty {
+            return TranslationTrackRenderer.totalHeight(for: frameTranslationFrames)
+        } else {
+            return TranslationTrackRenderer.cdsTrackHeight()
+        }
     }
 
     /// Whether to show annotations (controlled by inspector)
@@ -1881,6 +1936,85 @@ public class SequenceViewerView: NSView {
         }
     }
 
+    // MARK: - Translation Track Control
+
+    /// Shows a CDS translation track for the given annotation.
+    ///
+    /// Computes the translation using `TranslationEngine.translateCDS()` with the
+    /// sequence data from the current bundle or loaded sequence. The translation result
+    /// is cached in `activeTranslationResult` and the track is made visible.
+    ///
+    /// - Parameter annotation: The CDS/mRNA annotation to translate.
+    func showCDSTranslation(for annotation: SequenceAnnotation) {
+        // Build a sequence provider from the available data source
+        let sequenceProvider: (Int, Int) -> String?
+        if let bundle = currentReferenceBundle {
+            // Bundle mode: use sync sequence fetch
+            sequenceProvider = { start, end in
+                let region = GenomicRegion(
+                    chromosome: annotation.chromosome ?? bundle.chromosomeNames.first ?? "",
+                    start: start, end: end
+                )
+                return try? bundle.fetchSequenceSync(region: region)
+            }
+        } else if let seq = sequence {
+            // Single-sequence mode: extract from loaded sequence
+            sequenceProvider = { start, end in
+                let clampedStart = max(0, start)
+                let clampedEnd = min(seq.length, end)
+                guard clampedStart < clampedEnd else { return nil }
+                return seq[clampedStart..<clampedEnd]
+            }
+        } else {
+            logger.warning("showCDSTranslation: No sequence data available")
+            return
+        }
+
+        guard let result = TranslationEngine.translateCDS(
+            annotation: annotation,
+            sequenceProvider: sequenceProvider
+        ) else {
+            logger.warning("showCDSTranslation: translateCDS returned nil for '\(annotation.name, privacy: .public)'")
+            return
+        }
+
+        activeTranslationResult = result
+        frameTranslationFrames = []
+        showTranslationTrack = true
+        invalidateAnnotationTile()
+        setNeedsDisplay(bounds)
+        logger.info("showCDSTranslation: Showing translation for '\(annotation.name, privacy: .public)' (\(result.protein.count) aa)")
+    }
+
+    /// Hides the translation track and clears all translation state.
+    func hideTranslation() {
+        guard showTranslationTrack else { return }
+        showTranslationTrack = false
+        activeTranslationResult = nil
+        frameTranslationFrames = []
+        invalidateAnnotationTile()
+        setNeedsDisplay(bounds)
+        logger.info("hideTranslation: Translation track hidden")
+    }
+
+    /// Enables multi-frame translation mode for the specified reading frames.
+    ///
+    /// Translates the visible nucleotide sequence on-the-fly in each specified frame.
+    /// This replaces any active CDS translation.
+    ///
+    /// - Parameters:
+    ///   - frames: The reading frames to display (e.g., `ReadingFrame.forwardFrames`).
+    ///   - table: The codon table to use.
+    func applyFrameTranslation(frames: [ReadingFrame], table: CodonTable = .standard) {
+        activeTranslationResult = nil
+        frameTranslationFrames = frames
+        frameTranslationTable = table
+        showTranslationTrack = !frames.isEmpty
+        invalidateAnnotationTile()
+        setNeedsDisplay(bounds)
+        logger.info("applyFrameTranslation: \(frames.count) frames, table=\(table.shortName, privacy: .public)")
+    }
+
     /// Sets a reference bundle for display.
     ///
     /// When a reference bundle is set, the viewer fetches sequence and annotation
@@ -1916,6 +2050,11 @@ public class SequenceViewerView: NSView {
         typeColorCache.removeAll()
         typeDensityColorCache.removeAll()
         invalidateAnnotationTile()
+
+        // Clear translation track state
+        showTranslationTrack = false
+        activeTranslationResult = nil
+        frameTranslationFrames = []
 
         // Clear multi-sequence state if active
         if isMultiSequenceMode {
@@ -2143,6 +2282,32 @@ public class SequenceViewerView: NSView {
             }
         } else {
             drawSequenceLine(frame: frame, context: context)
+        }
+
+        // Draw translation track if active and zoomed in enough for individual bases
+        if showTranslationTrack && scale < showLettersThreshold {
+            let transY = trackY + trackHeight + 4
+            if let result = activeTranslationResult {
+                TranslationTrackRenderer.drawCDSTranslation(
+                    result: result,
+                    frame: frame,
+                    context: context,
+                    yOffset: transY,
+                    colorScheme: translationColorScheme
+                )
+            } else if !frameTranslationFrames.isEmpty, let seq = cachedBundleSequence,
+                      let seqRegion = cachedSequenceRegion {
+                TranslationTrackRenderer.drawFrameTranslations(
+                    frames: frameTranslationFrames,
+                    sequence: seq,
+                    sequenceStart: seqRegion.start,
+                    frame: frame,
+                    context: context,
+                    yOffset: transY,
+                    table: frameTranslationTable,
+                    colorScheme: translationColorScheme
+                )
+            }
         }
 
         // Check if variant cache covers the visible region
@@ -3244,6 +3409,37 @@ public class SequenceViewerView: NSView {
             // Low zoom (>= 300 bp/pixel): show simple gray line
             // At this scale, individual bases provide no useful information
             drawLineSequence(seq, frame: frame, context: context)
+        }
+
+        // Draw translation track if active and zoomed in enough
+        if showTranslationTrack && frame.scale < showLettersThreshold {
+            let transY = trackY + trackHeight + 4
+            if let result = activeTranslationResult {
+                TranslationTrackRenderer.drawCDSTranslation(
+                    result: result,
+                    frame: frame,
+                    context: context,
+                    yOffset: transY,
+                    colorScheme: translationColorScheme
+                )
+            } else if !frameTranslationFrames.isEmpty {
+                // For single-sequence mode, extract the visible portion
+                let visStart = max(0, Int(frame.start))
+                let visEnd = min(seq.length, Int(frame.end))
+                if visStart < visEnd {
+                    let bases = seq[visStart..<visEnd]
+                    TranslationTrackRenderer.drawFrameTranslations(
+                        frames: frameTranslationFrames,
+                        sequence: bases,
+                        sequenceStart: visStart,
+                        frame: frame,
+                        context: context,
+                        yOffset: transY,
+                        table: frameTranslationTable,
+                        colorScheme: translationColorScheme
+                    )
+                }
+            }
         }
 
         // Draw selection highlight

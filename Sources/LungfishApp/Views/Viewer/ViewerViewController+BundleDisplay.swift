@@ -285,6 +285,9 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         // Clear sequence fetch error for the new position
         viewerView.clearSequenceFetchError()
 
+        // Hide translation track — CDS translation is annotation-specific and doesn't survive navigation
+        viewerView.hideTranslation()
+
         let effectiveWidth = max(800, Int(viewerView.bounds.width))
         let clampedStart = max(0, start)
         let clampedEnd = min(chromosomeLength, end)
