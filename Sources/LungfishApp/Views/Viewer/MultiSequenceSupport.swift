@@ -49,16 +49,16 @@ public struct StackedSequenceInfo: Identifiable {
     /// Height used when annotations are collapsed (just shows indicator)
     public static let collapsedAnnotationHeight: CGFloat = 12
 
-    /// Total height of this track including sequence and annotations
+    /// Total height of this track including sequence, translation, and annotations
     public var height: CGFloat {
+        var h = sequenceHeight + translationHeight
         if showAnnotations && !annotations.isEmpty {
-            return sequenceHeight + annotationHeight
+            h += annotationHeight
         } else if !annotations.isEmpty {
             // Show minimal height for collapsed indicator
-            return sequenceHeight + StackedSequenceInfo.collapsedAnnotationHeight
-        } else {
-            return sequenceHeight
+            h += StackedSequenceInfo.collapsedAnnotationHeight
         }
+        return h
     }
 
     /// Whether this sequence is the reference (longest/first)
@@ -78,6 +78,28 @@ public struct StackedSequenceInfo: Identifiable {
     /// Annotations are only shown if both this flag and the global flag are true.
     public var showAnnotations: Bool
 
+    /// Whether to show translation tracks for this sequence.
+    /// Only applies when zoomed in enough to see individual bases (< 10 bp/pixel).
+    public var showTranslation: Bool
+
+    /// Reading frames to display for this sequence's translation.
+    /// Default: forward three frames (+1, +2, +3).
+    public var translationFrames: [ReadingFrame]
+
+    /// Height of a single translation sub-track (matches TranslationTrackRenderer.subTrackHeight).
+    private static let translationSubTrackHeight: CGFloat = 16
+
+    /// Vertical spacing between sub-tracks (matches TranslationTrackRenderer.subTrackSpacing).
+    private static let translationSubTrackSpacing: CGFloat = 1
+
+    /// Height of the translation track area when visible.
+    public var translationHeight: CGFloat {
+        guard showTranslation, !translationFrames.isEmpty else { return 0 }
+        let count = CGFloat(translationFrames.count)
+        let tracksHeight = count * Self.translationSubTrackHeight + (count - 1) * Self.translationSubTrackSpacing
+        return tracksHeight + 4 // 4pt gap before annotations
+    }
+
     public init(
         sequence: Sequence,
         trackIndex: Int,
@@ -88,7 +110,9 @@ public struct StackedSequenceInfo: Identifiable {
         isActive: Bool = false,
         alignmentOffset: Int = 0,
         annotations: [SequenceAnnotation] = [],
-        showAnnotations: Bool = false
+        showAnnotations: Bool = false,
+        showTranslation: Bool = false,
+        translationFrames: [ReadingFrame] = [.plus1, .plus2, .plus3]
     ) {
         self.id = sequence.id
         self.sequence = sequence
@@ -101,6 +125,8 @@ public struct StackedSequenceInfo: Identifiable {
         self.alignmentOffset = alignmentOffset
         self.annotations = annotations
         self.showAnnotations = showAnnotations
+        self.showTranslation = showTranslation
+        self.translationFrames = translationFrames
     }
 }
 
@@ -314,9 +340,15 @@ public class MultiSequenceState: ObservableObject {
 
     /// Rebuilds the stacked sequence info array with proper layout calculations.
     private func rebuildStackedSequences(sequences: [Sequence]) {
-        // Preserve existing showAnnotations state for each sequence
+        // Preserve existing per-sequence state
         let existingShowAnnotations = Dictionary(
             uniqueKeysWithValues: stackedSequences.map { ($0.sequence.id, $0.showAnnotations) }
+        )
+        let existingShowTranslation = Dictionary(
+            uniqueKeysWithValues: stackedSequences.map { ($0.sequence.id, $0.showTranslation) }
+        )
+        let existingTranslationFrames = Dictionary(
+            uniqueKeysWithValues: stackedSequences.map { ($0.sequence.id, $0.translationFrames) }
         )
 
         var currentY = layout.startY
@@ -332,8 +364,10 @@ public class MultiSequenceState: ObservableObject {
             let annotationRowCount = calculateAnnotationRows(seqAnnotations)
             let annotationHeight = layout.annotationHeight(forRowCount: annotationRowCount)
 
-            // Preserve existing showAnnotations state, default to false (collapsed)
+            // Preserve existing state, with defaults for new sequences
             let showAnnotations = existingShowAnnotations[seq.id] ?? false
+            let showTranslation = existingShowTranslation[seq.id] ?? false
+            let translationFrames = existingTranslationFrames[seq.id] ?? [.plus1, .plus2, .plus3]
 
             let info = StackedSequenceInfo(
                 sequence: seq,
@@ -345,7 +379,9 @@ public class MultiSequenceState: ObservableObject {
                 isActive: index == activeSequenceIndex,
                 alignmentOffset: 0,
                 annotations: seqAnnotations,
-                showAnnotations: showAnnotations
+                showAnnotations: showAnnotations,
+                showTranslation: showTranslation,
+                translationFrames: translationFrames
             )
             newStackedSequences.append(info)
 
@@ -515,6 +551,54 @@ public class MultiSequenceState: ObservableObject {
     public func toggleGlobalAnnotationVisibility() {
         globalShowAnnotations.toggle()
         multiSeqLogger.debug("toggleGlobalAnnotationVisibility: Global annotations now \(self.globalShowAnnotations ? "enabled" : "disabled")")
+    }
+
+    // MARK: - Translation Visibility Controls
+
+    /// Toggles translation visibility for a specific sequence.
+    public func toggleTranslationVisibility(at index: Int) {
+        guard index >= 0 && index < stackedSequences.count else { return }
+        stackedSequences[index].showTranslation.toggle()
+        recalculateYOffsets()
+        let seqName = stackedSequences[index].sequence.name
+        let visible = stackedSequences[index].showTranslation
+        multiSeqLogger.debug("toggleTranslationVisibility: '\(seqName, privacy: .public)' translation now \(visible ? "visible" : "hidden")")
+    }
+
+    /// Sets translation visibility for a specific sequence.
+    public func setTranslationVisibility(_ visible: Bool, at index: Int) {
+        guard index >= 0 && index < stackedSequences.count else { return }
+        if stackedSequences[index].showTranslation != visible {
+            stackedSequences[index].showTranslation = visible
+            recalculateYOffsets()
+        }
+    }
+
+    /// Shows translation for all sequences.
+    public func showAllTranslations() {
+        for index in 0..<stackedSequences.count {
+            stackedSequences[index].showTranslation = true
+        }
+        recalculateYOffsets()
+        multiSeqLogger.debug("showAllTranslations: All sequence translations now visible")
+    }
+
+    /// Hides translation for all sequences.
+    public func hideAllTranslations() {
+        for index in 0..<stackedSequences.count {
+            stackedSequences[index].showTranslation = false
+        }
+        recalculateYOffsets()
+        multiSeqLogger.debug("hideAllTranslations: All sequence translations now hidden")
+    }
+
+    /// Sets reading frames for a specific sequence's translation.
+    public func setTranslationFrames(_ frames: [ReadingFrame], at index: Int) {
+        guard index >= 0 && index < stackedSequences.count else { return }
+        stackedSequences[index].translationFrames = frames
+        if stackedSequences[index].showTranslation {
+            recalculateYOffsets()
+        }
     }
 
     /// Recalculates Y offsets for all sequences based on their current visibility states.

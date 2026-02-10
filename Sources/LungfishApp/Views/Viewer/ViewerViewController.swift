@@ -4539,6 +4539,29 @@ public class SequenceViewerView: NSView {
         zoomFitItem.target = self
         menu.addItem(zoomFitItem)
 
+        // Multi-sequence translation toggle
+        if isMultiSequenceMode, let state = multiSequenceState {
+            let location = convert(event.locationInWindow, from: nil)
+            if let clickedInfo = stackedSequenceAtPoint(location) {
+                menu.addItem(NSMenuItem.separator())
+
+                // Per-track translation toggle
+                let translationTitle = clickedInfo.showTranslation ? "Hide Translation" : "Show Translation"
+                let translationItem = NSMenuItem(title: translationTitle, action: #selector(toggleTrackTranslation(_:)), keyEquivalent: "")
+                translationItem.target = self
+                translationItem.representedObject = clickedInfo.trackIndex as NSNumber
+                menu.addItem(translationItem)
+            }
+
+            // Global translation toggle (show/hide all)
+            menu.addItem(NSMenuItem.separator())
+            let anyShowing = state.stackedSequences.contains { $0.showTranslation }
+            let globalTitle = anyShowing ? "Hide All Translations" : "Show All Translations"
+            let globalItem = NSMenuItem(title: globalTitle, action: #selector(toggleAllTranslations(_:)), keyEquivalent: "")
+            globalItem.target = self
+            menu.addItem(globalItem)
+        }
+
         menu.addItem(NSMenuItem.separator())
 
         // Show in Inspector (Document tab)
@@ -4717,6 +4740,26 @@ public class SequenceViewerView: NSView {
             userInfo: [NotificationUserInfoKey.inspectorTab: "document"]
         )
         logger.info("Show in Inspector: document tab")
+    }
+
+    /// Toggles translation visibility for a specific track in multi-sequence mode.
+    @objc private func toggleTrackTranslation(_ sender: NSMenuItem?) {
+        guard let trackIndex = sender?.representedObject as? NSNumber,
+              let state = multiSequenceState else { return }
+        state.toggleTranslationVisibility(at: trackIndex.intValue)
+        setNeedsDisplay(bounds)
+    }
+
+    /// Toggles translation visibility for all tracks in multi-sequence mode.
+    @objc private func toggleAllTranslations(_ sender: Any?) {
+        guard let state = multiSequenceState else { return }
+        let anyShowing = state.stackedSequences.contains { $0.showTranslation }
+        if anyShowing {
+            state.hideAllTranslations()
+        } else {
+            state.showAllTranslations()
+        }
+        setNeedsDisplay(bounds)
     }
 
     /// Scroll wheel for zooming and panning.

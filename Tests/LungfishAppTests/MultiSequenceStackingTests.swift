@@ -273,6 +273,263 @@ final class MultiSequenceStackingTests: XCTestCase {
         XCTAssertEqual(state.stackedSequences[2].yOffset, 84)
     }
 
+    // MARK: - Translation Visibility Tests
+
+    @MainActor
+    func testTranslationHeightWhenHidden() throws {
+        let seq = try Sequence(name: "Test", alphabet: .dna, bases: "ATCGATCG")
+
+        let info = StackedSequenceInfo(
+            sequence: seq,
+            trackIndex: 0,
+            yOffset: 20,
+            sequenceHeight: 40,
+            annotationHeight: 0,
+            showTranslation: false,
+            translationFrames: [.plus1, .plus2, .plus3]
+        )
+
+        XCTAssertEqual(info.translationHeight, 0)
+        XCTAssertEqual(info.height, 40) // sequenceHeight only
+    }
+
+    @MainActor
+    func testTranslationHeightWhenVisible() throws {
+        let seq = try Sequence(name: "Test", alphabet: .dna, bases: "ATCGATCG")
+
+        let info = StackedSequenceInfo(
+            sequence: seq,
+            trackIndex: 0,
+            yOffset: 20,
+            sequenceHeight: 40,
+            annotationHeight: 0,
+            showTranslation: true,
+            translationFrames: [.plus1, .plus2, .plus3]
+        )
+
+        // 3 frames * 16pt + 2 * 1pt spacing + 4pt gap = 54
+        XCTAssertEqual(info.translationHeight, 54)
+        XCTAssertEqual(info.height, 94) // 40 + 54
+    }
+
+    @MainActor
+    func testTranslationHeightWithEmptyFrames() throws {
+        let seq = try Sequence(name: "Test", alphabet: .dna, bases: "ATCGATCG")
+
+        let info = StackedSequenceInfo(
+            sequence: seq,
+            trackIndex: 0,
+            yOffset: 20,
+            sequenceHeight: 40,
+            annotationHeight: 0,
+            showTranslation: true,
+            translationFrames: []
+        )
+
+        XCTAssertEqual(info.translationHeight, 0)
+        XCTAssertEqual(info.height, 40) // No frames = no translation height
+    }
+
+    @MainActor
+    func testTranslationHeightWithSingleFrame() throws {
+        let seq = try Sequence(name: "Test", alphabet: .dna, bases: "ATCGATCG")
+
+        let info = StackedSequenceInfo(
+            sequence: seq,
+            trackIndex: 0,
+            yOffset: 20,
+            sequenceHeight: 40,
+            annotationHeight: 0,
+            showTranslation: true,
+            translationFrames: [.plus1]
+        )
+
+        // 1 frame * 16pt + 0 spacing + 4pt gap = 20
+        XCTAssertEqual(info.translationHeight, 20)
+        XCTAssertEqual(info.height, 60) // 40 + 20
+    }
+
+    @MainActor
+    func testTranslationHeightWithSixFrames() throws {
+        let seq = try Sequence(name: "Test", alphabet: .dna, bases: "ATCGATCG")
+
+        let info = StackedSequenceInfo(
+            sequence: seq,
+            trackIndex: 0,
+            yOffset: 20,
+            sequenceHeight: 40,
+            annotationHeight: 0,
+            showTranslation: true,
+            translationFrames: [.plus1, .plus2, .plus3, .minus1, .minus2, .minus3]
+        )
+
+        // 6 frames * 16pt + 5 * 1pt spacing + 4pt gap = 105
+        XCTAssertEqual(info.translationHeight, 105)
+        XCTAssertEqual(info.height, 145) // 40 + 105
+    }
+
+    @MainActor
+    func testHeightIncludesTranslationAndAnnotations() throws {
+        let seq = try Sequence(name: "Test", alphabet: .dna, bases: "ATCGATCG")
+
+        let annotation = SequenceAnnotation(type: .gene, name: "Gene1", start: 0, end: 100)
+
+        let info = StackedSequenceInfo(
+            sequence: seq,
+            trackIndex: 0,
+            yOffset: 20,
+            sequenceHeight: 40,
+            annotationHeight: 30,
+            annotations: [annotation],
+            showAnnotations: true,
+            showTranslation: true,
+            translationFrames: [.plus1, .plus2, .plus3]
+        )
+
+        // sequenceHeight(40) + translationHeight(54) + annotationHeight(30) = 124
+        XCTAssertEqual(info.height, 124)
+    }
+
+    @MainActor
+    func testToggleTranslationVisibility() throws {
+        let state = MultiSequenceState()
+
+        let seq1 = try Sequence(name: "Seq1", alphabet: .dna, bases: "ATCG")
+        let seq2 = try Sequence(name: "Seq2", alphabet: .dna, bases: "GCTA")
+
+        state.setSequences([seq1, seq2])
+
+        XCTAssertFalse(state.stackedSequences[0].showTranslation)
+        XCTAssertFalse(state.stackedSequences[1].showTranslation)
+
+        state.toggleTranslationVisibility(at: 0)
+
+        XCTAssertTrue(state.stackedSequences[0].showTranslation)
+        XCTAssertFalse(state.stackedSequences[1].showTranslation)
+
+        state.toggleTranslationVisibility(at: 0)
+
+        XCTAssertFalse(state.stackedSequences[0].showTranslation)
+    }
+
+    @MainActor
+    func testSetTranslationVisibility() throws {
+        let state = MultiSequenceState()
+
+        let seq1 = try Sequence(name: "Seq1", alphabet: .dna, bases: "ATCG")
+        state.setSequences([seq1])
+
+        state.setTranslationVisibility(true, at: 0)
+        XCTAssertTrue(state.stackedSequences[0].showTranslation)
+
+        state.setTranslationVisibility(true, at: 0)
+        XCTAssertTrue(state.stackedSequences[0].showTranslation)
+
+        state.setTranslationVisibility(false, at: 0)
+        XCTAssertFalse(state.stackedSequences[0].showTranslation)
+    }
+
+    @MainActor
+    func testShowAllTranslations() throws {
+        let state = MultiSequenceState()
+
+        let seq1 = try Sequence(name: "Seq1", alphabet: .dna, bases: "ATCG")
+        let seq2 = try Sequence(name: "Seq2", alphabet: .dna, bases: "GCTA")
+        let seq3 = try Sequence(name: "Seq3", alphabet: .dna, bases: "AAAA")
+
+        state.setSequences([seq1, seq2, seq3])
+
+        state.showAllTranslations()
+
+        XCTAssertTrue(state.stackedSequences[0].showTranslation)
+        XCTAssertTrue(state.stackedSequences[1].showTranslation)
+        XCTAssertTrue(state.stackedSequences[2].showTranslation)
+    }
+
+    @MainActor
+    func testHideAllTranslations() throws {
+        let state = MultiSequenceState()
+
+        let seq1 = try Sequence(name: "Seq1", alphabet: .dna, bases: "ATCG")
+        let seq2 = try Sequence(name: "Seq2", alphabet: .dna, bases: "GCTA")
+
+        state.setSequences([seq1, seq2])
+        state.showAllTranslations()
+        state.hideAllTranslations()
+
+        XCTAssertFalse(state.stackedSequences[0].showTranslation)
+        XCTAssertFalse(state.stackedSequences[1].showTranslation)
+    }
+
+    @MainActor
+    func testSetTranslationFrames() throws {
+        let state = MultiSequenceState()
+
+        let seq1 = try Sequence(name: "Seq1", alphabet: .dna, bases: "ATCG")
+        state.setSequences([seq1])
+
+        // Default frames
+        XCTAssertEqual(state.stackedSequences[0].translationFrames, [.plus1, .plus2, .plus3])
+
+        state.setTranslationFrames([.minus1, .minus2, .minus3], at: 0)
+        XCTAssertEqual(state.stackedSequences[0].translationFrames, [.minus1, .minus2, .minus3])
+    }
+
+    @MainActor
+    func testTranslationVisibilityPreservedOnRebuild() throws {
+        let state = MultiSequenceState()
+
+        let seq1 = try Sequence(name: "Seq1", alphabet: .dna, bases: "ATCG")
+        let seq2 = try Sequence(name: "Seq2", alphabet: .dna, bases: "GCTA")
+
+        state.setSequences([seq1, seq2])
+        state.setTranslationVisibility(true, at: 0)
+        state.setTranslationFrames([.plus1, .minus1], at: 0)
+
+        // Trigger rebuild via setAnnotations
+        state.setAnnotations([])
+
+        XCTAssertTrue(state.stackedSequences[0].showTranslation)
+        XCTAssertEqual(state.stackedSequences[0].translationFrames, [.plus1, .minus1])
+        XCTAssertFalse(state.stackedSequences[1].showTranslation)
+    }
+
+    @MainActor
+    func testYOffsetsUpdateWithTranslationToggle() throws {
+        let state = MultiSequenceState()
+
+        let seq1 = try Sequence(name: "Seq1", alphabet: .dna, bases: "ATCG")
+        let seq2 = try Sequence(name: "Seq2", alphabet: .dna, bases: "GCTA")
+
+        state.setSequences([seq1, seq2])
+
+        let originalSeq2Y = state.stackedSequences[1].yOffset
+
+        // Enable translation on seq1 — seq2 should shift down
+        state.toggleTranslationVisibility(at: 0)
+
+        let newSeq2Y = state.stackedSequences[1].yOffset
+        XCTAssertGreaterThan(newSeq2Y, originalSeq2Y)
+
+        // The difference should be the translation height (3 frames default = 54pt)
+        XCTAssertEqual(newSeq2Y - originalSeq2Y, 54)
+    }
+
+    @MainActor
+    func testToggleTranslationOutOfBounds() throws {
+        let state = MultiSequenceState()
+
+        let seq1 = try Sequence(name: "Seq1", alphabet: .dna, bases: "ATCG")
+        state.setSequences([seq1])
+
+        // Should not crash
+        state.toggleTranslationVisibility(at: 5)
+        state.setTranslationVisibility(true, at: -1)
+        state.setTranslationFrames([.plus1], at: 99)
+
+        XCTAssertFalse(state.stackedSequences[0].showTranslation)
+    }
+
     // MARK: - Edge Cases
 
     @MainActor

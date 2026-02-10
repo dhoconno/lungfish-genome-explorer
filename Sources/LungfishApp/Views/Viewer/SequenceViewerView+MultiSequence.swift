@@ -234,12 +234,24 @@ extension SequenceViewerView {
             )
         }
 
+        // Draw translation track if enabled and zoomed in enough
+        if stackedInfo.showTranslation && renderMode == .bases {
+            let translationY = rect.minY + stackedInfo.sequenceHeight + 2
+            drawMultiSequenceTranslation(
+                stackedInfo: stackedInfo,
+                frame: frame,
+                context: context,
+                yOffset: translationY
+            )
+        }
+
         // Determine if annotations should be shown for this track
         let shouldShowAnnotations = globalShowAnnotations && stackedInfo.showAnnotations
 
         // Draw annotations for this sequence directly below the sequence track
+        // Annotation Y must account for translation track height
         if shouldShowAnnotations && !stackedInfo.annotations.isEmpty {
-            let annotationStartY = stackedInfo.sequenceHeight + AnnotationTrackLayout.sequenceAnnotationGap
+            let annotationStartY = stackedInfo.sequenceHeight + stackedInfo.translationHeight + AnnotationTrackLayout.sequenceAnnotationGap
 
             // Draw annotation track label
             drawAnnotationTrackLabel(
@@ -260,11 +272,11 @@ extension SequenceViewerView {
                 sequenceName: seq.name
             )
         } else if !stackedInfo.annotations.isEmpty && !shouldShowAnnotations {
-            // Draw collapsed annotation indicator
+            // Draw collapsed annotation indicator (below translation track if present)
             drawCollapsedAnnotationIndicator(
                 context: context,
                 rect: rect,
-                sequenceHeight: stackedInfo.sequenceHeight,
+                sequenceHeight: stackedInfo.sequenceHeight + stackedInfo.translationHeight,
                 annotationCount: stackedInfo.annotations.count
             )
         }
@@ -542,6 +554,58 @@ extension SequenceViewerView {
                 }
             }
         }
+    }
+
+    // MARK: - Translation Track Drawing for Multi-Sequence
+
+    /// Draws frame translation tracks for a stacked sequence.
+    ///
+    /// Extracts the visible portion of the sequence's nucleotides and passes them
+    /// to `TranslationTrackRenderer.drawFrameTranslations()` for rendering.
+    ///
+    /// - Parameters:
+    ///   - stackedInfo: The stacked sequence info with translation settings.
+    ///   - frame: Reference frame for coordinate mapping.
+    ///   - context: Graphics context for drawing.
+    ///   - yOffset: Y position for the top of the translation area.
+    private func drawMultiSequenceTranslation(
+        stackedInfo: StackedSequenceInfo,
+        frame: ReferenceFrame,
+        context: CGContext,
+        yOffset: CGFloat
+    ) {
+        let seq = stackedInfo.sequence
+
+        // Calculate the visible region clamped to sequence bounds
+        let seqStart = stackedInfo.alignmentOffset
+        let seqEnd = seqStart + seq.length
+        let visibleStart = max(seqStart, Int(frame.start))
+        let visibleEnd = min(seqEnd, Int(frame.end) + 1)
+
+        guard visibleStart < visibleEnd else { return }
+
+        // Extract nucleotide string for the visible region
+        let localStart = visibleStart - seqStart
+        let localEnd = visibleEnd - seqStart
+        let clampedEnd = min(localEnd, seq.length)
+        guard localStart < clampedEnd else { return }
+
+        var nucleotides = ""
+        nucleotides.reserveCapacity(clampedEnd - localStart)
+        for i in localStart..<clampedEnd {
+            nucleotides.append(seq[i])
+        }
+
+        guard !nucleotides.isEmpty else { return }
+
+        TranslationTrackRenderer.drawFrameTranslations(
+            frames: stackedInfo.translationFrames,
+            sequence: nucleotides,
+            sequenceStart: visibleStart,
+            frame: frame,
+            context: context,
+            yOffset: yOffset
+        )
     }
 
     // MARK: - Track Decoration Drawing
