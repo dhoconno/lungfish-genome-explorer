@@ -394,6 +394,67 @@ final class SelectionSectionViewModelTests: XCTestCase {
         XCTAssertEqual(vm.fullTranslation, shortTranslation)
     }
 
+    func testTranslationVisibilityResetsWhenSelectingDifferentAnnotation() {
+        let vm = SelectionSectionViewModel()
+
+        let annotationA = SequenceAnnotation(
+            type: .cds,
+            name: "cdsA",
+            chromosome: "chr1",
+            intervals: [AnnotationInterval(start: 100, end: 160)],
+            strand: .forward,
+            qualifiers: [
+                "extra": AnnotationQualifier("translation=MAAA")
+            ]
+        )
+
+        let annotationB = SequenceAnnotation(
+            type: .cds,
+            name: "cdsB",
+            chromosome: "chr1",
+            intervals: [AnnotationInterval(start: 200, end: 260)],
+            strand: .forward,
+            qualifiers: [
+                "extra": AnnotationQualifier("translation=MBBB")
+            ]
+        )
+
+        vm.select(annotation: annotationA)
+        vm.isTranslationVisible = true
+
+        vm.select(annotation: annotationB)
+        XCTAssertFalse(vm.isTranslationVisible, "isTranslationVisible should reset when switching annotations")
+    }
+
+    func testDeleteClearsSelectionState() {
+        let vm = SelectionSectionViewModel()
+
+        let annotation = SequenceAnnotation(
+            type: .cds,
+            name: "toDelete",
+            chromosome: "chr1",
+            intervals: [AnnotationInterval(start: 100, end: 160)],
+            strand: .forward,
+            qualifiers: [
+                "extra": AnnotationQualifier("gene=ABC1;translation=MAAA")
+            ]
+        )
+
+        vm.select(annotation: annotation)
+        vm.isTranslationVisible = true
+        XCTAssertFalse(vm.qualifierPairs.isEmpty)
+        XCTAssertNotNil(vm.fullTranslation)
+
+        vm.deleteAnnotation()
+
+        XCTAssertNil(vm.selectedAnnotation)
+        XCTAssertEqual(vm.name, "")
+        XCTAssertTrue(vm.qualifierPairs.isEmpty)
+        XCTAssertTrue(vm.dbxrefLinks.isEmpty)
+        XCTAssertNil(vm.fullTranslation)
+        XCTAssertFalse(vm.isTranslationVisible)
+    }
+
     // MARK: - Qualifier ordering
 
     func testQualifierPairsAreOrdered() {

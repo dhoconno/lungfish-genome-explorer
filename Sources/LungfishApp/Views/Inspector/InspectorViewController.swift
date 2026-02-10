@@ -270,7 +270,25 @@ public class InspectorViewController: NSViewController {
     /// Updates the selection section with the newly selected annotation.
     /// Passing nil in userInfo clears the selection.
     @objc private func handleAnnotationSelected(_ notification: Notification) {
-        if let annotation = notification.userInfo?[NotificationUserInfoKey.annotation] as? SequenceAnnotation {
+        let previousSelection = viewModel.selectedAnnotation
+        let selectedAnnotation = notification.userInfo?[NotificationUserInfoKey.annotation] as? SequenceAnnotation
+        let selectionChanged = previousSelection?.id != selectedAnnotation?.id
+
+        if selectionChanged,
+           viewModel.selectionSectionViewModel.isTranslationVisible,
+           let previousSelection {
+            viewModel.selectionSectionViewModel.isTranslationVisible = false
+            NotificationCenter.default.post(
+                name: .showCDSTranslationRequested,
+                object: self,
+                userInfo: [
+                    NotificationUserInfoKey.annotation: previousSelection,
+                    "visible": false,
+                ]
+            )
+        }
+
+        if let annotation = selectedAnnotation {
             viewModel.selectedAnnotation = annotation
             viewModel.selectionSectionViewModel.select(annotation: annotation)
             // Auto-switch to Selection tab when an annotation is selected

@@ -96,10 +96,15 @@ public final class SelectionSectionViewModel {
         // Set flag to prevent onChange handlers from firing during this update
         isUpdatingFromSelection = true
         defer { isUpdatingFromSelection = false }
+        let previousAnnotationID = selectedAnnotation?.id
 
         // @Observable automatically tracks property changes, no manual refresh needed
         selectedAnnotation = annotation
         if let annotation = annotation {
+            // Reset translation visibility when switching to a different annotation.
+            if previousAnnotationID != annotation.id {
+                isTranslationVisible = false
+            }
             name = annotation.name
             type = annotation.type
             notes = annotation.note ?? ""
@@ -364,7 +369,7 @@ public final class SelectionSectionViewModel {
     func deleteAnnotation() {
         guard let annotation = selectedAnnotation else { return }
         onAnnotationDeleted?(annotation.id)
-        selectedAnnotation = nil
+        select(annotation: nil)
     }
 }
 
