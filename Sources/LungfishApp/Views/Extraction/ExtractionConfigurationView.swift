@@ -14,6 +14,15 @@ enum ExtractionOutputMode: String, CaseIterable, Identifiable {
     case newBundle = "Create New Bundle"
 
     var id: String { rawValue }
+
+    /// Short label for segmented control.
+    var label: String {
+        switch self {
+        case .clipboardNucleotide: return "Copy as FASTA"
+        case .clipboardProtein: return "Copy Protein"
+        case .newBundle: return "New Bundle"
+        }
+    }
 }
 
 // MARK: - Extraction Configuration
@@ -25,6 +34,7 @@ struct ExtractionConfiguration {
     let reverseComplement: Bool
     let concatenateExons: Bool
     let outputMode: ExtractionOutputMode
+    let bundleName: String
 }
 
 // MARK: - ExtractionConfigurationView
@@ -50,8 +60,14 @@ struct ExtractionConfigurationView: View {
     @State private var reverseComplement: Bool = false
     @State private var concatenateExons: Bool = true
     @State private var outputMode: ExtractionOutputMode = .clipboardNucleotide
+    @State private var bundleName: String = ""
 
     private let presets = [0, 100, 500, 1000, 5000]
+
+    /// Default bundle name derived from the source.
+    private var defaultBundleName: String {
+        sourceName.replacingOccurrences(of: ":", with: "_").replacingOccurrences(of: " ", with: "_")
+    }
 
     // MARK: - Body
 
@@ -71,6 +87,24 @@ struct ExtractionConfigurationView: View {
             .padding(.bottom, 8)
 
             Divider()
+
+            // Output mode — prominent segmented control
+            Picker("Action", selection: $outputMode) {
+                Text("Copy as FASTA")
+                    .tag(ExtractionOutputMode.clipboardNucleotide)
+
+                if isCDS {
+                    Text("Copy Protein")
+                        .tag(ExtractionOutputMode.clipboardProtein)
+                }
+
+                Text("New Bundle")
+                    .tag(ExtractionOutputMode.newBundle)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
 
             // Content
             Form {
@@ -134,21 +168,12 @@ struct ExtractionConfigurationView: View {
                     }
                 }
 
-                // Output
-                Section("Output") {
-                    Picker("Action", selection: $outputMode) {
-                        Text("Copy Nucleotide FASTA")
-                            .tag(ExtractionOutputMode.clipboardNucleotide)
-
-                        if isCDS {
-                            Text("Copy Protein FASTA")
-                                .tag(ExtractionOutputMode.clipboardProtein)
-                        }
-
-                        Text("Create New Bundle")
-                            .tag(ExtractionOutputMode.newBundle)
+                // Bundle name (visible only for New Bundle)
+                if outputMode == .newBundle {
+                    Section("Bundle") {
+                        TextField("Bundle Name", text: $bundleName)
+                            .textFieldStyle(.roundedBorder)
                     }
-                    .pickerStyle(.radioGroup)
                 }
             }
             .formStyle(.grouped)
@@ -170,7 +195,8 @@ struct ExtractionConfigurationView: View {
                         flank3Prime: Int(flank3Text) ?? 0,
                         reverseComplement: reverseComplement,
                         concatenateExons: isDiscontiguous ? concatenateExons : false,
-                        outputMode: outputMode
+                        outputMode: outputMode,
+                        bundleName: bundleName.isEmpty ? defaultBundleName : bundleName
                     )
                     onExtract?(config)
                 }
@@ -182,5 +208,8 @@ struct ExtractionConfigurationView: View {
         }
         .frame(width: 520)
         .frame(minHeight: 400)
+        .onAppear {
+            bundleName = defaultBundleName
+        }
     }
 }

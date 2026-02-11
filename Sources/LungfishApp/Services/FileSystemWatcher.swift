@@ -108,9 +108,14 @@ public final class FileSystemWatcher {
         contentSnapshot = createSnapshot(of: directory)
 
         // Start periodic scanning timer
+        // IMPORTANT: Do NOT use Task { @MainActor in } here — cooperative executor
+        // is not reliably drained during AppKit layout/draw cycles.
+        // Use DispatchQueue.main.async + MainActor.assumeIsolated instead.
         scanTimer = Timer.scheduledTimer(withTimeInterval: scanInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.scanForChanges()
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self?.scanForChanges()
+                }
             }
         }
 

@@ -37,6 +37,7 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
         from result: ExtractionResult,
         outputDirectory: URL,
         sourceBundleName: String? = nil,
+        desiredBundleName: String? = nil,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> URL {
         let fileManager = FileManager.default
@@ -80,7 +81,12 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
 
         // Create bundle directory structure
         progressHandler?(0.70, "Creating bundle...")
-        let bundleName = seqName.isEmpty ? "extracted_sequence" : seqName
+        let bundleName: String
+        if let desired = desiredBundleName, !desired.isEmpty {
+            bundleName = BundleBuildHelpers.sanitizedFilename(desired)
+        } else {
+            bundleName = seqName.isEmpty ? "extracted_sequence" : seqName
+        }
         let bundleURL = BundleBuildHelpers.makeUniqueBundleURL(
             baseName: bundleName,
             in: outputDirectory
@@ -129,8 +135,9 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
 
         let identifier = "org.lungfish.extracted.\(bundleName.lowercased().replacingOccurrences(of: " ", with: "-"))"
 
+        let manifestName = desiredBundleName ?? result.sourceName
         let manifest = BundleManifest(
-            name: result.sourceName,
+            name: manifestName,
             identifier: identifier,
             description: description,
             source: sourceInfo,

@@ -222,7 +222,7 @@ extension SequenceViewerView {
         }
 
         let sheetWindow = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 500),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 560),
             styleMask: [.titled],
             backing: .buffered,
             defer: false
@@ -307,7 +307,7 @@ extension SequenceViewerView {
                 extractionLogger.info("Copied protein FASTA to clipboard")
 
             case .newBundle:
-                createExtractionBundle(from: result)
+                createExtractionBundle(from: result, bundleName: config.bundleName)
             }
         } catch {
             extractionLogger.error("Extraction failed: \(error.localizedDescription)")
@@ -315,64 +315,103 @@ extension SequenceViewerView {
         }
     }
 
-    private func createExtractionBundle(from result: ExtractionResult) {
-        let bundleName = currentReferenceBundle?.manifest.name
+    private func createExtractionBundle(from result: ExtractionResult, bundleName: String) {
+        let sourceBundleName = currentReferenceBundle?.manifest.name
+        let outputDir = extractionsDirectory()
 
-        // Use DownloadCenter for progress tracking and bundle delivery
-        DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated {
-                let itemId = DownloadCenter.shared.start(
-                    title: "Extracting \(result.sourceName)",
-                    detail: "Preparing..."
-                )
+        extractionLogger.info("createExtractionBundle: outputDir=\(outputDir.path), bundleName=\(bundleName)")
 
-                Task.detached {
-                    do {
-                        let outputDir = FileManager.default.temporaryDirectory
-                            .appendingPathComponent("lungfish-extractions", isDirectory: true)
-                        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+        // Register with DownloadCenter on main thread, then dispatch work to GCD global queue.
+        // IMPORTANT: Task.detached launched from MainActor.assumeIsolated never executes
+        // because the cooperative executor doesn't schedule it during AppKit draw cycles.
+        // Use DispatchQueue.global().async with Task inside — the cooperative executor IS
+        // drained from GCD background threads.
+        let itemId = DownloadCenter.shared.start(
+            title: "Extracting \(result.sourceName)",
+            detail: "Preparing..."
+        )
 
-                        let pipeline = SequenceExtractionPipeline()
-                        let bundleURL = try await pipeline.buildBundle(
-                            from: result,
-                            outputDirectory: outputDir,
-                            sourceBundleName: bundleName,
-                            progressHandler: { progress, message in
-                                DispatchQueue.main.async {
-                                    MainActor.assumeIsolated {
-                                        DownloadCenter.shared.update(
-                                            id: itemId,
-                                            progress: progress,
-                                            detail: message
-                                        )
-                                    }
+        let capturedResult = result
+        let capturedOutputDir = outputDir
+        let capturedSourceBundleName = sourceBundleName
+        let capturedBundleName = bundleName
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            Task {
+                do {
+                    try FileManager.default.createDirectory(
+                        at: capturedOutputDir, withIntermediateDirectories: true
+                    )
+
+                    let pipeline = SequenceExtractionPipeline()
+                    let bundleURL = try await pipeline.buildBundle(
+                        from: capturedResult,
+                        outputDirectory: capturedOutputDir,
+                        sourceBundleName: capturedSourceBundleName,
+                        desiredBundleName: capturedBundleName,
+                        progressHandler: { progress, message in
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    DownloadCenter.shared.update(
+                                        id: itemId,
+                                        progress: progress,
+                                        detail: message
+                                    )
                                 }
                             }
-                        )
+                        }
+                    )
 
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                DownloadCenter.shared.complete(
-                                    id: itemId,
-                                    detail: "Bundle ready",
-                                    bundleURLs: [bundleURL]
-                                )
+                    let finalBundleURL = bundleURL
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            extractionLogger.info("createExtractionBundle: SUCCESS -> \(finalBundleURL.path)")
+                            DownloadCenter.shared.complete(
+                                id: itemId,
+                                detail: "Bundle ready",
+                                bundleURLs: []
+                            )
+                            if let appDelegate = NSApp.delegate as? AppDelegate,
+                               let sidebar = appDelegate.mainWindowController?.mainSplitViewController?.sidebarController {
+                                sidebar.reloadFromFilesystem()
+                                sidebar.selectItem(forURL: finalBundleURL)
                             }
                         }
-                    } catch {
-                        extractionLogger.error("Bundle creation failed: \(error.localizedDescription)")
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                DownloadCenter.shared.fail(
-                                    id: itemId,
-                                    detail: "Failed: \(error.localizedDescription)"
-                                )
-                            }
+                    }
+                } catch {
+                    let errorDesc = error.localizedDescription
+                    let errorStr = "\(error)"
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            extractionLogger.error("Bundle creation failed: \(errorStr)")
+                            DownloadCenter.shared.fail(
+                                id: itemId,
+                                detail: "Failed: \(errorDesc)"
+                            )
+                            let alert = NSAlert()
+                            alert.messageText = "Bundle Creation Failed"
+                            alert.informativeText = errorDesc
+                            alert.alertStyle = .warning
+                            alert.addButton(withTitle: "OK")
+                            alert.runModal()
                         }
                     }
                 }
             }
         }
+    }
+
+    /// Returns the directory for saved extraction bundles.
+    private func extractionsDirectory() -> URL {
+        if let projectURL = DocumentManager.shared.activeProject?.url {
+            return projectURL.appendingPathComponent("Extractions", isDirectory: true)
+        }
+        if let appDelegate = NSApp.delegate as? AppDelegate,
+           let workingURL = appDelegate.getWorkingDirectoryURL() {
+            return workingURL.appendingPathComponent("Extractions", isDirectory: true)
+        }
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        return docs.appendingPathComponent("Lungfish Extractions", isDirectory: true)
     }
 
     // MARK: - Sequence Provider Helpers
