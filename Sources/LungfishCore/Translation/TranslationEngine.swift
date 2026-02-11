@@ -93,13 +93,11 @@ public enum TranslationEngine {
     ) -> TranslationResult? {
         guard !annotation.intervals.isEmpty else { return nil }
 
-        // Sort intervals: ascending for forward, descending for reverse
-        let sortedIntervals: [AnnotationInterval]
-        if annotation.strand == .reverse {
-            sortedIntervals = annotation.intervals.sorted { $0.start > $1.start }
-        } else {
-            sortedIntervals = annotation.intervals.sorted { $0.start < $1.start }
-        }
+        // Always sort intervals ascending by genomic position.
+        // For reverse strand, the concatenated sequence is then reverse-complemented
+        // as a whole: rc(exon1+exon2+...+exonN) = rc(exonN)+...+rc(exon1), which
+        // gives the correct 5'→3' mRNA order (highest genomic coord first).
+        let sortedIntervals = annotation.intervals.sorted { $0.start < $1.start }
 
         // Extract nucleotides from each interval
         var exonSequences: [(sequence: String, interval: AnnotationInterval)] = []
@@ -209,18 +207,16 @@ public enum TranslationEngine {
 
         for (seq, interval) in exonSequences {
             for i in 0..<seq.count {
-                if strand == .reverse {
-                    // For reverse strand, genomic positions go from end-1 down to start
-                    positions.append(interval.end - 1 - i)
-                } else {
-                    positions.append(interval.start + i)
-                }
+                // Always map forward: position j in the concatenated sequence
+                // corresponds to genomic coordinate interval.start + j.
+                positions.append(interval.start + i)
             }
         }
 
         if strand == .reverse {
-            // After reverse complement, the first base of the coding sequence
-            // corresponds to the last genomic position we collected
+            // rc() reverses the concatenated sequence, so coding position 0
+            // maps to the last genomic position we collected, position 1 to
+            // second-to-last, etc. Reversing the positions array achieves this.
             positions.reverse()
         }
 

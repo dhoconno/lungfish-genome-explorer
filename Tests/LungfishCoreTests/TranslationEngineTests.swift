@@ -406,37 +406,19 @@ final class TranslationEngineTests: XCTestCase {
     }
 
     func testReverseStrandMultiExon() {
-        // Reverse strand: exons are read in reverse genomic order
-        // Exon at 200-206: "TTATGC" -> RC contributes to start of protein
-        // Exon at 0-6: "GCATAA" -> RC contributes to end of protein
-        // Reading order (reverse strand): exon 200-206 first, then exon 0-6
-        // Concatenated forward: "TTATGC" + "GCATAA" (but reversed for - strand)
-        // Actually for reverse strand, we concatenate in descending start order:
-        //   exon 200-206 ("TTATGC") then exon 0-6 ("GCATAA")
-        //   concat = "TTATGCGCATAA"
-        //   RC = "TTATGCGCATAA" -> that's the same... let me think more carefully
-
-        // For reverse strand CDS:
-        // Exon 1 (rightmost first): positions 200-206 = "GCATAA"
-        // Exon 2 (leftmost second): positions 0-6 = "TTATGC"
-        // Sorted descending by start: exon 200-206 first, then 0-6
-        // Concatenated: "GCATAA" + "TTATGC" = "GCATAATTATGC"
-        // RC of concatenated: "GCATAATTATGC" -> RC = "GCATAATTATGC" let me compute
-        // G->C, C->G, A->T, T->A, A->T, A->T, T->A, T->A, A->T, T->A, G->C, C->G
-        // reversed: C, G, A, T, A, A, T, T, A, T, G, C -> "CGATAAT TATGC"...
-
-        // Let me use a simpler example.
-        // Forward genomic: exon at 0-3 = "CAT", exon at 100-106 = "TTATGC"
-        // For reverse strand, sorted descending: 100-106 then 0-3
-        // concat = "TTATGC" + "CAT" = "TTATGCCAT"
-        // RC = ATGGCATAA -> ATG GCA TAA -> M A *
+        // Reverse strand: mRNA reads from highest genomic coord to lowest (5'→3').
+        // Exons sorted ascending: exon at 0-6 (fwd: "TTATGC"), exon at 100-103 (fwd: "CAT")
+        // Concatenated ascending: "TTATGC" + "CAT" = "TTATGCCAT"
+        // RC("TTATGCCAT") = "ATGGCATAA"
+        // Codons: ATG GCA TAA → M A *
+        // The higher-coordinate exon (100-103) provides the start codon after RC.
 
         let annotation = SequenceAnnotation(
             type: .cds,
             name: "rev_multi_exon",
             intervals: [
-                AnnotationInterval(start: 0, end: 3),
-                AnnotationInterval(start: 100, end: 106)
+                AnnotationInterval(start: 0, end: 6),
+                AnnotationInterval(start: 100, end: 103)
             ],
             strand: .reverse
         )
@@ -444,8 +426,8 @@ final class TranslationEngineTests: XCTestCase {
         let result = TranslationEngine.translateCDS(
             annotation: annotation,
             sequenceProvider: { start, _ in
-                if start == 100 { return "TTATGC" }
-                if start == 0 { return "CAT" }
+                if start == 0 { return "TTATGC" }
+                if start == 100 { return "CAT" }
                 return nil
             }
         )

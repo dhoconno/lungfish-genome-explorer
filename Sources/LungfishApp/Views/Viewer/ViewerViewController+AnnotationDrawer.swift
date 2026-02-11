@@ -149,20 +149,31 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             )
         }
 
-        // Build a SequenceAnnotation from the SearchResult so the Inspector updates.
-        let strand: Strand = switch result.strand {
-        case "+": .forward
-        case "-": .reverse
-        default: .unknown
-        }
-        let annotationType = AnnotationType.from(rawString: result.type) ?? .gene
-        let annotation = SequenceAnnotation(
-            type: annotationType,
+        // Look up the full annotation record from SQLite (preserves BED12 exon blocks).
+        // Falls back to a flat single-interval annotation if the database lookup fails.
+        let annotation: SequenceAnnotation
+        if let record = annotationSearchIndex?.annotationDatabase?.lookupAnnotation(
             name: result.name,
             chromosome: result.chromosome,
-            intervals: [AnnotationInterval(start: result.start, end: result.end)],
-            strand: strand
-        )
+            start: result.start,
+            end: result.end
+        ) {
+            annotation = record.toAnnotation()
+        } else {
+            let strand: Strand = switch result.strand {
+            case "+": .forward
+            case "-": .reverse
+            default: .unknown
+            }
+            let annotationType = AnnotationType.from(rawString: result.type) ?? .gene
+            annotation = SequenceAnnotation(
+                type: annotationType,
+                name: result.name,
+                chromosome: result.chromosome,
+                intervals: [AnnotationInterval(start: result.start, end: result.end)],
+                strand: strand
+            )
+        }
         viewerView.selectedAnnotation = annotation
         viewerView.postAnnotationSelectedNotification(annotation)
         viewerView.setNeedsDisplay(viewerView.bounds)
