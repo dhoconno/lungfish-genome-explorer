@@ -367,18 +367,10 @@ extension SequenceViewerView {
                         MainActor.assumeIsolated {
                             extractionLogger.info("createExtractionBundle: SUCCESS -> \(finalBundleURL.path)")
                             let bundleURLs = [finalBundleURL]
-                            let hasBundleReadyCallback = DownloadCenter.shared.onBundleReady != nil
-                            DownloadCenter.shared.complete(
-                                id: itemId,
-                                detail: "Bundle ready",
-                                bundleURLs: bundleURLs
-                            )
-                            if !hasBundleReadyCallback {
-                                extractionLogger.error(
-                                    "createExtractionBundle: DownloadCenter.onBundleReady not configured; using AppDelegate fallback import"
-                                )
-                                (NSApp.delegate as? AppDelegate)?.importReadyBundles(bundleURLs)
-                            }
+                            // Complete the task card first, then import directly via AppDelegate.
+                            // This avoids relying on DownloadCenter callback wiring for extraction.
+                            DownloadCenter.shared.complete(id: itemId, detail: "Bundle ready")
+                            (NSApp.delegate as? AppDelegate)?.importReadyBundles(bundleURLs)
                         }
                     }
                 } catch {
