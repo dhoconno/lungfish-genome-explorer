@@ -329,15 +329,21 @@ public final class AnnotationDatabase: @unchecked Sendable {
         if hasBlockColumns { columnList += ", block_count, block_sizes, block_starts" }
         if hasGeneNameColumn { columnList += ", gene_name" }
 
-        let sql = "SELECT \(columnList) FROM annotations WHERE name = ? AND chromosome = ? AND start = ? AND end = ? LIMIT 1"
+        let sql = """
+        SELECT \(columnList)
+        FROM annotations
+        WHERE (name = ? OR gene_name = ?) AND chromosome = ? AND start = ? AND end = ?
+        LIMIT 1
+        """
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
 
         sqlite3_bind_text(stmt, 1, (name as NSString).utf8String, -1, nil)
-        sqlite3_bind_text(stmt, 2, (chromosome as NSString).utf8String, -1, nil)
-        sqlite3_bind_int64(stmt, 3, Int64(start))
-        sqlite3_bind_int64(stmt, 4, Int64(end))
+        sqlite3_bind_text(stmt, 2, (name as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 3, (chromosome as NSString).utf8String, -1, nil)
+        sqlite3_bind_int64(stmt, 4, Int64(start))
+        sqlite3_bind_int64(stmt, 5, Int64(end))
 
         guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
 
@@ -906,10 +912,11 @@ public final class AnnotationDatabase: @unchecked Sendable {
 
             let geneName = feature.attributes["gene"]
 
-            // ── Same-ID merging: features sharing a GFF3 ID are intervals of one feature ──
+            // ── Same-ID merging: CDS features sharing a GFF3 ID are intervals of one CDS ──
             if let featureID = feature.id,
                let siblings = featuresByID[featureID],
                siblings.count > 1,
+               feature.featureType == "CDS",
                !transcriptTypes.contains(feature.featureType) {
 
                 // Already merged this ID? Skip.

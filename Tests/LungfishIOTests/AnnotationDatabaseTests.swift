@@ -1142,4 +1142,33 @@ final class AnnotationDatabaseTests: XCTestCase {
         XCTAssertNotNil(record)
         XCTAssertEqual(record?.geneName, "TestGene")
     }
+
+    func testLookupAnnotationMatchesByGeneName() async throws {
+        let lines = [
+            gff3Line(seqid: "chr1", type: "CDS", start: 101, end: 500,
+                     attributes: "ID=cds1;Name=XP_001;gene=GZMB"),
+        ]
+        let (db, _) = try await createAndOpenDBFromGFF3(lines: lines)
+
+        let record = db.lookupAnnotation(name: "GZMB", chromosome: "chr1", start: 100, end: 500)
+        XCTAssertNotNil(record, "lookupAnnotation should match by gene_name fallback")
+        XCTAssertEqual(record?.name, "XP_001")
+        XCTAssertEqual(record?.geneName, "GZMB")
+    }
+
+    func testCreateFromGFF3SameIDAcrossTypesDoesNotMerge() async throws {
+        let lines = [
+            "##gff-version 3",
+            gff3Line(seqid: "chr1", type: "CDS", start: 100, end: 150,
+                     attributes: "ID=shared1;Name=cdsA;gene=GENE1"),
+            gff3Line(seqid: "chr1", type: "regulatory", start: 200, end: 260,
+                     attributes: "ID=shared1;Name=regA;gene=GENE1"),
+        ]
+        let (db, count) = try await createAndOpenDBFromGFF3(lines: lines)
+
+        XCTAssertEqual(count, 2, "Non-CDS features sharing ID must not be merged away")
+        let results = db.queryByRegion(chromosome: "chr1", start: 0, end: 1000)
+        XCTAssertEqual(results.count, 2)
+        XCTAssertEqual(Set(results.map(\.type)), Set(["CDS", "regulatory"]))
+    }
 }
