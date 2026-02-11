@@ -833,11 +833,17 @@ final class AnnotationDatabaseTests: XCTestCase {
                      attributes: "Parent=mrna1"),
         ]
         let (db, count) = try await createAndOpenDBFromGFF3(lines: lines)
-        XCTAssertEqual(count, 1)
+        XCTAssertEqual(count, 3, "Transcript and CDS child features should both be indexed")
 
         let results = db.queryByRegion(chromosome: "chr1", start: 0, end: 10000)
-        let annotation = results[0].toAnnotation()
-        XCTAssertEqual(annotation.intervals.count, 2, "Should use CDS intervals as fallback blocks")
+        XCTAssertEqual(results.count, 3)
+
+        let byType = Dictionary(grouping: results, by: \.type)
+        XCTAssertEqual(byType["mRNA"]?.count, 1)
+        XCTAssertEqual(byType["CDS"]?.count, 2)
+
+        let transcript = byType["mRNA"]!.first!.toAnnotation()
+        XCTAssertEqual(transcript.intervals.count, 2, "Should use CDS intervals as fallback blocks")
     }
 
     func testCreateFromGFF3MultiParentExon() async throws {

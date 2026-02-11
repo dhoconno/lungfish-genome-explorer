@@ -502,14 +502,22 @@ public final class NativeBundleBuilder: ObservableObject {
 
             if isGFF3 {
                 // GFF3/GTF → SQLite directly
-                // Decompress if gzipped — URL.lines does not handle gzip transparently
+                // Decompress if gzipped — URL.lines does not handle gzip transparently.
+                // Never decompress the source file in-place; use a working copy instead.
                 var gffInput = input.url
+                var temporaryInputs: [URL] = []
                 if input.url.pathExtension.lowercased() == "gz" {
-                    let decompressResult = try await toolRunner.bgzipDecompress(inputPath: input.url)
+                    let workingGzipURL = annotationsDir.appendingPathComponent("\(input.id).working.gff.gz")
+                    try? FileManager.default.removeItem(at: workingGzipURL)
+                    try FileManager.default.copyItem(at: input.url, to: workingGzipURL)
+
+                    let decompressResult = try await toolRunner.bgzipDecompress(inputPath: workingGzipURL)
                     if decompressResult.isSuccess {
-                        gffInput = input.url.deletingPathExtension()
+                        gffInput = workingGzipURL.deletingPathExtension()
+                        temporaryInputs = [workingGzipURL, gffInput]
                     } else {
                         logger.warning("GFF3 decompress failed, trying as-is: \(decompressResult.combinedOutput)")
+                        try? FileManager.default.removeItem(at: workingGzipURL)
                     }
                 }
 
@@ -518,6 +526,9 @@ public final class NativeBundleBuilder: ObservableObject {
                     outputURL: dbOutputURL,
                     chromosomeSizes: chromosomeSizes
                 )
+                for tempURL in temporaryInputs {
+                    try? FileManager.default.removeItem(at: tempURL)
+                }
                 logger.info("Created GFF3 annotation database with \(dbRecordCount) records for \(input.name)")
 
                 let trackInfo = AnnotationTrackInfo(

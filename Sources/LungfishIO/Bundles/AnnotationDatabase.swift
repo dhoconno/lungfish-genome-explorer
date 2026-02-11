@@ -808,11 +808,8 @@ public final class AnnotationDatabase: @unchecked Sendable {
 
         var insertCount = 0
         var seenKeys = Set<String>()
-        var consumedIndices = Set<Int>()
 
-        for (index, feature) in allFeatures.enumerated() {
-            if consumedIndices.contains(index) { continue }
-
+        for feature in allFeatures {
             // Only index selected types
             guard indexableTypes.contains(feature.featureType) else { continue }
 
@@ -857,10 +854,8 @@ public final class AnnotationDatabase: @unchecked Sendable {
                     let child = allFeatures[childIdx]
                     if exonTypes.contains(child.featureType) {
                         exonIntervals.append((start: child.start - 1, end: child.end))
-                        consumedIndices.insert(childIdx)
                     } else if cdsTypes.contains(child.featureType) {
                         cdsIntervals.append((start: child.start - 1, end: child.end))
-                        consumedIndices.insert(childIdx)
                     }
                 }
 
