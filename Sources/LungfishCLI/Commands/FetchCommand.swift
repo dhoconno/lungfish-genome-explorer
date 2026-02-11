@@ -1096,20 +1096,8 @@ struct GenomeSubcommand: AsyncParsableCommand {
         // Prepare annotation inputs
         var annotationInputs: [AnnotationInput] = []
         if let gff = gffPath {
-            // Decompress GFF for bundle builder
-            let uncompressedGffPath = tempDir.appendingPathComponent("annotations.gff3")
-            let gffDecompressProcess = Process()
-            gffDecompressProcess.executableURL = URL(fileURLWithPath: "/usr/bin/gunzip")
-            gffDecompressProcess.arguments = ["-c", gff.path]
-            let gffOutputPipe = Pipe()
-            gffDecompressProcess.standardOutput = gffOutputPipe
-            try gffDecompressProcess.run()
-
-            let gffData = gffOutputPipe.fileHandleForReading.readDataToEndOfFile()
-            gffDecompressProcess.waitUntilExit()
-            try gffData.write(to: uncompressedGffPath)
-
-            annotationInputs.append(AnnotationInput(url: uncompressedGffPath, name: "genes"))
+            // Pass GFF3 directly; NativeBundleBuilder handles .gff/.gff3 and .gz variants.
+            annotationInputs.append(AnnotationInput(url: gff, name: "genes"))
         }
 
         // Create build configuration
@@ -1154,7 +1142,7 @@ struct GenomeSubcommand: AsyncParsableCommand {
             print("Contents:")
             print("  - Indexed FASTA sequence (bgzip + faidx)")
             if !annotationInputs.isEmpty {
-                print("  - BigBed annotations")
+                print("  - SQLite annotation database")
             }
             print("  - Manifest with metadata")
         }
