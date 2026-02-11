@@ -484,8 +484,9 @@ public class ViewerViewController: NSViewController {
     @objc private func handleBundleViewStateResetRequested(_ notification: Notification) {
         logger.info("handleBundleViewStateResetRequested: Resetting bundle view state to defaults")
 
-        // Clear type color caches (reverts to default type colors)
+        // Clear type color caches and per-annotation colors (reverts to defaults)
         viewerView.resetTypeColorCaches()
+        viewerView.clearAnnotationColorOverrides()
 
         // Reset in-memory state
         currentBundleViewState = .default
@@ -2003,6 +2004,15 @@ public class SequenceViewerView: NSView {
         }
 
         if updated {
+            // Persist per-annotation color override to BundleViewState
+            if let color = annotation.color, let vc = viewController {
+                let key = annotation.colorOverrideKey
+                var state = vc.currentBundleViewState ?? .default
+                state.annotationColorOverrides[key] = color
+                vc.currentBundleViewState = state
+                vc.scheduleViewStateSave()
+            }
+
             invalidateAnnotationTile()
             setNeedsDisplay(bounds)
         }
@@ -2079,6 +2089,18 @@ public class SequenceViewerView: NSView {
     func resetTypeColorCaches() {
         typeColorCache.removeAll()
         typeDensityColorCache.removeAll()
+        invalidateAnnotationTile()
+        needsDisplay = true
+    }
+
+    /// Strips per-annotation custom colors from all cached annotations (used on reset).
+    func clearAnnotationColorOverrides() {
+        for i in cachedBundleAnnotations.indices {
+            cachedBundleAnnotations[i].color = nil
+        }
+        for i in annotations.indices {
+            annotations[i].color = nil
+        }
         invalidateAnnotationTile()
         needsDisplay = true
     }
@@ -2565,6 +2587,9 @@ public class SequenceViewerView: NSView {
         let expandedRegion = GenomicRegion(chromosome: region.chromosome, start: expandedStart, end: expandedEnd)
         let trackIds = bundle.annotationTrackIds
 
+        // Capture per-annotation color overrides for application after loading
+        let colorOverrides = viewController?.currentBundleViewState?.annotationColorOverrides ?? [:]
+
         logger.info("fetchAnnotationsAsync: gen=\(thisGeneration), Fetching \(expandedRegion.description) (\(trackIds.count) tracks) on background thread")
 
         Self.annotationFetchQueue.async { [weak self] in
@@ -2597,6 +2622,16 @@ public class SequenceViewerView: NSView {
                     logger.info("fetchAnnotationsAsync: SQLite query returned \(annotations.count) annotations for track \(trackId)")
                 } catch {
                     logger.error("fetchAnnotationsAsync: SQLite query failed for \(trackId): \(error.localizedDescription)")
+                }
+            }
+
+            // Apply per-annotation color overrides from BundleViewState
+            if !colorOverrides.isEmpty {
+                for i in allAnnotations.indices {
+                    let key = allAnnotations[i].colorOverrideKey
+                    if let override = colorOverrides[key] {
+                        allAnnotations[i].color = override
+                    }
                 }
             }
 

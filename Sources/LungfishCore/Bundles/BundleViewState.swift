@@ -27,6 +27,10 @@ public struct BundleViewState: Codable, Sendable, Equatable {
     /// Per-type color overrides (user-customized). Only non-default colors are stored.
     public var typeColorOverrides: [AnnotationType: AnnotationColor]
 
+    /// Per-annotation color overrides (user-customized via "This Only" mode).
+    /// Keyed by stable annotation identifier: `"chrom:start-end:name"`.
+    public var annotationColorOverrides: [String: AnnotationColor]
+
     /// Height of each annotation box in pixels.
     public var annotationHeight: Double
 
@@ -70,6 +74,7 @@ public struct BundleViewState: Codable, Sendable, Equatable {
 
     public static let `default` = BundleViewState(
         typeColorOverrides: [:],
+        annotationColorOverrides: [:],
         annotationHeight: 16,
         annotationSpacing: 2,
         showAnnotations: true,
@@ -87,6 +92,7 @@ public struct BundleViewState: Codable, Sendable, Equatable {
 
     public init(
         typeColorOverrides: [AnnotationType: AnnotationColor] = [:],
+        annotationColorOverrides: [String: AnnotationColor] = [:],
         annotationHeight: Double = 16,
         annotationSpacing: Double = 2,
         showAnnotations: Bool = true,
@@ -100,6 +106,7 @@ public struct BundleViewState: Codable, Sendable, Equatable {
         lastScale: Double? = nil
     ) {
         self.typeColorOverrides = typeColorOverrides
+        self.annotationColorOverrides = annotationColorOverrides
         self.annotationHeight = annotationHeight
         self.annotationSpacing = annotationSpacing
         self.showAnnotations = showAnnotations
@@ -111,6 +118,24 @@ public struct BundleViewState: Codable, Sendable, Equatable {
         self.lastChromosome = lastChromosome
         self.lastOrigin = lastOrigin
         self.lastScale = lastScale
+    }
+    // MARK: - Codable (backward-compatible decoding)
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        typeColorOverrides = try container.decode([AnnotationType: AnnotationColor].self, forKey: .typeColorOverrides)
+        annotationColorOverrides = try container.decodeIfPresent([String: AnnotationColor].self, forKey: .annotationColorOverrides) ?? [:]
+        annotationHeight = try container.decode(Double.self, forKey: .annotationHeight)
+        annotationSpacing = try container.decode(Double.self, forKey: .annotationSpacing)
+        showAnnotations = try container.decode(Bool.self, forKey: .showAnnotations)
+        visibleAnnotationTypes = try container.decodeIfPresent(Set<AnnotationType>.self, forKey: .visibleAnnotationTypes)
+        showVariants = try container.decode(Bool.self, forKey: .showVariants)
+        visibleVariantTypes = try container.decodeIfPresent(Set<String>.self, forKey: .visibleVariantTypes)
+        translationColorScheme = try container.decode(AminoAcidColorScheme.self, forKey: .translationColorScheme)
+        isRNAMode = try container.decode(Bool.self, forKey: .isRNAMode)
+        lastChromosome = try container.decodeIfPresent(String.self, forKey: .lastChromosome)
+        lastOrigin = try container.decodeIfPresent(Double.self, forKey: .lastOrigin)
+        lastScale = try container.decodeIfPresent(Double.self, forKey: .lastScale)
     }
 }
 

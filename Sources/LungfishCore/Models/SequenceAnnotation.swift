@@ -131,6 +131,13 @@ public struct SequenceAnnotation: Identifiable, Codable, Sendable {
         boundingRegion.end
     }
 
+    /// Stable key for per-annotation color overrides, independent of UUID.
+    /// Format: `"chrom:start-end:type:name"` — includes type to disambiguate
+    /// overlapping features (e.g. a CDS and gene both named "env" at the same locus).
+    public var colorOverrideKey: String {
+        "\(chromosome ?? ""):\(start)-\(end):\(type.rawValue):\(name)"
+    }
+
     /// Whether this is a discontinuous feature (multiple intervals)
     public var isDiscontinuous: Bool {
         intervals.count > 1
