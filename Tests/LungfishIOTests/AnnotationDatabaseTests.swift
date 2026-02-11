@@ -678,4 +678,283 @@ final class AnnotationDatabaseTests: XCTestCase {
         XCTAssertEqual(byName["e"]?.type, .promoter)
         XCTAssertEqual(byName["f"]?.type, .region)
     }
+
+    // MARK: - GFF3 Helpers
+
+    /// Creates a temp GFF3 file from lines.
+    private func createGFF3File(lines: [String], filename: String = "test.gff3") throws -> URL {
+        let url = tempDir.appendingPathComponent(filename)
+        let content = lines.joined(separator: "\n") + "\n"
+        try content.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    /// Creates a database from GFF3 lines and opens it for reading.
+    private func createAndOpenDBFromGFF3(
+        lines: [String],
+        chromosomeSizes: [(String, Int64)]? = nil
+    ) async throws -> (AnnotationDatabase, Int) {
+        let gffURL = try createGFF3File(lines: lines)
+        let dbURL = tempDir.appendingPathComponent("annotations_gff3.db")
+        let count = try await AnnotationDatabase.createFromGFF3(
+            gffURL: gffURL, outputURL: dbURL, chromosomeSizes: chromosomeSizes
+        )
+        let db = try AnnotationDatabase(url: dbURL)
+        return (db, count)
+    }
+
+    /// Builds a GFF3 feature line.
+    private func gff3Line(
+        seqid: String, source: String = "test", type: String,
+        start: Int, end: Int, strand: String = "+",
+        attributes: String
+    ) -> String {
+        "\(seqid)\t\(source)\t\(type)\t\(start)\t\(end)\t.\t\(strand)\t.\t\(attributes)"
+    }
+
+    // MARK: - Tests: createFromGFF3 Basic
+
+    func testCreateFromGFF3BasicGene() async throws {
+        let lines = [
+            "##gff-version 3",
+            gff3Line(seqid: "chr1", type: "gene", start: 1001, end: 2000, attributes: "ID=gene1;Name=TestGene"),
+        ]
+        let (db, count) = try await createAndOpenDBFromGFF3(lines: lines)
+
+        XCTAssertEqual(count, 1)
+        let results = db.queryByRegion(chromosome: "chr1", start: 0, end: 3000)
+        XCTAssertEqual(results.count, 1)
+        let gene = results[0]
+        XCTAssertEqual(gene.name, "TestGene")
+        XCTAssertEqual(gene.type, "gene")
+        // GFF3 1-based start=1001 → 0-based start=1000
+        XCTAssertEqual(gene.start, 1000)
+        // GFF3 end=2000 (inclusive) → 0-based exclusive end=2000
+        XCTAssertEqual(gene.end, 2000)
+    }
+
+    func testCreateFromGFF3CoordinateConversion() async throws {
+        // GFF3 is 1-based inclusive; SQLite stores 0-based half-open
+        let lines = [
+            gff3Line(seqid: "chr1", type: "gene", start: 1, end: 100, attributes: "ID=g1;Name=first"),
+            gff3Line(seqid: "chr1", type: "gene", start: 500, end: 500, attributes: "ID=g2;Name=point"),
+        ]
+        let (db, count) = try await createAndOpenDBFromGFF3(lines: lines)
+        XCTAssertEqual(count, 2)
+
+        let results = db.queryByRegion(chromosome: "chr1", start: 0, end: 1000)
+        let byName = Dictionary(uniqueKeysWithValues: results.map { ($0.name, $0) })
+
+        // start=1 → 0, end=100 → 100
+        XCTAssertEqual(byName["first"]?.start, 0)
+        XCTAssertEqual(byName["first"]?.end, 100)
+        // start=500 → 499, end=500 → 500 (1bp feature)
+        XCTAssertEqual(byName["point"]?.start, 499)
+        XCTAssertEqual(byName["point"]?.end, 500)
+    }
+
+    func testCreateFromGFF3FASTADirectiveStopsParsing() async throws {
+        let lines = [
+            gff3Line(seqid: "chr1", type: "gene", start: 100, end: 200, attributes: "ID=g1;Name=before"),
+            "##FASTA",
+            ">chr1",
+            "ATCGATCGATCG",
+            gff3Line(seqid: "chr1", type: "gene", start: 300, end: 400, attributes: "ID=g2;Name=after"),
+        ]
+        let (db, count) = try await createAndOpenDBFromGFF3(lines: lines)
+        XCTAssertEqual(count, 1, "Only features before ##FASTA should be parsed")
+
+        let results = db.queryByRegion(chromosome: "chr1", start: 0, end: 1000)
+        XCTAssertEqual(results.first?.name, "before")
+    }
+
+    func testCreateFromGFF3SkipsExonAndIntron() async throws {
+        let lines = [
+            gff3Line(seqid: "chr1", type: "gene", start: 100, end: 500, attributes: "ID=g1;Name=myGene"),
+            gff3Line(seqid: "chr1", type: "exon", start: 100, end: 200, attributes: "Parent=g1"),
+            gff3Line(seqid: "chr1", type: "intron", start: 200, end: 300, attributes: "ID=intron1;Name=myIntron"),
+        ]
+        let (db, count) = try await createAndOpenDBFromGFF3(lines: lines)
+        // gene indexed, exon consumed as child, intron not in indexableTypes
+        XCTAssertEqual(count, 1)
+        XCTAssertEqual(db.queryByRegion(chromosome: "chr1", start: 0, end: 1000).first?.name, "myGene")
+    }
+
+    func testCreateFromGFF3StrandHandling() async throws {
+        let lines = [
+            gff3Line(seqid: "chr1", type: "gene", start: 100, end: 500, strand: "+", attributes: "ID=g1;Name=forward"),
+            gff3Line(seqid: "chr1", type: "gene", start: 600, end: 900, strand: "-", attributes: "ID=g2;Name=reverse"),
+            gff3Line(seqid: "chr1", type: "gene", start: 1000, end: 1200, strand: ".", attributes: "ID=g3;Name=unknown"),
+        ]
+        let (db, _) = try await createAndOpenDBFromGFF3(lines: lines)
+        let results = db.queryByRegion(chromosome: "chr1", start: 0, end: 2000)
+        let byName = Dictionary(uniqueKeysWithValues: results.map { ($0.name, $0) })
+
+        XCTAssertEqual(byName["forward"]?.strand, "+")
+        XCTAssertEqual(byName["reverse"]?.strand, "-")
+        XCTAssertEqual(byName["unknown"]?.strand, ".")
+    }
+
+    // MARK: - Tests: createFromGFF3 Parent-Child Aggregation
+
+    func testCreateFromGFF3TranscriptWithExonBlocks() async throws {
+        let lines = [
+            gff3Line(seqid: "chr1", type: "mRNA", start: 1000, end: 5000, strand: "+",
+                     attributes: "ID=mrna1;Name=TestmRNA"),
+            gff3Line(seqid: "chr1", type: "exon", start: 1000, end: 1500,
+                     attributes: "Parent=mrna1"),
+            gff3Line(seqid: "chr1", type: "exon", start: 2500, end: 3000,
+                     attributes: "Parent=mrna1"),
+            gff3Line(seqid: "chr1", type: "exon", start: 4000, end: 5000,
+                     attributes: "Parent=mrna1"),
+        ]
+        let (db, count) = try await createAndOpenDBFromGFF3(lines: lines)
+        // mRNA indexed with blocks; exons consumed
+        XCTAssertEqual(count, 1)
+
+        let results = db.queryByRegion(chromosome: "chr1", start: 0, end: 10000)
+        XCTAssertEqual(results.count, 1)
+        let mrna = results[0]
+        XCTAssertEqual(mrna.name, "TestmRNA")
+
+        // Check block data
+        let annotation = mrna.toAnnotation()
+        XCTAssertEqual(annotation.intervals.count, 3, "Should have 3 exon blocks")
+    }
+
+    func testCreateFromGFF3CDSFallbackWhenNoExons() async throws {
+        // Transcript with CDS children but no exon children
+        let lines = [
+            gff3Line(seqid: "chr1", type: "mRNA", start: 1000, end: 5000,
+                     attributes: "ID=mrna1;Name=CDSonly"),
+            gff3Line(seqid: "chr1", type: "CDS", start: 1000, end: 1500,
+                     attributes: "Parent=mrna1"),
+            gff3Line(seqid: "chr1", type: "CDS", start: 3000, end: 4000,
+                     attributes: "Parent=mrna1"),
+        ]
+        let (db, count) = try await createAndOpenDBFromGFF3(lines: lines)
+        XCTAssertEqual(count, 1)
+
+        let results = db.queryByRegion(chromosome: "chr1", start: 0, end: 10000)
+        let annotation = results[0].toAnnotation()
+        XCTAssertEqual(annotation.intervals.count, 2, "Should use CDS intervals as fallback blocks")
+    }
+
+    func testCreateFromGFF3MultiParentExon() async throws {
+        // Exon shared between two transcripts
+        let lines = [
+            gff3Line(seqid: "chr1", type: "mRNA", start: 1000, end: 3000,
+                     attributes: "ID=mrna1;Name=transcript1"),
+            gff3Line(seqid: "chr1", type: "mRNA", start: 1000, end: 4000,
+                     attributes: "ID=mrna2;Name=transcript2"),
+            // Shared exon
+            gff3Line(seqid: "chr1", type: "exon", start: 1000, end: 1500,
+                     attributes: "Parent=mrna1,mrna2"),
+            // Each has a unique second exon
+            gff3Line(seqid: "chr1", type: "exon", start: 2000, end: 3000,
+                     attributes: "Parent=mrna1"),
+            gff3Line(seqid: "chr1", type: "exon", start: 3000, end: 4000,
+                     attributes: "Parent=mrna2"),
+        ]
+        let (db, count) = try await createAndOpenDBFromGFF3(lines: lines)
+        XCTAssertEqual(count, 2, "Both transcripts should be indexed")
+
+        let results = db.queryByRegion(chromosome: "chr1", start: 0, end: 10000)
+        let byName = Dictionary(uniqueKeysWithValues: results.map { ($0.name, $0) })
+
+        // Both transcripts should have 2 blocks each (shared + unique exon)
+        let t1 = byName["transcript1"]!.toAnnotation()
+        let t2 = byName["transcript2"]!.toAnnotation()
+        XCTAssertEqual(t1.intervals.count, 2)
+        XCTAssertEqual(t2.intervals.count, 2)
+    }
+
+    // MARK: - Tests: createFromGFF3 Deduplication
+
+    func testCreateFromGFF3Deduplication() async throws {
+        let lines = [
+            gff3Line(seqid: "chr1", type: "gene", start: 100, end: 500, attributes: "ID=g1;Name=dup"),
+            gff3Line(seqid: "chr1", type: "gene", start: 100, end: 500, attributes: "ID=g2;Name=dup"),
+        ]
+        let (_, count) = try await createAndOpenDBFromGFF3(lines: lines)
+        XCTAssertEqual(count, 1, "Duplicate name|type|chrom|start|end should be deduplicated")
+    }
+
+    // MARK: - Tests: createFromGFF3 Chromosome Clipping
+
+    func testCreateFromGFF3ChromosomeClipping() async throws {
+        let lines = [
+            gff3Line(seqid: "chr1", type: "gene", start: 900, end: 1200,
+                     attributes: "ID=g1;Name=overshoot"),
+        ]
+        let (db, count) = try await createAndOpenDBFromGFF3(
+            lines: lines,
+            chromosomeSizes: [("chr1", 1000)]
+        )
+        XCTAssertEqual(count, 1)
+
+        let results = db.queryByRegion(chromosome: "chr1", start: 0, end: 2000)
+        let gene = results[0]
+        // end should be clipped to chromosome size (1000)
+        XCTAssertEqual(gene.end, 1000)
+        // start should remain at 899 (1-based 900 → 0-based 899)
+        XCTAssertEqual(gene.start, 899)
+    }
+
+    // MARK: - Tests: createFromGFF3 Attribute Round-Trip
+
+    func testCreateFromGFF3AttributeRoundTrip() async throws {
+        // Test that attributes with special characters survive encoding/decoding
+        let lines = [
+            gff3Line(seqid: "chr1", type: "gene", start: 100, end: 500,
+                     attributes: "ID=g1;Name=myGene;product=ATP%3Bhydrolase;Note=a%3Db%3Bc"),
+        ]
+        let (db, _) = try await createAndOpenDBFromGFF3(lines: lines)
+        let results = db.queryByRegion(chromosome: "chr1", start: 0, end: 1000)
+        let gene = results[0]
+
+        let annotation = gene.toAnnotation()
+        // product had %3B (semicolon) in GFF3 → decoded → re-encoded as %3B for storage
+        // On round-trip via toAnnotation → qualifiers, should get "ATP;hydrolase"
+        XCTAssertFalse(annotation.qualifiers.isEmpty)
+        XCTAssertEqual(annotation.qualifiers["product"]?.firstValue, "ATP;hydrolase")
+        XCTAssertEqual(annotation.qualifiers["Note"]?.firstValue, "a=b;c")
+    }
+
+    // MARK: - Tests: createFromGFF3 GFF3 Transcript Types
+
+    func testCreateFromGFF3TranscriptTypes() async throws {
+        let lines = [
+            gff3Line(seqid: "chr1", type: "lnc_RNA", start: 100, end: 500, attributes: "ID=t1;Name=lncRNA1"),
+            gff3Line(seqid: "chr1", type: "rRNA", start: 600, end: 900, attributes: "ID=t2;Name=rRNA1"),
+            gff3Line(seqid: "chr1", type: "tRNA", start: 1000, end: 1100, attributes: "ID=t3;Name=tRNA1"),
+            gff3Line(seqid: "chr1", type: "miRNA", start: 1200, end: 1300, attributes: "ID=t4;Name=miRNA1"),
+        ]
+        let (db, count) = try await createAndOpenDBFromGFF3(lines: lines)
+        XCTAssertEqual(count, 4, "All GFF3 transcript types should be indexed")
+
+        let types = Set(db.allTypes())
+        XCTAssertTrue(types.contains("lnc_RNA"))
+        XCTAssertTrue(types.contains("rRNA"))
+        XCTAssertTrue(types.contains("tRNA"))
+        XCTAssertTrue(types.contains("miRNA"))
+    }
+
+    // MARK: - Tests: createFromGFF3 Empty/Malformed
+
+    func testCreateFromGFF3EmptyFile() async throws {
+        let lines: [String] = ["##gff-version 3", "# just a comment"]
+        let (_, count) = try await createAndOpenDBFromGFF3(lines: lines)
+        XCTAssertEqual(count, 0)
+    }
+
+    func testCreateFromGFF3MalformedLines() async throws {
+        let lines = [
+            "this is not a valid GFF3 line",
+            "chr1\ttest\tgene",  // Too few columns
+            gff3Line(seqid: "chr1", type: "gene", start: 100, end: 500, attributes: "ID=g1;Name=valid"),
+        ]
+        let (_, count) = try await createAndOpenDBFromGFF3(lines: lines)
+        XCTAssertEqual(count, 1, "Only the valid line should be parsed")
+    }
 }

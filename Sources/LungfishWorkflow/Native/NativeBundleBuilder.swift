@@ -502,8 +502,19 @@ public final class NativeBundleBuilder: ObservableObject {
 
             if isGFF3 {
                 // GFF3/GTF → SQLite directly
+                // Decompress if gzipped — URL.lines does not handle gzip transparently
+                var gffInput = input.url
+                if input.url.pathExtension.lowercased() == "gz" {
+                    let decompressResult = try await toolRunner.bgzipDecompress(inputPath: input.url)
+                    if decompressResult.isSuccess {
+                        gffInput = input.url.deletingPathExtension()
+                    } else {
+                        logger.warning("GFF3 decompress failed, trying as-is: \(decompressResult.combinedOutput)")
+                    }
+                }
+
                 let dbRecordCount = try await AnnotationDatabase.createFromGFF3(
-                    gffURL: input.url,
+                    gffURL: gffInput,
                     outputURL: dbOutputURL,
                     chromosomeSizes: chromosomeSizes
                 )

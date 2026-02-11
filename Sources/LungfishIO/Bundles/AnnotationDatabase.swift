@@ -536,6 +536,10 @@ public final class AnnotationDatabase: @unchecked Sendable {
             "stem_loop",
             // GenBank raw key aliases
             "primer_bind",
+            // GFF3 transcript types (keep in sync with createFromGFF3)
+            "lnc_RNA", "rRNA", "tRNA", "snRNA", "snoRNA", "miRNA",
+            "primary_transcript", "V_gene_segment", "D_gene_segment",
+            "J_gene_segment", "C_gene_segment",
         ]
 
         // Begin transaction for bulk insert
@@ -704,7 +708,7 @@ public final class AnnotationDatabase: @unchecked Sendable {
             chromSizeMap = nil
         }
 
-        // Indexable types (same as createFromBED)
+        // Indexable types — superset of createFromBED's set, plus GFF3-specific transcript types
         let indexableTypes: Set<String> = [
             "gene", "mRNA", "transcript", "region", "promoter", "enhancer",
             "primer", "primer_pair", "amplicon", "SNP", "variation",
@@ -714,7 +718,7 @@ public final class AnnotationDatabase: @unchecked Sendable {
             "5'UTR", "3'UTR", "five_prime_UTR", "three_prime_UTR",
             "regulatory", "ncRNA", "misc_binding", "protein_bind",
             "stem_loop", "primer_bind",
-            // Transcript types (so multi-exon transcripts are indexed)
+            // GFF3 transcript types (multi-exon transcripts need indexing)
             "lnc_RNA", "rRNA", "tRNA", "snRNA", "snoRNA", "miRNA",
             "primary_transcript", "V_gene_segment", "D_gene_segment",
             "J_gene_segment", "C_gene_segment",
@@ -782,8 +786,11 @@ public final class AnnotationDatabase: @unchecked Sendable {
             let index = allFeatures.count
             allFeatures.append(feature)
 
-            if let parentID = attrs["Parent"] {
-                childrenByParent[parentID, default: []].append(index)
+            if let parentStr = attrs["Parent"] {
+                // GFF3 Parent can be comma-separated (e.g., "mRNA1,mRNA2" for shared exons)
+                for parentID in parentStr.split(separator: ",").map(String.init) {
+                    childrenByParent[parentID, default: []].append(index)
+                }
             }
         }
 
@@ -810,10 +817,16 @@ public final class AnnotationDatabase: @unchecked Sendable {
             guard indexableTypes.contains(feature.featureType) else { continue }
 
             // Collect key attributes for serialization
+            // Use manual percent-encoding for ; = % to ensure round-trip safety
             var attrPairs: [String] = []
             for (key, value) in feature.attributes.sorted(by: { $0.key < $1.key }) {
                 if key == "ID" || key == "Parent" { continue }
-                let encoded = value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value
+                let encoded = value
+                    .replacingOccurrences(of: "%", with: "%25")
+                    .replacingOccurrences(of: ";", with: "%3B")
+                    .replacingOccurrences(of: "=", with: "%3D")
+                    .replacingOccurrences(of: "&", with: "%26")
+                    .replacingOccurrences(of: ",", with: "%2C")
                 attrPairs.append("\(key)=\(encoded)")
             }
             let attrString = attrPairs.isEmpty ? nil : attrPairs.joined(separator: ";")
@@ -838,23 +851,28 @@ public final class AnnotationDatabase: @unchecked Sendable {
                let childIndices = childrenByParent[featureID] {
 
                 var exonIntervals: [(start: Int, end: Int)] = []
+                var cdsIntervals: [(start: Int, end: Int)] = []
 
                 for childIdx in childIndices {
                     let child = allFeatures[childIdx]
-                    if exonTypes.contains(child.featureType) || cdsTypes.contains(child.featureType) {
-                        if exonTypes.contains(child.featureType) {
-                            exonIntervals.append((start: child.start - 1, end: child.end))
-                        }
+                    if exonTypes.contains(child.featureType) {
+                        exonIntervals.append((start: child.start - 1, end: child.end))
+                        consumedIndices.insert(childIdx)
+                    } else if cdsTypes.contains(child.featureType) {
+                        cdsIntervals.append((start: child.start - 1, end: child.end))
                         consumedIndices.insert(childIdx)
                     }
                 }
 
-                if exonIntervals.count > 1 {
-                    exonIntervals.sort { $0.start < $1.start }
+                // Use exon intervals for blocks; fall back to CDS if no exons
+                let blockIntervals = exonIntervals.isEmpty ? cdsIntervals : exonIntervals
 
-                    // Clip exon blocks to parent boundaries
+                if blockIntervals.count > 1 {
+                    let sortedIntervals = blockIntervals.sorted { $0.start < $1.start }
+
+                    // Clip blocks to parent boundaries
                     var clippedBlocks: [(size: Int, start: Int)] = []
-                    for exon in exonIntervals {
+                    for exon in sortedIntervals {
                         let clippedStart = max(exon.start, chromStart)
                         let clippedEnd = min(exon.end, chromEnd)
                         if clippedEnd > clippedStart {
