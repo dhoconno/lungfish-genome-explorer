@@ -321,11 +321,8 @@ extension SequenceViewerView {
 
         extractionLogger.info("createExtractionBundle: outputDir=\(outputDir.path), bundleName=\(bundleName)")
 
-        // Register with DownloadCenter on main thread, then dispatch work to GCD global queue.
-        // IMPORTANT: Task.detached launched from MainActor.assumeIsolated never executes
-        // because the cooperative executor doesn't schedule it during AppKit draw cycles.
-        // Use DispatchQueue.global().async with Task inside — the cooperative executor IS
-        // drained from GCD background threads.
+        // Register with DownloadCenter on the main actor, then run bundle building in
+        // a detached task. On completion we hop back to the main actor for import/refresh.
         let itemId = DownloadCenter.shared.start(
             title: "Extracting \(result.sourceName)",
             detail: "Preparing..."
@@ -336,57 +333,65 @@ extension SequenceViewerView {
         let capturedSourceBundleName = sourceBundleName
         let capturedBundleName = bundleName
 
-        DispatchQueue.global(qos: .userInitiated).async {
-            Task {
-                do {
-                    try FileManager.default.createDirectory(
-                        at: capturedOutputDir, withIntermediateDirectories: true
-                    )
+        Task.detached(priority: .userInitiated) {
+            do {
+                try FileManager.default.createDirectory(
+                    at: capturedOutputDir, withIntermediateDirectories: true
+                )
 
-                    let pipeline = SequenceExtractionPipeline()
-                    let bundleURL = try await pipeline.buildBundle(
-                        from: capturedResult,
-                        outputDirectory: capturedOutputDir,
-                        sourceBundleName: capturedSourceBundleName,
-                        desiredBundleName: capturedBundleName,
-                        progressHandler: { progress, message in
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    DownloadCenter.shared.update(
-                                        id: itemId,
-                                        progress: progress,
-                                        detail: message
-                                    )
-                                }
+                let pipeline = SequenceExtractionPipeline()
+                let bundleURL = try await pipeline.buildBundle(
+                    from: capturedResult,
+                    outputDirectory: capturedOutputDir,
+                    sourceBundleName: capturedSourceBundleName,
+                    desiredBundleName: capturedBundleName,
+                    progressHandler: { progress, message in
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                DownloadCenter.shared.update(
+                                    id: itemId,
+                                    progress: progress,
+                                    detail: message
+                                )
                             }
                         }
-                    )
+                    }
+                )
 
-                    let finalBundleURL = bundleURL
-                    await MainActor.run {
-                        extractionLogger.info("createExtractionBundle: SUCCESS -> \(finalBundleURL.path)")
-                        let bundleURLs = [finalBundleURL]
-                        // Complete the task card first, then import directly via AppDelegate.
-                        // This avoids relying on DownloadCenter callback wiring for extraction.
-                        DownloadCenter.shared.complete(id: itemId, detail: "Bundle ready")
-                        (NSApp.delegate as? AppDelegate)?.importReadyBundles(bundleURLs)
+                let finalBundleURL = bundleURL
+                await MainActor.run {
+                    extractionLogger.info("createExtractionBundle: SUCCESS -> \(finalBundleURL.path)")
+                    let bundleURLs = [finalBundleURL]
+
+                    // Mark as complete for UI cards.
+                    DownloadCenter.shared.complete(id: itemId, detail: "Bundle ready")
+
+                    // Import through AppDelegate pipeline.
+                    if let appDelegate = NSApp.delegate as? AppDelegate {
+                        appDelegate.importReadyBundles(bundleURLs)
+
+                        // Force immediate sidebar refresh/selection as an additional safety path.
+                        if let sidebar = appDelegate.mainWindowController?.mainSplitViewController?.sidebarController {
+                            sidebar.reloadFromFilesystem()
+                            _ = sidebar.selectItem(forURL: finalBundleURL)
+                        }
                     }
-                } catch {
-                    let errorDesc = error.localizedDescription
-                    let errorStr = "\(error)"
-                    await MainActor.run {
-                        extractionLogger.error("Bundle creation failed: \(errorStr)")
-                        DownloadCenter.shared.fail(
-                            id: itemId,
-                            detail: "Failed: \(errorDesc)"
-                        )
-                        let alert = NSAlert()
-                        alert.messageText = "Bundle Creation Failed"
-                        alert.informativeText = errorDesc
-                        alert.alertStyle = .warning
-                        alert.addButton(withTitle: "OK")
-                        alert.runModal()
-                    }
+                }
+            } catch {
+                let errorDesc = error.localizedDescription
+                let errorStr = "\(error)"
+                await MainActor.run {
+                    extractionLogger.error("Bundle creation failed: \(errorStr)")
+                    DownloadCenter.shared.fail(
+                        id: itemId,
+                        detail: "Failed: \(errorDesc)"
+                    )
+                    let alert = NSAlert()
+                    alert.messageText = "Bundle Creation Failed"
+                    alert.informativeText = errorDesc
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: "OK")
+                    alert.runModal()
                 }
             }
         }
