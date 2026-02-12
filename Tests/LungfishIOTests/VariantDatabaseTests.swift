@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import SQLite3
 @testable import LungfishIO
 @testable import LungfishCore
 
@@ -633,5 +634,211 @@ final class VariantDatabaseTests: XCTestCase {
         let snpCount = db.queryCountForTable(types: ["SNP"])
         XCTAssertTrue(snpCount >= 2)
         XCTAssertTrue(snpCount < totalCount)
+    }
+
+    // MARK: - Structured INFO Table Tests
+
+    func testInfoTableCreated() throws {
+        let (db, _) = try createDatabase(from: testVCF)
+
+        // The database should have INFO field definitions and per-variant INFO values
+        let keys = db.infoKeys()
+        XCTAssertFalse(keys.isEmpty, "Should have parsed INFO definitions from VCF header")
+    }
+
+    func testInfoDefinitionsParsed() throws {
+        let (db, _) = try createDatabase(from: testVCF)
+
+        let keys = db.infoKeys()
+        let keyNames = keys.map(\.key)
+
+        // The test VCF defines DP (Integer), AF (Float), END (Integer)
+        XCTAssertTrue(keyNames.contains("DP"), "Should contain DP definition")
+        XCTAssertTrue(keyNames.contains("AF"), "Should contain AF definition")
+        XCTAssertTrue(keyNames.contains("END"), "Should contain END definition")
+
+        // Check types
+        let dpDef = keys.first(where: { $0.key == "DP" })
+        XCTAssertEqual(dpDef?.type, "Integer")
+        XCTAssertEqual(dpDef?.number, "1")
+
+        let afDef = keys.first(where: { $0.key == "AF" })
+        XCTAssertEqual(afDef?.type, "Float")
+        XCTAssertEqual(afDef?.number, "A")
+    }
+
+    func testInfoValuesParsed() throws {
+        let (db, _) = try createDatabase(from: testVCF)
+
+        // The first variant (rs100) has INFO=DP=50;AF=0.25
+        let results = db.query(chromosome: "chr1", start: 0, end: 200)
+        guard let rs100 = results.first(where: { $0.variantID == "rs100" }), let rowId = rs100.id else {
+            XCTFail("Could not find rs100")
+            return
+        }
+
+        let info = db.infoValues(variantId: rowId)
+        XCTAssertEqual(info["DP"], "50", "DP should be 50")
+        XCTAssertEqual(info["AF"], "0.25", "AF should be 0.25")
+    }
+
+    func testInfoValuesForMultipleVariants() throws {
+        let (db, _) = try createDatabase(from: testVCF)
+
+        // chr1:500 has INFO=DP=70;AF=0.1,0.05 (multi-allelic)
+        let results = db.query(chromosome: "chr1", start: 400, end: 600)
+        guard let variant = results.first(where: { $0.position == 499 }), let rowId = variant.id else {
+            XCTFail("Could not find variant at position 499")
+            return
+        }
+
+        let info = db.infoValues(variantId: rowId)
+        XCTAssertEqual(info["DP"], "70")
+        XCTAssertEqual(info["AF"], "0.1,0.05")
+    }
+
+    func testBatchInfoValues() throws {
+        let (db, _) = try createDatabase(from: testVCF)
+
+        let allVariants = db.queryForTable()
+        let allIds = allVariants.compactMap(\.id)
+        XCTAssertEqual(allIds.count, 7)
+
+        let batchInfo = db.batchInfoValues(variantIds: allIds)
+        // Every variant in the test VCF has at least a DP field
+        XCTAssertTrue(batchInfo.count >= 7, "Should have INFO for all variants")
+        for (_, info) in batchInfo {
+            XCTAssertTrue(info.keys.contains("DP"), "Every test variant has DP")
+        }
+    }
+
+    func testInfoKeysQuery() throws {
+        let (db, _) = try createDatabase(from: testVCF)
+
+        let keys = db.infoKeys()
+        XCTAssertTrue(keys.count >= 3, "Should have at least DP, AF, END")
+
+        // Verify descriptions are parsed
+        let dpDef = keys.first(where: { $0.key == "DP" })
+        XCTAssertEqual(dpDef?.description, "Total Depth")
+    }
+
+    func testBackwardCompatNoInfoTable() throws {
+        // Create a minimal database without the variant_info tables (simulating legacy)
+        let dbURL = tempDir.appendingPathComponent("legacy.db")
+        var dbPtr: OpaquePointer?
+        sqlite3_open(dbURL.path, &dbPtr)
+        defer { sqlite3_close(dbPtr) }
+
+        let schema = """
+        CREATE TABLE variants (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chromosome TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            end_pos INTEGER NOT NULL,
+            variant_id TEXT NOT NULL,
+            ref TEXT NOT NULL,
+            alt TEXT NOT NULL,
+            variant_type TEXT NOT NULL,
+            quality REAL,
+            filter TEXT,
+            info TEXT,
+            sample_count INTEGER DEFAULT 0
+        );
+        CREATE TABLE genotypes (
+            variant_id INTEGER NOT NULL REFERENCES variants(id),
+            sample_name TEXT NOT NULL,
+            PRIMARY KEY (variant_id, sample_name)
+        );
+        CREATE TABLE samples (name TEXT PRIMARY KEY, display_name TEXT, source_file TEXT, metadata TEXT);
+        """
+        sqlite3_exec(dbPtr, schema, nil, nil, nil)
+        sqlite3_exec(dbPtr, "INSERT INTO variants VALUES (1, 'chr1', 100, 101, 'rs1', 'A', 'G', 'SNP', 30.0, 'PASS', 'DP=50', 0)", nil, nil, nil)
+        sqlite3_close(dbPtr)
+        dbPtr = nil
+
+        // Open with VariantDatabase — should detect missing info table and not crash
+        let db = try VariantDatabase(url: dbURL)
+        let keys = db.infoKeys()
+        XCTAssertTrue(keys.isEmpty, "Legacy DB should return empty infoKeys")
+
+        // infoValues should fallback to parsing raw info string
+        let info = db.infoValues(variantId: 1)
+        XCTAssertEqual(info["DP"], "50", "Legacy fallback should parse raw INFO")
+    }
+
+    func testDeleteVariantsCascadesToInfo() throws {
+        let vcfURL = try createTempVCF(content: testVCF)
+        let dbURL = tempDir.appendingPathComponent("delete_info.db")
+        try VariantDatabase.createFromVCF(vcfURL: vcfURL, outputURL: dbURL)
+
+        let db = try VariantDatabase(url: dbURL, readWrite: true)
+        let allVariants = db.queryForTable()
+        guard let firstId = allVariants.first?.id else {
+            XCTFail("No variants found")
+            return
+        }
+
+        // Verify INFO exists before deletion
+        let infoBefore = db.infoValues(variantId: firstId)
+        XCTAssertFalse(infoBefore.isEmpty, "Should have INFO before deletion")
+
+        // Delete the first variant
+        let deleted = try db.deleteVariants(ids: [firstId])
+        XCTAssertEqual(deleted, 1)
+
+        // Verify INFO is gone after deletion
+        let infoAfter = db.infoValues(variantId: firstId)
+        XCTAssertTrue(infoAfter.isEmpty, "INFO should be deleted with variant")
+    }
+
+    func testDeleteAllVariantsCascadesToInfo() throws {
+        let vcfURL = try createTempVCF(content: testVCF)
+        let dbURL = tempDir.appendingPathComponent("delete_all_info.db")
+        try VariantDatabase.createFromVCF(vcfURL: vcfURL, outputURL: dbURL)
+
+        let db = try VariantDatabase(url: dbURL, readWrite: true)
+
+        // Verify we have INFO values
+        let allVariants = db.queryForTable()
+        let allIds = allVariants.compactMap(\.id)
+        let batchBefore = db.batchInfoValues(variantIds: allIds)
+        XCTAssertFalse(batchBefore.isEmpty, "Should have INFO before delete all")
+
+        // Delete all
+        let deleted = try db.deleteAllVariants()
+        XCTAssertEqual(deleted, 7)
+
+        // Verify no INFO remains
+        let batchAfter = db.batchInfoValues(variantIds: allIds)
+        XCTAssertTrue(batchAfter.isEmpty, "All INFO should be deleted")
+    }
+
+    func testInfoFlagParsed() throws {
+        // VCF with flag-only INFO fields
+        let flagVCF = """
+        ##fileformat=VCFv4.3
+        ##INFO=<ID=DB,Number=0,Type=Flag,Description="dbSNP membership">
+        ##INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t100\trs100\tA\tG\t30.0\tPASS\tDB;DP=50
+        """
+        let (db, _) = try createDatabase(from: flagVCF)
+
+        let results = db.queryForTable()
+        guard let variant = results.first, let rowId = variant.id else {
+            XCTFail("No variant found")
+            return
+        }
+
+        let info = db.infoValues(variantId: rowId)
+        XCTAssertEqual(info["DB"], "true", "Flag-only INFO should be stored as 'true'")
+        XCTAssertEqual(info["DP"], "50")
+
+        // Verify definitions include the Flag type
+        let keys = db.infoKeys()
+        let dbDef = keys.first(where: { $0.key == "DB" })
+        XCTAssertEqual(dbDef?.type, "Flag")
+        XCTAssertEqual(dbDef?.number, "0")
     }
 }

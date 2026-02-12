@@ -189,54 +189,61 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         viewerView.setNeedsDisplay(viewerView.bounds)
     }
 
-    /// Recomputes per-track variant counts from SQLite and persists them into manifest.json.
+    /// Recomputes per-track variant counts from the already-open SQLite handles
+    /// and persists them into manifest.json on a background queue.
     private func syncVariantCountsToManifest() {
-        guard let bundleURL = currentBundleURL else { return }
-        do {
-            let manifest = try BundleManifest.load(from: bundleURL)
-            var changed = false
-            let updatedTracks = manifest.variants.map { track -> VariantTrackInfo in
-                guard let dbPath = track.databasePath else { return track }
-                let dbURL = bundleURL.appendingPathComponent(dbPath)
-                guard FileManager.default.fileExists(atPath: dbURL.path),
-                      let db = try? VariantDatabase(url: dbURL) else {
-                    return track
-                }
-                let liveCount = db.totalVariantCount()
-                if liveCount != track.variantCount {
+        guard let bundleURL = currentBundleURL,
+              let searchIndex = annotationSearchIndex else { return }
+
+        // Build a snapshot of live counts from the existing read-only handles
+        // (no new DB connections needed — these are already open).
+        let liveCounts = Dictionary(
+            uniqueKeysWithValues: searchIndex.variantDatabaseHandles.map { ($0.trackId, $0.db.totalVariantCount()) }
+        )
+
+        // Dispatch manifest load + save off the main thread to avoid blocking UI.
+        DispatchQueue.global(qos: .utility).async {
+            do {
+                let manifest = try BundleManifest.load(from: bundleURL)
+                var changed = false
+                let updatedTracks = manifest.variants.map { track -> VariantTrackInfo in
+                    guard let liveCount = liveCounts[track.id],
+                          liveCount != track.variantCount else {
+                        return track
+                    }
                     changed = true
+                    return VariantTrackInfo(
+                        id: track.id,
+                        name: track.name,
+                        description: track.description,
+                        path: track.path,
+                        indexPath: track.indexPath,
+                        databasePath: track.databasePath,
+                        variantType: track.variantType,
+                        variantCount: liveCount,
+                        source: track.source
+                    )
                 }
-                return VariantTrackInfo(
-                    id: track.id,
-                    name: track.name,
-                    description: track.description,
-                    path: track.path,
-                    indexPath: track.indexPath,
-                    databasePath: track.databasePath,
-                    variantType: track.variantType,
-                    variantCount: liveCount,
-                    source: track.source
+                guard changed else { return }
+                let updatedManifest = BundleManifest(
+                    formatVersion: manifest.formatVersion,
+                    name: manifest.name,
+                    identifier: manifest.identifier,
+                    description: manifest.description,
+                    createdDate: manifest.createdDate,
+                    modifiedDate: Date(),
+                    source: manifest.source,
+                    genome: manifest.genome,
+                    annotations: manifest.annotations,
+                    variants: updatedTracks,
+                    tracks: manifest.tracks,
+                    metadata: manifest.metadata
                 )
+                try updatedManifest.save(to: bundleURL)
+                annotDrawerLogger.info("syncVariantCountsToManifest: Persisted updated variant counts")
+            } catch {
+                annotDrawerLogger.error("syncVariantCountsToManifest: \(error.localizedDescription)")
             }
-            guard changed else { return }
-            let updatedManifest = BundleManifest(
-                formatVersion: manifest.formatVersion,
-                name: manifest.name,
-                identifier: manifest.identifier,
-                description: manifest.description,
-                createdDate: manifest.createdDate,
-                modifiedDate: Date(),
-                source: manifest.source,
-                genome: manifest.genome,
-                annotations: manifest.annotations,
-                variants: updatedTracks,
-                tracks: manifest.tracks,
-                metadata: manifest.metadata
-            )
-            try updatedManifest.save(to: bundleURL)
-            annotDrawerLogger.info("annotationDrawer: Persisted updated variant counts to manifest")
-        } catch {
-            annotDrawerLogger.error("annotationDrawer: Failed to persist variant counts: \(error.localizedDescription)")
         }
     }
 }

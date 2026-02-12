@@ -38,6 +38,8 @@ public final class AnnotationSearchIndex {
         public let filter: String?
         public let sampleCount: Int?
         public let variantRowId: Int64?
+        /// Structured INFO key-value pairs (nil for annotations or legacy databases).
+        public let infoDict: [String: String]?
 
         /// Whether this result represents a variant (vs annotation).
         public var isVariant: Bool { ref != nil }
@@ -45,7 +47,8 @@ public final class AnnotationSearchIndex {
         public init(id: UUID = UUID(), name: String, chromosome: String, start: Int, end: Int,
                     trackId: String, type: String = "gene", strand: String = ".",
                     ref: String? = nil, alt: String? = nil, quality: Double? = nil,
-                    filter: String? = nil, sampleCount: Int? = nil, variantRowId: Int64? = nil) {
+                    filter: String? = nil, sampleCount: Int? = nil, variantRowId: Int64? = nil,
+                    infoDict: [String: String]? = nil) {
             self.id = id
             self.name = name
             self.chromosome = chromosome
@@ -60,6 +63,7 @@ public final class AnnotationSearchIndex {
             self.filter = filter
             self.sampleCount = sampleCount
             self.variantRowId = variantRowId
+            self.infoDict = infoDict
         }
     }
 
@@ -321,7 +325,7 @@ public final class AnnotationSearchIndex {
                 let remaining = limit - results.count
                 guard remaining > 0 else { break }
                 let variantRecords = handle.db.searchByID(idFilter: query, limit: remaining)
-                results.append(contentsOf: variantRecords.map { $0.toSearchResult(trackId: handle.trackId) })
+                results.append(contentsOf: variantRecordsToSearchResults(variantRecords, db: handle.db, trackId: handle.trackId))
             }
         }
 
@@ -400,7 +404,7 @@ public final class AnnotationSearchIndex {
                     types: types.isEmpty ? [] : requestedVariantTypes,
                     limit: remaining
                 )
-                results.append(contentsOf: variantRecords.map { $0.toSearchResult(trackId: handle.trackId) })
+                results.append(contentsOf: variantRecordsToSearchResults(variantRecords, db: handle.db, trackId: handle.trackId))
             }
         }
 
@@ -432,7 +436,7 @@ public final class AnnotationSearchIndex {
                 types: types.isEmpty ? [] : requestedVariantTypes,
                 limit: remaining
             )
-            results.append(contentsOf: variantRecords.map { $0.toSearchResult(trackId: handle.trackId) })
+            results.append(contentsOf: variantRecordsToSearchResults(variantRecords, db: handle.db, trackId: handle.trackId))
         }
         return results
     }
@@ -501,6 +505,23 @@ public final class AnnotationSearchIndex {
         variantDatabases.reduce(0) { $0 + $1.db.totalCount() }
     }
 
+    /// INFO field definitions from all variant databases.
+    ///
+    /// Returns the union of INFO keys across all loaded variant databases,
+    /// used by the drawer to create dynamic columns.
+    public var variantInfoKeys: [(key: String, type: String, number: String, description: String)] {
+        var seen = Set<String>()
+        var result: [(key: String, type: String, number: String, description: String)] = []
+        for handle in variantDatabases {
+            for def in handle.db.infoKeys() {
+                if seen.insert(def.key).inserted {
+                    result.append(def)
+                }
+            }
+        }
+        return result
+    }
+
     /// Clears the index.
     public func clear() {
         entries = []
@@ -509,6 +530,23 @@ public final class AnnotationSearchIndex {
         variantDatabases = []
         isBuilding = false
     }
+
+    // MARK: - Private Helpers
+
+    /// Converts variant records to SearchResults, batch-fetching INFO dictionaries.
+    private func variantRecordsToSearchResults(
+        _ records: [VariantDatabaseRecord],
+        db: VariantDatabase,
+        trackId: String
+    ) -> [SearchResult] {
+        guard !records.isEmpty else { return [] }
+        let variantIds = records.compactMap(\.id)
+        let infoDicts = db.batchInfoValues(variantIds: variantIds)
+        return records.map { record in
+            let infoDict = record.id.flatMap { infoDicts[$0] }
+            return record.toSearchResult(trackId: trackId, infoDict: infoDict)
+        }
+    }
 }
 
 // MARK: - VariantDatabaseRecord → SearchResult Conversion
@@ -516,7 +554,7 @@ public final class AnnotationSearchIndex {
 extension VariantDatabaseRecord {
     /// Converts this variant record to an `AnnotationSearchIndex.SearchResult`
     /// for unified display in the annotation table drawer.
-    public func toSearchResult(trackId: String = "variants") -> AnnotationSearchIndex.SearchResult {
+    public func toSearchResult(trackId: String = "variants", infoDict: [String: String]? = nil) -> AnnotationSearchIndex.SearchResult {
         AnnotationSearchIndex.SearchResult(
             name: variantID,
             chromosome: chromosome,
@@ -530,7 +568,8 @@ extension VariantDatabaseRecord {
             quality: quality,
             filter: filter,
             sampleCount: sampleCount,
-            variantRowId: id
+            variantRowId: id,
+            infoDict: infoDict
         )
     }
 }

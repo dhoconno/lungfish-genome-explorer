@@ -136,8 +136,12 @@ public final class VariantSectionViewModel {
         homAltCount = hAlt
         noCallCount = noCall
 
-        // Parse INFO from the variant record if available
-        if let rowId = variant.variantRowId {
+        // Fetch structured INFO from variant_info EAV table (or fallback to raw parsing)
+        let infoDict = db.infoValues(variantId: rowId)
+        if !infoDict.isEmpty {
+            infoFields = infoDict.sorted(by: { $0.key < $1.key }).map { (key: $0.key, value: $0.value) }
+        } else {
+            // Legacy fallback: parse raw INFO string from the variant record
             let records = db.query(chromosome: variant.chromosome, start: variant.start, end: variant.end, limit: 1)
             if let record = records.first(where: { $0.id == rowId }), let info = record.info {
                 infoFields = parseINFO(info)
@@ -147,7 +151,7 @@ public final class VariantSectionViewModel {
         }
     }
 
-    /// Parses a VCF INFO string into key-value pairs.
+    /// Parses a VCF INFO string into key-value pairs (legacy fallback).
     private func parseINFO(_ info: String) -> [(key: String, value: String)] {
         info.split(separator: ";").compactMap { field in
             let parts = field.split(separator: "=", maxSplits: 1)

@@ -314,6 +314,8 @@ public final class VariantDatabase: @unchecked Sendable {
     private let hasSourceFileColumn: Bool
     /// Whether the database is opened read-only.
     private let isReadOnly: Bool
+    /// Whether the variant_info EAV table exists (for structured INFO field queries).
+    private let hasInfoTable: Bool
 
     /// Opens an existing variant database for reading.
     ///
@@ -339,7 +341,9 @@ public final class VariantDatabase: @unchecked Sendable {
         self.hasV2Schema = VariantDatabase.tableExists(db: db!, name: "genotypes")
         // Detect source_file column in samples table
         self.hasSourceFileColumn = hasV2Schema && VariantDatabase.columnExists(db: db!, table: "samples", column: "source_file")
-        variantDBLogger.info("Opened variant database: \(url.lastPathComponent) (v2=\(self.hasV2Schema), sourceFile=\(self.hasSourceFileColumn))")
+        // Detect variant_info EAV table
+        self.hasInfoTable = VariantDatabase.tableExists(db: db!, name: "variant_info")
+        variantDBLogger.info("Opened variant database: \(url.lastPathComponent) (v2=\(self.hasV2Schema), sourceFile=\(self.hasSourceFileColumn), infoTable=\(self.hasInfoTable))")
     }
 
     /// Convenience init that opens read-only (backward compatible).
@@ -855,6 +859,23 @@ public final class VariantDatabase: @unchecked Sendable {
         do {
             try executeSQL("BEGIN TRANSACTION")
 
+            // Child rows must be deleted BEFORE variants because PRAGMA foreign_keys = ON
+            // is active at runtime and the schema declares REFERENCES variants(id) without
+            // ON DELETE CASCADE. Deleting a variant first would trigger SQLITE_CONSTRAINT.
+            if hasInfoTable {
+                let deleteInfoSQL = "DELETE FROM variant_info WHERE variant_id IN (\(placeholders))"
+                var infoStmt: OpaquePointer?
+                defer { sqlite3_finalize(infoStmt) }
+                guard sqlite3_prepare_v2(db, deleteInfoSQL, -1, &infoStmt, nil) == SQLITE_OK else {
+                    throw VariantDatabaseError.createFailed("Failed to prepare info delete statement")
+                }
+                for (i, id) in ids.enumerated() {
+                    sqlite3_bind_int64(infoStmt, Int32(i + 1), id)
+                }
+                guard sqlite3_step(infoStmt) == SQLITE_DONE else {
+                    throw VariantDatabaseError.createFailed("Failed to delete info for selected variants")
+                }
+            }
             if hasV2Schema {
                 let deleteGenotypesSQL = "DELETE FROM genotypes WHERE variant_id IN (\(placeholders))"
                 var gtStmt: OpaquePointer?
@@ -903,6 +924,9 @@ public final class VariantDatabase: @unchecked Sendable {
 
         do {
             try executeSQL("BEGIN TRANSACTION")
+            if hasInfoTable {
+                try executeSQL("DELETE FROM variant_info")
+            }
             if hasV2Schema {
                 try executeSQL("DELETE FROM genotypes")
             }
@@ -925,6 +949,93 @@ public final class VariantDatabase: @unchecked Sendable {
         guard sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM variants", -1, &stmt, nil) == SQLITE_OK,
               sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
         return Int(sqlite3_column_int64(stmt, 0))
+    }
+
+    // MARK: - Structured INFO Queries
+
+    /// Returns INFO field definitions from the variant_info_defs table.
+    ///
+    /// These are parsed from VCF `##INFO=<...>` header lines during import.
+    /// Returns empty array for legacy databases without the variant_info table.
+    public func infoKeys() -> [(key: String, type: String, number: String, description: String)] {
+        guard let db, hasInfoTable else { return [] }
+        let sql = "SELECT key, type, number, description FROM variant_info_defs ORDER BY key"
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        var results: [(key: String, type: String, number: String, description: String)] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let key = sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? ""
+            let type = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? "String"
+            let number = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? "."
+            let desc = sqlite3_column_text(stmt, 3).map { String(cString: $0) } ?? ""
+            results.append((key: key, type: type, number: number, description: desc))
+        }
+        return results
+    }
+
+    /// Returns all INFO key-value pairs for a specific variant.
+    ///
+    /// Falls back to parsing the raw INFO string for legacy databases.
+    public func infoValues(variantId: Int64) -> [String: String] {
+        guard let db else { return [:] }
+        if hasInfoTable {
+            let sql = "SELECT key, value FROM variant_info WHERE variant_id = ?"
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [:] }
+            sqlite3_bind_int64(stmt, 1, variantId)
+            var result: [String: String] = [:]
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                let key = sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? ""
+                let value = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
+                result[key] = value
+            }
+            return result
+        }
+        // Legacy fallback: parse raw INFO string
+        let sql = "SELECT info FROM variants WHERE id = ?"
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [:] }
+        sqlite3_bind_int64(stmt, 1, variantId)
+        guard sqlite3_step(stmt) == SQLITE_ROW,
+              let rawInfo = sqlite3_column_text(stmt, 0).map({ String(cString: $0) }),
+              rawInfo != "." else { return [:] }
+        var result: [String: String] = [:]
+        for field in rawInfo.split(separator: ";") {
+            let parts = field.split(separator: "=", maxSplits: 1)
+            if parts.count == 2 {
+                result[String(parts[0])] = String(parts[1])
+            } else if parts.count == 1 {
+                result[String(parts[0])] = "true"
+            }
+        }
+        return result
+    }
+
+    /// Batch-fetches INFO dictionaries for multiple variant IDs.
+    ///
+    /// More efficient than calling `infoValues(variantId:)` per-variant.
+    /// Returns a dictionary mapping variant ID to its INFO key-value pairs.
+    public func batchInfoValues(variantIds: [Int64]) -> [Int64: [String: String]] {
+        guard let db, hasInfoTable, !variantIds.isEmpty else { return [:] }
+        let placeholders = variantIds.map { _ in "?" }.joined(separator: ",")
+        let sql = "SELECT variant_id, key, value FROM variant_info WHERE variant_id IN (\(placeholders))"
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [:] }
+        for (i, id) in variantIds.enumerated() {
+            sqlite3_bind_int64(stmt, Int32(i + 1), id)
+        }
+        var result: [Int64: [String: String]] = [:]
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let variantId = sqlite3_column_int64(stmt, 0)
+            let key = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
+            let value = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? ""
+            result[variantId, default: [:]][key] = value
+        }
+        return result
     }
 
     // MARK: - Sample Source File Queries
@@ -1208,8 +1319,9 @@ public final class VariantDatabase: @unchecked Sendable {
         }
         defer { sqlite3_close(db) }
 
-        // Performance pragmas
-        sqlite3_exec(db, "PRAGMA foreign_keys = ON", nil, nil, nil)
+        // Performance pragmas — FK enforcement OFF during bulk import (we control insert order;
+        // variants are always inserted before genotypes). Enabling FKs here would force SQLite to
+        // validate every genotype INSERT against the variants table, adding significant overhead.
         sqlite3_exec(db, "PRAGMA journal_mode = OFF", nil, nil, nil)
         sqlite3_exec(db, "PRAGMA synchronous = OFF", nil, nil, nil)
         sqlite3_exec(db, "PRAGMA cache_size = -64000", nil, nil, nil)
@@ -1248,6 +1360,18 @@ public final class VariantDatabase: @unchecked Sendable {
             display_name TEXT,
             source_file TEXT,
             metadata TEXT
+        );
+        CREATE TABLE variant_info_defs (
+            key TEXT PRIMARY KEY,
+            type TEXT NOT NULL,
+            number TEXT NOT NULL,
+            description TEXT
+        );
+        CREATE TABLE variant_info (
+            variant_id INTEGER NOT NULL REFERENCES variants(id),
+            key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            PRIMARY KEY (variant_id, key)
         );
         """
         var errMsg: UnsafeMutablePointer<CChar>?
@@ -1293,6 +1417,20 @@ public final class VariantDatabase: @unchecked Sendable {
         }
         defer { sqlite3_finalize(insertSampleStmt) }
 
+        let insertInfoDefSQL = "INSERT OR REPLACE INTO variant_info_defs (key, type, number, description) VALUES (?, ?, ?, ?)"
+        var insertInfoDefStmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, insertInfoDefSQL, -1, &insertInfoDefStmt, nil) == SQLITE_OK else {
+            throw VariantDatabaseError.createFailed("Failed to prepare info def INSERT statement")
+        }
+        defer { sqlite3_finalize(insertInfoDefStmt) }
+
+        let insertInfoSQL = "INSERT OR REPLACE INTO variant_info (variant_id, key, value) VALUES (?, ?, ?)"
+        var insertInfoStmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, insertInfoSQL, -1, &insertInfoStmt, nil) == SQLITE_OK else {
+            throw VariantDatabaseError.createFailed("Failed to prepare info INSERT statement")
+        }
+        defer { sqlite3_finalize(insertInfoStmt) }
+
         var insertCount = 0
         var sampleNames: [String] = []
         var linesProcessed = 0
@@ -1305,7 +1443,21 @@ public final class VariantDatabase: @unchecked Sendable {
 
             guard !line.isEmpty else { return }
 
-            // Skip meta-information lines
+            // Parse ##INFO=<...> header lines for structured INFO definitions
+            if line.hasPrefix("##INFO=") {
+                let content = line.dropFirst(7)
+                if let def = parseINFODefinition(content) {
+                    sqlite3_reset(insertInfoDefStmt)
+                    sqliteBindText(insertInfoDefStmt, 1, def.id)
+                    sqliteBindText(insertInfoDefStmt, 2, def.type)
+                    sqliteBindText(insertInfoDefStmt, 3, def.number)
+                    sqliteBindText(insertInfoDefStmt, 4, def.description)
+                    sqlite3_step(insertInfoDefStmt)
+                }
+                return
+            }
+
+            // Skip other meta-information lines
             if line.hasPrefix("##") { return }
 
             // Parse header line for sample names
@@ -1416,6 +1568,29 @@ public final class VariantDatabase: @unchecked Sendable {
             }
             let variantRowId = sqlite3_last_insert_rowid(db)
             insertCount += 1
+
+            // Insert structured INFO key-value pairs into variant_info EAV table
+            if let infoStr, infoStr != "." {
+                for field in infoStr.split(separator: ";") {
+                    let parts = field.split(separator: "=", maxSplits: 1)
+                    let key: String
+                    let value: String
+                    if parts.count == 2 {
+                        key = String(parts[0])
+                        value = String(parts[1])
+                    } else if parts.count == 1 {
+                        key = String(parts[0])
+                        value = "true"
+                    } else {
+                        continue
+                    }
+                    sqlite3_reset(insertInfoStmt)
+                    sqlite3_bind_int64(insertInfoStmt, 1, variantRowId)
+                    sqliteBindText(insertInfoStmt, 2, key)
+                    sqliteBindText(insertInfoStmt, 3, value)
+                    sqlite3_step(insertInfoStmt)
+                }
+            }
 
             // Insert genotype records for each sample
             if parseGenotypes && !formatFields.isEmpty && !sampleNames.isEmpty {
@@ -1542,6 +1717,8 @@ public final class VariantDatabase: @unchecked Sendable {
             "CREATE INDEX idx_genotypes_sample ON genotypes(sample_name)",
             "CREATE INDEX idx_genotypes_variant ON genotypes(variant_id)",
             "CREATE INDEX idx_samples_name ON samples(name)",
+            "CREATE INDEX idx_variant_info_key ON variant_info(key)",
+            "CREATE INDEX idx_variant_info_key_value ON variant_info(key, value)",
         ]
         for indexSQL in indexStatements {
             var idxErr: UnsafeMutablePointer<CChar>?
@@ -1662,6 +1839,39 @@ public final class VariantDatabase: @unchecked Sendable {
         } else {
             return VariantType.complex.rawValue
         }
+    }
+
+    /// Parses a VCF ##INFO=<ID=X,Number=Y,Type=Z,Description="..."> header line.
+    ///
+    /// Sync version of the parser in VCFReader (which uses async APIs).
+    /// Returns nil if the line cannot be parsed.
+    private static func parseINFODefinition(_ str: Substring) -> (id: String, type: String, number: String, description: String)? {
+        let content = str.trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
+        var dict: [String: String] = [:]
+        var remaining = content[...]
+        while !remaining.isEmpty {
+            guard let eqIdx = remaining.firstIndex(of: "=") else { break }
+            let key = String(remaining[..<eqIdx])
+            remaining = remaining[remaining.index(after: eqIdx)...]
+            if remaining.first == "\"" {
+                remaining = remaining.dropFirst()
+                if let endQuote = remaining.firstIndex(of: "\"") {
+                    dict[key] = String(remaining[..<endQuote])
+                    remaining = remaining[remaining.index(after: endQuote)...]
+                    if remaining.first == "," { remaining = remaining.dropFirst() }
+                }
+            } else {
+                if let commaIdx = remaining.firstIndex(of: ",") {
+                    dict[key] = String(remaining[..<commaIdx])
+                    remaining = remaining[remaining.index(after: commaIdx)...]
+                } else {
+                    dict[key] = String(remaining)
+                    remaining = ""[...]
+                }
+            }
+        }
+        guard let id = dict["ID"], let type = dict["Type"], let number = dict["Number"] else { return nil }
+        return (id: id, type: type, number: number, description: dict["Description"] ?? "")
     }
 
     /// Parses the END value from a VCF INFO field string.

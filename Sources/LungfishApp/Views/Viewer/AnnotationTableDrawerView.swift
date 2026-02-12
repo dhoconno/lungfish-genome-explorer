@@ -103,6 +103,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Guard flag to prevent notification re-entry when programmatically selecting rows.
     private var isSuppressingDelegateCallbacks = false
 
+    /// INFO field definitions for dynamic variant columns (key + type for sort awareness).
+    private var infoColumnKeys: [(key: String, type: String)] = []
+
     // MARK: - UI Components
 
     private let scrollView = NSScrollView()
@@ -475,6 +478,23 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             )
             tableView.addTableColumn(col)
         }
+
+        // Add dynamic INFO columns for variants tab
+        if tab == .variants {
+            for info in infoColumnKeys {
+                let identifier = NSUserInterfaceItemIdentifier("info_\(info.key)")
+                let col = NSTableColumn(identifier: identifier)
+                col.title = info.key
+                col.width = 60
+                col.minWidth = 40
+                col.resizingMask = .autoresizingMask
+                col.sortDescriptorPrototype = NSSortDescriptor(
+                    key: "info_\(info.key)", ascending: true,
+                    selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))
+                )
+                tableView.addTableColumn(col)
+            }
+        }
     }
 
     // MARK: - Tab Switching
@@ -516,6 +536,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         totalVariantCount = index.variantCount
         availableAnnotationTypes = index.annotationTypes
         availableVariantTypes = index.variantTypes
+
+        // Discover INFO field definitions for dynamic variant columns
+        infoColumnKeys = index.variantInfoKeys.map { (key: $0.key, type: $0.type) }
 
         // All types visible by default for both tabs
         visibleAnnotationTypes = Set(availableAnnotationTypes)
@@ -797,7 +820,21 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 let sb = b.sampleCount ?? 0
                 result = sa < sb ? .orderedAscending : (sa > sb ? .orderedDescending : .orderedSame)
             default:
-                result = .orderedSame
+                // Dynamic INFO column sort (key starts with "info_")
+                if key.hasPrefix("info_") {
+                    let infoKey = String(key.dropFirst(5))
+                    let valA = a.infoDict?[infoKey] ?? ""
+                    let valB = b.infoDict?[infoKey] ?? ""
+                    if isNumericInfoKey(infoKey) {
+                        let numA = Double(valA) ?? -.infinity
+                        let numB = Double(valB) ?? -.infinity
+                        result = numA < numB ? .orderedAscending : (numA > numB ? .orderedDescending : .orderedSame)
+                    } else {
+                        result = valA.localizedCaseInsensitiveCompare(valB)
+                    }
+                } else {
+                    result = .orderedSame
+                }
             }
             return ascending ? result == .orderedAscending : result == .orderedDescending
         }
@@ -894,7 +931,14 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             tf.alignment = .right
 
         default:
-            tf.stringValue = ""
+            // Dynamic INFO columns (identifier starts with "info_")
+            if identifier.rawValue.hasPrefix("info_") {
+                let infoKey = String(identifier.rawValue.dropFirst(5))
+                tf.stringValue = annotation.infoDict?[infoKey] ?? ""
+                tf.alignment = isNumericInfoKey(infoKey) ? .right : .left
+            } else {
+                tf.stringValue = ""
+            }
         }
 
         return cellView
@@ -922,6 +966,11 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         default:
             return String(format: "%.1f Mb", Double(bp) / 1_000_000.0)
         }
+    }
+
+    /// Whether an INFO key represents a numeric type (Integer or Float) for sorting.
+    private func isNumericInfoKey(_ key: String) -> Bool {
+        infoColumnKeys.first(where: { $0.key == key }).map { $0.type == "Integer" || $0.type == "Float" } ?? false
     }
 
     // MARK: - Public API
