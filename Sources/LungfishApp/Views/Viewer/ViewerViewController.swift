@@ -1782,7 +1782,20 @@ public class SequenceViewerView: NSView {
                 y += translationTrackTotalHeight + 4
             }
         }
+        // Reserve space for variant summary bar + genotype rows when variants are loaded
+        if showVariants && showVariantSummaryBar && !cachedVariantAnnotations.isEmpty {
+            y += variantTrackTotalHeight + 4
+        }
         return y
+    }
+
+    /// Total height of the variant track area (summary bar + genotype rows).
+    private var variantTrackTotalHeight: CGFloat {
+        VariantTrackRenderer.totalHeight(
+            sampleCount: cachedSampleCount,
+            scale: viewController?.referenceFrame?.scale ?? Double.greatestFiniteMagnitude,
+            state: sampleDisplayState
+        )
     }
 
     /// Total height of the translation track area.
@@ -1817,6 +1830,29 @@ public class SequenceViewerView: NSView {
 
     /// Text filter for variants (searches variant IDs)
     var variantFilterText: String = ""
+
+    // MARK: - Genotype Track State
+
+    /// Whether to show the variant summary bar (density histogram).
+    var showVariantSummaryBar: Bool = true
+
+    /// Cached genotype display data for the visible region.
+    private var cachedGenotypeData: GenotypeDisplayData?
+
+    /// Region for which genotype data is cached.
+    private var cachedGenotypeRegion: GenomicRegion?
+
+    /// Whether we're currently fetching genotype data.
+    private var isFetchingGenotypes: Bool = false
+
+    /// Generation counter for genotype fetches.
+    private var genotypeFetchGeneration: Int = 0
+
+    /// Display state controlling sample sort, filter, and visibility.
+    var sampleDisplayState: SampleDisplayState = SampleDisplayState()
+
+    /// Number of samples in the current variant database (cached for layout).
+    private var cachedSampleCount: Int = 0
 
     // MARK: - Annotation Color Cache
 
@@ -2303,6 +2339,28 @@ public class SequenceViewerView: NSView {
         self.bundleFetchError = nil
         self.failedFetchRegion = nil
 
+        // Clear genotype track state
+        self.cachedGenotypeData = nil
+        self.cachedGenotypeRegion = nil
+        self.isFetchingGenotypes = false
+
+        // Cache sample count from variant databases for layout calculations
+        self.cachedSampleCount = 0
+        for trackId in bundle.variantTrackIds {
+            if let trackInfo = bundle.variantTrack(id: trackId),
+               let dbPath = trackInfo.databasePath {
+                let dbURL = bundle.url.appendingPathComponent(dbPath)
+                if let db = try? VariantDatabase(url: dbURL) {
+                    let count = db.sampleCount()
+                    if count > 0 {
+                        self.cachedSampleCount = count
+                        logger.info("SequenceViewerView.setReferenceBundle: Found \(count) samples in variant track '\(trackId, privacy: .public)'")
+                        break
+                    }
+                }
+            }
+        }
+
         // Clear rendering caches
         typeColorCache.removeAll()
         typeDensityColorCache.removeAll()
@@ -2334,9 +2392,13 @@ public class SequenceViewerView: NSView {
         self.cachedAnnotationRegion = nil
         self.cachedVariantAnnotations = []
         self.cachedVariantRegion = nil
+        self.cachedGenotypeData = nil
+        self.cachedGenotypeRegion = nil
         self.isFetchingBundleData = false
         self.isFetchingAnnotations = false
         self.isFetchingVariants = false
+        self.isFetchingGenotypes = false
+        self.cachedSampleCount = 0
         self.sequenceFetchStartTime = nil
         self.annotationFetchStartTime = nil
 
@@ -2579,28 +2641,68 @@ public class SequenceViewerView: NSView {
             fetchVariantsAsync(bundle: bundle, region: visibleRegion)
         }
 
+        // Filter variants by visibility settings
+        let filteredVariants: [SequenceAnnotation]
+        if showVariants && needsAnnotations {
+            var variants = cachedVariantAnnotations
+            if let typeFilter = visibleVariantTypes, !typeFilter.isEmpty {
+                variants = variants.filter { ann in
+                    let vtypeStr = ann.qualifiers["variant_type"]?.values.first ?? ""
+                    return typeFilter.contains(vtypeStr)
+                }
+            }
+            if !variantFilterText.isEmpty {
+                let lower = variantFilterText.lowercased()
+                variants = variants.filter { $0.name.lowercased().contains(lower) }
+            }
+            filteredVariants = variants
+        } else {
+            filteredVariants = []
+        }
+
+        // Draw variant summary bar + genotype rows (between translation track and annotations)
+        if showVariants && showVariantSummaryBar && !filteredVariants.isEmpty {
+            let variantY: CGFloat
+            if showTranslationTrack && scale < showLettersThreshold {
+                variantY = trackY + trackHeight + 4 + translationTrackTotalHeight + 4
+            } else {
+                variantY = trackY + trackHeight + 4
+            }
+
+            VariantTrackRenderer.drawSummaryBar(
+                variants: filteredVariants,
+                frame: frame,
+                context: context,
+                yOffset: variantY
+            )
+
+            // Draw per-sample genotype rows if available
+            if let genotypeData = cachedGenotypeData, cachedSampleCount > 0 {
+                let genotypeY = variantY + VariantTrackRenderer.summaryBarHeight + VariantTrackRenderer.summaryToRowGap
+                VariantTrackRenderer.drawGenotypeRows(
+                    genotypeData: genotypeData,
+                    frame: frame,
+                    context: context,
+                    yOffset: genotypeY,
+                    state: sampleDisplayState
+                )
+            }
+
+            // Fetch genotype data if needed and we have samples
+            if cachedSampleCount > 0 && !isFetchingGenotypes {
+                let genotypeCovered = cachedGenotypeRegion?.chromosome == visibleRegion.chromosome
+                    && (cachedGenotypeRegion?.start ?? Int.max) <= visibleRegion.start
+                    && (cachedGenotypeRegion?.end ?? Int.min) >= visibleRegion.end
+                if !genotypeCovered {
+                    fetchGenotypesAsync(bundle: bundle, region: visibleRegion)
+                }
+            }
+        }
+
         // Draw annotations + variants from cache when zoomed in enough
         if needsAnnotations,
            cachedAnnotationRegion?.chromosome == visibleRegion.chromosome
             || cachedVariantRegion?.chromosome == visibleRegion.chromosome {
-            // Filter variants by visibility settings before combining
-            let filteredVariants: [SequenceAnnotation]
-            if showVariants {
-                var variants = cachedVariantAnnotations
-                if let typeFilter = visibleVariantTypes, !typeFilter.isEmpty {
-                    variants = variants.filter { ann in
-                        let vtypeStr = ann.qualifiers["variant_type"]?.values.first ?? ""
-                        return typeFilter.contains(vtypeStr)
-                    }
-                }
-                if !variantFilterText.isEmpty {
-                    let lower = variantFilterText.lowercased()
-                    variants = variants.filter { $0.name.lowercased().contains(lower) }
-                }
-                filteredVariants = variants
-            } else {
-                filteredVariants = []
-            }
             let combined = cachedBundleAnnotations + filteredVariants
             if !combined.isEmpty {
                 logger.debug("drawBundleContent: Drawing \(combined.count) annotations (\(self.cachedBundleAnnotations.count) annot + \(filteredVariants.count) variant)")
@@ -2787,6 +2889,96 @@ public class SequenceViewerView: NSView {
                 viewer.isFetchingVariants = false
                 viewer.invalidateAnnotationTile()
                 logger.info("fetchVariantsAsync: Cached \(count) variant annotations in \(elapsed, format: .fixed(precision: 3))s")
+                viewer.setNeedsDisplay(viewer.bounds)
+            }
+        }
+    }
+
+    /// Fetches genotype data asynchronously for the visible region.
+    /// Queries the VariantDatabase for per-sample genotype calls to populate the genotype track.
+    /// Uses the same generation counter pattern as other fetch methods.
+    private static let genotypeFetchQueue = DispatchQueue(label: "com.lungfish.genotypeFetch", qos: .userInitiated)
+
+    private func fetchGenotypesAsync(bundle: ReferenceBundle, region: GenomicRegion) {
+        let variantTrackIds = bundle.variantTrackIds
+        guard !variantTrackIds.isEmpty else { return }
+
+        genotypeFetchGeneration += 1
+        let thisGeneration = genotypeFetchGeneration
+        isFetchingGenotypes = true
+        let fetchStart = Date()
+
+        // Expand region for panning buffer (same pattern as variant fetch)
+        let chromLength = bundle.chromosomeLength(named: region.chromosome) ?? Int64(region.end + 1000)
+        let visibleSpan = region.end - region.start
+        let expandAmount = max(50_000, visibleSpan * 2)
+        let expandedStart = max(0, region.start - expandAmount)
+        let expandedEnd = min(Int(chromLength), region.end + expandAmount)
+        let expandedRegion = GenomicRegion(chromosome: region.chromosome, start: expandedStart, end: expandedEnd)
+
+        // Capture bundle URL and track info for background thread
+        let bundleURL = bundle.url
+
+        logger.info("fetchGenotypesAsync: gen=\(thisGeneration), Fetching genotypes for \(expandedRegion.description)")
+
+        Self.genotypeFetchQueue.async { [weak self] in
+            var allSites: [VariantSite] = []
+            var sampleNames: [String] = []
+
+            for trackId in variantTrackIds {
+                guard let trackInfo = bundle.variantTrack(id: trackId),
+                      let dbPath = trackInfo.databasePath else { continue }
+                let dbURL = bundleURL.appendingPathComponent(dbPath)
+                guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
+
+                do {
+                    let db = try VariantDatabase(url: dbURL)
+                    if sampleNames.isEmpty {
+                        sampleNames = db.sampleNames()
+                    }
+                    let regionData = db.genotypesInRegion(
+                        chromosome: expandedRegion.chromosome,
+                        start: expandedRegion.start,
+                        end: expandedRegion.end,
+                        limit: 5_000  // Cap for performance
+                    )
+                    for (variant, genotypes) in regionData {
+                        var gtMap: [String: GenotypeDisplayCall] = [:]
+                        for gt in genotypes {
+                            gtMap[gt.sampleName] = classifyGenotype(gt)
+                        }
+                        allSites.append(VariantSite(
+                            position: variant.position,
+                            ref: variant.ref,
+                            alt: variant.alt,
+                            variantType: variant.variantType,
+                            genotypes: gtMap
+                        ))
+                    }
+                } catch {
+                    logger.error("fetchGenotypesAsync: Failed for track \(trackId): \(error.localizedDescription)")
+                }
+            }
+
+            let displayData = GenotypeDisplayData(
+                sampleNames: sampleNames,
+                sites: allSites,
+                region: expandedRegion
+            )
+            let siteCount = allSites.count
+
+            Self.enqueueMainRunLoop { [weak self] in
+                guard let viewer = self else { return }
+                guard thisGeneration == viewer.genotypeFetchGeneration else {
+                    logger.info("fetchGenotypesAsync: Discarding stale result gen=\(thisGeneration)")
+                    return
+                }
+                let elapsed = Date().timeIntervalSince(fetchStart)
+                viewer.cachedGenotypeData = displayData
+                viewer.cachedGenotypeRegion = expandedRegion
+                viewer.isFetchingGenotypes = false
+                viewer.invalidateAnnotationTile()
+                logger.info("fetchGenotypesAsync: Cached \(siteCount) sites × \(sampleNames.count) samples in \(elapsed, format: .fixed(precision: 3))s")
                 viewer.setNeedsDisplay(viewer.bounds)
             }
         }
@@ -5546,6 +5738,30 @@ public class SequenceViewerView: NSView {
 
         return nil
     }
+}
+
+// MARK: - Genotype Classification (free function for background-thread use)
+
+/// Classifies a GenotypeRecord into a display call category.
+/// This is a module-level free function (not a method on @MainActor SequenceViewerView)
+/// so it can be safely called from GCD background queues.
+private func classifyGenotype(_ gt: GenotypeRecord) -> GenotypeDisplayCall {
+    // Missing genotype
+    guard let gtStr = gt.genotype else { return .noCall }
+    let trimmed = gtStr.trimmingCharacters(in: .whitespaces)
+    if trimmed.isEmpty || trimmed == "." || trimmed == "./." || trimmed == ".|." {
+        return .noCall
+    }
+
+    let a1 = gt.allele1
+    let a2 = gt.allele2
+
+    // Missing alleles (encoded as -1)
+    if a1 < 0 && a2 < 0 { return .noCall }
+
+    if a1 == 0 && a2 == 0 { return .homRef }
+    if a1 == a2 { return .homAlt }
+    return .het
 }
 
 // MARK: - TrackHeaderViewDelegate
