@@ -17,6 +17,20 @@ private let extractionLogger = Logger(subsystem: "com.lungfish.browser", categor
 /// singleton, following the same pattern as `GenBankBundleDownloadViewModel`.
 public final class SequenceExtractionPipeline: @unchecked Sendable {
 
+    public struct SourceAnnotationTrack: Sendable {
+        public let id: String
+        public let name: String
+        public let databaseURL: URL
+        public let annotationType: AnnotationTrackType
+
+        public init(id: String, name: String, databaseURL: URL, annotationType: AnnotationTrackType) {
+            self.id = id
+            self.name = name
+            self.databaseURL = databaseURL
+            self.annotationType = annotationType
+        }
+    }
+
     private let toolRunner: NativeToolRunner
 
     public init(toolRunner: NativeToolRunner = .shared) {
@@ -38,7 +52,7 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
         outputDirectory: URL,
         sourceBundleName: String? = nil,
         desiredBundleName: String? = nil,
-        sourceAnnotationDatabaseURL: URL? = nil,
+        sourceAnnotationTracks: [SourceAnnotationTrack] = [],
         isConcatenated: Bool = false,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> URL {
@@ -113,52 +127,58 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
 
         // Extract annotations from source bundle
         var annotationTracks: [AnnotationTrackInfo] = []
-        if !isConcatenated, let sourceDBURL = sourceAnnotationDatabaseURL {
+        if !isConcatenated, !sourceAnnotationTracks.isEmpty {
             progressHandler?(0.78, "Extracting annotations...")
             let newChromName = chromosomes.first?.name ?? seqName
-            do {
-                let sourceDB = try AnnotationDatabase(url: sourceDBURL)
-                let sourceRecords = sourceDB.queryByRegion(
-                    chromosome: result.chromosome,
-                    start: result.effectiveStart,
-                    end: result.effectiveEnd
-                )
+            let annotationsDir = bundleURL.appendingPathComponent("annotations", isDirectory: true)
+            try fileManager.createDirectory(at: annotationsDir, withIntermediateDirectories: true)
 
-                let transformed = sourceRecords.compactMap { record in
-                    record.transformed(
-                        extractionStart: result.effectiveStart,
-                        extractionEnd: result.effectiveEnd,
-                        isReverseComplement: result.isReverseComplement,
-                        newChromosome: newChromName
+            for (trackIndex, sourceTrack) in sourceAnnotationTracks.enumerated() {
+                do {
+                    let sourceDB = try AnnotationDatabase(url: sourceTrack.databaseURL)
+                    let sourceRecords = sourceDB.queryByRegion(
+                        chromosome: result.chromosome,
+                        start: result.effectiveStart,
+                        end: result.effectiveEnd
                     )
-                }
 
-                if !transformed.isEmpty {
-                    let bedURL = tempDir.appendingPathComponent("annotations.bed")
+                    let transformed = sourceRecords.compactMap { record in
+                        record.transformed(
+                            extractionStart: result.effectiveStart,
+                            extractionEnd: result.effectiveEnd,
+                            isReverseComplement: result.isReverseComplement,
+                            newChromosome: newChromName
+                        )
+                    }
+
+                    guard !transformed.isEmpty else { continue }
+
+                    let sanitizedTrackID = BundleBuildHelpers.sanitizedFilename(sourceTrack.id)
+                    let trackID = sanitizedTrackID.isEmpty ? UUID().uuidString : sanitizedTrackID
+                    let dbFilename = "annotations_\(trackIndex)_\(trackID).db"
+
+                    let bedURL = tempDir.appendingPathComponent("\(dbFilename).bed")
                     let bedContent = transformed.map { $0.toBED12PlusLine() }.joined(separator: "\n")
                     try bedContent.write(to: bedURL, atomically: true, encoding: .utf8)
 
-                    let annotationsDir = bundleURL.appendingPathComponent("annotations", isDirectory: true)
-                    try fileManager.createDirectory(at: annotationsDir, withIntermediateDirectories: true)
-
-                    let dbURL = annotationsDir.appendingPathComponent("extracted_annotations.db")
+                    let dbURL = annotationsDir.appendingPathComponent(dbFilename)
                     let dbRecordCount = try AnnotationDatabase.createFromBED(bedURL: bedURL, outputURL: dbURL)
+                    guard dbRecordCount > 0 else { continue }
 
-                    if dbRecordCount > 0 {
-                        annotationTracks.append(AnnotationTrackInfo(
-                            id: "extracted_annotations",
-                            name: "Annotations",
-                            description: "Coordinate-transformed annotations from source bundle",
-                            path: "annotations/extracted_annotations.db",
-                            databasePath: "annotations/extracted_annotations.db",
-                            annotationType: .gene,
-                            featureCount: dbRecordCount
-                        ))
-                        extractionLogger.info("buildBundle: Extracted \(dbRecordCount) annotations")
-                    }
+                    let relativePath = "annotations/\(dbFilename)"
+                    annotationTracks.append(AnnotationTrackInfo(
+                        id: sourceTrack.id,
+                        name: sourceTrack.name,
+                        description: "Coordinate-transformed annotations from source bundle track '\(sourceTrack.name)'",
+                        path: relativePath,
+                        databasePath: relativePath,
+                        annotationType: sourceTrack.annotationType,
+                        featureCount: dbRecordCount
+                    ))
+                    extractionLogger.info("buildBundle: Extracted \(dbRecordCount) annotations for track \(sourceTrack.id)")
+                } catch {
+                    extractionLogger.warning("buildBundle: Annotation extraction failed for track \(sourceTrack.id, privacy: .public) (non-fatal): \(error.localizedDescription)")
                 }
-            } catch {
-                extractionLogger.warning("buildBundle: Annotation extraction failed (non-fatal): \(error.localizedDescription)")
             }
         }
 

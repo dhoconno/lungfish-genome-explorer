@@ -326,16 +326,24 @@ extension SequenceViewerView {
         let sourceBundleName = currentReferenceBundle?.manifest.name
         let outputDir = extractionsDirectory()
 
-        // Get annotation database URL from source bundle's first annotation track
-        var annotationDBURL: URL?
-        if let bundle = currentReferenceBundle,
-           let firstTrackId = bundle.annotationTrackIds.first,
-           let trackInfo = bundle.annotationTrack(id: firstTrackId),
-           let dbPath = trackInfo.databasePath {
-            annotationDBURL = bundle.url.appendingPathComponent(dbPath)
+        // Collect all annotation tracks with SQLite databases from the source bundle.
+        var sourceAnnotationTracks: [SequenceExtractionPipeline.SourceAnnotationTrack] = []
+        if let bundle = currentReferenceBundle {
+            sourceAnnotationTracks = bundle.annotationTrackIds.compactMap { trackID in
+                guard let trackInfo = bundle.annotationTrack(id: trackID),
+                      let dbPath = trackInfo.databasePath else {
+                    return nil
+                }
+                return SequenceExtractionPipeline.SourceAnnotationTrack(
+                    id: trackInfo.id,
+                    name: trackInfo.name,
+                    databaseURL: bundle.url.appendingPathComponent(dbPath),
+                    annotationType: trackInfo.annotationType
+                )
+            }
         }
 
-        extractionLogger.info("createExtractionBundle: outputDir=\(outputDir.path), bundleName=\(bundleName), annotations=\(annotationDBURL != nil)")
+        extractionLogger.info("createExtractionBundle: outputDir=\(outputDir.path), bundleName=\(bundleName), annotationTracks=\(sourceAnnotationTracks.count)")
 
         // Register with DownloadCenter on the main actor, then run bundle building in
         // a detached task. On completion we hop back to the main actor for import/refresh.
@@ -348,7 +356,7 @@ extension SequenceViewerView {
         let capturedOutputDir = outputDir
         let capturedSourceBundleName = sourceBundleName
         let capturedBundleName = bundleName
-        let capturedAnnotationDBURL = annotationDBURL
+        let capturedSourceAnnotationTracks = sourceAnnotationTracks
         let capturedConcatenateExons = concatenateExons
 
         Task.detached(priority: .userInitiated) {
@@ -363,7 +371,7 @@ extension SequenceViewerView {
                     outputDirectory: capturedOutputDir,
                     sourceBundleName: capturedSourceBundleName,
                     desiredBundleName: capturedBundleName,
-                    sourceAnnotationDatabaseURL: capturedAnnotationDBURL,
+                    sourceAnnotationTracks: capturedSourceAnnotationTracks,
                     isConcatenated: capturedConcatenateExons,
                     progressHandler: { progress, message in
                         DispatchQueue.main.async {
