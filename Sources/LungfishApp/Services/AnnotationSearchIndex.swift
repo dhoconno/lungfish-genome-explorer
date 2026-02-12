@@ -510,16 +510,23 @@ public final class AnnotationSearchIndex {
     /// Returns the union of INFO keys across all loaded variant databases,
     /// used by the drawer to create dynamic columns.
     public var variantInfoKeys: [(key: String, type: String, number: String, description: String)] {
-        var seen = Set<String>()
-        var result: [(key: String, type: String, number: String, description: String)] = []
+        typealias InfoAccumulator = (types: Set<String>, number: String, description: String)
+        var merged: [String: InfoAccumulator] = [:]
         for handle in variantDatabases {
             for def in handle.db.infoKeys() {
-                if seen.insert(def.key).inserted {
-                    result.append(def)
+                if var existing = merged[def.key] {
+                    existing.types.insert(def.type)
+                    merged[def.key] = existing
+                } else {
+                    merged[def.key] = (types: [def.type], number: def.number, description: def.description)
                 }
             }
         }
-        return result
+        return merged.keys.sorted().map { key in
+            let entry = merged[key]!
+            let resolvedType = entry.types.count > 1 ? "String" : (entry.types.first ?? "String")
+            return (key: key, type: resolvedType, number: entry.number, description: entry.description)
+        }
     }
 
     /// Clears the index.

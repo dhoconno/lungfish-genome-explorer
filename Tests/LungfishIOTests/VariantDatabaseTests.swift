@@ -712,6 +712,23 @@ final class VariantDatabaseTests: XCTestCase {
         }
     }
 
+    func testBatchInfoValuesLargeVariantIDList() throws {
+        let (db, _) = try createDatabase(from: testVCF)
+        let allVariants = db.queryForTable()
+        let allIds = allVariants.compactMap(\.id)
+        XCTAssertFalse(allIds.isEmpty)
+
+        // Exercise bind-limit handling by requesting far more IDs than a single IN-clause should bind.
+        let manyMissingIds = (1...35_000).map { Int64($0 + 1_000_000) }
+        let requestIds = allIds + manyMissingIds
+        let batchInfo = db.batchInfoValues(variantIds: requestIds)
+
+        for id in allIds {
+            XCTAssertNotNil(batchInfo[id], "Expected INFO dictionary for known variant id \(id)")
+            XCTAssertEqual(batchInfo[id]?["DP"] != nil, true, "Expected DP key in INFO for id \(id)")
+        }
+    }
+
     func testInfoKeysQuery() throws {
         let (db, _) = try createDatabase(from: testVCF)
 
@@ -721,6 +738,19 @@ final class VariantDatabaseTests: XCTestCase {
         // Verify descriptions are parsed
         let dpDef = keys.first(where: { $0.key == "DP" })
         XCTAssertEqual(dpDef?.description, "Total Depth")
+    }
+
+    func testInfoDefinitionParsesEscapedQuotesAndCommas() throws {
+        let vcf = """
+        ##fileformat=VCFv4.3
+        ##INFO=<ID=NOTE,Number=1,Type=String,Description="Contains comma, and \\\"quoted\\\" text">
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t100\trs1\tA\tG\t50\tPASS\tNOTE=alpha
+        """
+        let (db, _) = try createDatabase(from: vcf)
+        let noteDef = db.infoKeys().first(where: { $0.key == "NOTE" })
+        XCTAssertEqual(noteDef?.type, "String")
+        XCTAssertEqual(noteDef?.description, "Contains comma, and \"quoted\" text")
     }
 
     func testBackwardCompatNoInfoTable() throws {

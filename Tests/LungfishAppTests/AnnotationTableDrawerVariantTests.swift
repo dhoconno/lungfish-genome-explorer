@@ -770,6 +770,49 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
         XCTAssertTrue(allTypes.contains("DEL"))
     }
 
+    func testVariantInfoKeysMixedTypesResolveToString() throws {
+        let numericVCF = """
+        ##fileformat=VCFv4.2
+        ##INFO=<ID=SCORE,Number=1,Type=Float,Description="Numeric score">
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t100\trsN\tA\tG\t50\tPASS\tSCORE=1.5
+        """
+        let textVCF = """
+        ##fileformat=VCFv4.2
+        ##INFO=<ID=SCORE,Number=1,Type=String,Description="Text score">
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t120\trsT\tC\tT\t40\tPASS\tSCORE=HIGH
+        """
+
+        let numericVCFURL = tempDir.appendingPathComponent("variants_numeric.vcf")
+        let textVCFURL = tempDir.appendingPathComponent("variants_text.vcf")
+        try numericVCF.write(to: numericVCFURL, atomically: true, encoding: .utf8)
+        try textVCF.write(to: textVCFURL, atomically: true, encoding: .utf8)
+
+        let numericDBURL = tempDir.appendingPathComponent("variants_numeric.db")
+        let textDBURL = tempDir.appendingPathComponent("variants_text.db")
+        try VariantDatabase.createFromVCF(vcfURL: numericVCFURL, outputURL: numericDBURL)
+        try VariantDatabase.createFromVCF(vcfURL: textVCFURL, outputURL: textDBURL)
+
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "Test",
+            identifier: "mixed.info.types",
+            source: SourceInfo(organism: "Test", assembly: "test"),
+            genome: GenomeInfo(path: "s.fa.gz", indexPath: "s.fa.gz.fai", totalLength: 1000, chromosomes: []),
+            variants: [
+                VariantTrackInfo(id: "v_numeric", name: "Numeric", path: "numeric.bcf", indexPath: "numeric.csi", databasePath: "variants_numeric.db"),
+                VariantTrackInfo(id: "v_text", name: "Text", path: "text.bcf", indexPath: "text.csi", databasePath: "variants_text.db"),
+            ]
+        )
+        let bundle = ReferenceBundle(url: tempDir, manifest: manifest)
+        let index = AnnotationSearchIndex()
+        index.buildIndex(bundle: bundle, chromosomes: [])
+
+        let scoreDef = index.variantInfoKeys.first(where: { $0.key == "SCORE" })
+        XCTAssertEqual(scoreDef?.type, "String", "Mixed INFO types should normalize to String")
+    }
+
     // MARK: - Edge Cases
 
     func testEmptyVariantDatabase() throws {

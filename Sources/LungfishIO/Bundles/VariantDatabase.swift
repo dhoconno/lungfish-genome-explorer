@@ -1020,20 +1020,27 @@ public final class VariantDatabase: @unchecked Sendable {
     /// Returns a dictionary mapping variant ID to its INFO key-value pairs.
     public func batchInfoValues(variantIds: [Int64]) -> [Int64: [String: String]] {
         guard let db, hasInfoTable, !variantIds.isEmpty else { return [:] }
-        let placeholders = variantIds.map { _ in "?" }.joined(separator: ",")
-        let sql = "SELECT variant_id, key, value FROM variant_info WHERE variant_id IN (\(placeholders))"
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [:] }
-        for (i, id) in variantIds.enumerated() {
-            sqlite3_bind_int64(stmt, Int32(i + 1), id)
-        }
         var result: [Int64: [String: String]] = [:]
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            let variantId = sqlite3_column_int64(stmt, 0)
-            let key = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
-            let value = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? ""
-            result[variantId, default: [:]][key] = value
+        let uniqueIds = Array(Set(variantIds))
+        let chunkSize = 500 // Keep well below SQLite bind-variable limits.
+
+        for chunkStart in stride(from: 0, to: uniqueIds.count, by: chunkSize) {
+            let chunkEnd = min(chunkStart + chunkSize, uniqueIds.count)
+            let chunk = Array(uniqueIds[chunkStart..<chunkEnd])
+            let placeholders = chunk.map { _ in "?" }.joined(separator: ",")
+            let sql = "SELECT variant_id, key, value FROM variant_info WHERE variant_id IN (\(placeholders))"
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { continue }
+            for (i, id) in chunk.enumerated() {
+                sqlite3_bind_int64(stmt, Int32(i + 1), id)
+            }
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                let variantId = sqlite3_column_int64(stmt, 0)
+                let key = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
+                let value = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? ""
+                result[variantId, default: [:]][key] = value
+            }
         }
         return result
     }
@@ -1846,30 +1853,63 @@ public final class VariantDatabase: @unchecked Sendable {
     /// Sync version of the parser in VCFReader (which uses async APIs).
     /// Returns nil if the line cannot be parsed.
     private static func parseINFODefinition(_ str: Substring) -> (id: String, type: String, number: String, description: String)? {
-        let content = str.trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
-        var dict: [String: String] = [:]
-        var remaining = content[...]
-        while !remaining.isEmpty {
-            guard let eqIdx = remaining.firstIndex(of: "=") else { break }
-            let key = String(remaining[..<eqIdx])
-            remaining = remaining[remaining.index(after: eqIdx)...]
-            if remaining.first == "\"" {
-                remaining = remaining.dropFirst()
-                if let endQuote = remaining.firstIndex(of: "\"") {
-                    dict[key] = String(remaining[..<endQuote])
-                    remaining = remaining[remaining.index(after: endQuote)...]
-                    if remaining.first == "," { remaining = remaining.dropFirst() }
-                }
-            } else {
-                if let commaIdx = remaining.firstIndex(of: ",") {
-                    dict[key] = String(remaining[..<commaIdx])
-                    remaining = remaining[remaining.index(after: commaIdx)...]
-                } else {
-                    dict[key] = String(remaining)
-                    remaining = ""[...]
-                }
-            }
+        let content = str.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized: String
+        if content.hasPrefix("<"), content.hasSuffix(">"), content.count >= 2 {
+            normalized = String(content.dropFirst().dropLast())
+        } else {
+            normalized = content
         }
+
+        var dict: [String: String] = [:]
+
+        var current = ""
+        var fields: [String] = []
+        var inQuotes = false
+        var isEscaped = false
+
+        for char in normalized {
+            if isEscaped {
+                current.append(char)
+                isEscaped = false
+                continue
+            }
+            if inQuotes, char == "\\" {
+                isEscaped = true
+                continue
+            }
+            if char == "\"" {
+                inQuotes.toggle()
+                continue
+            }
+            if char == ",", !inQuotes {
+                let trimmed = current.trimmingCharacters(in: .whitespaces)
+                if !trimmed.isEmpty {
+                    fields.append(trimmed)
+                }
+                current = ""
+                continue
+            }
+            current.append(char)
+        }
+        let trailing = current.trimmingCharacters(in: .whitespaces)
+        if !trailing.isEmpty {
+            fields.append(trailing)
+        }
+
+        for field in fields {
+            let parts = field.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2 else { continue }
+            let key = String(parts[0]).trimmingCharacters(in: .whitespaces)
+            var value = String(parts[1]).trimmingCharacters(in: .whitespaces)
+            if value.count >= 2, value.first == "\"", value.last == "\"" {
+                value = String(value.dropFirst().dropLast())
+            }
+            value = value.replacingOccurrences(of: "\\\"", with: "\"")
+            value = value.replacingOccurrences(of: "\\\\", with: "\\")
+            dict[key] = value
+        }
+
         guard let id = dict["ID"], let type = dict["Type"], let number = dict["Number"] else { return nil }
         return (id: id, type: type, number: number, description: dict["Description"] ?? "")
     }
