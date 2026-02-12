@@ -190,6 +190,27 @@ public class InspectorViewController: NSViewController {
                 userInfo: [NotificationUserInfoKey.annotation: annotation]
             )
         }
+        viewModel.selectionSectionViewModel.onCopySequence = { annotation in
+            NotificationCenter.default.post(
+                name: .copyAnnotationSequenceRequested,
+                object: nil,
+                userInfo: [NotificationUserInfoKey.annotation: annotation]
+            )
+        }
+        viewModel.selectionSectionViewModel.onCopyReverseComplement = { annotation in
+            NotificationCenter.default.post(
+                name: .copyAnnotationReverseComplementRequested,
+                object: nil,
+                userInfo: [NotificationUserInfoKey.annotation: annotation]
+            )
+        }
+        viewModel.selectionSectionViewModel.onZoomToAnnotation = { annotation in
+            NotificationCenter.default.post(
+                name: .zoomToAnnotationRequested,
+                object: nil,
+                userInfo: [NotificationUserInfoKey.annotation: annotation]
+            )
+        }
 
         // Appearance section callbacks
         viewModel.appearanceSectionViewModel.onSettingsChanged = { [weak self] in

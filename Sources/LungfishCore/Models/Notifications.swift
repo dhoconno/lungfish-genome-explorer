@@ -123,6 +123,24 @@ extension Notification.Name {
     /// The `userInfo` dictionary contains:
     /// - `"annotation"`: The `SequenceAnnotation` (CDS) to translate and copy.
     public static let copyTranslationAsFASTARequested = Notification.Name("copyTranslationAsFASTARequested")
+
+    /// Posted to request zooming the viewer to an annotation's coordinates.
+    ///
+    /// The `userInfo` dictionary contains:
+    /// - `"annotation"`: The `SequenceAnnotation` to zoom to.
+    public static let zoomToAnnotationRequested = Notification.Name("zoomToAnnotationRequested")
+
+    /// Posted to request copying an annotation's raw sequence to the clipboard.
+    ///
+    /// The `userInfo` dictionary contains:
+    /// - `"annotation"`: The `SequenceAnnotation` whose sequence to copy.
+    public static let copyAnnotationSequenceRequested = Notification.Name("copyAnnotationSequenceRequested")
+
+    /// Posted to request copying an annotation's reverse complement to the clipboard.
+    ///
+    /// The `userInfo` dictionary contains:
+    /// - `"annotation"`: The `SequenceAnnotation` whose reverse complement to copy.
+    public static let copyAnnotationReverseComplementRequested = Notification.Name("copyAnnotationReverseComplementRequested")
 }
 
 // MARK: - Notification UserInfo Keys

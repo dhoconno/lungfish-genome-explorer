@@ -62,13 +62,26 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         return drawer
     }
 
+    /// Searches top-level items and one level of submenus for a menu item with the given title.
+    private func findMenuItem(titled title: String, in menu: NSMenu) -> NSMenuItem? {
+        for item in menu.items {
+            if item.title == title { return item }
+            if let submenu = item.submenu {
+                if let found = submenu.items.first(where: { $0.title == title }) {
+                    return found
+                }
+            }
+        }
+        return nil
+    }
+
     private func invokeMenuItem(
         titled title: String,
         on drawer: AnnotationTableDrawerView
     ) -> NSMenuItem? {
         let menu = NSMenu()
         drawer.menuNeedsUpdate(menu)
-        guard let item = menu.items.first(where: { $0.title == title }) else { return nil }
+        guard let item = findMenuItem(titled: title, in: menu) else { return nil }
         guard let action = item.action else { return nil }
         _ = (item.target as AnyObject?)?.perform(action, with: item)
         return item
@@ -185,10 +198,10 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         let menu = NSMenu()
         drawer.menuNeedsUpdate(menu)
 
-        let titles = menu.items.map(\.title)
-        XCTAssertTrue(titles.contains("Copy Name"))
-        XCTAssertTrue(titles.contains("Copy Coordinates"))
-        XCTAssertTrue(titles.contains("Copy Translation"))
+        // Items are now inside the Copy submenu
+        XCTAssertNotNil(findMenuItem(titled: "Copy Name", in: menu))
+        XCTAssertNotNil(findMenuItem(titled: "Copy Coordinates", in: menu))
+        XCTAssertNotNil(findMenuItem(titled: "Copy Translation", in: menu))
     }
 
     func testContextMenuShowsTranslationForMixedCaseCDSType() throws {
@@ -210,7 +223,7 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         let menu = NSMenu()
         drawer.menuNeedsUpdate(menu)
 
-        let translationItem = menu.items.first(where: { $0.title == "Copy Translation" })
+        let translationItem = findMenuItem(titled: "Copy Translation", in: menu)
         XCTAssertNotNil(translationItem, "Mixed-case CDS type should still offer Copy Translation")
         XCTAssertFalse(translationItem?.isEnabled ?? true, "Without translation data, item should be present but disabled")
     }

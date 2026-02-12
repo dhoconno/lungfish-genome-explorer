@@ -776,6 +776,52 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             userInfo: ["annotation": annotation]
         )
     }
+
+    @objc private func copySequenceAction(_ sender: NSMenuItem) {
+        guard let result = sender.representedObject as? AnnotationSearchIndex.SearchResult else { return }
+        let annotation = makeAnnotation(from: result)
+        NotificationCenter.default.post(
+            name: .copyAnnotationSequenceRequested,
+            object: nil,
+            userInfo: ["annotation": annotation]
+        )
+    }
+
+    @objc private func copyReverseComplementAction(_ sender: NSMenuItem) {
+        guard let result = sender.representedObject as? AnnotationSearchIndex.SearchResult else { return }
+        let annotation = makeAnnotation(from: result)
+        NotificationCenter.default.post(
+            name: .copyAnnotationReverseComplementRequested,
+            object: nil,
+            userInfo: ["annotation": annotation]
+        )
+    }
+
+    @objc private func zoomToAnnotationAction(_ sender: NSMenuItem) {
+        guard let result = sender.representedObject as? AnnotationSearchIndex.SearchResult else { return }
+        let annotation = makeAnnotation(from: result)
+        NotificationCenter.default.post(
+            name: .zoomToAnnotationRequested,
+            object: nil,
+            userInfo: ["annotation": annotation]
+        )
+    }
+
+    @objc private func showInInspectorAction(_ sender: NSMenuItem) {
+        guard let result = sender.representedObject as? AnnotationSearchIndex.SearchResult else { return }
+        let annotation = makeAnnotation(from: result)
+        // Select the annotation in the viewer first
+        NotificationCenter.default.post(
+            name: .annotationSelected,
+            object: annotation
+        )
+        // Then show inspector
+        NotificationCenter.default.post(
+            name: .showInspectorRequested,
+            object: self,
+            userInfo: [NotificationUserInfoKey.inspectorTab: "selection"]
+        )
+    }
 }
 
 // MARK: - NSMenuDelegate
@@ -800,54 +846,82 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         guard targetRow >= 0, targetRow < displayedAnnotations.count else { return }
 
         let annotation = displayedAnnotations[targetRow]
+        let isCDS = Self.supportsTranslationMenu(for: annotation.type)
 
-        // Copy Name
+        // --- Copy submenu ---
+        let copyMenu = NSMenu(title: "Copy")
+
         let copyNameItem = NSMenuItem(title: "Copy Name", action: #selector(copyNameAction(_:)), keyEquivalent: "")
         copyNameItem.target = self
         copyNameItem.representedObject = annotation
-        menu.addItem(copyNameItem)
+        copyMenu.addItem(copyNameItem)
 
-        // Copy Coordinates
         let copyCoordsItem = NSMenuItem(title: "Copy Coordinates", action: #selector(copyCoordinatesAction(_:)), keyEquivalent: "")
         copyCoordsItem.target = self
         copyCoordsItem.representedObject = annotation
-        menu.addItem(copyCoordsItem)
+        copyMenu.addItem(copyCoordsItem)
 
-        // Copy Translation (only for CDS-type annotations with translation data)
-        let isCDS = Self.supportsTranslationMenu(for: annotation.type)
-        let translation = isCDS ? lookupTranslation(for: annotation) : nil
+        copyMenu.addItem(NSMenuItem.separator())
 
-        if isCDS {
-            menu.addItem(NSMenuItem.separator())
-            let copyTransItem = NSMenuItem(title: "Copy Translation", action: #selector(copyTranslationAction(_:)), keyEquivalent: "")
-            copyTransItem.target = self
-            copyTransItem.representedObject = annotation
-            // Disable if no translation data available
-            if translation == nil {
-                copyTransItem.isEnabled = false
-                copyTransItem.toolTip = "No translation data available for this annotation"
-            }
-            menu.addItem(copyTransItem)
-        }
+        let copySeqItem = NSMenuItem(title: "Copy Sequence", action: #selector(copySequenceAction(_:)), keyEquivalent: "")
+        copySeqItem.target = self
+        copySeqItem.representedObject = annotation
+        copyMenu.addItem(copySeqItem)
 
-        // Extraction actions
-        menu.addItem(NSMenuItem.separator())
+        let copyRevCompItem = NSMenuItem(title: "Copy Reverse Complement", action: #selector(copyReverseComplementAction(_:)), keyEquivalent: "")
+        copyRevCompItem.target = self
+        copyRevCompItem.representedObject = annotation
+        copyMenu.addItem(copyRevCompItem)
+
+        copyMenu.addItem(NSMenuItem.separator())
 
         let copyFASTAItem = NSMenuItem(title: "Copy as FASTA", action: #selector(copyAsFASTAAction(_:)), keyEquivalent: "")
         copyFASTAItem.target = self
         copyFASTAItem.representedObject = annotation
-        menu.addItem(copyFASTAItem)
+        copyMenu.addItem(copyFASTAItem)
 
         if isCDS {
             let copyProteinItem = NSMenuItem(title: "Copy Translation as FASTA", action: #selector(copyTranslationAsFASTAAction(_:)), keyEquivalent: "")
             copyProteinItem.target = self
             copyProteinItem.representedObject = annotation
-            menu.addItem(copyProteinItem)
+            copyMenu.addItem(copyProteinItem)
         }
 
+        // Copy Translation (raw amino acids, only for CDS with stored translation)
+        let translation = isCDS ? lookupTranslation(for: annotation) : nil
+        if isCDS {
+            copyMenu.addItem(NSMenuItem.separator())
+            let copyTransItem = NSMenuItem(title: "Copy Translation", action: #selector(copyTranslationAction(_:)), keyEquivalent: "")
+            copyTransItem.target = self
+            copyTransItem.representedObject = annotation
+            if translation == nil {
+                copyTransItem.isEnabled = false
+                copyTransItem.toolTip = "No translation data available for this annotation"
+            }
+            copyMenu.addItem(copyTransItem)
+        }
+
+        let copyMenuItem = NSMenuItem(title: "Copy", action: nil, keyEquivalent: "")
+        copyMenuItem.submenu = copyMenu
+        menu.addItem(copyMenuItem)
+
+        // --- Extract ---
         let extractItem = NSMenuItem(title: "Extract Sequence\u{2026}", action: #selector(extractSequenceAction(_:)), keyEquivalent: "")
         extractItem.target = self
         extractItem.representedObject = annotation
         menu.addItem(extractItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        // --- Navigation ---
+        let zoomItem = NSMenuItem(title: "Zoom to Annotation", action: #selector(zoomToAnnotationAction(_:)), keyEquivalent: "")
+        zoomItem.target = self
+        zoomItem.representedObject = annotation
+        menu.addItem(zoomItem)
+
+        let inspectorItem = NSMenuItem(title: "Show in Inspector", action: #selector(showInInspectorAction(_:)), keyEquivalent: "")
+        inspectorItem.target = self
+        inspectorItem.representedObject = annotation
+        menu.addItem(inspectorItem)
     }
 }

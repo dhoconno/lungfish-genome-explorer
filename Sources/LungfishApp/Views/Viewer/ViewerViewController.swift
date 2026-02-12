@@ -370,6 +370,27 @@ public class ViewerViewController: NSViewController {
             name: .copyTranslationAsFASTARequested,
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleZoomToAnnotationRequested(_:)),
+            name: .zoomToAnnotationRequested,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleCopyAnnotationSequenceRequested(_:)),
+            name: .copyAnnotationSequenceRequested,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleCopyAnnotationReverseComplementRequested(_:)),
+            name: .copyAnnotationReverseComplementRequested,
+            object: nil
+        )
     }
 
     /// Handles the toggle of CDS translation display from the inspector.
@@ -401,6 +422,21 @@ public class ViewerViewController: NSViewController {
     @objc private func handleCopyTranslationAsFASTARequested(_ notification: Notification) {
         guard let annotation = notification.userInfo?["annotation"] as? SequenceAnnotation else { return }
         viewerView?.copyAnnotationTranslationAsFASTAImpl(annotation)
+    }
+
+    @objc private func handleZoomToAnnotationRequested(_ notification: Notification) {
+        guard let annotation = notification.userInfo?["annotation"] as? SequenceAnnotation else { return }
+        viewerView?.zoomToAnnotation(annotation)
+    }
+
+    @objc private func handleCopyAnnotationSequenceRequested(_ notification: Notification) {
+        guard let annotation = notification.userInfo?["annotation"] as? SequenceAnnotation else { return }
+        viewerView?.copyAnnotationSequenceImpl(annotation)
+    }
+
+    @objc private func handleCopyAnnotationReverseComplementRequested(_ notification: Notification) {
+        guard let annotation = notification.userInfo?["annotation"] as? SequenceAnnotation else { return }
+        viewerView?.copyAnnotationReverseComplementImpl(annotation)
     }
 
     /// Handles annotation settings change notifications.
@@ -4653,9 +4689,11 @@ public class SequenceViewerView: NSView {
         guard let frame = viewController?.referenceFrame else { return }
         let location = convert(event.locationInWindow, from: nil)
 
-        // Check if right-clicking on an annotation - use multi-sequence aware method if applicable
+        // Check if right-clicking on an annotation — bundle mode, multi-sequence mode, or single-sequence mode
         var clickedAnnotation: SequenceAnnotation?
-        if isMultiSequenceMode, let state = multiSequenceState {
+        if currentReferenceBundle != nil {
+            clickedAnnotation = bundleAnnotationAtPoint(location)
+        } else if isMultiSequenceMode, let state = multiSequenceState {
             for stackedInfo in state.stackedSequences {
                 if let annotation = annotationAtPoint(location, forSequence: stackedInfo, frame: frame) {
                     clickedAnnotation = annotation
@@ -5026,8 +5064,13 @@ public class SequenceViewerView: NSView {
     }
 
     @objc private func zoomToAnnotationAction(_ sender: NSMenuItem?) {
-        guard let annotation = sender?.representedObject as? SequenceAnnotation,
-              let frame = viewController?.referenceFrame else { return }
+        guard let annotation = sender?.representedObject as? SequenceAnnotation else { return }
+        zoomToAnnotation(annotation)
+    }
+
+    /// Zooms the viewer to show the given annotation (callable from notification handlers).
+    func zoomToAnnotation(_ annotation: SequenceAnnotation) {
+        guard let frame = viewController?.referenceFrame else { return }
         let padding = max(10, Double(annotation.end - annotation.start) * 0.05)
         frame.start = Double(annotation.start) - padding
         frame.end = Double(annotation.end) + padding
@@ -5035,6 +5078,31 @@ public class SequenceViewerView: NSView {
         setNeedsDisplay(bounds)
         viewController?.enhancedRulerView.setNeedsDisplay(viewController?.enhancedRulerView.bounds ?? .zero)
         viewController?.updateStatusBar()
+    }
+
+    /// Copies the annotation's raw sequence to the clipboard (callable from notification handlers).
+    func copyAnnotationSequenceImpl(_ annotation: SequenceAnnotation) {
+        guard let bases = fetchAnnotationBases(annotation) else {
+            NSSound.beep()
+            return
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(bases, forType: .string)
+        logger.info("Copied \(bases.count) bases from annotation '\(annotation.name)' to clipboard")
+    }
+
+    /// Copies the annotation's reverse complement to the clipboard (callable from notification handlers).
+    func copyAnnotationReverseComplementImpl(_ annotation: SequenceAnnotation) {
+        guard let bases = fetchAnnotationBases(annotation) else {
+            NSSound.beep()
+            return
+        }
+        let revComp = reverseComplementString(bases)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(revComp, forType: .string)
+        logger.info("Copied \(revComp.count) bases (reverse complement) from annotation '\(annotation.name)' to clipboard")
     }
 
     /// Returns the complement of a DNA string.

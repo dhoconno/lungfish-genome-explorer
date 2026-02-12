@@ -68,6 +68,15 @@ public final class SelectionSectionViewModel {
     /// Callback to copy CDS translation as FASTA.
     public var onCopyTranslationAsFASTA: ((SequenceAnnotation) -> Void)?
 
+    /// Callback to copy annotation's raw sequence to clipboard.
+    public var onCopySequence: ((SequenceAnnotation) -> Void)?
+
+    /// Callback to copy annotation's reverse complement to clipboard.
+    public var onCopyReverseComplement: ((SequenceAnnotation) -> Void)?
+
+    /// Callback to zoom the viewer to an annotation.
+    public var onZoomToAnnotation: ((SequenceAnnotation) -> Void)?
+
     /// Whether the translation track is currently visible in the viewer.
     public var isTranslationVisible: Bool = false
 
@@ -684,6 +693,22 @@ public struct SelectionSection: View {
                 .foregroundStyle(.secondary)
 
             Button {
+                viewModel.onCopySequence?(annotation)
+            } label: {
+                Label("Copy Sequence", systemImage: "doc.on.doc")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+
+            Button {
+                viewModel.onCopyReverseComplement?(annotation)
+            } label: {
+                Label("Copy Reverse Complement", systemImage: "doc.on.doc")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+
+            Button {
                 viewModel.onCopyAsFASTA?(annotation)
             } label: {
                 Label("Copy as FASTA", systemImage: "doc.on.doc")
@@ -705,6 +730,17 @@ public struct SelectionSection: View {
                 viewModel.onExtractSequence?(annotation)
             } label: {
                 Label("Extract Sequence\u{2026}", systemImage: "scissors")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+
+            Divider()
+                .padding(.vertical, 2)
+
+            Button {
+                viewModel.onZoomToAnnotation?(annotation)
+            } label: {
+                Label("Zoom to Annotation", systemImage: "magnifyingglass")
             }
             .buttonStyle(.borderless)
             .controlSize(.small)
