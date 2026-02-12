@@ -1084,6 +1084,141 @@ public final class AnnotationDatabase: @unchecked Sendable {
 
 // MARK: - Errors
 
+// MARK: - Coordinate Transformation for Extraction
+
+extension AnnotationDatabaseRecord {
+
+    /// Transforms this record's coordinates from source chromosome space to
+    /// extracted sequence space.
+    ///
+    /// Handles single-interval and multi-block (BED12) annotations. Clips intervals
+    /// to the extraction region boundaries. Returns nil if the annotation is fully
+    /// outside the extraction region after clipping.
+    ///
+    /// - Parameters:
+    ///   - extractionStart: Effective start of the extraction region (0-based inclusive)
+    ///   - extractionEnd: Effective end of the extraction region (0-based exclusive)
+    ///   - isReverseComplement: Whether the extracted sequence was reverse-complemented
+    ///   - newChromosome: Chromosome name in the new bundle (from .fai)
+    /// - Returns: A new record with transformed coordinates, or nil if fully clipped away
+    public func transformed(
+        extractionStart: Int,
+        extractionEnd: Int,
+        isReverseComplement: Bool,
+        newChromosome: String
+    ) -> AnnotationDatabaseRecord? {
+        let seqLength = extractionEnd - extractionStart
+
+        // Parse blocks into absolute intervals
+        var absoluteBlocks: [(start: Int, end: Int)]
+        if let bc = blockCount, bc > 1,
+           let sizes = blockSizes, let starts = blockStarts {
+            let sizeArr = sizes.split(separator: ",").compactMap { Int($0) }
+            let startArr = starts.split(separator: ",").compactMap { Int($0) }
+            let count = min(bc, min(sizeArr.count, startArr.count))
+            absoluteBlocks = (0..<count).map { i in
+                (start: start + startArr[i], end: start + startArr[i] + sizeArr[i])
+            }
+        } else {
+            absoluteBlocks = [(start: start, end: end)]
+        }
+
+        // Clip blocks to extraction region
+        var clippedBlocks: [(start: Int, end: Int)] = []
+        for block in absoluteBlocks {
+            let clippedStart = max(block.start, extractionStart)
+            let clippedEnd = min(block.end, extractionEnd)
+            if clippedEnd > clippedStart {
+                clippedBlocks.append((start: clippedStart, end: clippedEnd))
+            }
+        }
+
+        guard !clippedBlocks.isEmpty else { return nil }
+
+        // Transform to new coordinate system
+        var transformedBlocks: [(start: Int, end: Int)]
+        let newStrand: String
+
+        if isReverseComplement {
+            transformedBlocks = clippedBlocks.map { block in
+                (start: extractionEnd - block.end, end: extractionEnd - block.start)
+            }
+            transformedBlocks.reverse()
+            switch strand {
+            case "+": newStrand = "-"
+            case "-": newStrand = "+"
+            default: newStrand = strand
+            }
+        } else {
+            transformedBlocks = clippedBlocks.map { block in
+                (start: block.start - extractionStart, end: block.end - extractionStart)
+            }
+            newStrand = strand
+        }
+
+        let newStart = transformedBlocks.map(\.start).min()!
+        let newEnd = transformedBlocks.map(\.end).max()!
+
+        // Recompute BED12 block fields relative to newStart
+        let newBlockCount: Int?
+        let newBlockSizes: String?
+        let newBlockStarts: String?
+
+        if transformedBlocks.count > 1 {
+            newBlockCount = transformedBlocks.count
+            newBlockSizes = transformedBlocks.map { "\($0.end - $0.start)" }.joined(separator: ",") + ","
+            newBlockStarts = transformedBlocks.map { "\($0.start - newStart)" }.joined(separator: ",") + ","
+        } else {
+            newBlockCount = nil
+            newBlockSizes = nil
+            newBlockStarts = nil
+        }
+
+        return AnnotationDatabaseRecord(
+            name: name,
+            type: type,
+            chromosome: newChromosome,
+            start: newStart,
+            end: newEnd,
+            strand: newStrand,
+            attributes: attributes,
+            blockCount: newBlockCount,
+            blockSizes: newBlockSizes,
+            blockStarts: newBlockStarts,
+            geneName: geneName
+        )
+    }
+
+    /// Serializes this record as a BED12+ tab-separated line compatible with
+    /// `AnnotationDatabase.createFromBED()`.
+    ///
+    /// Format: chrom, start, end, name, score, strand, thickStart, thickEnd, rgb,
+    /// blockCount, blockSizes, blockStarts, type, attributes
+    public func toBED12PlusLine() -> String {
+        let bc = blockCount ?? 1
+        let bs = blockSizes ?? "\(end - start),"
+        let bst = blockStarts ?? "0,"
+
+        let fields: [String] = [
+            chromosome,
+            "\(start)",
+            "\(end)",
+            name,
+            "0",
+            strand,
+            "\(start)",
+            "\(end)",
+            "0,0,0",
+            "\(bc)",
+            bs,
+            bst,
+            type,
+            attributes ?? ""
+        ]
+        return fields.joined(separator: "\t")
+    }
+}
+
 public enum AnnotationDatabaseError: Error, LocalizedError, Sendable {
     case openFailed(String)
     case createFailed(String)

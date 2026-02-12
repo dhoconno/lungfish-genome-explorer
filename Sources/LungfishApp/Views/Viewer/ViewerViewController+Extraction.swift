@@ -314,7 +314,7 @@ extension SequenceViewerView {
                 extractionLogger.info("Copied protein FASTA to clipboard")
 
             case .newBundle:
-                createExtractionBundle(from: result, bundleName: config.bundleName)
+                createExtractionBundle(from: result, bundleName: config.bundleName, concatenateExons: config.concatenateExons)
             }
         } catch {
             extractionLogger.error("Extraction failed: \(error.localizedDescription)")
@@ -322,11 +322,20 @@ extension SequenceViewerView {
         }
     }
 
-    private func createExtractionBundle(from result: ExtractionResult, bundleName: String) {
+    private func createExtractionBundle(from result: ExtractionResult, bundleName: String, concatenateExons: Bool = false) {
         let sourceBundleName = currentReferenceBundle?.manifest.name
         let outputDir = extractionsDirectory()
 
-        extractionLogger.info("createExtractionBundle: outputDir=\(outputDir.path), bundleName=\(bundleName)")
+        // Get annotation database URL from source bundle's first annotation track
+        var annotationDBURL: URL?
+        if let bundle = currentReferenceBundle,
+           let firstTrackId = bundle.annotationTrackIds.first,
+           let trackInfo = bundle.annotationTrack(id: firstTrackId),
+           let dbPath = trackInfo.databasePath {
+            annotationDBURL = bundle.url.appendingPathComponent(dbPath)
+        }
+
+        extractionLogger.info("createExtractionBundle: outputDir=\(outputDir.path), bundleName=\(bundleName), annotations=\(annotationDBURL != nil)")
 
         // Register with DownloadCenter on the main actor, then run bundle building in
         // a detached task. On completion we hop back to the main actor for import/refresh.
@@ -339,6 +348,8 @@ extension SequenceViewerView {
         let capturedOutputDir = outputDir
         let capturedSourceBundleName = sourceBundleName
         let capturedBundleName = bundleName
+        let capturedAnnotationDBURL = annotationDBURL
+        let capturedConcatenateExons = concatenateExons
 
         Task.detached(priority: .userInitiated) {
             do {
@@ -352,6 +363,8 @@ extension SequenceViewerView {
                     outputDirectory: capturedOutputDir,
                     sourceBundleName: capturedSourceBundleName,
                     desiredBundleName: capturedBundleName,
+                    sourceAnnotationDatabaseURL: capturedAnnotationDBURL,
+                    isConcatenated: capturedConcatenateExons,
                     progressHandler: { progress, message in
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {

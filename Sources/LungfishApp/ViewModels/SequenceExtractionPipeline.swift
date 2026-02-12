@@ -38,6 +38,8 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
         outputDirectory: URL,
         sourceBundleName: String? = nil,
         desiredBundleName: String? = nil,
+        sourceAnnotationDatabaseURL: URL? = nil,
+        isConcatenated: Bool = false,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> URL {
         let fileManager = FileManager.default
@@ -109,6 +111,57 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
             try fileManager.moveItem(at: gziURL, to: genomeDir.appendingPathComponent("sequence.fa.gz.gzi"))
         }
 
+        // Extract annotations from source bundle
+        var annotationTracks: [AnnotationTrackInfo] = []
+        if !isConcatenated, let sourceDBURL = sourceAnnotationDatabaseURL {
+            progressHandler?(0.78, "Extracting annotations...")
+            let newChromName = chromosomes.first?.name ?? seqName
+            do {
+                let sourceDB = try AnnotationDatabase(url: sourceDBURL)
+                let sourceRecords = sourceDB.queryByRegion(
+                    chromosome: result.chromosome,
+                    start: result.effectiveStart,
+                    end: result.effectiveEnd
+                )
+
+                let transformed = sourceRecords.compactMap { record in
+                    record.transformed(
+                        extractionStart: result.effectiveStart,
+                        extractionEnd: result.effectiveEnd,
+                        isReverseComplement: result.isReverseComplement,
+                        newChromosome: newChromName
+                    )
+                }
+
+                if !transformed.isEmpty {
+                    let bedURL = tempDir.appendingPathComponent("annotations.bed")
+                    let bedContent = transformed.map { $0.toBED12PlusLine() }.joined(separator: "\n")
+                    try bedContent.write(to: bedURL, atomically: true, encoding: .utf8)
+
+                    let annotationsDir = bundleURL.appendingPathComponent("annotations", isDirectory: true)
+                    try fileManager.createDirectory(at: annotationsDir, withIntermediateDirectories: true)
+
+                    let dbURL = annotationsDir.appendingPathComponent("extracted_annotations.db")
+                    let dbRecordCount = try AnnotationDatabase.createFromBED(bedURL: bedURL, outputURL: dbURL)
+
+                    if dbRecordCount > 0 {
+                        annotationTracks.append(AnnotationTrackInfo(
+                            id: "extracted_annotations",
+                            name: "Annotations",
+                            description: "Coordinate-transformed annotations from source bundle",
+                            path: "annotations/extracted_annotations.db",
+                            databasePath: "annotations/extracted_annotations.db",
+                            annotationType: .gene,
+                            featureCount: dbRecordCount
+                        ))
+                        extractionLogger.info("buildBundle: Extracted \(dbRecordCount) annotations")
+                    }
+                }
+            } catch {
+                extractionLogger.warning("buildBundle: Annotation extraction failed (non-fatal): \(error.localizedDescription)")
+            }
+        }
+
         // Write manifest
         progressHandler?(0.85, "Writing manifest...")
         let coordinateLabel = "\(result.chromosome):\(result.effectiveStart)-\(result.effectiveEnd)"
@@ -148,7 +201,8 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
             identifier: identifier,
             description: description,
             source: sourceInfo,
-            genome: genomeInfo
+            genome: genomeInfo,
+            annotations: annotationTracks
         )
 
         try manifest.save(to: bundleURL)
