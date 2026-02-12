@@ -153,6 +153,15 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
 
         try manifest.save(to: bundleURL)
 
+        // Notify app-level import pipeline immediately when the bundle exists on disk.
+        // This is posted from the current background context on purpose; AppDelegate
+        // re-schedules UI work onto the main run loop.
+        NotificationCenter.default.post(
+            name: .bundleBuiltOnDisk,
+            object: nil,
+            userInfo: [NotificationUserInfoKey.bundleURL: bundleURL]
+        )
+
         progressHandler?(1.0, "Bundle ready: \(bundleURL.lastPathComponent)")
         extractionLogger.info("buildBundle: Bundle complete at \(bundleURL.path, privacy: .public)")
         return bundleURL

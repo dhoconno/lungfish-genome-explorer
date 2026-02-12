@@ -622,6 +622,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             name: .annotationColorAppliedToType,
             object: nil
         )
+
+        // Register for extraction-bundle completion notifications.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleBundleBuiltOnDisk(_:)),
+            name: .bundleBuiltOnDisk,
+            object: nil
+        )
     }
 
     /// Handles annotation updates from the inspector.
@@ -689,6 +697,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     @objc private func windowWillClose(_ notification: Notification) {
         // Handle window close events
+    }
+
+    @objc private func handleBundleBuiltOnDisk(_ notification: Notification) {
+        guard let bundleURL = notification.userInfo?[NotificationUserInfoKey.bundleURL] as? URL else { return }
+        debugLog("handleBundleBuiltOnDisk: Received \(bundleURL.path)")
+        scheduleOnMainRunLoop { [weak self] in
+            self?.handleMultipleDownloadsSync([bundleURL])
+        }
     }
 
     private func saveApplicationState() {
