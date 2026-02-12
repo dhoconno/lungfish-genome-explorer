@@ -20,7 +20,7 @@ public final class AnnotationSearchIndex {
 
     // MARK: - Types
 
-    /// A search result representing a single annotation feature.
+    /// A search result representing a single annotation or variant feature.
     public struct SearchResult: Identifiable, Sendable {
         public let id: UUID
         public let name: String
@@ -31,8 +31,21 @@ public final class AnnotationSearchIndex {
         public let type: String
         public let strand: String
 
+        // Variant-specific fields (nil for annotations)
+        public let ref: String?
+        public let alt: String?
+        public let quality: Double?
+        public let filter: String?
+        public let sampleCount: Int?
+        public let variantRowId: Int64?
+
+        /// Whether this result represents a variant (vs annotation).
+        public var isVariant: Bool { ref != nil }
+
         public init(id: UUID = UUID(), name: String, chromosome: String, start: Int, end: Int,
-                    trackId: String, type: String = "gene", strand: String = ".") {
+                    trackId: String, type: String = "gene", strand: String = ".",
+                    ref: String? = nil, alt: String? = nil, quality: Double? = nil,
+                    filter: String? = nil, sampleCount: Int? = nil, variantRowId: Int64? = nil) {
             self.id = id
             self.name = name
             self.chromosome = chromosome
@@ -41,6 +54,12 @@ public final class AnnotationSearchIndex {
             self.trackId = trackId
             self.type = type
             self.strand = strand
+            self.ref = ref
+            self.alt = alt
+            self.quality = quality
+            self.filter = filter
+            self.sampleCount = sampleCount
+            self.variantRowId = variantRowId
         }
     }
 
@@ -327,6 +346,57 @@ public final class AnnotationSearchIndex {
         return results
     }
 
+    /// Queries ONLY annotations (no variants). Used when the Annotations tab is active.
+    public func queryAnnotationsOnly(nameFilter: String = "", types: Set<String> = [], limit: Int = 5000) -> [SearchResult] {
+        query(nameFilter: nameFilter, types: types, limit: limit) ?? []
+    }
+
+    /// Returns count of annotations only (no variants).
+    public func queryAnnotationCount(nameFilter: String = "", types: Set<String> = []) -> Int {
+        guard let db = database else { return 0 }
+        return db.queryCount(nameFilter: nameFilter, types: types)
+    }
+
+    /// Queries ONLY variants (no annotations). Used when the Variants tab is active.
+    public func queryVariantsOnly(nameFilter: String = "", types: Set<String> = [], limit: Int = 5000) -> [SearchResult] {
+        var results: [SearchResult] = []
+        for handle in variantDatabases {
+            let remaining = limit - results.count
+            guard remaining > 0 else { break }
+            let variantTypes = Set(handle.db.allTypes())
+            let requestedVariantTypes = types.isEmpty ? variantTypes : types.intersection(variantTypes)
+            guard !requestedVariantTypes.isEmpty || types.isEmpty else { continue }
+            let variantRecords = handle.db.queryForTable(
+                nameFilter: nameFilter,
+                types: types.isEmpty ? [] : requestedVariantTypes,
+                limit: remaining
+            )
+            results.append(contentsOf: variantRecords.map { $0.toSearchResult(trackId: handle.trackId) })
+        }
+        return results
+    }
+
+    /// Returns count of variants only (no annotations).
+    public func queryVariantCount(nameFilter: String = "", types: Set<String> = []) -> Int {
+        var count = 0
+        for handle in variantDatabases {
+            let variantTypes = Set(handle.db.allTypes())
+            let requestedVariantTypes = types.isEmpty ? variantTypes : types.intersection(variantTypes)
+            if !requestedVariantTypes.isEmpty || types.isEmpty {
+                count += handle.db.queryCountForTable(nameFilter: nameFilter, types: requestedVariantTypes)
+            }
+        }
+        return count
+    }
+
+    /// All distinct annotation types only (no variant types).
+    public var annotationTypes: [String] {
+        if let db = database {
+            return db.allTypes().sorted()
+        }
+        return Set(entries.map { $0.type }).sorted()
+    }
+
     /// Whether a variant database is available for unified queries.
     public var hasVariantDatabase: Bool { !variantDatabases.isEmpty }
 
@@ -366,7 +436,13 @@ extension VariantDatabaseRecord {
             end: end,
             trackId: trackId,
             type: variantType,
-            strand: "."
+            strand: ".",
+            ref: ref,
+            alt: alt,
+            quality: quality,
+            filter: filter,
+            sampleCount: sampleCount,
+            variantRowId: id
         )
     }
 }

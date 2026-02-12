@@ -28,6 +28,14 @@ protocol AnnotationTableDrawerDelegate: AnyObject {
 @MainActor
 public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableViewDelegate {
 
+    // MARK: - Types
+
+    /// The active tab in the drawer.
+    enum DrawerTab: Int {
+        case annotations = 0
+        case variants = 1
+    }
+
     // MARK: - Properties
 
     weak var delegate: AnnotationTableDrawerDelegate?
@@ -35,20 +43,56 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Reference to the search index for direct SQL queries.
     private var searchIndex: AnnotationSearchIndex?
 
-    /// Total annotation count in the database.
+    /// The currently active tab.
+    private(set) var activeTab: DrawerTab = .annotations
+
+    /// Total annotation count in the database (annotation tab only).
     private var totalAnnotationCount: Int = 0
 
-    /// Filtered and displayed annotations.
+    /// Total variant count in the database (variant tab only).
+    private var totalVariantCount: Int = 0
+
+    /// Filtered and displayed annotations/variants.
     private(set) var displayedAnnotations: [AnnotationSearchIndex.SearchResult] = []
 
     /// Current name filter text.
     private var filterText: String = ""
 
-    /// Visible annotation types (empty means show all).
-    private var visibleTypes: Set<String> = []
+    /// Visible types for the annotation tab (empty means show all).
+    private var visibleAnnotationTypes: Set<String> = []
+
+    /// Visible types for the variant tab (empty means show all).
+    private var visibleVariantTypes: Set<String> = []
+
+    /// Convenience accessor for the active tab's visible types.
+    private var visibleTypes: Set<String> {
+        get {
+            switch activeTab {
+            case .annotations: return visibleAnnotationTypes
+            case .variants: return visibleVariantTypes
+            }
+        }
+        set {
+            switch activeTab {
+            case .annotations: visibleAnnotationTypes = newValue
+            case .variants: visibleVariantTypes = newValue
+            }
+        }
+    }
 
     /// All distinct annotation types found in the data.
-    private var availableTypes: [String] = []
+    private var availableAnnotationTypes: [String] = []
+
+    /// All distinct variant types found in the data.
+    private var availableVariantTypes: [String] = []
+
+    /// Convenience accessor for the active tab's available types.
+    private var availableTypes: [String] {
+        switch activeTab {
+        case .annotations: return availableAnnotationTypes
+        case .variants: return availableVariantTypes
+        }
+    }
 
     /// Whether the index is currently loading.
     private(set) var isLoading: Bool = true {
@@ -66,6 +110,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     private let chipScrollView = NSScrollView()
     private let chipStackView = NSStackView()
     private let dragHandle = NSView()
+    private let tabControl = NSSegmentedControl()
     private let loadingIndicator = NSProgressIndicator()
     private let tooManyLabel = NSTextField(wrappingLabelWithString: "")
 
@@ -76,7 +121,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Chip buttons keyed by type name.
     private var chipButtons: [String: NSButton] = [:]
 
-    // Column identifiers
+    // Annotation column identifiers
     private static let nameColumn = NSUserInterfaceItemIdentifier("NameColumn")
     private static let typeColumn = NSUserInterfaceItemIdentifier("TypeColumn")
     private static let chromosomeColumn = NSUserInterfaceItemIdentifier("ChromosomeColumn")
@@ -84,6 +129,17 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     private static let endColumn = NSUserInterfaceItemIdentifier("EndColumn")
     private static let sizeColumn = NSUserInterfaceItemIdentifier("SizeColumn")
     private static let strandColumn = NSUserInterfaceItemIdentifier("StrandColumn")
+
+    // Variant column identifiers
+    private static let variantIdColumn = NSUserInterfaceItemIdentifier("VariantIdColumn")
+    private static let variantTypeColumn = NSUserInterfaceItemIdentifier("VariantTypeColumn")
+    private static let variantChromColumn = NSUserInterfaceItemIdentifier("VariantChromColumn")
+    private static let positionColumn = NSUserInterfaceItemIdentifier("PositionColumn")
+    private static let refColumn = NSUserInterfaceItemIdentifier("RefColumn")
+    private static let altColumn = NSUserInterfaceItemIdentifier("AltColumn")
+    private static let qualityColumn = NSUserInterfaceItemIdentifier("QualityColumn")
+    private static let filterColumn = NSUserInterfaceItemIdentifier("FilterColumn")
+    private static let samplesColumn = NSUserInterfaceItemIdentifier("SamplesColumn")
 
     /// Number formatter for genomic coordinates.
     private let numberFormatter: NumberFormatter = {
@@ -142,6 +198,20 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         noneButton.translatesAutoresizingMaskIntoConstraints = false
         headerBar.addSubview(noneButton)
 
+        // Tab segmented control (Annotations | Variants)
+        tabControl.segmentCount = 2
+        tabControl.setLabel("Annotations", forSegment: 0)
+        tabControl.setLabel("Variants", forSegment: 1)
+        tabControl.selectedSegment = 0
+        tabControl.segmentStyle = .texturedRounded
+        tabControl.controlSize = .small
+        tabControl.font = .systemFont(ofSize: 10, weight: .medium)
+        tabControl.translatesAutoresizingMaskIntoConstraints = false
+        tabControl.target = self
+        tabControl.action = #selector(tabChanged(_:))
+        tabControl.setAccessibilityLabel("Switch between annotations and variants")
+        headerBar.addSubview(tabControl)
+
         // Count label
         countLabel.font = .monospacedDigitSystemFont(ofSize: 10, weight: .regular)
         countLabel.textColor = .secondaryLabelColor
@@ -173,39 +243,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         chipStackView.translatesAutoresizingMaskIntoConstraints = false
         chipScrollView.documentView = chipStackView
 
-        // Configure table columns
-        let columns: [(NSUserInterfaceItemIdentifier, String, CGFloat, CGFloat)] = [
-            (Self.nameColumn, "Name", 180, 80),
-            (Self.typeColumn, "Type", 80, 50),
-            (Self.chromosomeColumn, "Chromosome", 120, 60),
-            (Self.startColumn, "Start", 100, 60),
-            (Self.endColumn, "End", 100, 60),
-            (Self.sizeColumn, "Size", 80, 50),
-            (Self.strandColumn, "Strand", 50, 30),
-        ]
-
-        for (identifier, title, width, minWidth) in columns {
-            let col = NSTableColumn(identifier: identifier)
-            col.title = title
-            col.width = width
-            col.minWidth = minWidth
-            col.resizingMask = .autoresizingMask
-
-            let sortKey: String
-            switch identifier {
-            case Self.nameColumn: sortKey = "name"
-            case Self.typeColumn: sortKey = "type"
-            case Self.chromosomeColumn: sortKey = "chromosome"
-            case Self.startColumn: sortKey = "start"
-            case Self.endColumn: sortKey = "end"
-            case Self.sizeColumn: sortKey = "size"
-            case Self.strandColumn: sortKey = "strand"
-            default: sortKey = "name"
-            }
-            col.sortDescriptorPrototype = NSSortDescriptor(key: sortKey, ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))
-
-            tableView.addTableColumn(col)
-        }
+        // Configure initial table columns (annotation mode)
+        configureColumnsForTab(.annotations)
 
         tableView.dataSource = self
         tableView.delegate = self
@@ -262,6 +301,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
             loadingIndicator.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
             loadingIndicator.leadingAnchor.constraint(equalTo: noneButton.trailingAnchor, constant: 8),
+
+            tabControl.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
+            tabControl.trailingAnchor.constraint(equalTo: countLabel.leadingAnchor, constant: -8),
 
             countLabel.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
             countLabel.trailingAnchor.constraint(equalTo: headerBar.trailingAnchor, constant: -8),
@@ -334,6 +376,82 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         return button
     }
 
+    // MARK: - Column Configuration
+
+    /// Column definitions for the annotation tab.
+    private static let annotationColumnDefs: [(NSUserInterfaceItemIdentifier, String, CGFloat, CGFloat, String)] = [
+        (nameColumn, "Name", 180, 80, "name"),
+        (typeColumn, "Type", 80, 50, "type"),
+        (chromosomeColumn, "Chromosome", 120, 60, "chromosome"),
+        (startColumn, "Start", 100, 60, "start"),
+        (endColumn, "End", 100, 60, "end"),
+        (sizeColumn, "Size", 80, 50, "size"),
+        (strandColumn, "Strand", 50, 30, "strand"),
+    ]
+
+    /// Column definitions for the variant tab.
+    private static let variantColumnDefs: [(NSUserInterfaceItemIdentifier, String, CGFloat, CGFloat, String)] = [
+        (variantIdColumn, "ID", 150, 80, "variant_id"),
+        (variantTypeColumn, "Type", 60, 40, "variant_type"),
+        (variantChromColumn, "Chrom", 100, 60, "chromosome"),
+        (positionColumn, "Position", 90, 60, "position"),
+        (refColumn, "Ref", 60, 30, "ref"),
+        (altColumn, "Alt", 60, 30, "alt"),
+        (qualityColumn, "Quality", 70, 40, "quality"),
+        (filterColumn, "Filter", 70, 40, "filter"),
+        (samplesColumn, "Samples", 60, 40, "samples"),
+    ]
+
+    /// Removes all existing columns and adds columns for the specified tab.
+    private func configureColumnsForTab(_ tab: DrawerTab) {
+        // Remove existing columns
+        for column in tableView.tableColumns.reversed() {
+            tableView.removeTableColumn(column)
+        }
+
+        let defs: [(NSUserInterfaceItemIdentifier, String, CGFloat, CGFloat, String)]
+        switch tab {
+        case .annotations: defs = Self.annotationColumnDefs
+        case .variants: defs = Self.variantColumnDefs
+        }
+
+        for (identifier, title, width, minWidth, sortKey) in defs {
+            let col = NSTableColumn(identifier: identifier)
+            col.title = title
+            col.width = width
+            col.minWidth = minWidth
+            col.resizingMask = .autoresizingMask
+            col.sortDescriptorPrototype = NSSortDescriptor(
+                key: sortKey, ascending: true,
+                selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))
+            )
+            tableView.addTableColumn(col)
+        }
+    }
+
+    // MARK: - Tab Switching
+
+    @objc private func tabChanged(_ sender: NSSegmentedControl) {
+        guard let tab = DrawerTab(rawValue: sender.selectedSegment) else { return }
+        switchToTab(tab)
+    }
+
+    /// Switches to the specified tab, reconfiguring columns, chip bar, and data.
+    func switchToTab(_ tab: DrawerTab) {
+        guard tab != activeTab || displayedAnnotations.isEmpty else { return }
+        activeTab = tab
+        tabControl.selectedSegment = tab.rawValue
+
+        // Reconfigure columns for the new tab
+        configureColumnsForTab(tab)
+
+        // Rebuild chip buttons for the new tab's types
+        rebuildChipButtons()
+
+        // Re-query for the new tab's data
+        updateDisplayedAnnotations()
+    }
+
     // MARK: - Data Loading
 
     /// Connects the drawer to a search index for direct SQL queries.
@@ -342,20 +460,27 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         searchIndex = index
         isLoading = false
 
-        // Get metadata from the index (types, total count) — instant for SQLite
-        // Includes variant types and counts if variant database is available
-        totalAnnotationCount = index.entryCount + index.variantCount
-        availableTypes = index.allTypes
+        // Get metadata from the index — track annotation and variant counts separately
+        totalAnnotationCount = index.entryCount
+        totalVariantCount = index.variantCount
+        availableAnnotationTypes = index.annotationTypes
+        availableVariantTypes = index.variantTypes
 
-        // All types visible by default
-        visibleTypes = Set(availableTypes)
+        // All types visible by default for both tabs
+        visibleAnnotationTypes = Set(availableAnnotationTypes)
+        visibleVariantTypes = Set(availableVariantTypes)
 
-        // Rebuild chip buttons
+        // Enable/disable variant tab based on whether variants exist
+        tabControl.setEnabled(totalVariantCount > 0, forSegment: 1)
+        // Show the tab control only when we have at least one type of data
+        tabControl.isHidden = totalVariantCount == 0
+
+        // Rebuild chip buttons for the active tab
         rebuildChipButtons()
 
         // Query for initial display
         updateDisplayedAnnotations()
-        drawerLogger.info("AnnotationTableDrawerView: Connected to index with \(self.totalAnnotationCount) annotations+variants, \(self.availableTypes.count) types")
+        drawerLogger.info("AnnotationTableDrawerView: Connected to index with \(self.totalAnnotationCount) annotations, \(self.totalVariantCount) variants")
     }
 
     /// Legacy entry point for when no search index is available (fallback).
@@ -365,8 +490,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         totalAnnotationCount = results.count
 
         let typeSet = Set(results.map { $0.type })
-        availableTypes = typeSet.sorted()
-        visibleTypes = typeSet
+        availableAnnotationTypes = typeSet.sorted()
+        visibleAnnotationTypes = typeSet
 
         rebuildChipButtons()
 
@@ -423,10 +548,19 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         // Build the type filter set — only pass types if not all are selected
         let typeFilter: Set<String> = visibleTypes.count < availableTypes.count ? visibleTypes : []
 
+        let entityName = activeTab == .annotations ? "annotations" : "variants"
+        let activeTotal = activeTab == .annotations ? totalAnnotationCount : totalVariantCount
+
         // SQLite mode: query the database directly with filters
-        if let index = searchIndex, index.hasDatabaseBackend {
+        if let index = searchIndex, (index.hasDatabaseBackend || index.hasVariantDatabase) {
             // Get the matching count first (fast COUNT query)
-            let matchingCount = index.queryCount(nameFilter: filterText, types: typeFilter) ?? 0
+            let matchingCount: Int
+            switch activeTab {
+            case .annotations:
+                matchingCount = index.queryAnnotationCount(nameFilter: filterText, types: typeFilter)
+            case .variants:
+                matchingCount = index.queryVariantCount(nameFilter: filterText, types: typeFilter)
+            }
 
             if matchingCount > Self.maxDisplayCount {
                 displayedAnnotations = []
@@ -434,11 +568,16 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 scrollView.isHidden = true
                 let total = numberFormatter.string(from: NSNumber(value: matchingCount)) ?? "\(matchingCount)"
                 let max = numberFormatter.string(from: NSNumber(value: Self.maxDisplayCount)) ?? "\(Self.maxDisplayCount)"
-                tooManyLabel.stringValue = "\(total) annotations match — use the search field or type filters to narrow to \(max) or fewer"
+                tooManyLabel.stringValue = "\(total) \(entityName) match — use the search field or type filters to narrow to \(max) or fewer"
                 tooManyLabel.isHidden = false
             } else {
-                // Use queryAll to include both annotations and variants
-                let results = index.queryAll(nameFilter: filterText, types: typeFilter, limit: Self.maxDisplayCount)
+                let results: [AnnotationSearchIndex.SearchResult]
+                switch activeTab {
+                case .annotations:
+                    results = index.queryAnnotationsOnly(nameFilter: filterText, types: typeFilter, limit: Self.maxDisplayCount)
+                case .variants:
+                    results = index.queryVariantsOnly(nameFilter: filterText, types: typeFilter, limit: Self.maxDisplayCount)
+                }
                 displayedAnnotations = results
                 tableView.reloadData()
                 scrollView.isHidden = false
@@ -448,18 +587,17 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             return
         }
 
-        // Legacy in-memory mode: filter allResults from the search index
-        if let index = searchIndex {
+        // Legacy in-memory mode (annotations only — variants always need SQLite)
+        if let index = searchIndex, activeTab == .annotations {
             let hasFilters = !typeFilter.isEmpty || !filterText.isEmpty
 
-            // Fast path: if no filters and total count exceeds limit, skip loading all entries
-            if !hasFilters && index.entryCount > Self.maxDisplayCount {
+            if !hasFilters && activeTotal > Self.maxDisplayCount {
                 displayedAnnotations = []
                 tableView.reloadData()
                 scrollView.isHidden = true
-                let total = numberFormatter.string(from: NSNumber(value: index.entryCount)) ?? "\(index.entryCount)"
+                let total = numberFormatter.string(from: NSNumber(value: activeTotal)) ?? "\(activeTotal)"
                 let max = numberFormatter.string(from: NSNumber(value: Self.maxDisplayCount)) ?? "\(Self.maxDisplayCount)"
-                tooManyLabel.stringValue = "\(total) annotations — use the search field or type filters to narrow to \(max) or fewer"
+                tooManyLabel.stringValue = "\(total) \(entityName) — use the search field or type filters to narrow to \(max) or fewer"
                 tooManyLabel.isHidden = false
             } else {
                 var results = index.allResults
@@ -476,7 +614,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                     scrollView.isHidden = true
                     let total = numberFormatter.string(from: NSNumber(value: results.count)) ?? "\(results.count)"
                     let max = numberFormatter.string(from: NSNumber(value: Self.maxDisplayCount)) ?? "\(Self.maxDisplayCount)"
-                    tooManyLabel.stringValue = "\(total) annotations match — use the search field or type filters to narrow to \(max) or fewer"
+                    tooManyLabel.stringValue = "\(total) \(entityName) match — use the search field or type filters to narrow to \(max) or fewer"
                     tooManyLabel.isHidden = false
                 } else {
                     displayedAnnotations = results
@@ -485,21 +623,30 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                     tooManyLabel.isHidden = true
                 }
             }
+        } else if activeTab == .variants {
+            // No variant data in legacy mode
+            displayedAnnotations = []
+            tableView.reloadData()
+            scrollView.isHidden = false
+            tooManyLabel.isHidden = true
         }
         updateCountLabel()
     }
 
     private func updateCountLabel() {
+        let entityName = activeTab == .annotations ? "annotations" : "variants"
+        let activeTotal = activeTab == .annotations ? totalAnnotationCount : totalVariantCount
+
         if isLoading {
             countLabel.stringValue = "Building annotation index (scanning all chromosomes)..."
         } else if !tooManyLabel.isHidden {
-            let total = numberFormatter.string(from: NSNumber(value: totalAnnotationCount)) ?? "\(totalAnnotationCount)"
+            let total = numberFormatter.string(from: NSNumber(value: activeTotal)) ?? "\(activeTotal)"
             countLabel.stringValue = "\(total) total — filter to browse"
-        } else if displayedAnnotations.count == totalAnnotationCount {
-            countLabel.stringValue = "\(numberFormatter.string(from: NSNumber(value: totalAnnotationCount)) ?? "\(totalAnnotationCount)") annotations"
+        } else if displayedAnnotations.count == activeTotal {
+            countLabel.stringValue = "\(numberFormatter.string(from: NSNumber(value: activeTotal)) ?? "\(activeTotal)") \(entityName)"
         } else {
             let shown = numberFormatter.string(from: NSNumber(value: displayedAnnotations.count)) ?? "\(displayedAnnotations.count)"
-            let total = numberFormatter.string(from: NSNumber(value: totalAnnotationCount)) ?? "\(totalAnnotationCount)"
+            let total = numberFormatter.string(from: NSNumber(value: activeTotal)) ?? "\(activeTotal)"
             countLabel.stringValue = "\(shown) of \(total)"
         }
     }
@@ -566,13 +713,14 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         displayedAnnotations.sort { a, b in
             let result: ComparisonResult
             switch key {
-            case "name":
+            // Annotation columns
+            case "name", "variant_id":
                 result = a.name.localizedCaseInsensitiveCompare(b.name)
-            case "type":
+            case "type", "variant_type":
                 result = a.type.localizedCaseInsensitiveCompare(b.type)
             case "chromosome":
                 result = a.chromosome.localizedCaseInsensitiveCompare(b.chromosome)
-            case "start":
+            case "start", "position":
                 result = a.start < b.start ? .orderedAscending : (a.start > b.start ? .orderedDescending : .orderedSame)
             case "end":
                 result = a.end < b.end ? .orderedAscending : (a.end > b.end ? .orderedDescending : .orderedSame)
@@ -582,6 +730,21 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 result = sizeA < sizeB ? .orderedAscending : (sizeA > sizeB ? .orderedDescending : .orderedSame)
             case "strand":
                 result = a.strand.compare(b.strand)
+            // Variant columns
+            case "ref":
+                result = (a.ref ?? "").localizedCaseInsensitiveCompare(b.ref ?? "")
+            case "alt":
+                result = (a.alt ?? "").localizedCaseInsensitiveCompare(b.alt ?? "")
+            case "quality":
+                let qa = a.quality ?? -1
+                let qb = b.quality ?? -1
+                result = qa < qb ? .orderedAscending : (qa > qb ? .orderedDescending : .orderedSame)
+            case "filter":
+                result = (a.filter ?? "").localizedCaseInsensitiveCompare(b.filter ?? "")
+            case "samples":
+                let sa = a.sampleCount ?? 0
+                let sb = b.sampleCount ?? 0
+                result = sa < sb ? .orderedAscending : (sa > sb ? .orderedDescending : .orderedSame)
             default:
                 result = .orderedSame
             }
@@ -619,8 +782,11 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         }
 
         let tf = cellView.textField!
+        tf.alignment = .left  // Reset default alignment
+        tf.font = .monospacedSystemFont(ofSize: 11, weight: .regular)  // Reset default font
 
         switch identifier {
+        // Annotation columns
         case Self.nameColumn:
             tf.stringValue = annotation.name
             tf.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
@@ -642,6 +808,38 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         case Self.strandColumn:
             tf.stringValue = annotation.strand
             tf.alignment = .center
+
+        // Variant columns
+        case Self.variantIdColumn:
+            tf.stringValue = annotation.name
+            tf.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
+        case Self.variantTypeColumn:
+            tf.stringValue = annotation.type
+            tf.font = .systemFont(ofSize: 11)
+        case Self.variantChromColumn:
+            tf.stringValue = annotation.chromosome
+        case Self.positionColumn:
+            tf.stringValue = numberFormatter.string(from: NSNumber(value: annotation.start)) ?? "\(annotation.start)"
+            tf.alignment = .right
+        case Self.refColumn:
+            tf.stringValue = annotation.ref ?? ""
+            tf.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        case Self.altColumn:
+            tf.stringValue = annotation.alt ?? ""
+            tf.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        case Self.qualityColumn:
+            if let q = annotation.quality {
+                tf.stringValue = q < 0 ? "." : String(format: "%.1f", q)
+            } else {
+                tf.stringValue = "."
+            }
+            tf.alignment = .right
+        case Self.filterColumn:
+            tf.stringValue = annotation.filter ?? "."
+        case Self.samplesColumn:
+            tf.stringValue = "\(annotation.sampleCount ?? 0)"
+            tf.alignment = .right
+
         default:
             tf.stringValue = ""
         }
@@ -822,6 +1020,36 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             userInfo: [NotificationUserInfoKey.inspectorTab: "selection"]
         )
     }
+
+    // MARK: - Variant Context Menu Actions
+
+    @objc private func copyRefAltAction(_ sender: NSMenuItem) {
+        guard let result = sender.representedObject as? AnnotationSearchIndex.SearchResult else { return }
+        let refAlt = "\(result.ref ?? "") > \(result.alt ?? "")"
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(refAlt, forType: .string)
+    }
+
+    @objc private func copyAsVCFLineAction(_ sender: NSMenuItem) {
+        guard let result = sender.representedObject as? AnnotationSearchIndex.SearchResult else { return }
+        // VCF uses 1-based positions
+        let pos1Based = result.start + 1
+        let qual = result.quality.map { String(format: "%.1f", $0) } ?? "."
+        let filt = result.filter ?? "."
+        let vcfLine = "\(result.chromosome)\t\(pos1Based)\t\(result.name)\t\(result.ref ?? ".")\t\(result.alt ?? ".")\t\(qual)\t\(filt)\t."
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(vcfLine, forType: .string)
+    }
+
+    @objc private func filterToTypeAction(_ sender: NSMenuItem) {
+        guard let result = sender.representedObject as? AnnotationSearchIndex.SearchResult else { return }
+        // Set visible types to just this type
+        visibleTypes = Set([result.type])
+        updateChipStates()
+        updateDisplayedAnnotations()
+    }
 }
 
 // MARK: - NSMenuDelegate
@@ -846,6 +1074,15 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         guard targetRow >= 0, targetRow < displayedAnnotations.count else { return }
 
         let annotation = displayedAnnotations[targetRow]
+
+        if annotation.isVariant {
+            buildVariantContextMenu(menu, annotation: annotation)
+        } else {
+            buildAnnotationContextMenu(menu, annotation: annotation)
+        }
+    }
+
+    private func buildAnnotationContextMenu(_ menu: NSMenu, annotation: AnnotationSearchIndex.SearchResult) {
         let isCDS = Self.supportsTranslationMenu(for: annotation.type)
 
         // --- Copy submenu ---
@@ -923,5 +1160,57 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         inspectorItem.target = self
         inspectorItem.representedObject = annotation
         menu.addItem(inspectorItem)
+    }
+
+    private func buildVariantContextMenu(_ menu: NSMenu, annotation: AnnotationSearchIndex.SearchResult) {
+        // --- Copy submenu ---
+        let copyMenu = NSMenu(title: "Copy")
+
+        let copyIdItem = NSMenuItem(title: "Copy Variant ID", action: #selector(copyNameAction(_:)), keyEquivalent: "")
+        copyIdItem.target = self
+        copyIdItem.representedObject = annotation
+        copyMenu.addItem(copyIdItem)
+
+        let copyCoordsItem = NSMenuItem(title: "Copy Coordinates", action: #selector(copyCoordinatesAction(_:)), keyEquivalent: "")
+        copyCoordsItem.target = self
+        copyCoordsItem.representedObject = annotation
+        copyMenu.addItem(copyCoordsItem)
+
+        copyMenu.addItem(NSMenuItem.separator())
+
+        let copyRefAltItem = NSMenuItem(title: "Copy Ref/Alt", action: #selector(copyRefAltAction(_:)), keyEquivalent: "")
+        copyRefAltItem.target = self
+        copyRefAltItem.representedObject = annotation
+        copyMenu.addItem(copyRefAltItem)
+
+        let copyVCFLineItem = NSMenuItem(title: "Copy as VCF Line", action: #selector(copyAsVCFLineAction(_:)), keyEquivalent: "")
+        copyVCFLineItem.target = self
+        copyVCFLineItem.representedObject = annotation
+        copyMenu.addItem(copyVCFLineItem)
+
+        let copyMenuItem = NSMenuItem(title: "Copy", action: nil, keyEquivalent: "")
+        copyMenuItem.submenu = copyMenu
+        menu.addItem(copyMenuItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        // --- Navigation ---
+        let zoomItem = NSMenuItem(title: "Zoom to Variant", action: #selector(zoomToAnnotationAction(_:)), keyEquivalent: "")
+        zoomItem.target = self
+        zoomItem.representedObject = annotation
+        menu.addItem(zoomItem)
+
+        let inspectorItem = NSMenuItem(title: "Show in Inspector", action: #selector(showInInspectorAction(_:)), keyEquivalent: "")
+        inspectorItem.target = self
+        inspectorItem.representedObject = annotation
+        menu.addItem(inspectorItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        // --- Filter by Type ---
+        let filterTypeItem = NSMenuItem(title: "Filter to \(annotation.type) Only", action: #selector(filterToTypeAction(_:)), keyEquivalent: "")
+        filterTypeItem.target = self
+        filterTypeItem.representedObject = annotation
+        menu.addItem(filterTypeItem)
     }
 }
