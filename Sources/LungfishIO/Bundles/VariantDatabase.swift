@@ -333,6 +333,8 @@ public final class VariantDatabase: @unchecked Sendable {
             db = nil
             throw VariantDatabaseError.openFailed(msg)
         }
+        // Enforce FK constraints so genotype rows cannot be orphaned.
+        sqlite3_exec(db, "PRAGMA foreign_keys = ON", nil, nil, nil)
         // Detect v2 schema by checking for genotypes table
         self.hasV2Schema = VariantDatabase.tableExists(db: db!, name: "genotypes")
         // Detect source_file column in samples table
@@ -714,95 +716,55 @@ public final class VariantDatabase: @unchecked Sendable {
     public func genotypesInRegion(chromosome: String, start: Int, end: Int, limit: Int = 10_000) -> [(variant: VariantDatabaseRecord, genotypes: [GenotypeRecord])] {
         guard let db, hasV2Schema else { return [] }
 
-        // Single JOIN query: fetch variants + genotypes together, ordered by variant position.
-        let sql = """
-            SELECT v.id, v.chromosome, v.position, v.end_pos, v.variant_id, v.ref, v.alt,
-                   v.variant_type, v.quality, v.filter, v.info, v.sample_count,
-                   g.variant_id, g.sample_name, g.genotype, g.allele1, g.allele2,
-                   g.is_phased, g.depth, g.genotype_quality, g.allele_depths, g.raw_fields
-            FROM variants v
-            LEFT JOIN genotypes g ON v.id = g.variant_id
-            WHERE v.chromosome = ? AND v.position < ? AND v.end_pos > ?
-            ORDER BY v.position, v.id, g.sample_name
+        // Step 1: fetch a bounded list of variant rows in-region.
+        let variantSQL = """
+            SELECT id, chromosome, position, end_pos, variant_id, ref, alt, variant_type, quality, filter, info, sample_count
+            FROM variants
+            WHERE chromosome = ? AND position < ? AND end_pos > ?
+            ORDER BY position, id
             LIMIT ?
             """
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
-            variantDBLogger.error("genotypesInRegion: Failed to prepare JOIN query")
+        var variantStmt: OpaquePointer?
+        defer { sqlite3_finalize(variantStmt) }
+        guard sqlite3_prepare_v2(db, variantSQL, -1, &variantStmt, nil) == SQLITE_OK else {
+            variantDBLogger.error("genotypesInRegion: Failed to prepare variant query")
             return []
         }
-        sqliteBindText(stmt, 1, chromosome)
-        sqlite3_bind_int64(stmt, 2, Int64(end))
-        sqlite3_bind_int64(stmt, 3, Int64(start))
-        // Limit applies to joined rows; multiply by typical sample count to get enough data
-        sqlite3_bind_int64(stmt, 4, Int64(limit) * 200)
+        sqliteBindText(variantStmt, 1, chromosome)
+        sqlite3_bind_int64(variantStmt, 2, Int64(end))
+        sqlite3_bind_int64(variantStmt, 3, Int64(start))
+        sqlite3_bind_int64(variantStmt, 4, Int64(limit))
+        let variants = readVariantRows(stmt: variantStmt!)
+        guard !variants.isEmpty else { return [] }
 
-        var results: [(variant: VariantDatabaseRecord, genotypes: [GenotypeRecord])] = []
-        var currentVariant: VariantDatabaseRecord?
-        var currentGenotypes: [GenotypeRecord] = []
-        var variantCount = 0
-
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            let rowId = sqlite3_column_int64(stmt, 0)
-
-            // Check if this is a new variant
-            if currentVariant?.id != rowId {
-                // Save previous group
-                if let prev = currentVariant {
-                    results.append((variant: prev, genotypes: currentGenotypes))
-                    variantCount += 1
-                    if variantCount >= limit { break }
-                }
-
-                // Parse variant columns (0-11)
-                let chrom = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
-                let pos = Int(sqlite3_column_int64(stmt, 2))
-                let endPos = Int(sqlite3_column_int64(stmt, 3))
-                let vid = sqlite3_column_text(stmt, 4).map { String(cString: $0) } ?? ""
-                let ref = sqlite3_column_text(stmt, 5).map { String(cString: $0) } ?? ""
-                let alt = sqlite3_column_text(stmt, 6).map { String(cString: $0) } ?? ""
-                let vtype = sqlite3_column_text(stmt, 7).map { String(cString: $0) } ?? "SNP"
-                let quality: Double? = sqlite3_column_type(stmt, 8) == SQLITE_NULL ? nil : sqlite3_column_double(stmt, 8)
-                let filter = sqlite3_column_text(stmt, 9).map { String(cString: $0) }
-                let info = sqlite3_column_text(stmt, 10).map { String(cString: $0) }
-                let sampleCount = Int(sqlite3_column_int64(stmt, 11))
-
-                currentVariant = VariantDatabaseRecord(
-                    id: rowId, chromosome: chrom, position: pos, end: endPos,
-                    variantID: vid, ref: ref, alt: alt, variantType: vtype,
-                    quality: quality, filter: filter, info: info, sampleCount: sampleCount
-                )
-                currentGenotypes = []
-            }
-
-            // Parse genotype columns (12-21) — skip if NULL (LEFT JOIN with no genotypes)
-            if sqlite3_column_type(stmt, 13) != SQLITE_NULL {
-                let gtVariantId = sqlite3_column_int64(stmt, 12)
-                let sampleName = sqlite3_column_text(stmt, 13).map { String(cString: $0) } ?? ""
-                let genotype = sqlite3_column_text(stmt, 14).map { String(cString: $0) }
-                let allele1 = Int(sqlite3_column_int(stmt, 15))
-                let allele2 = Int(sqlite3_column_int(stmt, 16))
-                let isPhased = sqlite3_column_int(stmt, 17) != 0
-                let depth: Int? = sqlite3_column_type(stmt, 18) == SQLITE_NULL ? nil : Int(sqlite3_column_int(stmt, 18))
-                let gq: Int? = sqlite3_column_type(stmt, 19) == SQLITE_NULL ? nil : Int(sqlite3_column_int(stmt, 19))
-                let ad = sqlite3_column_text(stmt, 20).map { String(cString: $0) }
-                let raw = sqlite3_column_text(stmt, 21).map { String(cString: $0) }
-
-                currentGenotypes.append(GenotypeRecord(
-                    variantRowId: gtVariantId, sampleName: sampleName, genotype: genotype,
-                    allele1: allele1, allele2: allele2, isPhased: isPhased,
-                    depth: depth, genotypeQuality: gq, alleleDepths: ad, rawFields: raw
-                ))
-            }
+        // Step 2: fetch all genotypes for just those variant IDs.
+        let variantIDs = variants.compactMap(\.id)
+        guard !variantIDs.isEmpty else {
+            return variants.map { ($0, []) }
         }
-
-        // Don't forget the last group
-        if let last = currentVariant, variantCount < limit {
-            results.append((variant: last, genotypes: currentGenotypes))
+        let placeholders = variantIDs.map { _ in "?" }.joined(separator: ",")
+        let genotypeSQL = """
+            SELECT variant_id, sample_name, genotype, allele1, allele2,
+                   is_phased, depth, genotype_quality, allele_depths, raw_fields
+            FROM genotypes
+            WHERE variant_id IN (\(placeholders))
+            ORDER BY variant_id, sample_name
+            """
+        var genotypeStmt: OpaquePointer?
+        defer { sqlite3_finalize(genotypeStmt) }
+        guard sqlite3_prepare_v2(db, genotypeSQL, -1, &genotypeStmt, nil) == SQLITE_OK else {
+            variantDBLogger.error("genotypesInRegion: Failed to prepare genotype query")
+            return variants.map { ($0, []) }
         }
-
-        return results
+        for (idx, variantID) in variantIDs.enumerated() {
+            sqlite3_bind_int64(genotypeStmt, Int32(idx + 1), variantID)
+        }
+        let genotypeRows = readGenotypeRows(stmt: genotypeStmt!)
+        let genotypeMap = Dictionary(grouping: genotypeRows, by: \.variantRowId)
+        return variants.map { variant in
+            let rows = variant.id.flatMap { genotypeMap[$0] } ?? []
+            return (variant: variant, genotypes: rows)
+        }
     }
 
     /// Reads genotype rows from a prepared statement.
@@ -883,74 +845,76 @@ public final class VariantDatabase: @unchecked Sendable {
     ///
     /// - Parameter ids: Array of variant row IDs to delete
     /// - Throws: If the database is read-only or the delete fails
-    public func deleteVariants(ids: [Int64]) throws {
+    public func deleteVariants(ids: [Int64]) throws -> Int {
         guard let db, !isReadOnly else {
             throw VariantDatabaseError.createFailed("Database not open for writing")
         }
-        guard !ids.isEmpty else { return }
+        guard !ids.isEmpty else { return 0 }
 
-        var errMsg: UnsafeMutablePointer<CChar>?
-        sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, &errMsg)
+        let placeholders = ids.map { _ in "?" }.joined(separator: ",")
+        do {
+            try executeSQL("BEGIN TRANSACTION")
 
-        // Delete genotypes first (foreign key reference)
-        if hasV2Schema {
-            let placeholders = ids.map { _ in "?" }.joined(separator: ",")
-            let deleteGenotypesSQL = "DELETE FROM genotypes WHERE variant_id IN (\(placeholders))"
-            var gtStmt: OpaquePointer?
-            defer { sqlite3_finalize(gtStmt) }
-            if sqlite3_prepare_v2(db, deleteGenotypesSQL, -1, &gtStmt, nil) == SQLITE_OK {
+            if hasV2Schema {
+                let deleteGenotypesSQL = "DELETE FROM genotypes WHERE variant_id IN (\(placeholders))"
+                var gtStmt: OpaquePointer?
+                defer { sqlite3_finalize(gtStmt) }
+                guard sqlite3_prepare_v2(db, deleteGenotypesSQL, -1, &gtStmt, nil) == SQLITE_OK else {
+                    throw VariantDatabaseError.createFailed("Failed to prepare genotype delete statement")
+                }
                 for (i, id) in ids.enumerated() {
                     sqlite3_bind_int64(gtStmt, Int32(i + 1), id)
                 }
-                sqlite3_step(gtStmt)
+                guard sqlite3_step(gtStmt) == SQLITE_DONE else {
+                    throw VariantDatabaseError.createFailed("Failed to delete genotypes for selected variants")
+                }
             }
-        }
 
-        // Delete variants
-        let placeholders = ids.map { _ in "?" }.joined(separator: ",")
-        let deleteVariantsSQL = "DELETE FROM variants WHERE id IN (\(placeholders))"
-        var varStmt: OpaquePointer?
-        defer { sqlite3_finalize(varStmt) }
-        guard sqlite3_prepare_v2(db, deleteVariantsSQL, -1, &varStmt, nil) == SQLITE_OK else {
-            sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
-            throw VariantDatabaseError.createFailed("Failed to prepare variant delete statement")
-        }
-        for (i, id) in ids.enumerated() {
-            sqlite3_bind_int64(varStmt, Int32(i + 1), id)
-        }
-        let rc = sqlite3_step(varStmt)
-        if rc != SQLITE_DONE {
-            sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
-            throw VariantDatabaseError.createFailed("Failed to delete variants")
-        }
+            let deleteVariantsSQL = "DELETE FROM variants WHERE id IN (\(placeholders))"
+            var varStmt: OpaquePointer?
+            defer { sqlite3_finalize(varStmt) }
+            guard sqlite3_prepare_v2(db, deleteVariantsSQL, -1, &varStmt, nil) == SQLITE_OK else {
+                throw VariantDatabaseError.createFailed("Failed to prepare variant delete statement")
+            }
+            for (i, id) in ids.enumerated() {
+                sqlite3_bind_int64(varStmt, Int32(i + 1), id)
+            }
+            guard sqlite3_step(varStmt) == SQLITE_DONE else {
+                throw VariantDatabaseError.createFailed("Failed to delete variants")
+            }
 
-        sqlite3_exec(db, "COMMIT", nil, nil, nil)
-        let deleted = sqlite3_changes(db)
-        variantDBLogger.info("deleteVariants: Deleted \(deleted) variants")
+            let deleted = Int(sqlite3_changes(db))
+            try executeSQL("COMMIT")
+            variantDBLogger.info("deleteVariants: Deleted \(deleted) variants")
+            return deleted
+        } catch {
+            sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+            throw error
+        }
     }
 
     /// Deletes all variants and associated genotypes from the database.
     ///
     /// - Throws: If the database is read-only or the delete fails
-    public func deleteAllVariants() throws {
+    public func deleteAllVariants() throws -> Int {
         guard let db, !isReadOnly else {
             throw VariantDatabaseError.createFailed("Database not open for writing")
         }
 
-        var errMsg: UnsafeMutablePointer<CChar>?
-        sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, &errMsg)
-
-        if hasV2Schema {
-            sqlite3_exec(db, "DELETE FROM genotypes", nil, nil, nil)
-        }
-        let rc = sqlite3_exec(db, "DELETE FROM variants", nil, nil, nil)
-        if rc != SQLITE_OK {
+        do {
+            try executeSQL("BEGIN TRANSACTION")
+            if hasV2Schema {
+                try executeSQL("DELETE FROM genotypes")
+            }
+            try executeSQL("DELETE FROM variants")
+            let deleted = Int(sqlite3_changes(db))
+            try executeSQL("COMMIT")
+            variantDBLogger.info("deleteAllVariants: Deleted \(deleted) variants")
+            return deleted
+        } catch {
             sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
-            throw VariantDatabaseError.createFailed("Failed to delete all variants")
+            throw error
         }
-
-        sqlite3_exec(db, "COMMIT", nil, nil, nil)
-        variantDBLogger.info("deleteAllVariants: All variants removed")
     }
 
     /// Returns the total number of variants in the database.
@@ -1245,6 +1209,7 @@ public final class VariantDatabase: @unchecked Sendable {
         defer { sqlite3_close(db) }
 
         // Performance pragmas
+        sqlite3_exec(db, "PRAGMA foreign_keys = ON", nil, nil, nil)
         sqlite3_exec(db, "PRAGMA journal_mode = OFF", nil, nil, nil)
         sqlite3_exec(db, "PRAGMA synchronous = OFF", nil, nil, nil)
         sqlite3_exec(db, "PRAGMA cache_size = -64000", nil, nil, nil)
@@ -1712,6 +1677,22 @@ public final class VariantDatabase: @unchecked Sendable {
             }
         }
         return nil
+    }
+
+    // MARK: - SQL Helpers
+
+    /// Executes a SQL statement and throws on failure.
+    private func executeSQL(_ sql: String) throws {
+        guard let db else {
+            throw VariantDatabaseError.createFailed("Database not open")
+        }
+        var errMsg: UnsafeMutablePointer<CChar>?
+        let rc = sqlite3_exec(db, sql, nil, nil, &errMsg)
+        if rc != SQLITE_OK {
+            let msg = errMsg.map { String(cString: $0) } ?? "Unknown SQLite error"
+            if let errMsg { sqlite3_free(errMsg) }
+            throw VariantDatabaseError.createFailed("\(sql): \(msg)")
+        }
     }
 }
 

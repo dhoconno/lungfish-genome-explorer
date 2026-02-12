@@ -1286,13 +1286,14 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
 
     @objc private func deleteSelectedVariantsAction(_ sender: NSMenuItem) {
         let selectedRows = tableView.selectedRowIndexes
-        let variantIds = selectedRows.compactMap { idx -> Int64? in
+        let selectedVariants = selectedRows.compactMap { idx -> AnnotationSearchIndex.SearchResult? in
             guard idx < displayedAnnotations.count else { return nil }
-            return displayedAnnotations[idx].variantRowId
+            return displayedAnnotations[idx]
         }
-        guard !variantIds.isEmpty else { return }
+        let scopedIDs = variantIDsByTrack(from: selectedVariants)
+        let count = scopedIDs.values.reduce(0) { $0 + $1.count }
+        guard count > 0 else { return }
 
-        let count = variantIds.count
         let alert = NSAlert()
         alert.messageText = "Delete \(count) Variant\(count == 1 ? "" : "s")?"
         alert.informativeText = "This will permanently remove the selected variant\(count == 1 ? "" : "s") from the database."
@@ -1303,7 +1304,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         guard let window = window else { return }
         alert.beginSheetModal(for: window) { [weak self] response in
             guard response == .alertFirstButtonReturn else { return }
-            self?.performVariantDeletion(ids: variantIds)
+            self?.performVariantDeletion(scopedIDs)
         }
     }
 
@@ -1323,18 +1324,23 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         }
     }
 
-    private func performVariantDeletion(ids: [Int64]) {
+    private func performVariantDeletion(_ idsByTrack: [String: [Int64]]) {
         guard let searchIndex else { return }
+        guard !idsByTrack.isEmpty else { return }
 
-        // Find the variant database(s) to delete from
+        let handlesByTrack = Dictionary(uniqueKeysWithValues: searchIndex.variantDatabaseHandles.map { ($0.trackId, $0.db) })
         var deletedCount = 0
-        for (_, db) in searchIndex.variantDatabaseHandles {
+
+        for (trackId, ids) in idsByTrack {
+            guard let db = handlesByTrack[trackId] else {
+                drawerLogger.warning("performVariantDeletion: No variant database handle for track '\(trackId, privacy: .public)'")
+                continue
+            }
             do {
                 let rwDB = try VariantDatabase(url: db.databaseURL, readWrite: true)
-                try rwDB.deleteVariants(ids: ids)
-                deletedCount += ids.count
+                deletedCount += try rwDB.deleteVariants(ids: ids)
             } catch {
-                drawerLogger.error("performVariantDeletion: \(error.localizedDescription)")
+                drawerLogger.error("performVariantDeletion[\(trackId, privacy: .public)]: \(error.localizedDescription)")
             }
         }
 
@@ -1352,10 +1358,8 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         var deletedCount = 0
         for (_, db) in searchIndex.variantDatabaseHandles {
             do {
-                let count = db.totalVariantCount()
                 let rwDB = try VariantDatabase(url: db.databaseURL, readWrite: true)
-                try rwDB.deleteAllVariants()
-                deletedCount += count
+                deletedCount += try rwDB.deleteAllVariants()
             } catch {
                 drawerLogger.error("performDeleteAllVariants: \(error.localizedDescription)")
             }
@@ -1367,5 +1371,15 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             updateCountLabel()
             delegate?.annotationDrawer(self, didDeleteVariants: deletedCount)
         }
+    }
+
+    /// Groups selected variant row IDs by their owning track ID.
+    private func variantIDsByTrack(from variants: [AnnotationSearchIndex.SearchResult]) -> [String: [Int64]] {
+        var grouped = Dictionary<String, Set<Int64>>()
+        for variant in variants {
+            guard variant.isVariant, !variant.trackId.isEmpty, let rowID = variant.variantRowId else { continue }
+            grouped[variant.trackId, default: []].insert(rowID)
+        }
+        return grouped.mapValues { Array($0) }
     }
 }

@@ -684,6 +684,7 @@ public class InspectorViewController: NSViewController {
     /// Opens each variant database and aggregates sample names and metadata field names.
     private func updateSampleSection(from bundle: ReferenceBundle) {
         var allSampleNames: [String] = []
+        var sampleNameSet = Set<String>()
         var allMetadataFields: Set<String> = []
         var allSampleMetadata: [String: [String: String]] = [:]
         var allSourceFiles: [String: String] = [:]
@@ -699,9 +700,8 @@ public class InspectorViewController: NSViewController {
                 let db = try VariantDatabase(url: dbURL)
                 dbByTrackId[vTrackId] = db
                 variantDBURLs.append(dbURL)
-                let names = db.sampleNames()
-                if !names.isEmpty && allSampleNames.isEmpty {
-                    allSampleNames = names
+                for name in db.sampleNames() where sampleNameSet.insert(name).inserted {
+                    allSampleNames.append(name)
                 }
                 let fields = db.metadataFieldNames()
                 allMetadataFields.formUnion(fields)

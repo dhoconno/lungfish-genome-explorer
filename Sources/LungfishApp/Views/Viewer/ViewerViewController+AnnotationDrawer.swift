@@ -183,9 +183,61 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
 
     public func annotationDrawer(_ drawer: AnnotationTableDrawerView, didDeleteVariants count: Int) {
         annotDrawerLogger.info("annotationDrawer: \(count) variants deleted, clearing cached variants and refreshing")
+        syncVariantCountsToManifest()
         // Clear cached variant annotations so the viewer re-fetches from the (now updated) database
         viewerView.clearCachedVariants()
         viewerView.setNeedsDisplay(viewerView.bounds)
+    }
+
+    /// Recomputes per-track variant counts from SQLite and persists them into manifest.json.
+    private func syncVariantCountsToManifest() {
+        guard let bundleURL = currentBundleURL else { return }
+        do {
+            let manifest = try BundleManifest.load(from: bundleURL)
+            var changed = false
+            let updatedTracks = manifest.variants.map { track -> VariantTrackInfo in
+                guard let dbPath = track.databasePath else { return track }
+                let dbURL = bundleURL.appendingPathComponent(dbPath)
+                guard FileManager.default.fileExists(atPath: dbURL.path),
+                      let db = try? VariantDatabase(url: dbURL) else {
+                    return track
+                }
+                let liveCount = db.totalVariantCount()
+                if liveCount != track.variantCount {
+                    changed = true
+                }
+                return VariantTrackInfo(
+                    id: track.id,
+                    name: track.name,
+                    description: track.description,
+                    path: track.path,
+                    indexPath: track.indexPath,
+                    databasePath: track.databasePath,
+                    variantType: track.variantType,
+                    variantCount: liveCount,
+                    source: track.source
+                )
+            }
+            guard changed else { return }
+            let updatedManifest = BundleManifest(
+                formatVersion: manifest.formatVersion,
+                name: manifest.name,
+                identifier: manifest.identifier,
+                description: manifest.description,
+                createdDate: manifest.createdDate,
+                modifiedDate: Date(),
+                source: manifest.source,
+                genome: manifest.genome,
+                annotations: manifest.annotations,
+                variants: updatedTracks,
+                tracks: manifest.tracks,
+                metadata: manifest.metadata
+            )
+            try updatedManifest.save(to: bundleURL)
+            annotDrawerLogger.info("annotationDrawer: Persisted updated variant counts to manifest")
+        } catch {
+            annotDrawerLogger.error("annotationDrawer: Failed to persist variant counts: \(error.localizedDescription)")
+        }
     }
 }
 

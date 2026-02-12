@@ -386,6 +386,29 @@ final class VariantDatabaseGenotypeTests: XCTestCase {
         XCTAssertTrue(results.isEmpty)
     }
 
+    func testGenotypesInRegionDoesNotTruncateHighSampleVariant() throws {
+        var header = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT"
+        var sampleCols: [String] = []
+        for i in 1...400 {
+            let name = "S\(i)"
+            sampleCols.append(name)
+            header += "\t\(name)"
+        }
+        let sampleData = Array(repeating: "0/1", count: 400).joined(separator: "\t")
+        let vcf = """
+        ##fileformat=VCFv4.3
+        ##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+        \(header)
+        chr1\t100\trsHuge\tA\tG\t30\tPASS\t.\tGT\t\(sampleData)
+        """
+
+        let (db, _) = try createDatabase(from: vcf)
+        let results = db.genotypesInRegion(chromosome: "chr1", start: 0, end: 1000, limit: 1)
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results[0].variant.variantID, "rsHuge")
+        XCTAssertEqual(results[0].genotypes.count, 400, "All sample genotypes should be present for the returned variant")
+    }
+
     // MARK: - GenotypeCall Classification
 
     func testGenotypeCallHomRef() {
@@ -759,6 +782,31 @@ final class VariantDatabaseGenotypeTests: XCTestCase {
         // Should be able to update metadata
         try rwDB.updateSampleMetadata(name: "SAMPLE_A", metadata: ["test": "value"])
         XCTAssertEqual(rwDB.sampleMetadata(name: "SAMPLE_A")["test"], "value")
+    }
+
+    func testDeleteVariantsDeletesOnlySpecifiedRowsAndReturnsActualCount() throws {
+        let (db, _) = try createWritableDatabase(from: multiSampleVCF)
+        let chr1Variants = db.query(chromosome: "chr1", start: 0, end: 10_000)
+        XCTAssertEqual(chr1Variants.count, 3)
+        let idsToDelete = chr1Variants.prefix(2).compactMap(\.id)
+        XCTAssertEqual(idsToDelete.count, 2)
+
+        let deleted = try db.deleteVariants(ids: idsToDelete)
+        XCTAssertEqual(deleted, 2)
+        XCTAssertEqual(db.totalCount(), 2)
+
+        for id in idsToDelete {
+            XCTAssertTrue(db.genotypes(forVariantId: id).isEmpty, "Genotypes for deleted variants should be removed")
+        }
+    }
+
+    func testDeleteAllVariantsReturnsDeletedCount() throws {
+        let (db, _) = try createWritableDatabase(from: multiSampleVCF)
+        XCTAssertEqual(db.totalCount(), 4)
+        let deleted = try db.deleteAllVariants()
+        XCTAssertEqual(deleted, 4)
+        XCTAssertEqual(db.totalCount(), 0)
+        XCTAssertTrue(db.genotypesInRegion(chromosome: "chr1", start: 0, end: 10_000).isEmpty)
     }
 
     func testDefaultReadOnlyMode() throws {
