@@ -104,7 +104,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     private var isSuppressingDelegateCallbacks = false
 
     /// INFO field definitions for dynamic variant columns (key + type for sort awareness).
-    private var infoColumnKeys: [(key: String, type: String)] = []
+    private var infoColumnKeys: [(key: String, type: String, description: String)] = []
 
     // MARK: - UI Components
 
@@ -273,7 +273,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
-        scrollView.autohidesScrollers = true
+        scrollView.autohidesScrollers = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(scrollView)
 
@@ -486,8 +486,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             for info in infoColumnKeys {
                 let identifier = NSUserInterfaceItemIdentifier("info_\(info.key)")
                 let col = NSTableColumn(identifier: identifier)
-                col.title = info.key
-                col.width = 60
+                col.title = info.description.isEmpty ? info.key : "\(info.description) (\(info.key))"
+                col.width = info.description.isEmpty ? 60 : max(60, CGFloat(info.description.count + info.key.count + 3) * 7)
                 col.minWidth = 40
                 col.resizingMask = .autoresizingMask
                 col.sortDescriptorPrototype = NSSortDescriptor(
@@ -540,7 +540,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         availableVariantTypes = index.variantTypes
 
         // Discover INFO field definitions for dynamic variant columns
-        infoColumnKeys = index.variantInfoKeys.map { (key: $0.key, type: $0.type) }
+        infoColumnKeys = index.variantInfoKeys.map { (key: $0.key, type: $0.type, description: $0.description) }
 
         // All types visible by default for both tabs
         visibleAnnotationTypes = Set(availableAnnotationTypes)

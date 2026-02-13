@@ -622,6 +622,32 @@ public class ViewerViewController: NSViewController {
         progressOverlay.isHidden = true
     }
 
+    /// Invalidates the offscreen annotation tile so it will be re-rendered
+    /// at the correct size on the next draw cycle.
+    public func invalidateAnnotationTile() {
+        viewerView?.invalidateAnnotationTile()
+    }
+
+    /// Forces a complete layout update and redraw after a window frame change
+    /// (e.g., entering or exiting full-screen mode).
+    public func forceFullRedraw() {
+        guard let viewerView else { return }
+
+        // Update reference frame to match the new view size
+        if let frame = referenceFrame, viewerView.bounds.width > 0 {
+            frame.pixelWidth = Int(viewerView.bounds.width)
+        }
+
+        // Invalidate the pre-rendered tile — its dimensions are stale
+        viewerView.invalidateAnnotationTile()
+
+        // Force all subviews to redraw
+        view.needsLayout = true
+        viewerView.needsDisplay = true
+        enhancedRulerView?.needsDisplay = true
+        statusBar?.needsDisplay = true
+    }
+
     /// Clears the viewer, removing all displayed sequences and annotations.
     ///
     /// Call this when the sidebar selection is cleared to show an empty viewer.

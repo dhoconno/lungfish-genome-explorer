@@ -82,6 +82,7 @@ public class MainWindowController: NSWindowController {
         window.titleVisibility = .visible
         window.toolbarStyle = .unified
 
+        window.collectionBehavior = [.fullScreenPrimary]
         window.tabbingMode = .automatic
         window.tabbingIdentifier = "LungfishMainWindow"
         window.center()
@@ -349,7 +350,25 @@ public class MainWindowController: NSWindowController {
 
 // MARK: - NSWindowDelegate
 
-extension MainWindowController: NSWindowDelegate { }
+extension MainWindowController: NSWindowDelegate {
+
+    public func windowWillEnterFullScreen(_ notification: Notification) {
+        // Invalidate the annotation tile before the transition so it doesn't
+        // persist at the old (smaller) window size during the animation.
+        mainSplitViewController?.viewerController?.invalidateAnnotationTile()
+    }
+
+    public func windowDidEnterFullScreen(_ notification: Notification) {
+        // After full-screen transition completes, force layout + redraw so the
+        // viewer fills the entire screen and the reference frame width is updated.
+        mainSplitViewController?.viewerController?.forceFullRedraw()
+    }
+
+    public func windowDidExitFullScreen(_ notification: Notification) {
+        // Same treatment when leaving full screen.
+        mainSplitViewController?.viewerController?.forceFullRedraw()
+    }
+}
 
 // MARK: - NSToolbarDelegate
 
