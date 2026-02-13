@@ -114,7 +114,15 @@ public final class VariantSectionViewModel {
         }
 
         let genotypes = db.genotypes(forVariantId: rowId)
-        guard !genotypes.isEmpty else {
+        let totalSamples = db.sampleCount()
+        let calledSamples = variant.sampleCount ?? 0
+
+        // For v3 databases (omitHomref), genotype rows only contain non-hom-ref calls.
+        // Hom-ref count is inferred from sample_count minus stored non-hom-ref calls.
+        // No-call count is inferred from total samples minus called samples.
+        let dbOmitHomref = db.omitHomref
+
+        if genotypes.isEmpty && !dbOmitHomref {
             hasGenotypes = false
             return
         }
@@ -129,6 +137,13 @@ public final class VariantSectionViewModel {
             case .homAlt: hAlt += 1
             case .noCall: noCall += 1
             }
+        }
+
+        if dbOmitHomref {
+            // Infer hom-ref from called samples minus stored non-hom-ref genotypes.
+            hRef = max(0, calledSamples - (het + hAlt + noCall))
+            // Infer no-call from total samples minus called samples.
+            noCall += max(0, totalSamples - calledSamples)
         }
 
         homRefCount = hRef

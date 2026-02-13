@@ -494,9 +494,13 @@ final class VariantDatabaseTests: XCTestCase {
         let results = db.query(chromosome: "chr1", start: 90, end: 110)
         let record = try XCTUnwrap(results.first)
 
-        XCTAssertNotNil(record.info)
-        XCTAssertTrue(record.info?.contains("DP=50") ?? false)
-        XCTAssertTrue(record.info?.contains("AF=0.25") ?? false)
+        // v3: raw INFO string is not stored in variants table (redundant with variant_info EAV)
+        XCTAssertNil(record.info, "v3 databases should not store raw INFO string")
+
+        // Structured INFO values should be available
+        let info = db.infoValues(variantId: record.id!)
+        XCTAssertEqual(info["DP"], "50")
+        XCTAssertEqual(info["AF"], "0.25")
     }
 
     // MARK: - Auto-Generated ID Tests

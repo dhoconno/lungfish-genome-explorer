@@ -158,7 +158,8 @@ final class VariantDatabaseGenotypeTests: XCTestCase {
         XCTAssertNotNil(variant.id)
 
         let genotypes = db.genotypes(forVariantId: variant.id!)
-        XCTAssertEqual(genotypes.count, 3, "Should have genotype for each of 3 samples")
+        // v3: hom-ref genotypes (SAMPLE_C=0/0) are omitted
+        XCTAssertEqual(genotypes.count, 2, "Should have genotype for non-hom-ref samples only")
 
         let sampleA = genotypes.first { $0.sampleName == "SAMPLE_A" }
         XCTAssertNotNil(sampleA)
@@ -180,26 +181,23 @@ final class VariantDatabaseGenotypeTests: XCTestCase {
         XCTAssertEqual(sampleB?.alleleDepths, "0,25")
         XCTAssertEqual(sampleB?.genotypeCall, .homAlt)
 
+        // SAMPLE_C (0/0) is not stored — inferred as hom-ref from absence
         let sampleC = genotypes.first { $0.sampleName == "SAMPLE_C" }
-        XCTAssertEqual(sampleC?.genotype, "0/0")
-        XCTAssertEqual(sampleC?.allele1, 0)
-        XCTAssertEqual(sampleC?.allele2, 0)
-        XCTAssertEqual(sampleC?.depth, 40)
-        XCTAssertEqual(sampleC?.genotypeCall, .homRef)
+        XCTAssertNil(sampleC, "Hom-ref genotypes should not be stored in v3")
     }
 
     func testMissingGenotypesNotStored() throws {
         let (db, _) = try createDatabase(from: multiSampleVCF)
 
-        // rs200: SAMPLE_C has ./. → should NOT be stored
+        // rs200: SAMPLE_A=0/0 (hom-ref, omitted), SAMPLE_B=0/1, SAMPLE_C=./.
         let variants = db.query(chromosome: "chr1", start: 199, end: 200)
         let variant = try XCTUnwrap(variants.first)
         let genotypes = db.genotypes(forVariantId: variant.id!)
 
-        // Only SAMPLE_A (0/0) and SAMPLE_B (0/1) should be stored
-        XCTAssertEqual(genotypes.count, 2, "Missing ./. genotype should not be stored")
+        // v3: Only SAMPLE_B (0/1) stored. SAMPLE_A (0/0) omitted, SAMPLE_C (./.) skipped.
+        XCTAssertEqual(genotypes.count, 1, "Only non-hom-ref called genotypes should be stored")
         let sampleNames = genotypes.map(\.sampleName)
-        XCTAssertTrue(sampleNames.contains("SAMPLE_A"))
+        XCTAssertFalse(sampleNames.contains("SAMPLE_A"), "Hom-ref should not be stored")
         XCTAssertTrue(sampleNames.contains("SAMPLE_B"))
         XCTAssertFalse(sampleNames.contains("SAMPLE_C"))
     }
@@ -273,13 +271,16 @@ final class VariantDatabaseGenotypeTests: XCTestCase {
         let variant = try XCTUnwrap(variants.first)
         let genotypes = db.genotypes(forVariantId: variant.id!)
 
+        // v3: SAMPLE2 (0|0) is hom-ref → not stored
+        XCTAssertEqual(genotypes.count, 1, "Only non-hom-ref genotypes stored")
+
         let s1 = genotypes.first { $0.sampleName == "SAMPLE1" }
         XCTAssertEqual(s1?.genotypeCall, .homAlt)
         XCTAssertTrue(s1?.isPhased ?? false)
 
+        // SAMPLE2 (0|0) inferred as hom-ref from absence
         let s2 = genotypes.first { $0.sampleName == "SAMPLE2" }
-        XCTAssertEqual(s2?.genotypeCall, .homRef)
-        XCTAssertTrue(s2?.isPhased ?? false)
+        XCTAssertNil(s2, "Hom-ref genotype should not be stored")
     }
 
     // MARK: - Sample Count on Variant Records
@@ -327,8 +328,8 @@ final class VariantDatabaseGenotypeTests: XCTestCase {
         // Query SAMPLE_A genotypes in chr1:0-1000 (all chr1 variants)
         let genotypes = db.genotypes(forSample: "SAMPLE_A", chromosome: "chr1", start: 0, end: 1000)
 
-        // rs100 (0/1), rs200 (0/0), rs500 (1|1) = 3 genotype records
-        XCTAssertEqual(genotypes.count, 3)
+        // rs100 (0/1), rs500 (1|1) = 2 records. rs200 (0/0) is hom-ref → not stored.
+        XCTAssertEqual(genotypes.count, 2)
 
         // Verify they're ordered by position
         // The genotypes should correspond to variant positions 99, 199, 499
@@ -372,12 +373,13 @@ final class VariantDatabaseGenotypeTests: XCTestCase {
             XCTAssertFalse(genotypes.isEmpty, "Each variant should have at least 1 genotype")
         }
 
-        // Check rs100 has 3 genotypes, rs200 has 2 (one missing)
+        // v3: rs100 has 2 non-hom-ref genotypes (SAMPLE_C=0/0 omitted)
+        // rs200 has 1 non-hom-ref genotype (SAMPLE_A=0/0 omitted, SAMPLE_C=./. skipped)
         let rs100 = results.first { $0.variant.variantID == "rs100" }
-        XCTAssertEqual(rs100?.genotypes.count, 3)
+        XCTAssertEqual(rs100?.genotypes.count, 2)
 
         let rs200 = results.first { $0.variant.variantID == "rs200" }
-        XCTAssertEqual(rs200?.genotypes.count, 2)
+        XCTAssertEqual(rs200?.genotypes.count, 1)
     }
 
     func testGenotypesInRegionEmptyResult() throws {
@@ -494,9 +496,9 @@ final class VariantDatabaseGenotypeTests: XCTestCase {
         XCTAssertEqual(noCall.r, 0.980, accuracy: 0.01)
     }
 
-    // MARK: - Raw Fields Preservation
+    // MARK: - Raw Fields (v3: not stored)
 
-    func testRawFieldsPreserved() throws {
+    func testRawFieldsNilInV3() throws {
         let (db, _) = try createDatabase(from: multiSampleVCF)
 
         let variants = db.query(chromosome: "chr1", start: 99, end: 100)
@@ -504,14 +506,15 @@ final class VariantDatabaseGenotypeTests: XCTestCase {
         let genotypes = db.genotypes(forVariantId: variant.id!)
 
         let sampleA = genotypes.first { $0.sampleName == "SAMPLE_A" }
-        XCTAssertNotNil(sampleA?.rawFields)
+        XCTAssertNotNil(sampleA, "SAMPLE_A (0/1 het) should be stored")
+        // v3: raw_fields is not populated (individual columns GT/DP/GQ/AD are sufficient)
+        XCTAssertNil(sampleA?.rawFields, "v3 databases should not store raw_fields")
 
-        // Raw fields should contain all FORMAT fields as key=value pairs
-        let raw = sampleA?.rawFields ?? ""
-        XCTAssertTrue(raw.contains("GT=0/1"), "Raw fields should contain GT")
-        XCTAssertTrue(raw.contains("DP=30"), "Raw fields should contain DP")
-        XCTAssertTrue(raw.contains("GQ=99"), "Raw fields should contain GQ")
-        XCTAssertTrue(raw.contains("AD=15,15"), "Raw fields should contain AD")
+        // Individual fields should still be available
+        XCTAssertEqual(sampleA?.genotype, "0/1")
+        XCTAssertEqual(sampleA?.depth, 30)
+        XCTAssertEqual(sampleA?.genotypeQuality, 99)
+        XCTAssertEqual(sampleA?.alleleDepths, "15,15")
     }
 
     // MARK: - parseGenotypes flag
@@ -975,5 +978,37 @@ final class VariantDatabaseGenotypeTests: XCTestCase {
         XCTAssertThrowsError(
             try db.importSampleMetadata(from: fakeExcel, format: .excel)
         )
+    }
+
+    // MARK: - V3 Import Optimizations
+
+    func testOmitHomrefFlag() throws {
+        let (db, _) = try createDatabase(from: multiSampleVCF)
+        XCTAssertTrue(db.omitHomref, "v3 databases should have omit_homref=true")
+    }
+
+    func testSampleCountPreservedWithOmitHomref() throws {
+        let (db, _) = try createDatabase(from: multiSampleVCF)
+
+        // rs100: all 3 samples called (including 0/0) — sample_count should still be 3
+        let v1 = db.query(chromosome: "chr1", start: 99, end: 100)
+        XCTAssertEqual(v1.first?.sampleCount, 3, "sample_count should count all called samples, including hom-ref")
+
+        // rs200: 2 called (SAMPLE_A=0/0, SAMPLE_B=0/1), SAMPLE_C=./. — sample_count should be 2
+        let v2 = db.query(chromosome: "chr1", start: 199, end: 200)
+        XCTAssertEqual(v2.first?.sampleCount, 2)
+    }
+
+    func testVariantInfoStoredButRawInfoNull() throws {
+        let (db, _) = try createDatabase(from: multiSampleVCF)
+
+        // v3: raw info string is not stored in the variants table
+        let variants = db.query(chromosome: "chr1", start: 99, end: 100)
+        let variant = try XCTUnwrap(variants.first)
+        XCTAssertNil(variant.info, "v3 databases should not store raw INFO string")
+
+        // But structured INFO values should be available via variant_info EAV table
+        let infoValues = db.infoValues(variantId: variant.id!)
+        XCTAssertEqual(infoValues["DP"], "100", "Structured INFO values should be available")
     }
 }

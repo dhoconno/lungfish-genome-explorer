@@ -3041,8 +3041,16 @@ public class SequenceViewerView: NSView {
                         end: expandedRegion.end,
                         limit: 5_000  // Cap for performance
                     )
+                    let dbOmitHomref = db.omitHomref
                     for (variant, genotypes) in regionData {
                         var gtMap: [String: GenotypeDisplayCall] = [:]
+                        // v3 databases omit hom-ref genotypes; pre-fill all samples
+                        // as .homRef so absent entries are treated correctly.
+                        if dbOmitHomref {
+                            for name in sampleNames {
+                                gtMap[name] = .homRef
+                            }
+                        }
                         for gt in genotypes {
                             gtMap[gt.sampleName] = classifyGenotype(gt)
                         }

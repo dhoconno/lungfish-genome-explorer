@@ -316,6 +316,9 @@ public final class VariantDatabase: @unchecked Sendable {
     private let isReadOnly: Bool
     /// Whether the variant_info EAV table exists (for structured INFO field queries).
     private let hasInfoTable: Bool
+    /// Whether hom-ref (0/0) genotypes are omitted from the genotypes table (v3 import optimization).
+    /// When true, absence of a genotype row for a sample at a variant site means hom-ref, not no-call.
+    public let omitHomref: Bool
 
     /// Opens an existing variant database for reading.
     ///
@@ -343,7 +346,9 @@ public final class VariantDatabase: @unchecked Sendable {
         self.hasSourceFileColumn = hasV2Schema && VariantDatabase.columnExists(db: db!, table: "samples", column: "source_file")
         // Detect variant_info EAV table
         self.hasInfoTable = VariantDatabase.tableExists(db: db!, name: "variant_info")
-        variantDBLogger.info("Opened variant database: \(url.lastPathComponent) (v2=\(self.hasV2Schema), sourceFile=\(self.hasSourceFileColumn), infoTable=\(self.hasInfoTable))")
+        // Detect v3 import optimization (hom-ref genotypes omitted)
+        self.omitHomref = VariantDatabase.metadataValue(db: db!, key: "omit_homref") == "true"
+        variantDBLogger.info("Opened variant database: \(url.lastPathComponent) (v2=\(self.hasV2Schema), sourceFile=\(self.hasSourceFileColumn), infoTable=\(self.hasInfoTable), omitHomref=\(self.omitHomref))")
     }
 
     /// Convenience init that opens read-only (backward compatible).
@@ -365,6 +370,18 @@ public final class VariantDatabase: @unchecked Sendable {
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return false }
         sqliteBindText(stmt, 1, name)
         return sqlite3_step(stmt) == SQLITE_ROW
+    }
+
+    /// Reads a value from the db_metadata table, returning nil if the table or key doesn't exist.
+    private static func metadataValue(db: OpaquePointer, key: String) -> String? {
+        guard tableExists(db: db, name: "db_metadata") else { return nil }
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        let sql = "SELECT value FROM db_metadata WHERE key = ?"
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
+        sqliteBindText(stmt, 1, key)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+        return sqlite3_column_text(stmt, 0).map { String(cString: $0) }
     }
 
     /// Checks whether a column exists in a table.
@@ -1465,6 +1482,10 @@ public final class VariantDatabase: @unchecked Sendable {
             value TEXT NOT NULL,
             PRIMARY KEY (variant_id, key)
         );
+        CREATE TABLE db_metadata (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
         """
         var errMsg: UnsafeMutablePointer<CChar>?
         sqlite3_exec(db, schema, nil, nil, &errMsg)
@@ -1473,6 +1494,10 @@ public final class VariantDatabase: @unchecked Sendable {
             sqlite3_free(errMsg)
             throw VariantDatabaseError.createFailed(msg)
         }
+
+        // Insert metadata flags for v3 import optimizations.
+        sqlite3_exec(db, "INSERT INTO db_metadata VALUES ('schema_version', '3')", nil, nil, nil)
+        sqlite3_exec(db, "INSERT INTO db_metadata VALUES ('omit_homref', 'true')", nil, nil, nil)
 
         var txnErr: UnsafeMutablePointer<CChar>?
         sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, &txnErr)
@@ -1651,7 +1676,8 @@ public final class VariantDatabase: @unchecked Sendable {
                 sqlite3_bind_null(insertVariantStmt, 8)
             }
             sqliteBindTextOrNull(insertVariantStmt, 9, filter)
-            sqliteBindTextOrNull(insertVariantStmt, 10, infoStr)
+            // v3: Don't store raw INFO string (redundant with variant_info EAV table).
+            sqlite3_bind_null(insertVariantStmt, 10)
             sqlite3_bind_int(insertVariantStmt, 11, Int32(genotypeCount))
 
             guard sqlite3_step(insertVariantStmt) == SQLITE_DONE else {
@@ -1735,21 +1761,16 @@ public final class VariantDatabase: @unchecked Sendable {
                         if gqStr != "." { gq = Int(gqStr) }
                     }
 
+                    // v3: Skip hom-ref genotypes (0/0) — inferred from absence.
+                    // This typically eliminates ~90% of genotype rows.
+                    if allele1 == 0 && allele2 == 0 { continue }
+
                     // Parse AD
                     var ad: String?
                     if let adIdx = adIndex, adIdx < sampleFields.count {
                         let adStr = sampleFields[adIdx]
                         if adStr != "." { ad = adStr }
                     }
-
-                    // Build raw fields string
-                    var rawParts: [String] = []
-                    for (i, key) in formatFields.enumerated() {
-                        if i < sampleFields.count {
-                            rawParts.append("\(key)=\(sampleFields[i])")
-                        }
-                    }
-                    let rawFieldsStr = rawParts.joined(separator: ";")
 
                     sqlite3_reset(insertGenotypeStmt)
                     sqlite3_bind_int64(insertGenotypeStmt, 1, variantRowId)
@@ -1769,7 +1790,8 @@ public final class VariantDatabase: @unchecked Sendable {
                         sqlite3_bind_null(insertGenotypeStmt, 8)
                     }
                     sqliteBindTextOrNull(insertGenotypeStmt, 9, ad)
-                    sqliteBindText(insertGenotypeStmt, 10, rawFieldsStr)
+                    // v3: Don't store raw_fields (redundant with individual GT/DP/GQ/AD columns).
+                    sqlite3_bind_null(insertGenotypeStmt, 10)
 
                     sqlite3_step(insertGenotypeStmt)
                 }
