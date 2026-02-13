@@ -604,8 +604,10 @@ public class MainSplitViewController: NSSplitViewController {
             context.allowsImplicitAnimation = true
             sidebarItem.animator().isCollapsed.toggle()
         } completionHandler: { [weak self] in
-            Task { @MainActor in
-                self?.savePanelState()
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.savePanelState()
+                }
             }
         }
     }
@@ -706,9 +708,10 @@ public class MainSplitViewController: NSSplitViewController {
 
         // Fallback finalization path for cases where AppKit doesn't invoke
         // split-view animation completion callbacks reliably.
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 350_000_000)
-            await MainActor.run {
+        // Uses GCD timer (not Task.sleep) to guarantee main-thread scheduling
+        // even during AppKit animation/layout cycles.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            MainActor.assumeIsolated {
                 logger.info("animateInspectorCollapse[\(source, privacy: .public)]: fallback callback fired for serial=\(serial)")
                 self?.completeInspectorCollapseAnimation(serial: serial, source: "\(source).fallback")
             }
@@ -932,29 +935,36 @@ extension MainSplitViewController: SidebarSelectionDelegate {
 
         viewerController.showProgress("Loading \(url.lastPathComponent)...")
 
-        // Use detached task for background loading without inheriting actor context
+        // Use detached task for background loading without inheriting actor context.
+        // UI callbacks use GCD main queue + MainActor.assumeIsolated (not await MainActor.run)
+        // because the cooperative executor doesn't reliably schedule from Task.detached.
         Task.detached(priority: .userInitiated) {
             do {
                 let document = try await DocumentManager.shared.loadDocument(at: url)
 
-                // Update UI on main actor
-                await MainActor.run {
-                    viewerController.hideProgress()
-                    viewerController.displayDocument(document)
-                    sidebarController.refreshItem(for: url)
-                    logger.info("loadGenomicsFileInBackground: Loaded and displayed")
+                // Update UI via GCD main queue (guaranteed to drain)
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        viewerController.hideProgress()
+                        viewerController.displayDocument(document)
+                        sidebarController.refreshItem(for: url)
+                        logger.info("loadGenomicsFileInBackground: Loaded and displayed")
+                    }
                 }
             } catch {
-                await MainActor.run {
-                    viewerController.hideProgress()
-                    logger.error("loadGenomicsFileInBackground: Failed - \(error.localizedDescription)")
+                let errorMessage = error.localizedDescription
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        viewerController.hideProgress()
+                        logger.error("loadGenomicsFileInBackground: Failed - \(errorMessage)")
 
-                    let alert = NSAlert()
-                    alert.messageText = "Failed to Open File"
-                    alert.informativeText = error.localizedDescription
-                    alert.alertStyle = .warning
-                    alert.addButton(withTitle: "OK")
-                    alert.runModal()
+                        let alert = NSAlert()
+                        alert.messageText = "Failed to Open File"
+                        alert.informativeText = errorMessage
+                        alert.alertStyle = .warning
+                        alert.addButton(withTitle: "OK")
+                        alert.runModal()
+                    }
                 }
             }
         }

@@ -359,13 +359,26 @@ extension MainWindowController: NSWindowDelegate {
     }
 
     public func windowDidEnterFullScreen(_ notification: Notification) {
-        // After full-screen transition completes, force layout + redraw so the
+        // After full-screen transition completes, force redraw so the
         // viewer fills the entire screen and the reference frame width is updated.
         mainSplitViewController?.viewerController?.forceFullRedraw()
+
+        // Ensure the window is key and the app is active — macOS sometimes
+        // fails to properly activate the app after a full-screen transition.
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: false)
     }
 
     public func windowDidExitFullScreen(_ notification: Notification) {
         // Same treatment when leaving full screen.
+        mainSplitViewController?.viewerController?.forceFullRedraw()
+        window?.makeKeyAndOrderFront(nil)
+    }
+
+    public func windowDidBecomeKey(_ notification: Notification) {
+        // When the window becomes key (e.g., switching back to the app),
+        // ensure the annotation tile is current — it may have been
+        // invalidated while the window was in the background.
         mainSplitViewController?.viewerController?.forceFullRedraw()
     }
 }

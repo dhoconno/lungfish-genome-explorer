@@ -628,8 +628,12 @@ public class ViewerViewController: NSViewController {
         viewerView?.invalidateAnnotationTile()
     }
 
-    /// Forces a complete layout update and redraw after a window frame change
+    /// Forces a complete redraw after a window frame change
     /// (e.g., entering or exiting full-screen mode).
+    ///
+    /// Does NOT set `view.needsLayout` — AppKit already triggers layout during
+    /// full-screen transitions, and an extra layout pass would cause redundant
+    /// viewDidLayout → deferred-redraw cycles.
     public func forceFullRedraw() {
         guard let viewerView else { return }
 
@@ -641,8 +645,7 @@ public class ViewerViewController: NSViewController {
         // Invalidate the pre-rendered tile — its dimensions are stale
         viewerView.invalidateAnnotationTile()
 
-        // Force all subviews to redraw
-        view.needsLayout = true
+        // Mark all subviews as needing display
         viewerView.needsDisplay = true
         enhancedRulerView?.needsDisplay = true
         statusBar?.needsDisplay = true
