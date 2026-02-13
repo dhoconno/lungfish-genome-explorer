@@ -223,6 +223,7 @@ public enum VariantTrackRenderer {
     ///   - context: The graphics context to draw into
     ///   - yOffset: Y position for the top of the first sample row
     ///   - state: Display state controlling appearance
+    ///   - sampleDisplayNames: Optional per-sample display labels
     ///   - scrollOffset: Vertical scroll offset in pixels (0 = top)
     ///   - availableHeight: Maximum height available for rendering genotype rows
     public static func drawGenotypeRows(
@@ -231,6 +232,7 @@ public enum VariantTrackRenderer {
         context: CGContext,
         yOffset: CGFloat,
         state: SampleDisplayState,
+        sampleDisplayNames: [String: String] = [:],
         scrollOffset: CGFloat = 0,
         availableHeight: CGFloat = .greatestFiniteMagnitude
     ) {
@@ -264,7 +266,7 @@ public enum VariantTrackRenderer {
 
             // Sample name label (when rows are tall enough)
             if showLabels {
-                let label = sampleName as NSString
+                let label = (sampleDisplayNames[sampleName] ?? sampleName) as NSString
                 let fontSize = max(7, min(rowH - 2, 12))
                 let labelAttrs: [NSAttributedString.Key: Any] = [
                     .font: NSFont.systemFont(ofSize: fontSize, weight: .regular),

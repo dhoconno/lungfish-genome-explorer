@@ -130,6 +130,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Optional source object to scope viewport sync notifications to a single viewer.
     private weak var viewportSyncSourceObject: AnyObject?
 
+    /// Stable source identifier for viewport sync scoping (survives weak-reference timing races).
+    private var viewportSyncSourceIdentifier: ObjectIdentifier?
+
     // MARK: - Annotation→Variant Cross-Reference
 
     /// Bounding region from current annotation search results (union of all annotation regions on the same chromosome).
@@ -495,6 +498,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Sets the viewer object that owns viewport-sync notifications for this drawer.
     func setViewportSyncSource(_ source: AnyObject?) {
         viewportSyncSourceObject = source
+        viewportSyncSourceIdentifier = source.map(ObjectIdentifier.init)
     }
 
     /// Seeds the drawer's local sample display state from the viewer.
@@ -511,6 +515,12 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Handles `.viewportVariantsUpdated` notification to auto-sync the variant table.
     @objc private func handleViewportVariantsUpdated(_ notification: Notification) {
         guard viewportSyncEnabled else { return }
+        if let expectedSource = viewportSyncSourceIdentifier {
+            guard let sender = notification.object as AnyObject?,
+                  ObjectIdentifier(sender) == expectedSource else {
+                return
+            }
+        }
         guard let userInfo = notification.userInfo,
               let chromosome = userInfo[NotificationUserInfoKey.chromosome] as? String,
               let start = userInfo[NotificationUserInfoKey.start] as? Int,
@@ -888,7 +898,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// placeholder message.
     /// Whether viewport sync is effectively active: enabled, connected to a viewer, and region available.
     private var isViewportSyncActive: Bool {
-        viewportSyncEnabled && viewportSyncSourceObject != nil
+        viewportSyncEnabled && (viewportSyncSourceIdentifier != nil || viewportSyncSourceObject != nil)
     }
 
     private func updateDisplayedVariants(
@@ -1148,7 +1158,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         let ascending = sortDescriptor.ascending
 
         if activeTab == .samples {
-            sortDisplayedSamples(key: key, ascending: ascending)
+            let sortedAllSamples = sortedSampleNames(key: key, ascending: ascending, names: resolvedSampleOrder())
             // Sync sort to SampleDisplayState so viewer rendering order matches
             let displayField: String
             switch key {
@@ -1163,10 +1173,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 }
             }
             currentSampleDisplayState.sortFields = [SortField(field: displayField, ascending: ascending)]
-            // Update sampleOrder to reflect the current visual order
-            currentSampleDisplayState.sampleOrder = displayedSamples.map(\.name)
+            // Persist full-order sort, not just currently filtered rows.
+            currentSampleDisplayState.sampleOrder = sortedAllSamples
             postSampleDisplayStateChange()
-            tableView.reloadData()
+            updateDisplayedSamples()
             return
         }
 
@@ -1951,19 +1961,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
     private func updateDisplayedSamples() {
         let filter = filterText.lowercased()
 
-        // Use sampleOrder from display state if available, otherwise default VCF order
-        let orderedNames: [String]
-        if let order = currentSampleDisplayState.sampleOrder {
-            let allSet = Set(allSampleNames)
-            var ordered = order.filter { allSet.contains($0) }
-            let orderedSet = Set(ordered)
-            ordered.append(contentsOf: allSampleNames.filter { !orderedSet.contains($0) })
-            orderedNames = ordered
-        } else {
-            orderedNames = allSampleNames
-        }
-
-        displayedSamples = orderedNames.compactMap { name in
+        displayedSamples = resolvedSampleOrder().compactMap { name in
             let sourceFile = sampleSourceFiles[name] ?? ""
             let metadata = sampleMetadata[name] ?? [:]
             let isVisible = !currentSampleDisplayState.hiddenSamples.contains(name)
@@ -1983,26 +1981,45 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         updateCountLabel()
     }
 
-    /// Sorts displayed samples by the given key.
-    private func sortDisplayedSamples(key: String, ascending: Bool) {
-        displayedSamples.sort { a, b in
+    /// Returns sample names in effective display order (persisted order + any new samples).
+    private func resolvedSampleOrder() -> [String] {
+        guard let order = currentSampleDisplayState.sampleOrder else { return allSampleNames }
+        let allSet = Set(allSampleNames)
+        var ordered = order.filter { allSet.contains($0) }
+        let orderedSet = Set(ordered)
+        ordered.append(contentsOf: allSampleNames.filter { !orderedSet.contains($0) })
+        return ordered
+    }
+
+    /// Sorts a set of sample names by samples-tab column key.
+    private func sortedSampleNames(key: String, ascending: Bool, names: [String]) -> [String] {
+        names.sorted { nameA, nameB in
+            let metaA = sampleMetadata[nameA] ?? [:]
+            let metaB = sampleMetadata[nameB] ?? [:]
+            let sourceA = sampleSourceFiles[nameA] ?? ""
+            let sourceB = sampleSourceFiles[nameB] ?? ""
+            let visibleA = !currentSampleDisplayState.hiddenSamples.contains(nameA)
+            let visibleB = !currentSampleDisplayState.hiddenSamples.contains(nameB)
             let result: ComparisonResult
             switch key {
             case "visible":
-                result = a.isVisible == b.isVisible ? .orderedSame : (a.isVisible ? .orderedAscending : .orderedDescending)
+                result = visibleA == visibleB ? .orderedSame : (visibleA ? .orderedAscending : .orderedDescending)
             case "sample_name":
-                result = a.name.localizedCaseInsensitiveCompare(b.name)
+                result = nameA.localizedCaseInsensitiveCompare(nameB)
             case "source_file":
-                result = a.sourceFile.localizedCaseInsensitiveCompare(b.sourceFile)
+                result = sourceA.localizedCaseInsensitiveCompare(sourceB)
             default:
                 if key.hasPrefix("meta_") {
                     let metaKey = String(key.dropFirst(5))
-                    let valA = a.metadata[metaKey] ?? ""
-                    let valB = b.metadata[metaKey] ?? ""
+                    let valA = metaA[metaKey] ?? ""
+                    let valB = metaB[metaKey] ?? ""
                     result = valA.localizedCaseInsensitiveCompare(valB)
                 } else {
                     result = .orderedSame
                 }
+            }
+            if result == .orderedSame {
+                return nameA.localizedCaseInsensitiveCompare(nameB) == .orderedAscending
             }
             return ascending ? result == .orderedAscending : result == .orderedDescending
         }
@@ -2383,25 +2400,29 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             guard idx < displayedSamples.count else { return nil }
             return displayedSamples[idx]
         }
+        let draggedNames = draggedItems.map(\.name)
+        let draggedNameSet = Set(draggedNames)
 
-        // Remove dragged items (from highest index first)
-        for idx in draggedRows.sorted().reversed() {
-            guard idx < displayedSamples.count else { continue }
-            displayedSamples.remove(at: idx)
+        let fullOrder = resolvedSampleOrder()
+        var reordered = fullOrder.filter { !draggedNameSet.contains($0) }
+
+        // Insert relative to visible rows, but apply to full ordering.
+        let insertionIndex: Int
+        if row >= displayedSamples.count {
+            insertionIndex = reordered.count
+        } else {
+            let anchorName = displayedSamples[row].name
+            insertionIndex = reordered.firstIndex(of: anchorName) ?? reordered.count
         }
+        reordered.insert(contentsOf: draggedNames, at: insertionIndex)
 
-        // Calculate the adjusted insertion point
-        let adjustedRow = min(row - draggedRows.filter { $0 < row }.count, displayedSamples.count)
-        displayedSamples.insert(contentsOf: draggedItems, at: adjustedRow)
-
-        // Update allSampleNames to reflect new order
-        allSampleNames = displayedSamples.map(\.name)
+        // Persist explicit full order, including currently non-visible samples.
+        allSampleNames = reordered
 
         // Update display state with new order
         currentSampleDisplayState.sampleOrder = allSampleNames
         postSampleDisplayStateChange()
-
-        tableView.reloadData()
+        updateDisplayedSamples()
         return true
     }
 }

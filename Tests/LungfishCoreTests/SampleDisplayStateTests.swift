@@ -269,6 +269,16 @@ final class SampleDisplayStateTests: XCTestCase {
         XCTAssertEqual(decoded.rowHeight, 12, "Legacy 'automatic' should migrate to 12px (default)")
     }
 
+    func testCodableClampsOutOfRangeHeights() throws {
+        let json = """
+        {"showGenotypeRows":true,"rowHeight":999,"summaryBarHeight":-4,"sortFields":[],"filters":[],"hiddenSamples":[]}
+        """
+        let data = json.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(SampleDisplayState.self, from: data)
+        XCTAssertEqual(decoded.rowHeight, SampleDisplayState.maxRowHeight)
+        XCTAssertEqual(decoded.summaryBarHeight, SampleDisplayState.minSummaryBarHeight)
+    }
+
     // MARK: - SampleFilter.matches
 
     func testFilterMatchesEquals() {
@@ -335,6 +345,12 @@ final class SampleDisplayStateTests: XCTestCase {
         let state = SampleDisplayState(rowHeight: 5, summaryBarHeight: 30)
         XCTAssertEqual(state.rowHeight, 5)
         XCTAssertEqual(state.summaryBarHeight, 30)
+    }
+
+    func testInitializerClampsRowAndSummaryHeight() {
+        let state = SampleDisplayState(rowHeight: 0, summaryBarHeight: 200)
+        XCTAssertEqual(state.rowHeight, SampleDisplayState.minRowHeight)
+        XCTAssertEqual(state.summaryBarHeight, SampleDisplayState.maxSummaryBarHeight)
     }
 
     // MARK: - Sample Order

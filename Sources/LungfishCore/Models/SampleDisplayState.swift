@@ -11,6 +11,13 @@ import Foundation
 /// Manages sort order, filtering, and visibility for per-sample genotype rows.
 /// This is stored per-bundle and persists across sessions.
 public struct SampleDisplayState: Sendable, Codable, Equatable {
+    public static let minRowHeight: CGFloat = 2
+    public static let maxRowHeight: CGFloat = 30
+    public static let defaultRowHeight: CGFloat = 12
+
+    public static let minSummaryBarHeight: CGFloat = 10
+    public static let maxSummaryBarHeight: CGFloat = 60
+    public static let defaultSummaryBarHeight: CGFloat = 20
 
     /// Fields to sort samples by, in priority order.
     /// Empty means default order (as they appear in the VCF header).
@@ -26,10 +33,10 @@ public struct SampleDisplayState: Sendable, Codable, Equatable {
     public var showGenotypeRows: Bool = true
 
     /// Height per genotype row in pixels (2–30). Default 12.
-    public var rowHeight: CGFloat = 12
+    public var rowHeight: CGFloat = Self.defaultRowHeight
 
     /// Height of the variant summary bar in pixels (10–60). Default 20.
-    public var summaryBarHeight: CGFloat = 20
+    public var summaryBarHeight: CGFloat = Self.defaultSummaryBarHeight
 
     /// Explicit sample ordering. When non-nil, `visibleSamples(from:)` uses this
     /// order instead of VCF default order. When nil, falls back to VCF order.
@@ -45,8 +52,8 @@ public struct SampleDisplayState: Sendable, Codable, Equatable {
         filters: [SampleFilter] = [],
         hiddenSamples: Set<String> = [],
         showGenotypeRows: Bool = true,
-        rowHeight: CGFloat = 12,
-        summaryBarHeight: CGFloat = 20,
+        rowHeight: CGFloat = Self.defaultRowHeight,
+        summaryBarHeight: CGFloat = Self.defaultSummaryBarHeight,
         sampleOrder: [String]? = nil,
         displayNameField: String? = nil
     ) {
@@ -54,10 +61,18 @@ public struct SampleDisplayState: Sendable, Codable, Equatable {
         self.filters = filters
         self.hiddenSamples = hiddenSamples
         self.showGenotypeRows = showGenotypeRows
-        self.rowHeight = rowHeight
-        self.summaryBarHeight = summaryBarHeight
+        self.rowHeight = Self.clampRowHeight(rowHeight)
+        self.summaryBarHeight = Self.clampSummaryBarHeight(summaryBarHeight)
         self.sampleOrder = sampleOrder
         self.displayNameField = displayNameField
+    }
+
+    public static func clampRowHeight(_ value: CGFloat) -> CGFloat {
+        max(minRowHeight, min(maxRowHeight, value))
+    }
+
+    public static func clampSummaryBarHeight(_ value: CGFloat) -> CGFloat {
+        max(minSummaryBarHeight, min(maxSummaryBarHeight, value))
     }
 
     // MARK: - Codable (backward compatibility)
@@ -75,21 +90,22 @@ public struct SampleDisplayState: Sendable, Codable, Equatable {
         filters = try container.decodeIfPresent([SampleFilter].self, forKey: .filters) ?? []
         hiddenSamples = try container.decodeIfPresent(Set<String>.self, forKey: .hiddenSamples) ?? []
         showGenotypeRows = try container.decodeIfPresent(Bool.self, forKey: .showGenotypeRows) ?? true
-        summaryBarHeight = try container.decodeIfPresent(CGFloat.self, forKey: .summaryBarHeight) ?? 20
+        let decodedSummary = try container.decodeIfPresent(CGFloat.self, forKey: .summaryBarHeight) ?? Self.defaultSummaryBarHeight
+        summaryBarHeight = Self.clampSummaryBarHeight(decodedSummary)
         sampleOrder = try container.decodeIfPresent([String].self, forKey: .sampleOrder)
         displayNameField = try container.decodeIfPresent(String.self, forKey: .displayNameField)
 
         // Migrate from legacy RowHeightMode if present
         if let height = try container.decodeIfPresent(CGFloat.self, forKey: .rowHeight) {
-            rowHeight = height
+            rowHeight = Self.clampRowHeight(height)
         } else if let legacyMode = try container.decodeIfPresent(String.self, forKey: .rowHeightMode) {
             switch legacyMode {
             case "squished": rowHeight = 2
             case "expanded": rowHeight = 10
-            default: rowHeight = 12  // automatic → default
+            default: rowHeight = Self.defaultRowHeight  // automatic → default
             }
         } else {
-            rowHeight = 12
+            rowHeight = Self.defaultRowHeight
         }
     }
 

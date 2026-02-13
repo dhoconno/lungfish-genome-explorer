@@ -2148,13 +2148,11 @@ extension SidebarViewController: NSMenuDelegate {
                 metadata: manifest.metadata
             )
 
-            var manifestWriteFailed = false
             let manifestURL = bundleURL.appendingPathComponent("manifest.json")
             do {
                 let jsonData = try JSONEncoder().encode(updatedManifest)
                 try jsonData.write(to: manifestURL, options: .atomic)
             } catch {
-                manifestWriteFailed = true
                 errors.append("Failed to write manifest.json: \(error.localizedDescription)")
             }
 
@@ -2168,9 +2166,7 @@ extension SidebarViewController: NSMenuDelegate {
                         logger.warning("performDeleteVariantTracks: \(w, privacy: .public)")
                     }
 
-                    // Always post notification when data files were removed, even if
-                    // manifest write failed — the variant data is already gone.
-                    if finalErrors.isEmpty || (!manifestWriteFailed && !deletedFiles.isEmpty) {
+                    if finalErrors.isEmpty {
                         logger.info("performDeleteVariantTracks: Deleted \(finalDeletedCount) files from bundle")
                         NotificationCenter.default.post(
                             name: .bundleVariantTracksDeleted,

@@ -1950,6 +1950,9 @@ public class SequenceViewerView: NSView {
     /// Cached genotype display data for the visible region.
     private var cachedGenotypeData: GenotypeDisplayData?
 
+    /// Optional display labels per sample for genotype row rendering.
+    private var cachedGenotypeSampleDisplayNames: [String: String] = [:]
+
     /// Region for which genotype data is cached.
     private var cachedGenotypeRegion: GenomicRegion?
 
@@ -2436,6 +2439,7 @@ public class SequenceViewerView: NSView {
     func clearGenotypeCache() {
         genotypeFetchGeneration += 1
         cachedGenotypeData = nil
+        cachedGenotypeSampleDisplayNames = [:]
         cachedGenotypeRegion = nil
         isFetchingGenotypes = false
     }
@@ -2492,6 +2496,7 @@ public class SequenceViewerView: NSView {
 
         // Clear genotype track state
         self.cachedGenotypeData = nil
+        self.cachedGenotypeSampleDisplayNames = [:]
         self.cachedGenotypeRegion = nil
         self.isFetchingGenotypes = false
         self.genotypeScrollOffset = 0
@@ -2558,6 +2563,7 @@ public class SequenceViewerView: NSView {
         self.cachedVariantRegion = nil
         self.invalidateFilteredVariantCache()
         self.cachedGenotypeData = nil
+        self.cachedGenotypeSampleDisplayNames = [:]
         self.cachedGenotypeRegion = nil
         self.isFetchingBundleData = false
         self.isFetchingAnnotations = false
@@ -2878,6 +2884,7 @@ public class SequenceViewerView: NSView {
                         context: context,
                         yOffset: genotypeY,
                         state: sampleDisplayState,
+                        sampleDisplayNames: cachedGenotypeSampleDisplayNames,
                         scrollOffset: genotypeScrollOffset,
                         availableHeight: availableHeight
                     )
@@ -3251,6 +3258,16 @@ public class SequenceViewerView: NSView {
             enrichSitesWithCSQImpact(&allSites, variantDatabasesByTrackId: variantDBByTrackId)
 
             let visibleOrderedSamples = displayState.visibleSamples(from: sampleNames, metadata: sampleMetadata)
+            let displayField = displayState.displayNameField?.trimmingCharacters(in: .whitespacesAndNewlines)
+            var sampleDisplayNames: [String: String] = [:]
+            if let field = displayField, !field.isEmpty {
+                for sampleName in visibleOrderedSamples {
+                    if let label = sampleMetadata[sampleName]?[field]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !label.isEmpty {
+                        sampleDisplayNames[sampleName] = label
+                    }
+                }
+            }
 
             let displayData = GenotypeDisplayData(
                 sampleNames: visibleOrderedSamples,
@@ -3267,6 +3284,7 @@ public class SequenceViewerView: NSView {
                 }
                 let elapsed = Date().timeIntervalSince(fetchStart)
                 viewer.cachedGenotypeData = displayData
+                viewer.cachedGenotypeSampleDisplayNames = sampleDisplayNames
                 viewer.cachedGenotypeRegion = expandedRegion
                 viewer.clampGenotypeScrollOffset()
                 viewer.isFetchingGenotypes = false
