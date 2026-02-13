@@ -273,6 +273,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // Register for system notifications
         registerNotifications()
 
+        // Clean up stale temp files from previous sessions
+        Task {
+            await TempFileManager.shared.cleanupOnLaunch()
+        }
+
         // Wire up DownloadCenter to handle bundle import when downloads complete.
         // This is the primary mechanism for getting built bundles into the sidebar
         // after background downloads finish. It replaces the fragile callback chain
@@ -543,6 +548,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     public func applicationWillTerminate(_ notification: Notification) {
         // Save application state
         saveApplicationState()
+
+        // Clean up any temp files created during this session
+        // Note: This is synchronous since we're terminating
+        Task {
+            await TempFileManager.shared.cleanupSessionFiles()
+        }
     }
 
     public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

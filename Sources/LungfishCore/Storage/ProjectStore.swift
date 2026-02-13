@@ -142,6 +142,16 @@ public final class ProjectStore {
 
     deinit {
         if let db = db {
+            // Checkpoint WAL to reclaim disk space before closing
+            var walFrameCount: Int32 = 0
+            var checkpointedFrames: Int32 = 0
+            sqlite3_wal_checkpoint_v2(
+                db,
+                nil,
+                SQLITE_CHECKPOINT_TRUNCATE,
+                &walFrameCount,
+                &checkpointedFrames
+            )
             sqlite3_close_v2(db)
         }
     }
@@ -733,6 +743,65 @@ public final class ProjectStore {
             qualifiers: qualifiers,
             color: sqlite3_column_type(stmt, 7) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 7)) : nil
         )
+    }
+
+    // MARK: - WAL Checkpointing
+
+    /// Checkpoints the WAL file to reclaim disk space.
+    ///
+    /// In WAL mode, changes accumulate in a separate WAL file. Checkpointing
+    /// moves those changes back to the main database file and truncates the WAL.
+    /// This should be called periodically or when closing to prevent the WAL
+    /// file from growing unbounded.
+    ///
+    /// - Parameter mode: The checkpoint mode. Defaults to `.truncate` which
+    ///   checkpoints all frames and truncates the WAL file to zero bytes.
+    public func checkpoint(mode: CheckpointMode = .truncate) {
+        guard let db = db else { return }
+
+        let modeValue: Int32
+        switch mode {
+        case .passive:
+            modeValue = SQLITE_CHECKPOINT_PASSIVE
+        case .full:
+            modeValue = SQLITE_CHECKPOINT_FULL
+        case .restart:
+            modeValue = SQLITE_CHECKPOINT_RESTART
+        case .truncate:
+            modeValue = SQLITE_CHECKPOINT_TRUNCATE
+        }
+
+        var walFrameCount: Int32 = 0
+        var checkpointedFrames: Int32 = 0
+
+        let result = sqlite3_wal_checkpoint_v2(
+            db,
+            nil,  // checkpoint all attached databases
+            modeValue,
+            &walFrameCount,
+            &checkpointedFrames
+        )
+
+        if result == SQLITE_OK {
+            if walFrameCount > 0 {
+                Self.logger.info("WAL checkpoint: \(checkpointedFrames)/\(walFrameCount) frames checkpointed")
+            }
+        } else {
+            let message = String(cString: sqlite3_errmsg(db))
+            Self.logger.warning("WAL checkpoint failed: \(message, privacy: .public)")
+        }
+    }
+
+    /// WAL checkpoint modes.
+    public enum CheckpointMode {
+        /// Checkpoint as many frames as possible without waiting.
+        case passive
+        /// Checkpoint all frames, waiting for readers to finish.
+        case full
+        /// Like full, but also ensures the WAL is reset.
+        case restart
+        /// Like restart, but also truncates the WAL file to zero bytes.
+        case truncate
     }
 
     // MARK: - SQL Execution
