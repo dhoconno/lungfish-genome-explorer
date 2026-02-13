@@ -205,11 +205,13 @@ public enum VariantImpact: String, Sendable, CaseIterable {
     /// combined with a Consequence string for more precise classification.
     public static func fromCSQ(impact: String?, consequence: String?) -> VariantImpact {
         let csq = consequence?.lowercased() ?? ""
+        // Order matters: check most damaging first so compound terms like
+        // "splice_region_variant&synonymous_variant" get the higher-impact call.
         if csq.contains("frameshift") { return .frameshift }
         if csq.contains("stop_gained") || csq.contains("nonsense") { return .nonsense }
         if csq.contains("missense") { return .missense }
-        if csq.contains("synonymous") { return .synonymous }
         if csq.contains("splice") { return .spliceRegion }
+        if csq.contains("synonymous") { return .synonymous }
 
         // Fall back to IMPACT field
         switch impact?.uppercased() {

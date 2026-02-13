@@ -6158,6 +6158,9 @@ public class SequenceViewerView: NSView {
         let scale = frame.scale
         guard point.y >= annotationTrackY else { return nil }
 
+        // Don't hit-test annotations in the variant track area below them
+        if showVariants && point.y >= variantTrackY { return nil }
+
         // Only hit-test in squished and expanded modes (not density histogram)
         guard scale <= annotationDensityThreshold else { return nil }
 
