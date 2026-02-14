@@ -128,6 +128,13 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     private var infoColumnKeys: [(key: String, type: String, description: String)] = []
     /// Preset INFO values used to render variant filter chips (key -> values).
     private var variantInfoPresetValues: [(key: String, values: [String])] = []
+    private enum VariantPresetLoadState {
+        case idle
+        case loading
+        case loaded
+    }
+    private var variantPresetLoadState: VariantPresetLoadState = .idle
+    private var variantTrackDatabaseURLs: [URL] = []
     /// Active preset-chip selections (single selected value per INFO key).
     private var selectedVariantPresetByKey: [String: String] = [:]
     /// Whether preset chips are expanded in the variants tab.
@@ -727,8 +734,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         addSampleFieldButton.isHidden = activeTab != .samples
         downloadTemplateButton.isHidden = activeTab != .samples
         let showVariantTools = activeTab == .variants
-        presetFiltersToggleButton.isHidden = !showVariantTools || variantInfoPresetValues.isEmpty
+        presetFiltersToggleButton.isHidden = !showVariantTools || infoColumnKeys.isEmpty
         presetFiltersToggleButton.title = showVariantPresetChips ? "Presets ▾" : "Presets ▸"
+        presetFiltersToggleButton.isEnabled = variantPresetLoadState != .loading
         searchBuilderButton.isHidden = !showVariantTools
         let showTypeControls = activeTab != .samples && !availableTypes.isEmpty
         allTypesButton.isHidden = !showTypeControls
@@ -920,10 +928,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
         // Discover INFO field definitions for dynamic variant columns
         infoColumnKeys = index.variantInfoKeys.map { (key: $0.key, type: $0.type, description: $0.description) }
-        variantInfoPresetValues = index.variantInfoPresetValues(maxDistinctValues: 20, maxKeys: 4)
-        selectedVariantPresetByKey = selectedVariantPresetByKey.filter { key, value in
-            variantInfoPresetValues.contains { $0.key == key && $0.values.contains(value) }
-        }
+        variantTrackDatabaseURLs = index.variantDatabaseHandles.map(\.db.databaseURL)
+        variantInfoPresetValues = []
+        variantPresetLoadState = .idle
+        selectedVariantPresetByKey.removeAll()
 
         // All types visible by default for both tabs
         visibleAnnotationTypes = Set(availableAnnotationTypes)
@@ -1081,6 +1089,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     }
 
     @objc private func toggleVariantPresetChips(_ sender: NSButton) {
+        loadVariantPresetValuesIfNeeded()
         showVariantPresetChips.toggle()
         presetFiltersToggleButton.title = showVariantPresetChips ? "Presets ▾" : "Presets ▸"
         rebuildChipButtons()
@@ -1881,6 +1890,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     @objc private func openVariantSearchBuilder(_ sender: Any) {
         guard activeTab == .variants else { return }
+        loadVariantPresetValuesIfNeeded()
 
         let container = NSStackView()
         container.orientation = .vertical
@@ -2061,6 +2071,63 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             return "\(parsed.chromosome):\(parsed.start)-\(parsed.end)"
         }
         return nil
+    }
+
+    private func loadVariantPresetValuesIfNeeded() {
+        guard variantPresetLoadState == .idle else { return }
+        guard !infoColumnKeys.isEmpty, !variantTrackDatabaseURLs.isEmpty else {
+            variantPresetLoadState = .loaded
+            return
+        }
+
+        variantPresetLoadState = .loading
+        presetFiltersToggleButton.isEnabled = false
+        presetFiltersToggleButton.title = "Presets (loading...)"
+
+        let keys = infoColumnKeys.map(\.key)
+        let dbURLs = variantTrackDatabaseURLs
+
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let maxDistinctValues = 20
+            let maxKeys = 4
+            var presets: [(key: String, values: [String])] = []
+            let databases = dbURLs.compactMap { try? VariantDatabase(url: $0) }
+
+            for key in keys {
+                var valueSet = Set<String>()
+                var exceeded = false
+                for db in databases {
+                    let values = db.distinctInfoValues(forKey: key, limit: maxDistinctValues + 1)
+                    for value in values {
+                        valueSet.insert(value)
+                        if valueSet.count > maxDistinctValues {
+                            exceeded = true
+                            break
+                        }
+                    }
+                    if exceeded { break }
+                }
+                if exceeded || valueSet.isEmpty { continue }
+                let sortedValues = valueSet.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+                presets.append((key: key, values: sortedValues))
+                if presets.count >= maxKeys { break }
+            }
+
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.variantInfoPresetValues = presets
+                self.selectedVariantPresetByKey = self.selectedVariantPresetByKey.filter { key, value in
+                    presets.contains { $0.key == key && $0.values.contains(value) }
+                }
+                self.variantPresetLoadState = .loaded
+                self.presetFiltersToggleButton.isEnabled = true
+                self.presetFiltersToggleButton.title = self.showVariantPresetChips ? "Presets ▾" : "Presets ▸"
+                if self.activeTab == .variants && self.showVariantPresetChips {
+                    self.rebuildChipButtons()
+                }
+                self.updateSearchFieldVisibility()
+            }
+        }
     }
 
     // MARK: - Actions
