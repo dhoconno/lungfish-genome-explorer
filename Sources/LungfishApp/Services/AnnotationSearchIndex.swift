@@ -527,6 +527,72 @@ public final class AnnotationSearchIndex {
         return count
     }
 
+    /// Queries variants overlapping genes specified by name.
+    ///
+    /// For each gene name:
+    /// 1. Finds annotation regions via `queryAnnotationsOnly`
+    /// 2. Queries variants in those regions
+    /// 3. Also matches variants with INFO GENE/SYMBOL keys via LIKE filter
+    ///
+    /// Returns de-duplicated results up to `limit`.
+    public func queryVariantsForGenes(
+        _ geneNames: [String],
+        types: Set<String> = [],
+        infoFilters: [VariantDatabase.InfoFilter] = [],
+        limit: Int = 5000
+    ) -> [SearchResult] {
+        guard !geneNames.isEmpty else { return [] }
+
+        var seenRowIds = Set<Int64>()
+        var results: [SearchResult] = []
+
+        for gene in geneNames {
+            let trimmed = gene.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+
+            // 1. Find annotation regions for this gene
+            let annotations = queryAnnotationsOnly(nameFilter: trimmed, limit: 20)
+            for ann in annotations {
+                guard results.count < limit else { break }
+                let regionVariants = queryVariantsInRegion(
+                    chromosome: ann.chromosome,
+                    start: ann.start,
+                    end: ann.end,
+                    types: types,
+                    infoFilters: infoFilters,
+                    limit: limit - results.count
+                )
+                for v in regionVariants {
+                    if seenRowIds.insert(v.variantRowId ?? -1).inserted || v.variantRowId == nil {
+                        results.append(v)
+                    }
+                }
+            }
+
+            // 2. Also search by INFO GENE/SYMBOL fields
+            guard results.count < limit else { break }
+            let geneInfoKeys = ["GENE", "Gene", "gene", "GENEINFO", "SYMBOL", "ANN_Gene", "CSQ_SYMBOL"]
+            let availableKeys = Set(variantInfoKeys.map(\.key))
+            for geneKey in geneInfoKeys {
+                guard availableKeys.contains(geneKey), results.count < limit else { continue }
+                var mergedFilters = infoFilters
+                mergedFilters.append(VariantDatabase.InfoFilter(key: geneKey, op: .like, value: trimmed))
+                let infoResults = queryVariantsOnly(
+                    types: types,
+                    infoFilters: mergedFilters,
+                    limit: limit - results.count
+                )
+                for v in infoResults {
+                    if seenRowIds.insert(v.variantRowId ?? -1).inserted || v.variantRowId == nil {
+                        results.append(v)
+                    }
+                }
+            }
+        }
+
+        return Array(results.prefix(limit))
+    }
+
     /// All distinct annotation types only (no variant types).
     public var annotationTypes: [String] {
         if !annotationDatabases.isEmpty {

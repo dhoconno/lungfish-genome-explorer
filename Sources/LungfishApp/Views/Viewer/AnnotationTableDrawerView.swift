@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import SwiftUI
 import LungfishCore
 import LungfishIO
 import os.log
@@ -259,8 +260,13 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     private var variantPresetChipPayloads: [ObjectIdentifier: (key: String, value: String)] = [:]
     /// Payload lookup for "More..." preset buttons (button identity -> INFO key).
     private var variantPresetMorePayloads: [ObjectIdentifier: String] = [:]
+    /// Active smart filter tokens for the variant tab.
+    private var activeSmartTokens: Set<SmartToken> = []
+    /// Smart token chip buttons keyed by token case.
+    private var smartTokenButtons: [SmartToken: NSButton] = [:]
+    /// Reverse lookup: button identity -> SmartToken.
+    private var smartTokenPayloads: [ObjectIdentifier: SmartToken] = [:]
     /// Temporary mapping used by Search Builder INFO key/value popups.
-    private var searchBuilderInfoValuePopups: [ObjectIdentifier: NSPopUpButton] = [:]
     /// Column configuration popover (gear menu).
     var columnConfigPopover: NSPopover?
 
@@ -1166,6 +1172,38 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         variantPresetChipButtons.removeAll()
         variantPresetChipPayloads.removeAll()
         variantPresetMorePayloads.removeAll()
+        smartTokenButtons.removeAll()
+        smartTokenPayloads.removeAll()
+
+        // Smart tokens for the variants tab (shown before type chips)
+        if activeTab == .variants {
+            let infoKeySet = Set(infoColumnKeys.map(\.key))
+            let variantTypeSet = Set(availableVariantTypes)
+            let hasGT = !allSampleNames.isEmpty
+            var addedTokens = false
+            for token in SmartToken.allCases {
+                guard token.isAvailable(infoKeys: infoKeySet, variantTypes: variantTypeSet, hasGenotypes: hasGT) else { continue }
+                let chip = NSButton(title: token.label, target: self, action: #selector(smartTokenToggled(_:)))
+                chip.font = .systemFont(ofSize: 10, weight: .medium)
+                chip.controlSize = .small
+                chip.bezelStyle = .recessed
+                chip.isBordered = true
+                chip.setButtonType(.pushOnPushOff)
+                chip.state = activeSmartTokens.contains(token) ? .on : .off
+                chip.translatesAutoresizingMaskIntoConstraints = false
+                chip.toolTip = token.label
+                chipStackView.addArrangedSubview(chip)
+                smartTokenButtons[token] = chip
+                smartTokenPayloads[ObjectIdentifier(chip)] = token
+                addedTokens = true
+            }
+            if addedTokens && !availableTypes.isEmpty {
+                let spacer = NSView(frame: NSRect(x: 0, y: 0, width: 8, height: 1))
+                spacer.translatesAutoresizingMaskIntoConstraints = false
+                spacer.widthAnchor.constraint(equalToConstant: 8).isActive = true
+                chipStackView.addArrangedSubview(spacer)
+            }
+        }
 
         // Create a chip for each type
         for type in availableTypes {
@@ -1215,9 +1253,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             }
         }
 
-        // Show chip bar if we have types (never for samples tab)
+        // Show chip bar if we have types or smart tokens (never for samples tab)
         let hasPresetUI = activeTab == .variants && showVariantPresetChips && (!variantPresetChipButtons.isEmpty || !variantPresetMorePayloads.isEmpty)
-        chipBar.isHidden = activeTab == .samples || (availableTypes.isEmpty && !hasPresetUI)
+        let hasSmartTokens = !smartTokenButtons.isEmpty
+        chipBar.isHidden = activeTab == .samples || (availableTypes.isEmpty && !hasPresetUI && !hasSmartTokens)
     }
 
     private func updateChipStates() {
@@ -1229,6 +1268,25 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             guard parts.count == 2 else { continue }
             button.state = selectedVariantPresetByKey[parts[0]] == parts[1] ? .on : .off
         }
+        for (token, button) in smartTokenButtons {
+            button.state = activeSmartTokens.contains(token) ? .on : .off
+        }
+    }
+
+    @objc private func smartTokenToggled(_ sender: NSButton) {
+        guard let token = smartTokenPayloads[ObjectIdentifier(sender)] else { return }
+        if sender.state == .on {
+            // Mutual exclusion: SNV and Indel are exclusive type tokens
+            if token == .snv { activeSmartTokens.remove(.indel) }
+            if token == .indel { activeSmartTokens.remove(.snv) }
+            if token == .highImpact { activeSmartTokens.remove(.moderateImpact) }
+            if token == .moderateImpact { activeSmartTokens.remove(.highImpact) }
+            activeSmartTokens.insert(token)
+        } else {
+            activeSmartTokens.remove(token)
+        }
+        updateChipStates()
+        updateDisplayedAnnotations()
     }
 
     @objc private func variantPresetChipToggled(_ sender: NSButton) {
@@ -1402,10 +1460,54 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         typeFilter: Set<String>,
         query: VariantFilterQuery
     ) {
+        // Detect gene list pattern: comma/newline-separated names with no operators.
+        // E.g. "BRCA1, TP53, EGFR" or "BRCA1\nTP53\nEGFR"
+        if let geneList = detectGeneListPattern(query.nameFilter) {
+            let results = index.queryVariantsForGenes(
+                geneList,
+                types: typeFilter,
+                infoFilters: query.infoFilters,
+                limit: Self.maxDisplayCount
+            )
+            displayedAnnotations = applyVariantAdvancedFilters(results, query: query)
+            lastVariantQueryMatchCount = displayedAnnotations.count
+            lastVariantQueryScope = .global
+            tableView.reloadData()
+            scrollView.isHidden = false
+            tooManyLabel.isHidden = true
+            return
+        }
+
         let chipInfoFilters: [VariantDatabase.InfoFilter] = selectedVariantPresetByKey.map { key, value in
             VariantDatabase.InfoFilter(key: key, op: .eq, value: value)
         }
-        let mergedInfoFilters = query.infoFilters + chipInfoFilters
+
+        // Compose smart token filters
+        let infoKeySet = Set(infoColumnKeys.map(\.key))
+        let smartComposed = activeSmartTokens.composeFilters(infoKeys: infoKeySet)
+
+        // Merge type restrictions from smart tokens with existing type filter
+        var effectiveTypeFilter = typeFilter
+        if !smartComposed.typeRestrictions.isEmpty {
+            if effectiveTypeFilter.isEmpty {
+                effectiveTypeFilter = smartComposed.typeRestrictions
+            } else {
+                effectiveTypeFilter = effectiveTypeFilter.intersection(smartComposed.typeRestrictions)
+            }
+        }
+
+        let mergedInfoFilters = query.infoFilters + chipInfoFilters + smartComposed.infoFilters
+
+        // Build effective query with smart token overlays
+        var effectiveQuery = query
+        effectiveQuery.infoFilters = mergedInfoFilters
+        if let smartMinQ = smartComposed.minQuality, effectiveQuery.minQuality == nil {
+            effectiveQuery.minQuality = smartMinQ
+            effectiveQuery.minQualityInclusive = true
+        }
+        if let smartFilter = smartComposed.filterValue, effectiveQuery.filterValue == nil {
+            effectiveQuery.filterValue = smartFilter
+        }
 
         // Determine the effective region for the query.
         // Priority:
@@ -1444,15 +1546,15 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         }
 
         // Let advanced query constraints tighten/override the region.
-        let requestedRegion = query.region ?? effectiveRegion
+        let requestedRegion = effectiveQuery.region ?? effectiveRegion
 
         if let region = requestedRegion {
             let count = index.queryVariantCountInRegion(
                 chromosome: region.chromosome,
                 start: region.start,
                 end: region.end,
-                nameFilter: query.nameFilter,
-                types: typeFilter,
+                nameFilter: effectiveQuery.nameFilter,
+                types: effectiveTypeFilter,
                 infoFilters: mergedInfoFilters
             )
             lastVariantQueryMatchCount = count
@@ -1471,13 +1573,13 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                     chromosome: region.chromosome,
                     start: region.start,
                     end: region.end,
-                    nameFilter: query.nameFilter,
-                    types: typeFilter,
+                    nameFilter: effectiveQuery.nameFilter,
+                    types: effectiveTypeFilter,
                     infoFilters: mergedInfoFilters,
                     limit: Self.maxDisplayCount * 3
                 )
-                displayedAnnotations = applyVariantAdvancedFilters(results, query: query).prefix(Self.maxDisplayCount).map { $0 }
-                if query.hasPostFilters {
+                displayedAnnotations = applyVariantAdvancedFilters(results, query: effectiveQuery).prefix(Self.maxDisplayCount).map { $0 }
+                if effectiveQuery.hasPostFilters {
                     lastVariantQueryMatchCount = displayedAnnotations.count
                 }
                 tableView.reloadData()
@@ -1486,7 +1588,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             }
         } else {
             // No region constraint — global query over all variants
-            let matchingCount = index.queryVariantCount(nameFilter: query.nameFilter, types: typeFilter, infoFilters: mergedInfoFilters)
+            let matchingCount = index.queryVariantCount(nameFilter: effectiveQuery.nameFilter, types: effectiveTypeFilter, infoFilters: mergedInfoFilters)
             lastVariantQueryMatchCount = matchingCount
             lastVariantQueryScope = .global
             if matchingCount > Self.maxDisplayCount {
@@ -1499,13 +1601,13 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 tooManyLabel.isHidden = false
             } else {
                 let results = index.queryVariantsOnly(
-                    nameFilter: query.nameFilter,
-                    types: typeFilter,
+                    nameFilter: effectiveQuery.nameFilter,
+                    types: effectiveTypeFilter,
                     infoFilters: mergedInfoFilters,
                     limit: Self.maxDisplayCount * 3
                 )
-                displayedAnnotations = applyVariantAdvancedFilters(results, query: query).prefix(Self.maxDisplayCount).map { $0 }
-                if query.hasPostFilters {
+                displayedAnnotations = applyVariantAdvancedFilters(results, query: effectiveQuery).prefix(Self.maxDisplayCount).map { $0 }
+                if effectiveQuery.hasPostFilters {
                     lastVariantQueryMatchCount = displayedAnnotations.count
                 }
                 tableView.reloadData()
@@ -1632,9 +1734,11 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         var minSampleCountInclusive: Bool = true
         var maxSampleCount: Int?
         var maxSampleCountInclusive: Bool = true
+        /// If set, only show variants where FILTER column matches (e.g. "PASS").
+        var filterValue: String?
 
         var hasPostFilters: Bool {
-            minQuality != nil || maxQuality != nil || minSampleCount != nil || maxSampleCount != nil
+            minQuality != nil || maxQuality != nil || minSampleCount != nil || maxSampleCount != nil || filterValue != nil
         }
     }
 
@@ -1821,6 +1925,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                             query.maxSampleCountInclusive = true
                         }
                     }
+                case "filter":
+                    query.filterValue = clause.value
                 default:
                     guard !clause.value.isEmpty else { continue }
                     query.infoFilters.append(
@@ -1979,6 +2085,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         query: VariantFilterQuery
     ) -> [AnnotationSearchIndex.SearchResult] {
         results.filter { row in
+            if let filterVal = query.filterValue {
+                let rowFilter = row.filter ?? "."
+                if rowFilter.caseInsensitiveCompare(filterVal) != .orderedSame { return false }
+            }
             if let minQ = query.minQuality {
                 let q = row.quality ?? -Double.greatestFiniteMagnitude
                 if query.minQualityInclusive ? q < minQ : q <= minQ { return false }
@@ -1997,6 +2107,33 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             }
             return true
         }
+    }
+
+    /// Detects if the given text looks like a gene list (comma or newline-separated gene names).
+    /// Returns the gene list if detected, nil otherwise.
+    ///
+    /// A gene list is detected when:
+    /// - Text contains commas or newlines
+    /// - All tokens are alphanumeric gene-like names (no operators like >, <, =, ;)
+    /// - At least 2 tokens
+    private func detectGeneListPattern(_ text: String) -> [String]? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        // Must contain commas or newlines to be a gene list
+        guard trimmed.contains(",") || trimmed.contains("\n") else { return nil }
+        // Must not contain operators (filter syntax)
+        guard !trimmed.contains(";"), !trimmed.contains(">"), !trimmed.contains("<"),
+              !trimmed.contains("="), !trimmed.contains(":") else { return nil }
+
+        let genes = trimmed
+            .replacingOccurrences(of: "\n", with: ",")
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        guard genes.count >= 2 else { return nil }
+        return genes
     }
 
     private func parseRange(_ text: String) -> (start: Int, end: Int)? {
@@ -2050,153 +2187,50 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     }
 
     @objc private func openVariantSearchBuilder(_ sender: Any) {
-        guard activeTab == .variants else { return }
-        loadVariantPresetValuesIfNeeded()
+        guard activeTab == .variants, let hostWindow = self.window else { return }
 
-        let container = NSStackView()
-        container.orientation = .vertical
-        container.spacing = 8
-        container.translatesAutoresizingMaskIntoConstraints = false
-
-        func makeFieldRow(label: String, placeholder: String = "", value: String = "") -> NSTextField {
-            let row = NSStackView()
-            row.orientation = .horizontal
-            row.spacing = 8
-            let title = NSTextField(labelWithString: label)
-            title.alignment = .right
-            title.font = .systemFont(ofSize: 11, weight: .semibold)
-            title.widthAnchor.constraint(equalToConstant: 120).isActive = true
-            let field = NSTextField(string: value)
-            field.placeholderString = placeholder
-            row.addArrangedSubview(title)
-            row.addArrangedSubview(field)
-            container.addArrangedSubview(row)
-            return field
-        }
-
-        let regionField = makeFieldRow(label: "Region", placeholder: "NC_041760.1:86680000-86690000")
-        let annotationField = makeFieldRow(label: "Annotation", placeholder: "gene or feature name")
-        let minQualityField = makeFieldRow(label: "Min Quality", placeholder: "30")
-        let showSamplesField = makeFieldRow(label: "Show Samples", placeholder: "sample1,sample2")
-        let sampleOrderField = makeFieldRow(label: "Sample Order", placeholder: "sample2,sample1")
-
-        let typeRow = NSStackView()
-        typeRow.orientation = .horizontal
-        typeRow.spacing = 8
-        let typeLabel = NSTextField(labelWithString: "Variant Type")
-        typeLabel.alignment = .right
-        typeLabel.font = .systemFont(ofSize: 11, weight: .semibold)
-        typeLabel.widthAnchor.constraint(equalToConstant: 120).isActive = true
-        let typePopup = NSPopUpButton()
-        typePopup.addItem(withTitle: "Any")
-        for type in availableVariantTypes {
-            typePopup.addItem(withTitle: type)
-        }
-        typeRow.addArrangedSubview(typeLabel)
-        typeRow.addArrangedSubview(typePopup)
-        container.addArrangedSubview(typeRow)
-
-        let infoKeyRow = NSStackView()
-        infoKeyRow.orientation = .horizontal
-        infoKeyRow.spacing = 8
-        let infoLabel = NSTextField(labelWithString: "INFO Preset")
-        infoLabel.alignment = .right
-        infoLabel.font = .systemFont(ofSize: 11, weight: .semibold)
-        infoLabel.widthAnchor.constraint(equalToConstant: 120).isActive = true
-        let infoKeyPopup = NSPopUpButton()
-        infoKeyPopup.addItem(withTitle: "None")
-        for preset in variantInfoPresetValues {
-            infoKeyPopup.addItem(withTitle: preset.key)
-        }
-        let infoValuePopup = NSPopUpButton()
-        infoValuePopup.addItem(withTitle: "Any")
-        infoKeyRow.addArrangedSubview(infoLabel)
-        infoKeyRow.addArrangedSubview(infoKeyPopup)
-        infoKeyRow.addArrangedSubview(infoValuePopup)
-        container.addArrangedSubview(infoKeyRow)
-
-        func refreshInfoValuePopup() {
-            infoValuePopup.removeAllItems()
-            let selectedKey = infoKeyPopup.titleOfSelectedItem ?? "None"
-            if selectedKey == "None" {
-                infoValuePopup.addItem(withTitle: "Any")
-                return
+        let infoKeySet = Set(infoColumnKeys.map(\.key))
+        let builderView = VariantQueryBuilderView(
+            initialFilterText: variantFilterText,
+            availableInfoKeys: infoKeySet,
+            availableVariantTypes: availableVariantTypes,
+            sampleNames: allSampleNames,
+            savedPresets: savedQueryPresets,
+            onApply: { [weak self] filterText in
+                guard let self else { return }
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        self.variantFilterText = filterText
+                        self.variantFilterField.stringValue = filterText
+                        self.updateChipStates()
+                        self.updateDisplayedAnnotations()
+                        hostWindow.endSheet(hostWindow.sheets.last ?? NSPanel())
+                    }
+                }
+            },
+            onSavePreset: { [weak self] preset in
+                guard let self else { return }
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        self?.savedQueryPresets.append(preset)
+                    }
+                }
+            },
+            onCancel: {
+                hostWindow.endSheet(hostWindow.sheets.last ?? NSPanel())
             }
-            infoValuePopup.addItem(withTitle: "Any")
-            if let preset = variantInfoPresetValues.first(where: { $0.key == selectedKey }) {
-                infoValuePopup.addItems(withTitles: preset.values)
-            }
-        }
-        refreshInfoValuePopup()
-        infoKeyPopup.target = self
-        infoKeyPopup.action = #selector(searchBuilderInfoKeyChanged(_:))
-        searchBuilderInfoValuePopups[ObjectIdentifier(infoKeyPopup)] = infoValuePopup
+        )
 
-        let alert = NSAlert()
-        alert.messageText = "Variant Search Builder"
-        alert.informativeText = "Build a focused variant query and optional sample visibility/order settings."
-        alert.addButton(withTitle: "Apply")
-        alert.addButton(withTitle: "Cancel")
-        alert.accessoryView = container
-        container.frame = NSRect(x: 0, y: 0, width: 560, height: 220)
-
-        guard let hostWindow = self.window else { return }
-        let infoPopupKey = ObjectIdentifier(infoKeyPopup)
-        alert.beginSheetModal(for: hostWindow) { [weak self] response in
-            guard let self else { return }
-            defer { self.searchBuilderInfoValuePopups.removeValue(forKey: infoPopupKey) }
-            guard response == .alertFirstButtonReturn else { return }
-
-            var clauses: [String] = []
-            let annotationText = annotationField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !annotationText.isEmpty {
-                clauses.append("text=\(annotationText)")
-            }
-            if let region = self.normalizedRegionString(regionField.stringValue), !region.isEmpty {
-                clauses.append("region=\(region)")
-            } else if !annotationText.isEmpty,
-                      let first = self.searchIndex?.queryAnnotationsOnly(nameFilter: annotationText, limit: 1).first {
-                clauses.append("region=\(first.chromosome):\(first.start)-\(first.end)")
-            }
-            let selectedType = typePopup.titleOfSelectedItem ?? "Any"
-            if selectedType != "Any" {
-                clauses.append("type=\(selectedType)")
-                self.visibleVariantTypes = [selectedType]
-            } else {
-                self.visibleVariantTypes = Set(self.availableVariantTypes)
-            }
-            if let minQ = Double(minQualityField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                clauses.append("qual>=\(String(format: "%.2f", minQ))")
-            }
-            let selectedInfoKey = infoKeyPopup.titleOfSelectedItem ?? "None"
-            let selectedInfoValue = infoValuePopup.titleOfSelectedItem ?? "Any"
-            if selectedInfoKey != "None", selectedInfoValue != "Any" {
-                clauses.append("\(selectedInfoKey)=\(selectedInfoValue)")
-                self.selectedVariantPresetByKey[selectedInfoKey] = selectedInfoValue
-            }
-
-            self.applySampleBuilderSettings(
-                showSamplesText: showSamplesField.stringValue,
-                orderText: sampleOrderField.stringValue
-            )
-
-            self.variantFilterText = clauses.joined(separator: "; ")
-            self.variantFilterField.stringValue = self.variantFilterText
-            self.updateChipStates()
-            self.updateDisplayedAnnotations()
-        }
+        let hostingController = NSHostingController(rootView: builderView)
+        let sheetWindow = NSPanel(contentViewController: hostingController)
+        sheetWindow.styleMask = [.titled, .closable, .resizable]
+        sheetWindow.title = "Query Builder"
+        hostWindow.beginSheet(sheetWindow)
     }
 
-    @objc private func searchBuilderInfoKeyChanged(_ sender: NSPopUpButton) {
-        guard let valuePopup = searchBuilderInfoValuePopups[ObjectIdentifier(sender)] else { return }
-        valuePopup.removeAllItems()
-        let selectedKey = sender.titleOfSelectedItem ?? "None"
-        valuePopup.addItem(withTitle: "Any")
-        if selectedKey == "None" { return }
-        if let preset = variantInfoPresetValues.first(where: { $0.key == selectedKey }) {
-            valuePopup.addItems(withTitles: preset.values)
-        }
-    }
+    /// Saved user query presets (not persisted across sessions yet — Phase 3 adds BundleViewState support).
+    var savedQueryPresets: [QueryPreset] = []
 
     private func applySampleBuilderSettings(showSamplesText: String, orderText: String) {
         let shownSamples = showSamplesText
