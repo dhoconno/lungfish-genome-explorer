@@ -3109,6 +3109,18 @@ public class SequenceViewerView: NSView {
         variantDBChromosomeName(for: refChrom)
     }
 
+    /// Translates a variant DB chromosome name back to the reference chromosome name.
+    /// Returns the original chromosome when no reverse mapping is available.
+    func referenceChromosomeName(forVariantDBChromosome variantChrom: String) -> String {
+        if let direct = viewController?.currentBundleDataProvider?.chromosomeInfo(named: variantChrom)?.name {
+            return direct
+        }
+        if let mapped = variantChromosomeAliasMap.first(where: { $0.value == variantChrom })?.key {
+            return mapped
+        }
+        return variantChrom
+    }
+
     /// Fetches variant annotations asynchronously from the VariantDatabase.
     /// Runs SQLite queries on a background thread, converts to SequenceAnnotation,
     /// and merges with the annotation rendering pipeline.
@@ -4945,10 +4957,16 @@ public class SequenceViewerView: NSView {
     }
 
     /// Posts a variant selection notification when the selected annotation is a variant.
-    private func postVariantSelectedNotificationIfNeeded(_ annotation: SequenceAnnotation) {
+    @discardableResult
+    private func postVariantSelectedNotificationIfNeeded(_ annotation: SequenceAnnotation) -> Bool {
         let variantTypes: Set<AnnotationType> = [.snp, .insertion, .deletion, .variation]
-        guard variantTypes.contains(annotation.type) else { return }
-        guard let chromosome = annotation.chromosome else { return }
+        let isVariantByType = variantTypes.contains(annotation.type)
+        let isVariantByQualifiers = annotation.qualifiers["variant_row_id"] != nil
+            || annotation.qualifiers["variant_type"] != nil
+            || annotation.qualifiers["ref"] != nil
+            || annotation.qualifiers["alt"] != nil
+        guard isVariantByType || isVariantByQualifiers else { return false }
+        guard let chromosome = annotation.chromosome else { return false }
 
         let rowId = annotation.qualifiers["variant_row_id"]?.values.first.flatMap { Int64($0) }
         let trackId = annotation.qualifiers["variant_track_id"]?.values.first ?? ""
@@ -4979,6 +4997,7 @@ public class SequenceViewerView: NSView {
             object: self,
             userInfo: [NotificationUserInfoKey.searchResult: result]
         )
+        return true
     }
 
     /// Shows a popover with annotation details at the specified location.
@@ -5155,6 +5174,18 @@ public class SequenceViewerView: NSView {
 
         let location = convert(event.locationInWindow, from: nil)
         let isDoubleClick = event.clickCount == 2
+
+        // Variant track click should route to variant selection instead of annotation selection.
+        if let variant = variantAtPoint(location) {
+            selectedAnnotation = variant
+            postVariantSelectedNotificationIfNeeded(variant)
+            selectionRange = nil
+            selectionStartBase = nil
+            isSelecting = false
+            setNeedsDisplay(bounds)
+            updateSelectionStatus()
+            return
+        }
 
         // Check for annotation click — bundle mode, multi-sequence mode, or single-sequence mode
         if currentReferenceBundle != nil {
@@ -6315,6 +6346,43 @@ public class SequenceViewerView: NSView {
         }
 
         return nil
+    }
+
+    /// Hit-tests a variant glyph in the variant summary/rows area.
+    /// Returns the closest visible variant within a small horizontal tolerance.
+    private func variantAtPoint(_ point: NSPoint) -> SequenceAnnotation? {
+        guard showVariants,
+              let frame = viewController?.referenceFrame,
+              !filteredVisibleVariantAnnotations.isEmpty else { return nil }
+
+        let hitTop = variantTrackY
+        let hitBottom = max(
+            variantTrackY + max(effectiveSummaryBarHeight, sampleDisplayState.rowHeight),
+            variantTrackY + effectiveSummaryBarHeight + effectiveSummaryToRowGap + sampleDisplayState.rowHeight
+        )
+        guard point.y >= hitTop, point.y <= hitBottom else { return nil }
+
+        let tolerance: CGFloat = 6
+        var best: (annotation: SequenceAnnotation, distance: CGFloat)?
+        for annotation in filteredVisibleVariantAnnotations {
+            let startX = frame.screenPosition(for: Double(annotation.start))
+            let endX = frame.screenPosition(for: Double(max(annotation.start + 1, annotation.end)))
+            let minX = min(startX, endX)
+            let maxX = max(startX, endX)
+            let dx: CGFloat
+            if point.x < minX {
+                dx = minX - point.x
+            } else if point.x > maxX {
+                dx = point.x - maxX
+            } else {
+                dx = 0
+            }
+            guard dx <= tolerance else { continue }
+            if best == nil || dx < best!.distance {
+                best = (annotation, dx)
+            }
+        }
+        return best?.annotation
     }
 }
 

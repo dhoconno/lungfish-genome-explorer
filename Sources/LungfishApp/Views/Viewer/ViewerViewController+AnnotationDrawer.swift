@@ -124,6 +124,9 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         annotDrawerLogger.info("annotationDrawer: Navigating to '\(result.name, privacy: .public)' type=\(result.type, privacy: .public) at \(result.chromosome, privacy: .public):\(result.start)-\(result.end) strand=\(result.strand, privacy: .public)")
 
         let buffer = 1000 // 1kb buffer on each side
+        let navigationChromosome = result.isVariant
+            ? viewerView.referenceChromosomeName(forVariantDBChromosome: result.chromosome)
+            : result.chromosome
 
         // Clear any previous sequence fetch error so the new region can be fetched
         viewerView.clearSequenceFetchError()
@@ -134,10 +137,10 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         annotDrawerLogger.info("annotationDrawer: Pre-nav state: currentChrom=\(currentChrom, privacy: .public), scale=\(currentScale, format: .fixed(precision: 2)) bp/px")
 
         if let provider = currentBundleDataProvider,
-           let chromInfo = provider.chromosomeInfo(named: result.chromosome) {
+           let chromInfo = provider.chromosomeInfo(named: navigationChromosome) {
             annotDrawerLogger.info("annotationDrawer: Using bundle provider, chromLength=\(chromInfo.length)")
             navigateToChromosomeAndPosition(
-                chromosome: result.chromosome,
+                chromosome: chromInfo.name,
                 chromosomeLength: Int(chromInfo.length),
                 start: max(0, result.start - buffer),
                 end: min(Int(chromInfo.length), result.end + buffer)
@@ -145,7 +148,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         } else {
             annotDrawerLogger.info("annotationDrawer: No bundle provider, using navigateToPosition")
             navigateToPosition(
-                chromosome: result.chromosome,
+                chromosome: navigationChromosome,
                 start: max(0, result.start - buffer),
                 end: result.end + buffer
             )
@@ -166,7 +169,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             annotation = SequenceAnnotation(
                 type: annotationType,
                 name: result.name,
-                chromosome: result.chromosome,
+                chromosome: navigationChromosome,
                 intervals: [AnnotationInterval(start: result.start, end: result.end)],
                 strand: strand
             )

@@ -1217,6 +1217,17 @@ public final class VariantDatabase: @unchecked Sendable {
         return results
     }
 
+    /// Returns true if the given INFO key has at least one non-empty value in `variant_info`.
+    public func hasNonEmptyInfoValue(forKey key: String) -> Bool {
+        guard let db, hasInfoTable else { return false }
+        let sql = "SELECT 1 FROM variant_info WHERE key = ? AND TRIM(value) != '' LIMIT 1"
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return false }
+        sqliteBindText(stmt, 1, key)
+        return sqlite3_step(stmt) == SQLITE_ROW
+    }
+
     /// Returns all INFO key-value pairs for a specific variant.
     ///
     /// Falls back to parsing the raw INFO string for legacy databases.

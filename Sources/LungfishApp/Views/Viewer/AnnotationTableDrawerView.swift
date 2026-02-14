@@ -288,17 +288,17 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         // Filter search fields (tab-specific, only one visible at a time)
         configureSearchField(
             annotationFilterField,
-            placeholder: "Annotations: name, type:, chr:, strand:, region:chr:start-end",
+            placeholder: "Annotations: text=geneX; type=gene; chr=NC_...; region=NC_...:start-end",
             accessibilityLabel: "Filter annotations"
         )
         configureSearchField(
             variantFilterField,
-            placeholder: "Variants: ID text + DP>20 AF>=0.05 chr: pos:100-200 qual>=30 sc>=2",
+            placeholder: "Variants: text=rs; chr=NC_...; pos=100-200; qual>=30; samples>=2; DP>=20",
             accessibilityLabel: "Filter variants"
         )
         configureSearchField(
             sampleFilterField,
-            placeholder: "Samples: name:, source:, visible:true/false, meta.FIELD:value",
+            placeholder: "Samples: text=foo; visible=true; source=track; meta.Country=USA",
             accessibilityLabel: "Filter samples"
         )
         searchBar.addSubview(annotationFilterField)
@@ -689,11 +689,11 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         noneTypesButton.isHidden = !showTypeControls
         switch activeTab {
         case .annotations:
-            searchHintLabel.stringValue = "Advanced: type:gene chr:NC_041760.1 strand:+ region:NC_041760.1:86680000-86690000"
+            searchHintLabel.stringValue = "Advanced: text=geneA; type=gene; chr=NC_041760.1; strand=+; region=NC_041760.1:86680000-86690000"
         case .variants:
-            searchHintLabel.stringValue = "Advanced: DP>20 AF>=0.01 chr:NC_041760.1 pos:86680000-86690000 qual>=30 sc>=2"
+            searchHintLabel.stringValue = "Advanced: text=rs; chr=NC_041760.1; pos=86680000-86690000; qual>=30; samples>=2; AF>=0.01"
         case .samples:
-            searchHintLabel.stringValue = "Advanced: name:Sample1 source:TrackA visible:true meta.Country:USA"
+            searchHintLabel.stringValue = "Advanced: text=sample; name=Sample1; source=TrackA; visible=true; meta.Country=USA"
         }
     }
 
@@ -1315,9 +1315,86 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         var metadataFilters: [(String, String)] = []
     }
 
+    private struct ParsedSearchClause {
+        var key: String?
+        var op: String
+        var value: String
+    }
+
+    /// Semicolon-delimited parser used for explicit advanced search, e.g.:
+    /// `chr=NC_041760.1;pos=100-200;qual>=30;DP>=20`.
+    private func parseSearchClauses(_ text: String) -> [ParsedSearchClause] {
+        let operators = [">=", "<=", "!=", "~", ">", "<", "="]
+        return text.split(separator: ";").compactMap { segment in
+            let token = String(segment).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !token.isEmpty else { return nil }
+            for op in operators {
+                if let range = token.range(of: op) {
+                    let key = String(token[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    let value = String(token[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if key.isEmpty {
+                        return ParsedSearchClause(key: nil, op: op, value: String(value))
+                    }
+                    return ParsedSearchClause(key: String(key), op: op, value: String(value))
+                }
+            }
+            return ParsedSearchClause(key: nil, op: "", value: token)
+        }
+    }
+
+    private func infoComparisonOp(from op: String) -> VariantDatabase.InfoFilter.ComparisonOp {
+        switch op {
+        case ">": return .gt
+        case ">=": return .gte
+        case "<": return .lt
+        case "<=": return .lte
+        case "!=": return .neq
+        case "~": return .like
+        default: return .eq
+        }
+    }
+
     /// Parses advanced annotation search syntax:
     /// `type:gene chr:NC_045512 strand:+ region:NC_045512:100-900 myName`
     private func parseAnnotationFilterText(_ text: String) -> AnnotationFilterQuery {
+        if text.contains(";") {
+            var query = AnnotationFilterQuery()
+            var freeTokens: [String] = []
+            for clause in parseSearchClauses(text) {
+                guard let rawKey = clause.key?.lowercased() else {
+                    freeTokens.append(clause.value)
+                    continue
+                }
+                switch rawKey {
+                case "text", "name", "id":
+                    freeTokens.append(clause.value)
+                case "type":
+                    let values = clause.value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                    if !values.isEmpty {
+                        query.typeFilter = Set(values)
+                    }
+                case "chr", "chrom", "chromosome":
+                    query.chromosome = clause.value
+                case "strand":
+                    query.strand = clause.value
+                case "start":
+                    query.start = Int(clause.value)
+                case "end":
+                    query.end = Int(clause.value)
+                case "region":
+                    if let parsed = parseRegion(clause.value) {
+                        query.chromosome = parsed.chromosome
+                        query.start = parsed.start
+                        query.end = parsed.end
+                    }
+                default:
+                    freeTokens.append(clause.value)
+                }
+            }
+            query.nameFilter = freeTokens.joined(separator: " ")
+            return query
+        }
+
         var query = AnnotationFilterQuery()
         var freeTokens: [String] = []
         for tokenSub in text.split(whereSeparator: \.isWhitespace) {
@@ -1347,6 +1424,90 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Parses advanced variant syntax:
     /// `chr:7 pos:100-200 DP>20 AF>=0.01 qual>=30 sc>=2 rs123`
     private func parseVariantFilterText(_ text: String) -> VariantFilterQuery {
+        if text.contains(";") {
+            var query = VariantFilterQuery()
+            var nameTokens: [String] = []
+            for clause in parseSearchClauses(text) {
+                guard let rawKey = clause.key?.lowercased() else {
+                    if let parsed = VariantDatabase.InfoFilter.parse(clause.value) {
+                        query.infoFilters.append(parsed)
+                    } else {
+                        nameTokens.append(clause.value)
+                    }
+                    continue
+                }
+                switch rawKey {
+                case "text", "name", "id":
+                    nameTokens.append(clause.value)
+                case "chr", "chrom", "chromosome":
+                    let value = clause.value
+                    if let region = query.region {
+                        query.region = (value, region.start, region.end)
+                    } else {
+                        query.region = (value, 0, Int.max)
+                    }
+                case "pos", "range":
+                    if let range = parseRange(clause.value) {
+                        let chr = query.region?.chromosome ?? viewportRegion?.chromosome ?? ""
+                        if !chr.isEmpty {
+                            query.region = (chr, range.start, range.end)
+                        }
+                    }
+                case "region":
+                    if let parsed = parseRegion(clause.value) {
+                        query.region = parsed
+                    }
+                case "qual", "quality":
+                    if let value = Double(clause.value) {
+                        switch clause.op {
+                        case ">", ">=":
+                            query.minQuality = value
+                            query.minQualityInclusive = clause.op == ">="
+                        case "<", "<=":
+                            query.maxQuality = value
+                            query.maxQualityInclusive = clause.op == "<="
+                        default:
+                            query.minQuality = value
+                            query.maxQuality = value
+                            query.minQualityInclusive = true
+                            query.maxQualityInclusive = true
+                        }
+                    }
+                case "sc", "samples", "samplecount":
+                    if let value = Double(clause.value) {
+                        let count = Int(value.rounded())
+                        switch clause.op {
+                        case ">", ">=":
+                            query.minSampleCount = count
+                            query.minSampleCountInclusive = clause.op == ">="
+                        case "<", "<=":
+                            query.maxSampleCount = count
+                            query.maxSampleCountInclusive = clause.op == "<="
+                        default:
+                            query.minSampleCount = count
+                            query.maxSampleCount = count
+                            query.minSampleCountInclusive = true
+                            query.maxSampleCountInclusive = true
+                        }
+                    }
+                default:
+                    guard !clause.value.isEmpty else { continue }
+                    query.infoFilters.append(
+                        VariantDatabase.InfoFilter(
+                            key: rawKey,
+                            op: infoComparisonOp(from: clause.op),
+                            value: clause.value
+                        )
+                    )
+                }
+            }
+            query.nameFilter = nameTokens.joined(separator: " ")
+            if let region = query.region, region.chromosome.isEmpty {
+                query.region = nil
+            }
+            return query
+        }
+
         var query = VariantFilterQuery()
         var nameTokens: [String] = []
 
@@ -1406,6 +1567,42 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Parses advanced sample syntax:
     /// `name:S1 source:run42 visible:true meta.Country:USA`
     private func parseSampleFilterText(_ text: String) -> SampleFilterQuery {
+        if text.contains(";") {
+            var query = SampleFilterQuery()
+            var freeTokens: [String] = []
+            for clause in parseSearchClauses(text) {
+                guard let rawKey = clause.key?.trimmingCharacters(in: .whitespacesAndNewlines), !rawKey.isEmpty else {
+                    freeTokens.append(clause.value)
+                    continue
+                }
+                let key = rawKey.lowercased()
+                switch key {
+                case "text":
+                    freeTokens.append(clause.value)
+                case "name":
+                    query.nameFilter = clause.value
+                case "source":
+                    query.sourceFilter = clause.value
+                case "visible":
+                    let lower = clause.value.lowercased()
+                    if ["1", "true", "yes", "on"].contains(lower) { query.visibility = true }
+                    if ["0", "false", "no", "off"].contains(lower) { query.visibility = false }
+                default:
+                    if key.hasPrefix("meta.") {
+                        let field = String(rawKey.dropFirst(5))
+                        if !field.isEmpty, !clause.value.isEmpty {
+                            query.metadataFilters.append((field, clause.value))
+                        }
+                    } else if !clause.value.isEmpty {
+                        // Treat unknown keys as metadata fields for convenience.
+                        query.metadataFilters.append((rawKey, clause.value))
+                    }
+                }
+            }
+            query.textFilter = freeTokens.joined(separator: " ")
+            return query
+        }
+
         var query = SampleFilterQuery()
         var freeTokens: [String] = []
         for tokenSub in text.split(whereSeparator: \.isWhitespace) {

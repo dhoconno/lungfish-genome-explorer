@@ -87,6 +87,9 @@ public final class AnnotationSearchIndex {
     /// Human-readable display name per variant track (from VariantTrackInfo.name).
     private var variantTrackNames: [String: String] = [:]
 
+    /// Cached chromosome names per variant track for alias fallback matching.
+    private var variantTrackChromosomes: [String: Set<String>] = [:]
+
     /// Public accessor for variant database handles (for delete operations).
     public var variantDatabaseHandles: [(trackId: String, db: VariantDatabase)] { variantDatabases }
 
@@ -213,6 +216,7 @@ public final class AnnotationSearchIndex {
     private func openVariantDatabases(bundle: ReferenceBundle) {
         variantDatabases.removeAll()
         variantTrackNames.removeAll()
+        variantTrackChromosomes.removeAll()
         for vTrackId in bundle.variantTrackIds {
             guard let trackInfo = bundle.variantTrack(id: vTrackId),
                   let dbPath = trackInfo.databasePath else { continue }
@@ -222,6 +226,7 @@ public final class AnnotationSearchIndex {
                 let db = try VariantDatabase(url: dbURL)
                 variantDatabases.append((trackId: vTrackId, db: db))
                 variantTrackNames[vTrackId] = trackInfo.name
+                variantTrackChromosomes[vTrackId] = Set(db.allChromosomes())
                 let vcount = db.totalCount()
                 searchLogger.info("AnnotationSearchIndex: Opened variant database '\(vTrackId, privacy: .public)' with \(vcount) variants")
             } catch {
@@ -477,16 +482,22 @@ public final class AnnotationSearchIndex {
         for handle in variantDatabases {
             let remaining = limit - results.count
             guard remaining > 0 else { break }
-            let variantRecords = handle.db.queryForTableInRegion(
-                chromosome: chromosome,
-                start: start,
-                end: end,
-                nameFilter: nameFilter,
-                types: types,
-                infoFilters: infoFilters,
-                limit: remaining
-            )
-            results.append(contentsOf: variantRecordsToSearchResults(variantRecords, db: handle.db, trackId: handle.trackId))
+            for queryChrom in resolvedChromosomeCandidates(for: chromosome, trackId: handle.trackId) {
+                let chunkLimit = limit - results.count
+                guard chunkLimit > 0 else { break }
+                let variantRecords = handle.db.queryForTableInRegion(
+                    chromosome: queryChrom,
+                    start: start,
+                    end: end,
+                    nameFilter: nameFilter,
+                    types: types,
+                    infoFilters: infoFilters,
+                    limit: chunkLimit
+                )
+                if !variantRecords.isEmpty {
+                    results.append(contentsOf: variantRecordsToSearchResults(variantRecords, db: handle.db, trackId: handle.trackId))
+                }
+            }
         }
         return results
     }
@@ -502,14 +513,16 @@ public final class AnnotationSearchIndex {
     ) -> Int {
         var count = 0
         for handle in variantDatabases {
-            count += handle.db.queryCountInRegion(
-                chromosome: chromosome,
-                start: start,
-                end: end,
-                nameFilter: nameFilter,
-                types: types,
-                infoFilters: infoFilters
-            )
+            for queryChrom in resolvedChromosomeCandidates(for: chromosome, trackId: handle.trackId) {
+                count += handle.db.queryCountInRegion(
+                    chromosome: queryChrom,
+                    start: start,
+                    end: end,
+                    nameFilter: nameFilter,
+                    types: types,
+                    infoFilters: infoFilters
+                )
+            }
         }
         return count
     }
@@ -527,22 +540,29 @@ public final class AnnotationSearchIndex {
 
     /// Track-aware annotation lookup for drawer/inspector enrichment.
     public func lookupAnnotation(for result: SearchResult) -> AnnotationDatabaseRecord? {
+        let candidates = annotationChromosomeCandidates(for: result.chromosome)
         if let matched = annotationDatabases.first(where: { $0.trackId == result.trackId }) {
-            return matched.db.lookupAnnotation(
-                name: result.name,
-                chromosome: result.chromosome,
-                start: result.start,
-                end: result.end
-            )
+            for chromosome in candidates {
+                if let record = matched.db.lookupAnnotation(
+                    name: result.name,
+                    chromosome: chromosome,
+                    start: result.start,
+                    end: result.end
+                ) {
+                    return record
+                }
+            }
         }
         for handle in annotationDatabases {
-            if let record = handle.db.lookupAnnotation(
-                name: result.name,
-                chromosome: result.chromosome,
-                start: result.start,
-                end: result.end
-            ) {
-                return record
+            for chromosome in candidates {
+                if let record = handle.db.lookupAnnotation(
+                    name: result.name,
+                    chromosome: chromosome,
+                    start: result.start,
+                    end: result.end
+                ) {
+                    return record
+                }
             }
         }
         return nil
@@ -574,6 +594,7 @@ public final class AnnotationSearchIndex {
         var merged: [String: InfoAccumulator] = [:]
         for handle in variantDatabases {
             for def in handle.db.infoKeys() {
+                guard handle.db.hasNonEmptyInfoValue(forKey: def.key) else { continue }
                 if var existing = merged[def.key] {
                     existing.types.insert(def.type)
                     merged[def.key] = existing
@@ -596,6 +617,7 @@ public final class AnnotationSearchIndex {
         annotationDatabases = []
         variantDatabases = []
         variantTrackNames = [:]
+        variantTrackChromosomes = [:]
         isBuilding = false
     }
 
@@ -603,6 +625,7 @@ public final class AnnotationSearchIndex {
     public func clearVariantDatabases() {
         variantDatabases.removeAll()
         variantTrackNames.removeAll()
+        variantTrackChromosomes.removeAll()
     }
 
     // MARK: - Private Helpers
@@ -621,6 +644,62 @@ public final class AnnotationSearchIndex {
             let infoDict = record.id.flatMap { infoDicts[$0] }
             return record.toSearchResult(trackId: trackId, infoDict: infoDict, sourceFile: sourceName)
         }
+    }
+
+    /// Returns chromosome names to try for variant queries in this track.
+    /// Includes direct match plus normalized/alias fallbacks.
+    private func resolvedChromosomeCandidates(for chromosome: String, trackId: String) -> [String] {
+        let available = variantTrackChromosomes[trackId] ?? []
+        if available.isEmpty || available.contains(chromosome) { return [chromosome] }
+
+        let canonical = canonicalChromosomeName(chromosome)
+        var ordered: [String] = [chromosome]
+        for candidate in available {
+            if canonicalChromosomeName(candidate) == canonical {
+                ordered.append(candidate)
+            }
+        }
+        if ordered.count > 1 {
+            return Array(NSOrderedSet(array: ordered)) as? [String] ?? ordered
+        }
+        return [chromosome]
+    }
+
+    /// Returns candidate chromosome names for annotation lookups.
+    private func annotationChromosomeCandidates(for chromosome: String) -> [String] {
+        var candidates: [String] = [chromosome]
+        let trimmed = chromosome.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+
+        if lower.hasPrefix("chr") {
+            candidates.append(String(trimmed.dropFirst(3)))
+        } else {
+            candidates.append("chr\(trimmed)")
+        }
+
+        if let dot = trimmed.firstIndex(of: ".") {
+            let withoutVersion = String(trimmed[..<dot])
+            candidates.append(withoutVersion)
+            if withoutVersion.lowercased().hasPrefix("chr") {
+                candidates.append(String(withoutVersion.dropFirst(3)))
+            } else {
+                candidates.append("chr\(withoutVersion)")
+            }
+        }
+
+        return Array(NSOrderedSet(array: candidates)) as? [String] ?? candidates
+    }
+
+    /// Canonical chromosome key used for alias fallback matching.
+    private func canonicalChromosomeName(_ name: String) -> String {
+        var value = name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.hasPrefix("chr") {
+            value = String(value.dropFirst(3))
+        }
+        if let dot = value.firstIndex(of: ".") {
+            value = String(value[..<dot])
+        }
+        return value
     }
 }
 
