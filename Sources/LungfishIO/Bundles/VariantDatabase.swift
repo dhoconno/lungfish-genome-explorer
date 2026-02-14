@@ -933,6 +933,40 @@ public final class VariantDatabase: @unchecked Sendable {
         return readGenotypeRows(stmt: stmt!)
     }
 
+    /// Returns genotype records for many variants in one query batch.
+    ///
+    /// This avoids N+1 round trips when rendering genotype-heavy table views.
+    public func genotypes(forVariantIds variantRowIds: [Int64]) -> [Int64: [GenotypeRecord]] {
+        guard let db, hasV2Schema else { return [:] }
+        let uniqueIds = Array(Set(variantRowIds))
+        guard !uniqueIds.isEmpty else { return [:] }
+
+        var grouped: [Int64: [GenotypeRecord]] = [:]
+        let chunkSize = 500
+        for chunkStart in stride(from: 0, to: uniqueIds.count, by: chunkSize) {
+            let chunkEnd = min(chunkStart + chunkSize, uniqueIds.count)
+            let chunk = Array(uniqueIds[chunkStart..<chunkEnd])
+            let placeholders = chunk.map { _ in "?" }.joined(separator: ",")
+            let sql = """
+                SELECT variant_id, sample_name, genotype, allele1, allele2, is_phased, depth, genotype_quality, allele_depths, raw_fields
+                FROM genotypes
+                WHERE variant_id IN (\(placeholders))
+                ORDER BY variant_id, sample_name
+                """
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { continue }
+            for (idx, id) in chunk.enumerated() {
+                sqlite3_bind_int64(stmt, Int32(idx + 1), id)
+            }
+            let rows = readGenotypeRows(stmt: stmt!)
+            for row in rows {
+                grouped[row.variantRowId, default: []].append(row)
+            }
+        }
+        return grouped
+    }
+
     /// Returns genotype records for a specific sample in a genomic region.
     ///
     /// Joins genotypes with variants to filter by region.

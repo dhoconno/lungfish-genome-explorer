@@ -73,15 +73,20 @@ struct FilterProfile: Codable, Sendable, Identifiable, Equatable {
 // MARK: - Profile Persistence
 
 enum FilterProfileStore {
-    private static let key = "com.lungfish.filterProfiles"
+    private static let keyPrefix = "com.lungfish.filterProfiles"
 
-    static func loadCustomProfiles() -> [FilterProfile] {
-        guard let data = UserDefaults.standard.data(forKey: key) else { return [] }
+    private static func key(bundleIdentifier: String?) -> String {
+        guard let bundleIdentifier, !bundleIdentifier.isEmpty else { return keyPrefix }
+        return "\(keyPrefix).\(bundleIdentifier)"
+    }
+
+    static func loadCustomProfiles(bundleIdentifier: String? = nil) -> [FilterProfile] {
+        guard let data = UserDefaults.standard.data(forKey: key(bundleIdentifier: bundleIdentifier)) else { return [] }
         return (try? JSONDecoder().decode([FilterProfile].self, from: data)) ?? []
     }
 
-    static func saveCustomProfiles(_ profiles: [FilterProfile]) {
+    static func saveCustomProfiles(_ profiles: [FilterProfile], bundleIdentifier: String? = nil) {
         let data = try? JSONEncoder().encode(profiles.filter { !$0.isBuiltIn })
-        UserDefaults.standard.set(data, forKey: key)
+        UserDefaults.standard.set(data, forKey: key(bundleIdentifier: bundleIdentifier))
     }
 }

@@ -123,6 +123,7 @@ enum SmartToken: String, CaseIterable, Sendable {
     enum PostFilterKind: Sendable {
         case heterozygousOnly
         case bookmarkedOnly
+        case moderateOrHigherImpact
     }
 
     /// Returns the filter effects for this token, given the available INFO keys.
@@ -146,22 +147,9 @@ enum SmartToken: String, CaseIterable, Sendable {
             return []
 
         case .moderateImpact:
-            if let key = Self.impactKeys.first(where: { infoKeys.contains($0) }) {
-                // "Moderate+" excludes LOW and MODIFIER. Since the query engine ANDs info
-                // filters, we can't OR MODERATE+HIGH. Instead, exclude the unwanted values
-                // by requiring the value NOT be LOW or MODIFIER. We use neq for LOW (the
-                // more common exclusion) and trust that MODIFIER is also excluded because
-                // it doesn't match. Since we can only apply one filter per key effectively,
-                // use LIKE with a partial match: both "HIGH" and "MODERATE" contain "E" but
-                // "LOW" does not. "MODIFIER" also contains "E" though, so instead use the
-                // fact that both target values have length >= 4 with specific patterns.
-                // Simplest correct approach: exclude LOW and MODIFIER explicitly.
-                return [.infoFilters([
-                    VariantDatabase.InfoFilter(key: key, op: .neq, value: "LOW"),
-                    VariantDatabase.InfoFilter(key: key, op: .neq, value: "MODIFIER"),
-                ])]
-            }
-            return []
+            // Requires OR semantics (MODERATE or HIGH). Keep this as a post-filter to avoid
+            // incorrect SQL approximations that over-include unrelated impact values.
+            return [.postFilter(.moderateOrHigherImpact)]
 
         case .rareVariant:
             if let key = Self.afKeys.first(where: { infoKeys.contains($0) }) {

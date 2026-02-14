@@ -268,8 +268,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     private var smartTokenButtons: [SmartToken: NSButton] = [:]
     /// Reverse lookup: button identity -> SmartToken.
     private var smartTokenPayloads: [ObjectIdentifier: SmartToken] = [:]
-    /// Bookmarked variant row IDs (for star column display).
-    var bookmarkedVariantIds: Set<Int64> = []
+    /// Bookmarked variant keys (`trackId:variantRowId`) for star column display.
+    var bookmarkedVariantKeys: Set<String> = []
     /// Column configuration popover (gear menu).
     var columnConfigPopover: NSPopover?
 
@@ -1527,6 +1527,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         let filterBookmarkedOnly = smartComposed.postFilters.contains(where: {
             if case .bookmarkedOnly = $0 { return true }; return false
         })
+        let filterModerateOrHigher = smartComposed.postFilters.contains(where: {
+            if case .moderateOrHigherImpact = $0 { return true }; return false
+        })
+        let hasSmartPostFilter = filterBookmarkedOnly || filterModerateOrHigher
 
         // Merge type restrictions from smart tokens with existing type filter
         var effectiveTypeFilter = typeFilter
@@ -1621,11 +1625,17 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                     limit: Self.maxDisplayCount * 3
                 )
                 var filtered = applyVariantAdvancedFilters(results, query: effectiveQuery)
+                if filterModerateOrHigher {
+                    filtered = filterModerateOrHigherImpact(filtered)
+                }
                 if filterBookmarkedOnly {
-                    filtered = filtered.filter { $0.variantRowId.map { bookmarkedVariantIds.contains($0) } ?? false }
+                    filtered = filtered.filter { result in
+                        guard let rowId = result.variantRowId else { return false }
+                        return bookmarkedVariantKeys.contains(bookmarkKey(trackId: result.trackId, variantRowId: rowId))
+                    }
                 }
                 displayedAnnotations = filtered.prefix(Self.maxDisplayCount).map { $0 }
-                if effectiveQuery.hasPostFilters || filterBookmarkedOnly {
+                if effectiveQuery.hasPostFilters || hasSmartPostFilter {
                     lastVariantQueryMatchCount = displayedAnnotations.count
                 }
                 tableView.reloadData()
@@ -1653,17 +1663,38 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                     limit: Self.maxDisplayCount * 3
                 )
                 var filtered = applyVariantAdvancedFilters(results, query: effectiveQuery)
+                if filterModerateOrHigher {
+                    filtered = filterModerateOrHigherImpact(filtered)
+                }
                 if filterBookmarkedOnly {
-                    filtered = filtered.filter { $0.variantRowId.map { bookmarkedVariantIds.contains($0) } ?? false }
+                    filtered = filtered.filter { result in
+                        guard let rowId = result.variantRowId else { return false }
+                        return bookmarkedVariantKeys.contains(bookmarkKey(trackId: result.trackId, variantRowId: rowId))
+                    }
                 }
                 displayedAnnotations = filtered.prefix(Self.maxDisplayCount).map { $0 }
-                if effectiveQuery.hasPostFilters || filterBookmarkedOnly {
+                if effectiveQuery.hasPostFilters || hasSmartPostFilter {
                     lastVariantQueryMatchCount = displayedAnnotations.count
                 }
                 tableView.reloadData()
                 scrollView.isHidden = false
                 tooManyLabel.isHidden = true
             }
+        }
+    }
+
+    private func filterModerateOrHigherImpact(_ results: [AnnotationSearchIndex.SearchResult]) -> [AnnotationSearchIndex.SearchResult] {
+        let impactKeys = SmartToken.impactKeys
+        return results.filter { result in
+            guard let info = result.infoDict else { return false }
+            for key in impactKeys {
+                guard let raw = info[key], !raw.isEmpty else { continue }
+                let value = raw.uppercased()
+                if value.contains("HIGH") || value.contains("MODERATE") {
+                    return true
+                }
+            }
+            return false
         }
     }
 
@@ -2314,7 +2345,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         }
 
         // Custom profiles
-        let customProfiles = FilterProfileStore.loadCustomProfiles()
+        let customProfiles = FilterProfileStore.loadCustomProfiles(bundleIdentifier: searchIndex?.bundleIdentifier)
         if !customProfiles.isEmpty {
             profileButton.menu?.addItem(NSMenuItem.separator())
             for profile in customProfiles {
@@ -2378,9 +2409,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
             let tokens = self.activeSmartTokens.map(\.rawValue)
             let profile = FilterProfile(name: name, activeTokens: tokens, filterText: self.variantFilterText)
-            var customs = FilterProfileStore.loadCustomProfiles()
+            var customs = FilterProfileStore.loadCustomProfiles(bundleIdentifier: self.searchIndex?.bundleIdentifier)
             customs.append(profile)
-            FilterProfileStore.saveCustomProfiles(customs)
+            FilterProfileStore.saveCustomProfiles(customs, bundleIdentifier: self.searchIndex?.bundleIdentifier)
             self.rebuildProfileMenu()
         }
     }
@@ -3157,7 +3188,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
 
         // --- Bookmark ---
         if let variantRowId = annotation.variantRowId {
-            let isBookmarked = bookmarkedVariantIds.contains(variantRowId)
+            let isBookmarked = bookmarkedVariantKeys.contains(bookmarkKey(trackId: annotation.trackId, variantRowId: variantRowId))
             let bookmarkTitle = isBookmarked ? "Remove Bookmark" : "Bookmark Variant"
             let bookmarkItem = NSMenuItem(title: bookmarkTitle, action: #selector(contextBookmarkToggle(_:)), keyEquivalent: "")
             bookmarkItem.target = self

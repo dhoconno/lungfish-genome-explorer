@@ -41,7 +41,8 @@ extension AnnotationTableDrawerView {
         let annotation = displayedAnnotations[row]
         guard let variantRowId = annotation.variantRowId else { return nil }
 
-        let isBookmarked = bookmarkedVariantIds.contains(variantRowId)
+        let key = bookmarkKey(trackId: annotation.trackId, variantRowId: variantRowId)
+        let isBookmarked = bookmarkedVariantKeys.contains(key)
         let button = NSButton(frame: NSRect(x: 0, y: 0, width: 28, height: 16))
         button.setButtonType(.momentaryChange)
         button.isBordered = false
@@ -58,13 +59,14 @@ extension AnnotationTableDrawerView {
         guard row < displayedAnnotations.count else { return }
         let annotation = displayedAnnotations[row]
         guard let variantRowId = annotation.variantRowId else { return }
+        let key = bookmarkKey(trackId: annotation.trackId, variantRowId: variantRowId)
 
         guard let db = variantDatabase(forTrackId: annotation.trackId) else { return }
         let newState = db.toggleBookmark(variantId: variantRowId)
         if newState {
-            bookmarkedVariantIds.insert(variantRowId)
+            bookmarkedVariantKeys.insert(key)
         } else {
-            bookmarkedVariantIds.remove(variantRowId)
+            bookmarkedVariantKeys.remove(key)
         }
 
         // Update just this row
@@ -77,15 +79,16 @@ extension AnnotationTableDrawerView {
     @objc func contextBookmarkToggle(_ sender: NSMenuItem) {
         guard let annotation = sender.representedObject as? AnnotationSearchIndex.SearchResult,
               let variantRowId = annotation.variantRowId else { return }
+        let key = bookmarkKey(trackId: annotation.trackId, variantRowId: variantRowId)
         guard let db = variantDatabase(forTrackId: annotation.trackId) else { return }
         let newState = db.toggleBookmark(variantId: variantRowId)
         if newState {
-            bookmarkedVariantIds.insert(variantRowId)
+            bookmarkedVariantKeys.insert(key)
         } else {
-            bookmarkedVariantIds.remove(variantRowId)
+            bookmarkedVariantKeys.remove(key)
         }
         // Reload the bookmark column for the affected row
-        if let row = displayedAnnotations.firstIndex(where: { $0.variantRowId == variantRowId }) {
+        if let row = displayedAnnotations.firstIndex(where: { $0.variantRowId == variantRowId && $0.trackId == annotation.trackId }) {
             let colIndex = tableView.column(withIdentifier: Self.bookmarkColumn)
             if colIndex >= 0 {
                 tableView.reloadData(forRowIndexes: IndexSet(integer: row), columnIndexes: IndexSet(integer: colIndex))
@@ -97,10 +100,12 @@ extension AnnotationTableDrawerView {
 
     /// Loads bookmarked variant IDs from all variant databases.
     func loadBookmarkedVariantIds() {
-        bookmarkedVariantIds.removeAll()
+        bookmarkedVariantKeys.removeAll()
         guard let index = searchIndex else { return }
         for handle in index.variantDatabaseHandles {
-            bookmarkedVariantIds.formUnion(handle.db.bookmarkedVariantIds())
+            for rowId in handle.db.bookmarkedVariantIds() {
+                bookmarkedVariantKeys.insert(bookmarkKey(trackId: handle.trackId, variantRowId: rowId))
+            }
         }
     }
 
@@ -176,7 +181,7 @@ extension AnnotationTableDrawerView {
 
     /// Returns true if any bookmarks exist (for smart token availability).
     var hasBookmarks: Bool {
-        !bookmarkedVariantIds.isEmpty
+        !bookmarkedVariantKeys.isEmpty
     }
 
     // MARK: - Helpers
@@ -187,5 +192,10 @@ extension AnnotationTableDrawerView {
         guard let index = searchIndex else { return nil }
         let handles = index.variantDatabaseHandles
         return handles.first(where: { $0.trackId == trackId })?.db ?? handles.first?.db
+    }
+
+    /// Stable in-memory key for bookmark membership checks across multiple variant tracks.
+    func bookmarkKey(trackId: String, variantRowId: Int64) -> String {
+        "\(trackId):\(variantRowId)"
     }
 }

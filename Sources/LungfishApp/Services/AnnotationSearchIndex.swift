@@ -96,6 +96,9 @@ public final class AnnotationSearchIndex {
     /// Track ID associated with the database (for SearchResult compatibility).
     private var databaseTrackId: String = ""
 
+    /// Bundle identifier associated with this index for per-bundle persisted UI state.
+    public private(set) var bundleIdentifier: String?
+
     /// Whether the index is currently being built.
     public private(set) var isBuilding: Bool = false
 
@@ -196,6 +199,7 @@ public final class AnnotationSearchIndex {
             let db = try AnnotationDatabase(url: dbURL)
             database = db
             databaseTrackId = trackId
+            bundleIdentifier = bundle.manifest.identifier
             annotationDatabases = [(trackId: trackId, db: db)]
             isBuilding = false
             let count = database?.totalCount() ?? 0
@@ -249,6 +253,7 @@ public final class AnnotationSearchIndex {
         annotationDatabases.removeAll()
         database = nil
         databaseTrackId = ""
+        bundleIdentifier = bundle.manifest.identifier
 
         for trackId in bundle.annotationTrackIds {
             if let trackInfo = bundle.annotationTrack(id: trackId),
@@ -715,6 +720,7 @@ public final class AnnotationSearchIndex {
         variantDatabases = []
         variantTrackNames = [:]
         variantTrackChromosomes = [:]
+        bundleIdentifier = nil
         isBuilding = false
     }
 

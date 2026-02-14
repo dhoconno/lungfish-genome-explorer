@@ -69,7 +69,8 @@ public struct QueryRule: Codable, Sendable, Identifiable {
                 return "\(field)\(op)\(trimmedValue)"
             }
         case .sampleGenotype:
-            return "\(field)\(op)\(trimmedValue)"
+            // Not supported yet by the variant table query backend.
+            return nil
         }
     }
 }
@@ -86,6 +87,11 @@ public enum QueryCategory: String, Codable, Sendable, CaseIterable, Identifiable
     case sampleGenotype
 
     public var id: String { rawValue }
+
+    // Hide unsupported categories from UI while retaining Codable compatibility.
+    public static var allCases: [QueryCategory] {
+        [.location, .identity, .biologicalEffect, .population, .callQuality]
+    }
 
     public var displayName: String {
         switch self {
@@ -112,7 +118,7 @@ public enum QueryCategory: String, Codable, Sendable, CaseIterable, Identifiable
         case .callQuality:
             return ["Quality", "Filter", "DP", "MQ", "Sample Count"]
         case .sampleGenotype:
-            return ["GQ", "AD"]
+            return []
         }
     }
 
@@ -133,7 +139,7 @@ public enum QueryCategory: String, Codable, Sendable, CaseIterable, Identifiable
             if field == "Filter" { return ["="] }
             return ["<", "<=", ">", ">=", "="]
         case .sampleGenotype:
-            return ["<", "<=", ">", ">=", "="]
+            return []
         }
     }
 }
@@ -144,6 +150,9 @@ public enum QueryCategory: String, Codable, Sendable, CaseIterable, Identifiable
 public enum QueryLogic: String, Codable, Sendable, CaseIterable {
     case matchAll = "all"
     case matchAny = "any"
+
+    // Keep `matchAny` for decode compatibility, but do not expose it in UI until execution supports OR groups.
+    public static var allCases: [QueryLogic] { [.matchAll] }
 
     public var displayName: String {
         switch self {

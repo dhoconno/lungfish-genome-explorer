@@ -179,7 +179,8 @@ struct VariantQueryBuilderView: View {
 
     private func loadPreset(_ preset: QueryPreset) {
         rules = preset.rules
-        logic = preset.logic
+        // OR logic is not yet supported in the backend; normalize imported presets.
+        logic = preset.logic == .matchAny ? .matchAll : preset.logic
         selectedPresetId = preset.id
     }
 
@@ -195,6 +196,9 @@ struct VariantQueryBuilderView: View {
         guard !clauses.isEmpty else {
             onApply("")
             return
+        }
+        if logic == .matchAny {
+            queryLogger.warning("Match Any requested but not supported; applying as Match All")
         }
         let filterText = clauses.joined(separator: "; ")
         queryLogger.info("Query builder applied: \(filterText)")

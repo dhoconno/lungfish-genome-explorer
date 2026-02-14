@@ -148,30 +148,40 @@ extension AnnotationTableDrawerView {
 
             var rows: [GenotypeDisplayRow] = []
 
-            for variant in variants {
-                guard let rowId = variant.variantRowId else { continue }
-                guard let db = handlesByTrack[variant.trackId] else { continue }
+            let variantsByTrack = Dictionary(grouping: variants, by: \.trackId)
+            for (trackId, trackVariants) in variantsByTrack {
+                guard let db = handlesByTrack[trackId] else { continue }
+                let variantIds = trackVariants.compactMap(\.variantRowId)
+                guard !variantIds.isEmpty else { continue }
+                let genotypesByVariant = db.genotypes(forVariantIds: variantIds)
+                let variantPairs: [(Int64, AnnotationSearchIndex.SearchResult)] = trackVariants.compactMap { variant in
+                    guard let rowId = variant.variantRowId else { return nil }
+                    return (rowId, variant)
+                }
+                let variantById = Dictionary(uniqueKeysWithValues: variantPairs)
 
-                let genotypes = db.genotypes(forVariantId: rowId)
-                for gt in genotypes {
-                    let zygosity = GenotypeDisplayRow.classify(allele1: gt.allele1, allele2: gt.allele2)
-                    let ab = GenotypeDisplayRow.computeAlleleBalance(from: gt.alleleDepths)
+                for variantId in variantIds {
+                    guard let variant = variantById[variantId] else { continue }
+                    for gt in genotypesByVariant[variantId] ?? [] {
+                        let zygosity = GenotypeDisplayRow.classify(allele1: gt.allele1, allele2: gt.allele2)
+                        let ab = GenotypeDisplayRow.computeAlleleBalance(from: gt.alleleDepths)
 
-                    rows.append(GenotypeDisplayRow(
-                        sampleName: gt.sampleName,
-                        variantRowId: rowId,
-                        variantID: variant.name,
-                        chromosome: variant.chromosome,
-                        position: variant.start,
-                        ref: variant.ref ?? "",
-                        alt: variant.alt ?? "",
-                        genotype: gt.genotype ?? "./.",
-                        zygosity: zygosity,
-                        alleleDepths: gt.alleleDepths ?? "",
-                        depth: gt.depth,
-                        genotypeQuality: gt.genotypeQuality,
-                        alleleBalance: ab
-                    ))
+                        rows.append(GenotypeDisplayRow(
+                            sampleName: gt.sampleName,
+                            variantRowId: variantId,
+                            variantID: variant.name,
+                            chromosome: variant.chromosome,
+                            position: variant.start,
+                            ref: variant.ref ?? "",
+                            alt: variant.alt ?? "",
+                            genotype: gt.genotype ?? "./.",
+                            zygosity: zygosity,
+                            alleleDepths: gt.alleleDepths ?? "",
+                            depth: gt.depth,
+                            genotypeQuality: gt.genotypeQuality,
+                            alleleBalance: ab
+                        ))
+                    }
                 }
             }
 

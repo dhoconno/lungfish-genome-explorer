@@ -379,6 +379,14 @@ final class VariantTableEnhancementTests: XCTestCase {
         XCTAssertTrue(keys.contains("DP"))
     }
 
+    func testModerateImpactUsesPostFilter() {
+        let effects = SmartToken.moderateImpact.filterEffects(infoKeys: ["IMPACT"])
+        XCTAssertEqual(effects.count, 1)
+        if case .postFilter(.moderateOrHigherImpact) = effects.first {} else {
+            XCTFail("Expected .postFilter(.moderateOrHigherImpact)")
+        }
+    }
+
     // MARK: - Phase 2: Query Rule Tests
 
     func testQueryRuleToFilterClause() {
@@ -401,6 +409,15 @@ final class VariantTableEnhancementTests: XCTestCase {
     func testQueryRuleEmptyValueReturnsNil() {
         let rule = QueryRule(category: .callQuality, field: "Quality", op: ">=", value: "")
         XCTAssertNil(rule.toFilterClause())
+    }
+
+    func testQueryRuleSampleGenotypeReturnsNil() {
+        let rule = QueryRule(category: .sampleGenotype, field: "GQ", op: ">=", value: "20")
+        XCTAssertNil(rule.toFilterClause())
+    }
+
+    func testQueryCategoryAllCasesExcludesUnsupportedSampleGenotype() {
+        XCTAssertFalse(QueryCategory.allCases.contains(.sampleGenotype))
     }
 
     func testQueryPresetBuiltInsExist() {
@@ -561,6 +578,28 @@ final class VariantTableEnhancementTests: XCTestCase {
         XCTAssertEqual(decoded?.count, 1)
         XCTAssertEqual(decoded?.first?.name, "My Profile")
         XCTAssertEqual(decoded?.first?.smartTokens, [.passOnly, .snv])
+    }
+
+    func testFilterProfileStoreScopedByBundleIdentifier() {
+        let bundleA = "bundleA.test"
+        let bundleB = "bundleB.test"
+        let profileA = FilterProfile(name: "A", activeTokens: ["passOnly"], filterText: "qual>=30")
+        let profileB = FilterProfile(name: "B", activeTokens: ["snv"], filterText: "type=SNV")
+
+        FilterProfileStore.saveCustomProfiles([profileA], bundleIdentifier: bundleA)
+        FilterProfileStore.saveCustomProfiles([profileB], bundleIdentifier: bundleB)
+
+        let loadedA = FilterProfileStore.loadCustomProfiles(bundleIdentifier: bundleA)
+        let loadedB = FilterProfileStore.loadCustomProfiles(bundleIdentifier: bundleB)
+        XCTAssertEqual(loadedA.map(\.name), ["A"])
+        XCTAssertEqual(loadedB.map(\.name), ["B"])
+    }
+
+    func testBookmarkKeyIncludesTrackID() {
+        let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 200))
+        let keyA = drawer.bookmarkKey(trackId: "trackA", variantRowId: 1)
+        let keyB = drawer.bookmarkKey(trackId: "trackB", variantRowId: 1)
+        XCTAssertNotEqual(keyA, keyB)
     }
 
     // MARK: - Phase 3: Sample Group Tests
