@@ -181,6 +181,9 @@ public enum NotificationUserInfoKey {
     /// Key for the chromosome or sequence name associated with a notification.
     public static let chromosome = "chromosome"
 
+    /// Key for variant-database chromosome name (may differ from reference chromosome label).
+    public static let variantChromosome = "variantChromosome"
+
     /// Key for the selection state associated with a notification.
     public static let selectionState = "selectionState"
 

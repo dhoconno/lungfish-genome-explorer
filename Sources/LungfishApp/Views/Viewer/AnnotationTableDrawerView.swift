@@ -198,6 +198,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     private let addSampleFieldButton = NSButton()
     private let countLabel = NSTextField(labelWithString: "")
     private let headerBar = NSView()
+    private let searchBar = NSView()
+    private let searchHintLabel = NSTextField(labelWithString: "")
     private let chipBar = NSView()
     private let chipScrollView = NSScrollView()
     private let chipStackView = NSStackView()
@@ -205,6 +207,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     private let tabControl = NSSegmentedControl()
     private let loadingIndicator = NSProgressIndicator()
     private let tooManyLabel = NSTextField(wrappingLabelWithString: "")
+    private let allTypesButton = NSButton()
+    private let noneTypesButton = NSButton()
+    private let downloadTemplateButton = NSButton()
 
     /// Maximum number of annotations to display in the table.
     /// Beyond this, user must filter to narrow down results.
@@ -246,15 +251,6 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         return f
     }()
 
-    /// Returns the search field currently active for the selected tab.
-    private var activeSearchField: NSSearchField {
-        switch activeTab {
-        case .annotations: return annotationFilterField
-        case .variants: return variantFilterField
-        case .samples: return sampleFilterField
-        }
-    }
-
     // MARK: - Initialization
 
     override init(frame frameRect: NSRect) {
@@ -279,10 +275,15 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         dragHandle.translatesAutoresizingMaskIntoConstraints = false
         addSubview(dragHandle)
 
-        // Header bar with filter controls (row 1)
+        // Header bar with tab controls (row 1)
         headerBar.wantsLayer = true
         headerBar.translatesAutoresizingMaskIntoConstraints = false
         addSubview(headerBar)
+
+        // Search bar with tab-specific filter + advanced hint (row 2)
+        searchBar.wantsLayer = true
+        searchBar.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(searchBar)
 
         // Filter search fields (tab-specific, only one visible at a time)
         configureSearchField(
@@ -300,19 +301,28 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             placeholder: "Samples: name:, source:, visible:true/false, meta.FIELD:value",
             accessibilityLabel: "Filter samples"
         )
-        headerBar.addSubview(annotationFilterField)
-        headerBar.addSubview(variantFilterField)
-        headerBar.addSubview(sampleFilterField)
+        searchBar.addSubview(annotationFilterField)
+        searchBar.addSubview(variantFilterField)
+        searchBar.addSubview(sampleFilterField)
 
-        // "All" convenience button
-        let allButton = makeChipButton(title: "All", action: #selector(selectAllTypes(_:)))
-        allButton.translatesAutoresizingMaskIntoConstraints = false
-        headerBar.addSubview(allButton)
+        // "All"/"None" convenience buttons for annotation/variant type chips
+        allTypesButton.title = "All"
+        allTypesButton.font = .systemFont(ofSize: 10, weight: .medium)
+        allTypesButton.controlSize = .small
+        allTypesButton.bezelStyle = .recessed
+        allTypesButton.target = self
+        allTypesButton.action = #selector(selectAllTypes(_:))
+        allTypesButton.translatesAutoresizingMaskIntoConstraints = false
+        searchBar.addSubview(allTypesButton)
 
-        // "None" convenience button
-        let noneButton = makeChipButton(title: "None", action: #selector(selectNoTypes(_:)))
-        noneButton.translatesAutoresizingMaskIntoConstraints = false
-        headerBar.addSubview(noneButton)
+        noneTypesButton.title = "None"
+        noneTypesButton.font = .systemFont(ofSize: 10, weight: .medium)
+        noneTypesButton.controlSize = .small
+        noneTypesButton.bezelStyle = .recessed
+        noneTypesButton.target = self
+        noneTypesButton.action = #selector(selectNoTypes(_:))
+        noneTypesButton.translatesAutoresizingMaskIntoConstraints = false
+        searchBar.addSubview(noneTypesButton)
 
         // Samples-tab convenience button for adding editable metadata fields.
         addSampleFieldButton.title = "Add Field"
@@ -323,7 +333,17 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         addSampleFieldButton.target = self
         addSampleFieldButton.action = #selector(addCustomFieldAction(_:))
         addSampleFieldButton.isHidden = true
-        headerBar.addSubview(addSampleFieldButton)
+        searchBar.addSubview(addSampleFieldButton)
+
+        downloadTemplateButton.title = "Template TSV/CSV"
+        downloadTemplateButton.controlSize = .small
+        downloadTemplateButton.bezelStyle = .rounded
+        downloadTemplateButton.font = .systemFont(ofSize: 10, weight: .medium)
+        downloadTemplateButton.translatesAutoresizingMaskIntoConstraints = false
+        downloadTemplateButton.target = self
+        downloadTemplateButton.action = #selector(downloadSampleTemplateAction(_:))
+        downloadTemplateButton.isHidden = true
+        searchBar.addSubview(downloadTemplateButton)
 
         // Tab segmented control (Annotations | Variants | Samples)
         tabControl.segmentCount = 3
@@ -353,6 +373,12 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
         loadingIndicator.startAnimation(nil)
         headerBar.addSubview(loadingIndicator)
+
+        searchHintLabel.font = .systemFont(ofSize: 10)
+        searchHintLabel.textColor = .secondaryLabelColor
+        searchHintLabel.lineBreakMode = .byTruncatingTail
+        searchHintLabel.translatesAutoresizingMaskIntoConstraints = false
+        searchBar.addSubview(searchHintLabel)
 
         // Chip bar (row 2) — horizontal scrolling row of type toggle chips
         chipBar.wantsLayer = true
@@ -418,29 +444,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             headerBar.trailingAnchor.constraint(equalTo: trailingAnchor),
             headerBar.heightAnchor.constraint(equalToConstant: 28),
 
-            annotationFilterField.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
-            annotationFilterField.leadingAnchor.constraint(equalTo: headerBar.leadingAnchor, constant: 8),
-            annotationFilterField.widthAnchor.constraint(equalToConstant: 280),
-
-            variantFilterField.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
-            variantFilterField.leadingAnchor.constraint(equalTo: headerBar.leadingAnchor, constant: 8),
-            variantFilterField.widthAnchor.constraint(equalTo: annotationFilterField.widthAnchor),
-
-            sampleFilterField.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
-            sampleFilterField.leadingAnchor.constraint(equalTo: headerBar.leadingAnchor, constant: 8),
-            sampleFilterField.widthAnchor.constraint(equalTo: annotationFilterField.widthAnchor),
-
-            allButton.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
-            allButton.leadingAnchor.constraint(equalTo: annotationFilterField.trailingAnchor, constant: 8),
-
-            noneButton.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
-            noneButton.leadingAnchor.constraint(equalTo: allButton.trailingAnchor, constant: 4),
-
-            addSampleFieldButton.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
-            addSampleFieldButton.leadingAnchor.constraint(equalTo: sampleFilterField.trailingAnchor, constant: 8),
-
             loadingIndicator.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
-            loadingIndicator.leadingAnchor.constraint(equalTo: noneButton.trailingAnchor, constant: 8),
+            loadingIndicator.leadingAnchor.constraint(equalTo: headerBar.leadingAnchor, constant: 8),
 
             tabControl.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
             tabControl.trailingAnchor.constraint(equalTo: countLabel.leadingAnchor, constant: -8),
@@ -448,7 +453,43 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             countLabel.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
             countLabel.trailingAnchor.constraint(equalTo: headerBar.trailingAnchor, constant: -8),
 
-            chipBar.topAnchor.constraint(equalTo: headerBar.bottomAnchor),
+            searchBar.topAnchor.constraint(equalTo: headerBar.bottomAnchor),
+            searchBar.leadingAnchor.constraint(equalTo: leadingAnchor),
+            searchBar.trailingAnchor.constraint(equalTo: trailingAnchor),
+            searchBar.heightAnchor.constraint(equalToConstant: 50),
+
+            annotationFilterField.topAnchor.constraint(equalTo: searchBar.topAnchor, constant: 4),
+            annotationFilterField.leadingAnchor.constraint(equalTo: searchBar.leadingAnchor, constant: 8),
+            annotationFilterField.heightAnchor.constraint(equalToConstant: 24),
+            annotationFilterField.trailingAnchor.constraint(lessThanOrEqualTo: allTypesButton.leadingAnchor, constant: -8),
+
+            variantFilterField.topAnchor.constraint(equalTo: searchBar.topAnchor, constant: 4),
+            variantFilterField.leadingAnchor.constraint(equalTo: searchBar.leadingAnchor, constant: 8),
+            variantFilterField.heightAnchor.constraint(equalToConstant: 24),
+            variantFilterField.trailingAnchor.constraint(lessThanOrEqualTo: allTypesButton.leadingAnchor, constant: -8),
+
+            sampleFilterField.topAnchor.constraint(equalTo: searchBar.topAnchor, constant: 4),
+            sampleFilterField.leadingAnchor.constraint(equalTo: searchBar.leadingAnchor, constant: 8),
+            sampleFilterField.heightAnchor.constraint(equalToConstant: 24),
+            sampleFilterField.trailingAnchor.constraint(lessThanOrEqualTo: addSampleFieldButton.leadingAnchor, constant: -8),
+
+            allTypesButton.topAnchor.constraint(equalTo: searchBar.topAnchor, constant: 4),
+            allTypesButton.trailingAnchor.constraint(equalTo: noneTypesButton.leadingAnchor, constant: -4),
+
+            noneTypesButton.centerYAnchor.constraint(equalTo: allTypesButton.centerYAnchor),
+            noneTypesButton.trailingAnchor.constraint(equalTo: searchBar.trailingAnchor, constant: -8),
+
+            addSampleFieldButton.topAnchor.constraint(equalTo: searchBar.topAnchor, constant: 4),
+            addSampleFieldButton.trailingAnchor.constraint(equalTo: downloadTemplateButton.leadingAnchor, constant: -6),
+
+            downloadTemplateButton.centerYAnchor.constraint(equalTo: addSampleFieldButton.centerYAnchor),
+            downloadTemplateButton.trailingAnchor.constraint(equalTo: searchBar.trailingAnchor, constant: -8),
+
+            searchHintLabel.topAnchor.constraint(equalTo: annotationFilterField.bottomAnchor, constant: 4),
+            searchHintLabel.leadingAnchor.constraint(equalTo: searchBar.leadingAnchor, constant: 10),
+            searchHintLabel.trailingAnchor.constraint(equalTo: searchBar.trailingAnchor, constant: -10),
+
+            chipBar.topAnchor.constraint(equalTo: searchBar.bottomAnchor),
             chipBar.leadingAnchor.constraint(equalTo: leadingAnchor),
             chipBar.trailingAnchor.constraint(equalTo: trailingAnchor),
             chipBar.heightAnchor.constraint(equalToConstant: 26),
@@ -605,10 +646,11 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             }
         }
         guard let userInfo = notification.userInfo,
-              let chromosome = userInfo[NotificationUserInfoKey.chromosome] as? String,
+              let refChromosome = userInfo[NotificationUserInfoKey.chromosome] as? String,
               let start = userInfo[NotificationUserInfoKey.start] as? Int,
               let end = userInfo[NotificationUserInfoKey.end] as? Int else { return }
-        viewportRegion = (chromosome: chromosome, start: start, end: end)
+        let queryChromosome = (userInfo[NotificationUserInfoKey.variantChromosome] as? String) ?? refChromosome
+        viewportRegion = (chromosome: queryChromosome, start: start, end: end)
         guard activeTab == .variants else { return }
         handleCoordinateSyncFromViewer()
     }
@@ -641,16 +683,18 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         variantFilterField.isHidden = activeTab != .variants
         sampleFilterField.isHidden = activeTab != .samples
         addSampleFieldButton.isHidden = activeTab != .samples
-    }
-
-    private func makeChipButton(title: String, action: Selector) -> NSButton {
-        let button = NSButton(title: title, target: self, action: action)
-        button.font = .systemFont(ofSize: 10, weight: .medium)
-        button.controlSize = .small
-        button.bezelStyle = .recessed
-        button.isBordered = true
-        button.setButtonType(.momentaryPushIn)
-        return button
+        downloadTemplateButton.isHidden = activeTab != .samples
+        let showTypeControls = activeTab != .samples && !availableTypes.isEmpty
+        allTypesButton.isHidden = !showTypeControls
+        noneTypesButton.isHidden = !showTypeControls
+        switch activeTab {
+        case .annotations:
+            searchHintLabel.stringValue = "Advanced: type:gene chr:NC_041760.1 strand:+ region:NC_041760.1:86680000-86690000"
+        case .variants:
+            searchHintLabel.stringValue = "Advanced: DP>20 AF>=0.01 chr:NC_041760.1 pos:86680000-86690000 qual>=30 sc>=2"
+        case .samples:
+            searchHintLabel.stringValue = "Advanced: name:Sample1 source:TrackA visible:true meta.Country:USA"
+        }
     }
 
     private func makeTypeChipButton(type: String) -> NSButton {
@@ -849,6 +893,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
         // Rebuild chip buttons for the active tab
         rebuildChipButtons()
+        updateSearchFieldVisibility()
 
         // Query for initial display
         if activeTab == .samples {
@@ -937,7 +982,6 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         let annotationQuery = parseAnnotationFilterText(currentFilterText)
         let variantQuery = parseVariantFilterText(currentFilterText)
         let nameFilter = activeTab == .annotations ? annotationQuery.nameFilter : variantQuery.nameFilter
-        let infoFilters = variantQuery.infoFilters
 
         // SQLite mode: query the database directly with filters
         if let index = searchIndex, (index.hasDatabaseBackend || index.hasVariantDatabase) {
@@ -2590,6 +2634,10 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         importItem.target = self
         menu.addItem(importItem)
 
+        let templateItem = NSMenuItem(title: "Download Template\u{2026}", action: #selector(downloadSampleTemplateAction(_:)), keyEquivalent: "")
+        templateItem.target = self
+        menu.addItem(templateItem)
+
         // Add custom field
         let addFieldItem = NSMenuItem(title: "Add Field\u{2026}", action: #selector(addCustomFieldAction(_:)), keyEquivalent: "")
         addFieldItem.target = self
@@ -2610,6 +2658,10 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         let importItem = NSMenuItem(title: "Import Metadata\u{2026}", action: #selector(importMetadataAction(_:)), keyEquivalent: "")
         importItem.target = self
         menu.addItem(importItem)
+
+        let templateItem = NSMenuItem(title: "Download Template\u{2026}", action: #selector(downloadSampleTemplateAction(_:)), keyEquivalent: "")
+        templateItem.target = self
+        menu.addItem(templateItem)
 
         let addFieldItem = NSMenuItem(title: "Add Field\u{2026}", action: #selector(addCustomFieldAction(_:)), keyEquivalent: "")
         addFieldItem.target = self
@@ -2653,6 +2705,42 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
     }
 
     // MARK: - Import Metadata
+
+    @objc private func downloadSampleTemplateAction(_ sender: Any?) {
+        guard !allSampleNames.isEmpty else { return }
+
+        let panel = NSSavePanel()
+        panel.title = "Save Sample Metadata Template"
+        panel.prompt = "Save Template"
+        panel.nameFieldStringValue = "sample-metadata-template.tsv"
+        panel.allowedContentTypes = [
+            .init(filenameExtension: "tsv")!,
+            .init(filenameExtension: "csv")!,
+        ]
+
+        guard let window = self.window else { return }
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard let self, response == .OK, let url = panel.url else { return }
+            let isCSV = url.pathExtension.lowercased() == "csv"
+            let delimiter = isCSV ? "," : "\t"
+
+            var columns = ["sample_name"]
+            columns.append(contentsOf: self.sampleMetadataFields)
+            let header = columns.joined(separator: delimiter)
+            let rows = self.allSampleNames.map { name -> String in
+                var values = [name]
+                values.append(contentsOf: Array(repeating: "", count: self.sampleMetadataFields.count))
+                return values.joined(separator: delimiter)
+            }
+            let content = ([header] + rows).joined(separator: "\n") + "\n"
+
+            do {
+                try content.write(to: url, atomically: true, encoding: .utf8)
+            } catch {
+                drawerLogger.error("downloadSampleTemplateAction: \(error.localizedDescription)")
+            }
+        }
+    }
 
     @objc private func importMetadataAction(_ sender: NSMenuItem) {
         guard let searchIndex else { return }

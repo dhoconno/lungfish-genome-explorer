@@ -1489,6 +1489,7 @@ public class ViewerViewController: NSViewController {
             object: viewerView,
             userInfo: [
                 NotificationUserInfoKey.chromosome: frame.chromosome,
+                NotificationUserInfoKey.variantChromosome: viewerView.variantDatabaseChromosomeName(for: frame.chromosome),
                 NotificationUserInfoKey.start: Int(frame.start),
                 NotificationUserInfoKey.end: Int(frame.end),
             ]
@@ -3101,6 +3102,11 @@ public class SequenceViewerView: NSView {
     /// Returns the original name if no alias is needed.
     private func variantDBChromosomeName(for refChrom: String) -> String {
         variantChromosomeAliasMap[refChrom] ?? refChrom
+    }
+
+    /// Public wrapper for components that need the active variant DB chromosome alias.
+    func variantDatabaseChromosomeName(for refChrom: String) -> String {
+        variantDBChromosomeName(for: refChrom)
     }
 
     /// Fetches variant annotations asynchronously from the VariantDatabase.

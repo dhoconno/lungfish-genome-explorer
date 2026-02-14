@@ -38,8 +38,10 @@ public enum VariantTrackRenderer {
 
     /// Width of the scroll indicator track.
     private static let scrollIndicatorWidth: CGFloat = 6
-    /// Horizontal gutter reserved for sample labels so cells never draw under text.
-    private static let sampleLabelGutterWidth: CGFloat = 150
+    /// Horizontal area reserved for sample labels.
+    private static let sampleLabelWidth: CGFloat = 150
+    /// Visual spacing between sample label area and genotype data area.
+    private static let sampleLabelToDataMargin: CGFloat = 12
 
     // MARK: - Color Palette
 
@@ -248,7 +250,7 @@ public enum VariantTrackRenderer {
 
         let showLabels = rowH >= 8
         let totalRows = samples.count
-        let dataStartX = showLabels ? sampleLabelGutterWidth : 0
+        let dataStartX = showLabels ? (sampleLabelWidth + sampleLabelToDataMargin) : 0
         let dataWidth = max(0, CGFloat(frame.pixelWidth) - dataStartX)
 
         // Compute visible row range from scroll offset
@@ -272,7 +274,16 @@ public enum VariantTrackRenderer {
                     .foregroundColor: NSColor.labelColor,
                 ]
                 context.setFillColor(CGColor(red: 0.96, green: 0.96, blue: 0.96, alpha: 0.92))
-                context.fill(CGRect(x: 0, y: rowY, width: dataStartX, height: rowH))
+                context.fill(CGRect(x: 0, y: rowY, width: sampleLabelWidth, height: rowH))
+                // Keep an explicit blank gutter before genotype cells.
+                context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.98))
+                context.fill(CGRect(x: sampleLabelWidth, y: rowY, width: sampleLabelToDataMargin, height: rowH))
+                context.setStrokeColor(CGColor(red: 0.82, green: 0.82, blue: 0.82, alpha: 1.0))
+                context.setLineWidth(0.5)
+                let sepX = sampleLabelWidth + sampleLabelToDataMargin / 2
+                context.move(to: CGPoint(x: sepX, y: rowY))
+                context.addLine(to: CGPoint(x: sepX, y: rowY + rowH))
+                context.strokePath()
                 label.draw(
                     at: CGPoint(x: 2, y: rowY + 1),
                     withAttributes: labelAttrs
