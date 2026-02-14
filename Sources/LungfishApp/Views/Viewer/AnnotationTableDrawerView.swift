@@ -1250,9 +1250,13 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         var infoFilters: [VariantDatabase.InfoFilter] = []
         var region: (chromosome: String, start: Int, end: Int)?
         var minQuality: Double?
+        var minQualityInclusive: Bool = true
         var maxQuality: Double?
+        var maxQualityInclusive: Bool = true
         var minSampleCount: Int?
+        var minSampleCountInclusive: Bool = true
         var maxSampleCount: Int?
+        var maxSampleCountInclusive: Bool = true
 
         var hasPostFilters: Bool {
             minQuality != nil || maxQuality != nil || minSampleCount != nil || maxSampleCount != nil
@@ -1318,7 +1322,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             }
             if let value = token.value(after: "pos:") ?? token.value(after: "range:"),
                let range = parseRange(value) {
-                let chr = query.region?.chromosome ?? ""
+                let chr = query.region?.chromosome ?? viewportRegion?.chromosome ?? ""
                 if !chr.isEmpty {
                     query.region = (chr, range.start, range.end)
                 }
@@ -1327,8 +1331,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             if let opValue = parseComparisonToken(token, keys: ["qual", "quality"]) {
                 if opValue.op == ">" || opValue.op == ">=" {
                     query.minQuality = opValue.value
+                    query.minQualityInclusive = opValue.op == ">="
                 } else if opValue.op == "<" || opValue.op == "<=" {
                     query.maxQuality = opValue.value
+                    query.maxQualityInclusive = opValue.op == "<="
                 }
                 continue
             }
@@ -1336,8 +1342,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 let count = Int(opValue.value.rounded())
                 if opValue.op == ">" || opValue.op == ">=" {
                     query.minSampleCount = count
+                    query.minSampleCountInclusive = opValue.op == ">="
                 } else if opValue.op == "<" || opValue.op == "<=" {
                     query.maxSampleCount = count
+                    query.maxSampleCountInclusive = opValue.op == "<="
                 }
                 continue
             }
@@ -1399,10 +1407,22 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         query: VariantFilterQuery
     ) -> [AnnotationSearchIndex.SearchResult] {
         results.filter { row in
-            if let minQ = query.minQuality, (row.quality ?? -Double.greatestFiniteMagnitude) < minQ { return false }
-            if let maxQ = query.maxQuality, (row.quality ?? Double.greatestFiniteMagnitude) > maxQ { return false }
-            if let minSC = query.minSampleCount, (row.sampleCount ?? 0) < minSC { return false }
-            if let maxSC = query.maxSampleCount, (row.sampleCount ?? Int.max) > maxSC { return false }
+            if let minQ = query.minQuality {
+                let q = row.quality ?? -Double.greatestFiniteMagnitude
+                if query.minQualityInclusive ? q < minQ : q <= minQ { return false }
+            }
+            if let maxQ = query.maxQuality {
+                let q = row.quality ?? Double.greatestFiniteMagnitude
+                if query.maxQualityInclusive ? q > maxQ : q >= maxQ { return false }
+            }
+            if let minSC = query.minSampleCount {
+                let sc = row.sampleCount ?? 0
+                if query.minSampleCountInclusive ? sc < minSC : sc <= minSC { return false }
+            }
+            if let maxSC = query.maxSampleCount {
+                let sc = row.sampleCount ?? Int.max
+                if query.maxSampleCountInclusive ? sc > maxSC : sc >= maxSC { return false }
+            }
             return true
         }
     }
@@ -2671,7 +2691,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
 
     // MARK: - Add Custom Field
 
-    @objc private func addCustomFieldAction(_ sender: NSMenuItem) {
+    @objc private func addCustomFieldAction(_ sender: Any) {
         let alert = NSAlert()
         alert.messageText = "Add Custom Field"
         alert.informativeText = "Enter a name for the new metadata field:"
