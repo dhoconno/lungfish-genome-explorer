@@ -610,6 +610,37 @@ public final class AnnotationSearchIndex {
         }
     }
 
+    /// Returns INFO presets suitable for filter chips.
+    /// Includes keys whose distinct value count is <= `maxDistinctValues`.
+    public func variantInfoPresetValues(
+        maxDistinctValues: Int = 20,
+        maxKeys: Int = 8
+    ) -> [(key: String, values: [String])] {
+        guard maxDistinctValues > 0, maxKeys > 0 else { return [] }
+        var presets: [(key: String, values: [String])] = []
+        for def in variantInfoKeys {
+            var valueSet = Set<String>()
+            var exceeded = false
+            for handle in variantDatabases {
+                let values = handle.db.distinctInfoValues(forKey: def.key, limit: maxDistinctValues + 1)
+                for value in values {
+                    valueSet.insert(value)
+                    if valueSet.count > maxDistinctValues {
+                        exceeded = true
+                        break
+                    }
+                }
+                if exceeded { break }
+            }
+            if exceeded { continue }
+            let sortedValues = valueSet.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            if sortedValues.isEmpty { continue }
+            presets.append((key: def.key, values: sortedValues))
+            if presets.count >= maxKeys { break }
+        }
+        return presets
+    }
+
     /// Clears the index.
     public func clear() {
         entries = []
@@ -708,7 +739,11 @@ public final class AnnotationSearchIndex {
 extension VariantDatabaseRecord {
     /// Converts this variant record to an `AnnotationSearchIndex.SearchResult`
     /// for unified display in the annotation table drawer.
-    public func toSearchResult(trackId: String = "variants", infoDict: [String: String]? = nil, sourceFile: String? = nil) -> AnnotationSearchIndex.SearchResult {
+    public func toSearchResult(
+        trackId: String = "variants",
+        infoDict: [String: String]? = nil,
+        sourceFile: String? = nil
+    ) -> AnnotationSearchIndex.SearchResult {
         AnnotationSearchIndex.SearchResult(
             name: variantID,
             chromosome: chromosome,

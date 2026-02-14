@@ -1299,6 +1299,31 @@ public final class VariantDatabase: @unchecked Sendable {
         return result
     }
 
+    /// Returns distinct non-empty values for an INFO key, limited and sorted by frequency.
+    public func distinctInfoValues(forKey key: String, limit: Int = 21) -> [String] {
+        guard let db, hasInfoTable, limit > 0 else { return [] }
+        let sql = """
+            SELECT value, COUNT(*) AS c
+            FROM variant_info
+            WHERE key COLLATE NOCASE = ? AND TRIM(value) != ''
+            GROUP BY value
+            ORDER BY c DESC, value COLLATE NOCASE ASC
+            LIMIT ?
+            """
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        sqliteBindText(stmt, 1, key)
+        sqlite3_bind_int(stmt, 2, Int32(limit))
+        var values: [String] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let cStr = sqlite3_column_text(stmt, 0) {
+                values.append(String(cString: cStr))
+            }
+        }
+        return values
+    }
+
     // MARK: - Sample Source File Queries
 
     /// Returns the source filename for a specific sample.
