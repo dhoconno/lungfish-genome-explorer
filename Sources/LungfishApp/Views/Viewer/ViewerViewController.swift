@@ -5941,6 +5941,8 @@ public class SequenceViewerView: NSView {
 
     /// Last hovered genotype cell (sampleIndex, siteIndex) for tooltip caching.
     private var lastHoveredGenotypeCell: (sampleIdx: Int, siteIdx: Int)?
+    /// Last tooltip text used for hovered genotype cell.
+    private var lastHoveredGenotypeTooltipText: String?
     /// Last status text used for hovered genotype cell.
     private var lastHoveredGenotypeStatusText: String?
 
@@ -5988,6 +5990,7 @@ public class SequenceViewerView: NSView {
             return
         }
         lastHoveredGenotypeCell = nil
+        lastHoveredGenotypeTooltipText = nil
         lastHoveredGenotypeStatusText = nil
 
         // --- Annotation hit-testing ---
@@ -6132,13 +6135,15 @@ public class SequenceViewerView: NSView {
 
         guard let siteIdx = bestSiteIdx else {
             lastHoveredGenotypeCell = nil
+            lastHoveredGenotypeTooltipText = nil
             return nil
         }
 
         // Avoid recomputing tooltip if we're still on the same cell
         if let last = lastHoveredGenotypeCell, last.sampleIdx == sampleIdx, last.siteIdx == siteIdx {
-            // Return non-nil to keep current tooltip active (toolTip is already set)
-            return GenotypeTooltipResult(tooltip: self.toolTip ?? "", statusText: lastHoveredGenotypeStatusText ?? "")
+            if let tooltipText = lastHoveredGenotypeTooltipText {
+                return GenotypeTooltipResult(tooltip: tooltipText, statusText: lastHoveredGenotypeStatusText ?? "")
+            }
         }
         lastHoveredGenotypeCell = (sampleIdx, siteIdx)
 
@@ -6202,6 +6207,7 @@ public class SequenceViewerView: NSView {
 
         let aaStatus = site.shortAAChange.map { " \u{2022} \($0)" } ?? ""
         let statusText = "Genotype: \(sampleName) \u{2022} \(callLabel) \u{2022} \(chrom):\(displayPos.formatted()) \(site.ref)\u{2192}\(site.alt)\(aaStatus)"
+        lastHoveredGenotypeTooltipText = tooltip
         lastHoveredGenotypeStatusText = statusText
         return GenotypeTooltipResult(tooltip: tooltip, statusText: statusText)
     }
@@ -6209,6 +6215,7 @@ public class SequenceViewerView: NSView {
     public override func mouseExited(with event: NSEvent) {
         hoveredAnnotation = nil
         lastHoveredGenotypeCell = nil
+        lastHoveredGenotypeTooltipText = nil
         lastHoveredGenotypeStatusText = nil
         hoverTooltip.hide()
         NSCursor.arrow.set()

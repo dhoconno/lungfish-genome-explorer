@@ -2389,6 +2389,8 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         } else {
             displayedSamples[row].metadata[metaKey] = newValue
         }
+        // Keep backing metadata cache in sync so refresh/sort/filter preserves edits.
+        sampleMetadata[sampleName] = displayedSamples[row].metadata
 
         // Persist to database
         guard let searchIndex else { return }
