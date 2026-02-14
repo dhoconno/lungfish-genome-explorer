@@ -32,6 +32,9 @@ public struct SampleDisplayState: Sendable, Codable, Equatable {
     /// Whether to show per-sample genotype rows (vs. summary bar only).
     public var showGenotypeRows: Bool = true
 
+    /// Whether to show the variant summary bar (density histogram).
+    public var showSummaryBar: Bool = false
+
     /// Height per genotype row in pixels (2–30). Default 12.
     public var rowHeight: CGFloat = Self.defaultRowHeight
 
@@ -45,6 +48,9 @@ public struct SampleDisplayState: Sendable, Codable, Equatable {
     /// Metadata field to use as display label instead of sample name.
     public var displayNameField: String?
 
+    /// Name of the selected color theme. Maps to `VariantColorTheme.named(_:)`.
+    public var colorThemeName: String = VariantColorTheme.modern.name
+
     public init() {}
 
     public init(
@@ -52,6 +58,7 @@ public struct SampleDisplayState: Sendable, Codable, Equatable {
         filters: [SampleFilter] = [],
         hiddenSamples: Set<String> = [],
         showGenotypeRows: Bool = true,
+        showSummaryBar: Bool = false,
         rowHeight: CGFloat = Self.defaultRowHeight,
         summaryBarHeight: CGFloat = Self.defaultSummaryBarHeight,
         sampleOrder: [String]? = nil,
@@ -61,6 +68,7 @@ public struct SampleDisplayState: Sendable, Codable, Equatable {
         self.filters = filters
         self.hiddenSamples = hiddenSamples
         self.showGenotypeRows = showGenotypeRows
+        self.showSummaryBar = showSummaryBar
         self.rowHeight = Self.clampRowHeight(rowHeight)
         self.summaryBarHeight = Self.clampSummaryBarHeight(summaryBarHeight)
         self.sampleOrder = sampleOrder
@@ -78,8 +86,8 @@ public struct SampleDisplayState: Sendable, Codable, Equatable {
     // MARK: - Codable (backward compatibility)
 
     private enum CodingKeys: String, CodingKey {
-        case sortFields, filters, hiddenSamples, showGenotypeRows
-        case rowHeight, summaryBarHeight, sampleOrder, displayNameField
+        case sortFields, filters, hiddenSamples, showGenotypeRows, showSummaryBar
+        case rowHeight, summaryBarHeight, sampleOrder, displayNameField, colorThemeName
         // Legacy key for migration
         case rowHeightMode
     }
@@ -90,10 +98,12 @@ public struct SampleDisplayState: Sendable, Codable, Equatable {
         filters = try container.decodeIfPresent([SampleFilter].self, forKey: .filters) ?? []
         hiddenSamples = try container.decodeIfPresent(Set<String>.self, forKey: .hiddenSamples) ?? []
         showGenotypeRows = try container.decodeIfPresent(Bool.self, forKey: .showGenotypeRows) ?? true
+        showSummaryBar = try container.decodeIfPresent(Bool.self, forKey: .showSummaryBar) ?? false
         let decodedSummary = try container.decodeIfPresent(CGFloat.self, forKey: .summaryBarHeight) ?? Self.defaultSummaryBarHeight
         summaryBarHeight = Self.clampSummaryBarHeight(decodedSummary)
         sampleOrder = try container.decodeIfPresent([String].self, forKey: .sampleOrder)
         displayNameField = try container.decodeIfPresent(String.self, forKey: .displayNameField)
+        colorThemeName = try container.decodeIfPresent(String.self, forKey: .colorThemeName) ?? VariantColorTheme.modern.name
 
         // Migrate from legacy RowHeightMode if present
         if let height = try container.decodeIfPresent(CGFloat.self, forKey: .rowHeight) {
@@ -115,10 +125,12 @@ public struct SampleDisplayState: Sendable, Codable, Equatable {
         try container.encode(filters, forKey: .filters)
         try container.encode(hiddenSamples, forKey: .hiddenSamples)
         try container.encode(showGenotypeRows, forKey: .showGenotypeRows)
+        try container.encode(showSummaryBar, forKey: .showSummaryBar)
         try container.encode(rowHeight, forKey: .rowHeight)
         try container.encode(summaryBarHeight, forKey: .summaryBarHeight)
         try container.encodeIfPresent(sampleOrder, forKey: .sampleOrder)
         try container.encodeIfPresent(displayNameField, forKey: .displayNameField)
+        try container.encode(colorThemeName, forKey: .colorThemeName)
     }
 
     /// Returns the ordered, filtered list of sample names to display.
@@ -384,13 +396,19 @@ public enum GenotypeDisplayCall: String, Sendable, CaseIterable {
         return .het
     }
 
-    /// IGV-compatible RGB color for this genotype.
+    /// Default RGB color for this genotype (uses modern theme).
     public var color: (r: Double, g: Double, b: Double) {
+        let tc = themeColor(from: .modern)
+        return (r: tc.r, g: tc.g, b: tc.b)
+    }
+
+    /// Returns the theme color for this genotype call.
+    public func themeColor(from theme: VariantColorTheme) -> ThemeColor {
         switch self {
-        case .homRef:  return (r: 200/255, g: 200/255, b: 200/255)  // light gray
-        case .het:     return (r: 34/255,  g: 12/255,  b: 253/255)  // dark blue
-        case .homAlt:  return (r: 17/255,  g: 248/255, b: 254/255)  // cyan
-        case .noCall:  return (r: 250/255, g: 250/255, b: 250/255)  // near-white
+        case .homRef:  return theme.homRef
+        case .het:     return theme.het
+        case .homAlt:  return theme.homAlt
+        case .noCall:  return theme.noCall
         }
     }
 }

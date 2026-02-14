@@ -27,7 +27,7 @@ protocol AnnotationTableDrawerDelegate: AnyObject {
 /// the search index with columns for Name, Type, Chromosome, Start, End, and Size.
 /// Supports filtering by name (text field) and type (chip toggle buttons).
 @MainActor
-public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableViewDelegate {
+public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
 
     // MARK: - Types
 
@@ -43,7 +43,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         let name: String
         let sourceFile: String
         var isVisible: Bool
-        let metadata: [String: String]
+        var metadata: [String: String]
     }
 
     // MARK: - Properties
@@ -2046,6 +2046,8 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             return checkbox
         }
 
+        let isMetaColumn = identifier.rawValue.hasPrefix("meta_")
+
         // Text cell for all other columns
         let cellView: NSTableCellView
         if let existing = tableView.makeView(withIdentifier: identifier, owner: nil) as? NSTableCellView {
@@ -2053,7 +2055,17 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         } else {
             cellView = NSTableCellView()
             cellView.identifier = identifier
-            let tf = NSTextField(labelWithString: "")
+            let tf: NSTextField
+            if isMetaColumn {
+                // Editable text field for metadata columns
+                tf = NSTextField(string: "")
+                tf.isBordered = false
+                tf.drawsBackground = false
+                tf.focusRingType = .exterior
+                tf.delegate = self
+            } else {
+                tf = NSTextField(labelWithString: "")
+            }
             tf.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
             tf.lineBreakMode = .byTruncatingTail
             tf.translatesAutoresizingMaskIntoConstraints = false
@@ -2080,10 +2092,13 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             tf.textColor = sample.isVisible ? .secondaryLabelColor : .tertiaryLabelColor
         default:
             // Dynamic metadata columns (identifier starts with "meta_")
-            if identifier.rawValue.hasPrefix("meta_") {
+            if isMetaColumn {
                 let metaKey = String(identifier.rawValue.dropFirst(5))
                 tf.stringValue = sample.metadata[metaKey] ?? ""
                 tf.textColor = sample.isVisible ? .labelColor : .tertiaryLabelColor
+                tf.placeholderString = "Click to edit"
+                // Store row in tag for identification during editing
+                tf.tag = row
             } else {
                 tf.stringValue = ""
             }
@@ -2345,6 +2360,47 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             self.sampleMetadataFields.sort()
             self.configureColumnsForTab(.samples)
             self.updateDisplayedSamples()
+        }
+    }
+
+    // MARK: - Inline Metadata Editing
+
+    public func controlTextDidEndEditing(_ notification: Notification) {
+        guard activeTab == .samples,
+              let tf = notification.object as? NSTextField,
+              let cellView = tf.superview as? NSTableCellView else { return }
+
+        let column = tableView.column(for: cellView)
+        guard column >= 0, column < tableView.tableColumns.count else { return }
+
+        let row = tf.tag
+        guard row >= 0, row < displayedSamples.count else { return }
+
+        let columnId = tableView.tableColumns[column].identifier.rawValue
+        guard columnId.hasPrefix("meta_") else { return }
+
+        let metaKey = String(columnId.dropFirst(5))
+        let newValue = tf.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sampleName = displayedSamples[row].name
+
+        // Update local model
+        if newValue.isEmpty {
+            displayedSamples[row].metadata.removeValue(forKey: metaKey)
+        } else {
+            displayedSamples[row].metadata[metaKey] = newValue
+        }
+
+        // Persist to database
+        guard let searchIndex else { return }
+        let fullMetadata = displayedSamples[row].metadata
+
+        for handle in searchIndex.variantDatabaseHandles {
+            do {
+                let rwDB = try VariantDatabase(url: handle.db.databaseURL, readWrite: true)
+                try rwDB.updateSampleMetadata(name: sampleName, metadata: fullMetadata)
+            } catch {
+                drawerLogger.warning("Inline metadata edit failed: \(error.localizedDescription)")
+            }
         }
     }
 

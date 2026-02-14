@@ -41,31 +41,15 @@ public enum VariantTrackRenderer {
 
     // MARK: - Color Palette
 
-    /// Colors for variant types (matching IGV conventions).
-    private static let snpColor = CGColor(red: 0.0, green: 0.6, blue: 0.2, alpha: 1.0)       // green
-    private static let insColor = CGColor(red: 0.5, green: 0.0, blue: 0.8, alpha: 1.0)       // purple
-    private static let delColor = CGColor(red: 0.8, green: 0.0, blue: 0.0, alpha: 1.0)       // red
-    private static let mnpColor = CGColor(red: 0.8, green: 0.5, blue: 0.0, alpha: 1.0)       // orange
-    private static let complexColor = CGColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1.0)   // gray
+    /// Converts a ThemeColor to CGColor.
+    private static func cgColor(from tc: ThemeColor) -> CGColor {
+        CGColor(red: tc.r, green: tc.g, blue: tc.b, alpha: 1.0)
+    }
 
-    /// Genotype cell colors derived from GenotypeDisplayCall canonical colors.
-    private static let homRefColor = cgColor(for: .homRef)
-    private static let hetColor = cgColor(for: .het)
-    private static let homAltColor = cgColor(for: .homAlt)
-    private static let noCallColor = cgColor(for: .noCall)
-
-    /// Impact-aware genotype colors (used when variant has a known amino acid impact).
-    /// Non-synonymous variants get warmer tones to visually distinguish them.
-    private static let missenseHetColor = CGColor(red: 0.95, green: 0.4, blue: 0.1, alpha: 1.0)    // orange
-    private static let missenseHomAltColor = CGColor(red: 0.85, green: 0.2, blue: 0.0, alpha: 1.0)  // dark orange
-    private static let nonsenseHetColor = CGColor(red: 0.95, green: 0.1, blue: 0.1, alpha: 1.0)     // bright red
-    private static let nonsenseHomAltColor = CGColor(red: 0.75, green: 0.0, blue: 0.0, alpha: 1.0)   // dark red
-    private static let frameshiftHetColor = CGColor(red: 0.6, green: 0.1, blue: 0.7, alpha: 1.0)    // purple
-    private static let frameshiftHomAltColor = CGColor(red: 0.45, green: 0.0, blue: 0.55, alpha: 1.0) // dark purple
-
-    private static func cgColor(for call: GenotypeDisplayCall) -> CGColor {
-        let c = call.color
-        return CGColor(red: c.r, green: c.g, blue: c.b, alpha: 1.0)
+    /// Returns the resolved theme from state, defaulting to modern.
+    private static func resolveTheme(_ state: SampleDisplayState?) -> VariantColorTheme {
+        guard let name = state?.colorThemeName else { return .modern }
+        return VariantColorTheme.named(name)
     }
 
     // MARK: - Public API
@@ -91,9 +75,13 @@ public enum VariantTrackRenderer {
         sampleCount: Int,
         state: SampleDisplayState
     ) -> CGFloat {
-        var height = state.summaryBarHeight
+        var height: CGFloat = 0
+        if state.showSummaryBar {
+            height += state.summaryBarHeight
+        }
         if state.showGenotypeRows && sampleCount > 0 {
-            height += summaryToRowGap + CGFloat(sampleCount) * state.rowHeight
+            if height > 0 { height += summaryToRowGap }
+            height += CGFloat(sampleCount) * state.rowHeight
         }
         return height
     }
@@ -117,12 +105,18 @@ public enum VariantTrackRenderer {
         frame: ReferenceFrame,
         context: CGContext,
         yOffset: CGFloat,
-        barHeight: CGFloat = 20
+        barHeight: CGFloat = 20,
+        theme: VariantColorTheme = .modern
     ) {
         guard !variants.isEmpty else { return }
 
         let pixelWidth = frame.pixelWidth
         guard pixelWidth > 0 else { return }
+
+        let snpCG = cgColor(from: theme.snp)
+        let insCG = cgColor(from: theme.ins)
+        let delCG = cgColor(from: theme.del)
+        let complexCG = cgColor(from: theme.complex)
 
         context.saveGState()
         defer { context.restoreGState() }
@@ -175,10 +169,10 @@ public enum VariantTrackRenderer {
 
             // Draw stacked from bottom: SNP, INS, DEL, other
             let segments: [(Int, CGColor)] = [
-                (snpCounts[px], snpColor),
-                (insCounts[px], insColor),
-                (delCounts[px], delColor),
-                (otherCounts[px], complexColor),
+                (snpCounts[px], snpCG),
+                (insCounts[px], insCG),
+                (delCounts[px], delCG),
+                (otherCounts[px], complexCG),
             ]
 
             for (count, color) in segments {
@@ -234,7 +228,8 @@ public enum VariantTrackRenderer {
         state: SampleDisplayState,
         sampleDisplayNames: [String: String] = [:],
         scrollOffset: CGFloat = 0,
-        availableHeight: CGFloat = .greatestFiniteMagnitude
+        availableHeight: CGFloat = .greatestFiniteMagnitude,
+        theme: VariantColorTheme = .modern
     ) {
         let samples = genotypeData.sampleNames
         guard !samples.isEmpty, !genotypeData.sites.isEmpty else { return }
@@ -281,7 +276,7 @@ public enum VariantTrackRenderer {
             // Draw genotype cell for each variant site
             for site in genotypeData.sites {
                 let call = site.genotypes[sampleName] ?? .noCall
-                let color = colorForCallWithImpact(call, impact: site.impact)
+                let color = colorForCallWithImpact(call, impact: site.impact, theme: theme)
 
                 let startPx = frame.screenPosition(for: Double(site.position))
                 let endPx = frame.screenPosition(for: Double(site.position + max(1, site.ref.count)))
@@ -357,45 +352,40 @@ public enum VariantTrackRenderer {
 
     // MARK: - Color Helpers
 
-    /// Returns the CGColor for a genotype call (default colors, no impact).
-    private static func colorForCall(_ call: GenotypeDisplayCall) -> CGColor {
-        switch call {
-        case .homRef:  return homRefColor
-        case .het:     return hetColor
-        case .homAlt:  return homAltColor
-        case .noCall:  return noCallColor
-        }
+    /// Returns the CGColor for a genotype call using the given theme.
+    private static func colorForCall(_ call: GenotypeDisplayCall, theme: VariantColorTheme) -> CGColor {
+        cgColor(from: call.themeColor(from: theme))
     }
 
     /// Returns the CGColor for a genotype call, applying impact-based coloring
     /// for non-synonymous variants that carry alt alleles.
-    private static func colorForCallWithImpact(_ call: GenotypeDisplayCall, impact: VariantImpact?) -> CGColor {
+    private static func colorForCallWithImpact(_ call: GenotypeDisplayCall, impact: VariantImpact?, theme: VariantColorTheme) -> CGColor {
         // Only color alt-carrying genotypes differently; homRef and noCall keep standard colors
-        guard call == .het || call == .homAlt else { return colorForCall(call) }
-        guard let impact, impact != .synonymous, impact != .unknown else { return colorForCall(call) }
+        guard call == .het || call == .homAlt else { return colorForCall(call, theme: theme) }
+        guard let impact, impact != .synonymous, impact != .unknown else { return colorForCall(call, theme: theme) }
 
         switch impact {
         case .missense:
-            return call == .het ? missenseHetColor : missenseHomAltColor
+            return cgColor(from: call == .het ? theme.missenseHet : theme.missenseHomAlt)
         case .nonsense:
-            return call == .het ? nonsenseHetColor : nonsenseHomAltColor
+            return cgColor(from: call == .het ? theme.nonsenseHet : theme.nonsenseHomAlt)
         case .frameshift:
-            return call == .het ? frameshiftHetColor : frameshiftHomAltColor
+            return cgColor(from: call == .het ? theme.frameshiftHet : theme.frameshiftHomAlt)
         case .spliceRegion:
-            return call == .het ? missenseHetColor : missenseHomAltColor  // same as missense for now
+            return cgColor(from: call == .het ? theme.missenseHet : theme.missenseHomAlt)
         case .synonymous, .unknown:
-            return colorForCall(call)
+            return colorForCall(call, theme: theme)
         }
     }
 
-    /// Returns the CGColor for a variant type string.
-    static func colorForVariantType(_ vtype: String) -> CGColor {
+    /// Returns the CGColor for a variant type string using the given theme.
+    static func colorForVariantType(_ vtype: String, theme: VariantColorTheme = .modern) -> CGColor {
         switch vtype {
-        case "SNP":     return snpColor
-        case "INS":     return insColor
-        case "DEL":     return delColor
-        case "MNP":     return mnpColor
-        default:        return complexColor
+        case "SNP":     return cgColor(from: theme.snp)
+        case "INS":     return cgColor(from: theme.ins)
+        case "DEL":     return cgColor(from: theme.del)
+        case "MNP":     return cgColor(from: theme.mnp)
+        default:        return cgColor(from: theme.complex)
         }
     }
 }

@@ -309,24 +309,38 @@ final class SampleDisplayStateTests: XCTestCase {
     // MARK: - GenotypeDisplayCall
 
     func testGenotypeCallColors() {
-        // IGV-compatible colors
+        // Modern theme colors (default)
         let homRef = GenotypeDisplayCall.homRef.color
-        XCTAssertEqual(homRef.r, 200/255, accuracy: 0.01)
-        XCTAssertEqual(homRef.g, 200/255, accuracy: 0.01)
-        XCTAssertEqual(homRef.b, 200/255, accuracy: 0.01)
+        XCTAssertEqual(homRef.r, 0xD0 / 255.0, accuracy: 0.01)
+        XCTAssertEqual(homRef.g, 0xD0 / 255.0, accuracy: 0.01)
+        XCTAssertEqual(homRef.b, 0xD0 / 255.0, accuracy: 0.01)
 
         let het = GenotypeDisplayCall.het.color
-        XCTAssertEqual(het.r, 34/255, accuracy: 0.01)
-        XCTAssertEqual(het.g, 12/255, accuracy: 0.01)
-        XCTAssertEqual(het.b, 253/255, accuracy: 0.01)
+        XCTAssertEqual(het.r, 0x3B / 255.0, accuracy: 0.01)
+        XCTAssertEqual(het.g, 0x82 / 255.0, accuracy: 0.01)
+        XCTAssertEqual(het.b, 0xC4 / 255.0, accuracy: 0.01)
 
         let homAlt = GenotypeDisplayCall.homAlt.color
-        XCTAssertEqual(homAlt.r, 17/255, accuracy: 0.01)
-        XCTAssertEqual(homAlt.g, 248/255, accuracy: 0.01)
-        XCTAssertEqual(homAlt.b, 254/255, accuracy: 0.01)
+        XCTAssertEqual(homAlt.r, 0x5B / 255.0, accuracy: 0.01)
+        XCTAssertEqual(homAlt.g, 0x4B / 255.0, accuracy: 0.01)
+        XCTAssertEqual(homAlt.b, 0xA8 / 255.0, accuracy: 0.01)
 
         let noCall = GenotypeDisplayCall.noCall.color
-        XCTAssertEqual(noCall.r, 250/255, accuracy: 0.01)
+        XCTAssertEqual(noCall.r, 0xF0 / 255.0, accuracy: 0.01)
+    }
+
+    func testGenotypeCallIGVColors() {
+        // IGV classic theme colors
+        let igv = VariantColorTheme.igvClassic
+        let homRef = GenotypeDisplayCall.homRef.themeColor(from: igv)
+        XCTAssertEqual(homRef.r, 200/255, accuracy: 0.01)
+
+        let het = GenotypeDisplayCall.het.themeColor(from: igv)
+        XCTAssertEqual(het.r, 34/255, accuracy: 0.01)
+        XCTAssertEqual(het.b, 253/255, accuracy: 0.01)
+
+        let homAlt = GenotypeDisplayCall.homAlt.themeColor(from: igv)
+        XCTAssertEqual(homAlt.g, 248/255, accuracy: 0.01)
     }
 
     func testGenotypeCallAllCases() {

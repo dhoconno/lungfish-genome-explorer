@@ -166,6 +166,18 @@ public final class SampleSectionViewModel {
         notifyStateChanged()
     }
 
+    /// Toggles the variant summary bar visibility and notifies listeners.
+    func toggleSummaryBar() {
+        displayState.showSummaryBar.toggle()
+        notifyStateChanged()
+    }
+
+    /// Sets the color theme name and notifies listeners.
+    func setColorTheme(_ themeName: String) {
+        displayState.colorThemeName = themeName
+        notifyStateChanged()
+    }
+
     /// Sets the summary bar height and notifies listeners.
     func setSummaryBarHeight(_ height: CGFloat) {
         displayState.summaryBarHeight = max(10, min(60, height))
@@ -347,24 +359,53 @@ public struct SampleSection: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Summary Bar")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Text("\(Int(viewModel.displayState.summaryBarHeight))px")
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
+            Toggle(isOn: Binding(
+                get: { viewModel.displayState.showSummaryBar },
+                set: { _ in viewModel.toggleSummaryBar() }
+            )) {
+                Text("Show Summary Bar")
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+
+            if viewModel.displayState.showSummaryBar {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Bar Height")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text("\(Int(viewModel.displayState.summaryBarHeight))px")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+                    Slider(
+                        value: Binding(
+                            get: { viewModel.displayState.summaryBarHeight },
+                            set: { viewModel.setSummaryBarHeight($0) }
+                        ),
+                        in: 10...60,
+                        step: 1
+                    )
+                    .controlSize(.small)
                 }
-                Slider(
-                    value: Binding(
-                        get: { viewModel.displayState.summaryBarHeight },
-                        set: { viewModel.setSummaryBarHeight($0) }
-                    ),
-                    in: 10...60,
-                    step: 1
-                )
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Color Theme")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Picker("", selection: Binding(
+                    get: { viewModel.displayState.colorThemeName },
+                    set: { viewModel.setColorTheme($0) }
+                )) {
+                    ForEach(VariantColorTheme.allBuiltIn, id: \.name) { theme in
+                        Text(theme.name).tag(theme.name)
+                    }
+                }
+                .pickerStyle(.segmented)
                 .controlSize(.small)
             }
         }

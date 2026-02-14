@@ -1944,8 +1944,15 @@ public class SequenceViewerView: NSView {
 
     // MARK: - Genotype Track State
 
-    /// Whether to show the variant summary bar (density histogram).
-    var showVariantSummaryBar: Bool = true
+    /// Effective summary bar height based on display state. Returns 0 when summary bar is hidden.
+    private var effectiveSummaryBarHeight: CGFloat {
+        sampleDisplayState.showSummaryBar ? sampleDisplayState.summaryBarHeight : 0
+    }
+
+    /// Effective gap between summary bar and genotype rows.
+    private var effectiveSummaryToRowGap: CGFloat {
+        sampleDisplayState.showSummaryBar ? VariantTrackRenderer.summaryToRowGap : 0
+    }
 
     /// Cached genotype display data for the visible region.
     private var cachedGenotypeData: GenotypeDisplayData?
@@ -1976,7 +1983,7 @@ public class SequenceViewerView: NSView {
     private func maxGenotypeScrollOffset(frame: ReferenceFrame) -> CGFloat {
         let sampleCount = cachedGenotypeData?.sampleNames.count ?? cachedSampleCount
         guard sampleCount > 0 else { return 0 }
-        let genotypeTopY = variantTrackY + sampleDisplayState.summaryBarHeight + VariantTrackRenderer.summaryToRowGap
+        let genotypeTopY = variantTrackY + effectiveSummaryBarHeight + effectiveSummaryToRowGap
         let rowH = sampleDisplayState.rowHeight
         guard rowH > 0 else { return 0 }
         let availableHeight = max(0, bounds.height - genotypeTopY)
@@ -2851,16 +2858,21 @@ public class SequenceViewerView: NSView {
 
         // Draw variant summary bar + genotype rows (below annotations)
         let variantDisplayCap = 5_000
-        if showVariants && showVariantSummaryBar && !filteredVariants.isEmpty {
+        if showVariants && !filteredVariants.isEmpty {
             let vY = variantTrackY
 
-            VariantTrackRenderer.drawSummaryBar(
-                variants: filteredVariants,
-                frame: frame,
-                context: context,
-                yOffset: vY,
-                barHeight: sampleDisplayState.summaryBarHeight
-            )
+            let activeTheme = VariantColorTheme.named(sampleDisplayState.colorThemeName)
+
+            if sampleDisplayState.showSummaryBar {
+                VariantTrackRenderer.drawSummaryBar(
+                    variants: filteredVariants,
+                    frame: frame,
+                    context: context,
+                    yOffset: vY,
+                    barHeight: sampleDisplayState.summaryBarHeight,
+                    theme: activeTheme
+                )
+            }
 
             if filteredVariants.count > variantDisplayCap {
                 // Too many variants for genotype display — show zoom-in message
@@ -2869,14 +2881,14 @@ public class SequenceViewerView: NSView {
                     .font: NSFont.systemFont(ofSize: 10),
                     .foregroundColor: NSColor.secondaryLabelColor,
                 ]
-                let msgY = vY + sampleDisplayState.summaryBarHeight + 4
+                let msgY = vY + effectiveSummaryBarHeight + 4
                 msg.draw(at: CGPoint(x: 4, y: msgY), withAttributes: msgAttrs)
             } else {
                 // Draw per-sample genotype rows if available and enabled
                 if let genotypeData = cachedGenotypeData, cachedSampleCount > 0,
                    sampleDisplayState.showGenotypeRows {
                     clampGenotypeScrollOffset(frame: frame)
-                    let genotypeY = vY + sampleDisplayState.summaryBarHeight + VariantTrackRenderer.summaryToRowGap
+                    let genotypeY = vY + effectiveSummaryBarHeight + effectiveSummaryToRowGap
                     let availableHeight = max(0, bounds.height - genotypeY)
                     VariantTrackRenderer.drawGenotypeRows(
                         genotypeData: genotypeData,
@@ -2886,7 +2898,8 @@ public class SequenceViewerView: NSView {
                         state: sampleDisplayState,
                         sampleDisplayNames: cachedGenotypeSampleDisplayNames,
                         scrollOffset: genotypeScrollOffset,
-                        availableHeight: availableHeight
+                        availableHeight: availableHeight,
+                        theme: activeTheme
                     )
                 }
 
@@ -5811,7 +5824,7 @@ public class SequenceViewerView: NSView {
         } else {
             // Check if mouse is in genotype row area for vertical scrolling
             let location = convert(event.locationInWindow, from: nil)
-            let genotypeTopY = variantTrackY + sampleDisplayState.summaryBarHeight + VariantTrackRenderer.summaryToRowGap
+            let genotypeTopY = variantTrackY + effectiveSummaryBarHeight + effectiveSummaryToRowGap
             let inGenotypeArea = showVariants && cachedSampleCount > 0 && location.y >= genotypeTopY
 
             if inGenotypeArea && abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) {
@@ -5916,6 +5929,13 @@ public class SequenceViewerView: NSView {
     /// Tracking area for mouse hover detection
     private var viewerTrackingArea: NSTrackingArea?
 
+    /// Custom hover tooltip for fast-appearing tooltips.
+    private lazy var hoverTooltip: HoverTooltipView = {
+        let tip = HoverTooltipView()
+        addSubview(tip)
+        return tip
+    }()
+
     /// Currently hovered annotation (to avoid redundant tooltip updates)
     private var hoveredAnnotation: SequenceAnnotation?
 
@@ -5956,7 +5976,7 @@ public class SequenceViewerView: NSView {
         // --- Genotype cell hit-testing ---
         if let genotypeTooltip = genotypeTooltipAtPoint(location) {
             hoveredAnnotation = nil
-            self.toolTip = genotypeTooltip.tooltip
+            hoverTooltip.show(text: genotypeTooltip.tooltip, near: location, in: self)
             if let controller = viewController {
                 controller.statusBar.update(
                     position: controller.statusBar.positionLabel.stringValue,
@@ -6039,7 +6059,7 @@ public class SequenceViewerView: NSView {
                     }
                 }
 
-                self.toolTip = tooltip
+                hoverTooltip.show(text: tooltip, near: location, in: self)
 
                 if let controller = viewController {
                     let hoverSummary = "Hover: \(label) • \(annot.type.rawValue) \(strandStr) • \(coords)"
@@ -6054,8 +6074,10 @@ public class SequenceViewerView: NSView {
         } else {
             if hoveredAnnotation != nil {
                 hoveredAnnotation = nil
-                self.toolTip = nil
+                hoverTooltip.hide()
                 updateSelectionStatus()
+            } else {
+                hoverTooltip.hide()
             }
             NSCursor.arrow.set()
         }
@@ -6078,7 +6100,7 @@ public class SequenceViewerView: NSView {
               !genotypeData.sites.isEmpty,
               let frame = viewController?.referenceFrame else { return nil }
 
-        let genotypeTopY = variantTrackY + sampleDisplayState.summaryBarHeight + VariantTrackRenderer.summaryToRowGap
+        let genotypeTopY = variantTrackY + effectiveSummaryBarHeight + effectiveSummaryToRowGap
         guard point.y >= genotypeTopY else { return nil }
 
         let rowH = sampleDisplayState.rowHeight
@@ -6188,7 +6210,7 @@ public class SequenceViewerView: NSView {
         hoveredAnnotation = nil
         lastHoveredGenotypeCell = nil
         lastHoveredGenotypeStatusText = nil
-        self.toolTip = nil
+        hoverTooltip.hide()
         NSCursor.arrow.set()
         updateSelectionStatus()
     }
