@@ -2006,7 +2006,7 @@ public final class VariantDatabase: @unchecked Sendable {
             progressHandler?(0.05 + fraction * 0.85, "Parsing variants (\(insertCount))...")
         }
         if ext == "gz" {
-            let estimatedSize = fileSize * 8  // VCF typically compresses ~8x with gzip
+            let estimatedSize = estimateGzipUncompressedSize(url: vcfURL, compressedSize: fileSize)
             try streamGzipLines(url: vcfURL, estimatedUncompressedSize: estimatedSize, onProgress: byteProgress) { line in
                 parseLine(line)
             }
@@ -2078,6 +2078,8 @@ public final class VariantDatabase: @unchecked Sendable {
 
         var buffer = Data()
         var bytesRead: Int64 = 0
+        var lastProgress = -1.0
+        var lastEmitTime = Date.distantPast
         let chunkSize = 256 * 1024  // 256 KB read chunks
         while true {
             let chunk = fh.readData(ofLength: chunkSize)
@@ -2086,7 +2088,12 @@ public final class VariantDatabase: @unchecked Sendable {
             buffer.append(chunk)
 
             if totalFileSize > 0 {
-                onProgress?(Double(bytesRead) / Double(totalFileSize))
+                emitThrottledProgress(
+                    Double(bytesRead) / Double(totalFileSize),
+                    onProgress: onProgress,
+                    lastProgress: &lastProgress,
+                    lastEmitTime: &lastEmitTime
+                )
             }
 
             while let newlineIdx = buffer.firstIndex(of: 0x0A) {
@@ -2100,6 +2107,15 @@ public final class VariantDatabase: @unchecked Sendable {
 
         if !buffer.isEmpty, let tail = String(data: buffer, encoding: .utf8) {
             handler(Substring(tail))
+        }
+
+        if totalFileSize > 0 {
+            emitThrottledProgress(
+                1.0,
+                onProgress: onProgress,
+                lastProgress: &lastProgress,
+                lastEmitTime: &lastEmitTime
+            )
         }
     }
 
@@ -2125,6 +2141,8 @@ public final class VariantDatabase: @unchecked Sendable {
         let fileHandle = pipe.fileHandleForReading
         var buffer = Data()
         var bytesRead: Int64 = 0
+        var lastProgress = -1.0
+        var lastEmitTime = Date.distantPast
         while true {
             let chunk = fileHandle.readData(ofLength: 64 * 1024)
             if chunk.isEmpty { break }
@@ -2132,7 +2150,12 @@ public final class VariantDatabase: @unchecked Sendable {
             buffer.append(chunk)
 
             if estimatedUncompressedSize > 0 {
-                onProgress?(min(1.0, Double(bytesRead) / Double(estimatedUncompressedSize)))
+                emitThrottledProgress(
+                    Double(bytesRead) / Double(estimatedUncompressedSize),
+                    onProgress: onProgress,
+                    lastProgress: &lastProgress,
+                    lastEmitTime: &lastEmitTime
+                )
             }
 
             while let newlineIdx = buffer.firstIndex(of: 0x0A) { // "\n"
@@ -2148,10 +2171,60 @@ public final class VariantDatabase: @unchecked Sendable {
             handler(Substring(tail))
         }
 
+        if estimatedUncompressedSize > 0 {
+            emitThrottledProgress(
+                1.0,
+                onProgress: onProgress,
+                lastProgress: &lastProgress,
+                lastEmitTime: &lastEmitTime
+            )
+        }
+
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
             throw VariantDatabaseError.createFailed("Failed to decompress \(url.lastPathComponent) (gzip exit code \(process.terminationStatus))")
         }
+    }
+
+    /// Estimates uncompressed size for a gzip file using ISIZE footer with heuristic fallback.
+    static func estimateGzipUncompressedSize(url: URL, compressedSize: Int64) -> Int64 {
+        let fallback = max(1, compressedSize * 8)
+        guard compressedSize >= 4, let fh = FileHandle(forReadingAtPath: url.path) else {
+            return fallback
+        }
+        defer { fh.closeFile() }
+
+        fh.seek(toFileOffset: UInt64(compressedSize - 4))
+        let footer = fh.readData(ofLength: 4)
+        guard footer.count == 4 else { return fallback }
+
+        let bytes = [UInt8](footer)
+        let isize = UInt32(bytes[0])
+            | (UInt32(bytes[1]) << 8)
+            | (UInt32(bytes[2]) << 16)
+            | (UInt32(bytes[3]) << 24)
+        return isize > 0 ? Int64(isize) : fallback
+    }
+
+    /// Emits progress updates with simple coalescing to avoid flooding UI callbacks.
+    private static func emitThrottledProgress(
+        _ rawProgress: Double,
+        onProgress: ((Double) -> Void)?,
+        lastProgress: inout Double,
+        lastEmitTime: inout Date
+    ) {
+        guard let onProgress else { return }
+        let progress = max(0.0, min(1.0, rawProgress))
+        let now = Date()
+        let shouldEmit =
+            lastProgress < 0 ||
+            progress >= 1.0 ||
+            (progress - lastProgress) >= 0.01 ||
+            now.timeIntervalSince(lastEmitTime) >= 0.15
+        guard shouldEmit else { return }
+        lastProgress = max(lastProgress, progress)
+        lastEmitTime = now
+        onProgress(lastProgress)
     }
 
     // MARK: - Variant Classification

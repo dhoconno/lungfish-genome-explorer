@@ -563,6 +563,51 @@ final class VariantDatabaseGenotypeTests: XCTestCase {
         XCTAssertEqual(progressValues.first ?? -1, 0.05, accuracy: 0.01, "First progress should be ~5%")
         XCTAssertEqual(progressValues.last ?? -1, 1.0, accuracy: 0.01, "Final progress should be 100%")
         XCTAssertTrue(progressMessages.last?.contains("Done") ?? false)
+        for value in progressValues {
+            XCTAssertGreaterThanOrEqual(value, 0.0, "Progress must not go below 0")
+            XCTAssertLessThanOrEqual(value, 1.0, "Progress must not exceed 1")
+        }
+        for idx in 1..<progressValues.count {
+            XCTAssertGreaterThanOrEqual(
+                progressValues[idx],
+                progressValues[idx - 1],
+                "Progress should be monotonic non-decreasing"
+            )
+        }
+    }
+
+    func testProgressHandlerMonotonicBoundedForLargeVCF() throws {
+        var lines = [
+            "##fileformat=VCFv4.3",
+            "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">",
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2\tS3"
+        ]
+        for i in 1...25_000 {
+            lines.append("chr1\t\(i)\trs\(i)\tA\tG\t30.0\tPASS\tDP=10\tGT\t0/1\t1/1\t0/0")
+        }
+        let bigVCF = lines.joined(separator: "\n")
+        let vcfURL = try createTempVCF(content: bigVCF, name: "progress_large.vcf")
+        let dbURL = tempDir.appendingPathComponent("progress_large.db")
+
+        nonisolated(unsafe) var progressValues: [Double] = []
+        try VariantDatabase.createFromVCF(
+            vcfURL: vcfURL,
+            outputURL: dbURL,
+            parseGenotypes: true,
+            progressHandler: { fraction, _ in
+                progressValues.append(fraction)
+            }
+        )
+
+        XCTAssertFalse(progressValues.isEmpty)
+        XCTAssertEqual(try XCTUnwrap(progressValues.last), 1.0, accuracy: 0.0001)
+        for value in progressValues {
+            XCTAssertGreaterThanOrEqual(value, 0.0)
+            XCTAssertLessThanOrEqual(value, 1.0)
+        }
+        for idx in 1..<progressValues.count {
+            XCTAssertGreaterThanOrEqual(progressValues[idx], progressValues[idx - 1])
+        }
     }
 
     // MARK: - Sample Metadata
@@ -769,6 +814,67 @@ final class VariantDatabaseGenotypeTests: XCTestCase {
         let db = try VariantDatabase(url: dbURL)
         XCTAssertEqual(db.sampleCount(), 1)
         XCTAssertEqual(db.sampleNames(), ["NAHQ01"])
+    }
+
+    func testCompressedVCFProgressIsBoundedAndMonotonic() throws {
+        let vcfURL = try createTempVCF(content: singleSampleVCF, name: "progress_test.vcf")
+        let gzURL = tempDir.appendingPathComponent("progress_test.vcf.gz")
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        process.arguments = ["-c", vcfURL.path]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        try process.run()
+        process.waitUntilExit()
+        let gzData = pipe.fileHandleForReading.readDataToEndOfFile()
+        try gzData.write(to: gzURL)
+
+        let dbURL = tempDir.appendingPathComponent("progress_compressed.db")
+        nonisolated(unsafe) var progressValues: [Double] = []
+        try VariantDatabase.createFromVCF(
+            vcfURL: gzURL,
+            outputURL: dbURL,
+            parseGenotypes: true,
+            progressHandler: { fraction, _ in
+                progressValues.append(fraction)
+            }
+        )
+
+        XCTAssertFalse(progressValues.isEmpty)
+        XCTAssertEqual(try XCTUnwrap(progressValues.last), 1.0, accuracy: 0.0001)
+        for value in progressValues {
+            XCTAssertGreaterThanOrEqual(value, 0.0)
+            XCTAssertLessThanOrEqual(value, 1.0)
+        }
+        for idx in 1..<progressValues.count {
+            XCTAssertGreaterThanOrEqual(progressValues[idx], progressValues[idx - 1])
+        }
+    }
+
+    func testEstimateGzipUncompressedSizeUsesFooterISIZE() throws {
+        let content = """
+        ##fileformat=VCFv4.3
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t1\t.\tA\tG\t10\tPASS\t.
+        """
+        let plainURL = try createTempVCF(content: content, name: "estimate.vcf")
+        let gzURL = tempDir.appendingPathComponent("estimate.vcf.gz")
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        process.arguments = ["-c", plainURL.path]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        try process.run()
+        process.waitUntilExit()
+        let gzData = pipe.fileHandleForReading.readDataToEndOfFile()
+        try gzData.write(to: gzURL)
+
+        let compressedSize = Int64(gzData.count)
+        let estimate = VariantDatabase.estimateGzipUncompressedSize(url: gzURL, compressedSize: compressedSize)
+        let expected = Int64(content.utf8.count)
+        XCTAssertEqual(estimate, expected, "Estimator should use gzip ISIZE footer when available")
     }
 
     // MARK: - Read/Write Mode

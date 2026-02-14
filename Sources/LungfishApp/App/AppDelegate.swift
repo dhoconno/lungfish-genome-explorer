@@ -1000,8 +1000,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     parseGenotypes: true,
                     sourceFile: vcfURL.lastPathComponent,
                     progressHandler: { [weak self] progress, message in
+                        let clampedProgress = max(0.0, min(1.0, progress))
                         scheduleOnMainRunLoop {
-                            self?.mainWindowController?.mainSplitViewController?.activityIndicator?.updateProgress(progress)
+                            self?.mainWindowController?.mainSplitViewController?.activityIndicator?.updateProgress(clampedProgress)
                             self?.mainWindowController?.mainSplitViewController?.activityIndicator?.updateMessage(message)
                         }
                     }
