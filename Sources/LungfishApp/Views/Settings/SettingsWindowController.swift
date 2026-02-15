@@ -22,7 +22,7 @@ public final class SettingsWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = "Lungfish Settings"
+        window.title = "Settings"
         window.setFrameAutosaveName("SettingsWindow")
 
         super.init(window: window)
@@ -37,10 +37,11 @@ public final class SettingsWindowController: NSWindowController {
 
     /// Shows the settings window, centering it on first display.
     public func show() {
-        if !window!.isVisible {
-            window?.center()
+        guard let window else { return }
+        if !window.isVisible {
+            window.center()
         }
-        window?.makeKeyAndOrderFront(nil)
+        window.makeKeyAndOrderFront(nil)
         logger.info("Settings window shown")
     }
 }

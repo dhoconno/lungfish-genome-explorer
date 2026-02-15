@@ -15,6 +15,11 @@ struct AIServicesSettingsTab: View {
     @State private var geminiKey: String = ""
     @State private var showClearConfirmation = false
 
+    // Debounce tasks for Keychain writes (avoid writing on every keystroke)
+    @State private var openAISaveTask: Task<Void, Never>?
+    @State private var anthropicSaveTask: Task<Void, Never>?
+    @State private var geminiSaveTask: Task<Void, Never>?
+
     var body: some View {
         Form {
             Section {
@@ -43,7 +48,7 @@ struct AIServicesSettingsTab: View {
                 }
                 Picker("Model:", selection: $settings.anthropicModel) {
                     Text("Claude Sonnet 4.5").tag("claude-sonnet-4-5-20250929")
-                    Text("Claude Haiku 3.5").tag("claude-haiku-4-5-20251001")
+                    Text("Claude Haiku 4.5").tag("claude-haiku-4-5-20251001")
                 }
             }
 
@@ -71,9 +76,9 @@ struct AIServicesSettingsTab: View {
         }
         .formStyle(.grouped)
         .onAppear { loadKeys() }
-        .onChange(of: openAIKey) { _, newValue in storeKey(newValue, forKey: KeychainSecretStorage.openAIAPIKey) }
-        .onChange(of: anthropicKey) { _, newValue in storeKey(newValue, forKey: KeychainSecretStorage.anthropicAPIKey) }
-        .onChange(of: geminiKey) { _, newValue in storeKey(newValue, forKey: KeychainSecretStorage.geminiAPIKey) }
+        .onChange(of: openAIKey) { _, newValue in debouncedStore(newValue, forKey: KeychainSecretStorage.openAIAPIKey, task: &openAISaveTask) }
+        .onChange(of: anthropicKey) { _, newValue in debouncedStore(newValue, forKey: KeychainSecretStorage.anthropicAPIKey, task: &anthropicSaveTask) }
+        .onChange(of: geminiKey) { _, newValue in debouncedStore(newValue, forKey: KeychainSecretStorage.geminiAPIKey, task: &geminiSaveTask) }
         .onChange(of: settings.aiSearchEnabled) { _, _ in settings.save() }
         .onChange(of: settings.openAIModel) { _, _ in settings.save() }
         .onChange(of: settings.anthropicModel) { _, _ in settings.save() }
@@ -103,8 +108,12 @@ struct AIServicesSettingsTab: View {
         }
     }
 
-    private func storeKey(_ value: String, forKey key: String) {
-        Task {
+    /// Debounces Keychain writes by 500ms to avoid writing on every keystroke.
+    private func debouncedStore(_ value: String, forKey key: String, task: inout Task<Void, Never>?) {
+        task?.cancel()
+        task = Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
             try? await KeychainSecretStorage.shared.store(secret: value, forKey: key)
         }
     }

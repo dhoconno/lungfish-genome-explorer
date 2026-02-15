@@ -65,23 +65,31 @@ public actor KeychainSecretStorage {
             throw KeychainSecretError.unableToStore
         }
 
-        let query: [String: Any] = [
+        // Delete existing item first (ignore error if not found).
+        // Use identifying attributes only — NOT kSecValueData — so it matches
+        // regardless of the existing stored value.
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
+
+        let addQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
             kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked,
         ]
 
-        // Delete existing item first (ignore error if not found)
-        SecItemDelete(query as CFDictionary)
-
-        let status = SecItemAdd(query as CFDictionary, nil)
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
         guard status == errSecSuccess else {
             keychainLogger.error("Keychain store failed for key '\(key)': \(status)")
             throw KeychainSecretError.unableToStore
         }
 
-        keychainLogger.info("Secret stored for key '\(key)'")
+        keychainLogger.debug("Secret stored for key '\(key)'")
     }
 
     /// Retrieves a secret string from the Keychain.
@@ -130,7 +138,7 @@ public actor KeychainSecretStorage {
             throw KeychainSecretError.unableToDelete
         }
 
-        keychainLogger.info("Secret deleted for key '\(key)'")
+        keychainLogger.debug("Secret deleted for key '\(key)'")
     }
 
     /// Checks whether a secret exists for the given key without revealing its value.
