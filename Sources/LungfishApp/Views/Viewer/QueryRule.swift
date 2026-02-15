@@ -40,6 +40,8 @@ public struct QueryRule: Codable, Sendable, Identifiable {
                 return "region=\(trimmedValue)"
             case "Chromosome":
                 return "chr=\(trimmedValue)"
+            case "Gene List":
+                return "genes=\(trimmedValue)"
             default:
                 return nil
             }
@@ -53,7 +55,6 @@ public struct QueryRule: Codable, Sendable, Identifiable {
                 return nil
             }
         case .biologicalEffect:
-            // These map to INFO field queries
             return "\(field)\(op)\(trimmedValue)"
         case .population:
             return "\(field)\(op)\(trimmedValue)"
@@ -69,8 +70,9 @@ public struct QueryRule: Codable, Sendable, Identifiable {
                 return "\(field)\(op)\(trimmedValue)"
             }
         case .sampleGenotype:
-            // Not supported yet by the variant table query backend.
             return nil
+        case .infoField:
+            return "\(field)\(op)\(trimmedValue)"
         }
     }
 }
@@ -85,12 +87,13 @@ public enum QueryCategory: String, Codable, Sendable, CaseIterable, Identifiable
     case population
     case callQuality
     case sampleGenotype
+    case infoField
 
     public var id: String { rawValue }
 
     // Hide unsupported categories from UI while retaining Codable compatibility.
     public static var allCases: [QueryCategory] {
-        [.location, .identity, .biologicalEffect, .population, .callQuality]
+        [.location, .identity, .biologicalEffect, .population, .callQuality, .infoField]
     }
 
     public var displayName: String {
@@ -101,14 +104,15 @@ public enum QueryCategory: String, Codable, Sendable, CaseIterable, Identifiable
         case .population: return "Population/Frequency"
         case .callQuality: return "Call Quality"
         case .sampleGenotype: return "Sample/Genotype"
+        case .infoField: return "INFO Field"
         }
     }
 
-    /// Returns available fields for this category.
+    /// Returns built-in fields for this category (not including auto-discovered INFO keys).
     public var fields: [String] {
         switch self {
         case .location:
-            return ["Region", "Chromosome"]
+            return ["Region", "Chromosome", "Gene List"]
         case .identity:
             return ["ID/Name", "Type"]
         case .biologicalEffect:
@@ -118,6 +122,9 @@ public enum QueryCategory: String, Codable, Sendable, CaseIterable, Identifiable
         case .callQuality:
             return ["Quality", "Filter", "DP", "MQ", "Sample Count"]
         case .sampleGenotype:
+            return []
+        case .infoField:
+            // Populated dynamically from available INFO keys
             return []
         }
     }
@@ -140,6 +147,8 @@ public enum QueryCategory: String, Codable, Sendable, CaseIterable, Identifiable
             return ["<", "<=", ">", ">=", "="]
         case .sampleGenotype:
             return []
+        case .infoField:
+            return ["=", "~", "<", "<=", ">", ">="]
         }
     }
 }
@@ -210,6 +219,31 @@ public struct QueryPreset: Codable, Sendable, Identifiable {
             rules: [
                 QueryRule(category: .callQuality, field: "Quality", op: "<", value: "30"),
                 QueryRule(category: .callQuality, field: "DP", op: ">=", value: "10"),
+            ],
+            isBuiltIn: true
+        ),
+        QueryPreset(
+            name: "PASS + High Quality",
+            rules: [
+                QueryRule(category: .callQuality, field: "Filter", op: "=", value: "PASS"),
+                QueryRule(category: .callQuality, field: "Quality", op: ">=", value: "30"),
+                QueryRule(category: .callQuality, field: "DP", op: ">=", value: "10"),
+            ],
+            isBuiltIn: true
+        ),
+        QueryPreset(
+            name: "Rare Variants",
+            rules: [
+                QueryRule(category: .population, field: "AF", op: "<", value: "0.01"),
+                QueryRule(category: .callQuality, field: "Filter", op: "=", value: "PASS"),
+            ],
+            isBuiltIn: true
+        ),
+        QueryPreset(
+            name: "Indels Only",
+            rules: [
+                QueryRule(category: .identity, field: "Type", op: "=", value: "Indel"),
+                QueryRule(category: .callQuality, field: "Filter", op: "=", value: "PASS"),
             ],
             isBuiltIn: true
         ),

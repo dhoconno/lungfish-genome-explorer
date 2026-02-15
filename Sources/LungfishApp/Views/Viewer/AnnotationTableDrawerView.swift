@@ -1519,9 +1519,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         typeFilter: Set<String>,
         query: VariantFilterQuery
     ) {
-        // Detect gene list pattern: comma/newline-separated names with no operators.
-        // E.g. "BRCA1, TP53, EGFR" or "BRCA1\nTP53\nEGFR"
-        if let geneList = detectGeneListPattern(query.nameFilter) {
+        // Gene list query: explicit genes= clause or auto-detected comma-separated gene names.
+        let geneList = query.geneList ?? detectGeneListPattern(query.nameFilter)
+        if let geneList, !geneList.isEmpty {
             let results = index.queryVariantsForGenes(
                 geneList,
                 types: typeFilter,
@@ -1837,6 +1837,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         var maxSampleCountInclusive: Bool = true
         /// If set, only show variants where FILTER column matches (e.g. "PASS").
         var filterValue: String?
+        /// If set, restrict results to variants overlapping these gene names.
+        var geneList: [String]?
 
         var hasPostFilters: Bool {
             minQuality != nil || maxQuality != nil || minSampleCount != nil || maxSampleCount != nil || filterValue != nil
@@ -2028,6 +2030,18 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                     }
                 case "filter":
                     query.filterValue = clause.value
+                case "genes", "genelist", "gene_list":
+                    let genes = clause.value
+                        .replacingOccurrences(of: "\n", with: ",")
+                        .split(separator: ",")
+                        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty }
+                    if !genes.isEmpty {
+                        query.geneList = (query.geneList ?? []) + genes
+                    }
+                case "type":
+                    // Allow type= in the semicolon syntax too (forwarded from query builder)
+                    nameTokens.append("type:\(clause.value)")
                 default:
                     guard !clause.value.isEmpty else { continue }
                     query.infoFilters.append(
@@ -2291,9 +2305,11 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         guard activeTab == .variants, let hostWindow = self.window else { return }
 
         let infoKeySet = Set(infoColumnKeys.map(\.key))
+        let infoDefs = infoColumnKeys.map { InfoKeyDefinition(key: $0.key, type: $0.type, description: $0.description) }
         let builderView = VariantQueryBuilderView(
             initialFilterText: variantFilterText,
             availableInfoKeys: infoKeySet,
+            infoKeyDefinitions: infoDefs,
             availableVariantTypes: availableVariantTypes,
             sampleNames: allSampleNames,
             savedPresets: savedQueryPresets,

@@ -7,6 +7,15 @@ import os.log
 
 private let queryLogger = Logger(subsystem: "com.lungfish.app", category: "QueryBuilder")
 
+// MARK: - Info Key Definition
+
+/// Describes an INFO key discovered from the VCF, including its type and VCF header description.
+struct InfoKeyDefinition: Sendable {
+    let key: String
+    let type: String        // "Integer", "Float", "String", "Flag"
+    let description: String // From VCF ##INFO header
+}
+
 // MARK: - Query Builder View
 
 /// SwiftUI view for the variant query builder sheet.
@@ -21,6 +30,7 @@ struct VariantQueryBuilderView: View {
     @State private var savePresetName = ""
 
     let availableInfoKeys: Set<String>
+    let infoKeyDefinitions: [InfoKeyDefinition]
     let availableVariantTypes: [String]
     let sampleNames: [String]
     let savedPresets: [QueryPreset]
@@ -31,6 +41,7 @@ struct VariantQueryBuilderView: View {
     init(
         initialFilterText: String = "",
         availableInfoKeys: Set<String> = [],
+        infoKeyDefinitions: [InfoKeyDefinition] = [],
         availableVariantTypes: [String] = [],
         sampleNames: [String] = [],
         savedPresets: [QueryPreset] = [],
@@ -39,6 +50,7 @@ struct VariantQueryBuilderView: View {
         onCancel: @escaping () -> Void
     ) {
         self.availableInfoKeys = availableInfoKeys
+        self.infoKeyDefinitions = infoKeyDefinitions
         self.availableVariantTypes = availableVariantTypes
         self.sampleNames = sampleNames
         self.savedPresets = savedPresets
@@ -70,22 +82,23 @@ struct VariantQueryBuilderView: View {
 
             Divider()
 
-            // Preset bar
-            HStack(spacing: 8) {
-                Text("Presets:")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ForEach(allPresets) { preset in
-                    Button(preset.name) {
-                        loadPreset(preset)
+            // Preset bar (scrollable)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    Text("Presets:")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ForEach(allPresets) { preset in
+                        Button(preset.name) {
+                            loadPreset(preset)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .tint(selectedPresetId == preset.id ? Color.accentColor : nil)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .tint(selectedPresetId == preset.id ? Color.accentColor : nil)
                 }
-                Spacer()
+                .padding(.horizontal, 16)
             }
-            .padding(.horizontal, 16)
             .padding(.vertical, 6)
 
             Divider()
@@ -97,6 +110,7 @@ struct VariantQueryBuilderView: View {
                         RuleRowView(
                             rule: $rule,
                             availableInfoKeys: availableInfoKeys,
+                            infoKeyDefinitions: infoKeyDefinitions,
                             availableVariantTypes: availableVariantTypes,
                             onRemove: { removeRule(rule.id) }
                         )
@@ -105,7 +119,7 @@ struct VariantQueryBuilderView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
             }
-            .frame(minHeight: 100, maxHeight: 300)
+            .frame(minHeight: 120, maxHeight: 400)
 
             // Add rule button
             HStack {
@@ -118,6 +132,12 @@ struct VariantQueryBuilderView: View {
                 .font(.caption)
                 .foregroundStyle(Color.accentColor)
                 Spacer()
+
+                if !availableInfoKeys.isEmpty {
+                    Text("\(availableInfoKeys.count) INFO fields available")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 8)
@@ -129,6 +149,13 @@ struct VariantQueryBuilderView: View {
                 Button("Save Preset...") {
                     savePresetName = ""
                     showSaveDialog = true
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                Button("Clear All") {
+                    rules = [QueryRule()]
+                    selectedPresetId = nil
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -149,7 +176,7 @@ struct VariantQueryBuilderView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
         }
-        .frame(width: 640, height: min(CGFloat(rules.count) * 44 + 240, 520))
+        .frame(width: 700, height: min(CGFloat(rules.count) * 52 + 260, 580))
         .sheet(isPresented: $showSaveDialog) {
             SavePresetDialogView(
                 name: $savePresetName,
@@ -211,62 +238,76 @@ struct VariantQueryBuilderView: View {
 private struct RuleRowView: View {
     @Binding var rule: QueryRule
     let availableInfoKeys: Set<String>
+    let infoKeyDefinitions: [InfoKeyDefinition]
     let availableVariantTypes: [String]
     let onRemove: () -> Void
 
     var body: some View {
-        HStack(spacing: 6) {
-            // Category picker
-            Picker("", selection: $rule.category) {
-                ForEach(QueryCategory.allCases) { cat in
-                    Text(cat.displayName).tag(cat)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                // Category picker
+                Picker("", selection: $rule.category) {
+                    ForEach(QueryCategory.allCases) { cat in
+                        Text(cat.displayName).tag(cat)
+                    }
                 }
-            }
-            .frame(width: 140)
-            .onChange(of: rule.category) { _, newCat in
-                let fields = effectiveFields(for: newCat)
-                if !fields.contains(rule.field), let first = fields.first {
-                    rule.field = first
+                .frame(width: 140)
+                .onChange(of: rule.category) { _, newCat in
+                    let fields = effectiveFields(for: newCat)
+                    if !fields.contains(rule.field), let first = fields.first {
+                        rule.field = first
+                    }
+                    let ops = newCat.operators(for: rule.field)
+                    if !ops.contains(rule.op), let first = ops.first {
+                        rule.op = first
+                    }
                 }
-                let ops = newCat.operators(for: rule.field)
-                if !ops.contains(rule.op), let first = ops.first {
-                    rule.op = first
+
+                // Field picker
+                Picker("", selection: $rule.field) {
+                    ForEach(effectiveFields(for: rule.category), id: \.self) { field in
+                        Text(field).tag(field)
+                    }
                 }
+                .frame(width: 140)
+                .onChange(of: rule.field) { _, newField in
+                    let ops = rule.category.operators(for: newField)
+                    if !ops.contains(rule.op), let first = ops.first {
+                        rule.op = first
+                    }
+                }
+
+                if rule.field != "Gene List" {
+                    // Operator picker
+                    Picker("", selection: $rule.op) {
+                        ForEach(rule.category.operators(for: rule.field), id: \.self) { op in
+                            Text(op).tag(op)
+                        }
+                    }
+                    .frame(width: 60)
+                }
+
+                // Value field
+                valueInput
+
+                // Remove button
+                Button {
+                    onRemove()
+                } label: {
+                    Image(systemName: "minus.circle")
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
             }
 
-            // Field picker
-            Picker("", selection: $rule.field) {
-                ForEach(effectiveFields(for: rule.category), id: \.self) { field in
-                    Text(field).tag(field)
-                }
+            // Show INFO field description when using INFO Field or bio/population categories with an INFO key
+            if let desc = infoDescription(for: rule.field), !desc.isEmpty {
+                Text(desc)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .padding(.leading, 148) // Align under field picker
             }
-            .frame(width: 120)
-            .onChange(of: rule.field) { _, newField in
-                let ops = rule.category.operators(for: newField)
-                if !ops.contains(rule.op), let first = ops.first {
-                    rule.op = first
-                }
-            }
-
-            // Operator picker
-            Picker("", selection: $rule.op) {
-                ForEach(rule.category.operators(for: rule.field), id: \.self) { op in
-                    Text(op).tag(op)
-                }
-            }
-            .frame(width: 60)
-
-            // Value field
-            valueInput
-
-            // Remove button
-            Button {
-                onRemove()
-            } label: {
-                Image(systemName: "minus.circle")
-                    .foregroundStyle(.red)
-            }
-            .buttonStyle(.plain)
         }
         .onAppear {
             if rule.field.isEmpty, let first = effectiveFields(for: rule.category).first {
@@ -277,7 +318,11 @@ private struct RuleRowView: View {
 
     @ViewBuilder
     private var valueInput: some View {
-        if rule.category == .identity && rule.field == "Type" {
+        if rule.field == "Gene List" {
+            TextField("BRCA1, TP53, EGFR", text: $rule.value)
+                .textFieldStyle(.roundedBorder)
+                .frame(minWidth: 160)
+        } else if rule.category == .identity && rule.field == "Type" {
             Picker("", selection: $rule.value) {
                 Text("Any").tag("")
                 ForEach(availableVariantTypes, id: \.self) { type in
@@ -285,7 +330,7 @@ private struct RuleRowView: View {
                 }
             }
             .frame(minWidth: 80)
-        } else if rule.category == .biologicalEffect && rule.field == "IMPACT" {
+        } else if rule.field == "IMPACT" {
             Picker("", selection: $rule.value) {
                 Text("Any").tag("")
                 Text("HIGH").tag("HIGH")
@@ -294,7 +339,7 @@ private struct RuleRowView: View {
                 Text("MODIFIER").tag("MODIFIER")
             }
             .frame(minWidth: 100)
-        } else if rule.category == .callQuality && rule.field == "Filter" {
+        } else if rule.field == "Filter" && rule.category == .callQuality {
             Picker("", selection: $rule.value) {
                 Text("Any").tag("")
                 Text("PASS").tag("PASS")
@@ -307,20 +352,36 @@ private struct RuleRowView: View {
         }
     }
 
+    /// Returns the VCF description for an INFO key, if available.
+    private func infoDescription(for field: String) -> String? {
+        infoKeyDefinitions.first(where: { $0.key == field })?.description
+    }
+
     /// Fields for the category, enriched with available INFO keys.
     private func effectiveFields(for category: QueryCategory) -> [String] {
         var fields = category.fields
-        if category == .biologicalEffect || category == .population {
-            // Add available INFO keys that aren't already in the default list
+        switch category {
+        case .biologicalEffect:
             let existing = Set(fields)
             for key in availableInfoKeys.sorted() where !existing.contains(key) {
-                let isPopulation = key.contains("AF") || key.contains("freq")
                 let isBio = key.contains("IMPACT") || key.contains("GENE") || key.contains("CLIN")
                     || key.contains("SIG") || key.contains("ANN") || key.contains("CSQ")
-                if (category == .population && isPopulation) || (category == .biologicalEffect && isBio) {
-                    fields.append(key)
-                }
+                    || key.contains("Consequence") || key.contains("BIOTYPE")
+                if isBio { fields.append(key) }
             }
+        case .population:
+            let existing = Set(fields)
+            for key in availableInfoKeys.sorted() where !existing.contains(key) {
+                let isPopulation = key.contains("AF") || key.contains("freq") || key.contains("AN")
+                    || key.contains("AC") || key.contains("MLEAF") || key.contains("gnomAD")
+                    || key.contains("ExAC") || key.contains("1000G")
+                if isPopulation { fields.append(key) }
+            }
+        case .infoField:
+            // Show ALL available INFO keys (the power-user category)
+            fields = availableInfoKeys.sorted()
+        default:
+            break
         }
         return fields
     }
