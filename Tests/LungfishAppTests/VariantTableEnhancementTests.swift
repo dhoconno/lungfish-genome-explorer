@@ -316,6 +316,59 @@ final class VariantTableEnhancementTests: XCTestCase {
         return drawer
     }
 
+    private func createSearchIndex(genomeLength: Int64) throws -> AnnotationSearchIndex {
+        let unique = UUID().uuidString
+        let bedContent = "chr1\t100\t500\tBRCA1\t0\t+\t100\t500\t0,0,0\t1\t400\t0\tgene\tgene=BRCA1"
+        let bedFile = "annotations_\(unique).bed"
+        let dbFile = "annotations_\(unique).db"
+        let bedURL = tempDir.appendingPathComponent(bedFile)
+        try bedContent.write(to: bedURL, atomically: true, encoding: .utf8)
+        let annotationDBURL = tempDir.appendingPathComponent(dbFile)
+        try AnnotationDatabase.createFromBED(bedURL: bedURL, outputURL: annotationDBURL)
+
+        let vcfContent = """
+        ##fileformat=VCFv4.2
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t150\trs12345\tA\tG\t30.0\tPASS\t.
+        """
+        let vcfFile = "variants_\(unique).vcf"
+        let vcfURL = tempDir.appendingPathComponent(vcfFile)
+        try vcfContent.write(to: vcfURL, atomically: true, encoding: .utf8)
+        let variantDBFile = "variants_\(unique).db"
+        let variantDBURL = tempDir.appendingPathComponent(variantDBFile)
+        try VariantDatabase.createFromVCF(vcfURL: vcfURL, outputURL: variantDBURL)
+
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "Test",
+            identifier: "test.bundle.\(unique)",
+            source: SourceInfo(organism: "Test", assembly: "test"),
+            genome: GenomeInfo(
+                path: "seq.fa.gz", indexPath: "seq.fa.gz.fai",
+                totalLength: genomeLength, chromosomes: []
+            ),
+            annotations: [
+                AnnotationTrackInfo(
+                    id: "annotations", name: "Annotations",
+                    path: "annotations.bb", databasePath: dbFile
+                )
+            ],
+            variants: [
+                VariantTrackInfo(
+                    id: "variants", name: "Variants",
+                    path: "variants.bcf", indexPath: "variants.bcf.csi",
+                    databasePath: variantDBFile
+                )
+            ]
+        )
+
+        let bundle = ReferenceBundle(url: tempDir, manifest: manifest)
+        let searchIndex = AnnotationSearchIndex()
+        let success = searchIndex.buildFromDatabase(bundle: bundle, trackId: "annotations", databasePath: dbFile)
+        XCTAssertTrue(success)
+        return searchIndex
+    }
+
     // MARK: - Phase 2: Smart Token Tests
 
     func testSmartTokenAvailability() {
@@ -387,6 +440,12 @@ final class VariantTableEnhancementTests: XCTestCase {
         }
     }
 
+    func testWithinSampleAFTokenLabelsMatchInclusiveBounds() {
+        XCTAssertEqual(SmartToken.minorVariant.label, "Minor (≤20%)")
+        XCTAssertEqual(SmartToken.mixedInfection.label, "Mixed (20-80%)")
+        XCTAssertEqual(SmartToken.dominantMutation.label, "Dominant (≥80%)")
+    }
+
     // MARK: - Phase 2: Query Rule Tests
 
     func testQueryRuleToFilterClause() {
@@ -430,12 +489,39 @@ final class VariantTableEnhancementTests: XCTestCase {
 
     func testQueryCategoryFields() {
         for category in QueryCategory.allCases {
+            if category == .infoField {
+                continue // INFO fields are discovered dynamically from loaded VCF metadata.
+            }
             XCTAssertFalse(category.fields.isEmpty, "\(category) should have at least one field")
             for field in category.fields {
                 let ops = category.operators(for: field)
                 XCTAssertFalse(ops.isEmpty, "\(category).\(field) should have at least one operator")
             }
         }
+    }
+
+    // MARK: - Haploid Detection Tests
+
+    func testHaploidDetectionUsesGenomeTotalLength() throws {
+        let smallGenomeIndex = try createSearchIndex(genomeLength: 4_000_000)
+        XCTAssertTrue(smallGenomeIndex.isLikelyHaploidOrganism, "Small genome should auto-detect as haploid")
+
+        let largeGenomeIndex = try createSearchIndex(genomeLength: 120_000_000)
+        XCTAssertFalse(largeGenomeIndex.isLikelyHaploidOrganism, "Large genome should auto-detect as non-haploid")
+    }
+
+    func testHaploidDetectionSupportsUserOverride() throws {
+        let index = try createSearchIndex(genomeLength: 120_000_000)
+        XCTAssertFalse(index.isLikelyHaploidOrganism)
+
+        index.setHaploidOverride(true)
+        XCTAssertTrue(index.isLikelyHaploidOrganism, "Explicit override should force haploid mode")
+
+        index.setHaploidOverride(false)
+        XCTAssertFalse(index.isLikelyHaploidOrganism, "Explicit override should force diploid mode")
+
+        index.setHaploidOverride(nil)
+        XCTAssertFalse(index.isLikelyHaploidOrganism, "Clearing override should return to auto mode")
     }
 
     // MARK: - Phase 2: Gene List Detection Tests

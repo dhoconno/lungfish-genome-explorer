@@ -177,6 +177,13 @@ public final class AnnotationSearchIndex {
     /// Callback invoked on the main thread when index building completes.
     public var onBuildComplete: (() -> Void)?
 
+    /// Optional user override for haploid detection.
+    /// `nil` means automatic detection from bundle metadata.
+    private var haploidOverride: Bool?
+
+    /// Reference genome total length from bundle metadata, when available.
+    private var bundleGenomeTotalLength: Int64?
+
     // MARK: - SQLite Mode
 
     /// Builds the index from a SQLite database file in the bundle.
@@ -200,6 +207,7 @@ public final class AnnotationSearchIndex {
             database = db
             databaseTrackId = trackId
             bundleIdentifier = bundle.manifest.identifier
+            bundleGenomeTotalLength = bundle.manifest.genome.totalLength
             annotationDatabases = [(trackId: trackId, db: db)]
             isBuilding = false
             let count = database?.totalCount() ?? 0
@@ -254,6 +262,7 @@ public final class AnnotationSearchIndex {
         database = nil
         databaseTrackId = ""
         bundleIdentifier = bundle.manifest.identifier
+        bundleGenomeTotalLength = bundle.manifest.genome.totalLength
 
         for trackId in bundle.annotationTrackIds {
             if let trackInfo = bundle.annotationTrack(id: trackId),
@@ -720,17 +729,34 @@ public final class AnnotationSearchIndex {
     /// become available since each position may have a continuous AF rather than discrete
     /// diploid genotypes.
     public var isLikelyHaploidOrganism: Bool {
-        var totalSpan = 0
+        if let override = haploidOverride {
+            return override
+        }
+        if let genomeLength = bundleGenomeTotalLength, genomeLength > 0 {
+            // Viral genomes are typically <100 kb and most bacterial genomes are <10 Mb.
+            // Larger eukaryotic genomes are typically orders of magnitude larger.
+            return genomeLength < 10_000_000
+        }
+        var totalSpan: Int64 = 0
         for handle in variantDatabases {
             let maxPositions = handle.db.chromosomeMaxPositions()
             for (_, maxPos) in maxPositions {
-                totalSpan += maxPos
+                totalSpan += Int64(maxPos)
             }
         }
         // Threshold: 10 Mb. Viral genomes are <100 kb, bacteria are <10 Mb.
         // Eukaryotic genomes are >50 Mb (even C. elegans is 100 Mb).
         return totalSpan > 0 && totalSpan < 10_000_000
     }
+
+    /// Sets an explicit haploid-mode override.
+    /// - Parameter value: `true` for forced haploid, `false` for forced diploid, `nil` for auto-detect.
+    public func setHaploidOverride(_ value: Bool?) {
+        haploidOverride = value
+    }
+
+    /// Returns the current haploid-mode override.
+    public var haploidOverrideValue: Bool? { haploidOverride }
 
     /// Clears the index.
     public func clear() {
@@ -741,6 +767,8 @@ public final class AnnotationSearchIndex {
         variantTrackNames = [:]
         variantTrackChromosomes = [:]
         bundleIdentifier = nil
+        bundleGenomeTotalLength = nil
+        haploidOverride = nil
         isBuilding = false
     }
 

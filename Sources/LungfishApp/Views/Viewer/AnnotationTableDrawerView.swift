@@ -166,6 +166,15 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Whether to auto-sync variant table with viewport (when variants tab is active).
     private(set) var viewportSyncEnabled: Bool = true
 
+    private enum HaploidModeSelection: String {
+        case auto
+        case haploid
+        case diploid
+    }
+
+    /// User-selected haploid-mode behavior (defaults to automatic detection).
+    private var haploidModeSelection: HaploidModeSelection = .auto
+
     /// Current viewport region for auto-sync (set by viewer notification).
     private var viewportRegion: (chromosome: String, start: Int, end: Int)?
 
@@ -253,7 +262,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     let columnConfigButton = NSButton()
     let profileButton = NSPopUpButton(frame: .zero, pullsDown: true)
     let variantSubtabControl = NSSegmentedControl()
-    private let scopeButton = NSButton()
+    private let scopeControl = NSSegmentedControl()
+    private let haploidModeButton = NSPopUpButton(frame: .zero, pullsDown: false)
 
     /// Maximum number of annotations to display in the table.
     /// Beyond this, user must filter to narrow down results.
@@ -353,7 +363,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         )
         configureSearchField(
             variantFilterField,
-            placeholder: "Variants: text=rs; chr=NC_...; pos=100-200; qual>=30; samples>=2; DP>=20",
+            placeholder: "Variants: text=rs; type=SNV; chr=NC_...; pos=100-200; qual>=30; samples>=2; DP>=20",
             accessibilityLabel: "Filter variants"
         )
         configureSearchField(
@@ -382,17 +392,33 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         variantSubtabControl.setContentHuggingPriority(.defaultHigh, for: .horizontal)
         headerBar.addSubview(variantSubtabControl)
 
-        // Scope toggle button (Viewport/Genome) — visible only on Variants tab
-        scopeButton.title = "📍 Viewport"
-        scopeButton.font = .systemFont(ofSize: 10, weight: .medium)
-        scopeButton.controlSize = .small
-        scopeButton.bezelStyle = .recessed
-        scopeButton.target = self
-        scopeButton.action = #selector(toggleScopeAction(_:))
-        scopeButton.translatesAutoresizingMaskIntoConstraints = false
-        scopeButton.toolTip = "Toggle between viewport-synced and genome-wide variant queries"
-        scopeButton.isHidden = true
-        searchBar.addSubview(scopeButton)
+        // Scope segmented control (Region | Genome) — visible only on Variants tab
+        scopeControl.segmentCount = 2
+        scopeControl.setLabel("Region", forSegment: 0)
+        scopeControl.setLabel("Genome", forSegment: 1)
+        scopeControl.setWidth(62, forSegment: 0)
+        scopeControl.setWidth(66, forSegment: 1)
+        scopeControl.selectedSegment = 0
+        scopeControl.segmentStyle = .rounded
+        scopeControl.controlSize = .small
+        scopeControl.font = .systemFont(ofSize: 10, weight: .medium)
+        scopeControl.target = self
+        scopeControl.action = #selector(scopeSegmentChanged(_:))
+        scopeControl.translatesAutoresizingMaskIntoConstraints = false
+        scopeControl.toolTip = "Choose whether variants follow the visible region or query the whole genome"
+        scopeControl.setAccessibilityLabel("Variant query scope")
+        scopeControl.isHidden = true
+        searchBar.addSubview(scopeControl)
+
+        // Haploid mode control (Auto/Haploid/Diploid) — visible only on Variants tab
+        haploidModeButton.controlSize = .small
+        haploidModeButton.font = .systemFont(ofSize: 10, weight: .medium)
+        haploidModeButton.translatesAutoresizingMaskIntoConstraints = false
+        haploidModeButton.target = self
+        haploidModeButton.action = #selector(haploidModeChanged(_:))
+        haploidModeButton.toolTip = "Within-sample AF token mode: Auto from reference size, or force haploid/diploid"
+        haploidModeButton.isHidden = true
+        searchBar.addSubview(haploidModeButton)
 
         // "All"/"None" convenience buttons for annotation/variant type chips
         allTypesButton.title = "All"
@@ -633,13 +659,16 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             annotationFilterField.heightAnchor.constraint(equalToConstant: 24),
             annotationFilterField.trailingAnchor.constraint(lessThanOrEqualTo: allTypesButton.leadingAnchor, constant: -8),
 
-            scopeButton.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
-            scopeButton.leadingAnchor.constraint(equalTo: searchBar.leadingAnchor, constant: 8),
+            scopeControl.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
+            scopeControl.leadingAnchor.constraint(equalTo: searchBar.leadingAnchor, constant: 8),
 
             variantFilterField.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
-            variantFilterField.leadingAnchor.constraint(equalTo: scopeButton.trailingAnchor, constant: 6),
+            variantFilterField.leadingAnchor.constraint(equalTo: haploidModeButton.trailingAnchor, constant: 6),
             variantFilterField.heightAnchor.constraint(equalToConstant: 24),
             variantFilterField.trailingAnchor.constraint(lessThanOrEqualTo: searchBuilderButton.leadingAnchor, constant: -8),
+
+            haploidModeButton.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
+            haploidModeButton.leadingAnchor.constraint(equalTo: scopeControl.trailingAnchor, constant: 6),
 
             sampleFilterField.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
             sampleFilterField.leadingAnchor.constraint(equalTo: searchBar.leadingAnchor, constant: 8),
@@ -692,6 +721,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             tooManyLabel.leadingAnchor.constraint(greaterThanOrEqualTo: scrollView.leadingAnchor, constant: 20),
             tooManyLabel.trailingAnchor.constraint(lessThanOrEqualTo: scrollView.trailingAnchor, constant: -20),
         ])
+
+        rebuildHaploidModeMenu()
 
         // Hide chip bar initially (shown after data loads)
         chipBar.isHidden = true
@@ -791,12 +822,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Handles `.viewportVariantsUpdated` notification to auto-sync the variant table.
     @objc private func handleViewportVariantsUpdated(_ notification: Notification) {
         guard viewportSyncEnabled else { return }
-        if let expectedSource = viewportSyncSourceIdentifier {
-            guard let sender = notification.object as AnyObject?,
-                  ObjectIdentifier(sender) == expectedSource else {
-                return
-            }
-        }
+        guard let expectedSource = viewportSyncSourceIdentifier,
+              let sender = notification.object as AnyObject?,
+              ObjectIdentifier(sender) == expectedSource else { return }
         guard let userInfo = notification.userInfo,
               let chromosome = userInfo[NotificationUserInfoKey.chromosome] as? String,
               let start = userInfo[NotificationUserInfoKey.start] as? Int,
@@ -817,12 +845,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Tracks viewer pan/zoom even when variant fetch notifications are delayed or skipped by cache reuse.
     @objc private func handleViewerCoordinatesChanged(_ notification: Notification) {
         guard viewportSyncEnabled else { return }
-        if let expectedSource = viewportSyncSourceIdentifier {
-            guard let sender = notification.object as AnyObject?,
-                  ObjectIdentifier(sender) == expectedSource else {
-                return
-            }
-        }
+        guard let expectedSource = viewportSyncSourceIdentifier,
+              let sender = notification.object as AnyObject?,
+              ObjectIdentifier(sender) == expectedSource else { return }
         guard let userInfo = notification.userInfo,
               let refChromosome = userInfo[NotificationUserInfoKey.chromosome] as? String,
               let start = userInfo[NotificationUserInfoKey.start] as? Int,
@@ -866,7 +891,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         downloadTemplateButton.isHidden = activeTab != .samples
         variantSubtabControl.isHidden = !showVariants
         profileButton.isHidden = !showVariants
-        scopeButton.isHidden = !showVariants
+        scopeControl.isHidden = !showVariants
+        haploidModeButton.isHidden = !showVariants
         presetFiltersToggleButton.isHidden = !showVariants || infoColumnKeys.isEmpty
         presetFiltersToggleButton.title = showVariantPresetChips ? "Presets ▾" : "Presets ▸"
         presetFiltersToggleButton.isEnabled = variantPresetLoadState != .loading
@@ -874,15 +900,11 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         let showTypeControls = activeTab != .samples && !availableTypes.isEmpty
         allTypesButton.isHidden = !showTypeControls
         noneTypesButton.isHidden = !showTypeControls
-        updateScopeButtonTitle()
+        updateScopeControlSelection()
     }
 
-    private func updateScopeButtonTitle() {
-        if viewportSyncEnabled {
-            scopeButton.title = "📍 Viewport"
-        } else {
-            scopeButton.title = "🌐 Genome"
-        }
+    private func updateScopeControlSelection() {
+        scopeControl.selectedSegment = viewportSyncEnabled ? 0 : 1
     }
 
     private func makeTypeChipButton(type: String) -> NSButton {
@@ -1081,11 +1103,80 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         }
     }
 
-    @objc private func toggleScopeAction(_ sender: NSButton) {
-        viewportSyncEnabled.toggle()
-        updateScopeButtonTitle()
+    @objc private func scopeSegmentChanged(_ sender: NSSegmentedControl) {
+        viewportSyncEnabled = (sender.selectedSegment == 0)
+        updateScopeControlSelection()
         // Re-query with new scope
         updateDisplayedAnnotations()
+    }
+
+    @objc private func haploidModeChanged(_ sender: NSPopUpButton) {
+        guard sender.indexOfSelectedItem >= 0 else { return }
+        let selected = sender.selectedTag()
+        switch selected {
+        case 1:
+            haploidModeSelection = .haploid
+        case 2:
+            haploidModeSelection = .diploid
+        default:
+            haploidModeSelection = .auto
+        }
+        applyHaploidModeSelectionToIndex()
+        saveHaploidModeSelection(haploidModeSelection, bundleIdentifier: searchIndex?.bundleIdentifier)
+        isHaploidOrganism = searchIndex?.isLikelyHaploidOrganism ?? false
+        rebuildHaploidModeMenu()
+        rebuildChipButtons()
+        if activeTab == .variants {
+            updateDisplayedAnnotations()
+        }
+    }
+
+    private func haploidModeDefaultsKey(bundleIdentifier: String?) -> String? {
+        guard let bundleIdentifier, !bundleIdentifier.isEmpty else { return nil }
+        return "VariantHaploidMode.\(bundleIdentifier)"
+    }
+
+    private func loadHaploidModeSelection(bundleIdentifier: String?) -> HaploidModeSelection {
+        guard let key = haploidModeDefaultsKey(bundleIdentifier: bundleIdentifier),
+              let raw = UserDefaults.standard.string(forKey: key),
+              let value = HaploidModeSelection(rawValue: raw) else {
+            return .auto
+        }
+        return value
+    }
+
+    private func saveHaploidModeSelection(_ selection: HaploidModeSelection, bundleIdentifier: String?) {
+        guard let key = haploidModeDefaultsKey(bundleIdentifier: bundleIdentifier) else { return }
+        UserDefaults.standard.set(selection.rawValue, forKey: key)
+    }
+
+    private func applyHaploidModeSelectionToIndex() {
+        guard let index = searchIndex else { return }
+        switch haploidModeSelection {
+        case .auto:
+            index.setHaploidOverride(nil)
+        case .haploid:
+            index.setHaploidOverride(true)
+        case .diploid:
+            index.setHaploidOverride(false)
+        }
+    }
+
+    private func rebuildHaploidModeMenu() {
+        haploidModeButton.removeAllItems()
+        haploidModeButton.addItems(withTitles: ["Auto", "Haploid", "Diploid"])
+        haploidModeButton.lastItem?.isEnabled = true
+        haploidModeButton.item(at: 0)?.tag = 0
+        haploidModeButton.item(at: 1)?.tag = 1
+        haploidModeButton.item(at: 2)?.tag = 2
+        switch haploidModeSelection {
+        case .auto:
+            haploidModeButton.selectItem(at: 0)
+        case .haploid:
+            haploidModeButton.selectItem(at: 1)
+        case .diploid:
+            haploidModeButton.selectItem(at: 2)
+        }
     }
 
     /// Switches to the specified tab, reconfiguring columns, chip bar, and data.
@@ -1155,8 +1246,11 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         variantPresetLoadState = .idle
         selectedVariantPresetByKey.removeAll()
 
-        // Detect haploid organism for within-sample AF features
+        // Apply persisted haploid-mode override (if present), then compute availability.
+        haploidModeSelection = loadHaploidModeSelection(bundleIdentifier: index.bundleIdentifier)
+        applyHaploidModeSelectionToIndex()
         isHaploidOrganism = index.isLikelyHaploidOrganism
+        rebuildHaploidModeMenu()
 
         // All types visible by default for both tabs
         visibleAnnotationTypes = Set(availableAnnotationTypes)
@@ -1531,24 +1625,6 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         typeFilter: Set<String>,
         query: VariantFilterQuery
     ) {
-        // Gene list query: explicit genes= clause or auto-detected comma-separated gene names.
-        let geneList = query.geneList ?? detectGeneListPattern(query.nameFilter)
-        if let geneList, !geneList.isEmpty {
-            let results = index.queryVariantsForGenes(
-                geneList,
-                types: typeFilter,
-                infoFilters: query.infoFilters,
-                limit: Self.maxDisplayCount
-            )
-            displayedAnnotations = applyVariantAdvancedFilters(results, query: query)
-            lastVariantQueryMatchCount = displayedAnnotations.count
-            lastVariantQueryScope = .global
-            tableView.reloadData()
-            scrollView.isHidden = false
-            tooManyLabel.isHidden = true
-            return
-        }
-
         let chipInfoFilters: [VariantDatabase.InfoFilter] = selectedVariantPresetByKey.map { key, value in
             VariantDatabase.InfoFilter(key: key, op: .eq, value: value)
         }
@@ -1571,6 +1647,13 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
         // Merge type restrictions from smart tokens with existing type filter
         var effectiveTypeFilter = typeFilter
+        if let explicitTypeFilter = query.explicitTypeFilter, !explicitTypeFilter.isEmpty {
+            if effectiveTypeFilter.isEmpty {
+                effectiveTypeFilter = explicitTypeFilter
+            } else {
+                effectiveTypeFilter = effectiveTypeFilter.intersection(explicitTypeFilter)
+            }
+        }
         if !smartComposed.typeRestrictions.isEmpty {
             if effectiveTypeFilter.isEmpty {
                 effectiveTypeFilter = smartComposed.typeRestrictions
@@ -1590,6 +1673,66 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         }
         if let smartFilter = smartComposed.filterValue, effectiveQuery.filterValue == nil {
             effectiveQuery.filterValue = smartFilter
+        }
+        let usePostFiltering = hasSmartPostFilter || effectiveQuery.hasPostFilters
+
+        let applyAllPostFilters: ([AnnotationSearchIndex.SearchResult]) -> [AnnotationSearchIndex.SearchResult] = { [self] rows in
+            var filtered = self.applyVariantAdvancedFilters(rows, query: effectiveQuery)
+            if filterModerateOrHigher {
+                filtered = self.filterModerateOrHigherImpact(filtered)
+            }
+            if filterBookmarkedOnly {
+                filtered = filtered.filter { result in
+                    guard let rowId = result.variantRowId else { return false }
+                    return self.bookmarkedVariantKeys.contains(self.bookmarkKey(trackId: result.trackId, variantRowId: rowId))
+                }
+            }
+            if let afRange = withinSampleAFRange {
+                filtered = self.filterByWithinSampleAF(filtered, min: afRange.min, max: afRange.max)
+            }
+            return filtered
+        }
+
+        // Gene list query always runs globally, independent of viewport/annotation scope.
+        let inferredGeneList = query.geneList == nil ? detectGeneListPattern(query.nameFilter) : nil
+        let activeGeneList = query.geneList ?? inferredGeneList
+        if let activeGeneList, !activeGeneList.isEmpty {
+            var geneQuery = effectiveQuery
+            if inferredGeneList != nil {
+                // Auto-detected gene lists come from the free-text field itself; do not also apply
+                // variant_id name filtering from that same list.
+                geneQuery.nameFilter = ""
+            }
+            let needsGenePostFiltering = usePostFiltering || !geneQuery.nameFilter.isEmpty
+            let initialLimit = needsGenePostFiltering ? max(Self.maxDisplayCount * 3, Self.maxDisplayCount) : Self.maxDisplayCount
+            let filtered = fetchVariantsWithAdaptivePostFiltering(
+                initialFetchLimit: initialLimit,
+                totalSQLMatchCount: nil,
+                applyPostFiltering: needsGenePostFiltering,
+                fetch: { limit in
+                    index.queryVariantsForGenes(
+                        activeGeneList,
+                        types: effectiveTypeFilter,
+                        infoFilters: mergedInfoFilters,
+                        limit: max(limit, Self.maxDisplayCount)
+                    )
+                },
+                postFilter: { rows in
+                    var filteredRows = applyAllPostFilters(rows)
+                    if !geneQuery.nameFilter.isEmpty {
+                        let needle = geneQuery.nameFilter.lowercased()
+                        filteredRows = filteredRows.filter { $0.name.lowercased().contains(needle) }
+                    }
+                    return filteredRows
+                }
+            )
+            displayedAnnotations = filtered
+            lastVariantQueryMatchCount = filtered.count
+            lastVariantQueryScope = .global
+            tableView.reloadData()
+            scrollView.isHidden = false
+            tooManyLabel.isHidden = true
+            return
         }
 
         // Determine the effective region for the query.
@@ -1654,29 +1797,24 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 tooManyLabel.stringValue = "\(total) variants in region — \(hint) to show \(max) or fewer"
                 tooManyLabel.isHidden = false
             } else {
-                let results = index.queryVariantsInRegion(
-                    chromosome: region.chromosome,
-                    start: region.start,
-                    end: region.end,
-                    nameFilter: effectiveQuery.nameFilter,
-                    types: effectiveTypeFilter,
-                    infoFilters: mergedInfoFilters,
-                    limit: Self.maxDisplayCount * 3
+                let initialLimit = usePostFiltering ? max(Self.maxDisplayCount * 3, Self.maxDisplayCount) : Self.maxDisplayCount
+                displayedAnnotations = fetchVariantsWithAdaptivePostFiltering(
+                    initialFetchLimit: initialLimit,
+                    totalSQLMatchCount: count,
+                    applyPostFiltering: usePostFiltering,
+                    fetch: { limit in
+                        index.queryVariantsInRegion(
+                            chromosome: region.chromosome,
+                            start: region.start,
+                            end: region.end,
+                            nameFilter: effectiveQuery.nameFilter,
+                            types: effectiveTypeFilter,
+                            infoFilters: mergedInfoFilters,
+                            limit: limit
+                        )
+                    },
+                    postFilter: applyAllPostFilters
                 )
-                var filtered = applyVariantAdvancedFilters(results, query: effectiveQuery)
-                if filterModerateOrHigher {
-                    filtered = filterModerateOrHigherImpact(filtered)
-                }
-                if filterBookmarkedOnly {
-                    filtered = filtered.filter { result in
-                        guard let rowId = result.variantRowId else { return false }
-                        return bookmarkedVariantKeys.contains(bookmarkKey(trackId: result.trackId, variantRowId: rowId))
-                    }
-                }
-                if let afRange = withinSampleAFRange {
-                    filtered = filterByWithinSampleAF(filtered, min: afRange.min, max: afRange.max)
-                }
-                displayedAnnotations = filtered.prefix(Self.maxDisplayCount).map { $0 }
                 if effectiveQuery.hasPostFilters || hasSmartPostFilter {
                     lastVariantQueryMatchCount = displayedAnnotations.count
                 }
@@ -1698,26 +1836,21 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 tooManyLabel.stringValue = "\(total) variants match — use the search field or type filters to narrow to \(max) or fewer"
                 tooManyLabel.isHidden = false
             } else {
-                let results = index.queryVariantsOnly(
-                    nameFilter: effectiveQuery.nameFilter,
-                    types: effectiveTypeFilter,
-                    infoFilters: mergedInfoFilters,
-                    limit: Self.maxDisplayCount * 3
+                let initialLimit = usePostFiltering ? max(Self.maxDisplayCount * 3, Self.maxDisplayCount) : Self.maxDisplayCount
+                displayedAnnotations = fetchVariantsWithAdaptivePostFiltering(
+                    initialFetchLimit: initialLimit,
+                    totalSQLMatchCount: matchingCount,
+                    applyPostFiltering: usePostFiltering,
+                    fetch: { limit in
+                        index.queryVariantsOnly(
+                            nameFilter: effectiveQuery.nameFilter,
+                            types: effectiveTypeFilter,
+                            infoFilters: mergedInfoFilters,
+                            limit: limit
+                        )
+                    },
+                    postFilter: applyAllPostFilters
                 )
-                var filtered = applyVariantAdvancedFilters(results, query: effectiveQuery)
-                if filterModerateOrHigher {
-                    filtered = filterModerateOrHigherImpact(filtered)
-                }
-                if filterBookmarkedOnly {
-                    filtered = filtered.filter { result in
-                        guard let rowId = result.variantRowId else { return false }
-                        return bookmarkedVariantKeys.contains(bookmarkKey(trackId: result.trackId, variantRowId: rowId))
-                    }
-                }
-                if let afRange = withinSampleAFRange {
-                    filtered = filterByWithinSampleAF(filtered, min: afRange.min, max: afRange.max)
-                }
-                displayedAnnotations = filtered.prefix(Self.maxDisplayCount).map { $0 }
                 if effectiveQuery.hasPostFilters || hasSmartPostFilter {
                     lastVariantQueryMatchCount = displayedAnnotations.count
                 }
@@ -1726,6 +1859,55 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 tooManyLabel.isHidden = true
             }
         }
+    }
+
+    private func fetchVariantsWithAdaptivePostFiltering(
+        initialFetchLimit: Int,
+        totalSQLMatchCount: Int?,
+        applyPostFiltering: Bool,
+        fetch: (Int) -> [AnnotationSearchIndex.SearchResult],
+        postFilter: ([AnnotationSearchIndex.SearchResult]) -> [AnnotationSearchIndex.SearchResult]
+    ) -> [AnnotationSearchIndex.SearchResult] {
+        let minimumLimit = max(Self.maxDisplayCount, initialFetchLimit)
+        if !applyPostFiltering {
+            return Array(fetch(minimumLimit).prefix(Self.maxDisplayCount))
+        }
+
+        var fetchLimit = minimumLimit
+        var previousRawCount = -1
+        var filtered: [AnnotationSearchIndex.SearchResult] = []
+
+        while true {
+            let raw = fetch(fetchLimit)
+            filtered = postFilter(raw)
+            if filtered.count >= Self.maxDisplayCount {
+                break
+            }
+            if raw.count < fetchLimit {
+                break
+            }
+            if let totalSQLMatchCount, fetchLimit >= totalSQLMatchCount {
+                break
+            }
+            if raw.count == previousRawCount {
+                break
+            }
+            previousRawCount = raw.count
+
+            let nextCandidate = max(fetchLimit * 2, fetchLimit + Self.maxDisplayCount * 2)
+            if let totalSQLMatchCount {
+                let next = min(totalSQLMatchCount, nextCandidate)
+                if next <= fetchLimit { break }
+                fetchLimit = next
+            } else {
+                // Gene-list path does not have an exact SQL count; cap expansion to avoid runaway queries.
+                let next = min(Self.maxDisplayCount * 40, nextCandidate)
+                if next <= fetchLimit { break }
+                fetchLimit = next
+            }
+        }
+
+        return Array(filtered.prefix(Self.maxDisplayCount))
     }
 
     private func filterByWithinSampleAF(
@@ -1868,6 +2050,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     private struct VariantFilterQuery {
         var nameFilter: String = ""
+        var explicitTypeFilter: Set<String>?
         var infoFilters: [VariantDatabase.InfoFilter] = []
         var region: (chromosome: String, start: Int, end: Int)?
         var minQuality: Double?
@@ -1933,6 +2116,14 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         case "~": return .like
         default: return .eq
         }
+    }
+
+    private func parseVariantTypesList(_ raw: String) -> Set<String> {
+        Set(
+            raw.split(whereSeparator: { $0 == "," || $0 == "|" })
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
     }
 
     /// Parses advanced annotation search syntax:
@@ -2082,9 +2273,15 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                     if !genes.isEmpty {
                         query.geneList = (query.geneList ?? []) + genes
                     }
-                case "type":
-                    // Allow type= in the semicolon syntax too (forwarded from query builder)
-                    nameTokens.append("type:\(clause.value)")
+                case "type", "variant_type":
+                    let parsedTypes = parseVariantTypesList(clause.value)
+                    if !parsedTypes.isEmpty {
+                        if let existing = query.explicitTypeFilter {
+                            query.explicitTypeFilter = existing.intersection(parsedTypes)
+                        } else {
+                            query.explicitTypeFilter = parsedTypes
+                        }
+                    }
                 default:
                     guard !clause.value.isEmpty else { continue }
                     query.infoFilters.append(
@@ -2146,6 +2343,17 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 } else if opValue.op == "<" || opValue.op == "<=" {
                     query.maxSampleCount = count
                     query.maxSampleCountInclusive = opValue.op == "<="
+                }
+                continue
+            }
+            if let value = token.value(after: "type:") ?? token.value(after: "type=") ?? token.value(after: "variant_type:") {
+                let parsedTypes = parseVariantTypesList(value)
+                if !parsedTypes.isEmpty {
+                    if let existing = query.explicitTypeFilter {
+                        query.explicitTypeFilter = existing.intersection(parsedTypes)
+                    } else {
+                        query.explicitTypeFilter = parsedTypes
+                    }
                 }
                 continue
             }
@@ -2243,6 +2451,12 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         query: VariantFilterQuery
     ) -> [AnnotationSearchIndex.SearchResult] {
         results.filter { row in
+            if let explicitTypeFilter = query.explicitTypeFilter, !explicitTypeFilter.isEmpty {
+                let matchesType = explicitTypeFilter.contains { candidate in
+                    row.type.caseInsensitiveCompare(candidate) == .orderedSame
+                }
+                if !matchesType { return false }
+            }
             if let filterVal = query.filterValue {
                 let rowFilter = row.filter ?? "."
                 if rowFilter.caseInsensitiveCompare(filterVal) != .orderedSame { return false }

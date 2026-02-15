@@ -25,9 +25,9 @@ enum SmartToken: String, CaseIterable, Sendable {
     case heterozygous
     case bookmarked
     // Within-sample frequency tokens (viral/bacterial)
-    case minorVariant       // Within-sample AF < 20% (minor variant in population)
+    case minorVariant       // Within-sample AF <= 20% (minor variant in population)
     case mixedInfection     // Within-sample AF 20-80% (potential mixed infection)
-    case dominantMutation   // Within-sample AF > 80% (dominant/fixed mutation)
+    case dominantMutation   // Within-sample AF >= 80% (dominant/fixed mutation)
 
     /// Display label shown on the chip button.
     var label: String {
@@ -43,9 +43,9 @@ enum SmartToken: String, CaseIterable, Sendable {
         case .clinvarPathogenic:  return "ClinVar Path."
         case .heterozygous:       return "Het Only"
         case .bookmarked:         return "Bookmarked"
-        case .minorVariant:       return "Minor (<20%)"
+        case .minorVariant:       return "Minor (\u{2264}20%)"
         case .mixedInfection:     return "Mixed (20-80%)"
-        case .dominantMutation:   return "Dominant (>80%)"
+        case .dominantMutation:   return "Dominant (\u{2265}80%)"
         }
     }
 
