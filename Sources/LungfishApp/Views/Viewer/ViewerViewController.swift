@@ -191,6 +191,8 @@ public class ViewerViewController: NSViewController {
         viewerView.viewController = self
         viewerView.trackY = sequenceTrackY
         viewerView.trackHeight = sequenceTrackHeight
+        viewerView.wantsLayer = true
+        viewerView.layer?.masksToBounds = true
         containerView.addSubview(viewerView)
 
         // Create status bar
@@ -255,6 +257,9 @@ public class ViewerViewController: NSViewController {
 
         // Set background color
         view.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+
+        // Ensure viewer clips to bounds so it never overlays the annotation drawer
+        viewerView.layer?.masksToBounds = true
 
         // Don't create a default reference frame - start with nil
         // The reference frame will be created when a sequence is actually loaded

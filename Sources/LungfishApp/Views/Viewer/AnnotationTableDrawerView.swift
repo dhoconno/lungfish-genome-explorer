@@ -1710,6 +1710,17 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         viewportSyncEnabled && (viewportSyncSourceIdentifier != nil || viewportSyncSourceObject != nil)
     }
 
+    /// Whether the current query has filters that imply genome-wide search intent
+    /// (smart tokens, text search, preset filters).
+    /// When true, viewport/annotation region scoping is bypassed in favor of genome-wide queries,
+    /// so that e.g. "High Impact" finds variants across the whole genome rather than just the viewport.
+    private var hasActiveSearchFilters: Bool {
+        if !activeSmartTokens.isEmpty { return true }
+        if !variantFilterText.isEmpty { return true }
+        if !selectedVariantPresetByKey.isEmpty { return true }
+        return false
+    }
+
     private func updateDisplayedVariants(
         index: AnnotationSearchIndex,
         typeFilter: Set<String>,
@@ -1788,7 +1799,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         } else if let selected = selectedAnnotationRegion {
             effectiveRegion = selected
             regionScope = .annotation
-        } else if isViewportSyncActive {
+        } else if isViewportSyncActive && !hasActiveSearchFilters {
             if let vp = viewportRegion {
                 effectiveRegion = vp
                 regionScope = .viewport
@@ -1804,7 +1815,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 updateCountLabel()
                 return
             }
-        } else if viewportSyncEnabled, let annotationRegion = annotationSearchRegion {
+        } else if viewportSyncEnabled && !hasActiveSearchFilters, let annotationRegion = annotationSearchRegion {
             effectiveRegion = annotationRegion
             regionScope = .annotations
         } else {
