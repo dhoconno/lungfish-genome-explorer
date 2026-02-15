@@ -103,6 +103,9 @@ public class ViewerViewController: NSViewController {
     /// Progress indicator overlay
     private var progressOverlay: ProgressOverlayView!
 
+    /// Gene tab bar for multi-gene navigation (hidden when not in gene list mode)
+    var geneTabBarView: GeneTabBarView!
+
     /// Leading constraints for ruler, viewer, and overlay — animated by chromosome drawer
     var contentLeadingConstraints: [NSLayoutConstraint] = []
     
@@ -176,6 +179,12 @@ public class ViewerViewController: NSViewController {
         headerView.translatesAutoresizingMaskIntoConstraints = false
         headerView.isHidden = true
 
+        // Create gene tab bar (initially hidden with 0 height)
+        geneTabBarView = GeneTabBarView()
+        geneTabBarView.translatesAutoresizingMaskIntoConstraints = false
+        geneTabBarView.delegate = self
+        containerView.addSubview(geneTabBarView)
+
         // Create main viewer view
         viewerView = SequenceViewerView()
         viewerView.translatesAutoresizingMaskIntoConstraints = false
@@ -200,10 +209,11 @@ public class ViewerViewController: NSViewController {
         let statusHeight: CGFloat = 24
 
         let rulerLeading = enhancedRulerView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor)
+        let geneTabLeading = geneTabBarView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor)
         let viewerLeading = viewerView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor)
         let overlayLeading = progressOverlay.leadingAnchor.constraint(equalTo: containerView.leadingAnchor)
 
-        contentLeadingConstraints = [rulerLeading, viewerLeading, overlayLeading]
+        contentLeadingConstraints = [rulerLeading, geneTabLeading, viewerLeading, overlayLeading]
 
         NSLayoutConstraint.activate([
             // Enhanced ruler spans full width above content, using safe area to avoid toolbar overlap
@@ -212,8 +222,13 @@ public class ViewerViewController: NSViewController {
             enhancedRulerView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             enhancedRulerView.heightAnchor.constraint(equalToConstant: rulerHeight),
 
+            // Gene tab bar sits between ruler and viewer (0 height when hidden)
+            geneTabBarView.topAnchor.constraint(equalTo: enhancedRulerView.bottomAnchor),
+            geneTabLeading,
+            geneTabBarView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+
             // Viewer fills the main area (full width)
-            viewerView.topAnchor.constraint(equalTo: enhancedRulerView.bottomAnchor),
+            viewerView.topAnchor.constraint(equalTo: geneTabBarView.bottomAnchor),
             viewerLeading,
             viewerView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             viewerView.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
@@ -225,7 +240,7 @@ public class ViewerViewController: NSViewController {
             statusBar.heightAnchor.constraint(equalToConstant: statusHeight),
 
             // Progress overlay covers the viewer area
-            progressOverlay.topAnchor.constraint(equalTo: enhancedRulerView.bottomAnchor),
+            progressOverlay.topAnchor.constraint(equalTo: geneTabBarView.bottomAnchor),
             overlayLeading,
             progressOverlay.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
             progressOverlay.bottomAnchor.constraint(equalTo: statusBar.topAnchor),

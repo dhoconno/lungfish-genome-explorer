@@ -18,6 +18,7 @@ private let drawerLogger = Logger(subsystem: "com.lungfish.browser", category: "
 protocol AnnotationTableDrawerDelegate: AnyObject {
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didSelectAnnotation result: AnnotationSearchIndex.SearchResult)
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didDeleteVariants count: Int)
+    func annotationDrawer(_ drawer: AnnotationTableDrawerView, didResolveGeneRegions regions: [GeneRegion])
 }
 
 private extension String {
@@ -589,12 +590,12 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
         tableView.dataSource = self
         tableView.delegate = self
-        tableView.rowHeight = 20
+        tableView.rowHeight = 22
         tableView.intercellSpacing = NSSize(width: 8, height: 2)
         tableView.usesAlternatingRowBackgroundColors = true
         tableView.allowsMultipleSelection = false
         tableView.style = .plain
-        tableView.gridStyleMask = .solidVerticalGridLineMask
+        tableView.gridStyleMask = []
         tableView.target = self
         tableView.doubleAction = #selector(tableViewDoubleClicked(_:))
         tableView.registerForDraggedTypes([.string])
@@ -943,16 +944,16 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     /// Column definitions for the variant tab.
     private static let variantColumnDefs: [(NSUserInterfaceItemIdentifier, String, CGFloat, CGFloat, String)] = [
-        (variantIdColumn, "ID", 150, 80, "variant_id"),
+        (variantIdColumn, "ID", 130, 70, "variant_id"),
         (variantTypeColumn, "Type", 60, 40, "variant_type"),
-        (variantChromColumn, "Chrom", 100, 60, "chromosome"),
+        (variantChromColumn, "Chrom", 80, 50, "chromosome"),
         (positionColumn, "Position", 90, 60, "position"),
         (refColumn, "Ref", 60, 30, "ref"),
         (altColumn, "Alt", 60, 30, "alt"),
         (qualityColumn, "Quality", 70, 40, "quality"),
         (filterColumn, "Filter", 70, 40, "filter"),
         (samplesColumn, "Samples", 60, 40, "samples"),
-        (sourceColumn, "Source", 120, 60, "source"),
+        (sourceColumn, "Source", 100, 60, "source"),
     ]
 
     /// Column definitions for the samples tab (fixed columns — metadata columns are dynamic).
@@ -1740,8 +1741,19 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             tableView.reloadData()
             scrollView.isHidden = false
             tooManyLabel.isHidden = true
+
+            // Resolve gene regions for the tab bar
+            let resolvedRegions = activeGeneList.compactMap { geneName -> GeneRegion? in
+                let annotations = index.queryAnnotationsOnly(nameFilter: geneName, limit: 1)
+                guard let first = annotations.first else { return nil }
+                return GeneRegion(name: geneName, chromosome: first.chromosome, start: first.start, end: first.end)
+            }
+            delegate?.annotationDrawer(self, didResolveGeneRegions: resolvedRegions)
             return
         }
+
+        // No gene list active — dismiss tab bar
+        delegate?.annotationDrawer(self, didResolveGeneRegions: [])
 
         // Determine the effective region for the query.
         // Priority:
@@ -2363,6 +2375,22 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                         query.explicitTypeFilter = parsedTypes
                     }
                 }
+                continue
+            }
+            if let value = token.value(after: "genes=") ?? token.value(after: "genelist=") ?? token.value(after: "gene_list=")
+                            ?? token.value(after: "genes:") ?? token.value(after: "genelist:") ?? token.value(after: "gene_list:") {
+                let genes = value
+                    .replacingOccurrences(of: "\n", with: ",")
+                    .split(separator: ",")
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                if !genes.isEmpty {
+                    query.geneList = (query.geneList ?? []) + genes
+                }
+                continue
+            }
+            if let value = token.value(after: "filter=") ?? token.value(after: "filter:") {
+                query.filterValue = value
                 continue
             }
             nameTokens.append(token)
@@ -2994,7 +3022,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             cellView = NSTableCellView()
             cellView.identifier = identifier
             let tf = NSTextField(labelWithString: "")
-            tf.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+            tf.font = .systemFont(ofSize: 11)
             tf.lineBreakMode = .byTruncatingTail
             tf.translatesAutoresizingMaskIntoConstraints = false
             cellView.addSubview(tf)
@@ -3008,7 +3036,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
         let tf = cellView.textField!
         tf.alignment = .left  // Reset default alignment
-        tf.font = .monospacedSystemFont(ofSize: 11, weight: .regular)  // Reset default font
+        tf.font = .systemFont(ofSize: 11)  // Reset default font
 
         switch identifier {
         // Annotation columns
@@ -3022,13 +3050,16 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             tf.stringValue = annotation.chromosome
         case Self.startColumn:
             tf.stringValue = numberFormatter.string(from: NSNumber(value: annotation.start)) ?? "\(annotation.start)"
+            tf.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
             tf.alignment = .right
         case Self.endColumn:
             tf.stringValue = numberFormatter.string(from: NSNumber(value: annotation.end)) ?? "\(annotation.end)"
+            tf.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
             tf.alignment = .right
         case Self.sizeColumn:
             let size = annotation.end - annotation.start
             tf.stringValue = formatSize(size)
+            tf.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
             tf.alignment = .right
         case Self.strandColumn:
             tf.stringValue = annotation.strand
@@ -3047,6 +3078,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             // Display as 1-based (VCF convention) — internal storage is 0-based
             let displayPos = annotation.start + 1
             tf.stringValue = numberFormatter.string(from: NSNumber(value: displayPos)) ?? "\(displayPos)"
+            tf.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
             tf.alignment = .right
         case Self.refColumn:
             tf.stringValue = annotation.ref ?? ""
@@ -3060,11 +3092,13 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             } else {
                 tf.stringValue = "."
             }
+            tf.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
             tf.alignment = .right
         case Self.filterColumn:
             tf.stringValue = annotation.filter ?? "."
         case Self.samplesColumn:
             tf.stringValue = "\(annotation.sampleCount ?? 0)"
+            tf.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
             tf.alignment = .right
         case Self.sourceColumn:
             tf.stringValue = annotation.sourceFile ?? ""

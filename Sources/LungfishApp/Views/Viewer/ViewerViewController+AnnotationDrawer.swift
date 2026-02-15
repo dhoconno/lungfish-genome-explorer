@@ -194,6 +194,14 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         viewerView.setNeedsDisplay(viewerView.bounds)
     }
 
+    public func annotationDrawer(_ drawer: AnnotationTableDrawerView, didResolveGeneRegions regions: [GeneRegion]) {
+        geneTabBarView.setGeneRegions(regions)
+        // Navigate to the first gene when tab bar appears
+        if let first = regions.first {
+            geneTabBar(geneTabBarView, didSelectGene: first)
+        }
+    }
+
     /// Recomputes per-track variant counts from the already-open SQLite handles
     /// and persists them into manifest.json on a background queue.
     private func syncVariantCountsToManifest() {
@@ -286,5 +294,36 @@ extension ViewerViewController {
                 drawer.setSearchIndex(index)
             }
         }
+    }
+}
+
+// MARK: - GeneTabBarDelegate
+
+extension ViewerViewController: GeneTabBarDelegate {
+
+    func geneTabBar(_ tabBar: GeneTabBarView, didSelectGene region: GeneRegion) {
+        let buffer = 1000
+        viewerView.clearSequenceFetchError()
+
+        if let provider = currentBundleDataProvider,
+           let chromInfo = provider.chromosomeInfo(named: region.chromosome) {
+            navigateToChromosomeAndPosition(
+                chromosome: chromInfo.name,
+                chromosomeLength: Int(chromInfo.length),
+                start: max(0, region.start - buffer),
+                end: min(Int(chromInfo.length), region.end + buffer)
+            )
+        } else {
+            navigateToPosition(
+                chromosome: region.chromosome,
+                start: max(0, region.start - buffer),
+                end: region.end + buffer
+            )
+        }
+        annotDrawerLogger.info("Gene tab navigated to \(region.name, privacy: .public) at \(region.chromosome, privacy: .public):\(region.start)-\(region.end)")
+    }
+
+    func geneTabBarDidRequestDismiss(_ tabBar: GeneTabBarView) {
+        geneTabBarView.setGeneRegions([])
     }
 }
