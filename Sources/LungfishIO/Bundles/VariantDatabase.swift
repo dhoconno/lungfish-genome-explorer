@@ -261,6 +261,13 @@ private func sqliteBindTextOrNull(_ stmt: OpaquePointer?, _ index: Int32, _ text
 
 // MARK: - VariantDatabase (Reader)
 
+/// Runtime profile for VCF import resource tuning.
+public enum VCFImportProfile: String, Sendable, Codable, CaseIterable {
+    case auto
+    case lowMemory = "low-memory"
+    case fast
+}
+
 /// Reads variant data from a SQLite database embedded in a .lungfishref bundle.
 ///
 /// The database is created during bundle building from VCF files, providing instant
@@ -289,6 +296,14 @@ private func sqliteBindTextOrNull(_ stmt: OpaquePointer?, _ index: Int32, _ text
 /// CREATE TABLE db_metadata (...);
 /// ```
 public final class VariantDatabase: @unchecked Sendable {
+
+    private struct ImportTuning {
+        let workerThreads: Int
+        let cacheKB: Int
+        let writeBudget: Int
+        let shrinkEveryCommits: Int
+        let shrinkEveryCommit: Bool
+    }
 
     private static let expectedSchemaVersion = 3
     private static let requiredTables: Set<String> = [
@@ -1713,6 +1728,40 @@ public final class VariantDatabase: @unchecked Sendable {
         sqlite3_finalize(stmt)
     }
 
+    private static func resolveImportProfile(_ requested: VCFImportProfile, inputFileSize: Int64) -> VCFImportProfile {
+        guard requested == .auto else { return requested }
+        let physicalRAMGiB = Double(ProcessInfo.processInfo.physicalMemory) / Double(1 << 30)
+        let inputGiB = Double(max(0, inputFileSize)) / Double(1 << 30)
+        if physicalRAMGiB <= 12 || inputGiB >= 1.5 {
+            return .lowMemory
+        }
+        return .fast
+    }
+
+    private static func importTuning(for profile: VCFImportProfile) -> ImportTuning {
+        switch profile {
+        case .lowMemory:
+            return ImportTuning(
+                workerThreads: 1,
+                cacheKB: 4 * 1024,
+                writeBudget: 8_000,
+                shrinkEveryCommits: 1,
+                shrinkEveryCommit: true
+            )
+        case .fast:
+            return ImportTuning(
+                workerThreads: max(1, min(6, ProcessInfo.processInfo.activeProcessorCount - 1)),
+                cacheKB: 32 * 1024,
+                writeBudget: 80_000,
+                shrinkEveryCommits: 6,
+                shrinkEveryCommit: false
+            )
+        case .auto:
+            // Auto is resolved before this method is called.
+            return importTuning(for: .lowMemory)
+        }
+    }
+
     /// Optionally parses per-sample genotypes.
     ///
     /// - Parameters:
@@ -1729,9 +1778,14 @@ public final class VariantDatabase: @unchecked Sendable {
         parseGenotypes: Bool = true,
         sourceFile: String? = nil,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil,
-        shouldCancel: (@Sendable () -> Bool)? = nil
+        shouldCancel: (@Sendable () -> Bool)? = nil,
+        importProfile: VCFImportProfile = .auto
     ) throws -> Int {
         try? FileManager.default.removeItem(at: outputURL)
+
+        let fileSize: Int64 = (try? FileManager.default.attributesOfItem(atPath: vcfURL.path)[.size] as? Int64) ?? 0
+        let resolvedProfile = resolveImportProfile(importProfile, inputFileSize: fileSize)
+        let tuning = importTuning(for: resolvedProfile)
 
         var db: OpaquePointer?
         let rc = sqlite3_open(outputURL.path, &db)
@@ -1748,13 +1802,9 @@ public final class VariantDatabase: @unchecked Sendable {
         sqlite3_exec(db, "PRAGMA journal_mode = OFF", nil, nil, nil)
         sqlite3_exec(db, "PRAGMA synchronous = OFF", nil, nil, nil)
         sqlite3_exec(db, "PRAGMA locking_mode = EXCLUSIVE", nil, nil, nil)
-        // Keep worker thread fanout small in low-memory mode.
-        let sqliteWorkerThreads = max(1, min(2, ProcessInfo.processInfo.activeProcessorCount - 1))
-        sqlite3_exec(db, "PRAGMA threads = \(sqliteWorkerThreads)", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA threads = \(tuning.workerThreads)", nil, nil, nil)
 
-        // Keep page cache tight during streaming import to bound RSS on laptops.
-        let importCacheKB = 8 * 1024
-        sqlite3_exec(db, "PRAGMA cache_size = -\(importCacheKB)", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA cache_size = -\(tuning.cacheKB)", nil, nil, nil)
         sqlite3_exec(db, "PRAGMA cache_spill = ON", nil, nil, nil)
         // Disable memory-mapped I/O — as the DB file grows during import, an mmap region would
         // inflate RSS proportionally. Standard read/write I/O with the small cache above is fine.
@@ -1886,19 +1936,21 @@ public final class VariantDatabase: @unchecked Sendable {
 
         var insertCount = 0
         var sampleNames: [String] = []
-        let transactionWriteBudget = 30_000
-        let shrinkEveryCommits = 4
-        let fileSize: Int64 = (try? FileManager.default.attributesOfItem(atPath: vcfURL.path)[.size] as? Int64) ?? 0
+        let transactionWriteBudget = tuning.writeBudget
+        let shrinkEveryCommits = max(1, tuning.shrinkEveryCommits)
         var wasCancelled = false
         var writesSinceCommit = 0
         var transactionCommitCount = 0
 
-        // CSQ (VEP Consequence) sub-field names parsed from ##INFO=<ID=CSQ,...,Description="...Format: A|B|C">
-        var csqFieldNames: [String] = []
         // Track all structured INFO fields with pipe-delimited sub-fields (key → sub-field names)
         var structuredInfoFields: [String: [String]] = [:]
 
-        progressHandler?(0.05, "Parsing VCF...")
+        let profileLabel: String = switch resolvedProfile {
+        case .lowMemory: "Low Memory"
+        case .fast: "Fast"
+        case .auto: "Auto"
+        }
+        progressHandler?(0.05, "Parsing VCF (\(profileLabel) profile)...")
 
         @inline(__always)
         func isCancelled() -> Bool {
@@ -1924,7 +1976,10 @@ public final class VariantDatabase: @unchecked Sendable {
 
             transactionCommitCount += 1
             writesSinceCommit = 0
-            let shouldShrinkNow = forceShrink || (transactionCommitCount % shrinkEveryCommits == 0)
+            let shouldShrinkNow =
+                forceShrink ||
+                tuning.shrinkEveryCommit ||
+                (transactionCommitCount % shrinkEveryCommits == 0)
             releaseSQLiteMemory(forceShrink: shouldShrinkNow)
 
             if reopen {
@@ -1968,9 +2023,6 @@ public final class VariantDatabase: @unchecked Sendable {
                         let subFields = formatStr.split(separator: "|").map(String.init)
                         if subFields.count >= 2 {
                             structuredInfoFields[def.id] = subFields
-                            if def.id == "CSQ" {
-                                csqFieldNames = subFields
-                            }
                             // Register each sub-field as a separate info def
                             for subField in subFields {
                                 let subKey = "\(def.id)_\(subField)"

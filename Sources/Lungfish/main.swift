@@ -2,8 +2,13 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import Foundation
 import AppKit
 import LungfishApp
+
+if let helperExitCode = VCFImportHelper.runIfRequested(arguments: CommandLine.arguments) {
+    exit(helperExitCode)
+}
 
 // Launch AppKit on the main thread using a single event loop.
 // Avoid nested/dual run-loop patterns (e.g. app.run + dispatchMain) which can

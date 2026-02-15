@@ -250,6 +250,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// Current working directory for downloads when no project is active
     private var workingDirectoryURL: URL?
 
+    private struct VCFImportHelperEvent: Decodable {
+        let event: String
+        let progress: Double?
+        let message: String?
+        let variantCount: Int?
+        let error: String?
+        let profile: String?
+    }
+
     /// Public accessor for working directory URL
     public func getWorkingDirectoryURL() -> URL? {
         return workingDirectoryURL
@@ -958,8 +967,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     private func performVCFImport(vcfURL: URL, bundleURL: URL) {
         let cancelFlag = OSAllocatedUnfairLock(initialState: false)
+        let selectedImportProfile = Self.selectedVCFImportProfile()
+        let profileLabel = Self.importProfileLabel(selectedImportProfile)
         mainWindowController?.mainSplitViewController?.activityIndicator?.show(
-            message: "Importing VCF variants...", style: .determinate(progress: 0), cancellable: true
+            message: "Importing VCF variants (\(profileLabel))...",
+            style: .determinate(progress: 0),
+            cancellable: true
         )
         mainWindowController?.mainSplitViewController?.activityIndicator?.onCancel = {
             cancelFlag.withLock { $0 = true }
@@ -993,14 +1006,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     try FileManager.default.removeItem(at: dbURL)
                 }
 
-                debugLog("performVCFImport: Creating variant database at \(dbURL.lastPathComponent)")
+                debugLog("performVCFImport: Creating variant database at \(dbURL.lastPathComponent) via helper")
 
-                // Create SQLite database from VCF
-                let variantCount = try VariantDatabase.createFromVCF(
+                let variantCount = try Self.runVCFImportViaHelper(
                     vcfURL: vcfURL,
-                    outputURL: dbURL,
-                    parseGenotypes: true,
+                    outputDBURL: dbURL,
                     sourceFile: vcfURL.lastPathComponent,
+                    importProfile: selectedImportProfile,
+                    shouldCancel: isCancelled,
                     progressHandler: { [weak self] progress, message in
                         let clampedProgress = max(0.0, min(1.0, progress))
                         let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: importStartedAt)
@@ -1009,8 +1022,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                             let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                             self?.mainWindowController?.mainSplitViewController?.activityIndicator?.updateMessage(displayMessage)
                         }
-                    },
-                    shouldCancel: isCancelled
+                    }
                 )
 
                 debugLog("performVCFImport: Created database with \(variantCount) variants")
@@ -1111,6 +1123,180 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 }
             }
         }
+    }
+
+    private nonisolated static func selectedVCFImportProfile() -> VCFImportProfile {
+        let rawValue = UserDefaults.standard.string(forKey: "VCFImportProfile")
+        guard let raw = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !raw.isEmpty else {
+            return .auto
+        }
+        if let profile = VCFImportProfile(rawValue: raw) {
+            return profile
+        }
+        switch raw {
+        case "low", "low-memory", "low_memory":
+            return .lowMemory
+        case "fast":
+            return .fast
+        default:
+            return .auto
+        }
+    }
+
+    private nonisolated static func importProfileLabel(_ profile: VCFImportProfile) -> String {
+        switch profile {
+        case .auto:
+            return "Auto"
+        case .lowMemory:
+            return "Low Memory"
+        case .fast:
+            return "Fast"
+        }
+    }
+
+    private nonisolated static func runVCFImportViaHelper(
+        vcfURL: URL,
+        outputDBURL: URL,
+        sourceFile: String,
+        importProfile: VCFImportProfile,
+        shouldCancel: @escaping @Sendable () -> Bool,
+        progressHandler: @escaping @Sendable (Double, String) -> Void
+    ) throws -> Int {
+        guard let executablePath = CommandLine.arguments.first, !executablePath.isEmpty else {
+            throw VariantDatabaseError.createFailed("Could not locate application executable for helper import")
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = [
+            "--vcf-import-helper",
+            "--vcf-path", vcfURL.path,
+            "--output-db-path", outputDBURL.path,
+            "--source-file", sourceFile,
+            "--import-profile", importProfile.rawValue,
+        ]
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        struct HelperParseState: Sendable {
+            var stdoutBuffer = Data()
+            var helperError: String?
+            var variantCount: Int?
+            var wasCancelled = false
+        }
+        let parseState = OSAllocatedUnfairLock(initialState: HelperParseState())
+        let stderrState = OSAllocatedUnfairLock(initialState: Data())
+
+        let handleEventLine: @Sendable (Data) -> Void = { line in
+            guard !line.isEmpty else { return }
+            guard let event = try? JSONDecoder().decode(VCFImportHelperEvent.self, from: line) else {
+                if let text = String(data: line, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+                    parseState.withLock { state in
+                        if state.helperError == nil {
+                            state.helperError = text
+                        }
+                    }
+                }
+                return
+            }
+
+            switch event.event {
+            case "progress":
+                if let progress = event.progress {
+                    progressHandler(progress, event.message ?? "Importing VCF...")
+                }
+            case "done":
+                if let variantCount = event.variantCount {
+                    parseState.withLock { $0.variantCount = variantCount }
+                }
+            case "error":
+                let message = event.error ?? event.message ?? "VCF helper import failed"
+                parseState.withLock { $0.helperError = message }
+            case "cancelled":
+                parseState.withLock { $0.wasCancelled = true }
+            default:
+                break
+            }
+        }
+
+        let consumeStdoutData: @Sendable (Data) -> Void = { data in
+            guard !data.isEmpty else { return }
+            let lines = parseState.withLock { state -> [Data] in
+                var parsed: [Data] = []
+                state.stdoutBuffer.append(data)
+                while let newlineIndex = state.stdoutBuffer.firstIndex(of: 0x0A) {
+                    let line = Data(state.stdoutBuffer.prefix(upTo: newlineIndex))
+                    state.stdoutBuffer.removeSubrange(...newlineIndex)
+                    parsed.append(line)
+                }
+                return parsed
+            }
+            for line in lines {
+                handleEventLine(line)
+            }
+        }
+
+        let stdoutHandle = stdoutPipe.fileHandleForReading
+        let stderrHandle = stderrPipe.fileHandleForReading
+
+        stdoutHandle.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            consumeStdoutData(data)
+        }
+        stderrHandle.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            stderrState.withLock { $0.append(data) }
+        }
+
+        try process.run()
+
+        while process.isRunning {
+            if shouldCancel() {
+                process.terminate()
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        process.waitUntilExit()
+
+        stdoutHandle.readabilityHandler = nil
+        stderrHandle.readabilityHandler = nil
+        consumeStdoutData(stdoutHandle.readDataToEndOfFile())
+
+        if let trailing = parseState.withLock({ state -> Data? in
+            guard !state.stdoutBuffer.isEmpty else { return nil }
+            defer { state.stdoutBuffer.removeAll(keepingCapacity: false) }
+            return state.stdoutBuffer
+        }) {
+            handleEventLine(trailing)
+        }
+
+        let helperCancelled = parseState.withLock { $0.wasCancelled }
+        if shouldCancel() || helperCancelled {
+            throw VariantDatabaseError.cancelled
+        }
+
+        guard process.terminationStatus == 0 else {
+            let helperError = parseState.withLock { $0.helperError }
+            let stderrMessage = stderrState.withLock { data -> String in
+                String(data: data, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            }
+            let message = helperError ?? (stderrMessage.isEmpty ? "VCF helper exited with status \(process.terminationStatus)" : stderrMessage)
+            throw VariantDatabaseError.createFailed(message)
+        }
+
+        if let variantCount = parseState.withLock({ $0.variantCount }) {
+            return variantCount
+        }
+
+        let importedDB = try VariantDatabase(url: outputDBURL)
+        return importedDB.totalCount()
     }
 
     private nonisolated static func estimatedRemainingText(progress: Double, startedAt: Date) -> String {

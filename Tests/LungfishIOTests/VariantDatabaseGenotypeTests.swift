@@ -137,6 +137,36 @@ final class VariantDatabaseGenotypeTests: XCTestCase {
         XCTAssertTrue(db.sampleNames().isEmpty)
     }
 
+    func testImportWithLowMemoryProfile() throws {
+        let vcfURL = try createTempVCF(content: multiSampleVCF, name: "low-memory.vcf")
+        let dbURL = tempDir.appendingPathComponent("low-memory.db")
+        let count = try VariantDatabase.createFromVCF(
+            vcfURL: vcfURL,
+            outputURL: dbURL,
+            parseGenotypes: true,
+            sourceFile: vcfURL.lastPathComponent,
+            progressHandler: nil,
+            shouldCancel: nil,
+            importProfile: .lowMemory
+        )
+        XCTAssertEqual(count, 4)
+    }
+
+    func testImportWithFastProfile() throws {
+        let vcfURL = try createTempVCF(content: multiSampleVCF, name: "fast.vcf")
+        let dbURL = tempDir.appendingPathComponent("fast.db")
+        let count = try VariantDatabase.createFromVCF(
+            vcfURL: vcfURL,
+            outputURL: dbURL,
+            parseGenotypes: true,
+            sourceFile: vcfURL.lastPathComponent,
+            progressHandler: nil,
+            shouldCancel: nil,
+            importProfile: .fast
+        )
+        XCTAssertEqual(count, 4)
+    }
+
     // MARK: - Genotype Storage & Retrieval
 
     func testGenotypesForVariant() throws {
