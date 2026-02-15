@@ -287,6 +287,31 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
         }
     }
 
+    func testVariantAsyncCompletionDoesNotOverwriteAnnotationsAfterTabSwitch() throws {
+        let variantRows = (1...1200).map { idx in
+            "chr1\t\(1000 + idx)\trs\(idx)\tA\tG\t30.0\tPASS\t."
+        }.joined(separator: "\n")
+        let vcf = """
+        ##fileformat=VCFv4.2
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        \(variantRows)
+        """
+
+        let drawer = try createDrawerWithAnnotationsAndVariants(vcfContent: vcf)
+        drawer.switchToTab(.variants)
+        drawer.switchToTab(.annotations)
+
+        let deadline = Date().addingTimeInterval(2.0)
+        while drawer.isVariantQuerying && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+
+        XCTAssertEqual(drawer.activeTab, .annotations)
+        XCTAssertFalse(drawer.displayedAnnotations.isEmpty)
+        XCTAssertTrue(drawer.displayedAnnotations.allSatisfy { !$0.isVariant })
+    }
+
     // MARK: - Column Configuration Tests
 
     func testAnnotationTabHasAnnotationColumns() throws {

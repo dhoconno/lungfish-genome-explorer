@@ -93,6 +93,9 @@ public final class AnnotationSearchIndex {
     /// Public accessor for variant database handles (for delete operations and background queries).
     public var variantDatabaseHandles: [(trackId: String, db: VariantDatabase)] { variantDatabases }
 
+    /// Public accessor for annotation database handles (for background gene-region queries).
+    public var annotationDatabaseHandles: [(trackId: String, db: AnnotationDatabase)] { annotationDatabases }
+
     /// Returns the human-readable display name for a variant track.
     public func variantTrackName(for trackId: String) -> String? { variantTrackNames[trackId] }
 

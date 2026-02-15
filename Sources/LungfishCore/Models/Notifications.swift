@@ -70,6 +70,12 @@ extension Notification.Name {
     ///
     /// Contains userInfo key: "sampleDisplayState" (SampleDisplayState)
     public static let sampleDisplayStateChanged = Notification.Name("sampleDisplayStateChanged")
+
+    /// Posted when the variant color theme changes.
+    ///
+    /// Observers should refresh variant/call renderers that derive colors from
+    /// `SampleDisplayState.colorThemeName` or app-level appearance defaults.
+    public static let variantColorThemeDidChange = Notification.Name("com.lungfish.variantColorThemeDidChange")
 }
 
 // MARK: - Viewer Navigation Notifications

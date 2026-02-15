@@ -5,10 +5,6 @@
 import SwiftUI
 import LungfishCore
 
-public extension Notification.Name {
-    static let variantColorThemeDidChange = Notification.Name("com.lungfish.variantColorThemeDidChange")
-}
-
 /// Appearance preferences: nucleotide colors, annotation type colors, dimensions.
 struct AppearanceSettingsTab: View {
 
