@@ -219,6 +219,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Filtered and displayed samples for the samples tab.
     var displayedSamples: [SampleDisplayRow] = []
 
+    /// Cache of resolved gene navigation regions by normalized gene token.
+    private var geneRegionResolutionCache: [String: GeneRegion?] = [:]
+
     /// Local copy of sample display state for driving visibility toggles.
     private var currentSampleDisplayState: SampleDisplayState = {
         AnnotationTableDrawerView.defaultSampleDisplayState()
@@ -266,6 +269,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     private let noneTypesButton = NSButton()
     private let presetFiltersToggleButton = NSButton()
     private let searchBuilderButton = NSButton()
+    private let clearFilterButton = NSButton()
     private let downloadTemplateButton = NSButton()
     let exportButton = NSButton()
     let columnConfigButton = NSButton()
@@ -399,7 +403,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         variantSubtabControl.translatesAutoresizingMaskIntoConstraints = false
         variantSubtabControl.isHidden = true
         variantSubtabControl.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        headerBar.addSubview(variantSubtabControl)
+        searchBar.addSubview(variantSubtabControl)
 
         // Scope segmented control (Region | Genome) — visible only on Variants tab
         scopeControl.segmentCount = 2
@@ -468,6 +472,17 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         searchBuilderButton.isHidden = true
         searchBar.addSubview(searchBuilderButton)
 
+        clearFilterButton.title = "Clear"
+        clearFilterButton.font = .systemFont(ofSize: 10, weight: .medium)
+        clearFilterButton.controlSize = .small
+        clearFilterButton.bezelStyle = .recessed
+        clearFilterButton.target = self
+        clearFilterButton.action = #selector(clearVariantFilter(_:))
+        clearFilterButton.translatesAutoresizingMaskIntoConstraints = false
+        clearFilterButton.toolTip = "Clear variant filter"
+        clearFilterButton.isHidden = true
+        searchBar.addSubview(clearFilterButton)
+
         // Samples-tab convenience button for adding editable metadata fields.
         addSampleFieldButton.title = "Add Field"
         addSampleFieldButton.controlSize = .small
@@ -533,7 +548,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         profileButton.toolTip = "Filter profiles"
         profileButton.isHidden = true  // shown only on variants tab
         rebuildProfileMenu()
-        headerBar.addSubview(profileButton)
+        searchBar.addSubview(profileButton)
 
         // Column config gear button (header bar)
         columnConfigButton.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "Configure columns")
@@ -636,14 +651,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             loadingIndicator.leadingAnchor.constraint(equalTo: headerBar.leadingAnchor, constant: 8),
 
             tabControl.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
-            tabControl.trailingAnchor.constraint(lessThanOrEqualTo: profileButton.leadingAnchor, constant: -6),
-
-            variantSubtabControl.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
-            variantSubtabControl.leadingAnchor.constraint(equalTo: tabControl.trailingAnchor, constant: 8),
-
-            profileButton.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
-            profileButton.widthAnchor.constraint(lessThanOrEqualToConstant: 120),
-            profileButton.trailingAnchor.constraint(equalTo: exportButton.leadingAnchor, constant: -4),
+            tabControl.leadingAnchor.constraint(equalTo: loadingIndicator.trailingAnchor, constant: 4),
+            tabControl.trailingAnchor.constraint(lessThanOrEqualTo: exportButton.leadingAnchor, constant: -6),
 
             exportButton.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
             exportButton.widthAnchor.constraint(equalToConstant: 20),
@@ -678,6 +687,16 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
             haploidModeButton.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
             haploidModeButton.leadingAnchor.constraint(equalTo: scopeControl.trailingAnchor, constant: 6),
+
+            variantSubtabControl.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
+            variantSubtabControl.leadingAnchor.constraint(equalTo: haploidModeButton.trailingAnchor, constant: 10),
+
+            profileButton.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
+            profileButton.leadingAnchor.constraint(equalTo: variantSubtabControl.trailingAnchor, constant: 6),
+            profileButton.widthAnchor.constraint(lessThanOrEqualToConstant: 120),
+
+            clearFilterButton.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
+            clearFilterButton.trailingAnchor.constraint(equalTo: searchBuilderButton.leadingAnchor, constant: -4),
 
             sampleFilterField.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
             sampleFilterField.leadingAnchor.constraint(equalTo: searchBar.leadingAnchor, constant: 8),
@@ -893,7 +912,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     private func updateSearchFieldVisibility() {
         let showVariants = activeTab == .variants
         annotationFilterField.isHidden = activeTab != .annotations
-        variantFilterField.isHidden = !showVariants
+        variantFilterField.isHidden = true  // Always hidden; Query Builder writes to variantFilterText directly
         sampleFilterField.isHidden = activeTab != .samples
         addSampleFieldButton.isHidden = activeTab != .samples
         sampleGroupsButton.isHidden = activeTab != .samples
@@ -909,11 +928,29 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         let showTypeControls = activeTab != .samples && !availableTypes.isEmpty
         allTypesButton.isHidden = !showTypeControls
         noneTypesButton.isHidden = !showTypeControls
+        updateVariantFilterIndicator()
         updateScopeControlSelection()
     }
 
     private func updateScopeControlSelection() {
         scopeControl.selectedSegment = viewportSyncEnabled ? 0 : 1
+    }
+
+    /// Updates the Search Builder button title and Clear button visibility
+    /// based on whether a variant filter is active.
+    private func updateVariantFilterIndicator() {
+        let hasFilter = !variantFilterText.isEmpty
+        clearFilterButton.isHidden = !(activeTab == .variants && hasFilter)
+        searchBuilderButton.title = hasFilter ? "Edit Query..." : "Query Builder..."
+    }
+
+    @objc private func clearVariantFilter(_ sender: Any) {
+        variantFilterText = ""
+        activeSmartTokens.removeAll()
+        selectedAnnotationRegion = nil
+        updateVariantFilterIndicator()
+        updateChipStates()
+        updateDisplayedAnnotations()
     }
 
     private func makeTypeChipButton(type: String) -> NSButton {
@@ -1204,7 +1241,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         case .annotations:
             annotationFilterField.stringValue = annotationFilterText
         case .variants:
-            variantFilterField.stringValue = variantFilterText
+            break  // Query Builder manages variantFilterText directly
         case .samples:
             sampleFilterField.stringValue = sampleFilterText
         }
@@ -1241,6 +1278,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     func setSearchIndex(_ index: AnnotationSearchIndex) {
         searchIndex = index
         isLoading = false
+        geneRegionResolutionCache.removeAll()
 
         // Get metadata from the index — track annotation and variant counts separately
         totalAnnotationCount = index.entryCount
@@ -1742,12 +1780,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             scrollView.isHidden = false
             tooManyLabel.isHidden = true
 
-            // Resolve gene regions for the tab bar
-            let resolvedRegions = activeGeneList.compactMap { geneName -> GeneRegion? in
-                let annotations = index.queryAnnotationsOnly(nameFilter: geneName, limit: 1)
-                guard let first = annotations.first else { return nil }
-                return GeneRegion(name: geneName, chromosome: first.chromosome, start: first.start, end: first.end)
-            }
+            // Resolve gene regions for the tab bar (deterministic + cached).
+            let resolvedRegions = resolveGeneRegions(activeGeneList, using: index)
             delegate?.annotationDrawer(self, didResolveGeneRegions: resolvedRegions)
             return
         }
@@ -2323,18 +2357,24 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         var query = VariantFilterQuery()
         var nameTokens: [String] = []
 
-        for tokenSub in text.split(whereSeparator: \.isWhitespace) {
-            let token = String(tokenSub)
-            if let parsed = VariantDatabase.InfoFilter.parse(token) {
-                query.infoFilters.append(parsed)
-                continue
-            }
+        let tokens = text.split(whereSeparator: \.isWhitespace).map(String.init)
+        let knownClausePrefixes = [
+            "chr:", "chrom:", "pos:", "range:",
+            "type:", "type=", "variant_type:", "variant_type=",
+            "genes=", "genes:", "genelist=", "genelist:", "gene_list=", "gene_list:",
+            "filter=", "filter:"
+        ]
+
+        var idx = 0
+        while idx < tokens.count {
+            let token = tokens[idx]
             if let value = token.value(after: "chr:") ?? token.value(after: "chrom:") {
                 if let region = query.region {
                     query.region = (value, region.start, region.end)
                 } else {
                     query.region = (value, 0, Int.max)
                 }
+                idx += 1
                 continue
             }
             if let value = token.value(after: "pos:") ?? token.value(after: "range:"),
@@ -2343,6 +2383,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 if !chr.isEmpty {
                     query.region = (chr, range.start, range.end)
                 }
+                idx += 1
                 continue
             }
             if let opValue = parseComparisonToken(token, keys: ["qual", "quality"]) {
@@ -2353,6 +2394,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                     query.maxQuality = opValue.value
                     query.maxQualityInclusive = opValue.op == "<="
                 }
+                idx += 1
                 continue
             }
             if let opValue = parseComparisonToken(token, keys: ["sc", "samples", "samplecount"]) {
@@ -2364,6 +2406,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                     query.maxSampleCount = count
                     query.maxSampleCountInclusive = opValue.op == "<="
                 }
+                idx += 1
                 continue
             }
             if let value = token.value(after: "type:") ?? token.value(after: "type=") ?? token.value(after: "variant_type:") {
@@ -2375,11 +2418,26 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                         query.explicitTypeFilter = parsedTypes
                     }
                 }
+                idx += 1
                 continue
             }
             if let value = token.value(after: "genes=") ?? token.value(after: "genelist=") ?? token.value(after: "gene_list=")
                             ?? token.value(after: "genes:") ?? token.value(after: "genelist:") ?? token.value(after: "gene_list:") {
-                let genes = value
+                var geneValue = value
+                while geneValue.hasSuffix(",") && idx + 1 < tokens.count {
+                    let next = tokens[idx + 1]
+                    let nextLower = next.lowercased()
+                    let nextStartsClause = knownClausePrefixes.contains { nextLower.hasPrefix($0) }
+                        || VariantDatabase.InfoFilter.parse(next) != nil
+                        || parseComparisonToken(next, keys: ["qual", "quality", "sc", "samples", "samplecount"]) != nil
+                    if nextStartsClause {
+                        break
+                    }
+                    geneValue += next
+                    idx += 1
+                }
+
+                let genes = geneValue
                     .replacingOccurrences(of: "\n", with: ",")
                     .split(separator: ",")
                     .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -2387,13 +2445,21 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 if !genes.isEmpty {
                     query.geneList = (query.geneList ?? []) + genes
                 }
+                idx += 1
                 continue
             }
             if let value = token.value(after: "filter=") ?? token.value(after: "filter:") {
                 query.filterValue = value
+                idx += 1
+                continue
+            }
+            if let parsed = VariantDatabase.InfoFilter.parse(token) {
+                query.infoFilters.append(parsed)
+                idx += 1
                 continue
             }
             nameTokens.append(token)
+            idx += 1
         }
         query.nameFilter = nameTokens.joined(separator: " ")
         // Discard placeholder region if no valid chromosome was specified.
@@ -2401,6 +2467,72 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             query.region = nil
         }
         return query
+    }
+
+    #if DEBUG
+    func debugParseVariantFilterText(_ text: String) -> (nameFilter: String, geneList: [String], filterValue: String?) {
+        let query = parseVariantFilterText(text)
+        return (query.nameFilter, query.geneList ?? [], query.filterValue)
+    }
+    #endif
+
+    private func resolveGeneRegions(_ geneNames: [String], using index: AnnotationSearchIndex) -> [GeneRegion] {
+        let preferredTypes = ["gene", "mrna", "transcript", "cds", "exon"]
+        var resolved: [GeneRegion] = []
+        var seen = Set<String>()
+
+        for rawName in geneNames {
+            let queryName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !queryName.isEmpty else { continue }
+            let normalized = queryName.lowercased()
+            guard seen.insert(normalized).inserted else { continue }
+
+            if let cached = geneRegionResolutionCache[normalized] {
+                if let cached {
+                    resolved.append(cached)
+                }
+                continue
+            }
+
+            let candidates = index.queryAnnotationsOnly(nameFilter: queryName, limit: 64)
+            guard !candidates.isEmpty else {
+                geneRegionResolutionCache[normalized] = nil
+                continue
+            }
+
+            func score(_ row: AnnotationSearchIndex.SearchResult) -> (Int, Int, Int, String, Int) {
+                let nameLower = row.name.lowercased()
+                let nameScore: Int
+                if nameLower == normalized {
+                    nameScore = 0
+                } else if nameLower.hasPrefix(normalized) {
+                    nameScore = 1
+                } else if nameLower.contains(normalized) {
+                    nameScore = 2
+                } else {
+                    nameScore = 3
+                }
+                let typeScore = preferredTypes.firstIndex(of: row.type.lowercased()) ?? (preferredTypes.count + 1)
+                let span = max(0, row.end - row.start)
+                return (nameScore, typeScore, span, row.chromosome, row.start)
+            }
+
+            guard let best = candidates.min(by: { score($0) < score($1) }) else {
+                geneRegionResolutionCache[normalized] = nil
+                continue
+            }
+
+            let region = GeneRegion(
+                name: queryName,
+                chromosome: best.chromosome,
+                start: best.start,
+                end: best.end
+            )
+            geneRegionResolutionCache[normalized] = region
+            resolved.append(region)
+        }
+
+        return resolved
     }
 
     /// Parses advanced sample syntax:
@@ -2612,7 +2744,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                     MainActor.assumeIsolated {
                         guard let self else { return }
                         self.variantFilterText = filterText
-                        self.variantFilterField.stringValue = filterText
+                        self.updateVariantFilterIndicator()
                         self.updateChipStates()
                         self.updateDisplayedAnnotations()
                         hostWindow.endSheet(hostWindow.sheets.last ?? NSPanel())
@@ -2700,7 +2832,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     @objc private func clearFilterProfile(_ sender: Any?) {
         activeSmartTokens.removeAll()
         variantFilterText = ""
-        variantFilterField.stringValue = ""
+        updateVariantFilterIndicator()
         updateChipStates()
         updateDisplayedAnnotations()
     }
@@ -2711,9 +2843,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
         // Apply filter text
         variantFilterText = profile.filterText
-        variantFilterField.stringValue = profile.filterText
 
         // Update UI
+        updateVariantFilterIndicator()
         updateChipStates()
         updateDisplayedAnnotations()
     }

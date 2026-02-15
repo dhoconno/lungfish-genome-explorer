@@ -40,11 +40,15 @@ public final class GeneTabBarView: NSView {
     weak var delegate: GeneTabBarDelegate?
 
     private let segmentedControl = NSSegmentedControl()
+    private let overflowPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let dismissButton: NSButton
     private var barHeightConstraint: NSLayoutConstraint!
     private var geneRegions: [GeneRegion] = []
+    private var visibleRegions: [GeneRegion] = []
+    private var selectedGlobalIndex: Int?
 
     private static let barHeight: CGFloat = 28
+    private static let maxVisibleTabs = 8
 
     public override init(frame frameRect: NSRect) {
         dismissButton = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close gene tabs")!,
@@ -62,6 +66,15 @@ public final class GeneTabBarView: NSView {
         segmentedControl.controlSize = .small
         segmentedControl.font = .systemFont(ofSize: 11, weight: .medium)
         addSubview(segmentedControl)
+
+        // Overflow popup for long gene lists.
+        overflowPopup.target = self
+        overflowPopup.action = #selector(overflowSelected(_:))
+        overflowPopup.controlSize = .small
+        overflowPopup.font = .systemFont(ofSize: 11, weight: .regular)
+        overflowPopup.translatesAutoresizingMaskIntoConstraints = false
+        overflowPopup.isHidden = true
+        addSubview(overflowPopup)
 
         // Dismiss button
         dismissButton.target = self
@@ -82,7 +95,11 @@ public final class GeneTabBarView: NSView {
 
             segmentedControl.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             segmentedControl.centerYAnchor.constraint(equalTo: centerYAnchor),
-            segmentedControl.trailingAnchor.constraint(lessThanOrEqualTo: dismissButton.leadingAnchor, constant: -8),
+            segmentedControl.trailingAnchor.constraint(lessThanOrEqualTo: overflowPopup.leadingAnchor, constant: -8),
+
+            overflowPopup.centerYAnchor.constraint(equalTo: centerYAnchor),
+            overflowPopup.trailingAnchor.constraint(lessThanOrEqualTo: dismissButton.leadingAnchor, constant: -8),
+            overflowPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 96),
 
             dismissButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             dismissButton.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -101,26 +118,40 @@ public final class GeneTabBarView: NSView {
 
     /// Populates the tab bar with gene regions.
     /// Pass an empty array to hide the tab bar.
-    func setGeneRegions(_ regions: [GeneRegion]) {
+    func setGeneRegions(_ regions: [GeneRegion], preferredGeneName: String? = nil) {
+        let priorSelectedName = selectedGeneRegion?.name
         geneRegions = regions
 
         if regions.isEmpty {
+            selectedGlobalIndex = nil
+            visibleRegions = []
+            overflowPopup.removeAllItems()
             barHeightConstraint.constant = 0
             isHidden = true
             logger.debug("Gene tab bar hidden")
             return
         }
 
-        // Populate segments (cap at 20)
-        let displayRegions = Array(regions.prefix(20))
-        segmentedControl.segmentCount = displayRegions.count
-        for (i, region) in displayRegions.enumerated() {
+        // Populate primary tabs with an overflow menu for remaining genes.
+        visibleRegions = Array(regions.prefix(Self.maxVisibleTabs))
+        segmentedControl.segmentCount = visibleRegions.count
+        for (i, region) in visibleRegions.enumerated() {
             let label = "\(region.name) (\(region.chromosome))"
             segmentedControl.setLabel(label, forSegment: i)
             segmentedControl.setWidth(0, forSegment: i) // auto-size
         }
 
-        segmentedControl.selectedSegment = 0
+        rebuildOverflowMenu()
+
+        // Preserve previous selection when possible.
+        let candidateName = preferredGeneName ?? priorSelectedName ?? regions.first?.name
+        if let candidateName,
+           let idx = regions.firstIndex(where: { $0.name.caseInsensitiveCompare(candidateName) == .orderedSame }) {
+            selectedGlobalIndex = idx
+        } else {
+            selectedGlobalIndex = regions.isEmpty ? nil : 0
+        }
+        refreshSelectionUI()
 
         barHeightConstraint.constant = Self.barHeight
         isHidden = false
@@ -137,30 +168,97 @@ public final class GeneTabBarView: NSView {
 
     /// Returns the currently selected gene region, or nil if none.
     var selectedGeneRegion: GeneRegion? {
-        let idx = segmentedControl.selectedSegment
-        guard idx >= 0, idx < geneRegions.count else { return nil }
-        return geneRegions[idx]
+        guard let selectedGlobalIndex,
+              selectedGlobalIndex >= 0,
+              selectedGlobalIndex < geneRegions.count else { return nil }
+        return geneRegions[selectedGlobalIndex]
     }
 
     /// Selects a gene tab by index without firing the delegate.
     func selectGeneTab(at index: Int) {
-        guard index >= 0, index < segmentedControl.segmentCount else { return }
-        segmentedControl.selectedSegment = index
+        guard index >= 0, index < geneRegions.count else { return }
+        selectedGlobalIndex = index
+        refreshSelectionUI()
     }
 
     // MARK: - Actions
 
     @objc private func segmentClicked(_ sender: NSSegmentedControl) {
         let idx = sender.selectedSegment
-        guard idx >= 0, idx < geneRegions.count else { return }
-        let region = geneRegions[idx]
+        guard idx >= 0, idx < visibleRegions.count else { return }
+        guard let globalIndex = indexOfVisibleRegion(visibleRegions[idx]) else { return }
+        selectedGlobalIndex = globalIndex
+        refreshSelectionUI()
+        let region = visibleRegions[idx]
         logger.debug("Gene tab selected: \(region.name, privacy: .public) at \(region.chromosome, privacy: .public):\(region.start)-\(region.end)")
         delegate?.geneTabBar(self, didSelectGene: region)
+    }
+
+    @objc private func overflowSelected(_ sender: NSPopUpButton) {
+        let idx = sender.indexOfSelectedItem
+        guard idx > 0 else { return } // index 0 is header item
+        let remainingStart = visibleRegions.count
+        let globalIndex = remainingStart + (idx - 1)
+        guard globalIndex >= 0, globalIndex < geneRegions.count else { return }
+        selectedGlobalIndex = globalIndex
+        refreshSelectionUI()
+        delegate?.geneTabBar(self, didSelectGene: geneRegions[globalIndex])
     }
 
     @objc private func dismissClicked(_ sender: NSButton) {
         setGeneRegions([])
         delegate?.geneTabBarDidRequestDismiss(self)
+    }
+
+    // MARK: - Helpers
+
+    private func rebuildOverflowMenu() {
+        overflowPopup.removeAllItems()
+        let overflowCount = max(0, geneRegions.count - visibleRegions.count)
+        guard overflowCount > 0 else {
+            overflowPopup.isHidden = true
+            return
+        }
+
+        overflowPopup.isHidden = false
+        overflowPopup.addItem(withTitle: "More (\(overflowCount))")
+        overflowPopup.item(at: 0)?.isEnabled = false
+
+        for region in geneRegions.dropFirst(visibleRegions.count) {
+            overflowPopup.addItem(withTitle: "\(region.name) (\(region.chromosome))")
+        }
+    }
+
+    private func indexOfVisibleRegion(_ region: GeneRegion) -> Int? {
+        geneRegions.firstIndex {
+            $0.name == region.name &&
+            $0.chromosome == region.chromosome &&
+            $0.start == region.start &&
+            $0.end == region.end
+        }
+    }
+
+    private func refreshSelectionUI() {
+        guard let selectedGlobalIndex else {
+            segmentedControl.selectedSegment = -1
+            if overflowPopup.numberOfItems > 0 {
+                overflowPopup.selectItem(at: 0)
+            }
+            return
+        }
+
+        if selectedGlobalIndex < visibleRegions.count {
+            segmentedControl.selectedSegment = selectedGlobalIndex
+            if overflowPopup.numberOfItems > 0 {
+                overflowPopup.selectItem(at: 0)
+            }
+        } else {
+            segmentedControl.selectedSegment = -1
+            if overflowPopup.numberOfItems > 0 {
+                let overflowIndex = selectedGlobalIndex - visibleRegions.count
+                overflowPopup.selectItem(at: overflowIndex + 1)
+            }
+        }
     }
 
     // MARK: - Drawing

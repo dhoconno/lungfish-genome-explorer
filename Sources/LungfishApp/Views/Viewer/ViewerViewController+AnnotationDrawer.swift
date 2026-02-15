@@ -195,10 +195,19 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
     }
 
     public func annotationDrawer(_ drawer: AnnotationTableDrawerView, didResolveGeneRegions regions: [GeneRegion]) {
-        geneTabBarView.setGeneRegions(regions)
-        // Navigate to the first gene when tab bar appears
-        if let first = regions.first {
-            geneTabBar(geneTabBarView, didSelectGene: first)
+        let wasVisible = !geneTabBarView.isHidden
+
+        if regions.isEmpty {
+            geneTabBarView.setGeneRegions([])
+            lastSelectedGeneTabName = nil
+            return
+        }
+
+        geneTabBarView.setGeneRegions(regions, preferredGeneName: lastSelectedGeneTabName)
+
+        // Auto-navigate only when the tab bar first appears.
+        if !wasVisible, let selected = geneTabBarView.selectedGeneRegion {
+            geneTabBar(geneTabBarView, didSelectGene: selected)
         }
     }
 
@@ -269,6 +278,7 @@ extension ViewerViewController {
     private static var annotationDrawerBottomKey: UInt8 = 0
     private static var annotationDrawerOpenKey: UInt8 = 0
     private static var annotationSearchIndexKey: UInt8 = 0
+    private static var lastSelectedGeneTabNameKey: UInt8 = 0
 
     var annotationDrawerView: AnnotationTableDrawerView? {
         get { objc_getAssociatedObject(self, &Self.annotationDrawerViewKey) as? AnnotationTableDrawerView }
@@ -295,6 +305,11 @@ extension ViewerViewController {
             }
         }
     }
+
+    var lastSelectedGeneTabName: String? {
+        get { objc_getAssociatedObject(self, &Self.lastSelectedGeneTabNameKey) as? String }
+        set { objc_setAssociatedObject(self, &Self.lastSelectedGeneTabNameKey, newValue, .OBJC_ASSOCIATION_COPY_NONATOMIC) }
+    }
 }
 
 // MARK: - GeneTabBarDelegate
@@ -302,6 +317,7 @@ extension ViewerViewController {
 extension ViewerViewController: GeneTabBarDelegate {
 
     func geneTabBar(_ tabBar: GeneTabBarView, didSelectGene region: GeneRegion) {
+        lastSelectedGeneTabName = region.name
         let buffer = 1000
         viewerView.clearSequenceFetchError()
 
@@ -324,6 +340,7 @@ extension ViewerViewController: GeneTabBarDelegate {
     }
 
     func geneTabBarDidRequestDismiss(_ tabBar: GeneTabBarView) {
+        lastSelectedGeneTabName = nil
         geneTabBarView.setGeneRegions([])
     }
 }

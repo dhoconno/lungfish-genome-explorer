@@ -853,4 +853,18 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
         let found = drawer.selectAnnotation(named: "rs12345")
         XCTAssertFalse(found, "rs12345 is a variant — should not be on annotation tab")
     }
+
+    func testVariantSearchParsesGenesWithCommaSpace() throws {
+        let drawer = try createDrawerWithAnnotationsAndVariants()
+        let parsed = drawer.debugParseVariantFilterText("genes=BRCA1, TP53")
+        XCTAssertEqual(parsed.geneList, ["BRCA1", "TP53"])
+        XCTAssertTrue(parsed.nameFilter.isEmpty)
+    }
+
+    func testVariantSearchParsesFilterEqualsWithoutSemicolon() throws {
+        let drawer = try createDrawerWithAnnotationsAndVariants()
+        let parsed = drawer.debugParseVariantFilterText("filter=PASS")
+        XCTAssertEqual(parsed.filterValue, "PASS")
+        XCTAssertTrue(parsed.geneList.isEmpty)
+    }
 }
