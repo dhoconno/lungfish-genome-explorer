@@ -44,6 +44,12 @@ extension Notification.Name {
     /// to update their rendering accordingly.
     public static let appearanceChanged = Notification.Name("appearanceChanged")
 
+    /// Posted when any application-level setting has changed (via AppSettings.save()).
+    ///
+    /// Observers should re-read relevant values from `AppSettings.shared` and
+    /// invalidate caches as needed (e.g., offscreen tile, type color cache).
+    public static let appSettingsChanged = Notification.Name("appSettingsChanged")
+
     /// Posted when annotation display settings have changed.
     ///
     /// Contains userInfo keys: "showAnnotations", "annotationHeight", "annotationSpacing"
