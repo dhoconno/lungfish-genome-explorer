@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import os
 @testable import LungfishIO
 @testable import LungfishCore
 
@@ -603,6 +604,95 @@ final class VariantDatabaseGenotypeTests: XCTestCase {
         for idx in 1..<progressValues.count {
             XCTAssertGreaterThanOrEqual(progressValues[idx], progressValues[idx - 1])
         }
+    }
+
+    func testCancellationStopsPlainVCFImportWithoutDoneProgress() throws {
+        var lines = [
+            "##fileformat=VCFv4.3",
+            "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">",
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2"
+        ]
+        for i in 1...50_000 {
+            lines.append("chr1\t\(i)\trs\(i)\tA\tG\t30.0\tPASS\tDP=10\tGT\t0/1\t0/0")
+        }
+        let vcfURL = try createTempVCF(content: lines.joined(separator: "\n"), name: "cancel_plain.vcf")
+        let dbURL = tempDir.appendingPathComponent("cancel_plain.db")
+        let cancelFlag = OSAllocatedUnfairLock(initialState: false)
+        nonisolated(unsafe) var progressValues: [Double] = []
+        nonisolated(unsafe) var messages: [String] = []
+
+        XCTAssertThrowsError(
+            try VariantDatabase.createFromVCF(
+                vcfURL: vcfURL,
+                outputURL: dbURL,
+                parseGenotypes: true,
+                progressHandler: { fraction, message in
+                    progressValues.append(fraction)
+                    messages.append(message)
+                    if fraction >= 0.20 {
+                        cancelFlag.withLock { $0 = true }
+                    }
+                },
+                shouldCancel: { cancelFlag.withLock { $0 } }
+            )
+        ) { error in
+            guard case VariantDatabaseError.cancelled = error else {
+                return XCTFail("Expected cancelled error, got \(error)")
+            }
+        }
+
+        XCTAssertFalse(progressValues.isEmpty)
+        XCTAssertLessThan(try XCTUnwrap(progressValues.last), 1.0)
+        XCTAssertFalse(messages.contains(where: { $0.contains("Done") }))
+    }
+
+    func testCancellationStopsGzipVCFImportWithoutDoneProgress() throws {
+        var lines = [
+            "##fileformat=VCFv4.3",
+            "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">",
+            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2"
+        ]
+        for i in 1...10_000 {
+            lines.append("chr1\t\(i)\trs\(i)\tA\tG\t30.0\tPASS\tDP=10\tGT\t0/1\t0/0")
+        }
+        let plainURL = try createTempVCF(content: lines.joined(separator: "\n"), name: "cancel_gzip.vcf")
+        let gzURL = tempDir.appendingPathComponent("cancel_gzip.vcf.gz")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        process.arguments = ["-c", plainURL.path]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        try process.run()
+        process.waitUntilExit()
+        let gzData = pipe.fileHandleForReading.readDataToEndOfFile()
+        try gzData.write(to: gzURL)
+
+        let dbURL = tempDir.appendingPathComponent("cancel_gzip.db")
+        let cancelFlag = OSAllocatedUnfairLock(initialState: true)
+        nonisolated(unsafe) var progressValues: [Double] = []
+        nonisolated(unsafe) var messages: [String] = []
+
+        XCTAssertThrowsError(
+            try VariantDatabase.createFromVCF(
+                vcfURL: gzURL,
+                outputURL: dbURL,
+                parseGenotypes: true,
+                progressHandler: { fraction, message in
+                    progressValues.append(fraction)
+                    messages.append(message)
+                },
+                shouldCancel: { cancelFlag.withLock { $0 } }
+            )
+        ) { error in
+            guard case VariantDatabaseError.cancelled = error else {
+                return XCTFail("Expected cancelled error, got \(error)")
+            }
+        }
+
+        if let last = progressValues.last {
+            XCTAssertLessThan(last, 1.0)
+        }
+        XCTAssertFalse(messages.contains(where: { $0.contains("Done") }))
     }
 
     // MARK: - Sample Metadata

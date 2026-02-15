@@ -974,6 +974,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         DispatchQueue.global(qos: .userInitiated).async {
             // All file I/O on background thread — no UI references captured
             let result: Result<(variantCount: Int, trackInfo: VariantTrackInfo), Error>
+            let isCancelled: @Sendable () -> Bool = { cancelFlag.withLock { $0 } }
 
             // Compute dbURL before `do` so it's available for cleanup on cancellation
             var baseURL = vcfURL
@@ -1014,10 +1015,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                             self?.mainWindowController?.mainSplitViewController?.activityIndicator?.updateMessage(displayMessage)
                         }
                     },
-                    shouldCancel: { cancelFlag.withLock { $0 } }
+                    shouldCancel: isCancelled
                 )
 
                 debugLog("performVCFImport: Created database with \(variantCount) variants")
+                if isCancelled() {
+                    throw VariantDatabaseError.cancelled
+                }
 
                 // Normalize chromosome names to match the bundle
                 let currentManifestForChrom = try BundleManifest.load(from: bundleURL)
@@ -1027,6 +1031,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 if !chromMapping.isEmpty {
                     try rwDB.renameChromosomes(chromMapping)
                     debugLog("performVCFImport: Remapped chromosomes: \(chromMapping)")
+                }
+                if isCancelled() {
+                    throw VariantDatabaseError.cancelled
                 }
 
                 // Create VariantTrackInfo

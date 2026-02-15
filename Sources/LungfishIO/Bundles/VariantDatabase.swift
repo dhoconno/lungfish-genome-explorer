@@ -1891,6 +1891,11 @@ public final class VariantDatabase: @unchecked Sendable {
 
         progressHandler?(0.05, "Parsing VCF...")
 
+        @inline(__always)
+        func isCancelled() -> Bool {
+            shouldCancel?() == true
+        }
+
         func parseLine(_ line: Substring) {
             guard !line.isEmpty, !wasCancelled else { return }
 
@@ -2188,16 +2193,18 @@ public final class VariantDatabase: @unchecked Sendable {
         }
         if ext == "gz" {
             let estimatedSize = estimateGzipUncompressedSize(url: vcfURL, compressedSize: fileSize)
-            try streamGzipLines(url: vcfURL, estimatedUncompressedSize: estimatedSize, shouldCancel: shouldCancel, onProgress: byteProgress) { line in
+            wasCancelled = try streamGzipLines(url: vcfURL, estimatedUncompressedSize: estimatedSize, shouldCancel: shouldCancel, onProgress: byteProgress) { line in
                 parseLine(line)
             }
         } else {
-            try streamPlainLines(url: vcfURL, totalFileSize: fileSize, shouldCancel: shouldCancel, onProgress: byteProgress) { line in
+            wasCancelled = try streamPlainLines(url: vcfURL, totalFileSize: fileSize, shouldCancel: shouldCancel, onProgress: byteProgress) { line in
                 parseLine(line)
             }
         }
+        wasCancelled = wasCancelled || isCancelled()
 
         if wasCancelled {
+            sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
             throw VariantDatabaseError.cancelled
         }
 
@@ -2215,6 +2222,10 @@ public final class VariantDatabase: @unchecked Sendable {
             "CREATE INDEX idx_variant_info_key_value ON variant_info(key, value)",
         ]
         for indexSQL in indexStatements {
+            if isCancelled() {
+                wasCancelled = true
+                break
+            }
             var idxErr: UnsafeMutablePointer<CChar>?
             sqlite3_exec(db, indexSQL, nil, nil, &idxErr)
             if let idxErr {
@@ -2222,6 +2233,11 @@ public final class VariantDatabase: @unchecked Sendable {
                 sqlite3_free(idxErr)
                 variantDBLogger.warning("createFromVCF: Index creation failed: \(msg)")
             }
+        }
+
+        if wasCancelled {
+            sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+            throw VariantDatabaseError.cancelled
         }
 
         var commitErr: UnsafeMutablePointer<CChar>?
@@ -2256,7 +2272,7 @@ public final class VariantDatabase: @unchecked Sendable {
         shouldCancel: (() -> Bool)? = nil,
         onProgress: ((Double) -> Void)? = nil,
         _ handler: (Substring) -> Void
-    ) throws {
+    ) throws -> Bool {
         guard let fh = FileHandle(forReadingAtPath: url.path) else {
             throw VariantDatabaseError.createFailed("Cannot open VCF file: \(url.lastPathComponent)")
         }
@@ -2266,9 +2282,13 @@ public final class VariantDatabase: @unchecked Sendable {
         var bytesRead: Int64 = 0
         var lastProgress = -1.0
         var lastEmitTime = Date.distantPast
+        var cancelled = false
         let chunkSize = 256 * 1024  // 256 KB read chunks
         while true {
-            if shouldCancel?() == true { break }
+            if shouldCancel?() == true {
+                cancelled = true
+                break
+            }
             let chunk = fh.readData(ofLength: chunkSize)
             if chunk.isEmpty { break }
             bytesRead += Int64(chunk.count)
@@ -2292,11 +2312,11 @@ public final class VariantDatabase: @unchecked Sendable {
             }
         }
 
-        if !buffer.isEmpty, let tail = String(data: buffer, encoding: .utf8) {
+        if !cancelled, !buffer.isEmpty, let tail = String(data: buffer, encoding: .utf8) {
             handler(Substring(tail))
         }
 
-        if totalFileSize > 0 {
+        if !cancelled, totalFileSize > 0 {
             emitThrottledProgress(
                 1.0,
                 onProgress: onProgress,
@@ -2304,6 +2324,7 @@ public final class VariantDatabase: @unchecked Sendable {
                 lastEmitTime: &lastEmitTime
             )
         }
+        return cancelled
     }
 
     /// Streams lines from a gzip-compressed VCF using `gzip -dc`.
@@ -2315,7 +2336,7 @@ public final class VariantDatabase: @unchecked Sendable {
         shouldCancel: (() -> Bool)? = nil,
         onProgress: ((Double) -> Void)? = nil,
         _ handler: (Substring) -> Void
-    ) throws {
+    ) throws -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
         process.arguments = ["-dc", url.path]
@@ -2361,11 +2382,11 @@ public final class VariantDatabase: @unchecked Sendable {
             }
         }
 
-        if !buffer.isEmpty, let tail = String(data: buffer, encoding: .utf8) {
+        if !cancelled, !buffer.isEmpty, let tail = String(data: buffer, encoding: .utf8) {
             handler(Substring(tail))
         }
 
-        if estimatedUncompressedSize > 0 {
+        if !cancelled, estimatedUncompressedSize > 0 {
             emitThrottledProgress(
                 1.0,
                 onProgress: onProgress,
@@ -2378,6 +2399,7 @@ public final class VariantDatabase: @unchecked Sendable {
         if !cancelled, process.terminationStatus != 0 {
             throw VariantDatabaseError.createFailed("Failed to decompress \(url.lastPathComponent) (gzip exit code \(process.terminationStatus))")
         }
+        return cancelled
     }
 
     /// Estimates uncompressed size for a gzip file using ISIZE footer with heuristic fallback.
