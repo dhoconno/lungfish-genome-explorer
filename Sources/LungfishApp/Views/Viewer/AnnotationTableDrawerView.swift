@@ -1603,8 +1603,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 updateCountLabel()
                 return
             }
-        } else if let annotationRegion = annotationSearchRegion {
-            // Use annotation bounding region as fallback when no higher-priority region is active.
+        } else if viewportSyncEnabled, let annotationRegion = annotationSearchRegion {
+            // Only use annotation bounding region as fallback when viewport sync is enabled
+            // (not when user has explicitly chosen genome-wide scope).
             effectiveRegion = annotationRegion
             regionScope = .annotations
         } else {
