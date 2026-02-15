@@ -1749,11 +1749,12 @@ public final class VariantDatabase: @unchecked Sendable {
         sqlite3_exec(db, "PRAGMA synchronous = OFF", nil, nil, nil)
         sqlite3_exec(db, "PRAGMA locking_mode = EXCLUSIVE", nil, nil, nil)
 
-        // Scale page cache to ~1/16 of physical RAM, clamped to 16–256 MB.
-        // Negative value = size in KiB. Default page_size is 4096, so -N means N KiB of cache.
-        let physicalMB = Int(ProcessInfo.processInfo.physicalMemory / (1024 * 1024))
-        let cacheMB = max(16, min(256, physicalMB / 16))
-        sqlite3_exec(db, "PRAGMA cache_size = -\(cacheMB * 1024)", nil, nil, nil)
+        // Keep page cache small for streaming inserts — we write sequentially and rarely re-read
+        // pages, so a large cache just wastes memory. 32 MB is plenty for B-tree page splits.
+        sqlite3_exec(db, "PRAGMA cache_size = -\(32 * 1024)", nil, nil, nil)
+        // Disable memory-mapped I/O — as the DB file grows during import, an mmap region would
+        // inflate RSS proportionally. Standard read/write I/O with the small cache above is fine.
+        sqlite3_exec(db, "PRAGMA mmap_size = 0", nil, nil, nil)
         // temp_store = FILE (default) — index-building sorts spill to disk instead of consuming
         // unbounded RAM. On SSD the speed penalty is negligible; on low-memory machines this
         // prevents the 8 post-import CREATE INDEX statements from exhausting physical memory.
@@ -2015,6 +2016,15 @@ public final class VariantDatabase: @unchecked Sendable {
             }
             let variantRowId = sqlite3_last_insert_rowid(db)
             insertCount += 1
+
+            // Periodic commit every 1,000 variants to flush dirty pages and cap memory.
+            // With genotypes each variant generates N sample INSERTs, so 1K variants ≈
+            // tens of thousands of rows — enough to amortize fsync but small enough to
+            // keep dirty-page RSS under control.
+            if insertCount % 1_000 == 0 {
+                sqlite3_exec(db, "COMMIT", nil, nil, nil)
+                sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
+            }
 
             // Insert structured INFO key-value pairs into variant_info EAV table
             if let infoStr, infoStr != "." {
@@ -2304,16 +2314,26 @@ public final class VariantDatabase: @unchecked Sendable {
             }
 
             while let newlineIdx = buffer.firstIndex(of: 0x0A) {
-                let lineData = buffer.prefix(upTo: newlineIdx)
-                if let line = String(data: lineData, encoding: .utf8) {
-                    handler(Substring(line))
+                // Scope lineData inside autoreleasepool so it's released BEFORE
+                // removeSubrange — avoids a full copy-on-write of the remaining buffer
+                // on every line (lineData shares storage with buffer via Data slicing).
+                // Also drains autoreleased objects from String/NSString bridging in handler.
+                autoreleasepool {
+                    let lineData = buffer.prefix(upTo: newlineIdx)
+                    if let line = String(data: lineData, encoding: .utf8) {
+                        handler(Substring(line))
+                    }
                 }
                 buffer.removeSubrange(...newlineIdx)
             }
         }
 
-        if !cancelled, !buffer.isEmpty, let tail = String(data: buffer, encoding: .utf8) {
-            handler(Substring(tail))
+        if !cancelled, !buffer.isEmpty {
+            autoreleasepool {
+                if let tail = String(data: buffer, encoding: .utf8) {
+                    handler(Substring(tail))
+                }
+            }
         }
 
         if !cancelled, totalFileSize > 0 {
@@ -2374,16 +2394,22 @@ public final class VariantDatabase: @unchecked Sendable {
             }
 
             while let newlineIdx = buffer.firstIndex(of: 0x0A) { // "\n"
-                let lineData = buffer.prefix(upTo: newlineIdx)
-                if let line = String(data: lineData, encoding: .utf8) {
-                    handler(Substring(line))
+                autoreleasepool {
+                    let lineData = buffer.prefix(upTo: newlineIdx)
+                    if let line = String(data: lineData, encoding: .utf8) {
+                        handler(Substring(line))
+                    }
                 }
                 buffer.removeSubrange(...newlineIdx)
             }
         }
 
-        if !cancelled, !buffer.isEmpty, let tail = String(data: buffer, encoding: .utf8) {
-            handler(Substring(tail))
+        if !cancelled, !buffer.isEmpty {
+            autoreleasepool {
+                if let tail = String(data: buffer, encoding: .utf8) {
+                    handler(Substring(tail))
+                }
+            }
         }
 
         if !cancelled, estimatedUncompressedSize > 0 {
