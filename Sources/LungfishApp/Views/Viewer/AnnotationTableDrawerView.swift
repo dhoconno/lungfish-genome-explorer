@@ -1347,6 +1347,11 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             if token == .indel { activeSmartTokens.remove(.snv) }
             if token == .highImpact { activeSmartTokens.remove(.moderateImpact) }
             if token == .moderateImpact { activeSmartTokens.remove(.highImpact) }
+            // Within-sample AF range tokens are mutually exclusive
+            let afTokens: Set<SmartToken> = [.minorVariant, .mixedInfection, .dominantMutation]
+            if afTokens.contains(token) {
+                for t in afTokens where t != token { activeSmartTokens.remove(t) }
+            }
             activeSmartTokens.insert(token)
         } else {
             activeSmartTokens.remove(token)
@@ -1638,7 +1643,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             )
             lastVariantQueryMatchCount = count
             lastVariantQueryScope = regionScope
-            if count > Self.maxDisplayCount {
+            // When post-filters are active, SQL count overstates results — always fetch + filter
+            if count > Self.maxDisplayCount && !hasSmartPostFilter && !effectiveQuery.hasPostFilters {
                 displayedAnnotations = []
                 tableView.reloadData()
                 scrollView.isHidden = true
@@ -1683,7 +1689,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             let matchingCount = index.queryVariantCount(nameFilter: effectiveQuery.nameFilter, types: effectiveTypeFilter, infoFilters: mergedInfoFilters)
             lastVariantQueryMatchCount = matchingCount
             lastVariantQueryScope = .global
-            if matchingCount > Self.maxDisplayCount {
+            if matchingCount > Self.maxDisplayCount && !hasSmartPostFilter && !effectiveQuery.hasPostFilters {
                 displayedAnnotations = []
                 tableView.reloadData()
                 scrollView.isHidden = true
@@ -1727,17 +1733,16 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         min: Double,
         max: Double
     ) -> [AnnotationSearchIndex.SearchResult] {
-        let afKeys = SmartToken.afKeys
+        // Use only the plain "AF" key for within-sample frequency (not population keys
+        // like gnomAD_AF). For haploid organisms, INFO AF is within-sample frequency.
         return results.filter { result in
-            guard let info = result.infoDict else { return false }
-            for key in afKeys {
-                guard let raw = info[key], !raw.isEmpty else { continue }
-                // Handle multi-allelic: "0.05,0.12" — use the max AF across alts
-                let values = raw.split(separator: ",").compactMap { Double($0) }
-                guard let af = values.max() else { continue }
-                return af >= min && af < max
-            }
-            return false
+            guard let info = result.infoDict,
+                  let raw = info["AF"] ?? info["af"],
+                  !raw.isEmpty else { return false }
+            // Handle multi-allelic: "0.05,0.12" — use the max AF across alts
+            let values = raw.split(separator: ",").compactMap { Double($0) }
+            guard let af = values.max() else { return false }
+            return af >= min && af <= max
         }
     }
 
