@@ -153,7 +153,7 @@ final class VariantTableEnhancementTests: XCTestCase {
     func testExportCellValueForVariants() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
 
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
 
         // Variants should be loaded
         XCTAssertGreaterThan(drawer.displayedAnnotations.count, 0,
@@ -813,5 +813,16 @@ final class VariantTableEnhancementTests: XCTestCase {
         let data = json.data(using: .utf8)!
         let decoded = try JSONDecoder().decode(SampleDisplayState.self, from: data)
         XCTAssertTrue(decoded.sampleGroups.isEmpty)
+    }
+
+    // MARK: - Async Helpers
+
+    /// Switches to the variants tab and drains the RunLoop until variant query results arrive.
+    private func switchToVariantsAndWait(_ drawer: AnnotationTableDrawerView, timeout: TimeInterval = 2.0) {
+        drawer.switchToTab(.variants)
+        let deadline = Date().addingTimeInterval(timeout)
+        while (drawer.displayedAnnotations.isEmpty && drawer.isVariantQuerying) && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
     }
 }

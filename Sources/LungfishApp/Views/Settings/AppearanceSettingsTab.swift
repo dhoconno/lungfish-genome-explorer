@@ -5,6 +5,10 @@
 import SwiftUI
 import LungfishCore
 
+public extension Notification.Name {
+    static let variantColorThemeDidChange = Notification.Name("com.lungfish.variantColorThemeDidChange")
+}
+
 /// Appearance preferences: nucleotide colors, annotation type colors, dimensions.
 struct AppearanceSettingsTab: View {
 
@@ -95,7 +99,10 @@ struct AppearanceSettingsTab: View {
         .onChange(of: colorC) { _, _ in syncBaseColor("C", from: colorC) }
         .onChange(of: colorN) { _, _ in syncBaseColor("N", from: colorN) }
         .onChange(of: colorU) { _, _ in syncBaseColor("U", from: colorU) }
-        .onChange(of: settings.variantColorThemeName) { _, _ in settings.save() }
+        .onChange(of: settings.variantColorThemeName) { _, _ in
+            settings.save()
+            NotificationCenter.default.post(name: .variantColorThemeDidChange, object: nil)
+        }
         .onChange(of: settings.defaultAnnotationHeight) { _, _ in settings.save() }
         .onChange(of: settings.defaultAnnotationSpacing) { _, _ in settings.save() }
     }

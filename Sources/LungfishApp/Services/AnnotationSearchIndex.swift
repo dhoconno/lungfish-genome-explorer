@@ -90,8 +90,14 @@ public final class AnnotationSearchIndex {
     /// Cached chromosome names per variant track for alias fallback matching.
     private var variantTrackChromosomes: [String: Set<String>] = [:]
 
-    /// Public accessor for variant database handles (for delete operations).
+    /// Public accessor for variant database handles (for delete operations and background queries).
     public var variantDatabaseHandles: [(trackId: String, db: VariantDatabase)] { variantDatabases }
+
+    /// Returns the human-readable display name for a variant track.
+    public func variantTrackName(for trackId: String) -> String? { variantTrackNames[trackId] }
+
+    /// Snapshot of per-track chromosome sets for background chromosome alias resolution.
+    public var variantTrackChromosomeMap: [String: Set<String>] { variantTrackChromosomes }
 
     /// Track ID associated with the database (for SearchResult compatibility).
     private var databaseTrackId: String = ""

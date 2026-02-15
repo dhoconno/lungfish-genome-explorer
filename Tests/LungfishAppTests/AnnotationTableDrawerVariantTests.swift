@@ -237,17 +237,30 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
         XCTAssertEqual(drawer.displayedAnnotations.count, 2, "Should show 2 annotations in initial view")
     }
 
+    /// Switches drawer to the variants tab and waits for the async variant query to complete.
+    /// The variant query dispatches to a background thread and delivers results via
+    /// `DispatchQueue.main.async`, so we need to drain the run loop to receive the results.
+    private func switchToVariantsAndWait(_ drawer: AnnotationTableDrawerView, timeout: TimeInterval = 2.0) {
+        drawer.switchToTab(.variants)
+        let deadline = Date().addingTimeInterval(timeout)
+        // Wait until the async variant query finishes (isVariantQuerying becomes false)
+        // or data arrives, whichever comes first.
+        while (drawer.displayedAnnotations.isEmpty && drawer.isVariantQuerying) && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+    }
+
     // MARK: - Tab Switching Tests
 
     func testSwitchToVariantsTab() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
         XCTAssertEqual(drawer.activeTab, .variants)
     }
 
     func testVariantsTabShowsVariantData() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
         // Should show variant data
         XCTAssertFalse(drawer.displayedAnnotations.isEmpty)
         for result in drawer.displayedAnnotations {
@@ -257,13 +270,13 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
 
     func testVariantsTabShowsCorrectCount() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
         XCTAssertEqual(drawer.displayedAnnotations.count, 3, "Should show 3 variants")
     }
 
     func testSwitchBackToAnnotationsTab() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
         XCTAssertEqual(drawer.activeTab, .variants)
 
         drawer.switchToTab(.annotations)
@@ -288,7 +301,7 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
 
     func testVariantTabShowsVariantFields() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
 
         XCTAssertFalse(drawer.displayedAnnotations.isEmpty)
         let first = drawer.displayedAnnotations[0]
@@ -301,7 +314,7 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
 
     func testVariantIDDisplayed() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
 
         let names = drawer.displayedAnnotations.map { $0.name }
         XCTAssertTrue(names.contains("rs12345"), "Should contain rs12345")
@@ -310,7 +323,7 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
 
     func testVariantTypesCorrect() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
 
         let types = Set(drawer.displayedAnnotations.map { $0.type })
         // rs12345: A>G = SNP, rs67890: TC>T = DEL, .: G>GAA = INS
@@ -321,7 +334,7 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
 
     func testVariantRefAltFields() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
 
         let snp = drawer.displayedAnnotations.first { $0.name == "rs12345" }
         XCTAssertEqual(snp?.ref, "A")
@@ -334,7 +347,7 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
 
     func testVariantQualityField() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
 
         let snp = drawer.displayedAnnotations.first { $0.name == "rs12345" }
         XCTAssertEqual(snp?.quality ?? -1, 30.0, accuracy: 0.01)
@@ -345,7 +358,7 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
 
     func testVariantFilterField() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
 
         let snp = drawer.displayedAnnotations.first { $0.name == "rs12345" }
         XCTAssertEqual(snp?.filter, "PASS")
@@ -356,7 +369,7 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
 
     func testVariantPositionIs0Based() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
 
         // VCF has POS=150 (1-based), DB stores 0-based = 149
         let snp = drawer.displayedAnnotations.first { $0.name == "rs12345" }
@@ -375,7 +388,7 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
     func testTabControlVisibleWhenVariantsExist() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
         // Tab should be usable (we can switch to variants)
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
         XCTAssertEqual(drawer.activeTab, .variants)
         XCTAssertFalse(drawer.displayedAnnotations.isEmpty)
     }
@@ -384,7 +397,7 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
 
     func testVariantTypeChipFiltering() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
 
         // All 3 variants should be visible initially
         XCTAssertEqual(drawer.displayedAnnotations.count, 3)
@@ -410,7 +423,7 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
 
     func testVariantContextMenuHasCopyVariantID() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
         XCTAssertTrue(drawer.selectAnnotation(named: "rs12345"))
 
         let menu = NSMenu()
@@ -422,7 +435,7 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
 
     func testVariantContextMenuHasCopyCoordinates() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
         XCTAssertTrue(drawer.selectAnnotation(named: "rs12345"))
 
         let menu = NSMenu()
@@ -434,7 +447,7 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
 
     func testVariantContextMenuHasCopyRefAlt() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
         XCTAssertTrue(drawer.selectAnnotation(named: "rs12345"))
 
         let menu = NSMenu()
@@ -446,7 +459,7 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
 
     func testVariantContextMenuHasCopyAsVCFLine() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
         XCTAssertTrue(drawer.selectAnnotation(named: "rs12345"))
 
         let menu = NSMenu()
@@ -458,7 +471,7 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
 
     func testVariantContextMenuHasZoomToVariant() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
         XCTAssertTrue(drawer.selectAnnotation(named: "rs12345"))
 
         let menu = NSMenu()
@@ -470,7 +483,7 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
 
     func testVariantContextMenuHasFilterToType() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
         XCTAssertTrue(drawer.selectAnnotation(named: "rs12345"))
 
         let menu = NSMenu()
@@ -483,7 +496,7 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
 
     func testVariantContextMenuDoesNotHaveAnnotationItems() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
         XCTAssertTrue(drawer.selectAnnotation(named: "rs12345"))
 
         let menu = NSMenu()
@@ -565,7 +578,7 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
 
     func testVariantSortByQuality() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
 
         // Verify initial data has different qualities
         let qualities = drawer.displayedAnnotations.compactMap { $0.quality }
@@ -579,7 +592,7 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
 
     func testVariantSortByPosition() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
 
         // Variants should be in order by position (default sort from SQLite is chromosome, position)
         let positions = drawer.displayedAnnotations.map { $0.start }
@@ -592,13 +605,13 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
         let drawer = try createDrawerWithVariantsOnly()
         // With no annotations, the initial annotations tab should be empty or
         // we should be able to switch to variants
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
         XCTAssertEqual(drawer.displayedAnnotations.count, 2)
     }
 
     func testVariantsOnlyBundleVariantTypes() throws {
         let drawer = try createDrawerWithVariantsOnly()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
 
         let types = Set(drawer.displayedAnnotations.map { $0.type })
         XCTAssertTrue(types.contains("SNP"))
@@ -616,7 +629,7 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
         """
 
         let drawer = try createDrawerWithAnnotationsAndVariants(vcfContent: multiSampleVCF)
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
 
         let rs111 = drawer.displayedAnnotations.first { $0.name == "rs111" }
         XCTAssertEqual(rs111?.sampleCount, 3, "All 3 samples have genotype data")
@@ -823,27 +836,27 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
         """
 
         let drawer = try createDrawerWithAnnotationsAndVariants(vcfContent: vcfContent)
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer, timeout: 0.5)
         XCTAssertTrue(drawer.displayedAnnotations.isEmpty, "Empty VCF should produce no variants")
     }
 
     func testSelectAnnotationWorksOnVariantTab() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
         let found = drawer.selectAnnotation(named: "rs12345")
         XCTAssertTrue(found, "Should find rs12345 in variant tab")
     }
 
     func testSelectAnnotationFailsForMissingName() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
         let found = drawer.selectAnnotation(named: "nonexistent")
         XCTAssertFalse(found, "Should not find nonexistent variant")
     }
 
     func testAnnotationNotFoundOnVariantTab() throws {
         let drawer = try createDrawerWithAnnotationsAndVariants()
-        drawer.switchToTab(.variants)
+        switchToVariantsAndWait(drawer)
         let found = drawer.selectAnnotation(named: "BRCA1")
         XCTAssertFalse(found, "BRCA1 is an annotation, not a variant — should not be on variant tab")
     }

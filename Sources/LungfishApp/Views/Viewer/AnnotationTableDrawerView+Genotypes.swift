@@ -3,8 +3,16 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishCore
 import LungfishIO
 import os.log
+
+extension ThemeColor {
+    /// Converts a ThemeColor to NSColor for use in AppKit table cells.
+    var nsColor: NSColor {
+        NSColor(red: r, green: g, blue: b, alpha: 1.0)
+    }
+}
 
 private let genotypeLogger = Logger(subsystem: "com.lungfish.app", category: "GenotypeTab")
 
@@ -262,35 +270,26 @@ extension AnnotationTableDrawerView {
         let text = genotypeCellValueString(for: identifier, row: row)
         cellView.textField?.stringValue = text
 
-        // Color the GT column based on zygosity
-        if identifier == Self.gtGenotypeColumn, row < displayedGenotypes.count {
+        // Color the GT and Zygosity columns using the active variant color theme
+        if (identifier == Self.gtGenotypeColumn || identifier == Self.gtZygosityColumn),
+           row < displayedGenotypes.count {
             let gt = displayedGenotypes[row]
-            switch gt.zygosity {
-            case "Het":
-                cellView.textField?.textColor = .systemOrange
-            case "Hom Alt":
-                cellView.textField?.textColor = .systemRed
-            case "Hom Ref":
-                cellView.textField?.textColor = .systemGreen
-            default:
-                cellView.textField?.textColor = .secondaryLabelColor
-            }
-        } else if identifier == Self.gtZygosityColumn, row < displayedGenotypes.count {
-            let gt = displayedGenotypes[row]
-            switch gt.zygosity {
-            case "Het":
-                cellView.textField?.textColor = .systemOrange
-            case "Hom Alt":
-                cellView.textField?.textColor = .systemRed
-            case "Hom Ref":
-                cellView.textField?.textColor = .systemGreen
-            default:
-                cellView.textField?.textColor = .secondaryLabelColor
-            }
+            cellView.textField?.textColor = genotypeColor(for: gt.zygosity)
         } else {
             cellView.textField?.textColor = .labelColor
         }
 
         return cellView
+    }
+
+    /// Returns the NSColor for a zygosity string using the active variant color theme.
+    private func genotypeColor(for zygosity: String) -> NSColor {
+        let theme = VariantColorTheme.named(AppSettings.shared.variantColorThemeName)
+        switch zygosity {
+        case "Het":     return theme.het.nsColor
+        case "Hom Alt": return theme.homAlt.nsColor
+        case "Hom Ref": return theme.homRef.nsColor
+        default:        return .secondaryLabelColor
+        }
     }
 }
