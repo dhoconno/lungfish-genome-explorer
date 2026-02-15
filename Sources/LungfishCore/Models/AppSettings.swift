@@ -129,8 +129,21 @@ public final class AppSettings: Sendable {
     // MARK: - Persistence
 
     private static let userDefaultsKey = "com.lungfish.appSettings"
-    private static let legacyAppearanceKey = "SequenceAppearance"
-    private static let legacyVCFProfileKey = "VCFImportProfile"
+
+    // MARK: - Bounds
+
+    private static let defaultZoomWindowBounds = 1_000...1_000_000
+    private static let maxUndoLevelsBounds = 10...1_000
+    private static let tempRetentionHoursBounds = 1...168
+    private static let annotationHeightBounds: ClosedRange<Double> = 8...32
+    private static let annotationSpacingBounds: ClosedRange<Double> = 0...8
+    private static let maxAnnotationRowsBounds = 10...200
+    private static let fetchCapKbBounds = 100...5_000
+    private static let tableDisplayCountBounds = 1_000...50_000
+    private static let densityThresholdBounds: ClosedRange<Double> = 10_000...500_000
+    private static let squishedThresholdBounds: ClosedRange<Double> = 100...5_000
+    private static let showLettersThresholdBounds: ClosedRange<Double> = 1...50
+    private static let tooltipDelayBounds: ClosedRange<Double> = 0...1.0
 
     /// Codable snapshot for UserDefaults persistence.
     private struct Snapshot: Codable {
@@ -158,26 +171,134 @@ public final class AppSettings: Sendable {
         var openAIModel: String
         var anthropicModel: String
         var geminiModel: String
+
+        init(
+            defaultZoomWindow: Int,
+            maxUndoLevels: Int,
+            vcfImportProfile: String,
+            tempFileRetentionHours: Int,
+            sequenceAppearance: SequenceAppearance,
+            annotationTypeColorHexes: [String: String],
+            variantColorThemeName: String,
+            defaultAnnotationHeight: Double,
+            defaultAnnotationSpacing: Double,
+            maxAnnotationRows: Int,
+            sequenceFetchCapKb: Int,
+            maxTableDisplayCount: Int,
+            densityThresholdBpPerPixel: Double,
+            squishedThresholdBpPerPixel: Double,
+            showLettersThresholdBpPerPixel: Double,
+            tooltipDelay: Double,
+            aiSearchEnabled: Bool,
+            openAIModel: String,
+            anthropicModel: String,
+            geminiModel: String
+        ) {
+            self.defaultZoomWindow = defaultZoomWindow
+            self.maxUndoLevels = maxUndoLevels
+            self.vcfImportProfile = vcfImportProfile
+            self.tempFileRetentionHours = tempFileRetentionHours
+            self.sequenceAppearance = sequenceAppearance
+            self.annotationTypeColorHexes = annotationTypeColorHexes
+            self.variantColorThemeName = variantColorThemeName
+            self.defaultAnnotationHeight = defaultAnnotationHeight
+            self.defaultAnnotationSpacing = defaultAnnotationSpacing
+            self.maxAnnotationRows = maxAnnotationRows
+            self.sequenceFetchCapKb = sequenceFetchCapKb
+            self.maxTableDisplayCount = maxTableDisplayCount
+            self.densityThresholdBpPerPixel = densityThresholdBpPerPixel
+            self.squishedThresholdBpPerPixel = squishedThresholdBpPerPixel
+            self.showLettersThresholdBpPerPixel = showLettersThresholdBpPerPixel
+            self.tooltipDelay = tooltipDelay
+            self.aiSearchEnabled = aiSearchEnabled
+            self.openAIModel = openAIModel
+            self.anthropicModel = anthropicModel
+            self.geminiModel = geminiModel
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            // General
+            defaultZoomWindow = try container.decodeIfPresent(Int.self, forKey: .defaultZoomWindow) ?? 10_000
+            maxUndoLevels = try container.decodeIfPresent(Int.self, forKey: .maxUndoLevels) ?? 100
+            vcfImportProfile = try container.decodeIfPresent(String.self, forKey: .vcfImportProfile) ?? "auto"
+            tempFileRetentionHours = try container.decodeIfPresent(Int.self, forKey: .tempFileRetentionHours) ?? 24
+            // Appearance
+            sequenceAppearance = try container.decodeIfPresent(SequenceAppearance.self, forKey: .sequenceAppearance) ?? .default
+            annotationTypeColorHexes = try container.decodeIfPresent([String: String].self, forKey: .annotationTypeColorHexes) ?? [
+                "gene": "#339933",
+                "CDS": "#3366CC",
+                "exon": "#994DCC",
+                "mRNA": "#CC6633",
+                "transcript": "#B38050",
+                "misc_feature": "#808080",
+                "region": "#66B3B3",
+                "primer": "#33CC33",
+                "restriction_site": "#CC3333",
+            ]
+            variantColorThemeName = try container.decodeIfPresent(String.self, forKey: .variantColorThemeName) ?? VariantColorTheme.modern.name
+            defaultAnnotationHeight = try container.decodeIfPresent(Double.self, forKey: .defaultAnnotationHeight) ?? 16
+            defaultAnnotationSpacing = try container.decodeIfPresent(Double.self, forKey: .defaultAnnotationSpacing) ?? 2
+            // Rendering
+            maxAnnotationRows = try container.decodeIfPresent(Int.self, forKey: .maxAnnotationRows) ?? 50
+            sequenceFetchCapKb = try container.decodeIfPresent(Int.self, forKey: .sequenceFetchCapKb) ?? 500
+            maxTableDisplayCount = try container.decodeIfPresent(Int.self, forKey: .maxTableDisplayCount) ?? 5_000
+            densityThresholdBpPerPixel = try container.decodeIfPresent(Double.self, forKey: .densityThresholdBpPerPixel) ?? 50_000
+            squishedThresholdBpPerPixel = try container.decodeIfPresent(Double.self, forKey: .squishedThresholdBpPerPixel) ?? 500
+            showLettersThresholdBpPerPixel = try container.decodeIfPresent(Double.self, forKey: .showLettersThresholdBpPerPixel) ?? 10.0
+            tooltipDelay = try container.decodeIfPresent(Double.self, forKey: .tooltipDelay) ?? 0.15
+            // AI Services
+            aiSearchEnabled = try container.decodeIfPresent(Bool.self, forKey: .aiSearchEnabled) ?? false
+            openAIModel = try container.decodeIfPresent(String.self, forKey: .openAIModel) ?? "gpt-4o"
+            anthropicModel = try container.decodeIfPresent(String.self, forKey: .anthropicModel) ?? "claude-sonnet-4-5-20250929"
+            geminiModel = try container.decodeIfPresent(String.self, forKey: .geminiModel) ?? "gemini-2.0-flash"
+        }
+    }
+
+    private static func clamp(_ value: Int, to bounds: ClosedRange<Int>) -> Int {
+        max(bounds.lowerBound, min(bounds.upperBound, value))
+    }
+
+    private static func clamp(_ value: Double, to bounds: ClosedRange<Double>) -> Double {
+        max(bounds.lowerBound, min(bounds.upperBound, value))
+    }
+
+    private static func normalizedImportProfile(_ raw: String) -> String {
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch normalized {
+        case "fast":
+            return "fast"
+        case "lowmemory":
+            return "lowMemory"
+        default:
+            return "auto"
+        }
+    }
+
+    private static func normalizedVariantThemeName(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let validNames = Set(VariantColorTheme.allBuiltIn.map(\.name))
+        return validNames.contains(trimmed) ? trimmed : VariantColorTheme.modern.name
     }
 
     private func makeSnapshot() -> Snapshot {
         Snapshot(
-            defaultZoomWindow: defaultZoomWindow,
-            maxUndoLevels: maxUndoLevels,
-            vcfImportProfile: vcfImportProfile,
-            tempFileRetentionHours: tempFileRetentionHours,
+            defaultZoomWindow: Self.clamp(defaultZoomWindow, to: Self.defaultZoomWindowBounds),
+            maxUndoLevels: Self.clamp(maxUndoLevels, to: Self.maxUndoLevelsBounds),
+            vcfImportProfile: Self.normalizedImportProfile(vcfImportProfile),
+            tempFileRetentionHours: Self.clamp(tempFileRetentionHours, to: Self.tempRetentionHoursBounds),
             sequenceAppearance: sequenceAppearance,
             annotationTypeColorHexes: annotationTypeColorHexes,
-            variantColorThemeName: variantColorThemeName,
-            defaultAnnotationHeight: defaultAnnotationHeight,
-            defaultAnnotationSpacing: defaultAnnotationSpacing,
-            maxAnnotationRows: maxAnnotationRows,
-            sequenceFetchCapKb: sequenceFetchCapKb,
-            maxTableDisplayCount: maxTableDisplayCount,
-            densityThresholdBpPerPixel: densityThresholdBpPerPixel,
-            squishedThresholdBpPerPixel: squishedThresholdBpPerPixel,
-            showLettersThresholdBpPerPixel: showLettersThresholdBpPerPixel,
-            tooltipDelay: tooltipDelay,
+            variantColorThemeName: Self.normalizedVariantThemeName(variantColorThemeName),
+            defaultAnnotationHeight: Self.clamp(defaultAnnotationHeight, to: Self.annotationHeightBounds),
+            defaultAnnotationSpacing: Self.clamp(defaultAnnotationSpacing, to: Self.annotationSpacingBounds),
+            maxAnnotationRows: Self.clamp(maxAnnotationRows, to: Self.maxAnnotationRowsBounds),
+            sequenceFetchCapKb: Self.clamp(sequenceFetchCapKb, to: Self.fetchCapKbBounds),
+            maxTableDisplayCount: Self.clamp(maxTableDisplayCount, to: Self.tableDisplayCountBounds),
+            densityThresholdBpPerPixel: Self.clamp(densityThresholdBpPerPixel, to: Self.densityThresholdBounds),
+            squishedThresholdBpPerPixel: Self.clamp(squishedThresholdBpPerPixel, to: Self.squishedThresholdBounds),
+            showLettersThresholdBpPerPixel: Self.clamp(showLettersThresholdBpPerPixel, to: Self.showLettersThresholdBounds),
+            tooltipDelay: Self.clamp(tooltipDelay, to: Self.tooltipDelayBounds),
             aiSearchEnabled: aiSearchEnabled,
             openAIModel: openAIModel,
             anthropicModel: anthropicModel,
@@ -186,22 +307,22 @@ public final class AppSettings: Sendable {
     }
 
     private func apply(_ snapshot: Snapshot) {
-        defaultZoomWindow = snapshot.defaultZoomWindow
-        maxUndoLevels = snapshot.maxUndoLevels
-        vcfImportProfile = snapshot.vcfImportProfile
-        tempFileRetentionHours = snapshot.tempFileRetentionHours
+        defaultZoomWindow = Self.clamp(snapshot.defaultZoomWindow, to: Self.defaultZoomWindowBounds)
+        maxUndoLevels = Self.clamp(snapshot.maxUndoLevels, to: Self.maxUndoLevelsBounds)
+        vcfImportProfile = Self.normalizedImportProfile(snapshot.vcfImportProfile)
+        tempFileRetentionHours = Self.clamp(snapshot.tempFileRetentionHours, to: Self.tempRetentionHoursBounds)
         sequenceAppearance = snapshot.sequenceAppearance
         annotationTypeColorHexes = snapshot.annotationTypeColorHexes
-        variantColorThemeName = snapshot.variantColorThemeName
-        defaultAnnotationHeight = snapshot.defaultAnnotationHeight
-        defaultAnnotationSpacing = snapshot.defaultAnnotationSpacing
-        maxAnnotationRows = snapshot.maxAnnotationRows
-        sequenceFetchCapKb = snapshot.sequenceFetchCapKb
-        maxTableDisplayCount = snapshot.maxTableDisplayCount
-        densityThresholdBpPerPixel = snapshot.densityThresholdBpPerPixel
-        squishedThresholdBpPerPixel = snapshot.squishedThresholdBpPerPixel
-        showLettersThresholdBpPerPixel = snapshot.showLettersThresholdBpPerPixel
-        tooltipDelay = snapshot.tooltipDelay
+        variantColorThemeName = Self.normalizedVariantThemeName(snapshot.variantColorThemeName)
+        defaultAnnotationHeight = Self.clamp(snapshot.defaultAnnotationHeight, to: Self.annotationHeightBounds)
+        defaultAnnotationSpacing = Self.clamp(snapshot.defaultAnnotationSpacing, to: Self.annotationSpacingBounds)
+        maxAnnotationRows = Self.clamp(snapshot.maxAnnotationRows, to: Self.maxAnnotationRowsBounds)
+        sequenceFetchCapKb = Self.clamp(snapshot.sequenceFetchCapKb, to: Self.fetchCapKbBounds)
+        maxTableDisplayCount = Self.clamp(snapshot.maxTableDisplayCount, to: Self.tableDisplayCountBounds)
+        densityThresholdBpPerPixel = Self.clamp(snapshot.densityThresholdBpPerPixel, to: Self.densityThresholdBounds)
+        squishedThresholdBpPerPixel = Self.clamp(snapshot.squishedThresholdBpPerPixel, to: Self.squishedThresholdBounds)
+        showLettersThresholdBpPerPixel = Self.clamp(snapshot.showLettersThresholdBpPerPixel, to: Self.showLettersThresholdBounds)
+        tooltipDelay = Self.clamp(snapshot.tooltipDelay, to: Self.tooltipDelayBounds)
         aiSearchEnabled = snapshot.aiSearchEnabled
         openAIModel = snapshot.openAIModel
         anthropicModel = snapshot.anthropicModel
@@ -215,8 +336,6 @@ public final class AppSettings: Sendable {
             encoder.outputFormatting = .prettyPrinted
             let data = try encoder.encode(makeSnapshot())
             UserDefaults.standard.set(data, forKey: Self.userDefaultsKey)
-            // Also keep legacy SequenceAppearance key in sync for backward compatibility
-            sequenceAppearance.save()
             settingsLogger.info("Settings saved")
         } catch {
             settingsLogger.warning("Failed to save settings: \(error)")
@@ -226,11 +345,11 @@ public final class AppSettings: Sendable {
         NotificationCenter.default.post(name: .appearanceChanged, object: nil)
     }
 
-    /// Loads settings from UserDefaults into the shared instance, migrating legacy keys if needed.
+    /// Loads settings from UserDefaults into the shared instance.
     public static func load() {
         let defaults = UserDefaults.standard
+        let hadPersistedSettings = defaults.data(forKey: userDefaultsKey) != nil
 
-        // Try loading the new unified settings key
         if let data = defaults.data(forKey: userDefaultsKey) {
             do {
                 let snapshot = try JSONDecoder().decode(Snapshot.self, from: data)
@@ -238,24 +357,16 @@ public final class AppSettings: Sendable {
                 settingsLogger.info("Settings loaded from UserDefaults")
                 return
             } catch {
-                settingsLogger.warning("Failed to decode settings, using defaults: \(error)")
+                settingsLogger.warning("Failed to decode settings, resetting to defaults: \(error)")
             }
         }
 
-        // Migrate legacy SequenceAppearance if present
-        if defaults.data(forKey: legacyAppearanceKey) != nil {
-            shared.sequenceAppearance = SequenceAppearance.load()
-            settingsLogger.info("Migrated legacy SequenceAppearance")
+        shared.resetToDefaults()
+        if hadPersistedSettings {
+            settingsLogger.info("Using defaults after failing to decode persisted settings")
+        } else {
+            settingsLogger.info("No persisted settings found, using defaults")
         }
-
-        // Migrate legacy VCF import profile if present
-        if let profile = defaults.string(forKey: legacyVCFProfileKey) {
-            shared.vcfImportProfile = profile
-            settingsLogger.info("Migrated legacy VCFImportProfile: \(profile)")
-        }
-
-        // Save migrated settings under the new key
-        shared.save()
     }
 
     /// Resets all settings to their default values (in-memory only; call `save()` to persist).

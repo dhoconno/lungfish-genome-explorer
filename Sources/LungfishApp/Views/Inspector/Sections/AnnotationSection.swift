@@ -14,10 +14,10 @@ public final class AnnotationSectionViewModel {
     // MARK: - Default Values
 
     /// Default annotation track height in points
-    public static let defaultAnnotationHeight: Double = 16
+    public static var defaultAnnotationHeight: Double { AppSettings.shared.defaultAnnotationHeight }
 
     /// Default spacing between annotation rows
-    public static let defaultAnnotationSpacing: Double = 2
+    public static var defaultAnnotationSpacing: Double { AppSettings.shared.defaultAnnotationSpacing }
 
     /// Default visibility setting for annotations
     public static let defaultShowAnnotations: Bool = true
@@ -25,10 +25,10 @@ public final class AnnotationSectionViewModel {
     // MARK: - Observable Properties
 
     /// Annotation track height in points
-    public var annotationHeight: Double = 16
+    public var annotationHeight: Double = AppSettings.shared.defaultAnnotationHeight
 
     /// Spacing between annotation rows
-    public var annotationSpacing: Double = 2
+    public var annotationSpacing: Double = AppSettings.shared.defaultAnnotationSpacing
 
     /// Whether to show annotations
     public var showAnnotations: Bool = true

@@ -125,7 +125,7 @@ public class ViewerViewController: NSViewController {
 
     /// Track height constant
     private let sequenceTrackY: CGFloat = 20
-    private let sequenceTrackHeight: CGFloat = SequenceAppearance.load().trackHeight
+    private let sequenceTrackHeight: CGFloat = AppSettings.shared.sequenceAppearance.trackHeight
 
     // MARK: - Annotation Display Settings
 
@@ -133,16 +133,19 @@ public class ViewerViewController: NSViewController {
     var showAnnotations: Bool = true
 
     /// Height of each annotation box in pixels
-    var annotationDisplayHeight: CGFloat = 16
+    var annotationDisplayHeight: CGFloat = CGFloat(AppSettings.shared.defaultAnnotationHeight)
 
     /// Vertical spacing between annotation rows
-    var annotationDisplaySpacing: CGFloat = 2
+    var annotationDisplaySpacing: CGFloat = CGFloat(AppSettings.shared.defaultAnnotationSpacing)
 
     /// Set of annotation types to display (nil means show all)
     var visibleAnnotationTypes: Set<AnnotationType>?
 
     /// Text filter for annotations (empty string means no filter)
     var annotationFilterText: String = ""
+
+    /// Last app-level theme applied as a default to sample rendering.
+    private var lastAppliedAppVariantThemeName: String = AppSettings.shared.variantColorThemeName
 
     // MARK: - Nucleotide Display Mode
 
@@ -243,6 +246,13 @@ public class ViewerViewController: NSViewController {
         // This ensures the viewer shows "No sequence selected" for empty projects
         referenceFrame = nil
         logger.debug("viewDidLoad: Starting with nil referenceFrame (empty state)")
+
+        lastAppliedAppVariantThemeName = AppSettings.shared.variantColorThemeName
+        if viewerView.sampleDisplayState.colorThemeName != lastAppliedAppVariantThemeName {
+            var seededState = viewerView.sampleDisplayState
+            seededState.colorThemeName = lastAppliedAppVariantThemeName
+            viewerView.sampleDisplayState = seededState
+        }
 
         // Set up accessibility
         setupAccessibility()
@@ -405,6 +415,13 @@ public class ViewerViewController: NSViewController {
             self,
             selector: #selector(handleCopyAnnotationReverseComplementRequested(_:)),
             name: .copyAnnotationReverseComplementRequested,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAppSettingsChanged(_:)),
+            name: .appSettingsChanged,
             object: nil
         )
     }
@@ -581,6 +598,31 @@ public class ViewerViewController: NSViewController {
         scheduleViewStateSave()
     }
 
+    /// Handles app-level settings changes and updates default-driven viewer state.
+    @objc private func handleAppSettingsChanged(_ notification: Notification) {
+        let settings = AppSettings.shared
+
+        // Only apply annotation dimension defaults when no per-bundle view-state override is active.
+        if currentBundleViewState == nil {
+            annotationDisplayHeight = CGFloat(settings.defaultAnnotationHeight)
+            annotationDisplaySpacing = CGFloat(settings.defaultAnnotationSpacing)
+            viewerView.annotationHeight = annotationDisplayHeight
+            viewerView.annotationRowSpacing = annotationDisplaySpacing
+            viewerView.invalidateAnnotationTile()
+        }
+
+        // App-level theme acts as default unless a per-sample override diverged from that default.
+        if viewerView.sampleDisplayState.colorThemeName == lastAppliedAppVariantThemeName {
+            var updatedState = viewerView.sampleDisplayState
+            updatedState.colorThemeName = settings.variantColorThemeName
+            viewerView.sampleDisplayState = updatedState
+            annotationDrawerView?.setSampleDisplayState(updatedState)
+            viewerView.needsDisplay = true
+        }
+
+        lastAppliedAppVariantThemeName = settings.variantColorThemeName
+    }
+
     /// Handles request to reset bundle view state to defaults.
     ///
     /// Clears type color overrides, deletes the `.viewstate.json` file,
@@ -592,8 +634,24 @@ public class ViewerViewController: NSViewController {
         viewerView.resetTypeColorCaches()
         viewerView.clearAnnotationColorOverrides()
 
-        // Reset in-memory state
-        currentBundleViewState = .default
+        let settings = AppSettings.shared
+
+        // Reset in-memory state using current app defaults for annotation dimensions.
+        currentBundleViewState = BundleViewState(
+            typeColorOverrides: [:],
+            annotationColorOverrides: [:],
+            annotationHeight: settings.defaultAnnotationHeight,
+            annotationSpacing: settings.defaultAnnotationSpacing,
+            showAnnotations: true,
+            visibleAnnotationTypes: nil,
+            showVariants: true,
+            visibleVariantTypes: nil,
+            translationColorScheme: .zappo,
+            isRNAMode: false,
+            lastChromosome: nil,
+            lastOrigin: nil,
+            lastScale: nil
+        )
 
         // Delete persisted file
         if let url = currentBundleURL {
@@ -603,13 +661,15 @@ public class ViewerViewController: NSViewController {
 
         // Reset annotation display settings to defaults
         showAnnotations = true
-        annotationDisplayHeight = 16
-        annotationDisplaySpacing = 2
+        annotationDisplayHeight = CGFloat(settings.defaultAnnotationHeight)
+        annotationDisplaySpacing = CGFloat(settings.defaultAnnotationSpacing)
         visibleAnnotationTypes = nil
         isRNAMode = false
         viewerView.translationColorScheme = .zappo
         viewerView.showVariants = true
         viewerView.visibleVariantTypes = nil
+        viewerView.annotationHeight = annotationDisplayHeight
+        viewerView.annotationRowSpacing = annotationDisplaySpacing
         viewerView.invalidateFilteredVariantCache()
     }
 
@@ -1798,7 +1858,7 @@ public class SequenceViewerView: NSView {
     private var isDragActive = false
 
     /// Current appearance settings for sequence visualization
-    private var sequenceAppearance: SequenceAppearance = .load()
+    private var sequenceAppearance: SequenceAppearance = AppSettings.shared.sequenceAppearance
 
     // MARK: - Selection State
 
@@ -1928,10 +1988,10 @@ public class SequenceViewerView: NSView {
     var showAnnotations: Bool = true
 
     /// Height of each annotation box (configurable via inspector)
-    var annotationHeight: CGFloat = 16
+    var annotationHeight: CGFloat = CGFloat(AppSettings.shared.defaultAnnotationHeight)
 
     /// Vertical spacing between annotation rows (configurable via inspector)
-    var annotationRowSpacing: CGFloat = 2
+    var annotationRowSpacing: CGFloat = CGFloat(AppSettings.shared.defaultAnnotationSpacing)
 
     /// Set of annotation types to display (nil means show all)
     var visibleAnnotationTypes: Set<AnnotationType>?
@@ -1976,7 +2036,11 @@ public class SequenceViewerView: NSView {
     private var genotypeFetchGeneration: Int = 0
 
     /// Display state controlling sample sort, filter, and visibility.
-    var sampleDisplayState: SampleDisplayState = SampleDisplayState()
+    var sampleDisplayState: SampleDisplayState = {
+        var state = SampleDisplayState()
+        state.colorThemeName = AppSettings.shared.variantColorThemeName
+        return state
+    }()
 
     /// Number of samples in the current variant database (cached for layout).
     private var cachedSampleCount: Int = 0

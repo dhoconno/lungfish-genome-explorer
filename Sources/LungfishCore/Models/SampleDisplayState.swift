@@ -86,14 +86,12 @@ public struct SampleDisplayState: Sendable, Codable, Equatable {
         max(minSummaryBarHeight, min(maxSummaryBarHeight, value))
     }
 
-    // MARK: - Codable (backward compatibility)
+    // MARK: - Codable
 
     private enum CodingKeys: String, CodingKey {
         case sortFields, filters, hiddenSamples, showGenotypeRows, showSummaryBar
         case rowHeight, summaryBarHeight, sampleOrder, displayNameField, colorThemeName
         case sampleGroups
-        // Legacy key for migration
-        case rowHeightMode
     }
 
     public init(from decoder: Decoder) throws {
@@ -110,18 +108,8 @@ public struct SampleDisplayState: Sendable, Codable, Equatable {
         colorThemeName = try container.decodeIfPresent(String.self, forKey: .colorThemeName) ?? VariantColorTheme.modern.name
         sampleGroups = try container.decodeIfPresent([SampleGroup].self, forKey: .sampleGroups) ?? []
 
-        // Migrate from legacy RowHeightMode if present
-        if let height = try container.decodeIfPresent(CGFloat.self, forKey: .rowHeight) {
-            rowHeight = Self.clampRowHeight(height)
-        } else if let legacyMode = try container.decodeIfPresent(String.self, forKey: .rowHeightMode) {
-            switch legacyMode {
-            case "squished": rowHeight = 2
-            case "expanded": rowHeight = 10
-            default: rowHeight = Self.defaultRowHeight  // automatic → default
-            }
-        } else {
-            rowHeight = Self.defaultRowHeight
-        }
+        let decodedHeight = try container.decodeIfPresent(CGFloat.self, forKey: .rowHeight) ?? Self.defaultRowHeight
+        rowHeight = Self.clampRowHeight(decodedHeight)
     }
 
     public func encode(to encoder: Encoder) throws {

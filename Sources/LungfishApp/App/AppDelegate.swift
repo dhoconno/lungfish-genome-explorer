@@ -253,6 +253,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// Current working directory for downloads when no project is active
     private var workingDirectoryURL: URL?
 
+    /// Last applied temp retention setting in hours.
+    private var lastAppliedTempRetentionHours: Int = 24
+
     private struct VCFImportHelperEvent: Decodable {
         let event: String
         let progress: Double?
@@ -275,8 +278,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
-        // Load persisted settings (migrates legacy keys on first run)
+        // Load persisted settings
         AppSettings.load()
+        lastAppliedTempRetentionHours = AppSettings.shared.tempFileRetentionHours
 
         // Configure application appearance
         configureAppearance()
@@ -646,6 +650,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             object: nil
         )
 
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAppSettingsChanged(_:)),
+            name: .appSettingsChanged,
+            object: nil
+        )
+
     }
 
     /// Handles annotation updates from the inspector.
@@ -709,6 +720,19 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         // The applyColorToType method already schedules a view state save via the
         // viewController reference, so no additional save trigger is needed here.
+    }
+
+    /// Applies runtime settings that require service reconfiguration.
+    @objc private func handleAppSettingsChanged(_ notification: Notification) {
+        let retentionHours = AppSettings.shared.tempFileRetentionHours
+        guard retentionHours != lastAppliedTempRetentionHours else { return }
+        lastAppliedTempRetentionHours = retentionHours
+
+        Task {
+            await TempFileManager.shared.setMaxAge(hours: retentionHours)
+            // Apply reduced retention immediately instead of waiting for restart.
+            await TempFileManager.shared.cleanupOnLaunch()
+        }
     }
 
     @objc private func windowWillClose(_ notification: Notification) {
@@ -976,7 +1000,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     private func performVCFImport(vcfURL: URL, bundleURL: URL) {
         let cancelFlag = OSAllocatedUnfairLock(initialState: false)
-        let selectedImportProfile = Self.selectedVCFImportProfile()
+        let selectedImportProfile = selectedVCFImportProfile()
         let profileLabel = Self.importProfileLabel(selectedImportProfile)
         mainWindowController?.mainSplitViewController?.activityIndicator?.show(
             message: "Importing VCF variants (\(profileLabel))...",
@@ -1134,19 +1158,18 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
-    private nonisolated static func selectedVCFImportProfile() -> VCFImportProfile {
-        let rawValue = UserDefaults.standard.string(forKey: "VCFImportProfile")
-        guard let raw = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !raw.isEmpty else {
-            return .auto
-        }
+    private func selectedVCFImportProfile() -> VCFImportProfile {
+        let raw = AppSettings.shared.vcfImportProfile
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return .auto }
         if let profile = VCFImportProfile(rawValue: raw) {
             return profile
         }
-        switch raw {
-        case "low", "low-memory", "low_memory":
-            return .lowMemory
+        switch raw.lowercased() {
         case "fast":
             return .fast
+        case "lowmemory", "low-memory", "low_memory":
+            return .lowMemory
         default:
             return .auto
         }

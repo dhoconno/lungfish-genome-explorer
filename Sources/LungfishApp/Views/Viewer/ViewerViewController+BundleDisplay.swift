@@ -46,8 +46,12 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         currentBundleDataProvider = provider
         currentBundleURL = url
 
-        // Load persisted view state (returns defaults if file missing or corrupt)
-        let viewState = BundleViewState.load(from: url)
+        // Load persisted view state. If missing, seed from app-level defaults.
+        let viewStateURL = url.appendingPathComponent(BundleViewState.filename)
+        let hasPersistedViewState = FileManager.default.fileExists(atPath: viewStateURL.path)
+        let viewState = hasPersistedViewState
+            ? BundleViewState.load(from: url)
+            : Self.defaultBundleViewStateFromAppSettings()
         currentBundleViewState = viewState
         bundleLogger.info("displayBundle: Loaded view state (overrides=\(viewState.typeColorOverrides.count), chrom=\(viewState.lastChromosome ?? "none", privacy: .public))")
 
@@ -425,6 +429,25 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         currentBundleViewState = nil
         currentBundleURL = nil
         removeChromosomeNavigator()
+    }
+
+    private static func defaultBundleViewStateFromAppSettings() -> BundleViewState {
+        let settings = AppSettings.shared
+        return BundleViewState(
+            typeColorOverrides: [:],
+            annotationColorOverrides: [:],
+            annotationHeight: settings.defaultAnnotationHeight,
+            annotationSpacing: settings.defaultAnnotationSpacing,
+            showAnnotations: true,
+            visibleAnnotationTypes: nil,
+            showVariants: true,
+            visibleVariantTypes: nil,
+            translationColorScheme: .zappo,
+            isRNAMode: false,
+            lastChromosome: nil,
+            lastOrigin: nil,
+            lastScale: nil
+        )
     }
 }
 

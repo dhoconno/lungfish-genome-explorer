@@ -13,7 +13,9 @@ struct AIServicesSettingsTab: View {
     @State private var openAIKey: String = ""
     @State private var anthropicKey: String = ""
     @State private var geminiKey: String = ""
+    @State private var keychainErrorMessage: String?
     @State private var showClearConfirmation = false
+    @State private var isLoadingKeys = false
 
     // Debounce tasks for Keychain writes (avoid writing on every keystroke)
     @State private var openAISaveTask: Task<Void, Never>?
@@ -73,16 +75,33 @@ struct AIServicesSettingsTab: View {
                     settings.resetSection(.aiServices)
                 }
             }
+
+            if let keychainErrorMessage {
+                Text(keychainErrorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
         }
         .formStyle(.grouped)
         .onAppear { loadKeys() }
-        .onChange(of: openAIKey) { _, newValue in debouncedStore(newValue, forKey: KeychainSecretStorage.openAIAPIKey, task: &openAISaveTask) }
-        .onChange(of: anthropicKey) { _, newValue in debouncedStore(newValue, forKey: KeychainSecretStorage.anthropicAPIKey, task: &anthropicSaveTask) }
-        .onChange(of: geminiKey) { _, newValue in debouncedStore(newValue, forKey: KeychainSecretStorage.geminiAPIKey, task: &geminiSaveTask) }
+        .onChange(of: openAIKey) { _, newValue in
+            debouncedStore(newValue, forKey: KeychainSecretStorage.openAIAPIKey, task: &openAISaveTask)
+        }
+        .onChange(of: anthropicKey) { _, newValue in
+            debouncedStore(newValue, forKey: KeychainSecretStorage.anthropicAPIKey, task: &anthropicSaveTask)
+        }
+        .onChange(of: geminiKey) { _, newValue in
+            debouncedStore(newValue, forKey: KeychainSecretStorage.geminiAPIKey, task: &geminiSaveTask)
+        }
         .onChange(of: settings.aiSearchEnabled) { _, _ in settings.save() }
         .onChange(of: settings.openAIModel) { _, _ in settings.save() }
         .onChange(of: settings.anthropicModel) { _, _ in settings.save() }
         .onChange(of: settings.geminiModel) { _, _ in settings.save() }
+        .onDisappear {
+            openAISaveTask?.cancel()
+            anthropicSaveTask?.cancel()
+            geminiSaveTask?.cancel()
+        }
         .alert("Clear All API Keys?", isPresented: $showClearConfirmation) {
             Button("Clear", role: .destructive) { clearAllKeys() }
             Button("Cancel", role: .cancel) {}
@@ -101,29 +120,49 @@ struct AIServicesSettingsTab: View {
     }
 
     private func loadKeys() {
-        Task {
-            openAIKey = (try? await KeychainSecretStorage.shared.retrieve(forKey: KeychainSecretStorage.openAIAPIKey)) ?? ""
-            anthropicKey = (try? await KeychainSecretStorage.shared.retrieve(forKey: KeychainSecretStorage.anthropicAPIKey)) ?? ""
-            geminiKey = (try? await KeychainSecretStorage.shared.retrieve(forKey: KeychainSecretStorage.geminiAPIKey)) ?? ""
+        Task { @MainActor in
+            isLoadingKeys = true
+            defer { isLoadingKeys = false }
+            do {
+                openAIKey = try await KeychainSecretStorage.shared.retrieve(forKey: KeychainSecretStorage.openAIAPIKey) ?? ""
+                anthropicKey = try await KeychainSecretStorage.shared.retrieve(forKey: KeychainSecretStorage.anthropicAPIKey) ?? ""
+                geminiKey = try await KeychainSecretStorage.shared.retrieve(forKey: KeychainSecretStorage.geminiAPIKey) ?? ""
+                keychainErrorMessage = nil
+            } catch {
+                keychainErrorMessage = error.localizedDescription
+            }
         }
     }
 
     /// Debounces Keychain writes by 500ms to avoid writing on every keystroke.
     private func debouncedStore(_ value: String, forKey key: String, task: inout Task<Void, Never>?) {
+        guard !isLoadingKeys else { return }
         task?.cancel()
-        task = Task {
+        task = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
-            try? await KeychainSecretStorage.shared.store(secret: value, forKey: key)
+            do {
+                try await KeychainSecretStorage.shared.store(secret: value, forKey: key)
+                keychainErrorMessage = nil
+            } catch {
+                keychainErrorMessage = error.localizedDescription
+            }
         }
     }
 
     private func clearAllKeys() {
-        Task {
-            try? await KeychainSecretStorage.shared.deleteAll()
-            openAIKey = ""
-            anthropicKey = ""
-            geminiKey = ""
+        Task { @MainActor in
+            do {
+                try await KeychainSecretStorage.shared.deleteAll()
+                isLoadingKeys = true
+                openAIKey = ""
+                anthropicKey = ""
+                geminiKey = ""
+                isLoadingKeys = false
+                keychainErrorMessage = nil
+            } catch {
+                keychainErrorMessage = error.localizedDescription
+            }
         }
     }
 }

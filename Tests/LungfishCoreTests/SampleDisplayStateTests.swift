@@ -240,35 +240,6 @@ final class SampleDisplayStateTests: XCTestCase {
         XCTAssertEqual(decoded.displayNameField, "alias")
     }
 
-    func testCodableLegacyMigration() throws {
-        // Simulate old format with rowHeightMode instead of rowHeight
-        let json = """
-        {"showGenotypeRows":true,"rowHeightMode":"squished","sortFields":[],"filters":[],"hiddenSamples":[]}
-        """
-        let data = json.data(using: .utf8)!
-        let decoded = try JSONDecoder().decode(SampleDisplayState.self, from: data)
-        XCTAssertEqual(decoded.rowHeight, 2, "Legacy 'squished' should migrate to 2px")
-        XCTAssertEqual(decoded.summaryBarHeight, 20, "Missing summaryBarHeight should default to 20")
-    }
-
-    func testCodableLegacyExpandedMigration() throws {
-        let json = """
-        {"showGenotypeRows":true,"rowHeightMode":"expanded","sortFields":[],"filters":[],"hiddenSamples":[]}
-        """
-        let data = json.data(using: .utf8)!
-        let decoded = try JSONDecoder().decode(SampleDisplayState.self, from: data)
-        XCTAssertEqual(decoded.rowHeight, 10, "Legacy 'expanded' should migrate to 10px")
-    }
-
-    func testCodableLegacyAutomaticMigration() throws {
-        let json = """
-        {"showGenotypeRows":true,"rowHeightMode":"automatic","sortFields":[],"filters":[],"hiddenSamples":[]}
-        """
-        let data = json.data(using: .utf8)!
-        let decoded = try JSONDecoder().decode(SampleDisplayState.self, from: data)
-        XCTAssertEqual(decoded.rowHeight, 12, "Legacy 'automatic' should migrate to 12px (default)")
-    }
-
     func testCodableClampsOutOfRangeHeights() throws {
         let json = """
         {"showGenotypeRows":true,"rowHeight":999,"summaryBarHeight":-4,"sortFields":[],"filters":[],"hiddenSamples":[]}

@@ -10,7 +10,7 @@ private let logger = Logger(subsystem: "com.lungfish.browser", category: "Settin
 
 /// NSWindowController that hosts the SwiftUI Settings view.
 ///
-/// Follows the macOS HIG pattern: non-resizable titled window with tabs,
+/// Follows the macOS HIG pattern: titled tabbed settings window,
 /// accessible via Cmd+,. Singleton-like lifecycle managed by AppDelegate.
 @MainActor
 public final class SettingsWindowController: NSWindowController {
@@ -18,11 +18,12 @@ public final class SettingsWindowController: NSWindowController {
     public init() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 550, height: 460),
-            styleMask: [.titled, .closable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = "Settings"
+        window.minSize = NSSize(width: 550, height: 460)
         window.setFrameAutosaveName("SettingsWindow")
 
         super.init(window: window)

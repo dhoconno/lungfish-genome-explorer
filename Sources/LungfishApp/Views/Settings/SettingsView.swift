@@ -21,6 +21,6 @@ struct SettingsView: View {
             AIServicesSettingsTab()
                 .tabItem { Label("AI Services", systemImage: "brain") }
         }
-        .frame(width: 550, height: 460)
+        .frame(minWidth: 550, idealWidth: 680, minHeight: 460, idealHeight: 560)
     }
 }

@@ -15,10 +15,16 @@ import LungfishCore
 @MainActor
 public final class SampleSectionViewModel {
 
+    private static func makeDefaultDisplayState() -> SampleDisplayState {
+        var state = SampleDisplayState()
+        state.colorThemeName = AppSettings.shared.variantColorThemeName
+        return state
+    }
+
     // MARK: - Properties
 
     /// Current sample display state (row visibility, height, sort, filter).
-    var displayState: SampleDisplayState = SampleDisplayState()
+    var displayState: SampleDisplayState = makeDefaultDisplayState()
 
     /// Total number of samples in the variant database.
     var sampleCount: Int = 0
@@ -102,7 +108,7 @@ public final class SampleSectionViewModel {
         sampleMetadata = [:]
         sourceFiles = [:]
         hasVariantData = false
-        displayState = SampleDisplayState()
+        displayState = Self.makeDefaultDisplayState()
         editingSample = nil
     }
 
@@ -249,7 +255,7 @@ public final class SampleSectionViewModel {
 
     /// Resets display state to defaults.
     func resetToDefaults() {
-        displayState = SampleDisplayState()
+        displayState = Self.makeDefaultDisplayState()
         notifyStateChanged()
     }
 

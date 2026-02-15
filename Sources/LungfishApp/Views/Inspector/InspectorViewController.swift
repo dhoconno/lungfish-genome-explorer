@@ -550,15 +550,11 @@ public class InspectorViewController: NSViewController {
         appearance.trackHeight = CGFloat(viewModel.appearanceSectionViewModel.trackHeight)
         logger.info("handleAppearanceChanged: Track height = \(appearance.trackHeight, privacy: .public)")
 
-        appearance.save()
+        AppSettings.shared.sequenceAppearance = appearance
+        AppSettings.shared.save()
         viewModel.appearance = appearance
 
-        NotificationCenter.default.post(
-            name: .appearanceChanged,
-            object: self,
-            userInfo: nil
-        )
-        logger.info("handleAppearanceChanged: Posted appearanceChanged notification")
+        logger.info("handleAppearanceChanged: Appearance persisted")
     }
 
     /// Handles quality overlay toggle changes.
@@ -567,14 +563,11 @@ public class InspectorViewController: NSViewController {
     private func handleQualityOverlayToggled(_ enabled: Bool) {
         var appearance = viewModel.appearance
         appearance.showQualityOverlay = enabled
-        appearance.save()
+        AppSettings.shared.sequenceAppearance = appearance
+        AppSettings.shared.save()
         viewModel.appearance = appearance
 
-        NotificationCenter.default.post(
-            name: .appearanceChanged,
-            object: self,
-            userInfo: nil
-        )
+        // AppSettings.save() posts .appearanceChanged
     }
 
     /// Handles sample display state changes from the SampleSection.
@@ -617,20 +610,14 @@ public class InspectorViewController: NSViewController {
         // 3. Reset the annotation section view model (height, spacing, visibility, filters)
         viewModel.annotationSectionViewModel.resetToDefaults()
 
-        // 4. Reset the core SequenceAppearance model and clear persisted settings
-        let defaultAppearance = SequenceAppearance.resetToDefaults()
+        // 4. Reset the core appearance model in AppSettings
+        let defaultAppearance = SequenceAppearance.default
+        AppSettings.shared.sequenceAppearance = defaultAppearance
+        AppSettings.shared.save()
         viewModel.appearance = defaultAppearance
-        logger.info("handleResetAllAppearanceSettings: Cleared persisted settings, using defaults")
+        logger.info("handleResetAllAppearanceSettings: Reset persisted settings to defaults")
 
-        // 5. Post notifications so the viewer updates
-        // Post appearance changed notification
-        NotificationCenter.default.post(
-            name: .appearanceChanged,
-            object: self,
-            userInfo: nil
-        )
-
-        // Post annotation settings changed notification
+        // 5. Post annotation notifications so the viewer updates
         NotificationCenter.default.post(
             name: .annotationSettingsChanged,
             object: self,
@@ -861,7 +848,7 @@ public final class InspectorViewModel {
     // MARK: - Appearance State
 
     /// Current appearance settings
-    var appearance: SequenceAppearance = .load()
+    var appearance: SequenceAppearance = AppSettings.shared.sequenceAppearance
 
     // MARK: - Quality State
 

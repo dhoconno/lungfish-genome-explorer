@@ -8,12 +8,10 @@ import XCTest
 @MainActor
 final class AppSettingsTests: XCTestCase {
 
-    override func setUp() {
-        super.setUp()
+    override func setUpWithError() throws {
+        try super.setUpWithError()
         // Clear any persisted settings before each test
         UserDefaults.standard.removeObject(forKey: "com.lungfish.appSettings")
-        UserDefaults.standard.removeObject(forKey: "SequenceAppearance")
-        UserDefaults.standard.removeObject(forKey: "VCFImportProfile")
         // Reset shared instance to defaults
         AppSettings.shared.resetToDefaults()
     }
@@ -105,31 +103,59 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.annotationTypeColorHexes["gene"], "#339933", "Appearance section should be reset")
     }
 
-    // MARK: - Legacy Migration
+    // MARK: - Decode Robustness
 
-    func testMigratesLegacySequenceAppearance() {
-        // Save a SequenceAppearance under the legacy key
-        var customAppearance = SequenceAppearance.default
-        customAppearance.trackHeight = 42.0
-        customAppearance.save()  // Saves under "SequenceAppearance" key
+    func testLoadFromPartialSnapshotUsesDefaultsForMissingFields() {
+        let partialJSON = #"{"defaultZoomWindow":42000}"#
+        UserDefaults.standard.set(partialJSON.data(using: .utf8), forKey: "com.lungfish.appSettings")
 
-        // Ensure no new settings key exists
-        UserDefaults.standard.removeObject(forKey: "com.lungfish.appSettings")
-
-        // Load should migrate
         AppSettings.load()
-        XCTAssertEqual(AppSettings.shared.sequenceAppearance.trackHeight, 42.0,
-                       "Should migrate legacy SequenceAppearance")
+
+        let settings = AppSettings.shared
+        XCTAssertEqual(settings.defaultZoomWindow, 42_000)
+        XCTAssertEqual(settings.maxUndoLevels, 100)
+        XCTAssertEqual(settings.vcfImportProfile, "auto")
+        XCTAssertEqual(settings.variantColorThemeName, VariantColorTheme.modern.name)
     }
 
-    func testMigratesLegacyVCFImportProfile() {
-        // Set legacy VCF import profile
-        UserDefaults.standard.set("lowMemory", forKey: "VCFImportProfile")
-        UserDefaults.standard.removeObject(forKey: "com.lungfish.appSettings")
+    func testLoadClampsInvalidPersistedValues() {
+        let invalidJSON = """
+        {
+          "defaultZoomWindow": 9999999,
+          "maxUndoLevels": -4,
+          "vcfImportProfile": "invalid",
+          "tempFileRetentionHours": -200,
+          "variantColorThemeName": "Unknown Theme",
+          "defaultAnnotationHeight": 999,
+          "defaultAnnotationSpacing": -5,
+          "maxAnnotationRows": 0,
+          "sequenceFetchCapKb": 999999,
+          "maxTableDisplayCount": 10,
+          "densityThresholdBpPerPixel": 1,
+          "squishedThresholdBpPerPixel": 999999,
+          "showLettersThresholdBpPerPixel": 999,
+          "tooltipDelay": 20
+        }
+        """
+        UserDefaults.standard.set(invalidJSON.data(using: .utf8), forKey: "com.lungfish.appSettings")
 
         AppSettings.load()
-        XCTAssertEqual(AppSettings.shared.vcfImportProfile, "lowMemory",
-                       "Should migrate legacy VCFImportProfile")
+        let settings = AppSettings.shared
+
+        XCTAssertEqual(settings.defaultZoomWindow, 1_000_000)
+        XCTAssertEqual(settings.maxUndoLevels, 10)
+        XCTAssertEqual(settings.vcfImportProfile, "auto")
+        XCTAssertEqual(settings.tempFileRetentionHours, 1)
+        XCTAssertEqual(settings.variantColorThemeName, VariantColorTheme.modern.name)
+        XCTAssertEqual(settings.defaultAnnotationHeight, 32)
+        XCTAssertEqual(settings.defaultAnnotationSpacing, 0)
+        XCTAssertEqual(settings.maxAnnotationRows, 10)
+        XCTAssertEqual(settings.sequenceFetchCapKb, 5_000)
+        XCTAssertEqual(settings.maxTableDisplayCount, 1_000)
+        XCTAssertEqual(settings.densityThresholdBpPerPixel, 10_000)
+        XCTAssertEqual(settings.squishedThresholdBpPerPixel, 5_000)
+        XCTAssertEqual(settings.showLettersThresholdBpPerPixel, 50)
+        XCTAssertEqual(settings.tooltipDelay, 1.0)
     }
 
     // MARK: - Annotation Color Helpers

@@ -37,6 +37,12 @@ private extension String {
 @MainActor
 public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
 
+    private static func defaultSampleDisplayState() -> SampleDisplayState {
+        var state = SampleDisplayState()
+        state.colorThemeName = AppSettings.shared.variantColorThemeName
+        return state
+    }
+
     // MARK: - Types
 
     /// The active tab in the drawer.
@@ -213,7 +219,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     var displayedSamples: [SampleDisplayRow] = []
 
     /// Local copy of sample display state for driving visibility toggles.
-    private var currentSampleDisplayState: SampleDisplayState = SampleDisplayState()
+    private var currentSampleDisplayState: SampleDisplayState = {
+        AnnotationTableDrawerView.defaultSampleDisplayState()
+    }()
 
     /// Whether we have received an authoritative sample display state from viewer/inspector.
     private var hasSampleDisplayStateSeed = false
@@ -3710,7 +3718,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
 
         sampleMetadataFields = metadataKeySet.sorted()
         if !hasSampleDisplayStateSeed {
-            currentSampleDisplayState = SampleDisplayState()
+            currentSampleDisplayState = Self.defaultSampleDisplayState()
         }
     }
 
