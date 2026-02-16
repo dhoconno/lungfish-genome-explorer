@@ -40,6 +40,8 @@ public final class AIAssistantService {
 
     /// Maximum tool execution rounds per user message (prevents infinite loops).
     private let maxToolRounds = 8
+    private let providerValidationTTL: TimeInterval = 300
+    private var providerValidationCache: [String: Date] = [:]
 
     public init(toolRegistry: AIToolRegistry) {
         self.toolRegistry = toolRegistry
@@ -163,7 +165,11 @@ public final class AIAssistantService {
         guard !providers.isEmpty else {
             throw AIProviderError.missingAPIKey
         }
-        return providers
+        let validated = try await filterValidProviders(providers)
+        guard !validated.isEmpty else {
+            throw AIProviderError.invalidResponse("No configured AI provider has a valid API key with available credits.")
+        }
+        return validated
     }
 
     private func makeProvider(
@@ -219,6 +225,36 @@ public final class AIAssistantService {
         }
 
         throw lastError ?? firstError ?? AIProviderError.networkError("No provider response")
+    }
+
+    private func filterValidProviders(_ providers: [any AIProvider]) async throws -> [any AIProvider] {
+        var valid: [any AIProvider] = []
+        for provider in providers {
+            if try await isProviderValidated(provider) {
+                valid.append(provider)
+            }
+        }
+        return valid
+    }
+
+    private func isProviderValidated(_ provider: any AIProvider) async throws -> Bool {
+        let cacheKey = "\(provider.name)|\(provider.modelId)"
+        if let lastValidatedAt = providerValidationCache[cacheKey],
+           Date().timeIntervalSince(lastValidatedAt) < providerValidationTTL {
+            return true
+        }
+
+        do {
+            try await provider.validateCredentials()
+            providerValidationCache[cacheKey] = Date()
+            return true
+        } catch let providerError as AIProviderError {
+            logger.warning("Provider validation failed for \(provider.name, privacy: .public): \(providerError.localizedDescription, privacy: .public)")
+            return false
+        } catch {
+            logger.warning("Provider validation failed for \(provider.name, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return false
+        }
     }
 
     private func shouldFallback(for error: AIProviderError) -> Bool {

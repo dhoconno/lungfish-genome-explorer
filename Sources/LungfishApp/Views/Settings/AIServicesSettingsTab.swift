@@ -7,6 +7,19 @@ import LungfishCore
 
 /// AI Services preferences: API key management, model selection, enable/disable.
 struct AIServicesSettingsTab: View {
+    private enum ProviderKind {
+        case openAI
+        case anthropic
+        case gemini
+    }
+
+    private enum KeyValidationState: Equatable {
+        case empty
+        case unverified
+        case validating
+        case valid
+        case invalid(String)
+    }
 
     @State private var settings = AppSettings.shared
 
@@ -16,6 +29,9 @@ struct AIServicesSettingsTab: View {
     @State private var keychainErrorMessage: String?
     @State private var showClearConfirmation = false
     @State private var isLoadingKeys = false
+    @State private var openAIValidation: KeyValidationState = .empty
+    @State private var anthropicValidation: KeyValidationState = .empty
+    @State private var geminiValidation: KeyValidationState = .empty
 
     // Debounce tasks for Keychain writes (avoid writing on every keystroke)
     @State private var openAISaveTask: Task<Void, Never>?
@@ -44,9 +60,10 @@ struct AIServicesSettingsTab: View {
 
             Section("Anthropic") {
                 HStack {
-                    statusIndicator(hasKey: !anthropicKey.isEmpty)
+                    statusIndicator(state: anthropicValidation)
                     SecureField("API Key", text: $anthropicKey, prompt: Text("sk-ant-..."))
                 }
+                validationText(for: anthropicValidation)
                 Picker("Model:", selection: $settings.anthropicModel) {
                     Text("Claude Sonnet 4.5").tag("claude-sonnet-4-5-20250929")
                     Text("Claude Haiku 4.5").tag("claude-haiku-4-5-20251001")
@@ -55,9 +72,10 @@ struct AIServicesSettingsTab: View {
 
             Section("OpenAI") {
                 HStack {
-                    statusIndicator(hasKey: !openAIKey.isEmpty)
+                    statusIndicator(state: openAIValidation)
                     SecureField("API Key", text: $openAIKey, prompt: Text("sk-..."))
                 }
+                validationText(for: openAIValidation)
                 Picker("Model:", selection: $settings.openAIModel) {
                     Text("GPT-5 Mini (Recommended)").tag("gpt-5-mini")
                     Text("GPT-5").tag("gpt-5")
@@ -69,9 +87,10 @@ struct AIServicesSettingsTab: View {
 
             Section("Google Gemini") {
                 HStack {
-                    statusIndicator(hasKey: !geminiKey.isEmpty)
+                    statusIndicator(state: geminiValidation)
                     SecureField("API Key", text: $geminiKey, prompt: Text("AIza..."))
                 }
+                validationText(for: geminiValidation)
                 Picker("Model:", selection: $settings.geminiModel) {
                     Text("Gemini 2.5 Flash (Recommended)").tag("gemini-2.5-flash")
                     Text("Gemini 2.5 Pro").tag("gemini-2.5-pro")
@@ -128,11 +147,50 @@ struct AIServicesSettingsTab: View {
 
     // MARK: - Helpers
 
-    @ViewBuilder
-    private func statusIndicator(hasKey: Bool) -> some View {
-        Image(systemName: hasKey ? "checkmark.circle.fill" : "minus.circle")
-            .foregroundStyle(hasKey ? .green : .secondary)
+    private func statusIndicator(state: KeyValidationState) -> some View {
+        let symbol: String
+        let color: Color
+        switch state {
+        case .empty:
+            symbol = "minus.circle"
+            color = .secondary
+        case .unverified, .validating:
+            symbol = "hourglass.circle"
+            color = .orange
+        case .valid:
+            symbol = "checkmark.circle.fill"
+            color = .green
+        case .invalid:
+            symbol = "xmark.circle.fill"
+            color = .red
+        }
+        return Image(systemName: symbol)
+            .foregroundStyle(color)
             .imageScale(.small)
+    }
+
+    @ViewBuilder
+    private func validationText(for state: KeyValidationState) -> some View {
+        switch state {
+        case .empty:
+            EmptyView()
+        case .unverified:
+            Text("Key saved. Enter a full key to validate automatically.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .validating:
+            Text("Validating API key and quota...")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .valid:
+            Text("Key is valid and ready for AI queries.")
+                .font(.caption)
+                .foregroundStyle(.green)
+        case .invalid(let message):
+            Text("Validation failed: \(message)")
+                .font(.caption)
+                .foregroundStyle(.red)
+        }
     }
 
     private func loadKeys() {
@@ -143,6 +201,9 @@ struct AIServicesSettingsTab: View {
                 openAIKey = try await KeychainSecretStorage.shared.retrieve(forKey: KeychainSecretStorage.openAIAPIKey) ?? ""
                 anthropicKey = try await KeychainSecretStorage.shared.retrieve(forKey: KeychainSecretStorage.anthropicAPIKey) ?? ""
                 geminiKey = try await KeychainSecretStorage.shared.retrieve(forKey: KeychainSecretStorage.geminiAPIKey) ?? ""
+                openAIValidation = openAIKey.isEmpty ? .empty : .unverified
+                anthropicValidation = anthropicKey.isEmpty ? .empty : .unverified
+                geminiValidation = geminiKey.isEmpty ? .empty : .unverified
                 keychainErrorMessage = nil
             } catch {
                 keychainErrorMessage = error.localizedDescription
@@ -153,6 +214,7 @@ struct AIServicesSettingsTab: View {
     /// Debounces Keychain writes by 500ms to avoid writing on every keystroke.
     private func debouncedStore(_ value: String, forKey key: String, task: inout Task<Void, Never>?) {
         guard !isLoadingKeys else { return }
+        setValidationState(value.isEmpty ? .empty : .unverified, for: providerForKey(key))
         task?.cancel()
         task = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
@@ -160,8 +222,12 @@ struct AIServicesSettingsTab: View {
             do {
                 try await KeychainSecretStorage.shared.store(secret: value, forKey: key)
                 keychainErrorMessage = nil
+                if shouldValidate(keyValue: value, provider: providerForKey(key)) {
+                    await validateKey(value, provider: providerForKey(key))
+                }
             } catch {
                 keychainErrorMessage = error.localizedDescription
+                setValidationState(.invalid(error.localizedDescription), for: providerForKey(key))
             }
         }
     }
@@ -174,11 +240,72 @@ struct AIServicesSettingsTab: View {
                 openAIKey = ""
                 anthropicKey = ""
                 geminiKey = ""
+                openAIValidation = .empty
+                anthropicValidation = .empty
+                geminiValidation = .empty
                 isLoadingKeys = false
                 keychainErrorMessage = nil
             } catch {
                 keychainErrorMessage = error.localizedDescription
             }
+        }
+    }
+
+    private func providerForKey(_ keychainKey: String) -> ProviderKind {
+        switch keychainKey {
+        case KeychainSecretStorage.anthropicAPIKey:
+            return .anthropic
+        case KeychainSecretStorage.geminiAPIKey:
+            return .gemini
+        default:
+            return .openAI
+        }
+    }
+
+    private func shouldValidate(keyValue: String, provider: ProviderKind) -> Bool {
+        let trimmed = keyValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        switch provider {
+        case .openAI:
+            return trimmed.hasPrefix("sk-") && trimmed.count >= 20
+        case .anthropic:
+            return trimmed.hasPrefix("sk-ant-") && trimmed.count >= 20
+        case .gemini:
+            return trimmed.hasPrefix("AIza") && trimmed.count >= 20
+        }
+    }
+
+    @MainActor
+    private func validateKey(_ keyValue: String, provider: ProviderKind) async {
+        setValidationState(.validating, for: provider)
+        do {
+            let aiProvider: any AIProvider
+            switch provider {
+            case .openAI:
+                aiProvider = OpenAIProvider(apiKey: keyValue, modelId: settings.openAIModel)
+            case .anthropic:
+                aiProvider = AnthropicProvider(apiKey: keyValue, modelId: settings.anthropicModel)
+            case .gemini:
+                aiProvider = GeminiProvider(apiKey: keyValue, modelId: settings.geminiModel)
+            }
+            try await aiProvider.validateCredentials()
+            setValidationState(.valid, for: provider)
+        } catch let providerError as AIProviderError {
+            setValidationState(.invalid(providerError.localizedDescription), for: provider)
+        } catch {
+            setValidationState(.invalid(error.localizedDescription), for: provider)
+        }
+    }
+
+    @MainActor
+    private func setValidationState(_ state: KeyValidationState, for provider: ProviderKind) {
+        switch provider {
+        case .openAI:
+            openAIValidation = state
+        case .anthropic:
+            anthropicValidation = state
+        case .gemini:
+            geminiValidation = state
         }
     }
 }

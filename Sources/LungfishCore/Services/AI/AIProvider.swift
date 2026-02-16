@@ -343,6 +343,20 @@ public protocol AIProvider: Sendable {
     ) async throws -> AIResponse
 }
 
+public extension AIProvider {
+    /// Performs a lightweight credential/quota check by issuing a minimal completion request.
+    ///
+    /// Providers should return success for valid keys with available quota/credits.
+    /// This default implementation keeps logic centralized across all providers.
+    func validateCredentials() async throws {
+        _ = try await sendMessage(
+            messages: [.user("Return exactly OK.")],
+            systemPrompt: "Credential validation request. Return exactly 'OK'.",
+            tools: []
+        )
+    }
+}
+
 // MARK: - AI Provider Error
 
 /// Errors that can occur when communicating with AI providers.
