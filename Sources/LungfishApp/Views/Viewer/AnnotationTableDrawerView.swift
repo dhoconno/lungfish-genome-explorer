@@ -225,6 +225,11 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Filtered and displayed samples for the samples tab.
     var displayedSamples: [SampleDisplayRow] = []
 
+    /// Active quick-filter tokens for the samples tab.
+    private var activeSampleTokens: Set<SampleSmartToken> = []
+    /// Optional currently-selected sample-group preset.
+    private var selectedSampleGroupId: UUID?
+
     /// Local copy of sample display state for driving visibility toggles.
     private var currentSampleDisplayState: SampleDisplayState = {
         AnnotationTableDrawerView.defaultSampleDisplayState()
@@ -277,6 +282,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     private let annotationFilterField = NSSearchField()
     private let variantFilterField = NSSearchField()
     private let sampleFilterField = NSSearchField()
+    private let sampleQueryBuilderButton = NSButton()
+    private let clearSampleFilterButton = NSButton()
+    private let sampleGroupPresetButton = NSPopUpButton(frame: .zero, pullsDown: true)
     private let addSampleFieldButton = NSButton()
     private let sampleGroupsButton = NSButton()
     private let countLabel = NSTextField(labelWithString: "")
@@ -310,6 +318,31 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Beyond this, user must filter to narrow down results.
     private static var maxDisplayCount: Int { AppSettings.shared.maxTableDisplayCount }
     private static let variantQueryDebounceInterval: TimeInterval = 0.12
+
+    private enum SampleSmartToken: String, CaseIterable {
+        case visibleOnly
+        case hiddenOnly
+        case hasMetadata
+        case missingMetadata
+
+        var label: String {
+            switch self {
+            case .visibleOnly: return "Visible"
+            case .hiddenOnly: return "Hidden"
+            case .hasMetadata: return "Has Metadata"
+            case .missingMetadata: return "Missing Metadata"
+            }
+        }
+
+        var exclusivityGroupKey: String? {
+            switch self {
+            case .visibleOnly, .hiddenOnly:
+                return "visibility"
+            case .hasMetadata, .missingMetadata:
+                return "metadata"
+            }
+        }
+    }
 
     private struct VariantQueryCacheKey: Equatable {
         let filterText: String
@@ -345,6 +378,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     private var smartTokenButtons: [SmartToken: NSButton] = [:]
     /// Reverse lookup: button identity -> SmartToken.
     private var smartTokenPayloads: [ObjectIdentifier: SmartToken] = [:]
+    /// Smart token chip buttons keyed by sample token case.
+    private var sampleTokenButtons: [SampleSmartToken: NSButton] = [:]
+    /// Reverse lookup: button identity -> SampleSmartToken.
+    private var sampleTokenPayloads: [ObjectIdentifier: SampleSmartToken] = [:]
     /// Bookmarked variant keys (`trackId:variantRowId`) for star column display.
     var bookmarkedVariantKeys: Set<String> = []
     /// Column configuration popover (gear menu).
@@ -552,6 +589,33 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         sampleGroupsButton.action = #selector(showSampleGroupsSheet(_:))
         sampleGroupsButton.isHidden = true
         searchBar.addSubview(sampleGroupsButton)
+
+        sampleGroupPresetButton.controlSize = .small
+        sampleGroupPresetButton.font = .systemFont(ofSize: 10, weight: .medium)
+        sampleGroupPresetButton.translatesAutoresizingMaskIntoConstraints = false
+        sampleGroupPresetButton.toolTip = "Show only a saved sample group"
+        sampleGroupPresetButton.isHidden = true
+        searchBar.addSubview(sampleGroupPresetButton)
+
+        sampleQueryBuilderButton.title = "Sample Query..."
+        sampleQueryBuilderButton.controlSize = .small
+        sampleQueryBuilderButton.bezelStyle = .rounded
+        sampleQueryBuilderButton.font = .systemFont(ofSize: 10, weight: .medium)
+        sampleQueryBuilderButton.translatesAutoresizingMaskIntoConstraints = false
+        sampleQueryBuilderButton.target = self
+        sampleQueryBuilderButton.action = #selector(openSampleSearchBuilder(_:))
+        sampleQueryBuilderButton.isHidden = true
+        searchBar.addSubview(sampleQueryBuilderButton)
+
+        clearSampleFilterButton.title = "Clear"
+        clearSampleFilterButton.font = .systemFont(ofSize: 10, weight: .medium)
+        clearSampleFilterButton.controlSize = .small
+        clearSampleFilterButton.bezelStyle = .recessed
+        clearSampleFilterButton.target = self
+        clearSampleFilterButton.action = #selector(clearSampleFilter(_:))
+        clearSampleFilterButton.translatesAutoresizingMaskIntoConstraints = false
+        clearSampleFilterButton.isHidden = true
+        searchBar.addSubview(clearSampleFilterButton)
 
         downloadTemplateButton.title = "Template TSV/CSV"
         downloadTemplateButton.controlSize = .small
@@ -767,7 +831,17 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             sampleFilterField.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
             sampleFilterField.leadingAnchor.constraint(equalTo: searchBar.leadingAnchor, constant: 8),
             sampleFilterField.heightAnchor.constraint(equalToConstant: 24),
-            sampleFilterField.trailingAnchor.constraint(lessThanOrEqualTo: addSampleFieldButton.leadingAnchor, constant: -8),
+            sampleFilterField.trailingAnchor.constraint(lessThanOrEqualTo: sampleQueryBuilderButton.leadingAnchor, constant: -8),
+
+            clearSampleFilterButton.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
+            clearSampleFilterButton.trailingAnchor.constraint(equalTo: sampleQueryBuilderButton.leadingAnchor, constant: -4),
+
+            sampleQueryBuilderButton.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
+            sampleQueryBuilderButton.trailingAnchor.constraint(equalTo: sampleGroupPresetButton.leadingAnchor, constant: -6),
+
+            sampleGroupPresetButton.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
+            sampleGroupPresetButton.trailingAnchor.constraint(equalTo: addSampleFieldButton.leadingAnchor, constant: -6),
+            sampleGroupPresetButton.widthAnchor.constraint(lessThanOrEqualToConstant: 170),
 
             allTypesButton.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
             allTypesButton.trailingAnchor.constraint(equalTo: noneTypesButton.leadingAnchor, constant: -4),
@@ -1016,12 +1090,16 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     private func updateSearchFieldVisibility() {
         let showVariants = activeTab == .variants
+        let showSamples = activeTab == .samples
         annotationFilterField.isHidden = activeTab != .annotations
         variantFilterField.isHidden = true  // Always hidden; Query Builder writes to variantFilterText directly
-        sampleFilterField.isHidden = activeTab != .samples
-        addSampleFieldButton.isHidden = activeTab != .samples
-        sampleGroupsButton.isHidden = activeTab != .samples
-        downloadTemplateButton.isHidden = activeTab != .samples
+        sampleFilterField.isHidden = !showSamples
+        addSampleFieldButton.isHidden = !showSamples
+        sampleGroupsButton.isHidden = !showSamples
+        downloadTemplateButton.isHidden = !showSamples
+        sampleQueryBuilderButton.isHidden = !showSamples
+        sampleGroupPresetButton.isHidden = !showSamples
+        clearSampleFilterButton.isHidden = !showSamples || (!hasActiveSampleFilters && sampleFilterText.isEmpty)
         variantSubtabControl.isHidden = !showVariants
         profileButton.isHidden = !showVariants
         scopeControl.isHidden = !showVariants
@@ -1034,6 +1112,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         allTypesButton.isHidden = !showTypeControls
         noneTypesButton.isHidden = !showTypeControls
         updateVariantFilterIndicator()
+        rebuildSampleGroupPresetMenu()
         updateScopeControlSelection()
     }
 
@@ -1241,7 +1320,28 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                     tableView.moveColumn(currentIndex, toColumn: targetIndex)
                 }
             }
+        } else if tab == .samples {
+            // Default behavior: keep only metadata columns with at least one non-empty value.
+            let fieldsWithValues = metadataFieldsWithValues()
+            for col in tableView.tableColumns.reversed() where col.identifier.rawValue.hasPrefix("meta_") {
+                let field = String(col.identifier.rawValue.dropFirst(5))
+                if !fieldsWithValues.contains(field) {
+                    tableView.removeTableColumn(col)
+                }
+            }
         }
+    }
+
+    private func metadataFieldsWithValues() -> Set<String> {
+        var fields = Set<String>()
+        for metadata in sampleMetadata.values {
+            for (key, value) in metadata {
+                if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    fields.insert(key)
+                }
+            }
+        }
+        return fields
     }
 
     /// INFO keys that should be promoted to default-visible positions when present.
@@ -1548,6 +1648,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         variantPresetMorePayloads.removeAll()
         smartTokenButtons.removeAll()
         smartTokenPayloads.removeAll()
+        sampleTokenButtons.removeAll()
+        sampleTokenPayloads.removeAll()
 
         var hasSmartTokens = false
         // Smart tokens for the variants tab (grouped by semantic section).
@@ -1591,6 +1693,28 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 spacer.widthAnchor.constraint(equalToConstant: 8).isActive = true
                 chipStackView.addArrangedSubview(spacer)
             }
+        }
+
+        if activeTab == .samples {
+            let sampleTokens = SampleSmartToken.allCases
+            let label = NSTextField(labelWithString: "Sample Filters")
+            label.font = .systemFont(ofSize: 10, weight: .semibold)
+            label.textColor = .tertiaryLabelColor
+            chipStackView.addArrangedSubview(label)
+            for token in sampleTokens {
+                let chip = NSButton(title: token.label, target: self, action: #selector(sampleTokenToggled(_:)))
+                chip.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+                chip.controlSize = NSControl.ControlSize.small
+                chip.bezelStyle = token.exclusivityGroupKey == nil ? NSButton.BezelStyle.recessed : NSButton.BezelStyle.rounded
+                chip.isBordered = true
+                chip.setButtonType(NSButton.ButtonType.pushOnPushOff)
+                chip.state = activeSampleTokens.contains(token) ? NSControl.StateValue.on : NSControl.StateValue.off
+                chip.translatesAutoresizingMaskIntoConstraints = false
+                chipStackView.addArrangedSubview(chip)
+                sampleTokenButtons[token] = chip
+                sampleTokenPayloads[ObjectIdentifier(chip)] = token
+            }
+            hasSmartTokens = !sampleTokenButtons.isEmpty
         }
 
         // Create a chip for each type
@@ -1643,7 +1767,12 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
         // Show chip bar if we have types or smart tokens (never for samples tab)
         let hasPresetUI = activeTab == .variants && showVariantPresetChips && (!variantPresetChipButtons.isEmpty || !variantPresetMorePayloads.isEmpty)
-        chipBar.isHidden = activeTab == .samples || (availableTypes.isEmpty && !hasPresetUI && !hasSmartTokens)
+        if activeTab == .samples {
+            chipBar.isHidden = !hasSmartTokens
+            updateSampleFilterIndicator()
+        } else {
+            chipBar.isHidden = availableTypes.isEmpty && !hasPresetUI && !hasSmartTokens
+        }
         updateVariantLogicSummary()
     }
 
@@ -1659,7 +1788,11 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         for (token, button) in smartTokenButtons {
             button.state = activeSmartTokens.contains(token) ? .on : .off
         }
+        for (token, button) in sampleTokenButtons {
+            button.state = activeSampleTokens.contains(token) ? .on : .off
+        }
         updateVariantLogicSummary()
+        updateSampleFilterIndicator()
     }
 
     @objc private func smartTokenToggled(_ sender: NSButton) {
@@ -2470,7 +2603,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         var nameFilter: String?
         var sourceFilter: String?
         var visibility: Bool?
-        var metadataFilters: [(String, String)] = []
+        var metadataFilters: [(field: String, op: String, value: String)] = []
     }
 
     private struct ParsedSearchClause {
@@ -2922,11 +3055,11 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                     if key.hasPrefix("meta.") {
                         let field = String(rawKey.dropFirst(5))
                         if !field.isEmpty, !clause.value.isEmpty {
-                            query.metadataFilters.append((field, clause.value))
+                            query.metadataFilters.append((field: field, op: clause.op, value: clause.value))
                         }
                     } else if !clause.value.isEmpty {
                         // Treat unknown keys as metadata fields for convenience.
-                        query.metadataFilters.append((rawKey, clause.value))
+                        query.metadataFilters.append((field: rawKey, op: clause.op, value: clause.value))
                     }
                 }
             }
@@ -2951,7 +3084,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 let key = String(token[token.index(token.startIndex, offsetBy: 5)..<sep])
                 let value = String(token[token.index(after: sep)...])
                 if !key.isEmpty, !value.isEmpty {
-                    query.metadataFilters.append((key, value))
+                    query.metadataFilters.append((field: key, op: ":", value: value))
                 }
             } else {
                 freeTokens.append(token)
@@ -2959,6 +3092,118 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         }
         query.textFilter = freeTokens.joined(separator: " ")
         return query
+    }
+
+    private var hasActiveSampleFilters: Bool {
+        if !sampleFilterText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+        if !activeSampleTokens.isEmpty { return true }
+        return false
+    }
+
+    private func updateSampleFilterIndicator() {
+        let isSamplesTab = activeTab == .samples
+        clearSampleFilterButton.isHidden = !isSamplesTab || !hasActiveSampleFilters
+        sampleQueryBuilderButton.title = hasActiveSampleFilters ? "Edit Sample Query..." : "Sample Query..."
+    }
+
+    @objc private func clearSampleFilter(_ sender: Any) {
+        sampleFilterText = ""
+        sampleFilterField.stringValue = ""
+        activeSampleTokens.removeAll()
+        selectedSampleGroupId = nil
+        updateChipStates()
+        updateDisplayedSamples()
+    }
+
+    @objc private func sampleTokenToggled(_ sender: NSButton) {
+        guard let token = sampleTokenPayloads[ObjectIdentifier(sender)] else { return }
+        if sender.state == .on {
+            if let group = token.exclusivityGroupKey {
+                for existing in activeSampleTokens where existing != token && existing.exclusivityGroupKey == group {
+                    activeSampleTokens.remove(existing)
+                }
+            }
+            activeSampleTokens.insert(token)
+        } else {
+            activeSampleTokens.remove(token)
+        }
+        updateChipStates()
+        updateDisplayedSamples()
+    }
+
+    @objc private func openSampleSearchBuilder(_ sender: Any) {
+        guard activeTab == .samples, let hostWindow = self.window else { return }
+        let builderView = SampleQueryBuilderView(
+            initialFilterText: sampleFilterText,
+            metadataFields: sampleMetadataFields,
+            onApply: { [weak self] filterText in
+                guard let self else { return }
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        self.sampleFilterText = filterText
+                        self.sampleFilterField.stringValue = filterText
+                        self.updateChipStates()
+                        self.updateDisplayedSamples()
+                        hostWindow.endSheet(hostWindow.sheets.last ?? NSPanel())
+                    }
+                }
+            },
+            onCancel: {
+                hostWindow.endSheet(hostWindow.sheets.last ?? NSPanel())
+            }
+        )
+
+        let hostingController = NSHostingController(rootView: builderView)
+        let sheetWindow = NSPanel(contentViewController: hostingController)
+        sheetWindow.styleMask = [.titled, .closable]
+        sheetWindow.title = "Sample Query Builder"
+        hostWindow.beginSheet(sheetWindow)
+    }
+
+    private func rebuildSampleGroupPresetMenu() {
+        sampleGroupPresetButton.removeAllItems()
+        sampleGroupPresetButton.addItem(withTitle: "Group Presets")
+        sampleGroupPresetButton.item(at: 0)?.isEnabled = false
+
+        let groups = currentSampleDisplayState.sampleGroups.sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+        guard !groups.isEmpty else {
+            sampleGroupPresetButton.isEnabled = false
+            return
+        }
+
+        sampleGroupPresetButton.menu?.addItem(.separator())
+        for group in groups {
+            let item = NSMenuItem(title: group.name, action: #selector(selectSampleGroupPreset(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = group.id.uuidString
+            sampleGroupPresetButton.menu?.addItem(item)
+        }
+        sampleGroupPresetButton.menu?.addItem(.separator())
+        let clearItem = NSMenuItem(title: "Show All Samples", action: #selector(clearSampleGroupPreset(_:)), keyEquivalent: "")
+        clearItem.target = self
+        sampleGroupPresetButton.menu?.addItem(clearItem)
+        sampleGroupPresetButton.isEnabled = true
+    }
+
+    @objc private func selectSampleGroupPreset(_ sender: NSMenuItem) {
+        guard let idString = sender.representedObject as? String,
+              let id = UUID(uuidString: idString),
+              let group = currentSampleDisplayState.sampleGroups.first(where: { $0.id == id }) else { return }
+        selectedSampleGroupId = id
+        let shown = group.sampleNames
+        currentSampleDisplayState.hiddenSamples = Set(allSampleNames.filter { !shown.contains($0) })
+        postSampleDisplayStateChange()
+        updateDisplayedSamples()
+    }
+
+    @objc private func clearSampleGroupPreset(_ sender: NSMenuItem) {
+        selectedSampleGroupId = nil
+        currentSampleDisplayState.hiddenSamples.removeAll()
+        postSampleDisplayStateChange()
+        updateDisplayedSamples()
     }
 
     private func applyAnnotationAdvancedFilters(
@@ -4292,9 +4537,37 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             if let specificName = query.nameFilter, !name.localizedCaseInsensitiveContains(specificName) { return nil }
             if let source = query.sourceFilter, !sourceFile.localizedCaseInsensitiveContains(source) { return nil }
             if let expectedVisibility = query.visibility, expectedVisibility != isVisible { return nil }
-            for (key, expectedValue) in query.metadataFilters {
-                let actual = metadata[key] ?? metadata.first(where: { $0.key.caseInsensitiveCompare(key) == .orderedSame })?.value ?? ""
-                if !actual.localizedCaseInsensitiveContains(expectedValue) { return nil }
+            for filter in query.metadataFilters {
+                let actual = metadata[filter.field]
+                    ?? metadata.first(where: { $0.key.caseInsensitiveCompare(filter.field) == .orderedSame })?.value
+                    ?? ""
+                let matches: Bool
+                switch filter.op {
+                case "=", ":":
+                    matches = actual.localizedCaseInsensitiveContains(filter.value)
+                case "!=":
+                    matches = !actual.localizedCaseInsensitiveContains(filter.value)
+                case "~":
+                    matches = actual.localizedCaseInsensitiveContains(filter.value)
+                default:
+                    matches = actual.localizedCaseInsensitiveContains(filter.value)
+                }
+                if !matches { return nil }
+            }
+
+            // Token-based filters
+            if activeSampleTokens.contains(.visibleOnly) && !isVisible { return nil }
+            if activeSampleTokens.contains(.hiddenOnly) && isVisible { return nil }
+            let hasAnyMetadataValue = metadata.values.contains {
+                !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            if activeSampleTokens.contains(.hasMetadata) && !hasAnyMetadataValue { return nil }
+            if activeSampleTokens.contains(.missingMetadata) && hasAnyMetadataValue { return nil }
+
+            if let selectedGroup = selectedSampleGroupId,
+               let group = currentSampleDisplayState.sampleGroups.first(where: { $0.id == selectedGroup }),
+               !group.sampleNames.contains(name) {
+                return nil
             }
 
             return SampleDisplayRow(name: name, sourceFile: sourceFile, isVisible: isVisible, metadata: metadata)
@@ -4303,6 +4576,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         tableView.reloadData()
         scrollView.isHidden = false
         tooManyLabel.isHidden = true
+        updateSampleFilterIndicator()
         updateCountLabel()
     }
 
@@ -4603,6 +4877,11 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         let addFieldItem = NSMenuItem(title: "Add Field\u{2026}", action: #selector(addCustomFieldAction(_:)), keyEquivalent: "")
         addFieldItem.target = self
         menu.addItem(addFieldItem)
+
+        menu.addItem(NSMenuItem.separator())
+        let groupFromShown = NSMenuItem(title: "Create Group from Shown Results\u{2026}", action: #selector(createSampleGroupFromShownResults(_:)), keyEquivalent: "")
+        groupFromShown.target = self
+        menu.addItem(groupFromShown)
     }
 
     private func buildSampleGlobalContextMenu(_ menu: NSMenu) {
@@ -4627,6 +4906,11 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         let addFieldItem = NSMenuItem(title: "Add Field\u{2026}", action: #selector(addCustomFieldAction(_:)), keyEquivalent: "")
         addFieldItem.target = self
         menu.addItem(addFieldItem)
+
+        menu.addItem(NSMenuItem.separator())
+        let groupFromShown = NSMenuItem(title: "Create Group from Shown Results\u{2026}", action: #selector(createSampleGroupFromShownResults(_:)), keyEquivalent: "")
+        groupFromShown.target = self
+        menu.addItem(groupFromShown)
     }
 
     // MARK: - Multi-Selection Visibility Actions
@@ -4663,6 +4947,34 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         currentSampleDisplayState.hiddenSamples = Set(allSampleNames.filter { !selectedNames.contains($0) })
         postSampleDisplayStateChange()
         updateDisplayedSamples()
+    }
+
+    @objc private func createSampleGroupFromShownResults(_ sender: NSMenuItem) {
+        guard !displayedSamples.isEmpty, let window = self.window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Create Sample Group"
+        alert.informativeText = "Create a group from the currently shown \(displayedSamples.count) samples."
+        alert.addButton(withTitle: "Create")
+        alert.addButton(withTitle: "Cancel")
+        let nameField = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        nameField.placeholderString = "Group name"
+        alert.accessoryView = nameField
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn, let self else { return }
+            let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { return }
+            let sampleNames = Set(self.displayedSamples.map(\.name))
+            guard !sampleNames.isEmpty else { return }
+            if let idx = self.currentSampleDisplayState.sampleGroups.firstIndex(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
+                self.currentSampleDisplayState.sampleGroups[idx].sampleNames = sampleNames
+            } else {
+                self.currentSampleDisplayState.sampleGroups.append(
+                    SampleGroup(name: name, sampleNames: sampleNames)
+                )
+            }
+            self.postSampleDisplayStateChange()
+            self.rebuildSampleGroupPresetMenu()
+        }
     }
 
     // MARK: - Import Metadata
@@ -4752,7 +5064,12 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
                         guard let self else { return }
                         hostWindow.endSheet(hostWindow.sheets.last ?? hostWindow)
                         self.currentSampleDisplayState.sampleGroups = groups
+                        if let selected = self.selectedSampleGroupId,
+                           !groups.contains(where: { $0.id == selected }) {
+                            self.selectedSampleGroupId = nil
+                        }
                         self.postSampleDisplayStateChange()
+                        self.rebuildSampleGroupPresetMenu()
                         self.updateDisplayedSamples()
                     }
                 }
