@@ -367,6 +367,10 @@ final class AIAssistantServiceTests: XCTestCase {
         let registry = AIToolRegistry()
         registry.getCurrentViewState = {
             AIToolRegistry.ViewerState(
+                chromosome: "NC_041760.1",
+                start: 86_657_875,
+                end: 86_757_875,
+                organism: "Macaca mulatta",
                 bundleName: "Test Bundle",
                 chromosomeNames: ["chr1"],
                 variantTrackCount: 1,
@@ -382,6 +386,29 @@ final class AIAssistantServiceTests: XCTestCase {
         XCTAssertTrue(titles.contains("Variants in a gene"))
         // Should have all 10 queries with variants loaded
         XCTAssertEqual(queries.count, 10)
+        XCTAssertTrue(queries.contains { $0.query.contains("NC_041760.1:86657876-86757875") })
+    }
+
+    func testWelcomeMessageUsesContextualChromosomeAndCoordinateGuidance() {
+        let registry = AIToolRegistry()
+        registry.getCurrentViewState = {
+            AIToolRegistry.ViewerState(
+                chromosome: "NC_041760.1",
+                start: 100,
+                end: 200,
+                organism: "Macaca mulatta",
+                bundleName: "Mmul_10",
+                chromosomeNames: ["NC_041760.1"],
+                totalVariantCount: 42
+            )
+        }
+
+        let service = AIAssistantService(toolRegistry: registry)
+        let welcome = service.welcomeMessage()
+        XCTAssertTrue(welcome.contains("NC_041760.1"))
+        XCTAssertFalse(welcome.contains("Navigate to chromosome 1"))
+        XCTAssertTrue(welcome.contains("1-based"))
+        XCTAssertTrue(welcome.contains("0-based"))
     }
 
     func testSuggestedQueriesHaveIcons() {
@@ -497,6 +524,37 @@ final class AIMessageBubbleViewTests: XCTestCase {
         } else {
             XCTFail("Expected NSTextField subview")
         }
+    }
+
+    func testBubbleComputesNonZeroHeightWithWidthConstraint() {
+        let longText = String(repeating: "Long text for wrapping. ", count: 40)
+        let view = AIMessageBubbleView(text: longText, isUser: false)
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 600))
+        container.addSubview(view)
+        NSLayoutConstraint.activate([
+            view.topAnchor.constraint(equalTo: container.topAnchor),
+            view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            view.widthAnchor.constraint(equalToConstant: 260),
+        ])
+        container.layoutSubtreeIfNeeded()
+
+        XCTAssertGreaterThan(view.fittingSize.height, 40, "Bubble should compute a non-zero wrapped height")
+    }
+
+    func testBubbleHeightIncreasesWhenWidthShrinks() {
+        let longText = String(repeating: "Resize-sensitive wrapped content. ", count: 30)
+        let view = AIMessageBubbleView(text: longText, isUser: false)
+
+        view.frame = NSRect(x: 0, y: 0, width: 320, height: 1)
+        view.layoutSubtreeIfNeeded()
+        let wideHeight = view.fittingSize.height
+
+        view.frame = NSRect(x: 0, y: 0, width: 180, height: 1)
+        view.layoutSubtreeIfNeeded()
+        let narrowHeight = view.fittingSize.height
+
+        XCTAssertGreaterThan(narrowHeight, wideHeight, "Narrower width should produce taller wrapped text")
     }
 }
 

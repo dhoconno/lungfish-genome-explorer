@@ -35,6 +35,12 @@ final class HelpTopicTests: XCTestCase {
         }
     }
 
+    func testAllTopicsHaveHelpAnchors() {
+        for topic in helpTopics {
+            XCTAssertFalse(topic.helpAnchor.isEmpty, "Topic \(topic.id) has empty help anchor")
+        }
+    }
+
     func testExpectedTopicsExist() {
         let ids = helpTopics.map(\.id)
         XCTAssertTrue(ids.contains("index"), "Missing index topic")
@@ -110,6 +116,19 @@ final class HelpMarkdownRendererTests: XCTestCase {
         XCTAssertEqual(backtickCount, 0)
     }
 
+    func testRendersItalicText() {
+        let result = render("This is *italic* text")
+        XCTAssertTrue(result.string.contains("italic"))
+        XCTAssertFalse(result.string.contains("*italic*"))
+    }
+
+    func testRendersHorizontalRule() {
+        let result = render("Above\n---\nBelow")
+        XCTAssertTrue(result.string.contains("Above"))
+        XCTAssertTrue(result.string.contains("Below"))
+        XCTAssertTrue(result.string.contains("────────────────"))
+    }
+
     func testRendersCodeBlock() {
         let markdown = "```\nlet x = 1\nlet y = 2\n```"
         let result = render(markdown)
@@ -162,6 +181,14 @@ final class HelpWindowControllerTests: XCTestCase {
         XCTAssertGreaterThan(minSize.width, 0)
         XCTAssertGreaterThan(minSize.height, 0)
     }
+
+    func testSelectTopicLoadsContentOncePerChange() {
+        let vc = HelpViewController()
+        _ = vc.view
+        let baseline = vc.topicLoadCount
+        vc.selectTopic("getting-started")
+        XCTAssertEqual(vc.topicLoadCount, baseline + 1)
+    }
 }
 
 @MainActor
@@ -183,6 +210,25 @@ final class HelpResourceTests: XCTestCase {
             let content = try? String(contentsOf: url, encoding: .utf8)
             XCTAssertNotNil(content, "Cannot read help file: \(topic.filename).md")
             XCTAssertGreaterThan(content?.count ?? 0, 100, "Help file too small: \(topic.filename).md")
+        }
+    }
+
+    func testHelpBookBundleExists() {
+        let helpBookURL = Bundle.module.url(forResource: "Lungfish", withExtension: "help")
+        XCTAssertNotNil(helpBookURL, "Expected Lungfish.help to be copied as a module resource")
+    }
+
+    func testHelpBookHTMLTopicsExist() {
+        guard let helpBookURL = Bundle.module.url(forResource: "Lungfish", withExtension: "help") else {
+            XCTFail("Missing Lungfish.help bundle")
+            return
+        }
+
+        let expectedFiles = ["index.html", "getting-started.html", "vcf-variants.html", "ai-assistant.html", "settings.html"]
+        let localeRoot = helpBookURL.appendingPathComponent("Contents/Resources/en.lproj")
+        for file in expectedFiles {
+            let path = localeRoot.appendingPathComponent(file)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: path.path), "Missing Help Book topic: \(file)")
         }
     }
 

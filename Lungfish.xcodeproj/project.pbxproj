@@ -9,11 +9,13 @@
 /* Begin PBXBuildFile section */
 		F1E2D3C4B5A6978877665554 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A6978877665548 /* main.swift */; };
 		F1E2D3C4B5A6978877665555 /* LungfishApp in Frameworks */ = {isa = PBXBuildFile; productRef = F1E2D3C4B5A6978877665563 /* LungfishApp */; };
+		F1E2D3C4B5A6978877665564 /* Lungfish.help in Resources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A6978877665565 /* Lungfish.help */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		F1E2D3C4B5A6978877665548 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/Lungfish/main.swift; sourceTree = SOURCE_ROOT; };
 		F1E2D3C4B5A6978877665549 /* Lungfish.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Lungfish.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F1E2D3C4B5A6978877665565 /* Lungfish.help */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Lungfish.help; path = Sources/LungfishApp/Resources/HelpBook/Lungfish.help; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -40,6 +42,7 @@
 			isa = PBXGroup;
 			children = (
 				F1E2D3C4B5A6978877665548 /* main.swift */,
+				F1E2D3C4B5A6978877665565 /* Lungfish.help */,
 			);
 			name = App;
 			sourceTree = "<group>";
@@ -116,6 +119,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F1E2D3C4B5A6978877665564 /* Lungfish.help in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -180,9 +184,11 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Lungfish;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+					GENERATE_INFOPLIST_FILE = YES;
+					INFOPLIST_KEY_CFBundleDisplayName = Lungfish;
+					INFOPLIST_KEY_CFBundleHelpBookFolder = "Lungfish.help";
+					INFOPLIST_KEY_CFBundleHelpBookName = "Lungfish Help";
+					INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -203,9 +209,11 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Lungfish;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+					GENERATE_INFOPLIST_FILE = YES;
+					INFOPLIST_KEY_CFBundleDisplayName = Lungfish;
+					INFOPLIST_KEY_CFBundleHelpBookFolder = "Lungfish.help";
+					INFOPLIST_KEY_CFBundleHelpBookName = "Lungfish Help";
+					INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

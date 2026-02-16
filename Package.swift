@@ -163,6 +163,7 @@ let package = Package(
             path: "Sources/LungfishApp",
             resources: [
                 .copy("Resources/Help"),
+                .copy("Resources/HelpBook/Lungfish.help"),
             ]
         ),
         .testTarget(

@@ -2624,6 +2624,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     // MARK: - HelpMenuActions
 
     private func showHelpTopic(_ topicID: String) {
+        // Prefer macOS Help Book integration for indexed, searchable docs.
+        if HelpBookIntegration.openTopic(topicID) {
+            return
+        }
+
+        // Fallback to the in-app help browser if Help Book resources are unavailable.
         if helpWindowController == nil {
             helpWindowController = HelpWindowController()
         }

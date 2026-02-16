@@ -71,6 +71,10 @@ cat > "$CONTENTS_DIR/Info.plist" << 'EOF'
     <string>Lungfish</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>CFBundleHelpBookFolder</key>
+    <string>Lungfish.help</string>
+    <key>CFBundleHelpBookName</key>
+    <string>Lungfish Help</string>
 
     <!-- Version Information -->
     <key>CFBundleShortVersionString</key>
@@ -347,6 +351,23 @@ if [ -f "$PROJECT_ROOT/Resources/AppIcon.icns" ]; then
 else
     echo -e "${YELLOW}Warning: AppIcon.icns not found at $PROJECT_ROOT/Resources/AppIcon.icns${NC}"
     echo -e "${YELLOW}The app will use a generic icon until an icon is provided.${NC}"
+fi
+
+# Copy Help Book resources if available
+HELP_BOOK_SRC="$PROJECT_ROOT/Sources/LungfishApp/Resources/HelpBook/Lungfish.help"
+HELP_BOOK_DEST="$RESOURCES_DIR/Lungfish.help"
+if [ -d "$HELP_BOOK_SRC" ]; then
+    echo -e "${GREEN}Copying Help Book resources...${NC}"
+    cp -R "$HELP_BOOK_SRC" "$HELP_BOOK_DEST"
+
+    HELP_LOCALE_DIR="$HELP_BOOK_DEST/Contents/Resources/en.lproj"
+    HELP_INDEX_PATH="$HELP_LOCALE_DIR/search.helpindex"
+    if command -v hiutil >/dev/null 2>&1 && [ -d "$HELP_LOCALE_DIR" ]; then
+        echo -e "${GREEN}Building Help Book search index...${NC}"
+        hiutil -C -a -s en "$HELP_INDEX_PATH" "$HELP_LOCALE_DIR" >/dev/null 2>&1 || true
+    fi
+else
+    echo -e "${YELLOW}Warning: Help Book bundle not found at $HELP_BOOK_SRC${NC}"
 fi
 
 # Print success message

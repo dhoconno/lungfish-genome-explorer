@@ -356,7 +356,8 @@ public final class AIAssistantService {
         if let chrom = viewerState.chromosome {
             contextLines.append("Currently viewing: \(chrom)")
             if let start = viewerState.start, let end = viewerState.end {
-                contextLines.append("Visible region: \(chrom):\(start)-\(end)")
+                contextLines.append("Visible region (display, 1-based): \(chrom):\(start + 1)-\(end)")
+                contextLines.append("Visible region (tool calls, 0-based start): \(chrom):\(start)-\(end)")
             }
         }
         if viewerState.sampleCount > 0 {
@@ -439,7 +440,7 @@ public final class AIAssistantService {
         let chromosome = state.chromosome ?? state.chromosomeNames.first ?? "the current chromosome"
         let regionDescription: String
         if let start = state.start, let end = state.end {
-            regionDescription = "\(chromosome):\(start + 1)-\(end)"
+            regionDescription = "\(chromosome):\(start + 1)-\(end) (display coordinates)"
         } else {
             regionDescription = chromosome
         }
@@ -457,7 +458,7 @@ public final class AIAssistantService {
         // 2. Current region exploration
         queries.append(SuggestedQuery(
             title: "Explore current view",
-            query: "What genes and annotations are visible in my current view around \(regionDescription)? List them with their positions and types.",
+            query: "What genes and annotations are visible in my current view around \(regionDescription)? List them with their positions and types. Use display coordinates in the response.",
             icon: "eye"
         ))
 
@@ -486,7 +487,7 @@ public final class AIAssistantService {
             // 6. Variants in region
             queries.append(SuggestedQuery(
                 title: "Variants in this region",
-                query: "Find all variants in \(regionDescription). Group them by type (SNP, insertion, deletion) and list the top 10 by position with their REF>ALT changes.",
+                query: "Find all variants in \(regionDescription). Group them by type (SNP, insertion, deletion) and list the top 10 by position with their REF>ALT changes in display coordinates.",
                 icon: "list.bullet.rectangle"
             ))
 
@@ -547,7 +548,7 @@ public final class AIAssistantService {
         let chromosome = state.chromosome ?? state.chromosomeNames.first ?? "current chromosome"
         let regionText: String
         if let start = state.start, let end = state.end {
-            regionText = "\(chromosome):\(start + 1)-\(end)"
+            regionText = "\(chromosome):\(start + 1)-\(end) (display coordinates)"
         } else {
             regionText = chromosome
         }
@@ -563,8 +564,10 @@ public final class AIAssistantService {
             lines.append("- \"Show me variant statistics\"")
             lines.append("- \"Find variants near gene X\"")
         }
-        lines.append("- \"Navigate to chromosome 1\"")
+        lines.append("- \"Navigate to \(chromosome)\"")
         lines.append("- \"Find PubMed papers about \(organism) genomics\"")
+        lines.append("")
+        lines.append("Coordinate note: user-visible positions are 1-based; internal tool calls use 0-based starts.")
         lines.append("")
         lines.append("Or try the suggested questions below.")
 

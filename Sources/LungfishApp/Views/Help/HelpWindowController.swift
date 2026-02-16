@@ -15,16 +15,42 @@ struct HelpTopic: Identifiable {
     let title: String
     let icon: String
     let filename: String
+    let helpAnchor: String
 }
 
 /// All available help topics in display order.
 let helpTopics: [HelpTopic] = [
-    HelpTopic(id: "index", title: "Welcome", icon: "house", filename: "index"),
-    HelpTopic(id: "getting-started", title: "Getting Started", icon: "play.circle", filename: "getting-started"),
-    HelpTopic(id: "vcf-variants", title: "VCF Variants", icon: "chart.bar.doc.horizontal", filename: "vcf-variants"),
-    HelpTopic(id: "ai-assistant", title: "AI Assistant", icon: "sparkles", filename: "ai-assistant"),
-    HelpTopic(id: "settings", title: "Settings", icon: "gearshape", filename: "settings"),
+    HelpTopic(id: "index", title: "Welcome", icon: "house", filename: "index", helpAnchor: "index"),
+    HelpTopic(id: "getting-started", title: "Getting Started", icon: "play.circle", filename: "getting-started", helpAnchor: "getting-started"),
+    HelpTopic(id: "vcf-variants", title: "VCF Variants", icon: "chart.bar.doc.horizontal", filename: "vcf-variants", helpAnchor: "vcf-variants"),
+    HelpTopic(id: "ai-assistant", title: "AI Assistant", icon: "sparkles", filename: "ai-assistant", helpAnchor: "ai-assistant"),
+    HelpTopic(id: "settings", title: "Settings", icon: "gearshape", filename: "settings", helpAnchor: "settings"),
 ]
+
+enum HelpBookIntegration {
+    static let bookName = "Lungfish Help"
+
+    /// Opens the system Help Book for the given topic, returning true on success.
+    @MainActor
+    @discardableResult
+    static func openTopic(_ topicID: String) -> Bool {
+        guard let topic = helpTopics.first(where: { $0.id == topicID }) else { return false }
+        guard hasBundledHelpBook() else {
+            logger.warning("Help Book resources not found in app bundle")
+            return false
+        }
+
+        NSHelpManager.shared.openHelpAnchor(topic.helpAnchor, inBook: bookName)
+        return true
+    }
+
+    private static func hasBundledHelpBook() -> Bool {
+        if Bundle.main.url(forResource: "Lungfish", withExtension: "help") != nil {
+            return true
+        }
+        return Bundle.main.url(forResource: "Lungfish.help", withExtension: nil) != nil
+    }
+}
 
 // MARK: - HelpWindowController
 
@@ -60,7 +86,7 @@ public final class HelpWindowController: NSWindowController {
     /// Shows the help window, creating it if necessary.
     public func showHelp() {
         guard let window else { return }
-        if !window.isVisible {
+        if !window.isVisible && shouldCenterOnFirstShow(window: window) {
             window.center()
         }
         window.makeKeyAndOrderFront(nil)
@@ -70,6 +96,13 @@ public final class HelpWindowController: NSWindowController {
     public func showTopic(_ topicID: String) {
         showHelp()
         helpViewController?.selectTopic(topicID)
+    }
+
+    private func shouldCenterOnFirstShow(window: NSWindow) -> Bool {
+        let autosaveName = window.frameAutosaveName
+        guard !autosaveName.isEmpty else { return true }
+        let autosaveKey = "NSWindow Frame \(autosaveName)"
+        return UserDefaults.standard.string(forKey: autosaveKey) == nil
     }
 }
 
@@ -83,6 +116,7 @@ final class HelpViewController: NSViewController {
     private let contentScrollView = NSScrollView()
     private let contentTextView = NSTextView()
     private var selectedTopicIndex = 0
+    private(set) var topicLoadCount = 0
 
     override func loadView() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 720, height: 540))
@@ -161,12 +195,16 @@ final class HelpViewController: NSViewController {
 
     func selectTopic(_ topicID: String) {
         guard let index = helpTopics.firstIndex(where: { $0.id == topicID }) else { return }
+        if sidebarTableView.selectedRow == index {
+            loadTopic(helpTopics[index])
+            return
+        }
         sidebarTableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
-        loadTopic(helpTopics[index])
     }
 
     private func loadTopic(_ topic: HelpTopic) {
         selectedTopicIndex = helpTopics.firstIndex(where: { $0.id == topic.id }) ?? 0
+        topicLoadCount += 1
 
         guard let markdownText = loadMarkdownFile(topic.filename) else {
             let errorAttr = NSAttributedString(
@@ -267,6 +305,7 @@ extension HelpViewController {
 
         let bodyFont = NSFont.systemFont(ofSize: 14)
         let boldFont = NSFont.boldSystemFont(ofSize: 14)
+        let italicFont = NSFontManager.shared.convert(bodyFont, toHaveTrait: .italicFontMask)
         let h1Font = NSFont.systemFont(ofSize: 24, weight: .bold)
         let h2Font = NSFont.systemFont(ofSize: 18, weight: .semibold)
         let h3Font = NSFont.systemFont(ofSize: 15, weight: .semibold)
@@ -336,9 +375,14 @@ extension HelpViewController {
                 let ruleStyle = NSMutableParagraphStyle()
                 ruleStyle.paragraphSpacing = 12
                 ruleStyle.paragraphSpacingBefore = 12
+                ruleStyle.alignment = .center
                 result.append(NSAttributedString(
-                    string: "\n",
-                    attributes: [.font: bodyFont, .paragraphStyle: ruleStyle, .strikethroughStyle: 1, .foregroundColor: secondaryColor]
+                    string: "────────────────────────\n",
+                    attributes: [
+                        .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
+                        .paragraphStyle: ruleStyle,
+                        .foregroundColor: secondaryColor,
+                    ]
                 ))
                 continue
             }
@@ -376,7 +420,7 @@ extension HelpViewController {
                 let bulletAttrs: [NSAttributedString.Key: Any] = [
                     .font: bodyFont, .foregroundColor: textColor, .paragraphStyle: listStyle,
                 ]
-                result.append(processInlineFormatting(text, defaultAttrs: bulletAttrs, boldFont: boldFont, codeFont: codeFont))
+                result.append(processInlineFormatting(text, defaultAttrs: bulletAttrs, boldFont: boldFont, italicFont: italicFont, codeFont: codeFont))
                 result.append(NSAttributedString(string: "\n", attributes: bulletAttrs))
                 continue
             }
@@ -406,7 +450,7 @@ extension HelpViewController {
             }
 
             // Regular paragraph with inline formatting
-            result.append(processInlineFormatting(line, defaultAttrs: defaultAttrs, boldFont: boldFont, codeFont: codeFont))
+            result.append(processInlineFormatting(line, defaultAttrs: defaultAttrs, boldFont: boldFont, italicFont: italicFont, codeFont: codeFont))
             result.append(NSAttributedString(string: "\n", attributes: defaultAttrs))
         }
 
@@ -418,19 +462,39 @@ extension HelpViewController {
         _ text: String,
         defaultAttrs: [NSAttributedString.Key: Any],
         boldFont: NSFont,
+        italicFont: NSFont,
         codeFont: NSFont
     ) -> NSAttributedString {
         let result = NSMutableAttributedString()
         var remaining = text[text.startIndex...]
 
         while !remaining.isEmpty {
-            // Bold: **text**
-            if let boldStart = remaining.range(of: "**") {
-                let before = String(remaining[remaining.startIndex..<boldStart.lowerBound])
-                if !before.isEmpty {
-                    result.append(NSAttributedString(string: before, attributes: defaultAttrs))
-                }
-                let afterBold = remaining[boldStart.upperBound...]
+            let boldStart = remaining.range(of: "**")
+            let codeStart = remaining.range(of: "`")
+            let italicStart = firstSingleAsterisk(in: remaining)
+
+            var earliest: (kind: String, range: Range<Substring.Index>)?
+            if let boldStart { earliest = ("bold", boldStart) }
+            if let codeStart, earliest == nil || codeStart.lowerBound < earliest!.range.lowerBound {
+                earliest = ("code", codeStart)
+            }
+            if let italicStart, earliest == nil || italicStart.lowerBound < earliest!.range.lowerBound {
+                earliest = ("italic", italicStart)
+            }
+
+            guard let marker = earliest else {
+                result.append(NSAttributedString(string: String(remaining), attributes: defaultAttrs))
+                break
+            }
+
+            let before = String(remaining[remaining.startIndex..<marker.range.lowerBound])
+            if !before.isEmpty {
+                result.append(NSAttributedString(string: before, attributes: defaultAttrs))
+            }
+
+            switch marker.kind {
+            case "bold":
+                let afterBold = remaining[marker.range.upperBound...]
                 if let boldEnd = afterBold.range(of: "**") {
                     let boldText = String(afterBold[afterBold.startIndex..<boldEnd.lowerBound])
                     var attrs = defaultAttrs
@@ -439,14 +503,10 @@ extension HelpViewController {
                     remaining = afterBold[boldEnd.upperBound...]
                 } else {
                     result.append(NSAttributedString(string: String(remaining), attributes: defaultAttrs))
-                    break
+                    return result
                 }
-            } else if let codeStart = remaining.range(of: "`") {
-                let before = String(remaining[remaining.startIndex..<codeStart.lowerBound])
-                if !before.isEmpty {
-                    result.append(NSAttributedString(string: before, attributes: defaultAttrs))
-                }
-                let afterCode = remaining[codeStart.upperBound...]
+            case "code":
+                let afterCode = remaining[marker.range.upperBound...]
                 if let codeEnd = afterCode.range(of: "`") {
                     let codeText = String(afterCode[afterCode.startIndex..<codeEnd.lowerBound])
                     var attrs = defaultAttrs
@@ -456,14 +516,40 @@ extension HelpViewController {
                     remaining = afterCode[codeEnd.upperBound...]
                 } else {
                     result.append(NSAttributedString(string: String(remaining), attributes: defaultAttrs))
-                    break
+                    return result
                 }
-            } else {
-                result.append(NSAttributedString(string: String(remaining), attributes: defaultAttrs))
-                break
+            default:
+                let afterItalic = remaining[marker.range.upperBound...]
+                if let italicEnd = firstSingleAsterisk(in: afterItalic) {
+                    let italicText = String(afterItalic[afterItalic.startIndex..<italicEnd.lowerBound])
+                    var attrs = defaultAttrs
+                    attrs[.font] = italicFont
+                    result.append(NSAttributedString(string: italicText, attributes: attrs))
+                    remaining = afterItalic[italicEnd.upperBound...]
+                } else {
+                    result.append(NSAttributedString(string: String(remaining), attributes: defaultAttrs))
+                    return result
+                }
             }
         }
 
         return result
+    }
+
+    private func firstSingleAsterisk(in text: Substring) -> Range<Substring.Index>? {
+        var index = text.startIndex
+        while index < text.endIndex {
+            guard text[index] == "*" else {
+                index = text.index(after: index)
+                continue
+            }
+            let next = text.index(after: index)
+            if next < text.endIndex, text[next] == "*" {
+                index = text.index(after: next)
+                continue
+            }
+            return index..<next
+        }
+        return nil
     }
 }
