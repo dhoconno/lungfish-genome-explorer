@@ -447,44 +447,76 @@ public final class AIAssistantService {
             ? "There are \(state.sampleCount) samples\(state.sampleNameExamples.isEmpty ? "" : " (e.g., \(state.sampleNameExamples.joined(separator: ", ")))")."
             : "No sample metadata is available."
 
-        // Basic exploration
+        // 1. Bundle overview
         queries.append(SuggestedQuery(
-            title: "Overview",
-            query: "For bundle '\(bundleName)' (\(organism), \(assembly)), summarize exactly what is loaded: chromosome count, annotation tracks, variant tracks, and what I should query next.",
+            title: "Data overview",
+            query: "Summarize '\(bundleName)' (\(organism), \(assembly)): chromosome count, annotation tracks, variant tracks, total variants, and recommend what to explore first.",
             icon: "doc.text.magnifyingglass"
         ))
 
-        if state.totalVariantCount > 0 {
-            queries.append(SuggestedQuery(
-                title: "Variant summary",
-                query: "Using the \(state.totalVariantCount) loaded variants, report variant type counts and which chromosomes have the highest variant density. \(sampleContext)",
-                icon: "chart.bar"
-            ))
-
-            queries.append(SuggestedQuery(
-                title: "High-impact variants",
-                query: "Find the highest-impact variants and return the top 10 genes with chromosome position, REF>ALT, and consequence details. Prioritize hits in the current view around \(regionDescription).",
-                icon: "exclamationmark.triangle"
-            ))
-        }
-
+        // 2. Current region exploration
         queries.append(SuggestedQuery(
-            title: "Disease genes",
-            query: "List 5 well-studied disease genes for \(organism), check whether each appears in '\(bundleName)', and if present summarize nearby variants.",
-            icon: "stethoscope"
+            title: "Explore current view",
+            query: "What genes and annotations are visible in my current view around \(regionDescription)? List them with their positions and types.",
+            icon: "eye"
         ))
 
-        // Gene exploration
+        // 3. Gene search
         queries.append(SuggestedQuery(
-            title: "Find a gene",
-            query: "In \(regionDescription), find immune-related or receptor/signaling genes and navigate to the most biologically interesting hit.",
+            title: "Search for a gene",
+            query: "Search for immune-related genes in \(organism). List any matches found in '\(bundleName)' with their chromosome locations, then navigate me to the most interesting one.",
             icon: "magnifyingglass"
         ))
 
+        // 4. Navigate to gene
         queries.append(SuggestedQuery(
-            title: "PubMed context",
-            query: "Search PubMed for recent papers linking high-impact variants in \(organism) to neurological or immune phenotypes, then connect findings to variants in '\(bundleName)'.",
+            title: "Navigate to a gene",
+            query: "Find the gene closest to the center of \(regionDescription) and navigate there. Show me its exon-intron structure and any nearby variants.",
+            icon: "location"
+        ))
+
+        if state.totalVariantCount > 0 {
+            // 5. Variant summary
+            queries.append(SuggestedQuery(
+                title: "Variant statistics",
+                query: "Give me a breakdown of all \(state.totalVariantCount) variants: how many SNPs, insertions, deletions, and other types? Which chromosomes have the highest variant density? \(sampleContext)",
+                icon: "chart.bar"
+            ))
+
+            // 6. Variants in region
+            queries.append(SuggestedQuery(
+                title: "Variants in this region",
+                query: "Find all variants in \(regionDescription). Group them by type (SNP, insertion, deletion) and list the top 10 by position with their REF>ALT changes.",
+                icon: "list.bullet.rectangle"
+            ))
+
+            // 7. Gene-variant connection
+            queries.append(SuggestedQuery(
+                title: "Variants in a gene",
+                query: "Pick a well-known disease-associated gene for \(organism), check if it exists in '\(bundleName)', and if so list all variants within that gene's coordinates.",
+                icon: "bolt.trianglebadge.exclamationmark"
+            ))
+        }
+
+        // 8. Disease gene screening
+        queries.append(SuggestedQuery(
+            title: "Disease gene check",
+            query: "List 5 well-studied disease genes for \(organism), check whether each appears in '\(bundleName)', and if present summarize the gene details and nearby variants.",
+            icon: "stethoscope"
+        ))
+
+        // 9. PubMed literature
+        queries.append(SuggestedQuery(
+            title: "Find related research",
+            query: "Search PubMed for recent papers about \(organism) genomics. Summarize the top 3 most relevant papers and explain how they relate to the data in '\(bundleName)'.",
             icon: "book"
+        ))
+
+        // 10. Chromosome overview
+        queries.append(SuggestedQuery(
+            title: "Chromosome guide",
+            query: "List all chromosomes in '\(bundleName)' and tell me which ones are largest. Then navigate me to the beginning of the largest chromosome.",
+            icon: "list.number"
         ))
 
         return queries
@@ -493,16 +525,20 @@ public final class AIAssistantService {
     /// Contextual welcome text shown when opening the AI assistant panel.
     public func welcomeMessage() -> String {
         let state = toolRegistry.getCurrentViewState?() ?? AIToolRegistry.ViewerState()
-        let questions = suggestedQueries().map(\.query).prefix(4)
 
         if state.bundleName == nil {
             return """
-            Welcome. No genome bundle is currently loaded.
+            Welcome to the Lungfish AI Assistant.
 
-            Start with a concrete prompt like:
-            \(questions.map { "- \"\($0)\"" }.joined(separator: "\n"))
+            No genome bundle is currently loaded. Open or create a bundle first, then ask me to help you explore it.
 
-            Configure API keys in **Settings > AI Services** before running AI searches.
+            I can help you:
+            - **Search genes** and annotations in your data
+            - **Find variants** (SNPs, insertions, deletions)
+            - **Navigate** the genome browser to regions of interest
+            - **Search PubMed** for relevant research literature
+
+            Configure API keys in **Settings > AI Services** before using AI features.
             """
         }
 
@@ -516,13 +552,23 @@ public final class AIAssistantService {
             regionText = chromosome
         }
 
-        return """
-        Welcome. You are currently exploring **\(bundle)** (\(organism)).
-        Current focus: **\(regionText)**.
+        var lines: [String] = []
+        lines.append("Welcome. You are exploring **\(bundle)** (\(organism)).")
+        lines.append("Current view: **\(regionText)**")
+        lines.append("")
+        lines.append("Here are some things you can ask me:")
+        lines.append("- \"What genes are in my current view?\"")
+        lines.append("- \"Search for BRCA1 in this genome\"")
+        if state.totalVariantCount > 0 {
+            lines.append("- \"Show me variant statistics\"")
+            lines.append("- \"Find variants near gene X\"")
+        }
+        lines.append("- \"Navigate to chromosome 1\"")
+        lines.append("- \"Find PubMed papers about \(organism) genomics\"")
+        lines.append("")
+        lines.append("Or try the suggested questions below.")
 
-        Try one of these concrete prompts:
-        \(questions.map { "- \"\($0)\"" }.joined(separator: "\n"))
-        """
+        return lines.joined(separator: "\n")
     }
 
     // MARK: - Helpers

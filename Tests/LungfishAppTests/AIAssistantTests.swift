@@ -348,12 +348,17 @@ final class AIAssistantServiceTests: XCTestCase {
         let service = AIAssistantService(toolRegistry: registry)
 
         let queries = service.suggestedQueries()
-        XCTAssertGreaterThan(queries.count, 1)
+        // Should have at least 7 queries (no variants)
+        XCTAssertGreaterThanOrEqual(queries.count, 7)
 
         let titles = queries.map(\.title)
-        XCTAssertTrue(titles.contains("Overview"))
-        XCTAssertTrue(titles.contains("Disease genes"))
-        XCTAssertTrue(titles.contains("Find a gene"))
+        XCTAssertTrue(titles.contains("Data overview"))
+        XCTAssertTrue(titles.contains("Explore current view"))
+        XCTAssertTrue(titles.contains("Search for a gene"))
+        XCTAssertTrue(titles.contains("Navigate to a gene"))
+        XCTAssertTrue(titles.contains("Disease gene check"))
+        XCTAssertTrue(titles.contains("Find related research"))
+        XCTAssertTrue(titles.contains("Chromosome guide"))
         XCTAssertTrue(queries.contains { $0.query.contains("Rhesus Macaque") })
         XCTAssertTrue(queries.contains { $0.query.contains("chr1:10001-20000") })
     }
@@ -372,8 +377,11 @@ final class AIAssistantServiceTests: XCTestCase {
 
         let queries = service.suggestedQueries()
         let titles = queries.map(\.title)
-        XCTAssertTrue(titles.contains("Variant summary"))
-        XCTAssertTrue(titles.contains("High-impact variants"))
+        XCTAssertTrue(titles.contains("Variant statistics"))
+        XCTAssertTrue(titles.contains("Variants in this region"))
+        XCTAssertTrue(titles.contains("Variants in a gene"))
+        // Should have all 10 queries with variants loaded
+        XCTAssertEqual(queries.count, 10)
     }
 
     func testSuggestedQueriesHaveIcons() {
