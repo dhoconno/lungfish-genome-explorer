@@ -252,6 +252,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     /// AI Assistant window controller (lazy singleton)
     private var aiAssistantWindowController: AIAssistantWindowController?
+    private var helpWindowController: HelpWindowController?
 
     /// AI tool registry for the assistant
     private var aiToolRegistry: AIToolRegistry?
@@ -2622,10 +2623,27 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     // MARK: - HelpMenuActions
 
-    @objc func openDocumentation(_ sender: Any?) {
-        if let url = URL(string: "https://github.com/dho/lungfish-genome-browser#readme") {
-            NSWorkspace.shared.open(url)
+    private func showHelpTopic(_ topicID: String) {
+        if helpWindowController == nil {
+            helpWindowController = HelpWindowController()
         }
+        helpWindowController?.showTopic(topicID)
+    }
+
+    @objc func showLungfishHelp(_ sender: Any?) {
+        showHelpTopic("index")
+    }
+
+    @objc func showGettingStarted(_ sender: Any?) {
+        showHelpTopic("getting-started")
+    }
+
+    @objc func showVCFGuide(_ sender: Any?) {
+        showHelpTopic("vcf-variants")
+    }
+
+    @objc func showAIGuide(_ sender: Any?) {
+        showHelpTopic("ai-assistant")
     }
 
     @objc func openReleaseNotes(_ sender: Any?) {

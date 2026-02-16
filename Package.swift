@@ -160,7 +160,10 @@ let package = Package(
                 "LungfishUI",
                 "LungfishWorkflow",
             ],
-            path: "Sources/LungfishApp"
+            path: "Sources/LungfishApp",
+            resources: [
+                .copy("Resources/Help"),
+            ]
         ),
         .testTarget(
             name: "LungfishAppTests",

@@ -661,25 +661,37 @@ public final class MainMenu {
 
         helpMenu.addItem(
             withTitle: "Lungfish Help",
-            action: #selector(NSApplication.showHelp(_:)),
+            action: #selector(HelpMenuActions.showLungfishHelp(_:)),
             keyEquivalent: "?"
         )
 
         helpMenu.addItem(.separator())
 
         helpMenu.addItem(
-            withTitle: "Documentation",
-            action: #selector(HelpMenuActions.openDocumentation(_:)),
+            withTitle: "Getting Started",
+            action: #selector(HelpMenuActions.showGettingStarted(_:)),
             keyEquivalent: ""
         )
+
+        helpMenu.addItem(
+            withTitle: "VCF Variants Guide",
+            action: #selector(HelpMenuActions.showVCFGuide(_:)),
+            keyEquivalent: ""
+        )
+
+        helpMenu.addItem(
+            withTitle: "AI Assistant Guide",
+            action: #selector(HelpMenuActions.showAIGuide(_:)),
+            keyEquivalent: ""
+        )
+
+        helpMenu.addItem(.separator())
 
         helpMenu.addItem(
             withTitle: "Release Notes",
             action: #selector(HelpMenuActions.openReleaseNotes(_:)),
             keyEquivalent: ""
         )
-
-        helpMenu.addItem(.separator())
 
         helpMenu.addItem(
             withTitle: "Report an Issue...",
@@ -761,7 +773,10 @@ public final class MainMenu {
 /// Help menu action handlers.
 @MainActor
 @objc protocol HelpMenuActions {
-    func openDocumentation(_ sender: Any?)
+    func showLungfishHelp(_ sender: Any?)
+    func showGettingStarted(_ sender: Any?)
+    func showVCFGuide(_ sender: Any?)
+    func showAIGuide(_ sender: Any?)
     func openReleaseNotes(_ sender: Any?)
     func reportIssue(_ sender: Any?)
 }
