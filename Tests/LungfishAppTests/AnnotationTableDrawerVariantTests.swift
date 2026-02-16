@@ -336,6 +336,28 @@ final class AnnotationTableDrawerVariantTests: XCTestCase {
         XCTAssertEqual(names, ["rs12345", "rs67890"], "Filtered query should be genome-wide before optional viewport post-filtering")
     }
 
+    func testViewportExplorationReusesCachedFilteredTableRows() throws {
+        let drawer = try createDrawerWithAnnotationsAndVariants()
+        drawer.debugSetVariantScopeRegionEnabled(true)
+        drawer.debugSetVariantFilterText("rs")
+        drawer.debugSetViewportRegion(chromosome: "chr1", start: 140, end: 180)
+        switchToVariantsAndWait(drawer)
+
+        let firstQueryCount = drawer.debugGetVariantQueryExecutionCount()
+        XCTAssertEqual(Set(drawer.displayedAnnotations.map(\.name)), ["rs12345"])
+
+        drawer.debugSetViewportRegion(chromosome: "chr1", start: 240, end: 280)
+        drawer.debugRefreshDisplayedAnnotations()
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while drawer.isVariantQuerying && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+
+        XCTAssertEqual(drawer.debugGetVariantQueryExecutionCount(), firstQueryCount, "Viewport exploration should reuse cached filtered rows")
+        XCTAssertEqual(Set(drawer.displayedAnnotations.map(\.name)), ["rs67890"])
+    }
+
     // MARK: - Column Configuration Tests
 
     func testAnnotationTabHasAnnotationColumns() throws {

@@ -254,6 +254,15 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Whether a variant query is currently in progress on a background thread.
     private(set) var isVariantQuerying: Bool = false
 
+    /// Cached global results for the last filter-driven variant query.
+    /// Used to make viewport exploration fast without re-running genome-wide SQL.
+    private var cachedGlobalFilteredVariantRows: [AnnotationSearchIndex.SearchResult] = []
+    private var cachedGlobalFilteredVariantKey: VariantQueryCacheKey?
+
+    #if DEBUG
+    private var debugVariantQueryExecutionCount: Int = 0
+    #endif
+
     // MARK: - UI Components
 
     private let scrollView = NSScrollView()
@@ -293,6 +302,26 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Beyond this, user must filter to narrow down results.
     private static var maxDisplayCount: Int { AppSettings.shared.maxTableDisplayCount }
     private static let variantQueryDebounceInterval: TimeInterval = 0.12
+
+    private struct VariantQueryCacheKey: Equatable {
+        let filterText: String
+        let tokens: [String]
+        let presets: [String]
+        let typeFilter: [String]
+        let explicitTypeFilter: [String]
+        let infoFilters: [String]
+        let filterValue: String?
+        let minQuality: Double?
+        let minQualityInclusive: Bool
+        let maxQuality: Double?
+        let maxQualityInclusive: Bool
+        let minSampleCount: Int?
+        let minSampleCountInclusive: Bool
+        let maxSampleCount: Int?
+        let maxSampleCountInclusive: Bool
+        let nameFilter: String
+        let geneList: [String]
+    }
 
     /// Chip buttons keyed by type name.
     private var chipButtons: [String: NSButton] = [:]
@@ -1320,6 +1349,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     func setSearchIndex(_ index: AnnotationSearchIndex) {
         searchIndex = index
         isLoading = false
+        cachedGlobalFilteredVariantRows = []
+        cachedGlobalFilteredVariantKey = nil
 
         // Get metadata from the index — track annotation and variant counts separately
         totalAnnotationCount = index.entryCount
@@ -1791,6 +1822,25 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         // Gene list query always runs globally, independent of viewport/annotation scope.
         let inferredGeneList = query.geneList == nil ? detectGeneListPattern(query.nameFilter) : nil
         let activeGeneList = query.geneList ?? inferredGeneList
+        let cacheKey = VariantQueryCacheKey(
+            filterText: variantFilterText.trimmingCharacters(in: .whitespacesAndNewlines),
+            tokens: activeSmartTokens.map(\.rawValue).sorted(),
+            presets: selectedVariantPresetByKey.keys.sorted().map { "\($0)=\(selectedVariantPresetByKey[$0] ?? "")" },
+            typeFilter: typeFilter.sorted(),
+            explicitTypeFilter: (query.explicitTypeFilter ?? []).sorted(),
+            infoFilters: mergedInfoFilters.map { "\($0.key)|\($0.op.rawValue)|\($0.value)" }.sorted(),
+            filterValue: effectiveQuery.filterValue,
+            minQuality: effectiveQuery.minQuality,
+            minQualityInclusive: effectiveQuery.minQualityInclusive,
+            maxQuality: effectiveQuery.maxQuality,
+            maxQualityInclusive: effectiveQuery.maxQualityInclusive,
+            minSampleCount: effectiveQuery.minSampleCount,
+            minSampleCountInclusive: effectiveQuery.minSampleCountInclusive,
+            maxSampleCount: effectiveQuery.maxSampleCount,
+            maxSampleCountInclusive: effectiveQuery.maxSampleCountInclusive,
+            nameFilter: effectiveQuery.nameFilter,
+            geneList: activeGeneList ?? []
+        )
 
         // Determine the effective region for the query (fast — no database queries).
         let effectiveRegion: (chromosome: String, start: Int, end: Int)?
@@ -1856,6 +1906,25 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         )
         let maxDisplay = Self.maxDisplayCount
 
+        if hasGlobalOverrideFilters, let viewportPostFilterRegion,
+           cachedGlobalFilteredVariantKey == cacheKey, !cachedGlobalFilteredVariantRows.isEmpty {
+            let filtered = filterVariantsToRegionOffMain(
+                cachedGlobalFilteredVariantRows,
+                chromosome: viewportPostFilterRegion.chromosome,
+                start: viewportPostFilterRegion.start,
+                end: viewportPostFilterRegion.end
+            )
+            displayedAnnotations = Array(filtered.prefix(maxDisplay))
+            lastVariantQueryMatchCount = displayedAnnotations.count
+            lastVariantQueryScope = .viewport
+            tableView.reloadData()
+            scrollView.isHidden = false
+            tooManyLabel.isHidden = true
+            hideVariantQueryProgress()
+            updateCountLabel()
+            return
+        }
+
         variantQueryWorkItem?.cancel()
         variantQueryWorkItem = nil
         activeVariantQueryCancelToken?.cancel()
@@ -1868,6 +1937,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
         // Show progress indicator.
         showVariantQueryProgress("Searching variants\u{2026}")
+        #if DEBUG
+        debugVariantQueryExecutionCount += 1
+        #endif
 
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
@@ -1882,6 +1954,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 let queryScope: VariantQueryScope
                 var tooManyMessage: String?
                 var resolvedGeneRegions: [GeneRegion] = []
+                var globalRowsForCache: [AnnotationSearchIndex.SearchResult]?
 
                 // Build post-filter closure that operates only on captured value types.
                 let applyAllPostFilters: ([AnnotationSearchIndex.SearchResult]) -> [AnnotationSearchIndex.SearchResult] = { rows in
@@ -1898,14 +1971,6 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                     }
                     if let afRange = withinSampleAFRange {
                         filtered = filterByWithinSampleAFOffMain(filtered, min: afRange.min, max: afRange.max)
-                    }
-                    if let viewportPostFilterRegion {
-                        filtered = filterVariantsToRegionOffMain(
-                            filtered,
-                            chromosome: viewportPostFilterRegion.chromosome,
-                            start: viewportPostFilterRegion.start,
-                            end: viewportPostFilterRegion.end
-                        )
                     }
                     return filtered
                 }
@@ -1955,8 +2020,20 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                         shouldCancel: shouldCancel
                     )
                     if shouldCancel() { return }
-                    results = filtered
-                    matchCount = filtered.count
+                    globalRowsForCache = filtered
+                    if let viewportPostFilterRegion {
+                        results = Array(
+                            filterVariantsToRegionOffMain(
+                                filtered,
+                                chromosome: viewportPostFilterRegion.chromosome,
+                                start: viewportPostFilterRegion.start,
+                                end: viewportPostFilterRegion.end
+                            ).prefix(maxDisplay)
+                        )
+                    } else {
+                        results = filtered
+                    }
+                    matchCount = results.count
                     queryScope = viewportPostFilterRegion != nil ? .viewport : .global
                     tooManyMessage = nil
 
@@ -1996,8 +2073,20 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                             shouldCancel: shouldCancel
                         )
                         if shouldCancel() { return }
-                        results = filtered
-                        matchCount = usePostFiltering ? filtered.count : count
+                        if let viewportPostFilterRegion {
+                            results = Array(
+                                filterVariantsToRegionOffMain(
+                                    filtered,
+                                    chromosome: viewportPostFilterRegion.chromosome,
+                                    start: viewportPostFilterRegion.start,
+                                    end: viewportPostFilterRegion.end
+                                ).prefix(maxDisplay)
+                            )
+                            matchCount = results.count
+                        } else {
+                            results = filtered
+                            matchCount = usePostFiltering ? filtered.count : count
+                        }
                         queryScope = frozenRegionScope
                         tooManyMessage = nil
                     }
@@ -2035,8 +2124,21 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                             shouldCancel: shouldCancel
                         )
                         if shouldCancel() { return }
-                        results = filtered
-                        matchCount = usePostFiltering ? filtered.count : count
+                        globalRowsForCache = filtered
+                        if let viewportPostFilterRegion {
+                            results = Array(
+                                filterVariantsToRegionOffMain(
+                                    filtered,
+                                    chromosome: viewportPostFilterRegion.chromosome,
+                                    start: viewportPostFilterRegion.start,
+                                    end: viewportPostFilterRegion.end
+                                ).prefix(maxDisplay)
+                            )
+                            matchCount = results.count
+                        } else {
+                            results = filtered
+                            matchCount = usePostFiltering ? filtered.count : count
+                        }
                         queryScope = viewportPostFilterRegion != nil ? .viewport : .global
                         tooManyMessage = nil
                     }
@@ -2053,6 +2155,13 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                         self.lastVariantQueryMatchCount = matchCount
                         self.lastVariantQueryScope = queryScope
                         self.activeVariantQueryCancelToken = nil
+                        if hasGlobalOverrideFilters, let rows = globalRowsForCache {
+                            self.cachedGlobalFilteredVariantRows = rows
+                            self.cachedGlobalFilteredVariantKey = cacheKey
+                        } else if !hasGlobalOverrideFilters {
+                            self.cachedGlobalFilteredVariantRows = []
+                            self.cachedGlobalFilteredVariantKey = nil
+                        }
 
                         if let tooManyMessage {
                             self.tableView.reloadData()
@@ -2610,6 +2719,14 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     func debugSetSelectedAnnotationRegion(chromosome: String, start: Int, end: Int) {
         selectedAnnotationRegion = (chromosome: chromosome, start: start, end: end)
+    }
+
+    func debugRefreshDisplayedAnnotations() {
+        updateDisplayedAnnotations()
+    }
+
+    func debugGetVariantQueryExecutionCount() -> Int {
+        debugVariantQueryExecutionCount
     }
     #endif
 
