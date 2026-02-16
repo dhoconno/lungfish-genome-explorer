@@ -250,8 +250,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// Settings window controller (lazy singleton)
     private var settingsWindowController: SettingsWindowController?
 
-    /// AI Assistant window controller (lazy singleton)
-    private var aiAssistantWindowController: AIAssistantWindowController?
+    /// AI assistant service (lazy singleton), hosted inside Inspector.
+    private var aiAssistantService: AIAssistantService?
     private var helpWindowController: HelpWindowController?
 
     /// AI tool registry for the assistant
@@ -1636,7 +1636,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         showOrToggleAIAssistant()
     }
 
-    /// Shows or toggles the AI assistant panel. Lazily creates the service and window controller.
+    /// Shows the AI assistant in the Inspector panel (AI tab).
     private func showOrToggleAIAssistant() {
         guard AppSettings.shared.aiSearchEnabled else {
             let alert = NSAlert()
@@ -1648,22 +1648,39 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
-        if let controller = aiAssistantWindowController {
-            controller.togglePanel()
+        guard let splitViewController = mainWindowController?.mainSplitViewController else {
             return
         }
 
-        // First-time setup: create tool registry, service, and window controller
-        let toolRegistry = AIToolRegistry()
-        self.aiToolRegistry = toolRegistry
+        let service = ensureAIAssistantService()
+        splitViewController.inspectorController.setAIAssistantService(service)
+        splitViewController.setInspectorVisible(true, animated: false, source: "AppDelegate.showAIAssistant")
 
-        // Wire the tool registry to the viewer's data
-        connectToolRegistryToViewer(toolRegistry)
+        NotificationCenter.default.post(
+            name: .showInspectorRequested,
+            object: self,
+            userInfo: [NotificationUserInfoKey.inspectorTab: "ai"]
+        )
+    }
+
+    /// Lazily creates and wires AI tool/service objects.
+    private func ensureAIAssistantService() -> AIAssistantService {
+        if let existing = aiAssistantService {
+            return existing
+        }
+
+        let toolRegistry: AIToolRegistry
+        if let existingRegistry = aiToolRegistry {
+            toolRegistry = existingRegistry
+        } else {
+            toolRegistry = AIToolRegistry()
+            aiToolRegistry = toolRegistry
+            connectToolRegistryToViewer(toolRegistry)
+        }
 
         let service = AIAssistantService(toolRegistry: toolRegistry)
-        let controller = AIAssistantWindowController(service: service)
-        self.aiAssistantWindowController = controller
-        controller.showPanel()
+        aiAssistantService = service
+        return service
     }
 
     /// Updates the AI tool registry's search index when a new bundle loads.
@@ -1714,14 +1731,37 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             let totalVariantCount = variantHandles.reduce(0) { $0 + $1.db.totalCount() }
 
             var sampleCount = 0
+            var allSampleNames: [String] = []
             var sampleNameExamples: [String] = []
             for handle in variantHandles {
                 let count = handle.db.sampleCount()
                 if count > sampleCount {
                     sampleCount = count
-                    sampleNameExamples = Array(handle.db.sampleNames().prefix(4))
+                    allSampleNames = handle.db.sampleNames()
+                    sampleNameExamples = Array(allSampleNames.prefix(4))
                 }
             }
+
+            // Visible sample subset from current sample display state (visualizer-driven).
+            let hiddenSamples = viewerController.viewerView.sampleDisplayState.hiddenSamples
+            let visibleSampleNames = allSampleNames.filter { !hiddenSamples.contains($0) }
+            let visibleSampleCount = visibleSampleNames.count
+            let visibleSampleExamples = Array(visibleSampleNames.prefix(6))
+
+            // Table-visible rows from the annotation drawer (when initialized/opened).
+            let drawer = viewerController.annotationDrawerView
+            let displayedVariantRows = (drawer?.activeTab == .variants)
+                ? (drawer?.displayedAnnotations ?? [])
+                : []
+            let variantTableExamples = displayedVariantRows.prefix(6).map { row in
+                "\(row.name) \(row.chromosome):\(row.start + 1)-\(row.end) [\(row.type)]"
+            }
+
+            let displayedSampleRows = drawer?.displayedSamples ?? []
+            let sampleTableRows = displayedSampleRows.isEmpty
+                ? allSampleNames.map { name in !hiddenSamples.contains(name) ? name : nil }.compactMap { $0 }
+                : displayedSampleRows.filter(\.isVisible).map(\.name)
+            let sampleTableExamples = Array(sampleTableRows.prefix(6))
 
             return AIToolRegistry.ViewerState(
                 chromosome: frame?.chromosome,
@@ -1735,7 +1775,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 variantTrackCount: variantTrackCount,
                 totalVariantCount: totalVariantCount,
                 sampleCount: sampleCount,
-                sampleNameExamples: sampleNameExamples
+                sampleNameExamples: sampleNameExamples,
+                visibleSampleCount: visibleSampleCount,
+                visibleSampleExamples: visibleSampleExamples,
+                variantTableRowCount: displayedVariantRows.count,
+                variantTableExamples: variantTableExamples,
+                sampleTableRowCount: sampleTableRows.count,
+                sampleTableExamples: sampleTableExamples
             )
         }
     }

@@ -43,13 +43,22 @@ public final class AIToolRegistry {
         public let totalVariantCount: Int
         public let sampleCount: Int
         public let sampleNameExamples: [String]
+        public let visibleSampleCount: Int
+        public let visibleSampleExamples: [String]
+        public let variantTableRowCount: Int
+        public let variantTableExamples: [String]
+        public let sampleTableRowCount: Int
+        public let sampleTableExamples: [String]
 
         public init(
             chromosome: String? = nil, start: Int? = nil, end: Int? = nil,
             organism: String? = nil, assembly: String? = nil, bundleName: String? = nil,
             chromosomeNames: [String] = [], annotationTrackCount: Int = 0,
             variantTrackCount: Int = 0, totalVariantCount: Int = 0,
-            sampleCount: Int = 0, sampleNameExamples: [String] = []
+            sampleCount: Int = 0, sampleNameExamples: [String] = [],
+            visibleSampleCount: Int = 0, visibleSampleExamples: [String] = [],
+            variantTableRowCount: Int = 0, variantTableExamples: [String] = [],
+            sampleTableRowCount: Int = 0, sampleTableExamples: [String] = []
         ) {
             self.chromosome = chromosome
             self.start = start
@@ -63,6 +72,12 @@ public final class AIToolRegistry {
             self.totalVariantCount = totalVariantCount
             self.sampleCount = sampleCount
             self.sampleNameExamples = sampleNameExamples
+            self.visibleSampleCount = visibleSampleCount
+            self.visibleSampleExamples = visibleSampleExamples
+            self.variantTableRowCount = variantTableRowCount
+            self.variantTableExamples = variantTableExamples
+            self.sampleTableRowCount = sampleTableRowCount
+            self.sampleTableExamples = sampleTableExamples
         }
     }
 
@@ -431,6 +446,22 @@ public final class AIToolRegistry {
             lines.append("Samples: \(state.sampleCount)")
             if !state.sampleNameExamples.isEmpty {
                 lines.append("Sample examples: \(state.sampleNameExamples.joined(separator: ", "))")
+            }
+            lines.append("Visible samples in viewer: \(state.visibleSampleCount)")
+            if !state.visibleSampleExamples.isEmpty {
+                lines.append("Visible sample examples: \(state.visibleSampleExamples.joined(separator: ", "))")
+            }
+            if state.sampleTableRowCount > 0 {
+                lines.append("Sample table rows: \(state.sampleTableRowCount)")
+                if !state.sampleTableExamples.isEmpty {
+                    lines.append("Sample table examples: \(state.sampleTableExamples.joined(separator: ", "))")
+                }
+            }
+        }
+        if state.variantTableRowCount > 0 {
+            lines.append("Variant table rows: \(state.variantTableRowCount)")
+            if !state.variantTableExamples.isEmpty {
+                lines.append("Variant table examples: \(state.variantTableExamples.joined(separator: " | "))")
             }
         }
 

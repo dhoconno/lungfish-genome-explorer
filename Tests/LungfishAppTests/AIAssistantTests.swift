@@ -238,7 +238,13 @@ final class AIToolRegistryTests: XCTestCase {
                 chromosomeNames: ["chr1", "chr2", "chrX"],
                 annotationTrackCount: 2,
                 variantTrackCount: 1,
-                totalVariantCount: 42
+                totalVariantCount: 42,
+                sampleCount: 12,
+                sampleNameExamples: ["S1", "S2"],
+                visibleSampleCount: 5,
+                visibleSampleExamples: ["S1", "S3"],
+                variantTableRowCount: 3,
+                variantTableExamples: ["rs1 chr1:1001-1001 [SNP]"]
             )
         }
 
@@ -252,6 +258,8 @@ final class AIToolRegistryTests: XCTestCase {
         XCTAssertTrue(result.content.contains("chr1"))
         XCTAssertTrue(result.content.contains("49000 bp"))
         XCTAssertTrue(result.content.contains("42"))
+        XCTAssertTrue(result.content.contains("Visible samples in viewer: 5"))
+        XCTAssertTrue(result.content.contains("Variant table rows: 3"))
     }
 
     func testListChromosomesWithState() async {
@@ -285,6 +293,12 @@ final class AIToolRegistryTests: XCTestCase {
         XCTAssertEqual(state.annotationTrackCount, 0)
         XCTAssertEqual(state.variantTrackCount, 0)
         XCTAssertEqual(state.totalVariantCount, 0)
+        XCTAssertEqual(state.visibleSampleCount, 0)
+        XCTAssertTrue(state.visibleSampleExamples.isEmpty)
+        XCTAssertEqual(state.variantTableRowCount, 0)
+        XCTAssertTrue(state.variantTableExamples.isEmpty)
+        XCTAssertEqual(state.sampleTableRowCount, 0)
+        XCTAssertTrue(state.sampleTableExamples.isEmpty)
     }
 }
 

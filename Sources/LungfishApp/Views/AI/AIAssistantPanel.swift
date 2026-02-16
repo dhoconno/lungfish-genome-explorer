@@ -1,4 +1,4 @@
-// AIAssistantPanel.swift - Floating AI assistant panel with chat interface
+// AIAssistantPanel.swift - AI assistant chat interface components
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -114,6 +114,8 @@ final class AIAssistantViewController: NSViewController {
     private let statusLabel = NSTextField(labelWithString: "")
     private let clearButton = NSButton()
     private var thinkingIndicator: NSProgressIndicator?
+    private var documentMinHeightConstraint: NSLayoutConstraint?
+    private var documentContentHeightConstraint: NSLayoutConstraint?
 
     init(service: AIAssistantService) {
         self.service = service
@@ -133,8 +135,7 @@ final class AIAssistantViewController: NSViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        refreshSuggestedQueries()
-        addWelcomeMessage()
+        restoreConversationFromService()
     }
 
     // MARK: - UI Setup
@@ -182,6 +183,21 @@ final class AIAssistantViewController: NSViewController {
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.contentView.postsBoundsChangedNotifications = true
+
+        // Keep the document width locked to the viewport width so message bubbles
+        // wrap consistently as the assistant window/inspector width changes.
+        let clipView = scrollView.contentView
+        documentMinHeightConstraint = documentView.heightAnchor.constraint(greaterThanOrEqualTo: clipView.heightAnchor)
+        documentContentHeightConstraint = documentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 1)
+        NSLayoutConstraint.activate([
+            documentView.leadingAnchor.constraint(equalTo: clipView.leadingAnchor),
+            documentView.trailingAnchor.constraint(equalTo: clipView.trailingAnchor),
+            documentView.topAnchor.constraint(equalTo: clipView.topAnchor),
+            documentView.widthAnchor.constraint(equalTo: clipView.widthAnchor),
+            documentMinHeightConstraint!,
+            documentContentHeightConstraint!,
+        ])
 
         // Content area (suggested queries first, then scroll view)
         let contentStack = NSStackView()
@@ -277,27 +293,65 @@ final class AIAssistantViewController: NSViewController {
         return inputBar
     }
 
+    private func restoreConversationFromService() {
+        refreshSuggestedQueries()
+
+        // Clear any existing bubbles.
+        for view in messagesStackView.arrangedSubviews {
+            messagesStackView.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+
+        let persisted = service.messages
+        guard !persisted.isEmpty else {
+            suggestedQueriesContainer.isHidden = false
+            addWelcomeMessage()
+            return
+        }
+
+        suggestedQueriesContainer.isHidden = true
+        for message in persisted {
+            let content = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !content.isEmpty else { continue }
+            switch message.role {
+            case .user:
+                addMessageView(text: content, isUser: true)
+            case .assistant:
+                addMessageView(text: content, isUser: false)
+            case .system:
+                continue
+            case .tool:
+                break
+            }
+        }
+
+        if messagesStackView.arrangedSubviews.isEmpty {
+            addWelcomeMessage()
+        }
+        updateMessageDocumentHeight()
+        DispatchQueue.main.async { [weak self] in
+            self?.scrollMessagesToBottom()
+        }
+    }
+
     /// Ensures the scroll document grows with message content so long responses remain visible.
     private func updateMessageDocumentHeight() {
-        guard let documentView = scrollView.documentView else { return }
-        documentView.layoutSubtreeIfNeeded()
+        guard scrollView.documentView != nil else { return }
+        scrollView.layoutSubtreeIfNeeded()
         messagesStackView.layoutSubtreeIfNeeded()
 
         let contentHeight = messagesStackView.fittingSize.height
         let minHeight = scrollView.contentView.bounds.height
         let desiredHeight = max(minHeight, contentHeight)
-
-        if abs(documentView.frame.height - desiredHeight) > 0.5 {
-            var frame = documentView.frame
-            frame.size.height = desiredHeight
-            documentView.frame = frame
-        }
+        documentContentHeightConstraint?.constant = desiredHeight
     }
 
     private func scrollMessagesToBottom() {
         guard let documentView = scrollView.documentView else { return }
         updateMessageDocumentHeight()
-        let maxY = max(0, documentView.frame.height - scrollView.contentView.bounds.height)
+        documentView.layoutSubtreeIfNeeded()
+        let contentHeight = max(documentView.fittingSize.height, messagesStackView.fittingSize.height)
+        let maxY = max(0, contentHeight - scrollView.contentView.bounds.height)
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: maxY))
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
@@ -381,7 +435,7 @@ final class AIAssistantViewController: NSViewController {
         for view in messagesStackView.arrangedSubviews {
             if view.identifier == indicatorId, let stack = view as? NSStackView {
                 for subview in stack.arrangedSubviews {
-                    if let label = subview as? NSTextField, label != thinkingIndicator as? NSView {
+                    if let label = subview as? NSTextField, subview !== thinkingIndicator {
                         label.stringValue = text
                         break
                     }
@@ -571,6 +625,8 @@ final class AIMessageBubbleView: NSView {
         label.maximumNumberOfLines = 0
         label.lineBreakMode = .byWordWrapping
         label.usesSingleLineMode = false
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        label.setContentHuggingPriority(.defaultLow, for: .horizontal)
         if let cell = label.cell as? NSTextFieldCell {
             cell.wraps = true
             cell.isScrollable = false

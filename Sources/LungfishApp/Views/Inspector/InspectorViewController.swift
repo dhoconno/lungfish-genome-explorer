@@ -17,14 +17,17 @@ private let logger = Logger(subsystem: "com.lungfish.browser", category: "Inspec
 
 /// Tab selection for the inspector panel's segmented control.
 ///
-/// The inspector supports two tabs:
+/// The inspector supports three tabs:
 /// - `document`: Shows bundle-level metadata (organism, assembly, source info, NCBI metadata)
 /// - `selection`: Shows editing controls (annotation selection, appearance, annotation style, read style)
+/// - `ai`: Shows the embedded AI assistant chat interface
 enum InspectorTab: String, CaseIterable {
     /// Bundle metadata and source information.
     case document
     /// Annotation selection editing and style controls.
     case selection
+    /// Embedded AI assistant.
+    case ai
 }
 
 /// Controller for the inspector panel showing selection details.
@@ -666,6 +669,11 @@ public class InspectorViewController: NSViewController {
         viewModel.documentSectionViewModel.selectChromosome(chromosome)
     }
 
+    /// Injects the shared AI assistant service used by the embedded inspector tab.
+    public func setAIAssistantService(_ service: AIAssistantService) {
+        viewModel.aiAssistantService = service
+    }
+
     /// Populates the sample section view model from the bundle's variant databases.
     ///
     /// Opens each variant database and aggregates sample names and metadata field names.
@@ -817,7 +825,7 @@ public class InspectorViewController: NSViewController {
 ///
 /// Aggregates state for all inspector sections and coordinates
 /// between section view models. Supports a tabbed interface with
-/// Document and Selection tabs.
+/// Document, Selection, and AI tabs.
 @Observable
 @MainActor
 public final class InspectorViewModel {
@@ -884,6 +892,9 @@ public final class InspectorViewModel {
     /// View model for sample display controls section
     let sampleSectionViewModel = SampleSectionViewModel()
 
+    /// Shared AI assistant service for the inspector's AI tab.
+    var aiAssistantService: AIAssistantService?
+
     // MARK: - Initialization
 
     init() {
@@ -903,9 +914,10 @@ public final class InspectorViewModel {
 
 /// SwiftUI view for the inspector panel content.
 ///
-/// Displays a Keynote-style tabbed interface with two tabs:
+/// Displays a Keynote-style tabbed interface with three tabs:
 /// - **Document**: Bundle metadata, source info, genome summary, extended metadata
 /// - **Selection**: Annotation editing, appearance settings, annotation style, read style
+/// - **AI**: Embedded AI assistant chat interface
 ///
 /// Uses a segmented `Picker` at the top of the panel for tab switching.
 public struct InspectorView: View {
@@ -919,6 +931,8 @@ public struct InspectorView: View {
                     .tag(InspectorTab.document)
                 Image(systemName: "cursorarrow.click")
                     .tag(InspectorTab.selection)
+                Image(systemName: "sparkles")
+                    .tag(InspectorTab.ai)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -927,47 +941,80 @@ public struct InspectorView: View {
 
             Divider()
 
-            // Tab content
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    switch viewModel.selectedTab {
-                    case .document:
-                        DocumentSection(viewModel: viewModel.documentSectionViewModel)
+            switch viewModel.selectedTab {
+            case .document, .selection:
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        switch viewModel.selectedTab {
+                        case .document:
+                            DocumentSection(viewModel: viewModel.documentSectionViewModel)
 
-                    case .selection:
-                        SelectionSection(viewModel: viewModel.selectionSectionViewModel)
+                        case .selection:
+                            SelectionSection(viewModel: viewModel.selectionSectionViewModel)
 
-                        // Variant detail (shown when a variant is selected)
-                        VariantSection(viewModel: viewModel.variantSectionViewModel)
+                            // Variant detail (shown when a variant is selected)
+                            VariantSection(viewModel: viewModel.variantSectionViewModel)
 
-                        Divider()
+                            Divider()
 
-                        // Sequence style
-                        AppearanceSection(viewModel: viewModel.appearanceSectionViewModel)
+                            // Sequence style
+                            AppearanceSection(viewModel: viewModel.appearanceSectionViewModel)
 
-                        Divider()
+                            Divider()
 
-                        // Annotation style
-                        AnnotationSection(viewModel: viewModel.annotationSectionViewModel)
+                            // Annotation style
+                            AnnotationSection(viewModel: viewModel.annotationSectionViewModel)
 
-                        Divider()
+                            Divider()
 
-                        // Sample display controls (shown when variant data is available)
-                        SampleSection(viewModel: viewModel.sampleSectionViewModel)
+                            // Sample display controls (shown when variant data is available)
+                            SampleSection(viewModel: viewModel.sampleSectionViewModel)
 
-                        Divider()
+                            Divider()
 
-                        // Read style (BAM/CRAM placeholder)
-                        ReadStyleSection(viewModel: viewModel.readStyleSectionViewModel)
+                            // Read style (BAM/CRAM placeholder)
+                            ReadStyleSection(viewModel: viewModel.readStyleSectionViewModel)
+
+                        case .ai:
+                            EmptyView()
+                        }
+
+                        Spacer()
                     }
-
-                    Spacer()
+                    .padding()
                 }
-                .padding()
+
+            case .ai:
+                if let service = viewModel.aiAssistantService {
+                    EmbeddedAIAssistantView(service: service)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("AI Assistant")
+                            .font(.headline)
+                        Text("Enable AI services in Settings and open the assistant from the toolbar to initialize this panel.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .padding()
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .controlBackgroundColor))
+    }
+}
+
+private struct EmbeddedAIAssistantView: NSViewControllerRepresentable {
+    let service: AIAssistantService
+
+    func makeNSViewController(context: Context) -> AIAssistantViewController {
+        AIAssistantViewController(service: service)
+    }
+
+    func updateNSViewController(_ controller: AIAssistantViewController, context: Context) {
+        _ = controller
     }
 }
 

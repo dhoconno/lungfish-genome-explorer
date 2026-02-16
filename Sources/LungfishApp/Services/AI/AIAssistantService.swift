@@ -365,6 +365,22 @@ public final class AIAssistantService {
             if !viewerState.sampleNameExamples.isEmpty {
                 contextLines.append("Sample examples: \(viewerState.sampleNameExamples.joined(separator: ", "))")
             }
+            contextLines.append("Visible samples in viewer: \(viewerState.visibleSampleCount)")
+            if !viewerState.visibleSampleExamples.isEmpty {
+                contextLines.append("Visible sample examples: \(viewerState.visibleSampleExamples.joined(separator: ", "))")
+            }
+        }
+        if viewerState.variantTableRowCount > 0 {
+            contextLines.append("Variant table rows currently shown: \(viewerState.variantTableRowCount)")
+            if !viewerState.variantTableExamples.isEmpty {
+                contextLines.append("Variant table examples: \(viewerState.variantTableExamples.joined(separator: " | "))")
+            }
+        }
+        if viewerState.sampleTableRowCount > 0 {
+            contextLines.append("Sample table rows currently shown: \(viewerState.sampleTableRowCount)")
+            if !viewerState.sampleTableExamples.isEmpty {
+                contextLines.append("Sample table examples: \(viewerState.sampleTableExamples.joined(separator: ", "))")
+            }
         }
 
         let dataContext = contextLines.isEmpty
@@ -414,6 +430,10 @@ public final class AIAssistantService {
         8. **Reference positions correctly**: Genomic positions in the data are 0-based. \
         When displaying positions to users, add 1 to convert to 1-based coordinates (the standard \
         convention in genomics).
+
+        9. **Use loaded table state**: If variant/sample table row summaries are present in context, \
+        treat them as the user's current filtered working set and discuss those first before broadening \
+        to genome-wide searches.
         """
     }
 
