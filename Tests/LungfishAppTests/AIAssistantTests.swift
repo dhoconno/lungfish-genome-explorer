@@ -6,6 +6,30 @@ import XCTest
 @testable import LungfishCore
 @testable import LungfishApp
 
+actor MockHTTPClient: HTTPClient {
+    private let responses: [Data]
+    private(set) var requests: [URLRequest] = []
+
+    init(responses: [Data]) {
+        self.responses = responses
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        requests.append(request)
+        let responseIndex = min(requests.count - 1, max(0, responses.count - 1))
+        let data = responses.isEmpty ? Data() : responses[responseIndex]
+        let response = HTTPURLResponse(
+            url: request.url ?? URL(string: "https://example.com")!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+        )!
+        return (data, response)
+    }
+
+    func recordedRequests() -> [URLRequest] { requests }
+}
+
 @MainActor
 final class AIToolRegistryTests: XCTestCase {
 
@@ -153,6 +177,27 @@ final class AIToolRegistryTests: XCTestCase {
         let result = await registry.execute(call)
         XCTAssertTrue(result.isError)
         XCTAssertTrue(result.content.contains("Unknown tool"))
+    }
+
+    func testSearchPubMedUsesEncodedQueryParameters() async throws {
+        let searchJSON = #"{"esearchresult":{"idlist":["12345"]}}"#.data(using: .utf8)!
+        let summaryJSON = #"{"result":{"12345":{"title":"Example","source":"Nature","pubdate":"2025","authors":[{"name":"A. Author"}]}}}"#.data(using: .utf8)!
+        let mockClient = MockHTTPClient(responses: [searchJSON, summaryJSON])
+        let registry = AIToolRegistry(httpClient: mockClient)
+
+        let call = AIToolCall(
+            id: "1",
+            name: "search_pubmed",
+            arguments: ["query": .string("BRCA1 breast cancer"), "max_results": .integer(3)]
+        )
+        let result = await registry.execute(call)
+        let requests = await mockClient.recordedRequests()
+
+        XCTAssertFalse(result.isError)
+        XCTAssertTrue(result.content.contains("PMID: 12345"))
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertTrue(requests[0].url?.absoluteString.contains("term=BRCA1%20breast%20cancer") == true)
+        XCTAssertTrue(requests[0].url?.absoluteString.contains("retmax=3") == true)
     }
 
     // MARK: - Navigation Callback
@@ -342,6 +387,7 @@ final class AIAssistantServiceTests: XCTestCase {
     func testSendMessageWithNoAPIKeyReturnsError() async {
         let registry = AIToolRegistry()
         let service = AIAssistantService(toolRegistry: registry)
+        AppSettings.shared.aiSearchEnabled = true
 
         let response = await service.sendMessage("Hello")
 
@@ -355,6 +401,7 @@ final class AIAssistantServiceTests: XCTestCase {
     func testSendMessagePreventsDoubleProcessing() async {
         let registry = AIToolRegistry()
         let service = AIAssistantService(toolRegistry: registry)
+        AppSettings.shared.aiSearchEnabled = true
 
         // Simulate isProcessing being true by sending concurrent requests
         // The second should be rejected
@@ -410,7 +457,7 @@ final class AISettingsIntegrationTests: XCTestCase {
 
     func testDefaultModels() {
         let settings = AppSettings.shared
-        XCTAssertEqual(settings.openAIModel, "gpt-4.1-mini")
+        XCTAssertEqual(settings.openAIModel, "gpt-5-mini")
         XCTAssertEqual(settings.geminiModel, "gemini-2.5-flash")
         XCTAssertEqual(settings.anthropicModel, "claude-sonnet-4-5-20250929")
     }
@@ -422,7 +469,18 @@ final class AISettingsIntegrationTests: XCTestCase {
         settings.resetSection(.aiServices)
 
         XCTAssertEqual(settings.preferredAIProvider, "anthropic")
-        XCTAssertEqual(settings.openAIModel, "gpt-4.1-mini")
+        XCTAssertEqual(settings.openAIModel, "gpt-5-mini")
+    }
+
+    func testSendMessageWhenAIDisabledReturnsHelpfulMessage() async {
+        let registry = AIToolRegistry()
+        let service = AIAssistantService(toolRegistry: registry)
+        AppSettings.shared.aiSearchEnabled = false
+
+        let response = await service.sendMessage("Hello")
+
+        XCTAssertTrue(response.contains("disabled"))
+        XCTAssertTrue(service.messages.isEmpty)
     }
 
     func testProviderIdentifierFromSettings() {

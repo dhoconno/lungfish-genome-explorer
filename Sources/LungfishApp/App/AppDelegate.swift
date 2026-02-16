@@ -1637,6 +1637,16 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     /// Shows or toggles the AI assistant panel. Lazily creates the service and window controller.
     private func showOrToggleAIAssistant() {
+        guard AppSettings.shared.aiSearchEnabled else {
+            let alert = NSAlert()
+            alert.messageText = "AI Assistant Disabled"
+            alert.informativeText = "Enable AI-powered search in Settings > AI Services to use the assistant."
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+
         if let controller = aiAssistantWindowController {
             controller.togglePanel()
             return

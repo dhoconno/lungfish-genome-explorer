@@ -26,6 +26,9 @@ public final class AIToolRegistry {
     /// Callback to get the current viewer state.
     var getCurrentViewState: (() -> ViewerState)?
 
+    /// HTTP client used by tools that call external services.
+    private let httpClient: HTTPClient
+
     /// Current viewer state snapshot for context.
     public struct ViewerState: Sendable {
         public let chromosome: String?
@@ -58,8 +61,13 @@ public final class AIToolRegistry {
         }
     }
 
-    public init(searchIndex: AnnotationSearchIndex? = nil) {
+    private struct VariantQueryContext: Sendable {
+        let variantDBs: [(trackId: String, db: VariantDatabase)]
+    }
+
+    public init(searchIndex: AnnotationSearchIndex? = nil, httpClient: HTTPClient = URLSessionHTTPClient()) {
         self.searchIndex = searchIndex
+        self.httpClient = httpClient
     }
 
     public func setSearchIndex(_ index: AnnotationSearchIndex) {
@@ -190,7 +198,7 @@ public final class AIToolRegistry {
             case "search_variants":
                 result = try await executeSearchVariants(toolCall)
             case "get_variant_statistics":
-                result = try executeGetVariantStats(toolCall)
+                result = try await executeGetVariantStats(toolCall)
             case "get_gene_details":
                 result = try await executeGetGeneDetails(toolCall)
             case "get_current_view":
@@ -215,6 +223,11 @@ public final class AIToolRegistry {
 
     // MARK: - Tool Implementations
 
+    private func snapshotVariantContext() -> VariantQueryContext? {
+        guard let searchIndex else { return nil }
+        return VariantQueryContext(variantDBs: searchIndex.variantDatabaseHandles)
+    }
+
     private func executeSearchGenes(_ call: AIToolCall) async throws -> String {
         guard let searchIndex else {
             return "No genome data is currently loaded. Please open a .lungfishref bundle first."
@@ -238,12 +251,11 @@ public final class AIToolRegistry {
     }
 
     private func executeSearchVariants(_ call: AIToolCall) async throws -> String {
-        guard let searchIndex else {
+        guard let context = snapshotVariantContext() else {
             return "No genome data is currently loaded."
         }
 
-        let variantDBs = searchIndex.variantDatabaseHandles
-        if variantDBs.isEmpty {
+        if context.variantDBs.isEmpty {
             return "No variant data (VCF) is loaded in the current bundle."
         }
 
@@ -254,27 +266,27 @@ public final class AIToolRegistry {
         let variantType = call.string("variant_type")
         let limit = call.int("limit") ?? 20
 
-        var allResults: [(trackId: String, records: [VariantDatabaseRecord])] = []
-
-        for (trackId, db) in variantDBs {
-            let records: [VariantDatabaseRecord]
-            if let query, !query.isEmpty {
-                records = db.searchByID(idFilter: query, limit: limit)
-            } else if let chromosome, let start, let end {
-                let types: Set<String> = variantType.map { Set([$0]) } ?? []
-                records = db.query(chromosome: chromosome, start: start, end: end, types: types, limit: limit)
-            } else if let chromosome {
-                // Search whole chromosome (first 1M bp as a sample)
-                records = db.query(chromosome: chromosome, start: 0, end: 1_000_000, limit: limit)
-            } else {
-                // Global search
-                let types: Set<String> = variantType.map { Set([$0]) } ?? []
-                records = db.queryForTable(types: types, limit: limit)
+        let allResults = await Task.detached(priority: .userInitiated) { () -> [(trackId: String, records: [VariantDatabaseRecord])] in
+            var results: [(trackId: String, records: [VariantDatabaseRecord])] = []
+            for (trackId, db) in context.variantDBs {
+                let records: [VariantDatabaseRecord]
+                if let query, !query.isEmpty {
+                    records = db.searchByID(idFilter: query, limit: limit)
+                } else if let chromosome, let start, let end {
+                    let types: Set<String> = variantType.map { Set([$0]) } ?? []
+                    records = db.query(chromosome: chromosome, start: start, end: end, types: types, limit: limit)
+                } else if let chromosome {
+                    records = db.query(chromosome: chromosome, start: 0, end: 1_000_000, limit: limit)
+                } else {
+                    let types: Set<String> = variantType.map { Set([$0]) } ?? []
+                    records = db.queryForTable(types: types, limit: limit)
+                }
+                if !records.isEmpty {
+                    results.append((trackId, records))
+                }
             }
-            if !records.isEmpty {
-                allResults.append((trackId, records))
-            }
-        }
+            return results
+        }.value
 
         if allResults.isEmpty {
             var msg = "No variants found"
@@ -294,37 +306,36 @@ public final class AIToolRegistry {
         return lines.joined(separator: "\n")
     }
 
-    private func executeGetVariantStats(_ call: AIToolCall) throws -> String {
-        guard let searchIndex else {
+    private func executeGetVariantStats(_ _: AIToolCall) async throws -> String {
+        guard let context = snapshotVariantContext() else {
             return "No genome data is currently loaded."
         }
 
-        let variantDBs = searchIndex.variantDatabaseHandles
-        if variantDBs.isEmpty {
+        if context.variantDBs.isEmpty {
             return "No variant data (VCF) is loaded."
         }
 
-        var lines: [String] = []
-        for (trackId, db) in variantDBs {
-            let total = db.totalCount()
-            let types = db.allTypes()
-            let chroms = db.allChromosomes()
-            let sampleCount = db.sampleCount()
+        return await Task.detached(priority: .userInitiated) {
+            var lines: [String] = []
+            for (trackId, db) in context.variantDBs {
+                let total = db.totalCount()
+                let types = db.allTypes()
+                let chroms = db.allChromosomes()
+                let sampleCount = db.sampleCount()
 
-            lines.append("Variant track '\(trackId)':")
-            lines.append("  Total variants: \(total)")
-            lines.append("  Samples: \(sampleCount)")
-            lines.append("  Variant types: \(types.joined(separator: ", "))")
-            lines.append("  Chromosomes: \(chroms.prefix(10).joined(separator: ", "))\(chroms.count > 10 ? " (and \(chroms.count - 10) more)" : "")")
+                lines.append("Variant track '\(trackId)':")
+                lines.append("  Total variants: \(total)")
+                lines.append("  Samples: \(sampleCount)")
+                lines.append("  Variant types: \(types.joined(separator: ", "))")
+                lines.append("  Chromosomes: \(chroms.prefix(10).joined(separator: ", "))\(chroms.count > 10 ? " (and \(chroms.count - 10) more)" : "")")
 
-            // Type breakdown
-            for type in types {
-                let count = db.queryForTable(types: Set([type]), limit: 0)
-                let typeCount = db.queryCountForTable(types: Set([type]))
-                lines.append("  \(type): \(typeCount)")
+                for type in types {
+                    let typeCount = db.queryCountForTable(types: Set([type]))
+                    lines.append("  \(type): \(typeCount)")
+                }
             }
-        }
-        return lines.joined(separator: "\n")
+            return lines.joined(separator: "\n")
+        }.value
     }
 
     private func executeGetGeneDetails(_ call: AIToolCall) async throws -> String {
@@ -355,19 +366,23 @@ public final class AIToolRegistry {
             "Size: \(gene.end - gene.start) bp",
         ]
 
-        // Check for variants in this gene's region
-        let variantDBs = searchIndex.variantDatabaseHandles
-        for (trackId, db) in variantDBs {
-            let variantCount = db.queryCount(chromosome: gene.chromosome, start: gene.start, end: gene.end)
-            if variantCount > 0 {
-                lines.append("Variants in region: \(variantCount)")
-                // Show first few
-                let variants = db.query(chromosome: gene.chromosome, start: gene.start, end: gene.end, limit: 5)
-                for v in variants {
+        if let context = snapshotVariantContext(), !context.variantDBs.isEmpty {
+            let variantSummaries = await Task.detached(priority: .userInitiated) {
+                context.variantDBs.compactMap { (_, db) -> (count: Int, variants: [VariantDatabaseRecord])? in
+                    let count = db.queryCount(chromosome: gene.chromosome, start: gene.start, end: gene.end)
+                    guard count > 0 else { return nil }
+                    let variants = db.query(chromosome: gene.chromosome, start: gene.start, end: gene.end, limit: 5)
+                    return (count, variants)
+                }
+            }.value
+
+            for summary in variantSummaries {
+                lines.append("Variants in region: \(summary.count)")
+                for v in summary.variants {
                     lines.append("  - \(v.variantID) pos:\(v.position + 1) \(v.ref)>\(v.alt) [\(v.variantType)]")
                 }
-                if variantCount > 5 {
-                    lines.append("  ... and \(variantCount - 5) more variants")
+                if summary.count > 5 {
+                    lines.append("  ... and \(summary.count - 5) more variants")
                 }
             }
         }
@@ -475,10 +490,16 @@ public final class AIToolRegistry {
         }
         let maxResults = min(call.int("max_results") ?? 5, 10)
 
-        // Use NCBI E-utilities to search PubMed
-        let searchURL = URL(string: "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmode=json&retmax=\(maxResults)&term=\(query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query)")!
-
-        let (searchData, _) = try await URLSession.shared.data(for: URLRequest(url: searchURL))
+        let searchURL = try buildPubMedURL(
+            path: "esearch.fcgi",
+            queryItems: [
+                URLQueryItem(name: "db", value: "pubmed"),
+                URLQueryItem(name: "retmode", value: "json"),
+                URLQueryItem(name: "retmax", value: String(maxResults)),
+                URLQueryItem(name: "term", value: query),
+            ]
+        )
+        let searchData = try await fetchData(from: searchURL)
 
         guard let searchJSON = try? JSONSerialization.jsonObject(with: searchData) as? [String: Any],
               let eSearchResult = searchJSON["esearchresult"] as? [String: Any],
@@ -487,10 +508,16 @@ public final class AIToolRegistry {
             return "No PubMed results found for '\(query)'."
         }
 
-        // Fetch article details
         let ids = idList.joined(separator: ",")
-        let fetchURL = URL(string: "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&retmode=json&id=\(ids)")!
-        let (fetchData, _) = try await URLSession.shared.data(for: URLRequest(url: fetchURL))
+        let fetchURL = try buildPubMedURL(
+            path: "esummary.fcgi",
+            queryItems: [
+                URLQueryItem(name: "db", value: "pubmed"),
+                URLQueryItem(name: "retmode", value: "json"),
+                URLQueryItem(name: "id", value: ids),
+            ]
+        )
+        let fetchData = try await fetchData(from: fetchURL)
 
         guard let fetchJSON = try? JSONSerialization.jsonObject(with: fetchData) as? [String: Any],
               let result = fetchJSON["result"] as? [String: Any] else {
@@ -513,5 +540,29 @@ public final class AIToolRegistry {
         }
 
         return lines.joined(separator: "\n")
+    }
+
+    private func buildPubMedURL(path: String, queryItems: [URLQueryItem]) throws -> URL {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "eutils.ncbi.nlm.nih.gov"
+        components.path = "/entrez/eutils/\(path)"
+        components.queryItems = queryItems
+        guard let url = components.url else {
+            throw AIProviderError.invalidResponse("Failed to build PubMed request URL")
+        }
+        return url
+    }
+
+    private func fetchData(from url: URL) async throws -> Data {
+        let request = URLRequest(url: url)
+        let (data, response) = try await httpClient.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AIProviderError.networkError("Invalid HTTP response from PubMed")
+        }
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw AIProviderError.httpError(statusCode: httpResponse.statusCode, message: "PubMed API error")
+        }
+        return data
     }
 }

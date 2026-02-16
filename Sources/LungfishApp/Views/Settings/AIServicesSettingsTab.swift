@@ -59,7 +59,8 @@ struct AIServicesSettingsTab: View {
                     SecureField("API Key", text: $openAIKey, prompt: Text("sk-..."))
                 }
                 Picker("Model:", selection: $settings.openAIModel) {
-                    Text("GPT-4.1 Mini (Recommended)").tag("gpt-4.1-mini")
+                    Text("GPT-5 Mini (Recommended)").tag("gpt-5-mini")
+                    Text("GPT-5").tag("gpt-5")
                     Text("GPT-4.1").tag("gpt-4.1")
                     Text("GPT-4o").tag("gpt-4o")
                     Text("GPT-4o Mini").tag("gpt-4o-mini")
@@ -74,6 +75,7 @@ struct AIServicesSettingsTab: View {
                 Picker("Model:", selection: $settings.geminiModel) {
                     Text("Gemini 2.5 Flash (Recommended)").tag("gemini-2.5-flash")
                     Text("Gemini 2.5 Pro").tag("gemini-2.5-pro")
+                    Text("Gemini 2.5 Flash Lite").tag("gemini-2.5-flash-lite")
                     Text("Gemini 3 Flash Preview").tag("gemini-3-flash-preview")
                 }
             }

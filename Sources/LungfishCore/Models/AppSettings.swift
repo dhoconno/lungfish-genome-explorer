@@ -103,7 +103,7 @@ public final class AppSettings: Sendable {
     public var aiSearchEnabled: Bool = false
 
     /// Selected OpenAI model identifier.
-    public var openAIModel: String = "gpt-4.1-mini"
+    public var openAIModel: String = "gpt-5-mini"
 
     /// Selected Anthropic model identifier.
     public var anthropicModel: String = "claude-sonnet-4-5-20250929"
@@ -255,7 +255,7 @@ public final class AppSettings: Sendable {
             tooltipDelay = try container.decodeIfPresent(Double.self, forKey: .tooltipDelay) ?? 0.15
             // AI Services
             aiSearchEnabled = try container.decodeIfPresent(Bool.self, forKey: .aiSearchEnabled) ?? false
-            openAIModel = try container.decodeIfPresent(String.self, forKey: .openAIModel) ?? "gpt-4.1-mini"
+            openAIModel = try container.decodeIfPresent(String.self, forKey: .openAIModel) ?? "gpt-5-mini"
             anthropicModel = try container.decodeIfPresent(String.self, forKey: .anthropicModel) ?? "claude-sonnet-4-5-20250929"
             geminiModel = try container.decodeIfPresent(String.self, forKey: .geminiModel) ?? "gemini-2.5-flash"
             preferredAIProvider = try container.decodeIfPresent(String.self, forKey: .preferredAIProvider) ?? "anthropic"

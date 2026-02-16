@@ -53,6 +53,9 @@ public final class AIAssistantService {
     /// - Returns: The final assistant response text
     @discardableResult
     public func sendMessage(_ text: String) async -> String {
+        guard AppSettings.shared.aiSearchEnabled else {
+            return "AI Assistant is disabled. Enable it in Settings > AI Services."
+        }
         guard !isProcessing else {
             return "Please wait for the current request to complete."
         }
@@ -65,7 +68,7 @@ public final class AIAssistantService {
         messages.append(.user(text))
 
         do {
-            let provider = try await resolveProvider()
+            let providers = try await resolveProviders()
             let systemPrompt = buildSystemPrompt()
             let tools = toolRegistry.toolDefinitions
 
@@ -74,7 +77,8 @@ public final class AIAssistantService {
             while rounds < maxToolRounds {
                 rounds += 1
 
-                let response = try await provider.sendMessage(
+                let response = try await sendWithFallback(
+                    providers: providers,
                     messages: messages,
                     systemPrompt: systemPrompt,
                     tools: tools
@@ -144,27 +148,22 @@ public final class AIAssistantService {
     // MARK: - Provider Resolution
 
     /// Resolves which AI provider to use based on settings and available API keys.
-    private func resolveProvider() async throws -> any AIProvider {
+    private func resolveProviders() async throws -> [any AIProvider] {
         let settings = AppSettings.shared
         let keychain = KeychainSecretStorage.shared
 
         let preferred = AIProviderIdentifier(rawValue: settings.preferredAIProvider) ?? .anthropic
-
-        // Try preferred provider first
-        if let provider = try await makeProvider(preferred, settings: settings, keychain: keychain) {
-            return provider
-        }
-
-        // Fallback to any configured provider
-        let fallbackOrder: [AIProviderIdentifier] = [.anthropic, .openAI, .gemini].filter { $0 != preferred }
+        let fallbackOrder: [AIProviderIdentifier] = [preferred] + [.anthropic, .openAI, .gemini].filter { $0 != preferred }
+        var providers: [any AIProvider] = []
         for providerId in fallbackOrder {
             if let provider = try await makeProvider(providerId, settings: settings, keychain: keychain) {
-                logger.info("Falling back to \(providerId.displayName)")
-                return provider
+                providers.append(provider)
             }
         }
-
-        throw AIProviderError.missingAPIKey
+        guard !providers.isEmpty else {
+            throw AIProviderError.missingAPIKey
+        }
+        return providers
     }
 
     private func makeProvider(
@@ -190,6 +189,46 @@ public final class AIAssistantService {
             return OpenAIProvider(apiKey: apiKey, modelId: settings.openAIModel)
         case .gemini:
             return GeminiProvider(apiKey: apiKey, modelId: settings.geminiModel)
+        }
+    }
+
+    private func sendWithFallback(
+        providers: [any AIProvider],
+        messages: [AIMessage],
+        systemPrompt: String,
+        tools: [AIToolDefinition]
+    ) async throws -> AIResponse {
+        var firstError: AIProviderError?
+        var lastError: AIProviderError?
+
+        for (idx, provider) in providers.enumerated() {
+            do {
+                return try await provider.sendMessage(
+                    messages: messages,
+                    systemPrompt: systemPrompt,
+                    tools: tools
+                )
+            } catch let providerError as AIProviderError {
+                if firstError == nil { firstError = providerError }
+                lastError = providerError
+                guard shouldFallback(for: providerError), idx + 1 < providers.count else {
+                    throw providerError
+                }
+                logger.warning("Provider \(provider.name, privacy: .public) failed (\(providerError.localizedDescription, privacy: .public)); trying fallback")
+            }
+        }
+
+        throw lastError ?? firstError ?? AIProviderError.networkError("No provider response")
+    }
+
+    private func shouldFallback(for error: AIProviderError) -> Bool {
+        switch error {
+        case .rateLimited, .networkError, .modelNotAvailable:
+            return true
+        case .httpError(let statusCode, _):
+            return statusCode >= 500
+        case .missingAPIKey, .invalidResponse, .contextTooLong, .decodingError:
+            return false
         }
     }
 

@@ -20,7 +20,7 @@ public actor OpenAIProvider: AIProvider {
 
     public nonisolated var name: String { "OpenAI" }
 
-    public init(apiKey: String, modelId: String = "gpt-4.1-mini", httpClient: HTTPClient = URLSessionHTTPClient()) {
+    public init(apiKey: String, modelId: String = "gpt-5-mini", httpClient: HTTPClient = URLSessionHTTPClient()) {
         self.apiKey = apiKey
         self.modelId = modelId
         self.httpClient = httpClient
