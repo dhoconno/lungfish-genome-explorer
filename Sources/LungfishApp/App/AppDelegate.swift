@@ -1708,8 +1708,19 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             let frame = viewerController.referenceFrame
 
             // Count variant tracks
-            let variantTrackCount = viewerController.annotationSearchIndex?.variantDatabaseHandles.count ?? 0
-            let totalVariantCount = viewerController.annotationSearchIndex?.variantDatabaseHandles.reduce(0) { $0 + $1.db.totalCount() } ?? 0
+            let variantHandles = viewerController.annotationSearchIndex?.variantDatabaseHandles ?? []
+            let variantTrackCount = variantHandles.count
+            let totalVariantCount = variantHandles.reduce(0) { $0 + $1.db.totalCount() }
+
+            var sampleCount = 0
+            var sampleNameExamples: [String] = []
+            for handle in variantHandles {
+                let count = handle.db.sampleCount()
+                if count > sampleCount {
+                    sampleCount = count
+                    sampleNameExamples = Array(handle.db.sampleNames().prefix(4))
+                }
+            }
 
             return AIToolRegistry.ViewerState(
                 chromosome: frame?.chromosome,
@@ -1721,7 +1732,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 chromosomeNames: provider?.chromosomes.map(\.name) ?? [],
                 annotationTrackCount: provider?.annotationTrackIds.count ?? 0,
                 variantTrackCount: variantTrackCount,
-                totalVariantCount: totalVariantCount
+                totalVariantCount: totalVariantCount,
+                sampleCount: sampleCount,
+                sampleNameExamples: sampleNameExamples
             )
         }
     }

@@ -278,16 +278,7 @@ final class AIAssistantViewController: NSViewController {
     // MARK: - Messages
 
     private func addWelcomeMessage() {
-        let welcome = """
-        Welcome! I can help you explore your genomic data. Try asking questions like:
-
-        - "What genes are in my data?"
-        - "Show me a summary of the variants"
-        - "What does the gene BRCA1 do?"
-        - "Are there any variants in immune-related genes?"
-
-        Configure your API key in **Settings > AI Services** to get started.
-        """
+        let welcome = service.welcomeMessage()
         addMessageView(text: welcome, isUser: false, isWelcome: true)
     }
 

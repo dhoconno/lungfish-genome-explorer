@@ -41,12 +41,15 @@ public final class AIToolRegistry {
         public let annotationTrackCount: Int
         public let variantTrackCount: Int
         public let totalVariantCount: Int
+        public let sampleCount: Int
+        public let sampleNameExamples: [String]
 
         public init(
             chromosome: String? = nil, start: Int? = nil, end: Int? = nil,
             organism: String? = nil, assembly: String? = nil, bundleName: String? = nil,
             chromosomeNames: [String] = [], annotationTrackCount: Int = 0,
-            variantTrackCount: Int = 0, totalVariantCount: Int = 0
+            variantTrackCount: Int = 0, totalVariantCount: Int = 0,
+            sampleCount: Int = 0, sampleNameExamples: [String] = []
         ) {
             self.chromosome = chromosome
             self.start = start
@@ -58,6 +61,8 @@ public final class AIToolRegistry {
             self.annotationTrackCount = annotationTrackCount
             self.variantTrackCount = variantTrackCount
             self.totalVariantCount = totalVariantCount
+            self.sampleCount = sampleCount
+            self.sampleNameExamples = sampleNameExamples
         }
     }
 
@@ -188,7 +193,9 @@ public final class AIToolRegistry {
 
     /// Executes a tool call and returns the result.
     public func execute(_ toolCall: AIToolCall) async -> AIToolResult {
-        logger.info("Executing tool: \(toolCall.name)")
+        logger.info(
+            "Executing tool: \(toolCall.name, privacy: .public) id=\(toolCall.id, privacy: .public) args=\(self.argumentSummary(toolCall.arguments), privacy: .public)"
+        )
 
         do {
             let result: String
@@ -214,6 +221,9 @@ public final class AIToolRegistry {
             default:
                 return AIToolResult(toolCallId: toolCall.id, content: "Unknown tool: \(toolCall.name)", isError: true)
             }
+            logger.info(
+                "Tool completed: \(toolCall.name, privacy: .public) id=\(toolCall.id, privacy: .public) chars=\(result.count)"
+            )
             return AIToolResult(toolCallId: toolCall.id, content: result)
         } catch {
             logger.error("Tool execution failed: \(toolCall.name) — \(error)")
@@ -417,6 +427,12 @@ public final class AIToolRegistry {
         if state.totalVariantCount > 0 {
             lines.append("Total variants: \(state.totalVariantCount)")
         }
+        if state.sampleCount > 0 {
+            lines.append("Samples: \(state.sampleCount)")
+            if !state.sampleNameExamples.isEmpty {
+                lines.append("Sample examples: \(state.sampleNameExamples.joined(separator: ", "))")
+            }
+        }
 
         return lines.isEmpty ? "No genome data is currently loaded." : lines.joined(separator: "\n")
     }
@@ -489,6 +505,7 @@ public final class AIToolRegistry {
             return "Error: query parameter is required."
         }
         let maxResults = min(call.int("max_results") ?? 5, 10)
+        logger.info("PubMed search start query='\(query, privacy: .public)' maxResults=\(maxResults)")
 
         let searchURL = try buildPubMedURL(
             path: "esearch.fcgi",
@@ -505,8 +522,10 @@ public final class AIToolRegistry {
               let eSearchResult = searchJSON["esearchresult"] as? [String: Any],
               let idList = eSearchResult["idlist"] as? [String],
               !idList.isEmpty else {
+            logger.info("PubMed search no results query='\(query, privacy: .public)'")
             return "No PubMed results found for '\(query)'."
         }
+        logger.info("PubMed search found \(idList.count) ids for query='\(query, privacy: .public)'")
 
         let ids = idList.joined(separator: ",")
         let fetchURL = try buildPubMedURL(
@@ -521,6 +540,7 @@ public final class AIToolRegistry {
 
         guard let fetchJSON = try? JSONSerialization.jsonObject(with: fetchData) as? [String: Any],
               let result = fetchJSON["result"] as? [String: Any] else {
+            logger.error("PubMed summary fetch decode failed for query='\(query, privacy: .public)' ids=\(idList.count)")
             return "Found \(idList.count) PubMed result(s) but could not fetch details. PMIDs: \(idList.joined(separator: ", "))"
         }
 
@@ -559,8 +579,10 @@ public final class AIToolRegistry {
         let data: Data
         let response: URLResponse
         do {
+            logger.debug("PubMed request \(url.absoluteString, privacy: .public)")
             (data, response) = try await httpClient.data(for: request)
         } catch let urlError as URLError {
+            logger.error("PubMed request failed url=\(url.absoluteString, privacy: .public) code=\(urlError.code.rawValue)")
             switch urlError.code {
             case .cannotFindHost, .dnsLookupFailed:
                 throw AIProviderError.networkError("Cannot resolve PubMed host. Check proxy/DNS settings.")
@@ -575,11 +597,27 @@ public final class AIToolRegistry {
             throw AIProviderError.networkError("PubMed request failed: \(error.localizedDescription)")
         }
         guard let httpResponse = response as? HTTPURLResponse else {
+            logger.error("PubMed invalid response type url=\(url.absoluteString, privacy: .public)")
             throw AIProviderError.networkError("Invalid HTTP response from PubMed")
         }
+        logger.debug(
+            "PubMed response status=\(httpResponse.statusCode) bytes=\(data.count) url=\(url.absoluteString, privacy: .public)"
+        )
         guard (200...299).contains(httpResponse.statusCode) else {
             throw AIProviderError.httpError(statusCode: httpResponse.statusCode, message: "PubMed API error")
         }
         return data
+    }
+
+    private func argumentSummary(_ arguments: [String: JSONValue]) -> String {
+        guard !arguments.isEmpty else { return "{}" }
+        let pairs = arguments
+            .sorted { $0.key < $1.key }
+            .map { key, value -> String in
+                let raw = String(describing: value).replacingOccurrences(of: "\n", with: " ")
+                let clipped = raw.count > 80 ? String(raw.prefix(80)) + "..." : raw
+                return "\(key)=\(clipped)"
+            }
+        return pairs.joined(separator: ", ")
     }
 }

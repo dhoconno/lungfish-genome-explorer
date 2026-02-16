@@ -335,9 +335,14 @@ final class AIAssistantServiceTests: XCTestCase {
         let registry = AIToolRegistry()
         registry.getCurrentViewState = {
             AIToolRegistry.ViewerState(
+                chromosome: "chr1",
+                start: 10_000,
+                end: 20_000,
                 organism: "Macaca mulatta",
                 bundleName: "Rhesus Macaque",
-                chromosomeNames: ["chr1"]
+                chromosomeNames: ["chr1"],
+                sampleCount: 451,
+                sampleNameExamples: ["S1", "S2"]
             )
         }
         let service = AIAssistantService(toolRegistry: registry)
@@ -349,6 +354,8 @@ final class AIAssistantServiceTests: XCTestCase {
         XCTAssertTrue(titles.contains("Overview"))
         XCTAssertTrue(titles.contains("Disease genes"))
         XCTAssertTrue(titles.contains("Find a gene"))
+        XCTAssertTrue(queries.contains { $0.query.contains("Rhesus Macaque") })
+        XCTAssertTrue(queries.contains { $0.query.contains("chr1:10001-20000") })
     }
 
     func testSuggestedQueriesWithVariants() {
@@ -384,10 +391,19 @@ final class AIAssistantServiceTests: XCTestCase {
 
     // MARK: - Provider Resolution (Error Paths)
 
-    func testSendMessageWithNoAPIKeyReturnsError() async {
+    func testSendMessageWithNoAPIKeyReturnsError() async throws {
         let registry = AIToolRegistry()
         let service = AIAssistantService(toolRegistry: registry)
         AppSettings.shared.aiSearchEnabled = true
+
+        let keychain = KeychainSecretStorage.shared
+        let hasOpenAIKey = (try? await keychain.retrieve(forKey: KeychainSecretStorage.openAIAPIKey))?.isEmpty == false
+        let hasAnthropicKey = (try? await keychain.retrieve(forKey: KeychainSecretStorage.anthropicAPIKey))?.isEmpty == false
+        let hasGeminiKey = (try? await keychain.retrieve(forKey: KeychainSecretStorage.geminiAPIKey))?.isEmpty == false
+        let hasConfiguredKey = hasOpenAIKey || hasAnthropicKey || hasGeminiKey
+        if hasConfiguredKey {
+            throw XCTSkip("Environment has configured AI keys; missing-key assertions are not deterministic.")
+        }
 
         let response = await service.sendMessage("Hello")
 

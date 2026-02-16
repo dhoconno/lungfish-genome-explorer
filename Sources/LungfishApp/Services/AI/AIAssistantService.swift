@@ -55,10 +55,14 @@ public final class AIAssistantService {
     /// - Returns: The final assistant response text
     @discardableResult
     public func sendMessage(_ text: String) async -> String {
+        let requestID = String(UUID().uuidString.prefix(8))
+        logger.info("AI[\(requestID, privacy: .public)] Received message chars=\(text.count)")
         guard AppSettings.shared.aiSearchEnabled else {
+            logger.warning("AI[\(requestID, privacy: .public)] Blocked: AI services disabled")
             return "AI Assistant is disabled. Enable it in Settings > AI Services."
         }
         guard !isProcessing else {
+            logger.info("AI[\(requestID, privacy: .public)] Blocked: already processing")
             return "Please wait for the current request to complete."
         }
 
@@ -73,12 +77,16 @@ public final class AIAssistantService {
             let providers = try await resolveProviders()
             let systemPrompt = buildSystemPrompt()
             let tools = toolRegistry.toolDefinitions
+            let providerSummary = providers.map { "\($0.name)(\($0.modelId))" }.joined(separator: ", ")
+            logger.info("AI[\(requestID, privacy: .public)] Using providers: \(providerSummary, privacy: .public)")
+            logger.debug("AI[\(requestID, privacy: .public)] Prompt preview: \(self.preview(systemPrompt), privacy: .public)")
 
             // Conversation loop: send message, execute tools, repeat until done
             var rounds = 0
             var consecutiveAllToolFailureRounds = 0
             while rounds < maxToolRounds {
                 rounds += 1
+                logger.info("AI[\(requestID, privacy: .public)] Round \(rounds)/\(self.maxToolRounds) start (messages=\(self.messages.count))")
 
                 let response = try await sendWithFallback(
                     providers: providers,
@@ -86,9 +94,15 @@ public final class AIAssistantService {
                     systemPrompt: systemPrompt,
                     tools: tools
                 )
+                logger.info(
+                    "AI[\(requestID, privacy: .public)] Round \(rounds) model response stop=\(self.describeStopReason(response.stopReason), privacy: .public) textChars=\(response.text.count) toolCalls=\(response.toolCalls.count)"
+                )
 
                 if let usage = response.usage {
                     totalTokensUsed += usage.inputTokens + usage.outputTokens
+                    logger.debug(
+                        "AI[\(requestID, privacy: .public)] Round \(rounds) usage input=\(usage.inputTokens) output=\(usage.outputTokens) total=\(self.totalTokensUsed)"
+                    )
                 }
 
                 // Add assistant response to history
@@ -105,7 +119,18 @@ public final class AIAssistantService {
                 for toolCall in response.toolCalls {
                     let toolLabel = toolDisplayName(toolCall.name)
                     onStatusUpdate?(toolLabel)
+                    logger.info(
+                        "AI[\(requestID, privacy: .public)] Round \(rounds) tool call \(toolCall.name, privacy: .public) id=\(toolCall.id, privacy: .public)"
+                    )
                     let result = await toolRegistry.execute(toolCall)
+                    logger.info(
+                        "AI[\(requestID, privacy: .public)] Round \(rounds) tool result \(toolCall.name, privacy: .public) error=\(result.isError) chars=\(result.content.count)"
+                    )
+                    if result.isError {
+                        logger.error(
+                            "AI[\(requestID, privacy: .public)] Round \(rounds) tool error detail: \(self.preview(result.content), privacy: .public)"
+                        )
+                    }
                     toolResults.append(result)
                 }
 
@@ -115,6 +140,7 @@ public final class AIAssistantService {
                     if consecutiveAllToolFailureRounds >= 2 {
                         let summary = makeToolFailureSummary(from: failedToolResults)
                         lastError = summary
+                        logger.error("AI[\(requestID, privacy: .public)] Stopping due to repeated tool failures: \(summary, privacy: .public)")
                         return summary
                     }
                 } else {
@@ -135,21 +161,23 @@ public final class AIAssistantService {
             logger.warning("Maximum tool rounds (\(self.maxToolRounds)) reached")
             if let summary = makeRecentToolFailureSummary() {
                 lastError = summary
+                logger.error("AI[\(requestID, privacy: .public)] Max rounds reached with tool errors: \(summary, privacy: .public)")
                 return summary
             }
+            logger.warning("AI[\(requestID, privacy: .public)] Max rounds reached without terminal response")
             return messages.last { $0.role == .assistant }?.content ?? "I've been working on your request but reached the maximum number of analysis steps. Here's what I found so far."
 
         } catch let error as AIProviderError {
             lastError = error.localizedDescription
-            logger.error("AI provider error: \(error)")
+            logger.error("AI[\(requestID, privacy: .public)] Provider error: \(error.localizedDescription, privacy: .public)")
             // Remove the user message if we failed
             if messages.last?.role == .user {
                 messages.removeLast()
             }
-            return error.localizedDescription ?? "An error occurred."
+            return error.localizedDescription
         } catch {
             lastError = error.localizedDescription
-            logger.error("Unexpected error: \(error)")
+            logger.error("AI[\(requestID, privacy: .public)] Unexpected error: \(error.localizedDescription, privacy: .public)")
             if messages.last?.role == .user {
                 messages.removeLast()
             }
@@ -176,6 +204,7 @@ public final class AIAssistantService {
         var providers: [any AIProvider] = []
         for providerId in fallbackOrder {
             if let provider = try await makeProvider(providerId, settings: settings, keychain: keychain) {
+                logger.debug("Resolved provider \(providerId.displayName, privacy: .public) with model \(provider.modelId, privacy: .public)")
                 providers.append(provider)
             }
         }
@@ -226,6 +255,7 @@ public final class AIAssistantService {
 
         for (idx, provider) in providers.enumerated() {
             do {
+                logger.info("Attempting provider \(provider.name, privacy: .public) model=\(provider.modelId, privacy: .public)")
                 return try await provider.sendMessage(
                     messages: messages,
                     systemPrompt: systemPrompt,
@@ -258,10 +288,12 @@ public final class AIAssistantService {
         let cacheKey = "\(provider.name)|\(provider.modelId)"
         if let lastValidatedAt = providerValidationCache[cacheKey],
            Date().timeIntervalSince(lastValidatedAt) < providerValidationTTL {
+            logger.debug("Provider validation cache hit for \(provider.name, privacy: .public) model=\(provider.modelId, privacy: .public)")
             return true
         }
 
         do {
+            logger.debug("Validating provider \(provider.name, privacy: .public) model=\(provider.modelId, privacy: .public)")
             try await provider.validateCredentials()
             providerValidationCache[cacheKey] = Date()
             return true
@@ -327,6 +359,12 @@ public final class AIAssistantService {
                 contextLines.append("Visible region: \(chrom):\(start)-\(end)")
             }
         }
+        if viewerState.sampleCount > 0 {
+            contextLines.append("Samples: \(viewerState.sampleCount)")
+            if !viewerState.sampleNameExamples.isEmpty {
+                contextLines.append("Sample examples: \(viewerState.sampleNameExamples.joined(separator: ", "))")
+            }
+        }
 
         let dataContext = contextLines.isEmpty
             ? "No genome data is currently loaded."
@@ -389,49 +427,102 @@ public final class AIAssistantService {
         if state.bundleName == nil {
             queries.append(SuggestedQuery(
                 title: "Getting started",
-                query: "How do I load a genome into Lungfish?",
+                query: "I have no bundle loaded. Give me exact step-by-step instructions to load FASTA + GFF3 + VCF in Lungfish, including menu items to click.",
                 icon: "questionmark.circle"
             ))
             return queries
         }
 
+        let bundleName = state.bundleName ?? "loaded bundle"
+        let organism = state.organism ?? "loaded organism"
+        let assembly = state.assembly ?? "unknown assembly"
+        let chromosome = state.chromosome ?? state.chromosomeNames.first ?? "the current chromosome"
+        let regionDescription: String
+        if let start = state.start, let end = state.end {
+            regionDescription = "\(chromosome):\(start + 1)-\(end)"
+        } else {
+            regionDescription = chromosome
+        }
+        let sampleContext: String = state.sampleCount > 0
+            ? "There are \(state.sampleCount) samples\(state.sampleNameExamples.isEmpty ? "" : " (e.g., \(state.sampleNameExamples.joined(separator: ", ")))")."
+            : "No sample metadata is available."
+
         // Basic exploration
         queries.append(SuggestedQuery(
             title: "Overview",
-            query: "Give me an overview of the loaded genome data. What chromosomes, genes, and variants are available?",
+            query: "For bundle '\(bundleName)' (\(organism), \(assembly)), summarize exactly what is loaded: chromosome count, annotation tracks, variant tracks, and what I should query next.",
             icon: "doc.text.magnifyingglass"
         ))
 
         if state.totalVariantCount > 0 {
             queries.append(SuggestedQuery(
                 title: "Variant summary",
-                query: "Summarize the variants in this dataset. What types of variants are present and how many?",
+                query: "Using the \(state.totalVariantCount) loaded variants, report variant type counts and which chromosomes have the highest variant density. \(sampleContext)",
                 icon: "chart.bar"
             ))
 
             queries.append(SuggestedQuery(
                 title: "High-impact variants",
-                query: "Are there any high-impact or potentially deleterious variants? What genes are they in?",
+                query: "Find the highest-impact variants and return the top 10 genes with chromosome position, REF>ALT, and consequence details. Prioritize hits in the current view around \(regionDescription).",
                 icon: "exclamationmark.triangle"
             ))
         }
 
-        if let organism = state.organism {
-            queries.append(SuggestedQuery(
-                title: "Disease genes",
-                query: "What are the most studied disease-associated genes in \(organism)? Are any of them present in my data?",
-                icon: "stethoscope"
-            ))
-        }
+        queries.append(SuggestedQuery(
+            title: "Disease genes",
+            query: "List 5 well-studied disease genes for \(organism), check whether each appears in '\(bundleName)', and if present summarize nearby variants.",
+            icon: "stethoscope"
+        ))
 
         // Gene exploration
         queries.append(SuggestedQuery(
             title: "Find a gene",
-            query: "Search for immune-related genes in my data",
+            query: "In \(regionDescription), find immune-related or receptor/signaling genes and navigate to the most biologically interesting hit.",
             icon: "magnifyingglass"
         ))
 
+        queries.append(SuggestedQuery(
+            title: "PubMed context",
+            query: "Search PubMed for recent papers linking high-impact variants in \(organism) to neurological or immune phenotypes, then connect findings to variants in '\(bundleName)'.",
+            icon: "book"
+        ))
+
         return queries
+    }
+
+    /// Contextual welcome text shown when opening the AI assistant panel.
+    public func welcomeMessage() -> String {
+        let state = toolRegistry.getCurrentViewState?() ?? AIToolRegistry.ViewerState()
+        let questions = suggestedQueries().map(\.query).prefix(4)
+
+        if state.bundleName == nil {
+            return """
+            Welcome. No genome bundle is currently loaded.
+
+            Start with a concrete prompt like:
+            \(questions.map { "- \"\($0)\"" }.joined(separator: "\n"))
+
+            Configure API keys in **Settings > AI Services** before running AI searches.
+            """
+        }
+
+        let bundle = state.bundleName ?? "loaded bundle"
+        let organism = state.organism ?? "loaded organism"
+        let chromosome = state.chromosome ?? state.chromosomeNames.first ?? "current chromosome"
+        let regionText: String
+        if let start = state.start, let end = state.end {
+            regionText = "\(chromosome):\(start + 1)-\(end)"
+        } else {
+            regionText = chromosome
+        }
+
+        return """
+        Welcome. You are currently exploring **\(bundle)** (\(organism)).
+        Current focus: **\(regionText)**.
+
+        Try one of these concrete prompts:
+        \(questions.map { "- \"\($0)\"" }.joined(separator: "\n"))
+        """
     }
 
     // MARK: - Helpers
@@ -450,6 +541,21 @@ public final class AIAssistantService {
         case "search_pubmed": return "Searching PubMed..."
         default: return "Running \(name)..."
         }
+    }
+
+    private func describeStopReason(_ reason: AIResponse.StopReason) -> String {
+        switch reason {
+        case .endTurn: return "end_turn"
+        case .toolUse: return "tool_use"
+        case .maxTokens: return "max_tokens"
+        case .error(let message): return "error:\(message)"
+        }
+    }
+
+    private func preview(_ text: String, limit: Int = 220) -> String {
+        let singleLine = text.replacingOccurrences(of: "\n", with: " ")
+        if singleLine.count <= limit { return singleLine }
+        return String(singleLine.prefix(limit)) + "..."
     }
 }
 
