@@ -262,6 +262,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// This remains false right after query/token changes (show global hits first), and flips
     /// to true during pan/zoom exploration.
     private var allowViewportPostFilterDuringExploration: Bool = false
+    /// Viewport snapshot captured when filter/query state last changed.
+    /// Viewport narrowing is armed only after the viewport moves away from this snapshot.
+    private var viewportRegionAtLastFilterMutation: (chromosome: String, start: Int, end: Int)?
 
     #if DEBUG
     private var debugVariantQueryExecutionCount: Int = 0
@@ -928,8 +931,11 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
               let start = userInfo[NotificationUserInfoKey.start] as? Int,
               let end = userInfo[NotificationUserInfoKey.end] as? Int else { return }
 
-        viewportRegion = (chromosome: chromosome, start: start, end: end)
-        allowViewportPostFilterDuringExploration = true
+        let nextRegion = (chromosome: chromosome, start: start, end: end)
+        viewportRegion = nextRegion
+        if hasActiveSearchFilters && viewportSyncEnabled && shouldArmViewportExploration(for: nextRegion) {
+            allowViewportPostFilterDuringExploration = true
+        }
         guard activeTab == .variants else { return }
 
         // Debounce: cancel previous and schedule with 200ms delay
@@ -952,8 +958,11 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
               let start = userInfo[NotificationUserInfoKey.start] as? Int,
               let end = userInfo[NotificationUserInfoKey.end] as? Int else { return }
         let queryChromosome = (userInfo[NotificationUserInfoKey.variantChromosome] as? String) ?? refChromosome
-        viewportRegion = (chromosome: queryChromosome, start: start, end: end)
-        allowViewportPostFilterDuringExploration = true
+        let nextRegion = (chromosome: queryChromosome, start: start, end: end)
+        viewportRegion = nextRegion
+        if hasActiveSearchFilters && viewportSyncEnabled && shouldArmViewportExploration(for: nextRegion) {
+            allowViewportPostFilterDuringExploration = true
+        }
         guard activeTab == .variants else { return }
         handleCoordinateSyncFromViewer()
     }
@@ -965,6 +974,18 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         }
         viewportSyncWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: workItem)
+    }
+
+    private func markVariantFilterStateMutated() {
+        allowViewportPostFilterDuringExploration = false
+        viewportRegionAtLastFilterMutation = viewportRegion
+    }
+
+    private func shouldArmViewportExploration(for newRegion: (chromosome: String, start: Int, end: Int)) -> Bool {
+        guard let baseline = viewportRegionAtLastFilterMutation else { return true }
+        return baseline.chromosome.caseInsensitiveCompare(newRegion.chromosome) != .orderedSame
+            || baseline.start != newRegion.start
+            || baseline.end != newRegion.end
     }
 
     // MARK: - Chip Button Factory
@@ -1021,7 +1042,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         activeSmartTokens.removeAll()
         selectedVariantPresetByKey.removeAll()
         selectedAnnotationRegion = nil
-        allowViewportPostFilterDuringExploration = false
+        markVariantFilterStateMutated()
         updateVariantFilterIndicator()
         updateChipStates()
         updateDisplayedAnnotations()
@@ -1225,7 +1246,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     @objc private func scopeSegmentChanged(_ sender: NSSegmentedControl) {
         viewportSyncEnabled = (sender.selectedSegment == 0)
-        allowViewportPostFilterDuringExploration = viewportSyncEnabled && hasActiveSearchFilters
+        markVariantFilterStateMutated()
         updateScopeControlSelection()
         // Re-query with new scope
         updateDisplayedAnnotations()
@@ -1346,7 +1367,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
         // Keep viewport-synced variants fresh when the user switches to that tab.
         if tab == .variants {
-            allowViewportPostFilterDuringExploration = false
+            markVariantFilterStateMutated()
             handleCoordinateSyncFromViewer()
         }
     }
@@ -1360,7 +1381,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         isLoading = false
         cachedGlobalFilteredVariantRows = []
         cachedGlobalFilteredVariantKey = nil
-        allowViewportPostFilterDuringExploration = false
+        markVariantFilterStateMutated()
+        viewportRegionAtLastFilterMutation = nil
 
         // Get metadata from the index — track annotation and variant counts separately
         totalAnnotationCount = index.entryCount
@@ -1579,7 +1601,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         } else {
             activeSmartTokens.remove(token)
         }
-        allowViewportPostFilterDuringExploration = false
+        markVariantFilterStateMutated()
         updateChipStates()
         updateVariantFilterIndicator()
         updateDisplayedAnnotations()
@@ -1594,7 +1616,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         } else {
             selectedVariantPresetByKey.removeValue(forKey: key)
         }
-        allowViewportPostFilterDuringExploration = false
+        markVariantFilterStateMutated()
         updateChipStates()
         updateVariantFilterIndicator()
         updateDisplayedAnnotations()
@@ -1636,7 +1658,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         } else {
             selectedVariantPresetByKey[key] = value
         }
-        allowViewportPostFilterDuringExploration = false
+        markVariantFilterStateMutated()
         updateChipStates()
         updateDisplayedAnnotations()
     }
@@ -2323,7 +2345,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             annotationFilterText = sender.stringValue
         case .variants:
             variantFilterText = sender.stringValue
-            allowViewportPostFilterDuringExploration = false
+            markVariantFilterStateMutated()
         case .samples:
             sampleFilterText = sender.stringValue
         }
@@ -2928,7 +2950,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             visibleTypes.remove(type)
         }
         if activeTab == .variants {
-            allowViewportPostFilterDuringExploration = false
+            markVariantFilterStateMutated()
         }
         updateDisplayedAnnotations()
     }
@@ -2937,7 +2959,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         visibleTypes = Set(availableTypes)
         updateChipStates()
         if activeTab == .variants {
-            allowViewportPostFilterDuringExploration = false
+            markVariantFilterStateMutated()
         }
         updateDisplayedAnnotations()
     }
@@ -2946,7 +2968,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         visibleTypes.removeAll()
         updateChipStates()
         if activeTab == .variants {
-            allowViewportPostFilterDuringExploration = false
+            markVariantFilterStateMutated()
         }
         updateDisplayedAnnotations()
     }
@@ -2969,7 +2991,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                     MainActor.assumeIsolated {
                         guard let self else { return }
                         self.variantFilterText = filterText
-                        self.allowViewportPostFilterDuringExploration = false
+                        self.markVariantFilterStateMutated()
                         self.updateVariantFilterIndicator()
                         self.updateChipStates()
                         self.updateDisplayedAnnotations()
@@ -3059,7 +3081,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         activeSmartTokens.removeAll()
         selectedVariantPresetByKey.removeAll()
         variantFilterText = ""
-        allowViewportPostFilterDuringExploration = false
+        markVariantFilterStateMutated()
         updateVariantFilterIndicator()
         updateChipStates()
         updateDisplayedAnnotations()
@@ -3071,7 +3093,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
         // Apply filter text
         variantFilterText = profile.filterText
-        allowViewportPostFilterDuringExploration = false
+        markVariantFilterStateMutated()
 
         // Update UI
         updateVariantFilterIndicator()
