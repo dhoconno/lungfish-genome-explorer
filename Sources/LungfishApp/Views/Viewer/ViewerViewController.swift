@@ -5947,33 +5947,49 @@ public class SequenceViewerView: NSView {
             // Check if mouse is in genotype row area for vertical scrolling
             let location = convert(event.locationInWindow, from: nil)
             let genotypeTopY = variantTrackY + effectiveSummaryBarHeight + effectiveSummaryToRowGap
-            let inGenotypeArea = showVariants && cachedSampleCount > 0 && location.y >= genotypeTopY
+            let hasLoadedGenotypeRows = {
+                guard sampleDisplayState.showGenotypeRows,
+                      let data = cachedGenotypeData else { return false }
+                return !data.sampleNames.isEmpty && !data.sites.isEmpty
+            }()
+            let inGenotypeArea = showVariants && hasLoadedGenotypeRows
+                && location.y >= genotypeTopY && location.y <= bounds.height
 
             if inGenotypeArea && abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) {
                 // Vertical scroll in genotype area — scroll through sample rows
                 let rowH = sampleDisplayState.rowHeight
                 guard rowH > 0 else { return }
                 let maxOffset = maxGenotypeScrollOffset(frame: frame)
-                genotypeScrollOffset = max(0, min(maxOffset, genotypeScrollOffset - event.scrollingDeltaY * 3))
-
-                scrollRedrawTimer?.invalidate()
-                scrollRedrawTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: false) { [weak self] _ in
-                    guard let self else { return }
-                    self.setNeedsDisplay(self.bounds)
+                let deltaScale: CGFloat = event.hasPreciseScrollingDeltas
+                    ? 1.0
+                    : max(8, rowH * 0.9)
+                let proposedOffset = max(0, min(maxOffset, genotypeScrollOffset - event.scrollingDeltaY * deltaScale))
+                guard abs(proposedOffset - genotypeScrollOffset) > 0.1 else { return }
+                genotypeScrollOffset = proposedOffset
+                // Redraw immediately for smooth trackpad scrolling.
+                setNeedsDisplay(bounds)
+                viewController?.updateStatusBar()
+                viewController?.scheduleViewStateSave()
+                return
+            } else if abs(event.scrollingDeltaX) > 0 || abs(event.scrollingDeltaY) > 0 {
+                if hasLoadedGenotypeRows && abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) {
+                    // Avoid converting pure vertical scroll into horizontal pan in genotype mode.
+                    return
                 }
-            } else {
-                // Horizontal pan — update coordinates immediately, coalesce redraw at 60fps
-                let panAmount = Double(event.scrollingDeltaX) * frame.scale * 2
-                frame.pan(by: -panAmount)
+            }
 
-                scrollRedrawTimer?.invalidate()
-                scrollRedrawTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: false) { [weak self] _ in
-                    guard let self else { return }
-                    self.setNeedsDisplay(self.bounds)
-                    self.viewController?.enhancedRulerView.setNeedsDisplay(self.viewController?.enhancedRulerView.bounds ?? .zero)
-                    self.viewController?.updateStatusBar()
-                    self.viewController?.scheduleViewStateSave()
-                }
+            // Horizontal pan — update coordinates immediately, coalesce redraw at 60fps
+            let panScale = event.hasPreciseScrollingDeltas ? 1.0 : 2.0
+            let panAmount = Double(event.scrollingDeltaX) * frame.scale * panScale
+            frame.pan(by: -panAmount)
+
+            scrollRedrawTimer?.invalidate()
+            scrollRedrawTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: false) { [weak self] _ in
+                guard let self else { return }
+                self.setNeedsDisplay(self.bounds)
+                self.viewController?.enhancedRulerView.setNeedsDisplay(self.viewController?.enhancedRulerView.bounds ?? .zero)
+                self.viewController?.updateStatusBar()
+                self.viewController?.scheduleViewStateSave()
             }
         }
     }
