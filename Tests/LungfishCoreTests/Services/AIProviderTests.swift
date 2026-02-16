@@ -308,4 +308,50 @@ final class AIProviderTests: XCTestCase {
         XCTAssertTrue(param.required)
         XCTAssertNil(param.enumValues)
     }
+
+    // MARK: - OpenAI Request Parameters
+
+    func testOpenAIGPT5UsesMaxCompletionTokens() async throws {
+        let mockClient = MockHTTPClient()
+        await mockClient.setDefault(response: .json([
+            "choices": [["message": ["content": "ok"], "finish_reason": "stop"]],
+            "usage": ["prompt_tokens": 1, "completion_tokens": 1],
+        ]))
+        let provider = OpenAIProvider(apiKey: "test-key", modelId: "gpt-5-mini", httpClient: mockClient)
+
+        _ = try await provider.sendMessage(
+            messages: [.user("hello")],
+            systemPrompt: "test",
+            tools: []
+        )
+
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 1)
+        let body = try XCTUnwrap(requests.first?.httpBody)
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertNotNil(payload["max_completion_tokens"])
+        XCTAssertNil(payload["max_tokens"])
+    }
+
+    func testOpenAIGPT41UsesMaxTokens() async throws {
+        let mockClient = MockHTTPClient()
+        await mockClient.setDefault(response: .json([
+            "choices": [["message": ["content": "ok"], "finish_reason": "stop"]],
+            "usage": ["prompt_tokens": 1, "completion_tokens": 1],
+        ]))
+        let provider = OpenAIProvider(apiKey: "test-key", modelId: "gpt-4.1", httpClient: mockClient)
+
+        _ = try await provider.sendMessage(
+            messages: [.user("hello")],
+            systemPrompt: "test",
+            tools: []
+        )
+
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 1)
+        let body = try XCTUnwrap(requests.first?.httpBody)
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertNotNil(payload["max_tokens"])
+        XCTAssertNil(payload["max_completion_tokens"])
+    }
 }

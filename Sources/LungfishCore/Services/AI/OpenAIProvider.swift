@@ -78,9 +78,13 @@ public actor OpenAIProvider: AIProvider {
 
         var body: [String: Any] = [
             "model": modelId,
-            "max_tokens": 4096,
             "messages": openAIMessages,
         ]
+        if usesMaxCompletionTokensParameter {
+            body["max_completion_tokens"] = 4096
+        } else {
+            body["max_tokens"] = 4096
+        }
 
         if !tools.isEmpty {
             body["tools"] = tools.map { tool -> [String: Any] in
@@ -101,6 +105,10 @@ public actor OpenAIProvider: AIProvider {
         }
 
         return body
+    }
+
+    private var usesMaxCompletionTokensParameter: Bool {
+        modelId.lowercased().hasPrefix("gpt-5")
     }
 
     private func buildMessages(_ messages: [AIMessage], systemPrompt: String) -> [[String: Any]] {
