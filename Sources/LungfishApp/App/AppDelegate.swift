@@ -250,6 +250,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// Settings window controller (lazy singleton)
     private var settingsWindowController: SettingsWindowController?
 
+    /// AI Assistant window controller (lazy singleton)
+    private var aiAssistantWindowController: AIAssistantWindowController?
+
+    /// AI tool registry for the assistant
+    private var aiToolRegistry: AIToolRegistry?
+
     /// Current working directory for downloads when no project is active
     private var workingDirectoryURL: URL?
 
@@ -654,6 +660,22 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             self,
             selector: #selector(handleAppSettingsChanged(_:)),
             name: .appSettingsChanged,
+            object: nil
+        )
+
+        // Register for AI assistant show request
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleShowAIAssistant(_:)),
+            name: .showAIAssistantRequested,
+            object: nil
+        )
+
+        // Update AI tool registry when a bundle loads
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleBundleDidLoadForAI(_:)),
+            name: .bundleDidLoad,
             object: nil
         )
 
@@ -1603,6 +1625,95 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         // Delegate to the inspector's existing reset (which posts all needed notifications)
         splitVC.inspectorController.resetAllAppearanceSettings()
+    }
+
+    @objc func showAIAssistant(_ sender: Any?) {
+        showOrToggleAIAssistant()
+    }
+
+    @objc private func handleShowAIAssistant(_ notification: Notification) {
+        showOrToggleAIAssistant()
+    }
+
+    /// Shows or toggles the AI assistant panel. Lazily creates the service and window controller.
+    private func showOrToggleAIAssistant() {
+        if let controller = aiAssistantWindowController {
+            controller.togglePanel()
+            return
+        }
+
+        // First-time setup: create tool registry, service, and window controller
+        let toolRegistry = AIToolRegistry()
+        self.aiToolRegistry = toolRegistry
+
+        // Wire the tool registry to the viewer's data
+        connectToolRegistryToViewer(toolRegistry)
+
+        let service = AIAssistantService(toolRegistry: toolRegistry)
+        let controller = AIAssistantWindowController(service: service)
+        self.aiAssistantWindowController = controller
+        controller.showPanel()
+    }
+
+    /// Updates the AI tool registry's search index when a new bundle loads.
+    @objc private func handleBundleDidLoadForAI(_ notification: Notification) {
+        guard let toolRegistry = aiToolRegistry else { return }
+        if let searchIndex = mainWindowController?.mainSplitViewController?.viewerController?.annotationSearchIndex {
+            toolRegistry.setSearchIndex(searchIndex)
+        }
+    }
+
+    /// Connects the AI tool registry to the current viewer state and search index.
+    private func connectToolRegistryToViewer(_ toolRegistry: AIToolRegistry) {
+        let viewerController = mainWindowController?.mainSplitViewController?.viewerController
+
+        // Connect search index (for gene/variant search)
+        if let searchIndex = viewerController?.annotationSearchIndex {
+            toolRegistry.setSearchIndex(searchIndex)
+        }
+
+        // Connect navigation callback
+        toolRegistry.navigateToRegion = { [weak self] chromosome, start, end in
+            guard let viewerController = self?.mainWindowController?.mainSplitViewController?.viewerController,
+                  let provider = viewerController.currentBundleDataProvider else { return }
+
+            // Look up chromosome length from the manifest
+            if let chromInfo = provider.chromosomeInfo(named: chromosome) {
+                viewerController.navigateToChromosomeAndPosition(
+                    chromosome: chromosome,
+                    chromosomeLength: Int(chromInfo.length),
+                    start: start,
+                    end: end
+                )
+            }
+        }
+
+        // Connect current view state callback
+        toolRegistry.getCurrentViewState = { [weak self] in
+            guard let viewerController = self?.mainWindowController?.mainSplitViewController?.viewerController else {
+                return AIToolRegistry.ViewerState()
+            }
+
+            let provider = viewerController.currentBundleDataProvider
+            let frame = viewerController.referenceFrame
+
+            // Count variant tracks
+            let variantTrackCount = viewerController.annotationSearchIndex?.variantDatabaseHandles.count ?? 0
+            let totalVariantCount = viewerController.annotationSearchIndex?.variantDatabaseHandles.reduce(0) { $0 + $1.db.totalCount() } ?? 0
+
+            return AIToolRegistry.ViewerState(
+                chromosome: frame?.chromosome,
+                start: frame.map { Int($0.start) },
+                end: frame.map { Int($0.end) },
+                organism: provider?.organism,
+                assembly: provider?.assembly,
+                bundleName: provider?.name,
+                chromosomeNames: provider?.chromosomes.map(\.name) ?? [],
+                annotationTrackCount: provider?.annotationTrackIds.count ?? 0,
+                variantTrackCount: variantTrackCount,
+                totalVariantCount: totalVariantCount
+            )
+        }
     }
 
     // MARK: - Menu Validation

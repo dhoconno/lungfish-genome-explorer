@@ -351,6 +351,16 @@ public final class MainMenu {
 
         viewMenu.addItem(.separator())
 
+        // AI Assistant
+        let aiItem = viewMenu.addItem(
+            withTitle: "AI Assistant",
+            action: #selector(ViewMenuActions.showAIAssistant(_:)),
+            keyEquivalent: "a"
+        )
+        aiItem.keyEquivalentModifierMask = [.command, .shift]
+
+        viewMenu.addItem(.separator())
+
         // Zoom controls
         viewMenu.addItem(
             withTitle: "Zoom In",
@@ -715,6 +725,7 @@ public final class MainMenu {
     func setDisplayModeExpanded(_ sender: Any?)
     func toggleNucleotideMode(_ sender: Any?)
     func resetViewSettingsToDefaults(_ sender: Any?)
+    func showAIAssistant(_ sender: Any?)
 }
 
 /// Sequence menu action handlers.

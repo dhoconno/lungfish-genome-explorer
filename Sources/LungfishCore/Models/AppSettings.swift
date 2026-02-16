@@ -103,13 +103,16 @@ public final class AppSettings: Sendable {
     public var aiSearchEnabled: Bool = false
 
     /// Selected OpenAI model identifier.
-    public var openAIModel: String = "gpt-4o"
+    public var openAIModel: String = "gpt-4.1-mini"
 
     /// Selected Anthropic model identifier.
     public var anthropicModel: String = "claude-sonnet-4-5-20250929"
 
     /// Selected Google Gemini model identifier.
-    public var geminiModel: String = "gemini-2.0-flash"
+    public var geminiModel: String = "gemini-2.5-flash"
+
+    /// Which AI provider to use for the AI assistant.
+    public var preferredAIProvider: String = "anthropic"
 
     // MARK: - Defaults
 
@@ -171,6 +174,7 @@ public final class AppSettings: Sendable {
         var openAIModel: String
         var anthropicModel: String
         var geminiModel: String
+        var preferredAIProvider: String
 
         init(
             defaultZoomWindow: Int,
@@ -192,7 +196,8 @@ public final class AppSettings: Sendable {
             aiSearchEnabled: Bool,
             openAIModel: String,
             anthropicModel: String,
-            geminiModel: String
+            geminiModel: String,
+            preferredAIProvider: String
         ) {
             self.defaultZoomWindow = defaultZoomWindow
             self.maxUndoLevels = maxUndoLevels
@@ -214,6 +219,7 @@ public final class AppSettings: Sendable {
             self.openAIModel = openAIModel
             self.anthropicModel = anthropicModel
             self.geminiModel = geminiModel
+            self.preferredAIProvider = preferredAIProvider
         }
 
         init(from decoder: Decoder) throws {
@@ -249,9 +255,10 @@ public final class AppSettings: Sendable {
             tooltipDelay = try container.decodeIfPresent(Double.self, forKey: .tooltipDelay) ?? 0.15
             // AI Services
             aiSearchEnabled = try container.decodeIfPresent(Bool.self, forKey: .aiSearchEnabled) ?? false
-            openAIModel = try container.decodeIfPresent(String.self, forKey: .openAIModel) ?? "gpt-4o"
+            openAIModel = try container.decodeIfPresent(String.self, forKey: .openAIModel) ?? "gpt-4.1-mini"
             anthropicModel = try container.decodeIfPresent(String.self, forKey: .anthropicModel) ?? "claude-sonnet-4-5-20250929"
-            geminiModel = try container.decodeIfPresent(String.self, forKey: .geminiModel) ?? "gemini-2.0-flash"
+            geminiModel = try container.decodeIfPresent(String.self, forKey: .geminiModel) ?? "gemini-2.5-flash"
+            preferredAIProvider = try container.decodeIfPresent(String.self, forKey: .preferredAIProvider) ?? "anthropic"
         }
     }
 
@@ -302,7 +309,8 @@ public final class AppSettings: Sendable {
             aiSearchEnabled: aiSearchEnabled,
             openAIModel: openAIModel,
             anthropicModel: anthropicModel,
-            geminiModel: geminiModel
+            geminiModel: geminiModel,
+            preferredAIProvider: preferredAIProvider
         )
     }
 
@@ -327,6 +335,7 @@ public final class AppSettings: Sendable {
         openAIModel = snapshot.openAIModel
         anthropicModel = snapshot.anthropicModel
         geminiModel = snapshot.geminiModel
+        preferredAIProvider = snapshot.preferredAIProvider
     }
 
     /// Persists current settings to UserDefaults and posts change notifications.
@@ -404,6 +413,7 @@ public final class AppSettings: Sendable {
             openAIModel = fresh.openAIModel
             anthropicModel = fresh.anthropicModel
             geminiModel = fresh.geminiModel
+            preferredAIProvider = fresh.preferredAIProvider
         }
         settingsLogger.info("Section '\(section.rawValue)' reset to defaults")
     }

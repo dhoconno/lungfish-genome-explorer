@@ -26,6 +26,7 @@ public class MainWindowController: NSWindowController {
         static let toggleAnnotationDrawer = NSToolbarItem.Identifier("ToggleAnnotationDrawer")
         static let downloads = NSToolbarItem.Identifier("Downloads")
         static let translateTool = NSToolbarItem.Identifier("TranslateTool")
+        static let aiAssistant = NSToolbarItem.Identifier("AIAssistant")
         static let flexibleSpace = NSToolbarItem.Identifier.flexibleSpace
     }
 
@@ -277,6 +278,10 @@ public class MainWindowController: NSWindowController {
         mainSplitViewController.viewerController?.toggleAnnotationDrawer()
     }
 
+    @objc public func toggleAIAssistant(_ sender: Any?) {
+        NotificationCenter.default.post(name: .showAIAssistantRequested, object: nil)
+    }
+
     @objc public func showDownloadsPopover(_ sender: Any?) {
         guard let button = downloadsToolbarButton else { return }
 
@@ -470,6 +475,21 @@ extension MainWindowController: NSToolbarDelegate {
             refreshDownloadsToolbarIcon()
             return item
 
+        case ToolbarIdentifier.aiAssistant:
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = "AI Assistant"
+            item.paletteLabel = "AI Assistant"
+            item.toolTip = "Open the AI Assistant for guided genome exploration"
+            let button = makeToolbarButton(
+                symbolName: "sparkles",
+                fallbacks: ["wand.and.stars", "brain"],
+                accessibilityLabel: "AI Assistant"
+            )
+            button.target = self
+            button.action = #selector(toggleAIAssistant(_:))
+            item.view = button
+            return item
+
         default:
             return nil
         }
@@ -485,6 +505,8 @@ extension MainWindowController: NSToolbarDelegate {
             ToolbarIdentifier.flexibleSpace,
             ToolbarIdentifier.toggleAnnotationDrawer,
             ToolbarIdentifier.flexibleSpace,
+            ToolbarIdentifier.aiAssistant,
+            ToolbarIdentifier.flexibleSpace,
             ToolbarIdentifier.toggleInspector,
         ]
     }
@@ -496,6 +518,7 @@ extension MainWindowController: NSToolbarDelegate {
             ToolbarIdentifier.toggleAnnotationDrawer,
             ToolbarIdentifier.translateTool,
             ToolbarIdentifier.downloads,
+            ToolbarIdentifier.aiAssistant,
             ToolbarIdentifier.flexibleSpace,
         ]
     }

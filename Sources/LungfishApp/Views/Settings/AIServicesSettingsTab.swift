@@ -31,16 +31,15 @@ struct AIServicesSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("OpenAI") {
-                HStack {
-                    statusIndicator(hasKey: !openAIKey.isEmpty)
-                    SecureField("API Key", text: $openAIKey, prompt: Text("sk-..."))
+            Section("Preferred Provider") {
+                Picker("Default provider:", selection: $settings.preferredAIProvider) {
+                    Text("Anthropic Claude").tag("anthropic")
+                    Text("OpenAI").tag("openai")
+                    Text("Google Gemini").tag("gemini")
                 }
-                Picker("Model:", selection: $settings.openAIModel) {
-                    Text("GPT-4o").tag("gpt-4o")
-                    Text("GPT-4o Mini").tag("gpt-4o-mini")
-                    Text("GPT-4 Turbo").tag("gpt-4-turbo")
-                }
+                Text("The preferred provider will be used for AI Assistant queries. The first provider with a configured API key will be used as fallback.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Anthropic") {
@@ -54,14 +53,28 @@ struct AIServicesSettingsTab: View {
                 }
             }
 
+            Section("OpenAI") {
+                HStack {
+                    statusIndicator(hasKey: !openAIKey.isEmpty)
+                    SecureField("API Key", text: $openAIKey, prompt: Text("sk-..."))
+                }
+                Picker("Model:", selection: $settings.openAIModel) {
+                    Text("GPT-4.1 Mini (Recommended)").tag("gpt-4.1-mini")
+                    Text("GPT-4.1").tag("gpt-4.1")
+                    Text("GPT-4o").tag("gpt-4o")
+                    Text("GPT-4o Mini").tag("gpt-4o-mini")
+                }
+            }
+
             Section("Google Gemini") {
                 HStack {
                     statusIndicator(hasKey: !geminiKey.isEmpty)
                     SecureField("API Key", text: $geminiKey, prompt: Text("AIza..."))
                 }
                 Picker("Model:", selection: $settings.geminiModel) {
-                    Text("Gemini 2.0 Flash").tag("gemini-2.0-flash")
-                    Text("Gemini 1.5 Pro").tag("gemini-1.5-pro")
+                    Text("Gemini 2.5 Flash (Recommended)").tag("gemini-2.5-flash")
+                    Text("Gemini 2.5 Pro").tag("gemini-2.5-pro")
+                    Text("Gemini 3 Flash Preview").tag("gemini-3-flash-preview")
                 }
             }
 
@@ -94,6 +107,7 @@ struct AIServicesSettingsTab: View {
             debouncedStore(newValue, forKey: KeychainSecretStorage.geminiAPIKey, task: &geminiSaveTask)
         }
         .onChange(of: settings.aiSearchEnabled) { _, _ in settings.save() }
+        .onChange(of: settings.preferredAIProvider) { _, _ in settings.save() }
         .onChange(of: settings.openAIModel) { _, _ in settings.save() }
         .onChange(of: settings.anthropicModel) { _, _ in settings.save() }
         .onChange(of: settings.geminiModel) { _, _ in settings.save() }
