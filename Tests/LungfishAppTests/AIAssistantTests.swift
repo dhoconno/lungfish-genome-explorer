@@ -449,6 +449,50 @@ final class AIAssistantServiceTests: XCTestCase {
 }
 
 @MainActor
+final class AIMessageBubbleViewTests: XCTestCase {
+
+    func testUserMessageCreation() {
+        let view = AIMessageBubbleView(text: "Hello world", isUser: true)
+        XCTAssertFalse(view.isWelcome)
+        XCTAssertTrue(view.subviews.contains { $0 is NSTextField }, "Expected NSTextField subview")
+    }
+
+    func testAssistantMessageHasCopyButton() {
+        let view = AIMessageBubbleView(text: "Response text", isUser: false)
+        XCTAssertFalse(view.isWelcome)
+        XCTAssertTrue(view.subviews.contains { $0 is NSTextField })
+        XCTAssertTrue(view.subviews.contains { $0 is NSButton }, "Assistant messages should have a copy button")
+    }
+
+    func testWelcomeMessageNoCopyButton() {
+        let view = AIMessageBubbleView(text: "Welcome", isUser: false, isWelcome: true)
+        XCTAssertTrue(view.isWelcome)
+        XCTAssertFalse(view.subviews.contains { $0 is NSButton }, "Welcome messages should not have a copy button")
+    }
+
+    func testMarkdownFormattingProducesAttributedString() {
+        let view = AIMessageBubbleView(text: "**Bold** and `code` text", isUser: false)
+        if let label = view.subviews.first(where: { $0 is NSTextField }) as? NSTextField {
+            XCTAssertGreaterThan(label.attributedStringValue.length, 0)
+            // Verify the label uses wrapping
+            XCTAssertEqual(label.lineBreakMode, .byWordWrapping)
+        } else {
+            XCTFail("Expected NSTextField subview")
+        }
+    }
+
+    func testMultilineTextCreatesView() {
+        let multiline = "Line 1\nLine 2\n## Header\n- Bullet point\n**Bold text**"
+        let view = AIMessageBubbleView(text: multiline, isUser: false)
+        if let label = view.subviews.first(where: { $0 is NSTextField }) as? NSTextField {
+            XCTAssertGreaterThan(label.attributedStringValue.length, 0)
+        } else {
+            XCTFail("Expected NSTextField subview")
+        }
+    }
+}
+
+@MainActor
 final class AISettingsIntegrationTests: XCTestCase {
 
     override func setUpWithError() throws {

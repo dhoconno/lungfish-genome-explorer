@@ -469,13 +469,20 @@ final class AIAssistantViewController: NSViewController {
                 responseToDisplay = response
             }
 
-            service.onStatusUpdate = nil
-            hideThinkingIndicator()
-            addMessageView(text: responseToDisplay, isUser: false)
-            statusLabel.stringValue = ""
-            sendButton.isEnabled = true
-            inputField.isEnabled = true
-            view.window?.makeFirstResponder(inputField)
+            // Use GCD main queue to ensure UI updates execute reliably;
+            // the cooperative executor may not drain during AppKit layout cycles.
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                MainActor.assumeIsolated {
+                    self.service.onStatusUpdate = nil
+                    self.hideThinkingIndicator()
+                    self.addMessageView(text: responseToDisplay, isUser: false)
+                    self.statusLabel.stringValue = ""
+                    self.sendButton.isEnabled = true
+                    self.inputField.isEnabled = true
+                    self.view.window?.makeFirstResponder(self.inputField)
+                }
+            }
         }
     }
 
@@ -522,6 +529,7 @@ final class AIMessageBubbleView: NSView {
     let isWelcome: Bool
     private var rawText: String = ""
     private var copyButton: NSButton?
+    private weak var textLabel: NSTextField?
 
     init(text: String, isUser: Bool, isWelcome: Bool = false) {
         self.isWelcome = isWelcome
@@ -548,21 +556,19 @@ final class AIMessageBubbleView: NSView {
             layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
         }
 
-        let textView = NSTextView()
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.drawsBackground = false
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.textContainerInset = NSSize(width: 12, height: 8)
-        textView.textContainer?.lineFragmentPadding = 0
-        textView.translatesAutoresizingMaskIntoConstraints = false
+        let label = NSTextField(wrappingLabelWithString: "")
+        label.isEditable = false
+        label.isSelectable = true
+        label.drawsBackground = false
+        label.isBordered = false
+        label.translatesAutoresizingMaskIntoConstraints = false
 
         // Apply markdown-like formatting
         let attributedString = formatMessage(text, isUser: isUser)
-        textView.textStorage?.setAttributedString(attributedString)
+        label.attributedStringValue = attributedString
+        textLabel = label
 
-        addSubview(textView)
+        addSubview(label)
 
         // Add copy button for AI responses (not user messages, not welcome)
         if !isUser && !isWelcome {
@@ -588,11 +594,22 @@ final class AIMessageBubbleView: NSView {
         }
 
         NSLayoutConstraint.activate([
-            textView.topAnchor.constraint(equalTo: topAnchor),
-            textView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            textView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            textView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            label.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
         ])
+    }
+
+    override func layout() {
+        super.layout()
+        if let label = textLabel {
+            let availableWidth = bounds.width - 24
+            if availableWidth > 0 && abs(label.preferredMaxLayoutWidth - availableWidth) > 1 {
+                label.preferredMaxLayoutWidth = availableWidth
+                super.layout()
+            }
+        }
     }
 
     /// Applies basic formatting to message text.
