@@ -29,9 +29,6 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
 
         let isOpen = isAnnotationDrawerOpen
         let target: CGFloat = isOpen ? annotationDrawerHeight : 0
-        if let drawer = annotationDrawerView {
-            view.addSubview(drawer, positioned: .above, relativeTo: viewerView)
-        }
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.25
@@ -64,9 +61,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         drawer.delegate = self
         drawer.setViewportSyncSource(viewerView)
         drawer.setSampleDisplayState(viewerView.sampleDisplayState)
-        view.addSubview(drawer, positioned: .above, relativeTo: viewerView)
-        drawer.wantsLayer = true
-        drawer.layer?.zPosition = 20
+        view.addSubview(drawer)
 
         // The drawer sits between the viewer content area and the status bar.
         // We constrain its bottom to be just above the status bar, and use
