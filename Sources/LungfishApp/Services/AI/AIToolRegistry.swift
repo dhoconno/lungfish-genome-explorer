@@ -373,13 +373,26 @@ public final class AIToolRegistry {
                 return merged
             }.value
         } else if let chromosome, let start, let end, let index {
-            let regionResults = index.queryVariantsInRegion(
+            var regionResults = index.queryVariantsInRegion(
                 chromosome: chromosome,
                 start: start,
                 end: end,
                 types: types,
                 limit: limit
             )
+            if regionResults.isEmpty {
+                let fallback = await queryRegionVariantsByChromosomeAliasFallback(
+                    context: context,
+                    originalChromosome: chromosome,
+                    start: start,
+                    end: end,
+                    types: types,
+                    limit: limit
+                )
+                if !fallback.isEmpty {
+                    regionResults = fallback
+                }
+            }
             flattenedRecords = regionResults.map { result in
                 VariantDatabaseRecord(
                     id: result.variantRowId,
@@ -397,13 +410,26 @@ public final class AIToolRegistry {
                 )
             }
         } else if let chromosome, let index {
-            let regionResults = index.queryVariantsInRegion(
+            var regionResults = index.queryVariantsInRegion(
                 chromosome: chromosome,
                 start: 0,
                 end: Int.max,
                 types: types,
                 limit: limit
             )
+            if regionResults.isEmpty {
+                let fallback = await queryRegionVariantsByChromosomeAliasFallback(
+                    context: context,
+                    originalChromosome: chromosome,
+                    start: 0,
+                    end: Int.max,
+                    types: types,
+                    limit: limit
+                )
+                if !fallback.isEmpty {
+                    regionResults = fallback
+                }
+            }
             flattenedRecords = regionResults.map { result in
                 VariantDatabaseRecord(
                     id: result.variantRowId,
@@ -451,6 +477,93 @@ public final class AIToolRegistry {
             lines.append("- \(record.variantID) \(record.chromosome):\(record.position + 1) \(record.ref)>\(record.alt) [\(record.variantType)] Q=\(qual) \(record.filter ?? "")")
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// Alias fallback for region queries when the requested chromosome label returns no hits.
+    ///
+    /// This handles cases like `NC_041760.1` vs `7` when bundle aliases are incomplete.
+    private func queryRegionVariantsByChromosomeAliasFallback(
+        context: VariantQueryContext,
+        originalChromosome: String,
+        start: Int,
+        end: Int,
+        types: Set<String>,
+        limit: Int
+    ) async -> [AnnotationSearchIndex.SearchResult] {
+        await Task.detached(priority: .userInitiated) {
+            var results: [AnnotationSearchIndex.SearchResult] = []
+            var seenKeys = Set<String>()
+
+            for (trackId, db) in context.variantDBs {
+                let allChromosomes = db.allChromosomes()
+                let candidates = Self.prioritizedAliasFallbackChromosomes(
+                    allChromosomes: allChromosomes,
+                    originalChromosome: originalChromosome
+                )
+                for chromosome in candidates {
+                    guard results.count < limit else { break }
+                    let records = db.queryForTableInRegion(
+                        chromosome: chromosome,
+                        start: start,
+                        end: end,
+                        types: types,
+                        limit: limit - results.count
+                    )
+                    for record in records {
+                        let key = Self.variantRecordDedupKey(record)
+                        if seenKeys.insert(key).inserted {
+                            results.append(record.toSearchResult(trackId: trackId))
+                        }
+                    }
+                    if results.count >= limit {
+                        break
+                    }
+                }
+            }
+            return results
+        }.value
+    }
+
+    /// Prioritizes likely alias chromosome names for fallback probing.
+    nonisolated private static func prioritizedAliasFallbackChromosomes(
+        allChromosomes: [String],
+        originalChromosome: String
+    ) -> [String] {
+        let exact = originalChromosome.lowercased()
+
+        let filtered = allChromosomes.filter { candidate in
+            candidate.lowercased() != exact
+        }
+
+        let prioritized = filtered.sorted { lhs, rhs in
+            let lhsScore = chromosomeAliasPriority(lhs)
+            let rhsScore = chromosomeAliasPriority(rhs)
+            if lhsScore != rhsScore { return lhsScore < rhsScore }
+            return lhs.localizedStandardCompare(rhs) == .orderedAscending
+        }
+
+        // Hard cap to keep fallback bounded for large assemblies.
+        return Array(prioritized.prefix(64))
+    }
+
+    nonisolated private static func chromosomeAliasPriority(_ chromosome: String) -> Int {
+        let lower = chromosome.lowercased()
+        if lower.hasPrefix("nc_") {
+            return 4
+        }
+        if lower.allSatisfy(\.isNumber) {
+            return 0
+        }
+        if lower.hasPrefix("chr") {
+            let suffix = String(lower.dropFirst(3))
+            if suffix.allSatisfy(\.isNumber) || suffix == "x" || suffix == "y" || suffix == "m" || suffix == "mt" {
+                return 1
+            }
+        }
+        if chromosome.count <= 5 {
+            return 1
+        }
+        return 2
     }
 
     private func executeGetVariantStats(_ _: AIToolCall) async throws -> String {
