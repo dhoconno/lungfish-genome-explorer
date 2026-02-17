@@ -3016,6 +3016,9 @@ public class SequenceViewerView: NSView {
                 }
             }
         }
+
+        // Keep selection visible above all bundle rendering content.
+        drawSelectionHighlight(frame: frame, context: context)
     }
 
     /// Fetches annotations asynchronously for the visible region from SQLite annotation databases.
@@ -4385,19 +4388,20 @@ public class SequenceViewerView: NSView {
             }
         }
 
-        // Draw selection highlight
-        drawSelectionHighlight(frame: frame, context: context)
-
         // Draw annotations if present and enabled
         if showAnnotations && !annotations.isEmpty {
             drawAnnotations(frame: frame, context: context)
         }
 
+        // Keep selection visible above sequence + annotations.
+        drawSelectionHighlight(frame: frame, context: context)
+
         // Draw sequence info header
         drawSequenceInfo(seq, frame: frame, context: context)
     }
 
-    /// Draws the selection highlight overlay with edge handles
+    /// Draws the selection highlight overlay with edge handles.
+    /// The overlay spans the full viewport height to make extraction regions explicit.
     private func drawSelectionHighlight(frame: ReferenceFrame, context: CGContext) {
         guard let range = selectionRange else { return }
 
@@ -4407,14 +4411,12 @@ public class SequenceViewerView: NSView {
         // Calculate screen coordinates for selection
         let startX = CGFloat(range.lowerBound - Int(frame.start)) * pixelsPerBase
         let endX = CGFloat(range.upperBound - Int(frame.start)) * pixelsPerBase
-        let selectionWidth = endX - startX
-
         let clippedStartX = max(0, startX)
         let clippedEndX = min(bounds.width, endX)
         let clippedWidth = max(0, clippedEndX - clippedStartX)
         guard clippedWidth > 0 else { return }
 
-        // Full-height selection highlight (covers sequence + annotation tracks)
+        // Full-height selection highlight (covers sequence + annotation + variant areas).
         let fullRect = CGRect(
             x: clippedStartX,
             y: 0,
@@ -4422,50 +4424,48 @@ public class SequenceViewerView: NSView {
             height: bounds.height
         )
 
-        // Draw selection highlight with blue tint
+        let accent = NSColor.controlAccentColor
+
+        // Draw selection highlight fill.
         context.saveGState()
-        context.setFillColor(NSColor.selectedTextBackgroundColor.withAlphaComponent(0.15).cgColor)
+        context.setFillColor(accent.withAlphaComponent(0.14).cgColor)
         context.fill(fullRect)
 
-        // Sequence track highlight (brighter)
+        // Sequence track highlight (brighter for immediate visibility).
         let seqRect = CGRect(
             x: clippedStartX,
             y: trackY,
             width: clippedWidth,
             height: trackHeight
         )
-        context.setFillColor(NSColor.selectedTextBackgroundColor.withAlphaComponent(0.35).cgColor)
+        context.setFillColor(accent.withAlphaComponent(0.30).cgColor)
         context.fill(seqRect)
 
-        // Draw selection border
-        context.setStrokeColor(NSColor.selectedTextBackgroundColor.cgColor)
+        // Draw full-height edge rails.
+        context.setStrokeColor(accent.cgColor)
         context.setLineWidth(2)
-        context.stroke(seqRect)
+        context.move(to: CGPoint(x: clippedStartX, y: 0))
+        context.addLine(to: CGPoint(x: clippedStartX, y: bounds.height))
+        context.move(to: CGPoint(x: clippedEndX, y: 0))
+        context.addLine(to: CGPoint(x: clippedEndX, y: bounds.height))
+        context.strokePath()
 
-        // Draw edge handles (small triangular indicators)
-        let handleColor = NSColor.selectedTextBackgroundColor.cgColor
-        context.setFillColor(handleColor)
-        let handleSize: CGFloat = 5
-        let handleY = trackY + trackHeight
+        // Draw visible drag handles on each edge.
+        let midHandleWidth: CGFloat = 8
+        let midHandleHeight: CGFloat = 22
+        let midY = (bounds.height - midHandleHeight) / 2
+        let capSize: CGFloat = 6
+        let topY: CGFloat = 4
+        let bottomY = bounds.height - capSize - 4
 
-        // Left edge handle
-        if startX >= 0 && startX <= bounds.width {
-            let lx = max(0, startX)
-            context.move(to: CGPoint(x: lx, y: handleY))
-            context.addLine(to: CGPoint(x: lx + handleSize, y: handleY + handleSize))
-            context.addLine(to: CGPoint(x: lx - handleSize, y: handleY + handleSize))
-            context.closePath()
-            context.fillPath()
-        }
-
-        // Right edge handle
-        if endX >= 0 && endX <= bounds.width {
-            let rx = min(bounds.width, endX)
-            context.move(to: CGPoint(x: rx, y: handleY))
-            context.addLine(to: CGPoint(x: rx + handleSize, y: handleY + handleSize))
-            context.addLine(to: CGPoint(x: rx - handleSize, y: handleY + handleSize))
-            context.closePath()
-            context.fillPath()
+        context.setFillColor(accent.cgColor)
+        for edgeX in [clippedStartX, clippedEndX] where edgeX >= 0 && edgeX <= bounds.width {
+            let midHandle = CGRect(x: edgeX - midHandleWidth / 2, y: midY, width: midHandleWidth, height: midHandleHeight)
+            let topCap = CGRect(x: edgeX - capSize / 2, y: topY, width: capSize, height: capSize)
+            let bottomCap = CGRect(x: edgeX - capSize / 2, y: bottomY, width: capSize, height: capSize)
+            context.fillEllipse(in: midHandle)
+            context.fillEllipse(in: topCap)
+            context.fillEllipse(in: bottomCap)
         }
 
         context.restoreGState()
