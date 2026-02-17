@@ -99,7 +99,8 @@ public enum VariantTrackRenderer {
     /// Navigation/zoom code uses this to avoid centering targets beneath sample labels.
     public static func leadingDataInsetPixels(state: SampleDisplayState, hasSampleRows: Bool) -> CGFloat {
         guard hasSampleRows, state.showGenotypeRows, state.rowHeight >= 8 else { return 0 }
-        return sampleLabelWidth + sampleLabelToDataMargin
+        // Include extra breathing room so navigation targets don't land under sample labels.
+        return sampleLabelWidth + sampleLabelToDataMargin + 24
     }
 
     // MARK: - Summary Bar Rendering
@@ -257,8 +258,6 @@ public enum VariantTrackRenderer {
 
         let showLabels = rowH >= 8
         let totalRows = samples.count
-        let dataStartX = showLabels ? (sampleLabelWidth + sampleLabelToDataMargin) : 0
-        let dataWidth = max(0, CGFloat(frame.pixelWidth) - dataStartX)
 
         // Compute visible row range from scroll offset
         let firstVisibleRow = max(0, Int(scrollOffset / rowH))
@@ -280,10 +279,11 @@ public enum VariantTrackRenderer {
                     .font: NSFont.systemFont(ofSize: fontSize, weight: .regular),
                     .foregroundColor: NSColor.labelColor,
                 ]
-                context.setFillColor(CGColor(red: 0.96, green: 0.96, blue: 0.96, alpha: 0.92))
+                // Keep labels readable while still allowing underlying variants to remain visible.
+                context.setFillColor(CGColor(red: 0.96, green: 0.96, blue: 0.96, alpha: 0.72))
                 context.fill(CGRect(x: 0, y: rowY, width: sampleLabelWidth, height: rowH))
                 // Keep an explicit blank gutter before genotype cells.
-                context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.98))
+                context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.82))
                 context.fill(CGRect(x: sampleLabelWidth, y: rowY, width: sampleLabelToDataMargin, height: rowH))
                 context.setStrokeColor(CGColor(red: 0.82, green: 0.82, blue: 0.82, alpha: 1.0))
                 context.setLineWidth(0.5)
@@ -305,7 +305,7 @@ public enum VariantTrackRenderer {
                 let startPx = frame.screenPosition(for: Double(site.position))
                 let endPx = frame.screenPosition(for: Double(site.position + max(1, site.ref.count)))
                 let cellWidth = max(1, endPx - startPx)
-                let clippedStart = max(dataStartX, startPx)
+                let clippedStart = max(0, startPx)
                 let clippedEnd = min(CGFloat(frame.pixelWidth), startPx + cellWidth)
                 guard clippedEnd > clippedStart else { continue }
 
@@ -324,7 +324,7 @@ public enum VariantTrackRenderer {
                 context.setLineWidth(0.5)
                 let sepY = rowY + rowH
                 context.move(to: CGPoint(x: 0, y: sepY))
-                context.addLine(to: CGPoint(x: dataStartX + dataWidth, y: sepY))
+                context.addLine(to: CGPoint(x: CGFloat(frame.pixelWidth), y: sepY))
                 context.strokePath()
             }
         }
