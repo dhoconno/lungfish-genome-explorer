@@ -351,21 +351,65 @@ public final class AIToolRegistry {
         let start = call.int("start")
         let end = call.int("end")
         let variantType = call.string("variant_type")
-        let limit = call.int("limit") ?? 20
+        let limit = min(max(call.int("limit") ?? 20, 1), 500)
+        let types: Set<String> = variantType.map { Set([$0]) } ?? []
 
         let allResults = await Task.detached(priority: .userInitiated) { () -> [(trackId: String, records: [VariantDatabaseRecord])] in
             var results: [(trackId: String, records: [VariantDatabaseRecord])] = []
             for (trackId, db) in context.variantDBs {
                 let records: [VariantDatabaseRecord]
                 if let query, !query.isEmpty {
-                    records = db.searchByID(idFilter: query, limit: limit)
+                    let idMatches = db.searchByID(idFilter: query, limit: limit)
+                    if types.isEmpty {
+                        records = idMatches
+                    } else {
+                        records = idMatches.filter { types.contains($0.variantType) }
+                    }
                 } else if let chromosome, let start, let end {
-                    let types: Set<String> = variantType.map { Set([$0]) } ?? []
-                    records = db.query(chromosome: chromosome, start: start, end: end, types: types, limit: limit)
+                    let candidates = Self.resolvedChromosomeCandidates(for: chromosome, available: db.allChromosomes())
+                    var merged: [VariantDatabaseRecord] = []
+                    var seenKeys: Set<String> = []
+                    for queryChrom in candidates {
+                        let remaining = limit - merged.count
+                        guard remaining > 0 else { break }
+                        let chunk = db.query(
+                            chromosome: queryChrom,
+                            start: start,
+                            end: end,
+                            types: types,
+                            limit: remaining
+                        )
+                        for record in chunk {
+                            let key = Self.variantRecordDedupKey(record)
+                            if seenKeys.insert(key).inserted {
+                                merged.append(record)
+                            }
+                        }
+                    }
+                    records = merged
                 } else if let chromosome {
-                    records = db.query(chromosome: chromosome, start: 0, end: 1_000_000, limit: limit)
+                    let candidates = Self.resolvedChromosomeCandidates(for: chromosome, available: db.allChromosomes())
+                    var merged: [VariantDatabaseRecord] = []
+                    var seenKeys: Set<String> = []
+                    for queryChrom in candidates {
+                        let remaining = limit - merged.count
+                        guard remaining > 0 else { break }
+                        let chunk = db.query(
+                            chromosome: queryChrom,
+                            start: 0,
+                            end: Int.max,
+                            types: types,
+                            limit: remaining
+                        )
+                        for record in chunk {
+                            let key = Self.variantRecordDedupKey(record)
+                            if seenKeys.insert(key).inserted {
+                                merged.append(record)
+                            }
+                        }
+                    }
+                    records = merged
                 } else {
-                    let types: Set<String> = variantType.map { Set([$0]) } ?? []
                     records = db.queryForTable(types: types, limit: limit)
                 }
                 if !records.isEmpty {
@@ -456,10 +500,35 @@ public final class AIToolRegistry {
         if let context = snapshotVariantContext(), !context.variantDBs.isEmpty {
             let variantSummaries = await Task.detached(priority: .userInitiated) {
                 context.variantDBs.compactMap { (_, db) -> (count: Int, variants: [VariantDatabaseRecord])? in
-                    let count = db.queryCount(chromosome: gene.chromosome, start: gene.start, end: gene.end)
-                    guard count > 0 else { return nil }
-                    let variants = db.query(chromosome: gene.chromosome, start: gene.start, end: gene.end, limit: 5)
-                    return (count, variants)
+                    let candidates = Self.resolvedChromosomeCandidates(for: gene.chromosome, available: db.allChromosomes())
+                    var totalCount = 0
+                    var variants: [VariantDatabaseRecord] = []
+                    var seenKeys: Set<String> = []
+
+                    for queryChrom in candidates {
+                        let count = db.queryCount(chromosome: queryChrom, start: gene.start, end: gene.end)
+                        totalCount += count
+
+                        let remaining = 5 - variants.count
+                        guard remaining > 0 else { continue }
+                        guard count > 0 else { continue }
+
+                        let chunk = db.query(
+                            chromosome: queryChrom,
+                            start: gene.start,
+                            end: gene.end,
+                            limit: remaining
+                        )
+                        for record in chunk {
+                            let key = Self.variantRecordDedupKey(record)
+                            if seenKeys.insert(key).inserted {
+                                variants.append(record)
+                            }
+                        }
+                    }
+
+                    guard totalCount > 0 else { return nil }
+                    return (count: totalCount, variants: variants)
                 }
             }.value
 
@@ -475,6 +544,47 @@ public final class AIToolRegistry {
         }
 
         return lines.joined(separator: "\n")
+    }
+
+    // MARK: - Chromosome Alias Helpers
+
+    /// Canonical chromosome key used for alias fallback matching.
+    nonisolated private static func canonicalChromosomeName(_ name: String) -> String {
+        var value = name.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.hasPrefix("chr") {
+            value = String(value.dropFirst(3))
+        }
+        if let dot = value.firstIndex(of: ".") {
+            value = String(value[..<dot])
+        }
+        return value
+    }
+
+    /// Returns chromosome names to try for region queries.
+    /// Includes direct match plus normalized/alias fallbacks.
+    nonisolated private static func resolvedChromosomeCandidates(
+        for requestedChromosome: String,
+        available: [String]
+    ) -> [String] {
+        guard !available.isEmpty else { return [requestedChromosome] }
+        if available.contains(requestedChromosome) { return [requestedChromosome] }
+
+        let canonical = canonicalChromosomeName(requestedChromosome)
+        var ordered: [String] = [requestedChromosome]
+        for candidate in available {
+            if canonicalChromosomeName(candidate) == canonical {
+                ordered.append(candidate)
+            }
+        }
+        return Array(NSOrderedSet(array: ordered)) as? [String] ?? ordered
+    }
+
+    /// Stable key for de-duplicating records fetched via multiple chromosome aliases.
+    nonisolated private static func variantRecordDedupKey(_ record: VariantDatabaseRecord) -> String {
+        if let id = record.id {
+            return "id:\(id)"
+        }
+        return "\(record.chromosome)|\(record.position)|\(record.end)|\(record.ref)|\(record.alt)|\(record.variantType)|\(record.variantID)"
     }
 
     private func executeGetCurrentView() -> String {
