@@ -2072,10 +2072,12 @@ public class SequenceViewerView: NSView {
     /// Horizontal inset used by genotype labels before data cells begin.
     /// Used to keep navigation targets away from the label column.
     var navigationLeadingInsetPixels: CGFloat {
-        let sampleCount = cachedGenotypeData?.sampleNames.count ?? cachedSampleCount
+        let sampleNames = cachedGenotypeData?.sampleNames ?? []
+        if sampleNames.isEmpty && cachedSampleCount <= 0 { return 0 }
         return VariantTrackRenderer.leadingDataInsetPixels(
             state: sampleDisplayState,
-            hasSampleRows: sampleCount > 0
+            sampleNames: sampleNames,
+            sampleDisplayNames: cachedGenotypeSampleDisplayNames
         )
     }
 
