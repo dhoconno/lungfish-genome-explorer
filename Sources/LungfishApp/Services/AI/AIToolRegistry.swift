@@ -354,85 +354,101 @@ public final class AIToolRegistry {
         let limit = min(max(call.int("limit") ?? 20, 1), 500)
         let types: Set<String> = variantType.map { Set([$0]) } ?? []
 
-        let allResults = await Task.detached(priority: .userInitiated) { () -> [(trackId: String, records: [VariantDatabaseRecord])] in
-            var results: [(trackId: String, records: [VariantDatabaseRecord])] = []
-            for (trackId, db) in context.variantDBs {
-                let records: [VariantDatabaseRecord]
-                if let query, !query.isEmpty {
-                    let idMatches = db.searchByID(idFilter: query, limit: limit)
-                    if types.isEmpty {
-                        records = idMatches
-                    } else {
-                        records = idMatches.filter { types.contains($0.variantType) }
-                    }
-                } else if let chromosome, let start, let end {
-                    let candidates = Self.resolvedChromosomeCandidates(for: chromosome, available: db.allChromosomes())
-                    var merged: [VariantDatabaseRecord] = []
-                    var seenKeys: Set<String> = []
-                    for queryChrom in candidates {
-                        let remaining = limit - merged.count
-                        guard remaining > 0 else { break }
-                        let chunk = db.query(
-                            chromosome: queryChrom,
-                            start: start,
-                            end: end,
-                            types: types,
-                            limit: remaining
-                        )
-                        for record in chunk {
-                            let key = Self.variantRecordDedupKey(record)
-                            if seenKeys.insert(key).inserted {
-                                merged.append(record)
-                            }
+        let index = searchIndex
+        let flattenedRecords: [VariantDatabaseRecord]
+        if let query, !query.isEmpty {
+            flattenedRecords = await Task.detached(priority: .userInitiated) {
+                var merged: [VariantDatabaseRecord] = []
+                var seenKeys: Set<String> = []
+                for (_, db) in context.variantDBs {
+                    let records = db.searchByID(idFilter: query, limit: limit)
+                    for record in records where types.isEmpty || types.contains(record.variantType) {
+                        let key = Self.variantRecordDedupKey(record)
+                        if seenKeys.insert(key).inserted {
+                            merged.append(record)
+                            if merged.count >= limit { return merged }
                         }
                     }
-                    records = merged
-                } else if let chromosome {
-                    let candidates = Self.resolvedChromosomeCandidates(for: chromosome, available: db.allChromosomes())
-                    var merged: [VariantDatabaseRecord] = []
-                    var seenKeys: Set<String> = []
-                    for queryChrom in candidates {
-                        let remaining = limit - merged.count
-                        guard remaining > 0 else { break }
-                        let chunk = db.query(
-                            chromosome: queryChrom,
-                            start: 0,
-                            end: Int.max,
-                            types: types,
-                            limit: remaining
-                        )
-                        for record in chunk {
-                            let key = Self.variantRecordDedupKey(record)
-                            if seenKeys.insert(key).inserted {
-                                merged.append(record)
-                            }
-                        }
-                    }
-                    records = merged
-                } else {
-                    records = db.queryForTable(types: types, limit: limit)
                 }
-                if !records.isEmpty {
-                    results.append((trackId, records))
-                }
+                return merged
+            }.value
+        } else if let chromosome, let start, let end, let index {
+            let regionResults = index.queryVariantsInRegion(
+                chromosome: chromosome,
+                start: start,
+                end: end,
+                types: types,
+                limit: limit
+            )
+            flattenedRecords = regionResults.map { result in
+                VariantDatabaseRecord(
+                    id: result.variantRowId,
+                    chromosome: result.chromosome,
+                    position: result.start,
+                    end: result.end,
+                    variantID: result.name,
+                    ref: result.ref ?? ".",
+                    alt: result.alt ?? ".",
+                    variantType: result.type,
+                    quality: result.quality,
+                    filter: result.filter,
+                    info: nil,
+                    sampleCount: result.sampleCount ?? 0
+                )
             }
-            return results
-        }.value
+        } else if let chromosome, let index {
+            let regionResults = index.queryVariantsInRegion(
+                chromosome: chromosome,
+                start: 0,
+                end: Int.max,
+                types: types,
+                limit: limit
+            )
+            flattenedRecords = regionResults.map { result in
+                VariantDatabaseRecord(
+                    id: result.variantRowId,
+                    chromosome: result.chromosome,
+                    position: result.start,
+                    end: result.end,
+                    variantID: result.name,
+                    ref: result.ref ?? ".",
+                    alt: result.alt ?? ".",
+                    variantType: result.type,
+                    quality: result.quality,
+                    filter: result.filter,
+                    info: nil,
+                    sampleCount: result.sampleCount ?? 0
+                )
+            }
+        } else {
+            flattenedRecords = await Task.detached(priority: .userInitiated) {
+                var merged: [VariantDatabaseRecord] = []
+                var seenKeys: Set<String> = []
+                for (_, db) in context.variantDBs {
+                    let records = db.queryForTable(types: types, limit: limit)
+                    for record in records {
+                        let key = Self.variantRecordDedupKey(record)
+                        if seenKeys.insert(key).inserted {
+                            merged.append(record)
+                            if merged.count >= limit { return merged }
+                        }
+                    }
+                }
+                return merged
+            }.value
+        }
 
-        if allResults.isEmpty {
+        if flattenedRecords.isEmpty {
             var msg = "No variants found"
             if let query { msg += " matching '\(query)'" }
             if let chromosome { msg += " on \(chromosome)" }
             return msg + "."
         }
 
-        var lines: [String] = []
-        for (_, records) in allResults {
-            lines.append("Found \(records.count) variant(s):")
-            for record in records.prefix(limit) {
-                let qual = record.quality.map { String(format: "%.1f", $0) } ?? "."
-                lines.append("- \(record.variantID) \(record.chromosome):\(record.position + 1) \(record.ref)>\(record.alt) [\(record.variantType)] Q=\(qual) \(record.filter ?? "")")
-            }
+        var lines: [String] = ["Found \(flattenedRecords.count) variant(s):"]
+        for record in flattenedRecords.prefix(limit) {
+            let qual = record.quality.map { String(format: "%.1f", $0) } ?? "."
+            lines.append("- \(record.variantID) \(record.chromosome):\(record.position + 1) \(record.ref)>\(record.alt) [\(record.variantType)] Q=\(qual) \(record.filter ?? "")")
         }
         return lines.joined(separator: "\n")
     }
@@ -497,48 +513,27 @@ public final class AIToolRegistry {
             "Size: \(gene.end - gene.start) bp",
         ]
 
-        if let context = snapshotVariantContext(), !context.variantDBs.isEmpty {
-            let variantSummaries = await Task.detached(priority: .userInitiated) {
-                context.variantDBs.compactMap { (_, db) -> (count: Int, variants: [VariantDatabaseRecord])? in
-                    let candidates = Self.resolvedChromosomeCandidates(for: gene.chromosome, available: db.allChromosomes())
-                    var totalCount = 0
-                    var variants: [VariantDatabaseRecord] = []
-                    var seenKeys: Set<String> = []
-
-                    for queryChrom in candidates {
-                        let count = db.queryCount(chromosome: queryChrom, start: gene.start, end: gene.end)
-                        totalCount += count
-
-                        let remaining = 5 - variants.count
-                        guard remaining > 0 else { continue }
-                        guard count > 0 else { continue }
-
-                        let chunk = db.query(
-                            chromosome: queryChrom,
-                            start: gene.start,
-                            end: gene.end,
-                            limit: remaining
-                        )
-                        for record in chunk {
-                            let key = Self.variantRecordDedupKey(record)
-                            if seenKeys.insert(key).inserted {
-                                variants.append(record)
-                            }
-                        }
-                    }
-
-                    guard totalCount > 0 else { return nil }
-                    return (count: totalCount, variants: variants)
+        if searchIndex.hasVariantDatabase {
+            let count = searchIndex.queryVariantCountInRegion(
+                chromosome: gene.chromosome,
+                start: gene.start,
+                end: gene.end
+            )
+            if count > 0 {
+                let variants = searchIndex.queryVariantsInRegion(
+                    chromosome: gene.chromosome,
+                    start: gene.start,
+                    end: gene.end,
+                    limit: 5
+                )
+                lines.append("Variants in region: \(count)")
+                for v in variants {
+                    let ref = v.ref ?? "."
+                    let alt = v.alt ?? "."
+                    lines.append("  - \(v.name) pos:\(v.start + 1) \(ref)>\(alt) [\(v.type)]")
                 }
-            }.value
-
-            for summary in variantSummaries {
-                lines.append("Variants in region: \(summary.count)")
-                for v in summary.variants {
-                    lines.append("  - \(v.variantID) pos:\(v.position + 1) \(v.ref)>\(v.alt) [\(v.variantType)]")
-                }
-                if summary.count > 5 {
-                    lines.append("  ... and \(summary.count - 5) more variants")
+                if count > 5 {
+                    lines.append("  ... and \(count - 5) more variants")
                 }
             }
         }
@@ -558,25 +553,6 @@ public final class AIToolRegistry {
             value = String(value[..<dot])
         }
         return value
-    }
-
-    /// Returns chromosome names to try for region queries.
-    /// Includes direct match plus normalized/alias fallbacks.
-    nonisolated private static func resolvedChromosomeCandidates(
-        for requestedChromosome: String,
-        available: [String]
-    ) -> [String] {
-        guard !available.isEmpty else { return [requestedChromosome] }
-        if available.contains(requestedChromosome) { return [requestedChromosome] }
-
-        let canonical = canonicalChromosomeName(requestedChromosome)
-        var ordered: [String] = [requestedChromosome]
-        for candidate in available {
-            if canonicalChromosomeName(candidate) == canonical {
-                ordered.append(candidate)
-            }
-        }
-        return Array(NSOrderedSet(array: ordered)) as? [String] ?? ordered
     }
 
     /// Stable key for de-duplicating records fetched via multiple chromosome aliases.
