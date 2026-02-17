@@ -95,6 +95,13 @@ public enum VariantTrackRenderer {
         state?.summaryBarHeight ?? defaultSummaryBarHeight
     }
 
+    /// Returns the horizontal inset reserved for sample labels before genotype data begins.
+    /// Navigation/zoom code uses this to avoid centering targets beneath sample labels.
+    public static func leadingDataInsetPixels(state: SampleDisplayState, hasSampleRows: Bool) -> CGFloat {
+        guard hasSampleRows, state.showGenotypeRows, state.rowHeight >= 8 else { return 0 }
+        return sampleLabelWidth + sampleLabelToDataMargin
+    }
+
     // MARK: - Summary Bar Rendering
 
     /// Draws the variant summary bar showing variant density and type distribution.

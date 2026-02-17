@@ -2069,6 +2069,16 @@ public class SequenceViewerView: NSView {
     /// Number of samples in the current variant database (cached for layout).
     private var cachedSampleCount: Int = 0
 
+    /// Horizontal inset used by genotype labels before data cells begin.
+    /// Used to keep navigation targets away from the label column.
+    var navigationLeadingInsetPixels: CGFloat {
+        let sampleCount = cachedGenotypeData?.sampleNames.count ?? cachedSampleCount
+        return VariantTrackRenderer.leadingDataInsetPixels(
+            state: sampleDisplayState,
+            hasSampleRows: sampleCount > 0
+        )
+    }
+
     /// Vertical scroll offset for genotype rows (in pixels).
     /// Zero = first sample row at top. Positive = scrolled down.
     var genotypeScrollOffset: CGFloat = 0
@@ -5842,10 +5852,14 @@ public class SequenceViewerView: NSView {
     /// Zooms the viewer to show the given annotation (callable from notification handlers).
     func zoomToAnnotation(_ annotation: SequenceAnnotation) {
         guard let frame = viewController?.referenceFrame else { return }
-        let padding = max(10, Double(annotation.end - annotation.start) * 0.05)
-        let windowLength = Double(annotation.end - annotation.start) + 2 * padding
-        var newStart = Double(annotation.start) - padding
-        var newEnd = Double(annotation.end) + padding
+        let annotationLength = max(1, annotation.end - annotation.start)
+        let padding = max(10, Double(annotationLength) * 0.05)
+        let windowLength = Double(annotationLength) + 2 * padding
+        let maxPixelWidth = max(1, frame.pixelWidth)
+        let insetPixels = min(Double(navigationLeadingInsetPixels), Double(maxPixelWidth - 1))
+        let leadingInsetBP = windowLength * insetPixels / Double(maxPixelWidth)
+        var newStart = Double(annotation.start) - padding - leadingInsetBP
+        var newEnd = newStart + windowLength
         if newStart < 0 {
             newStart = 0
             newEnd = min(Double(frame.sequenceLength), windowLength)

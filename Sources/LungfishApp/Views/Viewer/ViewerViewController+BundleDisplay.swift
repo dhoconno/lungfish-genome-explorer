@@ -381,9 +381,20 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         }
 
         let effectiveWidth = max(800, Int(viewerView.bounds.width))
-        let clampedStart = max(0, start)
-        let clampedEnd = min(chromosomeLength, end)
-        let span = clampedEnd - clampedStart
+        var clampedStart = max(0, start)
+        var clampedEnd = min(chromosomeLength, end)
+        let span = max(1, clampedEnd - clampedStart)
+        let leadingInsetPx = Double(viewerView.navigationLeadingInsetPixels)
+        if leadingInsetPx > 0 {
+            let shiftBP = Int((Double(span) * leadingInsetPx / Double(effectiveWidth)).rounded())
+            if shiftBP > 0 {
+                clampedStart = max(0, clampedStart - shiftBP)
+                clampedEnd = min(chromosomeLength, clampedStart + span)
+                if clampedEnd - clampedStart < span {
+                    clampedStart = max(0, clampedEnd - span)
+                }
+            }
+        }
         let scale = Double(span) / Double(effectiveWidth)
 
         bundleLogger.info("navigateToChromosomeAndPosition: Creating frame span=\(span) bp, pixelWidth=\(effectiveWidth), scale=\(scale, format: .fixed(precision: 2)) bp/px")
