@@ -4409,11 +4409,16 @@ public class SequenceViewerView: NSView {
         let endX = CGFloat(range.upperBound - Int(frame.start)) * pixelsPerBase
         let selectionWidth = endX - startX
 
+        let clippedStartX = max(0, startX)
+        let clippedEndX = min(bounds.width, endX)
+        let clippedWidth = max(0, clippedEndX - clippedStartX)
+        guard clippedWidth > 0 else { return }
+
         // Full-height selection highlight (covers sequence + annotation tracks)
         let fullRect = CGRect(
-            x: max(0, startX),
+            x: clippedStartX,
             y: 0,
-            width: min(bounds.width, selectionWidth),
+            width: clippedWidth,
             height: bounds.height
         )
 
@@ -4424,9 +4429,9 @@ public class SequenceViewerView: NSView {
 
         // Sequence track highlight (brighter)
         let seqRect = CGRect(
-            x: max(0, startX),
+            x: clippedStartX,
             y: trackY,
-            width: min(bounds.width - max(0, startX), selectionWidth),
+            width: clippedWidth,
             height: trackHeight
         )
         context.setFillColor(NSColor.selectedTextBackgroundColor.withAlphaComponent(0.35).cgColor)

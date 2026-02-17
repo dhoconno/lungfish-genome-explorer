@@ -2590,58 +2590,89 @@ public final class VariantDatabase: @unchecked Sendable {
         }
         defer { sqlite3_finalize(insertGenotypeStmt) }
 
+        let updateSampleCountSQL = "UPDATE variants SET sample_count = ? WHERE id = ?"
+        var updateSampleCountStmt: OpaquePointer?
+        guard sqlite3_prepare_v2(destDB, updateSampleCountSQL, -1, &updateSampleCountStmt, nil) == SQLITE_OK else {
+            throw VariantDatabaseError.createFailed("Failed to prepare sample_count UPDATE")
+        }
+        defer { sqlite3_finalize(updateSampleCountStmt) }
+
         let targetChrom = newChromosome ?? chromosome
 
-        // Query source variants in region
-        let variants = query(chromosome: chromosome, start: start, end: end, limit: 1_000_000)
+        // Stream source variants in-region without hard caps so large selections are complete.
+        let variantQuerySQL = """
+        SELECT id, chromosome, position, end_pos, variant_id, ref, alt, variant_type, quality, filter, info, sample_count
+        FROM variants
+        WHERE chromosome = ? AND position < ? AND end_pos > ?
+        ORDER BY position, id
+        """
+        var variantQueryStmt: OpaquePointer?
+        guard sqlite3_prepare_v2(sourceDB, variantQuerySQL, -1, &variantQueryStmt, nil) == SQLITE_OK, let variantQueryStmt else {
+            throw VariantDatabaseError.createFailed("Failed to prepare source variant query")
+        }
+        defer { sqlite3_finalize(variantQueryStmt) }
+        sqliteBindText(variantQueryStmt, 1, chromosome)
+        sqlite3_bind_int64(variantQueryStmt, 2, Int64(end))
+        sqlite3_bind_int64(variantQueryStmt, 3, Int64(start))
+
         var insertCount = 0
-        var sampleNamesInserted = Set<String>()
+        var samplesWithGenotypes = Set<String>()
         var sourceToDestVariantIds: [(Int64, Int64)] = []
 
-        for variant in variants {
+        while sqlite3_step(variantQueryStmt) == SQLITE_ROW {
+            let sourceVariantId = sqlite3_column_int64(variantQueryStmt, 0)
+            let sourcePosition = Int(sqlite3_column_int64(variantQueryStmt, 2))
+            let sourceEnd = Int(sqlite3_column_int64(variantQueryStmt, 3))
+            let variantID = sqlite3_column_text(variantQueryStmt, 4).map { String(cString: $0) } ?? ""
+            let ref = sqlite3_column_text(variantQueryStmt, 5).map { String(cString: $0) } ?? ""
+            let alt = sqlite3_column_text(variantQueryStmt, 6).map { String(cString: $0) } ?? ""
+            let variantType = sqlite3_column_text(variantQueryStmt, 7).map { String(cString: $0) } ?? "SNP"
+            let quality: Double? = sqlite3_column_type(variantQueryStmt, 8) == SQLITE_NULL ? nil : sqlite3_column_double(variantQueryStmt, 8)
+            let filter = sqlite3_column_text(variantQueryStmt, 9).map { String(cString: $0) }
+            let info = sqlite3_column_text(variantQueryStmt, 10).map { String(cString: $0) }
+
             // Shift coordinates relative to extraction start
-            let newPosition = max(0, variant.position - start)
-            let newEnd = min(end - start, variant.end - start)
-            guard newEnd > newPosition || (variant.variantType == "SNP" && newEnd == newPosition) else { continue }
+            let newPosition = max(0, sourcePosition - start)
+            let newEnd = min(end - start, sourceEnd - start)
+            guard newEnd > newPosition || (variantType == "SNP" && newEnd == newPosition) else { continue }
             let effectiveEnd = max(newPosition + 1, newEnd)
 
             sqlite3_reset(insertVariantStmt)
             sqliteBindText(insertVariantStmt, 1, targetChrom)
             sqlite3_bind_int64(insertVariantStmt, 2, Int64(newPosition))
             sqlite3_bind_int64(insertVariantStmt, 3, Int64(effectiveEnd))
-            sqliteBindText(insertVariantStmt, 4, variant.variantID)
-            sqliteBindText(insertVariantStmt, 5, variant.ref)
-            sqliteBindText(insertVariantStmt, 6, variant.alt)
-            sqliteBindText(insertVariantStmt, 7, variant.variantType)
-            if let q = variant.quality {
+            sqliteBindText(insertVariantStmt, 4, variantID)
+            sqliteBindText(insertVariantStmt, 5, ref)
+            sqliteBindText(insertVariantStmt, 6, alt)
+            sqliteBindText(insertVariantStmt, 7, variantType)
+            if let q = quality {
                 sqlite3_bind_double(insertVariantStmt, 8, q)
             } else {
                 sqlite3_bind_null(insertVariantStmt, 8)
             }
-            if let f = variant.filter {
+            if let f = filter {
                 sqliteBindText(insertVariantStmt, 9, f)
             } else {
                 sqlite3_bind_null(insertVariantStmt, 9)
             }
-            if let info = variant.info {
+            if let info {
                 sqliteBindText(insertVariantStmt, 10, info)
             } else {
                 sqlite3_bind_null(insertVariantStmt, 10)
             }
-            sqlite3_bind_int(insertVariantStmt, 11, Int32(variant.sampleCount))
+            // Set zero first, then update after genotype filtering.
+            sqlite3_bind_int(insertVariantStmt, 11, 0)
 
             guard sqlite3_step(insertVariantStmt) == SQLITE_DONE else { continue }
             let newVariantId = sqlite3_last_insert_rowid(destDB)
             insertCount += 1
 
             // Track source-to-dest ID mapping for variant_info copy
-            if let srcId = variant.id {
-                sourceToDestVariantIds.append((srcId, newVariantId))
-            }
+            sourceToDestVariantIds.append((sourceVariantId, newVariantId))
 
             // Copy genotypes (filtered by sample if requested)
-            guard let sourceVariantId = variant.id else { continue }
             let genotypes = self.genotypes(forVariantId: sourceVariantId)
+            var insertedGenotypeCount = 0
             for gt in genotypes {
                 if let filter = sampleFilter, !filter.contains(gt.sampleName) { continue }
 
@@ -2677,9 +2708,16 @@ public final class VariantDatabase: @unchecked Sendable {
                     sqlite3_bind_null(insertGenotypeStmt, 10)
                 }
                 if sqlite3_step(insertGenotypeStmt) == SQLITE_DONE {
-                    sampleNamesInserted.insert(gt.sampleName)
+                    insertedGenotypeCount += 1
+                    samplesWithGenotypes.insert(gt.sampleName)
                 }
             }
+
+            // Keep sample_count consistent with filtered genotype rows in extracted DB.
+            sqlite3_reset(updateSampleCountStmt)
+            sqlite3_bind_int(updateSampleCountStmt, 1, Int32(insertedGenotypeCount))
+            sqlite3_bind_int64(updateSampleCountStmt, 2, newVariantId)
+            _ = sqlite3_step(updateSampleCountStmt)
         }
 
         // Copy variant_info EAV entries for extracted variants
@@ -2714,16 +2752,47 @@ public final class VariantDatabase: @unchecked Sendable {
         }
         sqlite3_finalize(insertInfoDefStmt)
 
-        // Insert sample records
-        let insertSampleSQL = "INSERT OR IGNORE INTO samples (name) VALUES (?)"
+        // Insert sample records (preserve display/source/metadata fields when available).
+        let sampleNamesToCopy: [String] = {
+            if let sampleFilter {
+                return sampleFilter.sorted()
+            }
+            return sampleNames()
+        }()
+
+        let insertSampleSQL = """
+        INSERT OR REPLACE INTO samples (name, display_name, source_file, metadata)
+        VALUES (?, ?, ?, ?)
+        """
         var insertSampleStmt: OpaquePointer?
-        if sqlite3_prepare_v2(destDB, insertSampleSQL, -1, &insertSampleStmt, nil) == SQLITE_OK {
-            for name in sampleNamesInserted.sorted() {
+        let selectSampleSQL = "SELECT name, display_name, source_file, metadata FROM samples WHERE name = ?"
+        var selectSampleStmt: OpaquePointer?
+        if sqlite3_prepare_v2(destDB, insertSampleSQL, -1, &insertSampleStmt, nil) == SQLITE_OK,
+           sqlite3_prepare_v2(sourceDB, selectSampleSQL, -1, &selectSampleStmt, nil) == SQLITE_OK {
+            for name in sampleNamesToCopy {
+                sqlite3_reset(selectSampleStmt)
+                sqliteBindText(selectSampleStmt, 1, name)
+
+                var resolvedName = name
+                var displayName: String?
+                var sourceFile: String?
+                var metadataJSON: String?
+                if sqlite3_step(selectSampleStmt) == SQLITE_ROW {
+                    if let c = sqlite3_column_text(selectSampleStmt, 0) { resolvedName = String(cString: c) }
+                    if let c = sqlite3_column_text(selectSampleStmt, 1) { displayName = String(cString: c) }
+                    if let c = sqlite3_column_text(selectSampleStmt, 2) { sourceFile = String(cString: c) }
+                    if let c = sqlite3_column_text(selectSampleStmt, 3) { metadataJSON = String(cString: c) }
+                }
+
                 sqlite3_reset(insertSampleStmt)
-                sqliteBindText(insertSampleStmt, 1, name)
+                sqliteBindText(insertSampleStmt, 1, resolvedName)
+                sqliteBindTextOrNull(insertSampleStmt, 2, displayName)
+                sqliteBindTextOrNull(insertSampleStmt, 3, sourceFile)
+                sqliteBindTextOrNull(insertSampleStmt, 4, metadataJSON)
                 sqlite3_step(insertSampleStmt)
             }
         }
+        sqlite3_finalize(selectSampleStmt)
         sqlite3_finalize(insertSampleStmt)
 
         sqlite3_exec(destDB, "COMMIT", nil, nil, nil)
@@ -2735,7 +2804,7 @@ public final class VariantDatabase: @unchecked Sendable {
         sqlite3_exec(destDB, "CREATE INDEX IF NOT EXISTS idx_variant_info_key ON variant_info(key)", nil, nil, nil)
         sqlite3_exec(destDB, "CREATE INDEX IF NOT EXISTS idx_variant_info_key_value ON variant_info(key, value)", nil, nil, nil)
 
-        variantDBLogger.info("extractRegion: Extracted \(insertCount) variants (\(sampleNamesInserted.count) samples) from \(chromosome):\(start)-\(end)")
+        variantDBLogger.info("extractRegion: Extracted \(insertCount) variants (\(samplesWithGenotypes.count) samples with genotypes) from \(chromosome):\(start)-\(end)")
         return insertCount
     }
 

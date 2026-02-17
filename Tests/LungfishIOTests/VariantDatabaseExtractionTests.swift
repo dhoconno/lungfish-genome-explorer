@@ -157,6 +157,31 @@ final class VariantDatabaseExtractionTests: XCTestCase {
                        "SAMPLE_C should be excluded")
     }
 
+    func testExtractRegionSampleCountReflectsFilteredGenotypes() throws {
+        let db = try createDatabase(from: multiSampleVCF)
+        let outURL = tempDir.appendingPathComponent("sample_count_filtered.db")
+
+        // Keep only SAMPLE_A. sample_count should match genotype rows that survive filtering.
+        try db.extractRegion(
+            chromosome: "chr1", start: 50, end: 500,
+            outputURL: outURL,
+            sampleFilter: Set(["SAMPLE_A"])
+        )
+
+        let extractedDB = try VariantDatabase(url: outURL)
+        let variants = extractedDB.query(chromosome: "chr1", start: 0, end: 500)
+        XCTAssertEqual(variants.count, 3)
+        for variant in variants {
+            guard let variantID = variant.id else {
+                XCTFail("Expected extracted variants to have persistent IDs")
+                continue
+            }
+            let genotypeRows = extractedDB.genotypes(forVariantId: variantID)
+            XCTAssertEqual(variant.sampleCount, genotypeRows.count,
+                           "sample_count should match persisted genotype rows after filtering")
+        }
+    }
+
     func testExtractRegionWithSingleSampleFilter() throws {
         let db = try createDatabase(from: multiSampleVCF)
         let outURL = tempDir.appendingPathComponent("single.db")
@@ -263,6 +288,28 @@ final class VariantDatabaseExtractionTests: XCTestCase {
         } else {
             XCTFail("extracted_from_region metadata not found")
         }
+    }
+
+    func testExtractRegionPreservesSampleMetadataAndSourceFile() throws {
+        let db = try createDatabase(from: multiSampleVCF)
+        let writableDB = try VariantDatabase(url: db.databaseURL, readWrite: true)
+        try writableDB.updateSampleMetadata(
+            name: "SAMPLE_A",
+            metadata: ["Country": "USA", "Phenotype": "Case"]
+        )
+        let outURL = tempDir.appendingPathComponent("sample_meta.db")
+
+        try db.extractRegion(
+            chromosome: "chr1", start: 50, end: 200,
+            outputURL: outURL,
+            sampleFilter: Set(["SAMPLE_A"])
+        )
+
+        let extractedDB = try VariantDatabase(url: outURL)
+        let metadata = extractedDB.sampleMetadata(name: "SAMPLE_A")
+        XCTAssertEqual(metadata["Country"], "USA")
+        XCTAssertEqual(metadata["Phenotype"], "Case")
+        XCTAssertEqual(extractedDB.allSourceFiles()["SAMPLE_A"], "input.vcf")
     }
 
     func testExtractRegionOverwritesExisting() throws {
