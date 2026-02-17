@@ -6117,6 +6117,21 @@ public class SequenceViewerView: NSView {
         updateSelectionStatus()
     }
 
+    /// Selects the currently visible viewport range.
+    ///
+    /// Used by Sequence > Select Region and as a fallback for extraction flows when
+    /// the user has not dragged a selection yet.
+    public func selectVisibleRegion() {
+        guard let frame = viewController?.referenceFrame else { return }
+        let lower = max(0, Int(frame.start))
+        let upper = max(lower + 1, Int(ceil(frame.end)))
+        selectionRange = lower..<upper
+        selectionStartBase = lower
+        isSelecting = false
+        setNeedsDisplay(bounds)
+        updateSelectionStatus()
+    }
+
     /// Clears the current selection
     public func clearSelection() {
         selectionRange = nil
