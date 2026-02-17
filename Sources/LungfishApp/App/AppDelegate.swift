@@ -1951,10 +1951,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return hasBundle
         }
 
-        // Copy requires an active selection.
+        // Copy visible region requires an active viewer.
         if menuItem.action == #selector(copySelectionFASTA(_:)) {
-            let hasSelection = mainWindowController?.mainSplitViewController?.viewerController?.viewerView?.selectionRange != nil
-            return hasSelection
+            return mainWindowController?.mainSplitViewController?.viewerController?.viewerView != nil
         }
 
         // Extract can bootstrap from the currently visible region.
@@ -2154,14 +2153,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
-    @objc func selectRegion(_ sender: Any?) {
-        guard let viewerView = mainWindowController?.mainSplitViewController?.viewerController?.viewerView else {
-            NSSound.beep()
-            return
-        }
-        viewerView.selectVisibleRegion()
-    }
-
     @objc func copySelectionFASTA(_ sender: Any?) {
         guard let viewerView = mainWindowController?.mainSplitViewController?.viewerController?.viewerView else {
             NSSound.beep()
@@ -2174,9 +2165,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         guard let viewerView = mainWindowController?.mainSplitViewController?.viewerController?.viewerView else {
             NSSound.beep()
             return
-        }
-        if viewerView.selectionRange == nil {
-            viewerView.selectVisibleRegion()
         }
         viewerView.extractSelectionSequence(sender)
     }

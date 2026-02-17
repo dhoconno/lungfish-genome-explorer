@@ -59,13 +59,13 @@ extension SequenceViewerView {
         menu.addItem(extractItem)
     }
 
-    /// Adds extraction menu items to a selection context menu.
+    /// Adds extraction menu items to a visible-region context menu.
     func addSelectionExtractionMenuItems(to menu: NSMenu) {
         menu.addItem(NSMenuItem.separator())
 
         // Copy as FASTA
         let copyFASTAItem = NSMenuItem(
-            title: "Copy Selection as FASTA",
+            title: "Copy Visible Region as FASTA",
             action: #selector(copySelectionAsFASTA(_:)),
             keyEquivalent: ""
         )
@@ -74,7 +74,7 @@ extension SequenceViewerView {
 
         // Extract Sequence...
         let extractItem = NSMenuItem(
-            title: "Extract Region\u{2026}",
+            title: "Extract Visible Region\u{2026}",
             action: #selector(extractSelectionSequence(_:)),
             keyEquivalent: ""
         )
@@ -155,18 +155,15 @@ extension SequenceViewerView {
     // MARK: - Selection FASTA Action
 
     @objc func copySelectionAsFASTA(_ sender: Any?) {
-        guard let range = selectionRange else {
+        guard let region = currentVisibleViewportRegion() else {
             NSSound.beep()
             return
         }
-        guard let frame = viewController?.referenceFrame else { return }
-
-        let chromosome = frame.chromosome
-        let chromLength = frame.sequenceLength
+        let chromLength = region.chromosomeLength
         let provider = makeRegionSequenceProvider()
 
         let request = ExtractionRequest(
-            source: .region(chromosome: chromosome, start: range.lowerBound, end: range.upperBound)
+            source: .region(chromosome: region.chromosome, start: region.start, end: region.end)
         )
 
         do {
@@ -179,9 +176,9 @@ extension SequenceViewerView {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             pasteboard.setString(fasta, forType: .string)
-            extractionLogger.info("Copied selection FASTA (\(result.nucleotideSequence.count) bp) to clipboard")
+            extractionLogger.info("Copied visible-region FASTA (\(result.nucleotideSequence.count) bp) to clipboard")
         } catch {
-            extractionLogger.error("Failed to extract selection for FASTA: \(error.localizedDescription)")
+            extractionLogger.error("Failed to extract visible region for FASTA: \(error.localizedDescription)")
             NSSound.beep()
         }
     }
@@ -194,11 +191,18 @@ extension SequenceViewerView {
     }
 
     @objc func extractSelectionSequence(_ sender: Any?) {
-        guard let range = selectionRange,
-              let frame = viewController?.referenceFrame else { return }
+        guard let region = currentVisibleViewportRegion() else { return }
         presentExtractionSheet(
-            for: .region(chromosome: frame.chromosome, start: range.lowerBound, end: range.upperBound)
+            for: .region(chromosome: region.chromosome, start: region.start, end: region.end)
         )
+    }
+
+    /// Returns the currently visible viewport interval for region-based extraction.
+    private func currentVisibleViewportRegion() -> (chromosome: String, start: Int, end: Int, chromosomeLength: Int)? {
+        guard let frame = viewController?.referenceFrame else { return nil }
+        let start = max(0, Int(frame.start))
+        let end = max(start + 1, Int(ceil(frame.end)))
+        return (frame.chromosome, start, end, frame.sequenceLength)
     }
 
     /// Presents the extraction configuration sheet for the given source.

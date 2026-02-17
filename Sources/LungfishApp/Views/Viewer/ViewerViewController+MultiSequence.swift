@@ -36,7 +36,7 @@ extension ViewerViewController {
 
         let selectionInfo = viewerView.selectionRange.map { range in
             let length = range.upperBound - range.lowerBound
-            return "\(range.lowerBound + 1)-\(range.upperBound) (\(length.formatted()) bp)"
+            return "Visible: \(range.lowerBound + 1)-\(range.upperBound) (\(length.formatted()) bp)"
         }
 
         statusBar.update(

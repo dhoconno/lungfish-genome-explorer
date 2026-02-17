@@ -129,6 +129,27 @@ Use the chip-based filter above the annotation table to toggle feature types:
 - Click a chip (e.g., "gene", "mRNA", "exon") to show/hide that type
 - Common approach: hide "exon" to reduce clutter, show only "mRNA" for transcripts
 
+## Extracting Sequence
+
+Lungfish supports two extraction workflows:
+
+### 1) Extract the visible viewport region
+
+- Navigate and zoom to the interval you want.
+- Use **Sequence > Extract Visible Region…** to open the extraction sheet.
+- Or use **Sequence > Copy Visible Region as FASTA** for a one-click copy.
+
+### 2) Extract a specific annotation
+
+- Right-click an annotation in the viewer or annotation table.
+- Choose **Extract Sequence…**.
+- In the extraction sheet, optionally add 5' / 3' flanking bases before exporting.
+
+Notes:
+
+- Manual drag-to-select sub-regions of the viewport is not used for extraction.
+- Region extractions always use the currently visible coordinates.
+
 ## Quick Tips
 
 ### Keyboard Shortcuts

@@ -1556,7 +1556,7 @@ public class ViewerViewController: NSViewController {
         // Preserve selection info if we have one from the viewer
         let selectionInfo = viewerView.selectionRange.map { range in
             let length = range.upperBound - range.lowerBound
-            return "\(range.lowerBound + 1)-\(range.upperBound) (\(length.formatted()) bp)"
+            return "Visible: \(range.lowerBound + 1)-\(range.upperBound) (\(length.formatted()) bp)"
         }
         statusBar.update(
             position: "\(frame.chromosome):\(Int(frame.start))-\(Int(frame.end))",
@@ -1889,21 +1889,8 @@ public class SequenceViewerView: NSView {
     /// Mouse drag start position for selection
     private var selectionStartBase: Int?
 
-    /// Whether we're currently dragging to select
+    /// Whether we're currently dragging to select.
     private var isSelecting = false
-
-    /// Whether we're dragging a selection edge handle
-    private enum EdgeDragMode { case none, left, right }
-    private var edgeDragMode: EdgeDragMode = .none
-
-    /// Pixel threshold for edge handle hit detection
-    private let edgeHandleHitThreshold: CGFloat = 6
-
-    /// Width of the edge auto-pan activation zone while dragging selection handles.
-    private let edgeAutoPanZoneWidth: CGFloat = 24
-
-    /// Maximum fraction of visible window to pan per drag event when cursor is at the edge.
-    private let edgeAutoPanMaxWindowFraction: Double = 0.03
 
     /// Last logged selection render signature (used to suppress per-frame log spam).
     private var lastSelectionRenderSignature: String?
@@ -2669,26 +2656,19 @@ public class SequenceViewerView: NSView {
         logger.info("SequenceViewerView.setReferenceBundle: Bundle set, ready for on-demand fetching")
     }
 
-    /// Ensures there is always a visible extraction selection in the current viewport.
+    /// Keeps extraction selection synchronized to the currently visible viewport.
     ///
-    /// If the selection is missing or fully off-screen after navigation, snap it to the
-    /// currently visible region so users always have a visible extraction target.
+    /// Dynamic freehand region selection is intentionally disabled; extraction always operates
+    /// on the visible region (or a selected annotation via annotation menus).
     private func ensureVisibleViewportSelection(frame: ReferenceFrame) {
         let lower = max(0, Int(frame.start))
         let upper = max(lower + 1, Int(ceil(frame.end)))
-
-        if let range = selectionRange {
-            let isOffscreen = range.upperBound <= lower || range.lowerBound >= upper
-            guard isOffscreen else { return }
-            selectionRange = lower..<upper
-            selectionStartBase = lower
-            logger.info("ensureVisibleViewportSelection: snapped off-screen selection to \(lower)-\(upper) on \(frame.chromosome, privacy: .public)")
-            return
-        }
-
-        selectionRange = lower..<upper
+        let viewportRange = lower..<upper
+        guard selectionRange != viewportRange else { return }
+        selectionRange = viewportRange
         selectionStartBase = lower
-        logger.info("ensureVisibleViewportSelection: initialized \(lower)-\(upper) on \(frame.chromosome, privacy: .public)")
+        isSelecting = false
+        logger.debug("ensureVisibleViewportSelection: synced to viewport \(lower)-\(upper) on \(frame.chromosome, privacy: .public)")
     }
 
     /// Clears the current reference bundle.
@@ -4534,29 +4514,10 @@ public class SequenceViewerView: NSView {
             context.stroke(insetRect)
         }
 
-        // Draw visible drag handles on each edge.
-        let midHandleWidth: CGFloat = 8
-        let midHandleHeight: CGFloat = 22
-        let midY = (bounds.height - midHandleHeight) / 2
-        let capSize: CGFloat = 6
-        let topY: CGFloat = 4
-        let bottomY = bounds.height - capSize - 4
-
-        context.setFillColor(accent.cgColor)
-        for edgeX in [clippedStartX, clippedEndX] where edgeX >= 0 && edgeX <= bounds.width {
-            let visibleX = min(bounds.width - midHandleWidth / 2, max(midHandleWidth / 2, edgeX))
-            let midHandle = CGRect(x: visibleX - midHandleWidth / 2, y: midY, width: midHandleWidth, height: midHandleHeight)
-            let topCap = CGRect(x: visibleX - capSize / 2, y: topY, width: capSize, height: capSize)
-            let bottomCap = CGRect(x: visibleX - capSize / 2, y: bottomY, width: capSize, height: capSize)
-            context.fillEllipse(in: midHandle)
-            context.fillEllipse(in: topCap)
-            context.fillEllipse(in: bottomCap)
-        }
-
-        // Draw selection coordinate badge near the top edge.
+        // Draw visible-region coordinate badge near the top edge.
         let startLabel = NumberFormatter.localizedString(from: NSNumber(value: range.lowerBound + 1), number: .decimal)
         let endLabel = NumberFormatter.localizedString(from: NSNumber(value: range.upperBound), number: .decimal)
-        let badgeText = "Selection \(startLabel)-\(endLabel)" as NSString
+        let badgeText = "Visible Region \(startLabel)-\(endLabel)" as NSString
         let badgeAttrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
             .foregroundColor: NSColor.labelColor
@@ -5421,19 +5382,6 @@ public class SequenceViewerView: NSView {
         let location = convert(event.locationInWindow, from: nil)
         let isDoubleClick = event.clickCount == 2
 
-        // Handle selection edge drags before annotation/variant hit-testing so resize handles
-        // remain interactive even when annotations overlap the edge positions.
-        if let range = selectionRange {
-            let edge = selectionEdgeAtPoint(location, range: range, frame: frame)
-            if edge != .none {
-                edgeDragMode = edge
-                isSelecting = true
-                // Anchor the opposite edge so drag resizes one side.
-                selectionStartBase = (edge == .left) ? range.upperBound - 1 : range.lowerBound
-                return
-            }
-        }
-
         // Variant track click should route to variant selection instead of annotation selection.
         if let variant = variantAtPoint(location) {
             selectedAnnotation = variant
@@ -5515,68 +5463,18 @@ public class SequenceViewerView: NSView {
             }
         }
 
-        // Continue with existing region selection behavior for sequence track
-        let basePosition = basePositionAt(x: location.x, frame: frame)
-
-        // Shift-click extends existing selection
-        if event.modifierFlags.contains(.shift), let range = selectionRange {
-            // Extend toward the click position
-            if basePosition < range.lowerBound {
-                selectionRange = basePosition..<range.upperBound
-                selectionStartBase = range.upperBound - 1
-            } else if basePosition >= range.upperBound {
-                selectionRange = range.lowerBound..<(basePosition + 1)
-                selectionStartBase = range.lowerBound
-            }
-            isSelecting = true
-            edgeDragMode = .none
-            setNeedsDisplay(bounds)
-            updateSelectionStatus()
-            return
-        }
-
-        // Start new selection
-        edgeDragMode = .none
-        selectionStartBase = basePosition
-        selectionRange = basePosition..<(basePosition + 1)
-        isSelecting = true
-
+        // Dynamic viewport sub-selection is intentionally disabled.
+        ensureVisibleViewportSelection(frame: frame)
         setNeedsDisplay(bounds)
         updateSelectionStatus()
     }
 
     public override func mouseDragged(with event: NSEvent) {
-        guard isSelecting,
-              let startBase = selectionStartBase,
-              let frame = viewController?.referenceFrame else { return }
-
-        let location = convert(event.locationInWindow, from: nil)
-
-        // While dragging an edge handle, auto-pan when the cursor approaches a viewport edge.
-        // This lets users extend selections beyond the currently visible region.
-        let activeFrame: ReferenceFrame
-        if edgeDragMode != .none {
-            _ = autoPanDuringEdgeDragIfNeeded(locationX: location.x, frame: frame)
-            activeFrame = viewController?.referenceFrame ?? frame
-        } else {
-            activeFrame = frame
-        }
-
-        let currentBase = basePositionAt(x: location.x, frame: activeFrame)
-
-        // Update selection range
-        let minBase = min(startBase, currentBase)
-        let maxBase = max(startBase, currentBase) + 1
-        selectionRange = minBase..<maxBase
-
-        setNeedsDisplay(bounds)
-        updateSelectionStatus()
+        // Intentionally disabled: dynamic selection drag.
     }
 
     public override func mouseUp(with event: NSEvent) {
         isSelecting = false
-        edgeDragMode = .none
-        // Keep the selection visible
     }
 
     // MARK: - Right-Click Context Menu
@@ -5710,41 +5608,22 @@ public class SequenceViewerView: NSView {
         NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
 
-    /// Creates and shows context menu for sequence selection
+    /// Creates and shows context menu for visible-region actions.
     private func showSelectionContextMenu(at event: NSEvent) {
-        let menu = NSMenu(title: "Selection")
+        let menu = NSMenu(title: "Visible Region")
 
-        // Copy selection
-        let copyItem = NSMenuItem(title: "Copy Selection", action: #selector(copySelectionAction(_:)), keyEquivalent: "c")
+        // Copy visible region bases.
+        let copyItem = NSMenuItem(title: "Copy Visible Region", action: #selector(copySelectionAction(_:)), keyEquivalent: "c")
         copyItem.target = self
         menu.addItem(copyItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        // Create annotation from selection
-        let annotateItem = NSMenuItem(title: "Create Annotation from Selection...", action: #selector(createAnnotationFromSelection(_:)), keyEquivalent: "")
-        annotateItem.target = self
-        menu.addItem(annotateItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        // Get complement
-        let complementItem = NSMenuItem(title: "Copy Complement", action: #selector(copyComplementAction(_:)), keyEquivalent: "")
-        complementItem.target = self
-        menu.addItem(complementItem)
-
-        // Get reverse complement
-        let revCompItem = NSMenuItem(title: "Copy Reverse Complement", action: #selector(copyReverseComplementAction(_:)), keyEquivalent: "")
-        revCompItem.target = self
-        menu.addItem(revCompItem)
 
         // Extraction actions
         addSelectionExtractionMenuItems(to: menu)
 
         menu.addItem(NSMenuItem.separator())
 
-        // Zoom to selection
-        let zoomItem = NSMenuItem(title: "Zoom to Selection", action: #selector(zoomToSelectionAction(_:)), keyEquivalent: "")
+        // View navigation helper.
+        let zoomItem = NSMenuItem(title: "Zoom to Visible Region", action: #selector(zoomToSelectionAction(_:)), keyEquivalent: "")
         zoomItem.target = self
         menu.addItem(zoomItem)
 
@@ -6207,65 +6086,6 @@ public class SequenceViewerView: NSView {
         return max(0, min(seq.length - 1, basePosition))
     }
 
-    /// Converts a base position to screen X coordinate
-    private func screenXForBase(_ base: Int, frame: ReferenceFrame) -> CGFloat {
-        let visibleBases = frame.end - frame.start
-        let pixelsPerBase = bounds.width / CGFloat(max(1, visibleBases))
-        return CGFloat(base - Int(frame.start)) * pixelsPerBase
-    }
-
-    /// Detects whether a point is near a selection edge handle.
-    private func selectionEdgeAtPoint(_ point: CGPoint, range: Range<Int>, frame: ReferenceFrame) -> EdgeDragMode {
-        let leftX = screenXForBase(range.lowerBound, frame: frame)
-        let rightX = screenXForBase(range.upperBound, frame: frame)
-
-        // Only detect edges if the selection is wide enough to have distinct handles
-        guard rightX - leftX > edgeHandleHitThreshold * 3 else { return .none }
-
-        if abs(point.x - leftX) <= edgeHandleHitThreshold { return .left }
-        if abs(point.x - rightX) <= edgeHandleHitThreshold { return .right }
-        return .none
-    }
-
-    /// Auto-pans the reference frame during edge-handle drags when the cursor is near edges.
-    ///
-    /// Returns true if panning occurred.
-    @discardableResult
-    private func autoPanDuringEdgeDragIfNeeded(locationX: CGFloat, frame: ReferenceFrame) -> Bool {
-        guard let viewController else { return false }
-        let width = bounds.width
-        guard width > 0 else { return false }
-
-        let zone = edgeAutoPanZoneWidth
-        var direction: Double = 0
-        var depth: CGFloat = 0
-
-        if locationX <= zone {
-            direction = -1
-            depth = zone - locationX
-        } else if locationX >= width - zone {
-            direction = 1
-            depth = locationX - (width - zone)
-        } else {
-            return false
-        }
-
-        let normalized = min(1, max(0, depth / zone))
-        let windowBP = max(1, frame.end - frame.start)
-        let minStepBP: Double = 2
-        let maxStepBP = max(minStepBP, windowBP * edgeAutoPanMaxWindowFraction)
-        let deltaBP = direction * max(minStepBP, maxStepBP * Double(normalized))
-        let previousStart = frame.start
-        frame.pan(by: deltaBP)
-
-        guard frame.start != previousStart else { return false }
-
-        setNeedsDisplay(bounds)
-        viewController.enhancedRulerView.setNeedsDisplay(viewController.enhancedRulerView.bounds)
-        viewController.updateStatusBar()
-        return true
-    }
-
     /// Selects the entire sequence
     public func selectAll() {
         guard let seq = sequence else { return }
@@ -6276,8 +6096,7 @@ public class SequenceViewerView: NSView {
 
     /// Selects the currently visible viewport range.
     ///
-    /// Used by Sequence > Select Region and as a fallback for extraction flows when
-    /// the user has not dragged a selection yet.
+    /// Used as a fallback for extraction and copy flows when no explicit range is set.
     public func selectVisibleRegion() {
         guard let frame = viewController?.referenceFrame else { return }
         let lower = max(0, Int(frame.start))
@@ -6300,8 +6119,14 @@ public class SequenceViewerView: NSView {
 
     /// Copies the selected sequence to the clipboard
     public func copySelectionToClipboard() {
-        guard let seq = sequence,
-              let range = selectionRange else {
+        guard let seq = sequence else {
+            NSSound.beep()
+            return
+        }
+        if selectionRange == nil {
+            selectVisibleRegion()
+        }
+        guard let range = selectionRange else {
             NSSound.beep()
             return
         }
@@ -6319,11 +6144,11 @@ public class SequenceViewerView: NSView {
         logger.info("Copied \(end - start) bases to clipboard")
     }
 
-    /// Updates the status bar with selection info
+    /// Updates the status bar with visible-region info.
     private func updateSelectionStatus() {
         if let range = selectionRange {
             let length = range.upperBound - range.lowerBound
-            let selectionText = "\(range.lowerBound + 1)-\(range.upperBound) (\(length.formatted()) bp)"
+            let selectionText = "Visible: \(range.lowerBound + 1)-\(range.upperBound) (\(length.formatted()) bp)"
             viewController?.statusBar.update(
                 position: viewController?.statusBar.positionLabel.stringValue,
                 selection: selectionText,
@@ -6388,16 +6213,6 @@ public class SequenceViewerView: NSView {
 
     public override func mouseMoved(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
-
-        // --- Selection edge handle cursor ---
-        if let range = selectionRange, let frame = viewController?.referenceFrame {
-            let edge = selectionEdgeAtPoint(location, range: range, frame: frame)
-            if edge != .none {
-                NSCursor.resizeLeftRight.set()
-                hoverTooltip.hide()
-                return
-            }
-        }
 
         // --- Genotype cell hit-testing ---
         if let genotypeTooltip = genotypeTooltipAtPoint(location) {
