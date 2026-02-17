@@ -137,6 +137,32 @@ final class VariantDatabaseExtractionTests: XCTestCase {
         XCTAssertEqual(count, 1, "Should extract 1 variant from chr2:0-200")
     }
 
+    func testExtractRegionUsesChromosomeAliases() throws {
+        let aliasVCF = """
+        ##fileformat=VCFv4.3
+        ##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSAMPLE_A
+        7\t100\trs100\tA\tG\t30.0\tPASS\t.\tGT\t0/1
+        7\t240\trs240\tC\tT\t40.0\tPASS\t.\tGT\t1/1
+        """
+
+        let db = try createDatabase(from: aliasVCF, name: "alias_source.db")
+        let outURL = tempDir.appendingPathComponent("alias_extracted.db")
+
+        let count = try db.extractRegion(
+            chromosome: "NC_041760.1",
+            chromosomeAliases: ["7"],
+            start: 50,
+            end: 300,
+            outputURL: outURL
+        )
+        XCTAssertEqual(count, 2, "Alias fallback should extract variants stored under chromosome '7'")
+
+        let extractedDB = try VariantDatabase(url: outURL)
+        let extracted = extractedDB.query(chromosome: "NC_041760.1", start: 0, end: 260)
+        XCTAssertEqual(extracted.count, 2, "Extracted variants should be rewritten to the requested chromosome name")
+    }
+
     // MARK: - Sample Filtering
 
     func testExtractRegionWithSampleFilter() throws {

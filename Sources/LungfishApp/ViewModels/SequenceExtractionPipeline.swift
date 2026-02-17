@@ -66,6 +66,7 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
         outputDirectory: URL,
         sourceBundleName: String? = nil,
         desiredBundleName: String? = nil,
+        sourceBundleChromosomes: [ChromosomeInfo] = [],
         sourceAnnotationTracks: [SourceAnnotationTrack] = [],
         sourceVariantTracks: [SourceVariantTrack] = [],
         sampleFilter: Set<String>? = nil,
@@ -219,6 +220,11 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
             for (trackIndex, sourceTrack) in sourceVariantTracks.enumerated() {
                 do {
                     let sourceDB = try VariantDatabase(url: sourceTrack.databaseURL)
+                    let chromosomeAliases = Self.variantChromosomeAliases(
+                        sourceChromosome: result.chromosome,
+                        sourceBundleChromosomes: sourceBundleChromosomes,
+                        variantChromosomes: sourceDB.allChromosomes()
+                    )
                     let sanitizedTrackID = BundleBuildHelpers.sanitizedFilename(sourceTrack.id)
                     let trackID = sanitizedTrackID.isEmpty ? UUID().uuidString : sanitizedTrackID
                     let dbFilename = "variants_\(trackIndex)_\(trackID).db"
@@ -226,6 +232,7 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
 
                     let variantCount = try sourceDB.extractRegion(
                         chromosome: result.chromosome,
+                        chromosomeAliases: chromosomeAliases,
                         start: result.effectiveStart,
                         end: result.effectiveEnd,
                         outputURL: dbURL,
@@ -305,5 +312,47 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
         progressHandler?(1.0, "Bundle ready: \(bundleURL.lastPathComponent)")
         extractionLogger.info("buildBundle: Bundle complete at \(bundleURL.path, privacy: .public)")
         return bundleURL
+    }
+
+    /// Resolves variant-track chromosome aliases for extraction.
+    ///
+    /// Returns ordered candidates to try after the primary source chromosome name.
+    /// The source chromosome is intentionally excluded from this return value.
+    private static func variantChromosomeAliases(
+        sourceChromosome: String,
+        sourceBundleChromosomes: [ChromosomeInfo],
+        variantChromosomes: [String]
+    ) -> [String] {
+        guard !sourceBundleChromosomes.isEmpty, !variantChromosomes.isEmpty else { return [] }
+
+        // Build VCF -> bundle mapping using the same logic used elsewhere in the app.
+        let vcfToBundle = mapVCFChromosomes(variantChromosomes, toBundleChromosomes: sourceBundleChromosomes)
+
+        // Resolve requested source chromosome to canonical bundle chromosome name.
+        let canonicalBundleChromosome = sourceBundleChromosomes.first {
+            $0.name == sourceChromosome || $0.aliases.contains(sourceChromosome)
+        }?.name ?? sourceChromosome
+
+        var ordered: [String] = []
+        var seen = Set<String>()
+
+        func appendUnique(_ value: String) {
+            guard seen.insert(value).inserted else { return }
+            ordered.append(value)
+        }
+
+        // Include explicit aliases attached to this bundle chromosome.
+        if let chromInfo = sourceBundleChromosomes.first(where: { $0.name == canonicalBundleChromosome }) {
+            for alias in chromInfo.aliases {
+                appendUnique(alias)
+            }
+        }
+
+        // Include VCF chromosome names that map to the target bundle chromosome.
+        for (vcfChromosome, bundleChromosome) in vcfToBundle where bundleChromosome == canonicalBundleChromosome {
+            appendUnique(vcfChromosome)
+        }
+
+        return ordered.filter { $0 != sourceChromosome }
     }
 }

@@ -2473,6 +2473,8 @@ public final class VariantDatabase: @unchecked Sendable {
     ///
     /// - Parameters:
     ///   - chromosome: Source chromosome name.
+    ///   - chromosomeAliases: Alternate chromosome names to try when source and
+    ///     variant-track naming schemes differ (for example `NC_041760.1` vs `7`).
     ///   - start: 0-based start of extraction region.
     ///   - end: 0-based exclusive end of extraction region.
     ///   - outputURL: Where to create the new database.
@@ -2482,6 +2484,7 @@ public final class VariantDatabase: @unchecked Sendable {
     @discardableResult
     public func extractRegion(
         chromosome: String,
+        chromosomeAliases: [String] = [],
         start: Int,
         end: Int,
         outputURL: URL,
@@ -2599,11 +2602,61 @@ public final class VariantDatabase: @unchecked Sendable {
 
         let targetChrom = newChromosome ?? chromosome
 
+        // Build alias-aware chromosome candidates so extraction still works when the
+        // source reference and variant track use different chromosome naming schemes.
+        let availableChromosomes = Set(allChromosomes())
+        var seenChromCandidates = Set<String>()
+        var chromosomeCandidates: [String] = []
+
+        func appendChromosomeCandidate(_ token: String) {
+            let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            guard availableChromosomes.contains(trimmed) else { return }
+            guard seenChromCandidates.insert(trimmed).inserted else { return }
+            chromosomeCandidates.append(trimmed)
+        }
+
+        func aliasExpansions(for token: String) -> [String] {
+            let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return [] }
+            var ordered: [String] = [trimmed]
+            var seen = Set<String>(ordered)
+
+            func append(_ value: String) {
+                guard !value.isEmpty else { return }
+                guard seen.insert(value).inserted else { return }
+                ordered.append(value)
+            }
+
+            if let dot = trimmed.firstIndex(of: ".") {
+                append(String(trimmed[..<dot]))
+            }
+            if trimmed.hasPrefix("chr") {
+                append(String(trimmed.dropFirst(3)))
+            } else {
+                append("chr" + trimmed)
+            }
+            return ordered
+        }
+
+        for token in [chromosome] + chromosomeAliases {
+            for expansion in aliasExpansions(for: token) {
+                appendChromosomeCandidate(expansion)
+            }
+        }
+
+        // Preserve old behavior when no candidate matches the source DB chromosome set.
+        if chromosomeCandidates.isEmpty {
+            chromosomeCandidates = [chromosome]
+        }
+
+        let chromosomePlaceholders = Array(repeating: "?", count: chromosomeCandidates.count).joined(separator: ",")
+
         // Stream source variants in-region without hard caps so large selections are complete.
         let variantQuerySQL = """
         SELECT id, chromosome, position, end_pos, variant_id, ref, alt, variant_type, quality, filter, info, sample_count
         FROM variants
-        WHERE chromosome = ? AND position < ? AND end_pos > ?
+        WHERE chromosome IN (\(chromosomePlaceholders)) AND position < ? AND end_pos > ?
         ORDER BY position, id
         """
         var variantQueryStmt: OpaquePointer?
@@ -2611,9 +2664,14 @@ public final class VariantDatabase: @unchecked Sendable {
             throw VariantDatabaseError.createFailed("Failed to prepare source variant query")
         }
         defer { sqlite3_finalize(variantQueryStmt) }
-        sqliteBindText(variantQueryStmt, 1, chromosome)
-        sqlite3_bind_int64(variantQueryStmt, 2, Int64(end))
-        sqlite3_bind_int64(variantQueryStmt, 3, Int64(start))
+        var bindIndex: Int32 = 1
+        for queryChromosome in chromosomeCandidates {
+            sqliteBindText(variantQueryStmt, bindIndex, queryChromosome)
+            bindIndex += 1
+        }
+        sqlite3_bind_int64(variantQueryStmt, bindIndex, Int64(end))
+        bindIndex += 1
+        sqlite3_bind_int64(variantQueryStmt, bindIndex, Int64(start))
 
         var insertCount = 0
         var samplesWithGenotypes = Set<String>()

@@ -344,7 +344,9 @@ extension SequenceViewerView {
         // Collect all annotation tracks with SQLite databases from the source bundle.
         var sourceAnnotationTracks: [SequenceExtractionPipeline.SourceAnnotationTrack] = []
         var sourceVariantTracks: [SequenceExtractionPipeline.SourceVariantTrack] = []
+        var sourceBundleChromosomes: [ChromosomeInfo] = []
         if let bundle = currentReferenceBundle {
+            sourceBundleChromosomes = bundle.manifest.genome.chromosomes
             sourceAnnotationTracks = bundle.annotationTrackIds.compactMap { trackID in
                 guard let trackInfo = bundle.annotationTrack(id: trackID),
                       let dbPath = trackInfo.databasePath else {
@@ -373,7 +375,7 @@ extension SequenceViewerView {
             }
         }
 
-        extractionLogger.info("createExtractionBundle: outputDir=\(outputDir.path), bundleName=\(bundleName), annotationTracks=\(sourceAnnotationTracks.count), variantTracks=\(sourceVariantTracks.count)")
+        extractionLogger.info("createExtractionBundle: outputDir=\(outputDir.path), bundleName=\(bundleName), annotationTracks=\(sourceAnnotationTracks.count), variantTracks=\(sourceVariantTracks.count), sourceChromosomes=\(sourceBundleChromosomes.count)")
 
         // Register with DownloadCenter on the main actor, then run bundle building in
         // a detached task. On completion we hop back to the main actor for import/refresh.
@@ -385,6 +387,7 @@ extension SequenceViewerView {
         let capturedResult = result
         let capturedOutputDir = outputDir
         let capturedSourceBundleName = sourceBundleName
+        let capturedSourceBundleChromosomes = sourceBundleChromosomes
         let capturedBundleName = bundleName
         let capturedSourceAnnotationTracks = sourceAnnotationTracks
         let capturedSourceVariantTracks = sourceVariantTracks
@@ -403,6 +406,7 @@ extension SequenceViewerView {
                     outputDirectory: capturedOutputDir,
                     sourceBundleName: capturedSourceBundleName,
                     desiredBundleName: capturedBundleName,
+                    sourceBundleChromosomes: capturedSourceBundleChromosomes,
                     sourceAnnotationTracks: capturedSourceAnnotationTracks,
                     sourceVariantTracks: capturedSourceVariantTracks,
                     sampleFilter: capturedSampleFilter,
