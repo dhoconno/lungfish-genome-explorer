@@ -992,7 +992,7 @@ public struct InspectorView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("AI Assistant")
                             .font(.headline)
-                        Text("Enable AI services in Settings and open the assistant from the toolbar to initialize this panel.")
+                        Text("Enable AI services in Settings > AI Services to use the assistant.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Spacer()
@@ -1000,6 +1000,10 @@ public struct InspectorView: View {
                     .padding()
                 }
             }
+        }
+        .onChange(of: viewModel.selectedTab) { _, tab in
+            guard tab == .ai, viewModel.aiAssistantService == nil else { return }
+            NotificationCenter.default.post(name: .showAIAssistantRequested, object: nil)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .controlBackgroundColor))
