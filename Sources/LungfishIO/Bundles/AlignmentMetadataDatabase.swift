@@ -515,25 +515,36 @@ extension AlignmentMetadataDatabase {
     ///
     /// Each line of flagstat output looks like: "12345 + 0 mapped (99.50% : N/A)"
     public func populateFromFlagstat(_ output: String) {
-        let categories = [
-            "total", "primary", "secondary", "supplementary",
-            "duplicates", "primary duplicates", "mapped", "primary mapped",
-            "paired in sequencing", "read1", "read2", "properly paired",
-            "with itself and mate mapped", "singletons",
-            "with mate mapped to a different chr",
-            "with mate mapped to a different chr (mapQ>=5)"
-        ]
+        for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
+            let raw = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !raw.isEmpty else { continue }
 
-        let lines = output.split(separator: "\n", omittingEmptySubsequences: true)
+            // Expected pattern: "<pass> + <fail> <category text>"
+            // Example: "12345 + 0 mapped (99.50% : N/A)"
+            let components = raw.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: true)
+            guard components.count >= 4,
+                  let qcPass = Int64(components[0]),
+                  components[1] == "+",
+                  let qcFail = Int64(components[2]) else {
+                continue
+            }
 
-        for (index, line) in lines.enumerated() {
-            guard index < categories.count else { break }
-            // Parse "12345 + 678 category description"
-            let parts = line.split(separator: " ", maxSplits: 3)
-            guard parts.count >= 3 else { continue }
-            let qcPass = Int64(parts[0]) ?? 0
-            let qcFail = Int64(parts[2]) ?? 0
-            addFlagStat(category: categories[index], qcPass: qcPass, qcFail: qcFail)
+            var category = String(components[3])
+            // Strip trailing percentages/notes in parentheses for stable category keys.
+            if let parenIndex = category.firstIndex(of: "(") {
+                let parenContent = category[parenIndex...]
+                // Strip trailing percentages/format notes like "(97.20% : N/A)",
+                // but keep semantic qualifiers like "(mapQ>=5)".
+                if parenContent.contains("%") || parenContent.localizedCaseInsensitiveContains("N/A") {
+                    category = String(category[..<parenIndex]).trimmingCharacters(in: .whitespaces)
+                }
+            }
+            if category == "in total" || category.hasPrefix("in total ") {
+                category = "total"
+            }
+            guard !category.isEmpty else { continue }
+
+            addFlagStat(category: category, qcPass: qcPass, qcFail: qcFail)
         }
     }
 

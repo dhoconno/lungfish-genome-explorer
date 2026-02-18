@@ -471,7 +471,7 @@ public final class ReferenceBundle: Sendable {
            let bookmarkData = Data(base64Encoded: bookmarkString) {
             var isStale = false
             if let resolved = try? URL(resolvingBookmarkData: bookmarkData,
-                                       options: [.withoutUI],
+                                       options: [.withoutUI, .withSecurityScope],
                                        relativeTo: nil,
                                        bookmarkDataIsStale: &isStale),
                FileManager.default.fileExists(atPath: resolved.path) {

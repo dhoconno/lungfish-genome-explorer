@@ -89,8 +89,13 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         minMapQ: Int = 0,
         maxReads: Int = 10_000
     ) async throws -> [AlignedRead] {
+        guard !chromosome.isEmpty, start >= 0, end > start else {
+            throw AlignmentFetchError.invalidRegion("\(chromosome):\(start)-\(end)")
+        }
+        guard maxReads > 0 else { return [] }
+
         // Build samtools view command
-        var arguments = ["view", "-h"]
+        var arguments = ["view"]
         arguments += ["-F", String(excludeFlags)]
         if minMapQ > 0 {
             arguments += ["-q", String(minMapQ)]
@@ -228,12 +233,14 @@ public final class AlignmentDataProvider: @unchecked Sendable {
             }
         }
 
-        // 4. Search PATH
-        let whichResult = try? Process.run(
-            URL(fileURLWithPath: "/usr/bin/which"), arguments: ["samtools"]
-        )
-        if let whichResult, whichResult.terminationStatus == 0 {
-            // `which` succeeded; we don't capture stdout here, fall through
+        // 4. Search PATH from environment
+        if let pathEnv = ProcessInfo.processInfo.environment["PATH"] {
+            for dir in pathEnv.split(separator: ":") {
+                let candidate = String(dir) + "/samtools"
+                if FileManager.default.isExecutableFile(atPath: candidate) {
+                    return candidate
+                }
+            }
         }
 
         throw AlignmentFetchError.samtoolsNotFound

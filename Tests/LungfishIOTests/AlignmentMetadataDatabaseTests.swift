@@ -284,6 +284,22 @@ final class AlignmentMetadataDatabaseTests: XCTestCase {
         XCTAssertEqual(mapped?.qcPass, 12_000_000)
     }
 
+    func testPopulateFromFlagstatParsesByCategoryTextNotLineOrder() throws {
+        let db = try makeDatabase()
+        let flagstatOutput = """
+        250 + 1 mapped (99.0% : N/A)
+        300 + 2 in total (QC-passed reads + QC-failed reads)
+        120 + 0 duplicates
+        """
+        db.populateFromFlagstat(flagstatOutput)
+
+        let stats = db.flagStats()
+        XCTAssertEqual(stats.count, 3)
+        XCTAssertEqual(stats.first { $0.category == "total" }?.qcPass, 300)
+        XCTAssertEqual(stats.first { $0.category == "mapped" }?.qcPass, 250)
+        XCTAssertEqual(stats.first { $0.category == "duplicates" }?.qcPass, 120)
+    }
+
     func testPopulateFromReadGroups() throws {
         let db = try makeDatabase()
         let readGroups = [

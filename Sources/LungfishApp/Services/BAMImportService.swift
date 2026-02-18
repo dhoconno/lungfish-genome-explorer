@@ -66,6 +66,10 @@ public final class BAMImportService: @unchecked Sendable {
         importLogger.info("Starting BAM import: \(fileName) into \(bundleURL.lastPathComponent)")
         progressHandler?(0.0, "Validating alignment file...")
 
+        guard FileManager.default.fileExists(atPath: bamURL.path) else {
+            throw BAMImportError.fileNotFound(bamURL.path)
+        }
+
         // 1. Detect format
         let format = detectFormat(bamURL)
 
@@ -87,15 +91,30 @@ public final class BAMImportService: @unchecked Sendable {
 
         // 5. Run samtools idxstats
         progressHandler?(0.2, "Collecting chromosome statistics...")
-        let idxstatsOutput = try await provider.fetchIdxstats()
+        let idxstatsOutput: String
+        do {
+            idxstatsOutput = try await provider.fetchIdxstats()
+        } catch {
+            throw BAMImportError.statsFailed(error.localizedDescription)
+        }
 
         // 6. Run samtools flagstat
         progressHandler?(0.4, "Collecting alignment statistics...")
-        let flagstatOutput = try await provider.fetchFlagstat()
+        let flagstatOutput: String
+        do {
+            flagstatOutput = try await provider.fetchFlagstat()
+        } catch {
+            throw BAMImportError.statsFailed(error.localizedDescription)
+        }
 
         // 7. Parse header for read groups
         progressHandler?(0.6, "Parsing read group information...")
-        let headerText = try await provider.fetchHeader()
+        let headerText: String
+        do {
+            headerText = try await provider.fetchHeader()
+        } catch {
+            throw BAMImportError.statsFailed(error.localizedDescription)
+        }
         let readGroups = SAMParser.parseReadGroups(from: headerText)
         let sampleNames = Array(Set(readGroups.compactMap { $0.sample })).sorted()
 
@@ -148,7 +167,11 @@ public final class BAMImportService: @unchecked Sendable {
         // 10. Create bookmark for file relocation
         let bookmark: String?
         do {
-            let bookmarkData = try bamURL.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
+            let bookmarkData = try bamURL.bookmarkData(
+                options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
             bookmark = bookmarkData.base64EncodedString()
         } catch {
             importLogger.warning("Could not create bookmark for \(bamURL.path): \(error)")
@@ -158,7 +181,11 @@ public final class BAMImportService: @unchecked Sendable {
         let indexBookmark: String?
         do {
             let indexURL = URL(fileURLWithPath: indexPath)
-            let bookmarkData = try indexURL.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
+            let bookmarkData = try indexURL.bookmarkData(
+                options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
             indexBookmark = bookmarkData.base64EncodedString()
         } catch {
             indexBookmark = nil
@@ -183,9 +210,13 @@ public final class BAMImportService: @unchecked Sendable {
         )
 
         // 12. Update bundle manifest
-        let manifest = try BundleManifest.load(from: bundleURL)
-        let updatedManifest = manifest.addingAlignmentTrack(trackInfo)
-        try updatedManifest.save(to: bundleURL)
+        do {
+            let manifest = try BundleManifest.load(from: bundleURL)
+            let updatedManifest = manifest.addingAlignmentTrack(trackInfo)
+            try updatedManifest.save(to: bundleURL)
+        } catch {
+            throw BAMImportError.manifestUpdateFailed(error.localizedDescription)
+        }
 
         progressHandler?(1.0, "Import complete.")
         importLogger.info("BAM import complete: \(mappedReads) mapped reads, \(sampleNames.count) samples, \(String(format: "%.1f", duration))s")
