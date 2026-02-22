@@ -41,13 +41,15 @@ final class BAMImportServiceTests: XCTestCase {
             mappedReads: 1000,
             unmappedReads: 50,
             sampleNames: ["SAMPLE1"],
-            indexWasCreated: false
+            indexWasCreated: false,
+            wasSorted: false
         )
 
         XCTAssertEqual(result.mappedReads, 1000)
         XCTAssertEqual(result.unmappedReads, 50)
         XCTAssertEqual(result.sampleNames, ["SAMPLE1"])
         XCTAssertFalse(result.indexWasCreated)
+        XCTAssertFalse(result.wasSorted)
         XCTAssertEqual(result.trackInfo.id, "test_track")
         XCTAssertEqual(result.trackInfo.format, .bam)
     }
@@ -67,11 +69,13 @@ final class BAMImportServiceTests: XCTestCase {
             mappedReads: 50_000_000,
             unmappedReads: 500_000,
             sampleNames: ["NA12878", "NA12891", "NA12892"],
-            indexWasCreated: true
+            indexWasCreated: true,
+            wasSorted: true
         )
 
         XCTAssertEqual(result.sampleNames.count, 3)
         XCTAssertTrue(result.indexWasCreated)
+        XCTAssertTrue(result.wasSorted)
         XCTAssertEqual(result.mappedReads, 50_000_000)
     }
 

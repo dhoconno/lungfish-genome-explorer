@@ -41,6 +41,8 @@ public final class BAMImportService: @unchecked Sendable {
         public let sampleNames: [String]
         /// Whether the index was pre-existing or had to be created.
         public let indexWasCreated: Bool
+        /// Whether the BAM file had to be coordinate-sorted before indexing.
+        public let wasSorted: Bool
     }
 
     // MARK: - Import
@@ -73,8 +75,12 @@ public final class BAMImportService: @unchecked Sendable {
         // 1. Detect format
         let format = detectFormat(bamURL)
 
-        // 2. Validate index exists (or create it)
-        let (indexPath, indexCreated) = try await ensureIndex(bamURL: bamURL, format: format, progressHandler: progressHandler)
+        // 2. Validate index exists (or create it); may sort if unsorted
+        let indexResult = try await ensureIndex(bamURL: bamURL, format: format, progressHandler: progressHandler)
+        let effectiveBAMURL = indexResult.bamURL
+        let indexPath = indexResult.indexPath
+        let indexCreated = indexResult.wasCreated
+        let wasSorted = indexResult.wasSorted
         progressHandler?(0.15, "Index validated.")
 
         // 3. Create alignments directory in bundle
@@ -83,7 +89,7 @@ public final class BAMImportService: @unchecked Sendable {
 
         // 4. Create data provider for stats collection
         let provider = AlignmentDataProvider(
-            alignmentPath: bamURL.path,
+            alignmentPath: effectiveBAMURL.path,
             indexPath: indexPath,
             format: format,
             referenceFastaPath: findReferenceFASTA(in: bundleURL)
@@ -130,7 +136,10 @@ public final class BAMImportService: @unchecked Sendable {
         let dbURL = alignmentsDir.appendingPathComponent(dbFileName)
 
         let metadataDB = try AlignmentMetadataDatabase.create(at: dbURL)
-        metadataDB.setFileInfo("source_path", value: bamURL.path)
+        metadataDB.setFileInfo("source_path", value: effectiveBAMURL.path)
+        if wasSorted {
+            metadataDB.setFileInfo("original_source_path", value: bamURL.path)
+        }
         metadataDB.setFileInfo("format", value: format.rawValue)
         metadataDB.setFileInfo("import_date", value: ISO8601DateFormatter().string(from: Date()))
         metadataDB.setFileInfo("file_name", value: fileName)
@@ -188,7 +197,7 @@ public final class BAMImportService: @unchecked Sendable {
 
         // 9. Get file size for staleness detection
         let fileSize: Int64?
-        if let attrs = try? FileManager.default.attributesOfItem(atPath: bamURL.path),
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: effectiveBAMURL.path),
            let size = attrs[.size] as? Int64 {
             fileSize = size
         } else {
@@ -198,14 +207,14 @@ public final class BAMImportService: @unchecked Sendable {
         // 10. Create bookmark for file relocation
         let bookmark: String?
         do {
-            let bookmarkData = try bamURL.bookmarkData(
+            let bookmarkData = try effectiveBAMURL.bookmarkData(
                 options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
                 includingResourceValuesForKeys: nil,
                 relativeTo: nil
             )
             bookmark = bookmarkData.base64EncodedString()
         } catch {
-            importLogger.warning("Could not create bookmark for \(bamURL.path): \(error)")
+            importLogger.warning("Could not create bookmark for \(effectiveBAMURL.path): \(error)")
             bookmark = nil
         }
 
@@ -228,7 +237,7 @@ public final class BAMImportService: @unchecked Sendable {
             id: trackId,
             name: name ?? fileName,
             format: format,
-            sourcePath: bamURL.path,
+            sourcePath: effectiveBAMURL.path,
             sourceBookmark: bookmark,
             indexPath: indexPath,
             indexBookmark: indexBookmark,
@@ -250,14 +259,16 @@ public final class BAMImportService: @unchecked Sendable {
         }
 
         progressHandler?(1.0, "Import complete.")
-        importLogger.info("BAM import complete: \(mappedReads) mapped reads, \(sampleNames.count) samples, \(String(format: "%.1f", duration))s")
+        let sortedNote = wasSorted ? " (sorted)" : ""
+        importLogger.info("BAM import complete\(sortedNote): \(mappedReads) mapped reads, \(sampleNames.count) samples, \(String(format: "%.1f", duration))s")
 
         return ImportResult(
             trackInfo: trackInfo,
             mappedReads: mappedReads,
             unmappedReads: unmappedReads,
             sampleNames: sampleNames,
-            indexWasCreated: indexCreated
+            indexWasCreated: indexCreated,
+            wasSorted: wasSorted
         )
     }
 
@@ -272,14 +283,23 @@ public final class BAMImportService: @unchecked Sendable {
         }
     }
 
+    /// Result of the index-ensuring step, which may also sort the BAM.
+    private struct EnsureIndexResult {
+        let bamURL: URL
+        let indexPath: String
+        let wasCreated: Bool
+        let wasSorted: Bool
+    }
+
     /// Ensures an index exists for the alignment file.
     ///
-    /// - Returns: (indexPath, wasCreated)
+    /// If the BAM is not coordinate-sorted (detected when `samtools index` fails with
+    /// "nsorted" in stderr), automatically creates a sorted copy and indexes that instead.
     private static func ensureIndex(
         bamURL: URL,
         format: AlignmentFormat,
         progressHandler: (@Sendable (Double, String) -> Void)?
-    ) async throws -> (String, Bool) {
+    ) async throws -> EnsureIndexResult {
         // Check for existing index
         let possibleIndexes: [String]
         switch format {
@@ -299,7 +319,7 @@ public final class BAMImportService: @unchecked Sendable {
 
         for indexPath in possibleIndexes {
             if FileManager.default.fileExists(atPath: indexPath) {
-                return (indexPath, false)
+                return EnsureIndexResult(bamURL: bamURL, indexPath: indexPath, wasCreated: false, wasSorted: false)
             }
         }
 
@@ -310,17 +330,72 @@ public final class BAMImportService: @unchecked Sendable {
         let runner = NativeToolRunner.shared
         let result = try await runner.run(.samtools, arguments: ["index", bamURL.path], timeout: 3600)
 
-        guard result.isSuccess else {
+        if result.isSuccess {
+            // Determine which index was created
+            let expectedIndex = format == .cram ? bamURL.path + ".crai" : bamURL.path + ".bai"
+            guard FileManager.default.fileExists(atPath: expectedIndex) else {
+                throw BAMImportError.indexCreationFailed("Index file not found after creation")
+            }
+            return EnsureIndexResult(bamURL: bamURL, indexPath: expectedIndex, wasCreated: true, wasSorted: false)
+        }
+
+        // Index creation failed — check if the file is unsorted
+        let isUnsorted = result.stderr.contains("nsorted") || result.stderr.contains("not coordinate sorted")
+        guard isUnsorted else {
             throw BAMImportError.indexCreationFailed(result.stderr)
         }
 
-        // Determine which index was created
-        let expectedIndex = format == .cram ? bamURL.path + ".crai" : bamURL.path + ".bai"
-        guard FileManager.default.fileExists(atPath: expectedIndex) else {
-            throw BAMImportError.indexCreationFailed("Index file not found after creation")
+        // File is unsorted — sort it first
+        importLogger.info("BAM is unsorted, creating coordinate-sorted copy...")
+        progressHandler?(0.05, "Sorting BAM file (this may take several minutes for large files)...")
+
+        let sortedURL = sortedBAMURL(for: bamURL)
+
+        // Dynamic timeout based on file size (same lesson as NativeToolRunner/bgzip)
+        let fileSizeBytes: Int64 = (try? FileManager.default.attributesOfItem(atPath: bamURL.path))?[.size] as? Int64 ?? 0
+        let sortTimeout = max(600, Double(fileSizeBytes) / 10_000_000)
+
+        let sortResult = try await runner.run(
+            .samtools,
+            arguments: ["sort", "-o", sortedURL.path, bamURL.path],
+            timeout: sortTimeout
+        )
+
+        guard sortResult.isSuccess else {
+            throw BAMImportError.indexCreationFailed("Failed to sort BAM: \(sortResult.stderr)")
         }
 
-        return (expectedIndex, true)
+        guard FileManager.default.fileExists(atPath: sortedURL.path) else {
+            throw BAMImportError.indexCreationFailed("Sorted BAM file not found after sorting")
+        }
+
+        importLogger.info("Sorted BAM created at \(sortedURL.lastPathComponent), now indexing...")
+        progressHandler?(0.10, "Indexing sorted BAM file...")
+
+        let indexResult = try await runner.run(
+            .samtools,
+            arguments: ["index", sortedURL.path],
+            timeout: 3600
+        )
+
+        guard indexResult.isSuccess else {
+            throw BAMImportError.indexCreationFailed("Failed to index sorted BAM: \(indexResult.stderr)")
+        }
+
+        let sortedIndex = sortedURL.path + ".bai"
+        guard FileManager.default.fileExists(atPath: sortedIndex) else {
+            throw BAMImportError.indexCreationFailed("Index file not found after indexing sorted BAM")
+        }
+
+        importLogger.info("Sorted and indexed successfully: \(sortedURL.lastPathComponent)")
+        return EnsureIndexResult(bamURL: sortedURL, indexPath: sortedIndex, wasCreated: true, wasSorted: true)
+    }
+
+    /// Computes the sorted BAM URL by inserting `.sorted` before the `.bam` extension.
+    private static func sortedBAMURL(for bamURL: URL) -> URL {
+        let dir = bamURL.deletingLastPathComponent()
+        let stem = bamURL.deletingPathExtension().lastPathComponent
+        return dir.appendingPathComponent("\(stem).sorted.bam")
     }
 
     /// Finds the reference FASTA path within a bundle (needed for CRAM).
