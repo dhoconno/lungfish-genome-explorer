@@ -803,4 +803,534 @@ final class ReadTrackRendererTests: XCTestCase {
         // Match bases should be at 100-104
         XCTAssertEqual(matchPositions, [100, 101, 102, 103, 104])
     }
+
+    // MARK: - Downsample Tests
+
+    func testDownsampleBelowThresholdReturnsAll() {
+        let reads = (0..<100).map { i in makeRead(name: "r\(i)", position: i * 100) }
+        let (result, totalCount) = ReadTrackRenderer.downsample(reads, maxReads: 200)
+        XCTAssertEqual(result.count, 100, "Below threshold: all reads returned")
+        XCTAssertEqual(totalCount, 100)
+    }
+
+    func testDownsampleReducesCount() {
+        let reads = (0..<1000).map { i in makeRead(name: "r\(i)", position: i * 10) }
+        let maxReads = 100
+        let (result, totalCount) = ReadTrackRenderer.downsample(reads, maxReads: maxReads)
+        XCTAssertEqual(result.count, maxReads, "Should downsample to exactly maxReads")
+        XCTAssertEqual(totalCount, 1000)
+    }
+
+    func testDownsamplePreservesStrandBalance() {
+        // Create 500 forward + 500 reverse reads
+        var reads: [AlignedRead] = []
+        for i in 0..<500 {
+            reads.append(makeRead(name: "fwd\(i)", flag: 99, position: i * 10)) // forward
+        }
+        for i in 0..<500 {
+            reads.append(makeRead(name: "rev\(i)", flag: 147, position: i * 10)) // reverse
+        }
+        reads.shuffle()
+
+        let (result, totalCount) = ReadTrackRenderer.downsample(reads, maxReads: 200)
+        XCTAssertEqual(totalCount, 1000)
+        XCTAssertEqual(result.count, 200)
+
+        // Check strand balance (should be roughly 50/50 since input is 50/50)
+        let forwardCount = result.filter { !$0.isReverse }.count
+        let reverseCount = result.filter { $0.isReverse }.count
+        XCTAssertTrue(forwardCount > 60, "Forward reads should be well represented: got \(forwardCount)")
+        XCTAssertTrue(reverseCount > 60, "Reverse reads should be well represented: got \(reverseCount)")
+    }
+
+    func testDownsampleResultIsSortedByPosition() {
+        let reads = (0..<500).map { i in makeRead(name: "r\(i)", position: Int.random(in: 0..<10000)) }
+        let (result, _) = ReadTrackRenderer.downsample(reads, maxReads: 100)
+
+        for i in 1..<result.count {
+            XCTAssertGreaterThanOrEqual(
+                result[i].position, result[i - 1].position,
+                "Result should be sorted by position"
+            )
+        }
+    }
+
+    func testDownsampleEdgeCaseExactThreshold() {
+        let reads = (0..<100).map { i in makeRead(name: "r\(i)", position: i * 10) }
+        let (result, totalCount) = ReadTrackRenderer.downsample(reads, maxReads: 100)
+        XCTAssertEqual(result.count, 100, "Exactly at threshold: all reads returned")
+        XCTAssertEqual(totalCount, 100)
+    }
+
+    func testDownsampleEmptyInput() {
+        let (result, totalCount) = ReadTrackRenderer.downsample([], maxReads: 100)
+        XCTAssertTrue(result.isEmpty)
+        XCTAssertEqual(totalCount, 0)
+    }
+
+    // MARK: - Read Colors Tests
+
+    func testReadColorsStrandMode() {
+        let forward = makeRead(flag: 99) // forward
+        let reverse = makeRead(flag: 147) // reverse
+
+        let (fwdFill, _) = ReadTrackRenderer.readColors(for: forward, colorMode: .strand, alpha: 1.0)
+        let (revFill, _) = ReadTrackRenderer.readColors(for: reverse, colorMode: .strand, alpha: 1.0)
+
+        // Forward and reverse should produce different colors
+        XCTAssertNotEqual(fwdFill, revFill, "Forward and reverse should have different fill colors")
+    }
+
+    func testReadColorsInsertSizeMode() {
+        // Normal insert size
+        let normal = AlignedRead(
+            name: "r1", flag: 0x63, chromosome: "chr1", position: 100,
+            mapq: 60, cigar: [CIGAROperation(op: .match, length: 100)],
+            sequence: String(repeating: "A", count: 100),
+            qualities: Array(repeating: 30, count: 100),
+            mateChromosome: "chr1", matePosition: 300, insertSize: 400
+        )
+        let (normalFill, _) = ReadTrackRenderer.readColors(for: normal, colorMode: .insertSize, alpha: 1.0)
+
+        // Too large insert size
+        let tooLarge = AlignedRead(
+            name: "r2", flag: 0x63, chromosome: "chr1", position: 100,
+            mapq: 60, cigar: [CIGAROperation(op: .match, length: 100)],
+            sequence: String(repeating: "A", count: 100),
+            qualities: Array(repeating: 30, count: 100),
+            mateChromosome: "chr1", matePosition: 5000, insertSize: 5000
+        )
+        let (largeFill, _) = ReadTrackRenderer.readColors(for: tooLarge, colorMode: .insertSize, alpha: 1.0)
+
+        XCTAssertNotEqual(normalFill, largeFill, "Normal and too-large should have different colors")
+    }
+
+    func testReadColorsInsertSizeNotApplicable() {
+        // Unpaired read in insertSize mode should fall back to strand colors
+        let unpaired = makeRead(flag: 0) // not paired
+        let (fill, _) = ReadTrackRenderer.readColors(for: unpaired, colorMode: .insertSize, alpha: 1.0)
+        let (strandFill, _) = ReadTrackRenderer.readColors(for: unpaired, colorMode: .strand, alpha: 1.0)
+
+        // Should match strand coloring since insertSize is notApplicable
+        XCTAssertEqual(fill, strandFill, "NotApplicable insertSize should fall back to strand colors")
+    }
+
+    func testReadColorsMappingQualityMode() {
+        let highQ = makeRead(mapq: 60)
+        let lowQ = makeRead(mapq: 5)
+        let unavailable = makeRead(mapq: 255)
+
+        let (highFill, _) = ReadTrackRenderer.readColors(for: highQ, colorMode: .mappingQuality, alpha: 1.0)
+        let (lowFill, _) = ReadTrackRenderer.readColors(for: lowQ, colorMode: .mappingQuality, alpha: 1.0)
+        let (unavailFill, _) = ReadTrackRenderer.readColors(for: unavailable, colorMode: .mappingQuality, alpha: 1.0)
+
+        XCTAssertNotEqual(highFill, lowFill, "High and low MAPQ should have different colors")
+        XCTAssertNotEqual(highFill, unavailFill, "MAPQ=255 should be distinct from high quality")
+        XCTAssertNotEqual(lowFill, unavailFill, "MAPQ=255 should be distinct from low quality")
+    }
+
+    func testReadColorsReadGroupMode() {
+        let read = AlignedRead(
+            name: "r1", flag: 0, chromosome: "chr1", position: 100,
+            mapq: 60, cigar: [CIGAROperation(op: .match, length: 100)],
+            sequence: String(repeating: "A", count: 100),
+            qualities: Array(repeating: 30, count: 100),
+            readGroup: "RG1"
+        )
+
+        let colorMap = ["RG1": NSColor.red.cgColor, "RG2": NSColor.blue.cgColor]
+        let (fill, _) = ReadTrackRenderer.readColors(for: read, colorMode: .readGroup, alpha: 1.0, readGroupColorMap: colorMap)
+
+        // Should use the mapped color, not default strand colors
+        let (strandFill, _) = ReadTrackRenderer.readColors(for: read, colorMode: .strand, alpha: 1.0)
+        XCTAssertNotEqual(fill, strandFill, "Read group color should differ from strand color")
+    }
+
+    func testReadColorsReadGroupFallback() {
+        // Read with no read group should fall back to strand colors
+        let read = makeRead(flag: 99)
+        let (fill, _) = ReadTrackRenderer.readColors(for: read, colorMode: .readGroup, alpha: 1.0, readGroupColorMap: [:])
+        let (strandFill, _) = ReadTrackRenderer.readColors(for: read, colorMode: .strand, alpha: 1.0)
+        XCTAssertEqual(fill, strandFill, "Missing read group should fall back to strand colors")
+    }
+
+    func testReadColorsFirstOfPairMode() {
+        let first = makeRead(flag: 0x43) // paired + first in pair
+        let second = makeRead(flag: 0x83) // paired + second in pair
+
+        let (firstFill, _) = ReadTrackRenderer.readColors(for: first, colorMode: .firstOfPair, alpha: 1.0)
+        let (secondFill, _) = ReadTrackRenderer.readColors(for: second, colorMode: .firstOfPair, alpha: 1.0)
+
+        XCTAssertNotEqual(firstFill, secondFill, "First and second in pair should have different colors")
+    }
+
+    func testReadColorsFirstOfPairUnpaired() {
+        // Unpaired read in firstOfPair mode should fall back to strand colors
+        let unpaired = makeRead(flag: 0)
+        let (fill, _) = ReadTrackRenderer.readColors(for: unpaired, colorMode: .firstOfPair, alpha: 1.0)
+        let (strandFill, _) = ReadTrackRenderer.readColors(for: unpaired, colorMode: .strand, alpha: 1.0)
+        XCTAssertEqual(fill, strandFill, "Unpaired read should fall back to strand colors")
+    }
+
+    func testReadColorsBaseQualityMode() {
+        let highQ = AlignedRead(
+            name: "r1", flag: 0, chromosome: "chr1", position: 100,
+            mapq: 60, cigar: [CIGAROperation(op: .match, length: 10)],
+            sequence: String(repeating: "A", count: 10),
+            qualities: Array(repeating: UInt8(40), count: 10)
+        )
+        let lowQ = AlignedRead(
+            name: "r2", flag: 0, chromosome: "chr1", position: 100,
+            mapq: 60, cigar: [CIGAROperation(op: .match, length: 10)],
+            sequence: String(repeating: "A", count: 10),
+            qualities: Array(repeating: UInt8(5), count: 10)
+        )
+
+        let (highFill, _) = ReadTrackRenderer.readColors(for: highQ, colorMode: .baseQuality, alpha: 1.0)
+        let (lowFill, _) = ReadTrackRenderer.readColors(for: lowQ, colorMode: .baseQuality, alpha: 1.0)
+
+        XCTAssertNotEqual(highFill, lowFill, "High and low base quality should have different colors")
+    }
+
+    func testReadColorsBaseQualityEmptyQualities() {
+        let noQ = AlignedRead(
+            name: "r1", flag: 0, chromosome: "chr1", position: 100,
+            mapq: 60, cigar: [CIGAROperation(op: .match, length: 10)],
+            sequence: String(repeating: "A", count: 10),
+            qualities: []
+        )
+
+        // Should not crash with empty qualities
+        let (fill, stroke) = ReadTrackRenderer.readColors(for: noQ, colorMode: .baseQuality, alpha: 1.0)
+        XCTAssertNotNil(fill)
+        XCTAssertNotNil(stroke)
+    }
+
+    func testReadColorsAlphaApplied() {
+        let read = makeRead(flag: 99)
+        let (fill1, _) = ReadTrackRenderer.readColors(for: read, colorMode: .strand, alpha: 1.0)
+        let (fill05, _) = ReadTrackRenderer.readColors(for: read, colorMode: .strand, alpha: 0.5)
+
+        // Alpha=0.5 fill should differ from alpha=1.0 fill
+        XCTAssertNotEqual(fill1, fill05, "Different alpha values should produce different colors")
+    }
+
+    // MARK: - Build Read Group Color Map
+
+    func testBuildReadGroupColorMap() {
+        let reads = [
+            AlignedRead(
+                name: "r1", flag: 0, chromosome: "chr1", position: 100,
+                mapq: 60, cigar: [CIGAROperation(op: .match, length: 50)],
+                sequence: String(repeating: "A", count: 50), qualities: [],
+                readGroup: "RG1"
+            ),
+            AlignedRead(
+                name: "r2", flag: 0, chromosome: "chr1", position: 200,
+                mapq: 60, cigar: [CIGAROperation(op: .match, length: 50)],
+                sequence: String(repeating: "A", count: 50), qualities: [],
+                readGroup: "RG2"
+            ),
+            AlignedRead(
+                name: "r3", flag: 0, chromosome: "chr1", position: 300,
+                mapq: 60, cigar: [CIGAROperation(op: .match, length: 50)],
+                sequence: String(repeating: "A", count: 50), qualities: [],
+                readGroup: "RG1" // duplicate
+            ),
+        ]
+
+        let map = ReadTrackRenderer.buildReadGroupColorMap(from: reads)
+        XCTAssertEqual(map.count, 2, "Should have 2 unique read groups")
+        XCTAssertNotNil(map["RG1"])
+        XCTAssertNotNil(map["RG2"])
+        XCTAssertNotEqual(map["RG1"], map["RG2"], "Different read groups should get different colors")
+    }
+
+    func testBuildReadGroupColorMapEmpty() {
+        let map = ReadTrackRenderer.buildReadGroupColorMap(from: [])
+        XCTAssertTrue(map.isEmpty)
+    }
+
+    func testBuildReadGroupColorMapNoGroups() {
+        let reads = [makeRead(name: "r1"), makeRead(name: "r2")]
+        let map = ReadTrackRenderer.buildReadGroupColorMap(from: reads)
+        XCTAssertTrue(map.isEmpty, "Reads without read groups should produce empty map")
+    }
+
+    // MARK: - Pack Reads Sort Modes
+
+    func testPackReadsSortByReadName() {
+        let frame = makeFrame(start: 0, end: 1000, pixelWidth: 1000)
+        let readC = makeRead(name: "charlie", position: 100, cigarLength: 50)
+        let readA = makeRead(name: "alpha", position: 300, cigarLength: 50)
+        let readB = makeRead(name: "bravo", position: 200, cigarLength: 50)
+
+        let (packed, _) = ReadTrackRenderer.packReads([readC, readA, readB], frame: frame, sortMode: .readName)
+        XCTAssertEqual(packed[0].read.name, "alpha")
+        XCTAssertEqual(packed[1].read.name, "bravo")
+        XCTAssertEqual(packed[2].read.name, "charlie")
+    }
+
+    func testPackReadsSortByStrand() {
+        let frame = makeFrame(start: 0, end: 1000, pixelWidth: 1000)
+        let reverse = makeRead(name: "rev", flag: 0x10, position: 100, cigarLength: 50) // reverse strand
+        let forward = makeRead(name: "fwd", flag: 0, position: 300, cigarLength: 50) // forward strand
+
+        let (packed, _) = ReadTrackRenderer.packReads([reverse, forward], frame: frame, sortMode: .strand)
+        // Forward first, then reverse
+        XCTAssertFalse(packed[0].read.isReverse, "Forward reads should come first in strand sort")
+        XCTAssertTrue(packed[1].read.isReverse, "Reverse reads should come after forward reads")
+    }
+
+    func testPackReadsSortByMappingQuality() {
+        let frame = makeFrame(start: 0, end: 1000, pixelWidth: 1000)
+        let lowQ = makeRead(name: "lowq", position: 100, mapq: 10, cigarLength: 50)
+        let highQ = makeRead(name: "highq", position: 300, mapq: 60, cigarLength: 50)
+        let midQ = makeRead(name: "midq", position: 500, mapq: 30, cigarLength: 50)
+
+        let (packed, _) = ReadTrackRenderer.packReads([lowQ, highQ, midQ], frame: frame, sortMode: .mappingQuality)
+        // Highest MAPQ first
+        XCTAssertEqual(packed[0].read.mapq, 60)
+        XCTAssertEqual(packed[1].read.mapq, 30)
+        XCTAssertEqual(packed[2].read.mapq, 10)
+    }
+
+    func testPackReadsSortByInsertSize() {
+        let frame = makeFrame(start: 0, end: 1000, pixelWidth: 1000)
+        let large = AlignedRead(
+            name: "large", flag: 0x63, chromosome: "chr1", position: 100,
+            mapq: 60, cigar: [CIGAROperation(op: .match, length: 50)],
+            sequence: String(repeating: "A", count: 50),
+            qualities: Array(repeating: 30, count: 50),
+            insertSize: 5000
+        )
+        let small = AlignedRead(
+            name: "small", flag: 0x63, chromosome: "chr1", position: 300,
+            mapq: 60, cigar: [CIGAROperation(op: .match, length: 50)],
+            sequence: String(repeating: "A", count: 50),
+            qualities: Array(repeating: 30, count: 50),
+            insertSize: 200
+        )
+        let negative = AlignedRead(
+            name: "neg", flag: 0x63, chromosome: "chr1", position: 500,
+            mapq: 60, cigar: [CIGAROperation(op: .match, length: 50)],
+            sequence: String(repeating: "A", count: 50),
+            qualities: Array(repeating: 30, count: 50),
+            insertSize: -300
+        )
+
+        let (packed, _) = ReadTrackRenderer.packReads([large, small, negative], frame: frame, sortMode: .insertSize)
+        // Sort by abs(insertSize), smallest first
+        XCTAssertEqual(packed[0].read.name, "small")  // |200|
+        XCTAssertEqual(packed[1].read.name, "neg")     // |-300| = 300
+        XCTAssertEqual(packed[2].read.name, "large")   // |5000|
+    }
+
+    func testPackReadsSortByBaseAtPosition() {
+        let frame = makeFrame(start: 0, end: 1000, pixelWidth: 1000)
+        // Create reads with different bases at position 105
+        let readWithT = AlignedRead(
+            name: "withT", flag: 0, chromosome: "chr1", position: 100,
+            mapq: 60, cigar: [CIGAROperation(op: .match, length: 50)],
+            sequence: "AAAAATAAAA" + String(repeating: "A", count: 40), // T at offset 5 → refPos 105
+            qualities: Array(repeating: 30, count: 50)
+        )
+        let readWithA = AlignedRead(
+            name: "withA", flag: 0, chromosome: "chr1", position: 100,
+            mapq: 60, cigar: [CIGAROperation(op: .match, length: 50)],
+            sequence: String(repeating: "A", count: 50), // A at position 105
+            qualities: Array(repeating: 30, count: 50)
+        )
+
+        let (packed, _) = ReadTrackRenderer.packReads(
+            [readWithT, readWithA], frame: frame,
+            sortMode: .baseAtPosition, sortPosition: 105
+        )
+        XCTAssertEqual(packed.count, 2)
+        // A (65) < T (84) in ASCII
+        XCTAssertEqual(packed[0].read.name, "withA")
+        XCTAssertEqual(packed[1].read.name, "withT")
+    }
+
+    func testPackReadsSortByBaseAtPositionNoPosition() {
+        // Without sortPosition, baseAtPosition falls back to position sort
+        let frame = makeFrame(start: 0, end: 1000, pixelWidth: 1000)
+        let read1 = makeRead(name: "r_later", position: 500, cigarLength: 50)
+        let read2 = makeRead(name: "r_earlier", position: 100, cigarLength: 50)
+
+        let (packed, _) = ReadTrackRenderer.packReads([read1, read2], frame: frame, sortMode: .baseAtPosition)
+        XCTAssertEqual(packed[0].read.name, "r_earlier", "Should fall back to position sort")
+        XCTAssertEqual(packed[1].read.name, "r_later")
+    }
+
+    // MARK: - Coverage with Introns (N operations)
+
+    func testDrawCoverageWithIntronsDoesNotCrash() {
+        let frame = makeFrame(start: 0, end: 10000, pixelWidth: 200)
+        // RNA-seq read: 50M10000N50M (50 match, 10kb intron, 50 match)
+        let cigar = [
+            CIGAROperation(op: .match, length: 50),
+            CIGAROperation(op: .skip, length: 10000),
+            CIGAROperation(op: .match, length: 50),
+        ]
+        let reads = [
+            AlignedRead(
+                name: "rna_read", flag: 0, chromosome: "chr1", position: 100,
+                mapq: 60, cigar: cigar,
+                sequence: String(repeating: "A", count: 100),
+                qualities: Array(repeating: 30, count: 100)
+            )
+        ]
+
+        let width = 200, height = 60
+        let context = CGContext(
+            data: nil, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+
+        let rect = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
+        ReadTrackRenderer.drawCoverage(reads: reads, frame: frame, context: context, rect: rect)
+        // The intron region should not contribute to coverage (N operations are skipped)
+    }
+
+    // MARK: - Split Read Indicator Smoke Test
+
+    func testDrawSplitReadIndicatorsDoesNotCrash() {
+        let frame = makeFrame(start: 0, end: 10000, pixelWidth: 1000)
+        let read = AlignedRead(
+            name: "split", flag: 0, chromosome: "chr1", position: 100,
+            mapq: 60, cigar: [CIGAROperation(op: .match, length: 100)],
+            sequence: String(repeating: "A", count: 100),
+            qualities: Array(repeating: 30, count: 100),
+            supplementaryAlignments: "chr1,5000,+,50M50S,40,2;"
+        )
+
+        let width = 1000, height = 100
+        let context = CGContext(
+            data: nil, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+
+        ReadTrackRenderer.drawSplitReadIndicators(
+            read: read, frame: frame, context: context,
+            y: 10, readHeight: 14, currentChromosome: "chr1"
+        )
+    }
+
+    func testDrawSplitReadIndicatorsSkipsDifferentChromosome() {
+        let frame = makeFrame(start: 0, end: 10000, pixelWidth: 1000)
+        let read = AlignedRead(
+            name: "split", flag: 0, chromosome: "chr1", position: 100,
+            mapq: 60, cigar: [CIGAROperation(op: .match, length: 100)],
+            sequence: String(repeating: "A", count: 100),
+            qualities: Array(repeating: 30, count: 100),
+            supplementaryAlignments: "chr2,5000,+,50M50S,40,2;" // different chrom
+        )
+
+        let width = 1000, height = 100
+        let context = CGContext(
+            data: nil, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+
+        // Should not crash; supplementary on chr2 should be skipped for chr1 view
+        ReadTrackRenderer.drawSplitReadIndicators(
+            read: read, frame: frame, context: context,
+            y: 10, readHeight: 14, currentChromosome: "chr1"
+        )
+    }
+
+    // MARK: - Mate Pair Links Smoke Test
+
+    func testDrawMatePairLinksDoesNotCrash() {
+        let frame = makeFrame(start: 0, end: 1000, pixelWidth: 500)
+        let read1 = AlignedRead(
+            name: "mate", flag: 0x63, chromosome: "chr1", position: 100,
+            mapq: 60, cigar: [CIGAROperation(op: .match, length: 100)],
+            sequence: String(repeating: "A", count: 100),
+            qualities: Array(repeating: 30, count: 100),
+            mateChromosome: "chr1", matePosition: 400
+        )
+        let read2 = AlignedRead(
+            name: "mate", flag: 0xA3, chromosome: "chr1", position: 400,
+            mapq: 60, cigar: [CIGAROperation(op: .match, length: 100)],
+            sequence: String(repeating: "A", count: 100),
+            qualities: Array(repeating: 30, count: 100),
+            mateChromosome: "chr1", matePosition: 100
+        )
+
+        let packed: [(row: Int, read: AlignedRead)] = [(0, read1), (0, read2)]
+        let width = 500, height = 100
+        let context = CGContext(
+            data: nil, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+
+        let rect = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
+        ReadTrackRenderer.drawMatePairLinks(
+            packedReads: packed, frame: frame, context: context,
+            rect: rect, readHeight: 6
+        )
+    }
+
+    // MARK: - Base Quality Overlay Smoke Test
+
+    func testDrawBaseQualityOverlayDoesNotCrash() {
+        let frame = makeFrame(start: 0, end: 200, pixelWidth: 1000)
+        var qualities = Array(repeating: UInt8(30), count: 50)
+        qualities[10] = 5  // low quality base
+        qualities[20] = 10 // low quality base
+
+        let read = AlignedRead(
+            name: "bq_read", flag: 0, chromosome: "chr1", position: 50,
+            mapq: 60, cigar: [CIGAROperation(op: .match, length: 50)],
+            sequence: String(repeating: "A", count: 50),
+            qualities: qualities
+        )
+
+        let width = 1000, height = 100
+        let context = CGContext(
+            data: nil, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+
+        ReadTrackRenderer.drawBaseQualityOverlay(
+            read: read, frame: frame, context: context,
+            y: 10, readHeight: 14
+        )
+    }
+
+    func testDrawBaseQualityOverlayEmptyQualities() {
+        let frame = makeFrame(start: 0, end: 200, pixelWidth: 1000)
+        let read = AlignedRead(
+            name: "noq", flag: 0, chromosome: "chr1", position: 50,
+            mapq: 60, cigar: [CIGAROperation(op: .match, length: 50)],
+            sequence: String(repeating: "A", count: 50),
+            qualities: []
+        )
+
+        let width = 1000, height = 100
+        let context = CGContext(
+            data: nil, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+
+        // Should return early without crash
+        ReadTrackRenderer.drawBaseQualityOverlay(
+            read: read, frame: frame, context: context,
+            y: 10, readHeight: 14
+        )
+    }
 }

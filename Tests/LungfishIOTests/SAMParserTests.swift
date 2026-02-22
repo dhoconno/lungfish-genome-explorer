@@ -241,4 +241,97 @@ final class SAMParserTests: XCTestCase {
     func testParseCommentsEmpty() {
         XCTAssertTrue(SAMParser.parseComments(from: "@HD\tVN:1.6").isEmpty)
     }
+
+    func testParseCommentsRequiresTab() {
+        // @CO without tab delimiter should NOT be parsed as a comment
+        let header = "@CONTENT\tSome data"
+        let comments = SAMParser.parseComments(from: header)
+        XCTAssertTrue(comments.isEmpty, "@CO prefix without tab should not match")
+    }
+
+    // MARK: - Optional Tag Extraction (NM, SA, NH, XS)
+
+    func testParseNMTag() {
+        let line = "r\t0\tchr1\t100\t60\t75M\t*\t0\t0\t" + String(repeating: "A", count: 75) + "\t*\tNM:i:3"
+        let read = SAMParser.parseLine(line)
+        XCTAssertNotNil(read)
+        XCTAssertEqual(read?.editDistance, 3)
+    }
+
+    func testParseSATag() {
+        let saValue = "chr2,5000,+,50M50S,40,2;"
+        let line = "r\t0\tchr1\t100\t60\t75M\t*\t0\t0\t" + String(repeating: "A", count: 75) + "\t*\tSA:Z:\(saValue)"
+        let read = SAMParser.parseLine(line)
+        XCTAssertNotNil(read)
+        XCTAssertEqual(read?.supplementaryAlignments, saValue)
+    }
+
+    func testParseNHTag() {
+        let line = "r\t0\tchr1\t100\t60\t75M\t*\t0\t0\t" + String(repeating: "A", count: 75) + "\t*\tNH:i:5"
+        let read = SAMParser.parseLine(line)
+        XCTAssertNotNil(read)
+        XCTAssertEqual(read?.numHits, 5)
+    }
+
+    func testParseXSTag() {
+        let line = "r\t0\tchr1\t100\t60\t75M\t*\t0\t0\t" + String(repeating: "A", count: 75) + "\t*\tXS:A:+"
+        let read = SAMParser.parseLine(line)
+        XCTAssertNotNil(read)
+        XCTAssertEqual(read?.strandTag, "+")
+    }
+
+    func testParseMultipleOptionalTags() {
+        let seq = String(repeating: "A", count: 75)
+        let line = "r\t99\tchr1\t100\t60\t75M\t=\t300\t275\t\(seq)\t*\tRG:Z:sample1\tMD:Z:75\tNM:i:2\tSA:Z:chr3,1000,-,30M45S,20,1;\tNH:i:3\tXS:A:-"
+        let read = SAMParser.parseLine(line)
+        XCTAssertNotNil(read)
+        XCTAssertEqual(read?.readGroup, "sample1")
+        XCTAssertEqual(read?.mdTag, "75")
+        XCTAssertEqual(read?.editDistance, 2)
+        XCTAssertEqual(read?.supplementaryAlignments, "chr3,1000,-,30M45S,20,1;")
+        XCTAssertEqual(read?.numHits, 3)
+        XCTAssertEqual(read?.strandTag, "-")
+    }
+
+    func testParseNoOptionalTags() {
+        let seq = String(repeating: "A", count: 75)
+        let line = "r\t0\tchr1\t100\t60\t75M\t*\t0\t0\t\(seq)\t*"
+        let read = SAMParser.parseLine(line)
+        XCTAssertNotNil(read)
+        XCTAssertNil(read?.editDistance)
+        XCTAssertNil(read?.supplementaryAlignments)
+        XCTAssertNil(read?.numHits)
+        XCTAssertNil(read?.strandTag)
+        XCTAssertNil(read?.readGroup)
+        XCTAssertNil(read?.mdTag)
+    }
+
+    // MARK: - Reference Sequence Parsing
+
+    func testParseReferenceSequences() {
+        let header = """
+        @HD\tVN:1.6\tSO:coordinate
+        @SQ\tSN:chr1\tLN:248956422\tM5:abc123\tAS:GRCh38\tUR:file:///ref.fa\tSP:Homo sapiens
+        @SQ\tSN:chr2\tLN:242193529
+        """
+        let seqs = SAMParser.parseReferenceSequences(from: header)
+        XCTAssertEqual(seqs.count, 2)
+
+        XCTAssertEqual(seqs[0].name, "chr1")
+        XCTAssertEqual(seqs[0].length, 248956422)
+        XCTAssertEqual(seqs[0].md5, "abc123")
+        XCTAssertEqual(seqs[0].assembly, "GRCh38")
+        XCTAssertEqual(seqs[0].uri, "file:///ref.fa")
+        XCTAssertEqual(seqs[0].species, "Homo sapiens")
+
+        XCTAssertEqual(seqs[1].name, "chr2")
+        XCTAssertEqual(seqs[1].length, 242193529)
+        XCTAssertNil(seqs[1].md5)
+        XCTAssertNil(seqs[1].assembly)
+    }
+
+    func testParseReferenceSequencesEmpty() {
+        let seqs = SAMParser.parseReferenceSequences(from: "@HD\tVN:1.6")
+        XCTAssertTrue(seqs.isEmpty)
+    }
 }
