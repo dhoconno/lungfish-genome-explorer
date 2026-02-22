@@ -109,6 +109,11 @@ extension Notification.Name {
     /// Contains userInfo keys: `bundleURL` (URL)
     public static let bundleVariantTracksDeleted = Notification.Name("bundleVariantTracksDeleted")
 
+    /// Posted when a mapped read is selected or deselected in the viewer.
+    ///
+    /// Contains userInfo key: "alignedRead" (AlignedRead) or nil for deselection
+    public static let readSelected = Notification.Name("readSelected")
+
     /// Posted when alignment/read display settings change in the inspector.
     ///
     /// Contains userInfo keys: "showReads" (Bool), "maxReadRows" (Int),
@@ -280,4 +285,7 @@ public enum NotificationUserInfoKey {
 
     /// Key for insertion/deletion display toggle (Bool).
     public static let showIndels = "showIndels"
+
+    /// Key for the aligned read in read selection notifications.
+    public static let alignedRead = "alignedRead"
 }

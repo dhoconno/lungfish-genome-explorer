@@ -149,6 +149,14 @@ public class InspectorViewController: NSViewController {
             object: nil
         )
 
+        // Listen for read selections from viewer
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleReadSelected(_:)),
+            name: .readSelected,
+            object: nil
+        )
+
         // Listen for bundle loads to update Document tab
         NotificationCenter.default.addObserver(
             self,
@@ -405,6 +413,15 @@ public class InspectorViewController: NSViewController {
         }
         viewModel.variantSectionViewModel.select(variant: result)
         viewModel.selectedTab = .selection
+    }
+
+    /// Handles read selection from the viewer.
+    @objc private func handleReadSelected(_ notification: Notification) {
+        let read = notification.userInfo?[NotificationUserInfoKey.alignedRead] as? AlignedRead
+        viewModel.readStyleSectionViewModel.selectedRead = read
+        if read != nil {
+            viewModel.selectedTab = .selection
+        }
     }
 
     /// Handles bundle load notifications to update the Document tab.

@@ -68,6 +68,14 @@ public final class ReadStyleSectionViewModel {
     /// Alignment track names.
     public var trackNames: [String] = []
 
+    // MARK: - Selected Read Detail
+
+    /// The currently selected read (set via notification from viewer).
+    public var selectedRead: AlignedRead?
+
+    /// Whether a read is currently selected.
+    public var hasSelectedRead: Bool { selectedRead != nil }
+
     // MARK: - Callbacks
 
     /// Called when display settings change; viewer should redraw.
@@ -221,8 +229,23 @@ public struct ReadStyleSection: View {
         self.viewModel = viewModel
     }
 
+    @State private var isReadDetailExpanded = true
+
     public var body: some View {
         if viewModel.hasAlignmentTracks {
+            // Selected read detail
+            if let read = viewModel.selectedRead {
+                DisclosureGroup(isExpanded: $isReadDetailExpanded) {
+                    selectedReadDetail(read)
+                        .padding(.top, 4)
+                } label: {
+                    Label("Selected Read", systemImage: "line.horizontal.3")
+                        .font(.headline)
+                }
+
+                Divider()
+            }
+
             // Summary statistics
             DisclosureGroup(isExpanded: $isStatsExpanded) {
                 alignmentSummary
@@ -498,6 +521,117 @@ public struct ReadStyleSection: View {
                 }
             }
         }
+    }
+
+    // MARK: - Selected Read Detail
+
+    @ViewBuilder
+    private func selectedReadDetail(_ read: AlignedRead) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Name
+            Text(read.name)
+                .font(.system(.caption, design: .monospaced).bold())
+                .textSelection(.enabled)
+                .lineLimit(2)
+
+            Divider()
+
+            // Position & Strand
+            statRow("Position", value: "\(read.chromosome):\(read.position + 1)-\(read.alignmentEnd)")
+            statRow("Strand", value: read.isReverse ? "Reverse (-)" : "Forward (+)")
+            statRow("Length", value: "\(read.referenceLength) bp")
+            statRow("MAPQ", value: "\(read.mapq)")
+
+            // CIGAR
+            let cigar = read.cigarString
+            statRow("CIGAR", value: String(cigar.prefix(50)) + (cigar.count > 50 ? "..." : ""))
+
+            Divider()
+
+            // Flags
+            HStack(spacing: 4) {
+                flagBadge("Paired", active: read.isPaired)
+                flagBadge("Proper", active: read.isProperPair)
+                flagBadge("Rev", active: read.isReverse)
+                flagBadge("Dup", active: read.isDuplicate)
+            }
+
+            HStack(spacing: 4) {
+                flagBadge("1st", active: read.isFirstInPair)
+                flagBadge("2nd", active: read.isSecondInPair)
+                flagBadge("Sec", active: read.isSecondary)
+                flagBadge("Sup", active: read.isSupplementary)
+            }
+
+            // Mate info
+            if read.isPaired {
+                Divider()
+                if let mateChr = read.mateChromosome, let matePos = read.matePosition {
+                    statRow("Mate", value: "\(mateChr):\(matePos + 1)")
+                } else {
+                    statRow("Mate", value: "Unmapped")
+                }
+                if read.insertSize != 0 {
+                    statRow("Insert Size", value: "\(read.insertSize)")
+                }
+            }
+
+            // Read group
+            if let rg = read.readGroup {
+                statRow("Read Group", value: rg)
+            }
+
+            // Quality scores summary
+            if !read.qualities.isEmpty {
+                let meanQ = Double(read.qualities.reduce(0, { $0 + Int($1) })) / Double(read.qualities.count)
+                let minQ = read.qualities.min() ?? 0
+                let maxQ = read.qualities.max() ?? 0
+                Divider()
+                Text("Base Quality")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                statRow("Mean Q", value: String(format: "%.1f", meanQ))
+                statRow("Range", value: "Q\(minQ)-Q\(maxQ)")
+                let q20Count = read.qualities.filter { $0 >= 20 }.count
+                let q20Pct = Double(q20Count) / Double(read.qualities.count) * 100
+                statRow(">= Q20", value: String(format: "%.1f%%", q20Pct))
+            }
+
+            // Insertions
+            let ins = read.insertions
+            if !ins.isEmpty {
+                Divider()
+                Text("Insertions (\(ins.count))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(Array(ins.prefix(5).enumerated()), id: \.offset) { _, item in
+                    HStack {
+                        Text("pos \(item.position + 1)")
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        Text(item.bases.prefix(20) + (item.bases.count > 20 ? "..." : ""))
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.purple)
+                    }
+                }
+                if ins.count > 5 {
+                    Text("... and \(ins.count - 5) more")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func flagBadge(_ label: String, active: Bool) -> some View {
+        Text(label)
+            .font(.system(size: 9))
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(active ? Color.accentColor.opacity(0.2) : Color.gray.opacity(0.1))
+            .foregroundStyle(active ? .primary : .tertiary)
+            .clipShape(RoundedRectangle(cornerRadius: 3))
     }
 
     // MARK: - Helpers

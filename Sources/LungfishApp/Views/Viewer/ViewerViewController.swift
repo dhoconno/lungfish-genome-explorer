@@ -1948,6 +1948,21 @@ public class SequenceViewerView: NSView {
     /// Alignment data providers for each imported alignment track
     private var alignmentDataProviders: [(trackId: String, provider: AlignmentDataProvider)] = []
 
+    /// Currently hovered read (for tooltip caching)
+    private var hoveredRead: AlignedRead?
+
+    /// Currently selected read (for inspector display)
+    var selectedRead: AlignedRead?
+
+    /// Cached packed reads for hit-testing (updated during draw)
+    private var cachedPackedReads: [(row: Int, read: AlignedRead)] = []
+
+    /// The Y offset at which reads were last rendered (for hit-testing)
+    private var lastRenderedReadY: CGFloat = 0
+
+    /// The zoom tier at which reads were last rendered
+    private var lastRenderedReadTier: ReadTrackRenderer.ZoomTier = .coverage
+
     /// Whether drag is active (for highlighting)
     private var isDragActive = false
 
@@ -3191,18 +3206,25 @@ public class SequenceViewerView: NSView {
                 let rY = readTrackY
                 let maxRows = maxReadRowsSetting
 
+                // Cache rendering state for hit-testing
+                lastRenderedReadY = rY
+                lastRenderedReadTier = tier
+
                 switch tier {
                 case .coverage:
+                    cachedPackedReads = []
                     let rect = CGRect(x: 0, y: rY, width: bounds.width, height: ReadTrackRenderer.coverageTrackHeight)
                     ReadTrackRenderer.drawCoverage(reads: cachedAlignedReads, frame: frame, context: context, rect: rect)
                 case .packed:
                     let (packed, overflow) = ReadTrackRenderer.packReads(cachedAlignedReads, frame: frame, maxRows: maxRows)
+                    cachedPackedReads = packed
                     let rowCount = (packed.map(\.row).max() ?? -1) + 1
                     let height = ReadTrackRenderer.totalHeight(rowCount: rowCount, tier: .packed)
                     let rect = CGRect(x: 0, y: rY, width: bounds.width, height: height)
                     ReadTrackRenderer.drawPackedReads(packedReads: packed, overflow: overflow, frame: frame, context: context, rect: rect)
                 case .base:
                     let (packed, overflow) = ReadTrackRenderer.packReads(cachedAlignedReads, frame: frame, maxRows: maxRows)
+                    cachedPackedReads = packed
                     let rowCount = (packed.map(\.row).max() ?? -1) + 1
                     let height = ReadTrackRenderer.totalHeight(rowCount: rowCount, tier: .base)
                     let rect = CGRect(x: 0, y: rY, width: bounds.width, height: height)
@@ -3212,6 +3234,8 @@ public class SequenceViewerView: NSView {
                         context: context, rect: rect
                     )
                 }
+            } else {
+                cachedPackedReads = []
             }
         }
 
@@ -5721,6 +5745,25 @@ public class SequenceViewerView: NSView {
         let location = convert(event.locationInWindow, from: nil)
         let isDoubleClick = event.clickCount == 2
 
+        // Read track click — select a read and show its details
+        if let read = readAtPoint(location) {
+            selectedRead = read
+            NotificationCenter.default.post(
+                name: .readSelected,
+                object: self,
+                userInfo: [NotificationUserInfoKey.alignedRead: read]
+            )
+            isSelecting = false
+            setNeedsDisplay(bounds)
+            updateSelectionStatus()
+            return
+        }
+        // Clear read selection if clicking elsewhere
+        if selectedRead != nil {
+            selectedRead = nil
+            NotificationCenter.default.post(name: .readSelected, object: self, userInfo: nil)
+        }
+
         // Variant track click should route to variant selection instead of annotation selection.
         if let variant = variantAtPoint(location) {
             selectedAnnotation = variant
@@ -6575,6 +6618,29 @@ public class SequenceViewerView: NSView {
         lastHoveredGenotypeTooltipText = nil
         lastHoveredGenotypeStatusText = nil
 
+        // --- Read hit-testing ---
+        if let read = readAtPoint(location) {
+            if hoveredRead?.id != read.id {
+                hoveredRead = read
+                hoveredAnnotation = nil
+                let tooltip = readTooltipText(for: read)
+                hoverTooltip.show(text: tooltip, near: location, in: self)
+
+                if let controller = viewController {
+                    let strandStr = read.isReverse ? "(-)" : "(+)"
+                    let hoverSummary = "Read: \(read.name) \(strandStr) • MAPQ \(read.mapq) • \(read.referenceLength) bp"
+                    controller.statusBar.update(
+                        position: controller.statusBar.positionLabel.stringValue,
+                        selection: hoverSummary,
+                        scale: controller.referenceFrame?.scale ?? 1.0
+                    )
+                }
+            }
+            NSCursor.pointingHand.set()
+            return
+        }
+        hoveredRead = nil
+
         // --- Annotation hit-testing ---
         let annotation: SequenceAnnotation?
         if currentReferenceBundle != nil {
@@ -6923,6 +6989,89 @@ public class SequenceViewerView: NSView {
             }
         }
         return best?.annotation
+    }
+
+    // MARK: - Read Hit-Testing
+
+    /// Returns the aligned read at the given point, if any, using the cached packed layout.
+    ///
+    /// Hit-tests against the packed read rows from the most recent draw pass.
+    /// Returns nil in coverage tier (individual reads not visible).
+    private func readAtPoint(_ point: NSPoint) -> AlignedRead? {
+        guard !cachedPackedReads.isEmpty,
+              let frame = viewController?.referenceFrame else { return nil }
+
+        let tier = lastRenderedReadTier
+        guard tier != .coverage else { return nil }
+
+        let rowHeight: CGFloat
+        switch tier {
+        case .coverage: return nil
+        case .packed: rowHeight = ReadTrackRenderer.packedReadHeight + ReadTrackRenderer.rowGap
+        case .base: rowHeight = ReadTrackRenderer.baseReadHeight + ReadTrackRenderer.rowGap
+        }
+
+        let rY = lastRenderedReadY
+
+        // Check if point is in the read track area
+        let totalRows = (cachedPackedReads.map(\.row).max() ?? -1) + 1
+        let totalHeight = CGFloat(totalRows) * rowHeight
+        guard point.y >= rY && point.y < rY + totalHeight else { return nil }
+
+        // Determine which row the point is in
+        let rowIndex = Int((point.y - rY) / rowHeight)
+
+        // Find reads in this row and check horizontal position
+        for (row, read) in cachedPackedReads where row == rowIndex {
+            let startPx = frame.genomicToPixel(Double(read.position))
+            let endPx = frame.genomicToPixel(Double(read.alignmentEnd))
+            let readWidth = max(ReadTrackRenderer.minReadPixels, endPx - startPx)
+
+            if point.x >= startPx && point.x <= startPx + readWidth {
+                return read
+            }
+        }
+
+        return nil
+    }
+
+    /// Builds a tooltip string for an aligned read.
+    private func readTooltipText(for read: AlignedRead) -> String {
+        let strandStr = read.isReverse ? "(-)" : "(+)"
+        let cigarStr = read.cigarString
+        let mapqStr = "MAPQ: \(read.mapq)"
+        let posStr = "\(read.chromosome):\(read.position + 1)-\(read.alignmentEnd)"
+        let lenStr = "\(read.referenceLength) bp"
+
+        var lines = [
+            read.name,
+            "\(strandStr) \(posStr) (\(lenStr))",
+            "\(mapqStr) • CIGAR: \(cigarStr.prefix(40))\(cigarStr.count > 40 ? "..." : "")",
+        ]
+
+        if read.isPaired {
+            let pairStatus = read.isProperPair ? "Proper pair" : "Improper pair"
+            let mateStr: String
+            if let mateChr = read.mateChromosome, let matePos = read.matePosition {
+                mateStr = "\(mateChr):\(matePos + 1)"
+            } else {
+                mateStr = "unmapped"
+            }
+            lines.append("\(pairStatus) • Mate: \(mateStr)")
+            if read.insertSize != 0 {
+                lines.append("Insert size: \(read.insertSize)")
+            }
+        }
+
+        if let rg = read.readGroup {
+            lines.append("Read group: \(rg)")
+        }
+
+        if read.isSecondary { lines.append("Secondary alignment") }
+        if read.isSupplementary { lines.append("Supplementary alignment") }
+        if read.isDuplicate { lines.append("PCR/optical duplicate") }
+
+        return lines.joined(separator: "\n")
     }
 }
 
