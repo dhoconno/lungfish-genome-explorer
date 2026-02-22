@@ -120,6 +120,8 @@ public final class BAMImportService: @unchecked Sendable {
         let programRecords = SAMParser.parseProgramRecords(from: headerText)
         let headerRecord = SAMParser.parseHeaderRecord(from: headerText)
         let refSeqCount = SAMParser.referenceSequenceCount(from: headerText)
+        let refSequences = SAMParser.parseReferenceSequences(from: headerText)
+        let inferredRef = ReferenceInference.infer(from: refSequences)
 
         // 8. Create metadata database
         progressHandler?(0.7, "Creating metadata database...")
@@ -146,6 +148,23 @@ public final class BAMImportService: @unchecked Sendable {
             if let go = hd.groupOrder { metadataDB.setFileInfo("group_order", value: go) }
         }
         metadataDB.setFileInfo("reference_sequence_count", value: "\(refSeqCount)")
+
+        // Store reference inference results
+        if let assembly = inferredRef.assembly {
+            metadataDB.setFileInfo("inferred_assembly", value: assembly)
+        }
+        if let organism = inferredRef.organism {
+            metadataDB.setFileInfo("inferred_organism", value: organism)
+        }
+        if let naming = inferredRef.namingConvention {
+            metadataDB.setFileInfo("naming_convention", value: naming)
+        }
+        metadataDB.setFileInfo("inference_confidence", value: "\(inferredRef.confidence)")
+        metadataDB.setFileInfo("genome_size", value: "\(inferredRef.totalLength)")
+
+        if inferredRef.confidence >= .medium {
+            importLogger.info("Reference inference: \(inferredRef.assembly ?? "unknown") (\(inferredRef.organism ?? "?")) confidence=\(String(describing: inferredRef.confidence))")
+        }
 
         let mappedReads = metadataDB.totalMappedReads()
         let unmappedReads = metadataDB.totalUnmappedReads()

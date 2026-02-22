@@ -190,6 +190,68 @@ public enum SAMParser {
             .count
     }
 
+    /// A reference sequence from the SAM @SQ header line.
+    public struct ReferenceSequence: Sendable {
+        /// Sequence name (SN tag).
+        public let name: String
+        /// Sequence length (LN tag).
+        public let length: Int64
+        /// MD5 checksum (M5 tag, if present).
+        public let md5: String?
+        /// Assembly identifier (AS tag, if present).
+        public let assembly: String?
+        /// URI of the sequence (UR tag, if present).
+        public let uri: String?
+        /// Species (SP tag, if present).
+        public let species: String?
+    }
+
+    /// Parses @SQ header lines into reference sequence records.
+    ///
+    /// - Parameter headerText: Full SAM header text
+    /// - Returns: Array of reference sequences with names, lengths, and optional metadata
+    public static func parseReferenceSequences(from headerText: String) -> [ReferenceSequence] {
+        var sequences: [ReferenceSequence] = []
+
+        for line in headerText.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard line.hasPrefix("@SQ") else { continue }
+
+            var name: String?
+            var length: Int64?
+            var md5: String?
+            var assembly: String?
+            var uri: String?
+            var species: String?
+
+            let fields = line.split(separator: "\t")
+            for field in fields.dropFirst() {
+                let parts = field.split(separator: ":", maxSplits: 1)
+                guard parts.count == 2 else { continue }
+                let tag = parts[0]
+                let value = String(parts[1])
+
+                switch tag {
+                case "SN": name = value
+                case "LN": length = Int64(value)
+                case "M5": md5 = value
+                case "AS": assembly = value
+                case "UR": uri = value
+                case "SP": species = value
+                default: break
+                }
+            }
+
+            if let name, let length {
+                sequences.append(ReferenceSequence(
+                    name: name, length: length, md5: md5,
+                    assembly: assembly, uri: uri, species: species
+                ))
+            }
+        }
+
+        return sequences
+    }
+
     /// Extracts @CO (comment) lines from the header.
     public static func parseComments(from headerText: String) -> [String] {
         headerText.split(separator: "\n", omittingEmptySubsequences: true)
