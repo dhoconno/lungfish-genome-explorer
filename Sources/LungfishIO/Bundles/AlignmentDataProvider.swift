@@ -87,7 +87,8 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         end: Int,
         excludeFlags: UInt16 = 0x904,
         minMapQ: Int = 0,
-        maxReads: Int = 10_000
+        maxReads: Int = 10_000,
+        readGroups: Set<String> = []
     ) async throws -> [AlignedRead] {
         guard !chromosome.isEmpty, start >= 0, end > start else {
             throw AlignmentFetchError.invalidRegion("\(chromosome):\(start)-\(end)")
@@ -99,6 +100,11 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         arguments += ["-F", String(excludeFlags)]
         if minMapQ > 0 {
             arguments += ["-q", String(minMapQ)]
+        }
+
+        // Read group filter: -r includes reads from specific read groups
+        for rg in readGroups.sorted() {
+            arguments += ["-r", rg]
         }
 
         // CRAM needs reference

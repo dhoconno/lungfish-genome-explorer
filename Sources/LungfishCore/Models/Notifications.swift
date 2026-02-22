@@ -288,4 +288,10 @@ public enum NotificationUserInfoKey {
 
     /// Key for the aligned read in read selection notifications.
     public static let alignedRead = "alignedRead"
+
+    /// Key for the samtools exclude flags bitmask (UInt16).
+    public static let excludeFlags = "excludeFlags"
+
+    /// Key for the set of selected read group IDs to display (Set<String>, empty = all).
+    public static let selectedReadGroups = "selectedReadGroups"
 }

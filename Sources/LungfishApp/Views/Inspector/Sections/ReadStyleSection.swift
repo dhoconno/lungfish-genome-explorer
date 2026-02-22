@@ -33,6 +33,18 @@ public final class ReadStyleSectionViewModel {
     /// Minimum mapping quality filter (reads below this are hidden).
     public var minMapQ: Double = 0
 
+    /// Whether to show duplicate reads (SAM flag 0x400).
+    public var showDuplicates: Bool = false
+
+    /// Whether to show secondary alignments (SAM flag 0x100).
+    public var showSecondary: Bool = false
+
+    /// Whether to show supplementary alignments (SAM flag 0x800).
+    public var showSupplementary: Bool = false
+
+    /// Selected read group IDs to display (empty = show all).
+    public var selectedReadGroups: Set<String> = []
+
     /// Whether reads are currently visible in the viewer.
     public var showReads: Bool = true
 
@@ -73,6 +85,20 @@ public final class ReadStyleSectionViewModel {
 
     /// Alignment track names.
     public var trackNames: [String] = []
+
+    // MARK: - Computed Filters
+
+    /// Computes the samtools exclude flags bitmask from the toggle settings.
+    ///
+    /// Default excludes: unmapped (0x4) + secondary (0x100) + dup (0x400) + supplementary (0x800)
+    /// = 0x904 when showSecondary/showDuplicates/showSupplementary are all off.
+    public var computedExcludeFlags: UInt16 {
+        var flags: UInt16 = 0x4  // Always exclude unmapped
+        if !showSecondary { flags |= 0x100 }
+        if !showDuplicates { flags |= 0x400 }
+        if !showSupplementary { flags |= 0x800 }
+        return flags
+    }
 
     // MARK: - Selected Read Detail
 
@@ -499,6 +525,71 @@ public struct ReadStyleSection: View {
                 .onChange(of: viewModel.minMapQ) { _, _ in
                     viewModel.onSettingsChanged?()
                 }
+
+            Divider()
+
+            Text("Read Filters")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Toggle("Include Duplicates", isOn: $viewModel.showDuplicates)
+                .onChange(of: viewModel.showDuplicates) { _, _ in
+                    viewModel.onSettingsChanged?()
+                }
+
+            Toggle("Include Secondary", isOn: $viewModel.showSecondary)
+                .onChange(of: viewModel.showSecondary) { _, _ in
+                    viewModel.onSettingsChanged?()
+                }
+
+            Toggle("Include Supplementary", isOn: $viewModel.showSupplementary)
+                .onChange(of: viewModel.showSupplementary) { _, _ in
+                    viewModel.onSettingsChanged?()
+                }
+
+            // Read group filter (only show when multiple read groups exist)
+            if viewModel.readGroups.count > 1 {
+                Divider()
+
+                Text("Read Groups")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                ForEach(viewModel.readGroups) { rg in
+                    Toggle(isOn: Binding(
+                        get: {
+                            viewModel.selectedReadGroups.isEmpty || viewModel.selectedReadGroups.contains(rg.rgId)
+                        },
+                        set: { isOn in
+                            if viewModel.selectedReadGroups.isEmpty {
+                                // First deselection: enable all except this one
+                                var all = Set(viewModel.readGroups.map(\.rgId))
+                                if !isOn { all.remove(rg.rgId) }
+                                viewModel.selectedReadGroups = all
+                            } else if isOn {
+                                viewModel.selectedReadGroups.insert(rg.rgId)
+                                // If all are selected, reset to empty (= show all)
+                                if viewModel.selectedReadGroups.count == viewModel.readGroups.count {
+                                    viewModel.selectedReadGroups = []
+                                }
+                            } else {
+                                viewModel.selectedReadGroups.remove(rg.rgId)
+                            }
+                            viewModel.onSettingsChanged?()
+                        }
+                    )) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(rg.rgId)
+                                .font(.system(.caption, design: .monospaced))
+                            if let sample = rg.sample {
+                                Text(sample)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
 
             Divider()
 

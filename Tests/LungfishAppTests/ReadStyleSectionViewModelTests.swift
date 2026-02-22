@@ -20,6 +20,10 @@ final class ReadStyleSectionViewModelTests: XCTestCase {
         XCTAssertTrue(vm.showIndels)
         XCTAssertEqual(vm.minMapQ, 0)
         XCTAssertTrue(vm.showReads)
+        XCTAssertFalse(vm.showDuplicates)
+        XCTAssertFalse(vm.showSecondary)
+        XCTAssertFalse(vm.showSupplementary)
+        XCTAssertTrue(vm.selectedReadGroups.isEmpty)
         XCTAssertFalse(vm.hasAlignmentTracks)
     }
 
@@ -228,5 +232,71 @@ final class ReadStyleSectionViewModelTests: XCTestCase {
         let vm = ReadStyleSectionViewModel()
         XCTAssertTrue(vm.programRecords.isEmpty)
         XCTAssertTrue(vm.provenanceRecords.isEmpty)
+    }
+
+    // MARK: - Exclude Flags Computation
+
+    func testComputedExcludeFlagsDefault() {
+        let vm = ReadStyleSectionViewModel()
+        // Default: exclude unmapped(0x4) + secondary(0x100) + dup(0x400) + supplementary(0x800)
+        XCTAssertEqual(vm.computedExcludeFlags, 0x4 | 0x100 | 0x400 | 0x800)
+        XCTAssertEqual(vm.computedExcludeFlags, 0xD04)
+    }
+
+    func testComputedExcludeFlagsShowDuplicates() {
+        let vm = ReadStyleSectionViewModel()
+        vm.showDuplicates = true
+        // Should exclude unmapped + secondary + supplementary (not dup)
+        XCTAssertEqual(vm.computedExcludeFlags, 0x4 | 0x100 | 0x800)
+        XCTAssertEqual(vm.computedExcludeFlags, 0x904)
+    }
+
+    func testComputedExcludeFlagsShowSecondary() {
+        let vm = ReadStyleSectionViewModel()
+        vm.showSecondary = true
+        // Should exclude unmapped + dup + supplementary (not secondary)
+        XCTAssertEqual(vm.computedExcludeFlags, 0x4 | 0x400 | 0x800)
+        XCTAssertEqual(vm.computedExcludeFlags, 0xC04)
+    }
+
+    func testComputedExcludeFlagsShowSupplementary() {
+        let vm = ReadStyleSectionViewModel()
+        vm.showSupplementary = true
+        // Should exclude unmapped + secondary + dup (not supplementary)
+        XCTAssertEqual(vm.computedExcludeFlags, 0x4 | 0x100 | 0x400)
+        XCTAssertEqual(vm.computedExcludeFlags, 0x504)
+    }
+
+    func testComputedExcludeFlagsShowAll() {
+        let vm = ReadStyleSectionViewModel()
+        vm.showDuplicates = true
+        vm.showSecondary = true
+        vm.showSupplementary = true
+        // Only unmapped excluded
+        XCTAssertEqual(vm.computedExcludeFlags, 0x4)
+    }
+
+    func testComputedExcludeFlagsAlwaysExcludesUnmapped() {
+        let vm = ReadStyleSectionViewModel()
+        vm.showDuplicates = true
+        vm.showSecondary = true
+        vm.showSupplementary = true
+        // Bit 0x4 always set
+        XCTAssertTrue(vm.computedExcludeFlags & 0x4 != 0)
+    }
+
+    // MARK: - Read Group Selection
+
+    func testSelectedReadGroupsDefaultEmpty() {
+        let vm = ReadStyleSectionViewModel()
+        XCTAssertTrue(vm.selectedReadGroups.isEmpty, "Empty means show all")
+    }
+
+    func testSelectedReadGroupsFiltering() {
+        let vm = ReadStyleSectionViewModel()
+        vm.selectedReadGroups = ["RG1", "RG3"]
+        XCTAssertTrue(vm.selectedReadGroups.contains("RG1"))
+        XCTAssertTrue(vm.selectedReadGroups.contains("RG3"))
+        XCTAssertFalse(vm.selectedReadGroups.contains("RG2"))
     }
 }

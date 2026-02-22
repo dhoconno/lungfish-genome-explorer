@@ -824,6 +824,8 @@ public class InspectorViewController: NSViewController {
                     NotificationUserInfoKey.showMismatches: vm.showMismatches,
                     NotificationUserInfoKey.showSoftClips: vm.showSoftClips,
                     NotificationUserInfoKey.showIndels: vm.showIndels,
+                    NotificationUserInfoKey.excludeFlags: vm.computedExcludeFlags,
+                    NotificationUserInfoKey.selectedReadGroups: vm.selectedReadGroups,
                 ]
             )
         }

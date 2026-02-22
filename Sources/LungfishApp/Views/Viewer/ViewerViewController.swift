@@ -746,9 +746,17 @@ public class ViewerViewController: NSViewController {
         if let show = userInfo[NotificationUserInfoKey.showIndels] as? Bool {
             viewerView.showIndelsSetting = show
         }
+        if let flags = userInfo[NotificationUserInfoKey.excludeFlags] as? UInt16 {
+            viewerView.excludeFlagsSetting = flags
+        }
+        if let rgs = userInfo[NotificationUserInfoKey.selectedReadGroups] as? Set<String> {
+            viewerView.selectedReadGroupsSetting = rgs
+        }
 
-        // Force read refetch if MAPQ filter changed (filters are applied at fetch time)
-        if userInfo[NotificationUserInfoKey.minMapQ] != nil {
+        // Force read refetch if fetch-time filters changed
+        if userInfo[NotificationUserInfoKey.minMapQ] != nil
+            || userInfo[NotificationUserInfoKey.excludeFlags] != nil
+            || userInfo[NotificationUserInfoKey.selectedReadGroups] != nil {
             viewerView.cachedReadRegion = nil
         }
 
@@ -1944,6 +1952,13 @@ public class SequenceViewerView: NSView {
 
     /// Whether to show insertions/deletions (configurable from Inspector)
     var showIndelsSetting: Bool = true
+
+    /// Exclude flags bitmask for samtools view (configurable from Inspector)
+    /// Default: unmapped(0x4) + secondary(0x100) + dup(0x400) + supplementary(0x800) = 0xD04
+    var excludeFlagsSetting: UInt16 = 0xD04
+
+    /// Selected read group IDs to display (empty = show all)
+    var selectedReadGroupsSetting: Set<String> = []
 
     /// Alignment data providers for each imported alignment track
     private var alignmentDataProviders: [(trackId: String, provider: AlignmentDataProvider)] = []
@@ -3691,8 +3706,10 @@ public class SequenceViewerView: NSView {
         // Translate reference chromosome name to BAM chromosome name (e.g., MN908947 → MN908947.3)
         let bamChromosome = alignmentChromosomeName(for: region.chromosome)
         let mapQFilter = minMapQSetting
+        let excludeFlags = excludeFlagsSetting
+        let readGroupFilter = selectedReadGroupsSetting
 
-        logger.info("fetchReadsAsync: gen=\(thisGeneration), Fetching reads for \(expandedRegion.description) (BAM chrom: \(bamChromosome), minMAPQ: \(mapQFilter))")
+        logger.info("fetchReadsAsync: gen=\(thisGeneration), Fetching reads for \(expandedRegion.description) (BAM chrom: \(bamChromosome), minMAPQ: \(mapQFilter), flags: 0x\(String(excludeFlags, radix: 16)))")
 
         Task.detached { [weak self] in
             var allReads: [AlignedRead] = []
@@ -3702,7 +3719,9 @@ public class SequenceViewerView: NSView {
                         chromosome: bamChromosome,
                         start: expandedStart,
                         end: expandedEnd,
-                        minMapQ: mapQFilter
+                        excludeFlags: excludeFlags,
+                        minMapQ: mapQFilter,
+                        readGroups: readGroupFilter
                     )
                     allReads.append(contentsOf: reads)
                 } catch {
