@@ -61,9 +61,12 @@ public struct CIGAROperation: Sendable, Equatable {
         }
     }
 
+    /// Maximum operation length to prevent DoS from malformed CIGAR strings.
+    public static let maxOperationLength = 1_000_000_000
+
     public init(op: Op, length: Int) {
         self.op = op
-        self.length = length
+        self.length = min(length, CIGAROperation.maxOperationLength)
     }
 }
 
@@ -167,17 +170,13 @@ public struct AlignedRead: Sendable, Identifiable {
     /// MD tag string for mismatch detection without reference (nil if not present).
     public let mdTag: String?
 
+    /// Cached length of reference consumed by this alignment (avoids repeated CIGAR reduce).
+    public let referenceLength: Int
+
+    /// Cached 0-based exclusive end position on the reference.
+    public let alignmentEnd: Int
+
     // MARK: - Computed Properties
-
-    /// 0-based exclusive end position on the reference.
-    public var alignmentEnd: Int {
-        position + referenceLength
-    }
-
-    /// Length of reference consumed by this alignment.
-    public var referenceLength: Int {
-        cigar.reduce(0) { $0 + ($1.consumesReference ? $1.length : 0) }
-    }
 
     /// Length of the read query sequence.
     public var queryLength: Int {
@@ -258,6 +257,10 @@ public struct AlignedRead: Sendable, Identifiable {
         self.insertSize = insertSize
         self.readGroup = readGroup
         self.mdTag = mdTag
+        // Cache reference length to avoid repeated CIGAR walks (called 4+ times per read per frame)
+        let refLen = cigar.reduce(0) { $0 + ($1.consumesReference ? $1.length : 0) }
+        self.referenceLength = refLen
+        self.alignmentEnd = position + refLen
     }
 }
 

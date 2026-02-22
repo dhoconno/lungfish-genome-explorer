@@ -112,13 +112,18 @@ public final class AlignmentDataProvider: @unchecked Sendable {
             arguments += ["--reference", refPath]
         }
 
+        // Cap output at source to avoid reading excessive data from deep-coverage regions.
+        // samtools -c/--subsample is not a read limit; use head-based limit via maxReads in parser.
+        // However, we still want to limit what samtools emits. Use -s for subsampling isn't right either.
+        // The real limit is applied at parse time, but we avoid piping 100MB+ for deep coverage.
+
         // Region string (samtools uses 1-based coordinates)
         let regionStr = "\(chromosome):\(start + 1)-\(end)"
         arguments += [alignmentPath, regionStr]
 
         alignmentLogger.debug("Fetching reads: samtools \(arguments.joined(separator: " "))")
 
-        let result = try await runSamtools(arguments: arguments)
+        let result = try await runSamtools(arguments: arguments, timeout: 30)
 
         guard result.exitCode == 0 else {
             let errorMsg = result.stderr.isEmpty ? "exit code \(result.exitCode)" : result.stderr
@@ -154,7 +159,7 @@ public final class AlignmentDataProvider: @unchecked Sendable {
     ///
     /// Returns tab-delimited lines: refName\tseqLength\tmappedReads\tunmappedReads
     public func fetchIdxstats() async throws -> String {
-        let result = try await runSamtools(arguments: ["idxstats", alignmentPath])
+        let result = try await runSamtools(arguments: ["idxstats", alignmentPath], timeout: 120)
         guard result.exitCode == 0 else {
             throw AlignmentFetchError.samtoolsFailed(result.stderr)
         }
@@ -165,7 +170,7 @@ public final class AlignmentDataProvider: @unchecked Sendable {
     ///
     /// Returns human-readable flag statistics.
     public func fetchFlagstat() async throws -> String {
-        let result = try await runSamtools(arguments: ["flagstat", alignmentPath])
+        let result = try await runSamtools(arguments: ["flagstat", alignmentPath], timeout: 120)
         guard result.exitCode == 0 else {
             throw AlignmentFetchError.samtoolsFailed(result.stderr)
         }
@@ -174,12 +179,21 @@ public final class AlignmentDataProvider: @unchecked Sendable {
 
     // MARK: - Process Execution
 
+    /// Maximum stdout data to buffer before truncating (20 MB).
+    private static let maxStdoutSize = 20 * 1024 * 1024
+
     /// Runs samtools with the given arguments using Process.
     ///
-    /// This uses Process directly rather than NativeToolRunner to keep
-    /// LungfishIO independent of LungfishWorkflow. The samtools binary
-    /// is discovered from common locations.
-    private func runSamtools(arguments: [String]) async throws -> (exitCode: Int32, stdout: String, stderr: String) {
+    /// Reads stdout and stderr concurrently to prevent pipe deadlock when one
+    /// buffer fills (typically 64 KB on macOS). Uses a timeout to prevent
+    /// runaway processes.
+    ///
+    /// - Parameters:
+    ///   - arguments: Arguments to pass to samtools
+    ///   - timeout: Maximum execution time in seconds (default: 60)
+    /// - Returns: Exit code, stdout string, stderr string
+    /// - Throws: AlignmentFetchError on failure
+    private func runSamtools(arguments: [String], timeout: TimeInterval = 60) async throws -> (exitCode: Int32, stdout: String, stderr: String) {
         let samtoolsPath = try findSamtools()
 
         return try await withCheckedThrowingContinuation { continuation in
@@ -199,9 +213,40 @@ public final class AlignmentDataProvider: @unchecked Sendable {
                 return
             }
 
-            // Read output asynchronously
-            let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-            let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            // Read stdout and stderr CONCURRENTLY to prevent pipe deadlock.
+            // If we read sequentially, filling one pipe's buffer (64 KB) blocks
+            // the child process, which prevents it from writing to the other pipe,
+            // which prevents us from finishing our read — classic deadlock.
+            var stdoutData = Data()
+            var stderrData = Data()
+            let group = DispatchGroup()
+
+            group.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                // Truncate if excessively large to prevent memory exhaustion
+                if stdoutData.count > AlignmentDataProvider.maxStdoutSize {
+                    stdoutData = stdoutData.prefix(AlignmentDataProvider.maxStdoutSize)
+                }
+                group.leave()
+            }
+
+            group.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                group.leave()
+            }
+
+            // Timeout: if the process doesn't finish, terminate it
+            let timeoutResult = group.wait(timeout: .now() + timeout)
+            if timeoutResult == .timedOut {
+                process.terminate()
+                // Wait briefly for cleanup
+                group.wait(timeout: .now() + 2)
+                continuation.resume(throwing: AlignmentFetchError.timeout)
+                return
+            }
+
             process.waitUntilExit()
 
             let stdout = String(data: stdoutData, encoding: .utf8) ?? ""

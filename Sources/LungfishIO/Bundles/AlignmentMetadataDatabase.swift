@@ -168,8 +168,8 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
         defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_text(stmt, 1, (key as NSString).utf8String, -1, nil)
-        sqlite3_bind_text(stmt, 2, (value as NSString).utf8String, -1, nil)
+        bindText(stmt, 1, key)
+        bindText(stmt, 2, value)
         sqlite3_step(stmt)
     }
 
@@ -179,7 +179,7 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
         defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_text(stmt, 1, (key as NSString).utf8String, -1, nil)
+        bindText(stmt, 1, key)
         guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
         return String(cString: sqlite3_column_text(stmt, 0))
     }
@@ -220,7 +220,7 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
         defer { sqlite3_finalize(stmt) }
 
-        sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
+        bindText(stmt, 1, id)
         bindOptionalText(stmt, 2, sample)
         bindOptionalText(stmt, 3, library)
         bindOptionalText(stmt, 4, platform)
@@ -295,7 +295,7 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
         defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_text(stmt, 1, (chromosome as NSString).utf8String, -1, nil)
+        bindText(stmt, 1, chromosome)
         sqlite3_bind_int64(stmt, 2, sqlite3_int64(length))
         sqlite3_bind_int64(stmt, 3, sqlite3_int64(mapped))
         sqlite3_bind_int64(stmt, 4, sqlite3_int64(unmapped))
@@ -348,7 +348,7 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
         defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_text(stmt, 1, (category as NSString).utf8String, -1, nil)
+        bindText(stmt, 1, category)
         sqlite3_bind_int64(stmt, 2, sqlite3_int64(qcPass))
         sqlite3_bind_int64(stmt, 3, sqlite3_int64(qcFail))
         sqlite3_step(stmt)
@@ -405,7 +405,7 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
         defer { sqlite3_finalize(stmt) }
-        sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
+        bindText(stmt, 1, id)
         bindOptionalText(stmt, 2, name)
         bindOptionalText(stmt, 3, version)
         bindOptionalText(stmt, 4, commandLine)
@@ -472,13 +472,13 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return -1 }
         defer { sqlite3_finalize(stmt) }
 
-        sqlite3_bind_text(stmt, 1, (tool as NSString).utf8String, -1, nil)
+        bindText(stmt, 1, tool)
         bindOptionalText(stmt, 2, subcommand)
         bindOptionalText(stmt, 3, version)
-        sqlite3_bind_text(stmt, 4, (command as NSString).utf8String, -1, nil)
+        bindText(stmt, 4, command)
 
         let formatter = ISO8601DateFormatter()
-        sqlite3_bind_text(stmt, 5, (formatter.string(from: timestamp) as NSString).utf8String, -1, nil)
+        bindText(stmt, 5, formatter.string(from: timestamp))
 
         bindOptionalText(stmt, 6, inputFile)
         bindOptionalText(stmt, 7, outputFile)
@@ -552,9 +552,18 @@ public final class AlignmentMetadataDatabase: @unchecked Sendable {
 
     // MARK: - Helpers
 
+    /// SQLITE_TRANSIENT tells SQLite to copy the string data immediately,
+    /// preventing use-after-free when the NSString temporary is deallocated
+    /// before sqlite3_step executes.
+    private static let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+
+    private func bindText(_ stmt: OpaquePointer?, _ index: Int32, _ value: String) {
+        sqlite3_bind_text(stmt, index, (value as NSString).utf8String, -1, AlignmentMetadataDatabase.sqliteTransient)
+    }
+
     private func bindOptionalText(_ stmt: OpaquePointer?, _ index: Int32, _ value: String?) {
         if let value {
-            sqlite3_bind_text(stmt, index, (value as NSString).utf8String, -1, nil)
+            sqlite3_bind_text(stmt, index, (value as NSString).utf8String, -1, AlignmentMetadataDatabase.sqliteTransient)
         } else {
             sqlite3_bind_null(stmt, index)
         }
