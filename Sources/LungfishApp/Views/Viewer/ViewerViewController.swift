@@ -2143,7 +2143,8 @@ public class SequenceViewerView: NSView {
     private let coverageStripHeight: CGFloat = ReadTrackRenderer.coverageTrackHeight
 
     /// Consensus strip height rendered below coverage.
-    private let consensusStripHeight: CGFloat = 16
+    /// Must match the sequence track height so reference/consensus cells are visually identical.
+    private var consensusStripHeight: CGFloat { trackHeight }
 
     /// Spacing between coverage and consensus rows.
     private let coverageToConsensusGap: CGFloat = 2
@@ -3224,8 +3225,8 @@ public class SequenceViewerView: NSView {
 
         let visibleRegion = GenomicRegion(
             chromosome: frame.chromosome,
-            start: Int(frame.start),
-            end: Int(frame.end)
+            start: max(0, Int(frame.start)),
+            end: max(Int(frame.start) + 1, Int(ceil(frame.end)))
         )
         let scale = frame.scale  // bp/pixel
         let needsSequence = scale < showLineThreshold  // Only fetch sequence when it would be visible
@@ -4191,6 +4192,7 @@ public class SequenceViewerView: NSView {
                     minDepth: minDepth,
                     excludeFlags: excludeFlags,
                     useAmbiguity: useAmbiguity,
+                    showDeletions: true,
                     showInsertions: false
                 )
                 if result.sequence.isEmpty, bamChromosome != region.chromosome {
@@ -4204,6 +4206,7 @@ public class SequenceViewerView: NSView {
                         minDepth: minDepth,
                         excludeFlags: excludeFlags,
                         useAmbiguity: useAmbiguity,
+                        showDeletions: true,
                         showInsertions: false
                     )
                     if !fallback.sequence.isEmpty {
@@ -4346,7 +4349,7 @@ public class SequenceViewerView: NSView {
                 frame: frame,
                 context: context,
                 rowRect: rect,
-                font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+                font: NSFont.monospacedSystemFont(ofSize: 12, weight: .medium)
             )
         } else if scale < showLineThreshold {
             // Zoomed out: render as simple colored blocks aggregated by base runs.
@@ -4733,8 +4736,9 @@ public class SequenceViewerView: NSView {
         cachedRegion: GenomicRegion,
         frame: ReferenceFrame
     ) -> VisibleSequenceSlice? {
-        let visibleStart = Int(floor(frame.start))
-        let visibleEnd = Int(ceil(frame.end))
+        let viewport = visibleViewportBaseRange(frame: frame)
+        let visibleStart = viewport.lowerBound
+        let visibleEnd = viewport.upperBound
         guard visibleEnd > visibleStart else { return nil }
 
         let overlapStart = max(visibleStart, cachedRegion.start)
@@ -4753,6 +4757,14 @@ public class SequenceViewerView: NSView {
             sequence: String(sequenceString[startIndex..<endIndex]),
             startPosition: overlapStart
         )
+    }
+
+    /// Visible genomic base range using the same rounding semantics across
+    /// sequence rendering, consensus rendering, and viewport selection.
+    private func visibleViewportBaseRange(frame: ReferenceFrame) -> Range<Int> {
+        let lower = max(0, Int(frame.start))
+        let upper = max(lower + 1, Int(ceil(frame.end)))
+        return lower..<upper
     }
 
     /// Converts a source consensus string into a fixed target genomic window.

@@ -265,6 +265,7 @@ public final class AlignmentDataProvider: @unchecked Sendable {
     ///   - minDepth: Minimum depth threshold.
     ///   - excludeFlags: Flag bits to exclude.
     ///   - useAmbiguity: Whether to emit IUPAC ambiguity codes.
+    ///   - showDeletions: Whether to include deleted reference columns (`*`) in output.
     ///   - showInsertions: Whether to include inserted bases in output.
     /// - Returns: Consensus sequence in uppercase letters.
     public func fetchConsensus(
@@ -277,6 +278,7 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         minDepth: Int = 1,
         excludeFlags: UInt16 = 0x904,
         useAmbiguity: Bool = false,
+        showDeletions: Bool = true,
         showInsertions: Bool = false
     ) async throws -> ConsensusFASTAResult {
         guard !chromosome.isEmpty, start >= 0, end > start else {
@@ -299,6 +301,9 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         if excludeFlags != 0 {
             arguments += ["--ff", String(excludeFlags)]
         }
+        // Keep deleted reference columns so consensus coordinates remain 1:1 with
+        // reference coordinates across the full region (prevents progressive drift).
+        arguments += ["--show-del", showDeletions ? "yes" : "no"]
         arguments += ["--show-ins", showInsertions ? "yes" : "no"]
         if useAmbiguity {
             arguments.append("-A")

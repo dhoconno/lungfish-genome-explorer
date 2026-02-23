@@ -282,6 +282,17 @@ final class AlignmentDataProviderTests: XCTestCase {
         XCTAssertNil(result.headerStart)
     }
 
+    func testParseConsensusFASTAPreservesDeletionMarkers() {
+        let fasta = """
+        >chr1:11-20
+        AC*GT**TAA
+        """
+        let result = AlignmentDataProvider.parseConsensusFASTA(fasta)
+        XCTAssertEqual(result.sequence, "AC*GT**TAA")
+        XCTAssertEqual(result.sequence.count, 10)
+        XCTAssertEqual(result.headerStart, 10)
+    }
+
     func testParseConsensusFASTAEmpty() {
         let result = AlignmentDataProvider.parseConsensusFASTA("")
         XCTAssertTrue(result.sequence.isEmpty)
