@@ -225,6 +225,19 @@ final class AlignedReadTests: XCTestCase {
         XCTAssertEqual(insertions[1].bases, "T")
     }
 
+    func testInsertionsMergeAcrossPadding() {
+        let read = makeRead(
+            position: 100,
+            cigar: "3M1I2P2I2M",
+            sequence: "ACGTGGTT"
+        )
+
+        let insertions = read.insertions
+        XCTAssertEqual(insertions.count, 1)
+        XCTAssertEqual(insertions[0].position, 103)
+        XCTAssertEqual(insertions[0].bases, "TGG")
+    }
+
     func testSendable() {
         let read = makeRead()
         let sendableCheck: @Sendable () -> String = { read.name }

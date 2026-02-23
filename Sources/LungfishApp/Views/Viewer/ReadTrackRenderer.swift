@@ -649,7 +649,41 @@ public enum ReadTrackRenderer {
             sorted = reads.sorted { abs($0.insertSize) < abs($1.insertSize) }
         case .baseAtPosition:
             if let pos = sortPosition {
-                sorted = reads.sorted { baseAtRefPos($0, pos: pos) < baseAtRefPos($1, pos: pos) }
+                // Sort by allele rarity at the focal position so minority/variant
+                // reads are surfaced in the first visible rows when deeply stacked.
+                var baseCounts: [UInt8: Int] = [:]
+                baseCounts.reserveCapacity(8)
+                for read in reads {
+                    let base = baseAtRefPos(read, pos: pos)
+                    guard base != 255 else { continue }
+                    baseCounts[base, default: 0] += 1
+                }
+
+                sorted = reads.sorted {
+                    let lhsBase = baseAtRefPos($0, pos: pos)
+                    let rhsBase = baseAtRefPos($1, pos: pos)
+
+                    if lhsBase == rhsBase {
+                        if $0.position != $1.position {
+                            return $0.position < $1.position
+                        }
+                        return $0.name < $1.name
+                    }
+
+                    let lhsMissing = (lhsBase == 255)
+                    let rhsMissing = (rhsBase == 255)
+                    if lhsMissing != rhsMissing {
+                        return !lhsMissing // reads covering the focal base first
+                    }
+
+                    let lhsCount = baseCounts[lhsBase] ?? Int.max
+                    let rhsCount = baseCounts[rhsBase] ?? Int.max
+                    if lhsCount != rhsCount {
+                        return lhsCount < rhsCount // rarer alleles first
+                    }
+
+                    return lhsBase < rhsBase
+                }
             } else {
                 sorted = reads.sorted { $0.position < $1.position }
             }
@@ -1492,11 +1526,13 @@ public enum ReadTrackRenderer {
         y: CGFloat,
         readHeight: CGFloat
     ) {
+        let pixelsPerBase = 1.0 / frame.scale
+        let labelColor = NSColor(cgColor: insertionColor) ?? NSColor.magenta
         for ins in read.insertions {
             let x = frame.genomicToPixel(Double(ins.position))
             // Vertical line
             context.setFillColor(insertionColor)
-            context.fill(CGRect(x: x - 0.5, y: y, width: 1, height: readHeight))
+            context.fill(CGRect(x: x - 0.8, y: y, width: 1.6, height: readHeight))
 
             // Small triangle pointing down
             let trianglePath = CGMutablePath()
@@ -1507,16 +1543,37 @@ public enum ReadTrackRenderer {
             context.addPath(trianglePath)
             context.fillPath()
 
-            // Insertion length label if > 1 base
-            if ins.bases.count > 1 {
-                let label = "I\(ins.bases.count)" as NSString
+            if let labelText = insertionLabel(for: ins.bases, pixelsPerBase: pixelsPerBase) {
+                let label = labelText as NSString
                 let attrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.monospacedDigitSystemFont(ofSize: 7, weight: .medium),
-                    .foregroundColor: NSColor(cgColor: insertionColor) ?? NSColor.magenta
+                    .font: NSFont.monospacedSystemFont(ofSize: 7, weight: .semibold),
+                    .foregroundColor: labelColor
                 ]
-                label.draw(at: CGPoint(x: x + 2, y: y), withAttributes: attrs)
+                label.draw(at: CGPoint(x: x + 2, y: y + 0.5), withAttributes: attrs)
             }
         }
+    }
+
+    /// Returns a compact insertion label suitable for the current zoom level.
+    private static func insertionLabel(for bases: String, pixelsPerBase: Double) -> String? {
+        let count = bases.count
+        guard count > 0 else { return nil }
+
+        // In base view (>= ~1.7 px/base), show the inserted sequence identity.
+        // For long insertions, truncate while preserving total length.
+        if pixelsPerBase >= 1.5 {
+            let upper = bases.uppercased()
+            if count <= 6 {
+                return "+\(upper)"
+            }
+            return "+\(String(upper.prefix(6)))...(\(count))"
+        }
+
+        // Packed-like zoom fallback: length-only marker.
+        if count > 1 {
+            return "I\(count)"
+        }
+        return nil
     }
 
     /// Draws the overflow indicator bar at the bottom of the track.

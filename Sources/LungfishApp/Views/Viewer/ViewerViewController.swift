@@ -3554,10 +3554,20 @@ public class SequenceViewerView: NSView {
                         let readsForPacking = cachedAlignedReads.filter { read in
                             read.alignmentEnd > packStart && read.position < packEnd
                         }
+
+                        // In deep base-level stacks, prioritize rows that show minority alleles
+                        // near the viewport center so SNP evidence remains visible after zooming in.
+                        let shouldPrioritizeCenterAlleles = tier == .base && readsForPacking.count > 120
+                        let centerPosition = (visibleRegion.start + visibleRegion.end) / 2
+                        let sortMode: ReadSortMode = shouldPrioritizeCenterAlleles ? .baseAtPosition : .position
+                        let sortPosition: Int? = shouldPrioritizeCenterAlleles ? centerPosition : nil
+
                         let (packed, packOverflow) = ReadTrackRenderer.packReads(
                             readsForPacking,
                             frame: frame,
                             maxRows: maxRowsLimit,
+                            sortMode: sortMode,
+                            sortPosition: sortPosition,
                             prioritizedRegion: visibleRegion.start..<visibleRegion.end
                         )
                         cachedPackedReads = packed

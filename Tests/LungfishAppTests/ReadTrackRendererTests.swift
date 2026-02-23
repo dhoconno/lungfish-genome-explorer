@@ -1233,9 +1233,41 @@ final class ReadTrackRendererTests: XCTestCase {
             sortMode: .baseAtPosition, sortPosition: 105
         )
         XCTAssertEqual(packed.count, 2)
-        // A (65) < T (84) in ASCII
+        // Equal allele counts fall back to base identity ordering.
         XCTAssertEqual(packed[0].read.name, "withA")
         XCTAssertEqual(packed[1].read.name, "withT")
+    }
+
+    func testPackReadsSortByBaseAtPositionPrioritizesMinorAllele() {
+        let frame = makeFrame(start: 0, end: 1000, pixelWidth: 1000)
+        let major1 = AlignedRead(
+            name: "major1", flag: 0, chromosome: "chr1", position: 100,
+            mapq: 60, cigar: [CIGAROperation(op: .match, length: 50)],
+            sequence: String(repeating: "A", count: 50),
+            qualities: Array(repeating: 30, count: 50)
+        )
+        let major2 = AlignedRead(
+            name: "major2", flag: 0, chromosome: "chr1", position: 100,
+            mapq: 60, cigar: [CIGAROperation(op: .match, length: 50)],
+            sequence: String(repeating: "A", count: 50),
+            qualities: Array(repeating: 30, count: 50)
+        )
+        let minor = AlignedRead(
+            name: "minorT", flag: 0, chromosome: "chr1", position: 100,
+            mapq: 60, cigar: [CIGAROperation(op: .match, length: 50)],
+            sequence: "AAAAATAAAA" + String(repeating: "A", count: 40), // T at refPos 105
+            qualities: Array(repeating: 30, count: 50)
+        )
+
+        let (packed, _) = ReadTrackRenderer.packReads(
+            [major1, major2, minor],
+            frame: frame,
+            sortMode: .baseAtPosition,
+            sortPosition: 105
+        )
+
+        XCTAssertEqual(packed.count, 3)
+        XCTAssertEqual(packed[0].read.name, "minorT")
     }
 
     func testPackReadsSortByBaseAtPositionNoPosition() {

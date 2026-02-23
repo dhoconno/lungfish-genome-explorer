@@ -416,7 +416,14 @@ extension AlignedRead {
             case .insertion:
                 let endIndex = sequence.index(queryPos, offsetBy: min(op.length, sequence.distance(from: queryPos, to: sequence.endIndex)))
                 let bases = String(sequence[queryPos..<endIndex])
-                result.append((refPos, bases))
+                // Padded CIGAR alignments may represent one biological insertion as
+                // consecutive I operations at the same reference position (e.g. I-P-I).
+                // Merge those so rendering shows a single insertion event and label.
+                if let last = result.last, last.0 == refPos {
+                    result[result.count - 1].1.append(contentsOf: bases)
+                } else {
+                    result.append((refPos, bases))
+                }
                 queryPos = endIndex
 
             case .deletion, .skip:
