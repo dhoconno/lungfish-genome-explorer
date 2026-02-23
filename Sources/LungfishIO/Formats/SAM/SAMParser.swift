@@ -346,7 +346,7 @@ public enum SAMParser {
         if qualString == "*" {
             qualities = []
         } else {
-            qualities = qualString.utf8.map { max(0, $0 - 33) }
+            qualities = qualString.utf8.map { UInt8(max(0, Int($0) - 33)) }
         }
 
         // Optional tags (fields 11+)

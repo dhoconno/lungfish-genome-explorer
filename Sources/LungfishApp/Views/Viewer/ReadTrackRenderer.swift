@@ -88,8 +88,6 @@ public enum ReadTrackRenderer {
     static let insertionColor = NSColor(red: 0.8, green: 0, blue: 0.8, alpha: 1.0).cgColor
     /// Deletion line color.
     static let deletionColor = NSColor.gray.cgColor
-    /// Mismatch indicator color for packed mode (bright red).
-    static let mismatchTickColor = NSColor(red: 0.9, green: 0.15, blue: 0.1, alpha: 1.0).cgColor
     /// Soft-clip indicator color for packed mode (blue-gray).
     static let softClipColor = NSColor(red: 0.5, green: 0.6, blue: 0.75, alpha: 0.6).cgColor
 
@@ -540,7 +538,7 @@ public enum ReadTrackRenderer {
         var low = 0
         var high = depthPoints.count - 1
         while low <= high {
-            let mid = (low + high) >> 1
+            let mid = low + (high - low) / 2
             let point = depthPoints[mid]
             if point.position == position {
                 return point.depth
@@ -600,6 +598,9 @@ public enum ReadTrackRenderer {
         public var consensusMaskingEnabled: Bool = false
         public var consensusGapThreshold: Double = 0.9
         public var consensusMinDepth: Int = 8
+        /// When true, forward reads have blue-tinted backgrounds and reverse reads
+        /// have pink-tinted backgrounds. When false, all reads share a neutral background.
+        public var showStrandColors: Bool = true
 
         public init(
             showMismatches: Bool = true,
@@ -607,7 +608,8 @@ public enum ReadTrackRenderer {
             showIndels: Bool = true,
             consensusMaskingEnabled: Bool = false,
             consensusGapThreshold: Double = 0.9,
-            consensusMinDepth: Int = 8
+            consensusMinDepth: Int = 8,
+            showStrandColors: Bool = true
         ) {
             self.showMismatches = showMismatches
             self.showSoftClips = showSoftClips
@@ -615,6 +617,7 @@ public enum ReadTrackRenderer {
             self.consensusMaskingEnabled = consensusMaskingEnabled
             self.consensusGapThreshold = consensusGapThreshold
             self.consensusMinDepth = consensusMinDepth
+            self.showStrandColors = showStrandColors
         }
     }
 
@@ -746,7 +749,6 @@ public enum ReadTrackRenderer {
                     let newRow = rowEndPixels.count
                     rowEndPixels.append(endPx)
                     packed.append((newRow, read))
-                    placed = true
                 }
             }
         }
@@ -788,13 +790,23 @@ public enum ReadTrackRenderer {
 
         // Pre-compute CGColor cache for (strand, mapqBin) combinations to avoid per-read allocs.
         // mapqAlpha returns 5 distinct values × 2 strands × 2 (fill/stroke) = 20 cached colors.
+        let useStrandColors = settings.showStrandColors
+        let neutralFillPacked = NSColor(red: 0.78, green: 0.78, blue: 0.78, alpha: 1.0).cgColor
+        let neutralStrokePacked = NSColor(red: 0.62, green: 0.62, blue: 0.62, alpha: 1.0).cgColor
         var colorCache: [UInt16: (fill: CGColor, stroke: CGColor)] = [:]
         func cachedColors(isReverse: Bool, mapq: UInt8) -> (fill: CGColor, stroke: CGColor) {
             let key = UInt16(isReverse ? 1 : 0) << 8 | UInt16(mapq)
             if let cached = colorCache[key] { return cached }
             let alpha = mapqAlpha(mapq)
-            let fill = (isReverse ? reverseReadColor : forwardReadColor).copy(alpha: alpha)!
-            let stroke = (isReverse ? reverseReadStroke : forwardReadStroke).copy(alpha: alpha)!
+            let fill: CGColor
+            let stroke: CGColor
+            if useStrandColors {
+                fill = (isReverse ? reverseReadColor : forwardReadColor).copy(alpha: alpha)!
+                stroke = (isReverse ? reverseReadStroke : forwardReadStroke).copy(alpha: alpha)!
+            } else {
+                fill = neutralFillPacked.copy(alpha: alpha)!
+                stroke = neutralStrokePacked.copy(alpha: alpha)!
+            }
             colorCache[key] = (fill, stroke)
             return (fill, stroke)
         }
@@ -919,6 +931,9 @@ public enum ReadTrackRenderer {
         // Pre-compute background colors for each strand to avoid per-read alloc
         let fwdBgTemplate = NSColor(red: 0.84, green: 0.89, blue: 0.95, alpha: 1.0).cgColor
         let revBgTemplate = NSColor(red: 0.95, green: 0.86, blue: 0.86, alpha: 1.0).cgColor
+        let neutralBgTemplate = NSColor(red: 0.90, green: 0.90, blue: 0.90, alpha: 1.0).cgColor
+        let neutralStroke = NSColor(red: 0.72, green: 0.72, blue: 0.72, alpha: 1.0).cgColor
+        let useStrandColors = settings.showStrandColors
 
         for (row, read) in packedReads {
             let y = rect.minY + CGFloat(row) * (readHeight + metrics.rowGap)
@@ -936,10 +951,17 @@ public enum ReadTrackRenderer {
             let endPx = frame.genomicToPixel(Double(read.alignmentEnd))
             let readRect = CGRect(x: startPx, y: y, width: endPx - startPx, height: readHeight)
             let bgAlpha = max(0.35, alpha * 0.72)
-            let bgColor = (read.isReverse ? revBgTemplate : fwdBgTemplate).copy(alpha: bgAlpha)!
+            let bgColor: CGColor
+            let borderColor: CGColor
+            if useStrandColors {
+                bgColor = (read.isReverse ? revBgTemplate : fwdBgTemplate).copy(alpha: bgAlpha)!
+                borderColor = (read.isReverse ? reverseReadStroke : forwardReadStroke).copy(alpha: max(0.45, alpha * 0.7))!
+            } else {
+                bgColor = neutralBgTemplate.copy(alpha: bgAlpha)!
+                borderColor = neutralStroke.copy(alpha: max(0.45, alpha * 0.7))!
+            }
             context.setFillColor(bgColor)
             context.fill(readRect)
-            let borderColor = (read.isReverse ? reverseReadStroke : forwardReadStroke).copy(alpha: max(0.45, alpha * 0.7))!
             context.setStrokeColor(borderColor)
             context.setLineWidth(0.6)
             context.stroke(readRect.insetBy(dx: 0.25, dy: 0.25))
@@ -1033,14 +1055,22 @@ public enum ReadTrackRenderer {
         let cache = glyphCache
         let renderMatchesAsDots = shouldRenderMatchAsDot(showMismatches: showMismatches, pixelsPerBase: pixelsPerBase)
 
-        // Pre-compute alpha-modulated colors (5 base colors + match dot + soft clip variants)
-        let matchDotAlpha = matchDotColor.copy(alpha: alpha)!
+        // Pre-compute alpha-modulated colors (Geneious-style: all bases colored by identity)
         let mismatchAlpha = max(alpha, 0.85)
         let colorA = baseA.copy(alpha: mismatchAlpha)!
         let colorT = baseT.copy(alpha: mismatchAlpha)!
         let colorC = baseC.copy(alpha: mismatchAlpha)!
         let colorG = baseG.copy(alpha: mismatchAlpha)!
         let colorN = baseN.copy(alpha: mismatchAlpha)!
+        // Match bases: colored but slightly dimmer than mismatches
+        let matchAlpha = max(alpha * 0.72, 0.48)
+        let matchColorA = baseA.copy(alpha: matchAlpha)!
+        let matchColorT = baseT.copy(alpha: matchAlpha)!
+        let matchColorC = baseC.copy(alpha: matchAlpha)!
+        let matchColorG = baseG.copy(alpha: matchAlpha)!
+        let matchColorN = baseN.copy(alpha: matchAlpha)!
+        // Dot mode: use gray dots for matches (clear visual distinction)
+        let matchDotAlpha = matchDotColor.copy(alpha: alpha)!
         let mdMismatchPositions = read.mdTag.map { mismatchPositionsFromMDTag($0, readStart: read.position) }
 
         // Baseline offset: center glyph vertically using ascent/descent
@@ -1108,20 +1138,24 @@ public enum ReadTrackRenderer {
                     let color: CGColor
 
                     if !isMatch {
-                        // Mismatches: ALWAYS shown as colored base letters
+                        // Mismatches: colored background fill + white letter (Geneious-style)
+                        let baseColor = colorForByte(upperByte, a: colorA, t: colorT, c: colorC, g: colorG, n: colorN)
+                        context.setFillColor(baseColor.copy(alpha: 0.55) ?? baseColor)
+                        context.fill(CGRect(x: x, y: y, width: cellWidth, height: readHeight))
                         glyph = cache.glyphs[upperByte] ?? cache.dotGlyph
                         glyphWidth = cache.advances[upperByte]?.width ?? cache.dotAdvance.width
-                        color = colorForByte(upperByte, a: colorA, t: colorT, c: colorC, g: colorG, n: colorN)
+                        // White letter on colored background for readability
+                        color = CGColor(gray: 1.0, alpha: max(alpha, 0.9))
                     } else if renderMatchesAsDots {
-                        // Mismatch highlight mode (default): matches shown as dots
+                        // Dot mode: matches shown as dots
                         glyph = cache.dotGlyph
                         glyphWidth = cache.dotAdvance.width
                         color = matchDotAlpha
                     } else {
-                        // Full sequence mode: matches shown as neutral-colored letters
+                        // Full sequence mode: matches shown as nucleotide-colored letters
                         glyph = cache.glyphs[upperByte] ?? cache.dotGlyph
                         glyphWidth = cache.advances[upperByte]?.width ?? cache.dotAdvance.width
-                        color = matchDotAlpha
+                        color = colorForByte(upperByte, a: matchColorA, t: matchColorT, c: matchColorC, g: matchColorG, n: matchColorN)
                     }
 
                     let drawX = x + (cellWidth - glyphWidth) / 2
@@ -1207,37 +1241,39 @@ public enum ReadTrackRenderer {
                 let explicitMismatch = (op.op == .seqMismatch)
                 for _ in 0..<op.length {
                     guard let readByte = seqIterator.next() else { refPos += 1; continue }
+                    if maskedPositions.contains(refPos) || explicitMatch {
+                        refPos += 1
+                        continue
+                    }
+
                     let upperRead = readByte & 0xDF
-
                     let refIdx = refPos - referenceStart
-                    refPos += 1
-                    let refPosition = refPos - 1
-                    if maskedPositions.contains(refPosition) { continue }
-
-                    if explicitMatch { continue }
 
                     let isMismatch: Bool
                     if explicitMismatch {
                         isMismatch = true
                     } else if refIdx >= 0, refIdx < refBytes.count {
                         let upperRef = refBytes[refIdx]
+                        if upperRead == 0x4E || upperRef == 0x4E { refPos += 1; continue }
                         isMismatch = !isEquivalentBase(upperRead, upperRef)
-                        guard upperRead != 0x4E && upperRef != 0x4E else { continue }
                     } else {
+                        refPos += 1
                         continue
                     }
-                    guard isMismatch else { continue }
-                    guard upperRead != 0x4E else { continue } // Skip ambiguous read base
 
-                    let x = frame.genomicToPixel(Double(refPosition))
-                    let px = Int(x)
-                    guard px != lastMismatchPixel else { continue }
-                    lastMismatchPixel = px
+                    if isMismatch, upperRead != 0x4E {
+                        let x = frame.genomicToPixel(Double(refPos))
+                        let px = Int(x)
+                        if px != lastMismatchPixel {
+                            lastMismatchPixel = px
+                            let tickWidth = max(1.0, min(CGFloat(pixelsPerBase), 3.2))
+                            let tickColor = colorForByte(upperRead, a: colorA, t: colorT, c: colorC, g: colorG, n: colorN)
+                            context.setFillColor(tickColor)
+                            context.fill(CGRect(x: x, y: y, width: tickWidth, height: readHeight))
+                        }
+                    }
 
-                    let tickWidth = max(1.0, min(CGFloat(pixelsPerBase), 3.2))
-                    let tickColor = colorForByte(upperRead, a: colorA, t: colorT, c: colorC, g: colorG, n: colorN)
-                    context.setFillColor(tickColor)
-                    context.fill(CGRect(x: x, y: y, width: tickWidth, height: readHeight))
+                    refPos += 1
                 }
 
             case .insertion:
@@ -1263,7 +1299,9 @@ public enum ReadTrackRenderer {
     private static func uppercaseASCIIBytes(_ s: String) -> [UInt8] {
         var bytes = Array(s.utf8)
         for i in bytes.indices {
-            bytes[i] &= 0xDF
+            if bytes[i] >= 0x61, bytes[i] <= 0x7A { // a-z
+                bytes[i] &= 0xDF
+            }
         }
         return bytes
     }

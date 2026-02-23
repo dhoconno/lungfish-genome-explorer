@@ -752,6 +752,9 @@ public class ViewerViewController: NSViewController {
         if let show = userInfo[NotificationUserInfoKey.showIndels] as? Bool {
             viewerView.showIndelsSetting = show
         }
+        if let show = userInfo[NotificationUserInfoKey.showStrandColors] as? Bool {
+            viewerView.showStrandColorsSetting = show
+        }
         if let enabled = userInfo[NotificationUserInfoKey.consensusMaskingEnabled] as? Bool {
             viewerView.consensusMaskingEnabledSetting = enabled
         }
@@ -1639,9 +1642,15 @@ public class ViewerViewController: NSViewController {
     public func updateStatusBar() {
         guard let frame = referenceFrame else { return }
         // Preserve selection info if we have one from the viewer
-        let selectionInfo = viewerView.selectionRange.map { range in
+        let selectionInfo: String?
+        if viewerView.isUserColumnSelection, let range = viewerView.selectionRange {
             let length = range.upperBound - range.lowerBound
-            return "Visible: \(range.lowerBound + 1)-\(range.upperBound) (\(length.formatted()) bp)"
+            selectionInfo = "Selected: \(range.lowerBound + 1)-\(range.upperBound) (\(length.formatted()) bp)"
+        } else {
+            selectionInfo = viewerView.selectionRange.map { range in
+                let length = range.upperBound - range.lowerBound
+                return "Visible: \(range.lowerBound + 1)-\(range.upperBound) (\(length.formatted()) bp)"
+            }
         }
         statusBar.update(
             position: "\(frame.chromosome):\(Int(frame.start))-\(Int(frame.end))",
@@ -2044,6 +2053,9 @@ public class SequenceViewerView: NSView {
     /// Whether to show insertions/deletions (configurable from Inspector)
     var showIndelsSetting: Bool = true
 
+    /// Whether to tint read backgrounds by strand direction.
+    var showStrandColorsSetting: Bool = true
+
     /// Whether to mask columns that are mostly gaps (consensus-style filtering).
     var consensusMaskingEnabledSetting: Bool = false
 
@@ -2081,8 +2093,14 @@ public class SequenceViewerView: NSView {
     /// Currently hovered read (for tooltip caching)
     private var hoveredRead: AlignedRead?
 
-    /// Currently selected read (for inspector display)
-    var selectedRead: AlignedRead?
+    /// Set of read UUIDs currently selected (for multi-read selection).
+    var selectedReadIDs: Set<UUID> = []
+
+    /// Currently selected read (for inspector display — first selected read).
+    var selectedRead: AlignedRead? {
+        guard let firstID = selectedReadIDs.first else { return nil }
+        return cachedPackedReads.first(where: { $0.read.id == firstID })?.read
+    }
 
     /// Cached packed reads for hit-testing (updated during draw)
     private var cachedPackedReads: [(row: Int, read: AlignedRead)] = []
@@ -2152,6 +2170,13 @@ public class SequenceViewerView: NSView {
 
     /// Last logged selection render signature (used to suppress per-frame log spam).
     private var lastSelectionRenderSignature: String?
+
+    /// Whether the current selectionRange was set by user click/drag.
+    /// When true, ensureVisibleViewportSelection() will not overwrite it.
+    var isUserColumnSelection = false
+
+    /// Genomic position where the user started a column-selection drag.
+    private var columnDragStartBase: Int?
 
     /// Currently selected annotation (nil if no annotation selected).
     /// Internal so the AnnotationDrawer extension can set it from table selection.
@@ -3037,6 +3062,9 @@ public class SequenceViewerView: NSView {
     /// Dynamic freehand region selection is intentionally disabled; extraction always operates
     /// on the visible region (or a selected annotation via annotation menus).
     private func ensureVisibleViewportSelection(frame: ReferenceFrame) {
+        // Do not overwrite a user-initiated column selection
+        guard !isUserColumnSelection else { return }
+
         let lower = max(0, Int(frame.start))
         let upper = max(lower + 1, Int(ceil(frame.end)))
         let viewportRange = lower..<upper
@@ -3044,7 +3072,6 @@ public class SequenceViewerView: NSView {
         selectionRange = viewportRange
         selectionStartBase = lower
         isSelecting = false
-        logger.debug("ensureVisibleViewportSelection: synced to viewport \(lower)-\(upper) on \(frame.chromosome, privacy: .public)")
     }
 
     /// Clears the current reference bundle.
@@ -3443,7 +3470,8 @@ public class SequenceViewerView: NSView {
                 showIndels: showIndelsSetting,
                 consensusMaskingEnabled: consensusMaskingEnabledSetting,
                 consensusGapThreshold: Double(consensusGapThresholdPercentSetting) / 100.0,
-                consensusMinDepth: consensusMinDepthSetting
+                consensusMinDepth: consensusMinDepthSetting,
+                showStrandColors: showStrandColorsSetting
             )
 
             // Coverage strip is always visible.
@@ -3555,19 +3583,11 @@ public class SequenceViewerView: NSView {
                             read.alignmentEnd > packStart && read.position < packEnd
                         }
 
-                        // In deep base-level stacks, prioritize rows that show minority alleles
-                        // near the viewport center so SNP evidence remains visible after zooming in.
-                        let shouldPrioritizeCenterAlleles = tier == .base && readsForPacking.count > 120
-                        let centerPosition = (visibleRegion.start + visibleRegion.end) / 2
-                        let sortMode: ReadSortMode = shouldPrioritizeCenterAlleles ? .baseAtPosition : .position
-                        let sortPosition: Int? = shouldPrioritizeCenterAlleles ? centerPosition : nil
-
                         let (packed, packOverflow) = ReadTrackRenderer.packReads(
                             readsForPacking,
                             frame: frame,
                             maxRows: maxRowsLimit,
-                            sortMode: sortMode,
-                            sortPosition: sortPosition,
+                            sortMode: .position,
                             prioritizedRegion: visibleRegion.start..<visibleRegion.end
                         )
                         cachedPackedReads = packed
@@ -3661,6 +3681,9 @@ public class SequenceViewerView: NSView {
             }
         }
 
+        // Draw selection overlays on top of all content
+        drawColumnSelectionHighlight(frame: frame, context: context)
+        drawSelectedReadHighlights(frame: frame, context: context)
     }
 
     /// Fetches annotations asynchronously for the visible region from SQLite annotation databases.
@@ -4201,7 +4224,15 @@ public class SequenceViewerView: NSView {
                         return
                     }
                     viewer.cachedConsensusSequence = consensus.isEmpty ? nil : consensus
-                    viewer.cachedConsensusRegion = expandedRegion
+                    // Adjust the cached region end to reflect actual data length.
+                    // samtools consensus truncates trailing uncovered positions so the
+                    // returned string may be shorter than the requested region.
+                    let actualEnd = expandedRegion.start + consensus.count
+                    viewer.cachedConsensusRegion = GenomicRegion(
+                        chromosome: expandedRegion.chromosome,
+                        start: expandedRegion.start,
+                        end: min(expandedRegion.end, actualEnd)
+                    )
                     viewer.cachedConsensusOptionsSignature = optionsSignature
                     viewer.isFetchingConsensus = false
                     logger.info("fetchConsensusAsync: Cached consensus length=\(consensus.count)")
@@ -5697,136 +5728,75 @@ public class SequenceViewerView: NSView {
 
         // Draw sequence info header
         drawSequenceInfo(seq, frame: frame, context: context)
+
+        // Draw column selection overlay
+        drawColumnSelectionHighlight(frame: frame, context: context)
     }
 
-    /// Draws the selection highlight overlay with edge handles.
-    /// The overlay spans the full viewport height to make extraction regions explicit.
-    private func drawSelectionHighlight(frame: ReferenceFrame, context: CGContext) {
-        guard let range = selectionRange else { return }
+    /// Draws a Geneious-style column selection highlight spanning the full view height.
+    private func drawColumnSelectionHighlight(frame: ReferenceFrame, context: CGContext) {
+        guard isUserColumnSelection, let range = selectionRange else { return }
 
-        let visibleBases = frame.end - frame.start
-        let pixelsPerBase = bounds.width / CGFloat(max(1, visibleBases))
-
-        // Calculate screen coordinates for selection
-        let startX = CGFloat(range.lowerBound - Int(frame.start)) * pixelsPerBase
-        let endX = CGFloat(range.upperBound - Int(frame.start)) * pixelsPerBase
+        let startX = frame.screenPosition(for: Double(range.lowerBound))
+        let endX = frame.screenPosition(for: Double(range.upperBound))
         let clippedStartX = max(0, startX)
         let clippedEndX = min(bounds.width, endX)
-        let clippedWidth = max(0, clippedEndX - clippedStartX)
-        guard clippedWidth > 0 else { return }
+        let width = clippedEndX - clippedStartX
+        guard width > 0 else { return }
 
-        let signature = "\(range.lowerBound)-\(range.upperBound)|\(Int(clippedStartX.rounded()))-\(Int(clippedEndX.rounded()))"
-        if signature != lastSelectionRenderSignature {
-            logger.info("drawSelectionHighlight: range=\(range.lowerBound)-\(range.upperBound), x=\(clippedStartX, format: .fixed(precision: 1))-\(clippedEndX, format: .fixed(precision: 1)), width=\(clippedWidth, format: .fixed(precision: 1))")
-            lastSelectionRenderSignature = signature
-        }
-
-        // Full-height selection highlight (covers sequence + annotation + variant areas).
-        let fullRect = CGRect(
-            x: clippedStartX,
-            y: 0,
-            width: clippedWidth,
-            height: bounds.height
-        )
-
-        let accent = NSColor.controlAccentColor
-
-        // Draw selection highlight fill.
         context.saveGState()
-        context.setFillColor(accent.withAlphaComponent(0.18).cgColor)
-        context.fill(fullRect)
 
-        // Add subtle diagonal hatching so wide selections remain obvious at all zoom levels.
-        context.saveGState()
-        context.clip(to: fullRect)
-        context.setStrokeColor(accent.withAlphaComponent(0.22).cgColor)
+        // Full-height dark navy column fill (Geneious style)
+        let columnRect = CGRect(x: clippedStartX, y: 0, width: width, height: bounds.height)
+        context.setFillColor(NSColor(red: 0.15, green: 0.22, blue: 0.42, alpha: 0.40).cgColor)
+        context.fill(columnRect)
+
+        // Edge lines at selection boundaries
+        context.setStrokeColor(NSColor(red: 0.15, green: 0.22, blue: 0.42, alpha: 0.75).cgColor)
         context.setLineWidth(1)
-        let stripeStep: CGFloat = 14
-        var stripeX = fullRect.minX - fullRect.height
-        while stripeX < fullRect.maxX + fullRect.height {
-            context.move(to: CGPoint(x: stripeX, y: 0))
-            context.addLine(to: CGPoint(x: stripeX + fullRect.height, y: bounds.height))
-            stripeX += stripeStep
+        if clippedStartX > 0 {
+            context.move(to: CGPoint(x: clippedStartX, y: 0))
+            context.addLine(to: CGPoint(x: clippedStartX, y: bounds.height))
+        }
+        if clippedEndX < bounds.width {
+            context.move(to: CGPoint(x: clippedEndX, y: 0))
+            context.addLine(to: CGPoint(x: clippedEndX, y: bounds.height))
         }
         context.strokePath()
+
         context.restoreGState()
+    }
 
-        // Sequence track highlight (brighter for immediate visibility).
-        let seqRect = CGRect(
-            x: clippedStartX,
-            y: trackY,
-            width: clippedWidth,
-            height: trackHeight
-        )
-        context.setFillColor(accent.withAlphaComponent(0.40).cgColor)
-        context.fill(seqRect)
+    /// Draws dark blue overlay highlights on selected reads.
+    private func drawSelectedReadHighlights(frame: ReferenceFrame, context: CGContext) {
+        guard !selectedReadIDs.isEmpty else { return }
 
-        // Draw full-height edge rails.
-        context.setStrokeColor(accent.cgColor)
-        context.setLineWidth(2)
-        context.move(to: CGPoint(x: clippedStartX, y: 0))
-        context.addLine(to: CGPoint(x: clippedStartX, y: bounds.height))
-        context.move(to: CGPoint(x: clippedEndX, y: 0))
-        context.addLine(to: CGPoint(x: clippedEndX, y: bounds.height))
-        context.strokePath()
+        let metrics = ReadTrackRenderer.layoutMetrics(verticalCompress: verticallyCompressContigSetting)
+        let tier = lastRenderedReadTier
+        guard tier != .coverage else { return }
 
-        // Draw a high-contrast frame so the selection is visible in light/dark backgrounds.
-        let primaryFrame = fullRect.insetBy(dx: 1.5, dy: 1.5)
-        context.setStrokeColor(NSColor.black.withAlphaComponent(0.35).cgColor)
-        context.setLineWidth(3)
-        context.stroke(primaryFrame)
-        context.setStrokeColor(accent.withAlphaComponent(0.98).cgColor)
-        context.setLineWidth(1.5)
-        context.stroke(primaryFrame.insetBy(dx: 1.5, dy: 1.5))
+        let rowHeight: CGFloat = tier == .base ? metrics.baseReadHeight : metrics.packedReadHeight
+        let rY = lastRenderedReadY
 
-        // When selection spans the full visible width, vertical rails are hard to perceive at
-        // the clipped edges. Draw top/bottom boundary bars as an explicit extraction frame.
-        let fullWidthSelection = clippedStartX <= 3 && clippedEndX >= bounds.width - 3
-        let wideSelection = fullWidthSelection || clippedWidth >= (bounds.width * 0.85)
-        if wideSelection {
-            context.setStrokeColor(accent.withAlphaComponent(0.95).cgColor)
-            context.setLineWidth(3)
-            context.move(to: CGPoint(x: 0, y: 1.5))
-            context.addLine(to: CGPoint(x: bounds.width, y: 1.5))
-            context.move(to: CGPoint(x: 0, y: bounds.height - 1.5))
-            context.addLine(to: CGPoint(x: bounds.width, y: bounds.height - 1.5))
-            context.strokePath()
+        context.saveGState()
 
-            // Add an inset frame to make full-width selections unambiguous.
-            let insetRect = CGRect(x: 2, y: 2, width: max(0, bounds.width - 4), height: max(0, bounds.height - 4))
-            context.setStrokeColor(accent.withAlphaComponent(0.85).cgColor)
-            context.setLineWidth(2)
-            context.stroke(insetRect)
+        for (row, read) in cachedPackedReads {
+            guard selectedReadIDs.contains(read.id) else { continue }
+
+            let startPx = frame.screenPosition(for: Double(read.position))
+            let endPx = frame.screenPosition(for: Double(read.alignmentEnd))
+            let y = rY + CGFloat(row) * (rowHeight + metrics.rowGap) - readScrollOffset
+            let readRect = CGRect(x: startPx, y: y, width: endPx - startPx, height: rowHeight)
+
+            // Dark blue overlay (Geneious style)
+            context.setFillColor(NSColor(red: 0.15, green: 0.22, blue: 0.50, alpha: 0.50).cgColor)
+            context.fill(readRect)
+
+            // Border
+            context.setStrokeColor(NSColor(red: 0.2, green: 0.3, blue: 0.6, alpha: 0.85).cgColor)
+            context.setLineWidth(1)
+            context.stroke(readRect)
         }
-
-        // Draw visible-region coordinate badge near the top edge.
-        let startLabel = NumberFormatter.localizedString(from: NSNumber(value: range.lowerBound + 1), number: .decimal)
-        let endLabel = NumberFormatter.localizedString(from: NSNumber(value: range.upperBound), number: .decimal)
-        let badgeText = "Visible Region \(startLabel)-\(endLabel)" as NSString
-        let badgeAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
-            .foregroundColor: NSColor.labelColor
-        ]
-        let badgeSize = badgeText.size(withAttributes: badgeAttrs)
-        let badgePaddingX: CGFloat = 8
-        let badgePaddingY: CGFloat = 4
-        let badgeWidth = badgeSize.width + (badgePaddingX * 2)
-        let badgeHeight = badgeSize.height + (badgePaddingY * 2)
-        let badgeX = min(max(6, clippedStartX + 8), bounds.width - badgeWidth - 6)
-        let badgeRect = CGRect(x: badgeX, y: 6, width: badgeWidth, height: badgeHeight)
-
-        let badgePath = CGPath(roundedRect: badgeRect, cornerWidth: 6, cornerHeight: 6, transform: nil)
-        context.setFillColor(NSColor.windowBackgroundColor.withAlphaComponent(0.9).cgColor)
-        context.addPath(badgePath)
-        context.fillPath()
-        context.setStrokeColor(accent.withAlphaComponent(0.9).cgColor)
-        context.setLineWidth(1.5)
-        context.addPath(badgePath)
-        context.strokePath()
-        badgeText.draw(
-            at: CGPoint(x: badgeRect.minX + badgePaddingX, y: badgeRect.minY + badgePaddingY),
-            withAttributes: badgeAttrs
-        )
 
         context.restoreGState()
     }
@@ -6666,27 +6636,42 @@ public class SequenceViewerView: NSView {
 
         let location = convert(event.locationInWindow, from: nil)
         let isDoubleClick = event.clickCount == 2
+        let hasCmd = event.modifierFlags.contains(.command)
+        let hasShift = event.modifierFlags.contains(.shift)
 
-        // Read track click — select a read and show its details
+        // 1. Read track click — with Cmd/Shift modifier support for multi-select
         if let read = readAtPoint(location) {
-            selectedRead = read
+            if hasCmd {
+                // Cmd+click: toggle read in/out of selection
+                if selectedReadIDs.contains(read.id) {
+                    selectedReadIDs.remove(read.id)
+                } else {
+                    selectedReadIDs.insert(read.id)
+                }
+            } else if hasShift {
+                // Shift+click: add to selection
+                selectedReadIDs.insert(read.id)
+            } else {
+                // Plain click: replace selection with this read
+                selectedReadIDs = [read.id]
+            }
             NotificationCenter.default.post(
                 name: .readSelected,
                 object: self,
-                userInfo: [NotificationUserInfoKey.alignedRead: read]
+                userInfo: selectedRead.map { [NotificationUserInfoKey.alignedRead: $0] }
             )
             isSelecting = false
             setNeedsDisplay(bounds)
             updateSelectionStatus()
             return
         }
-        // Clear read selection if clicking elsewhere
-        if selectedRead != nil {
-            selectedRead = nil
+        // Clear read selection if clicking elsewhere (unless modifier held)
+        if !selectedReadIDs.isEmpty && !hasCmd && !hasShift {
+            selectedReadIDs.removeAll()
             NotificationCenter.default.post(name: .readSelected, object: self, userInfo: nil)
         }
 
-        // Variant track click should route to variant selection instead of annotation selection.
+        // 2. Variant track click — route to variant selection
         if let variant = variantAtPoint(location) {
             selectedAnnotation = variant
             postVariantSelectedNotificationIfNeeded(variant)
@@ -6696,9 +6681,8 @@ public class SequenceViewerView: NSView {
             return
         }
 
-        // Check for annotation click — bundle mode, multi-sequence mode, or single-sequence mode
+        // 3. Check for annotation click — bundle mode, multi-sequence mode, or single-sequence mode
         if currentReferenceBundle != nil {
-            // Bundle mode: use bundle-specific hit testing
             if let annotation = bundleAnnotationAtPoint(location) {
                 selectedAnnotation = annotation
                 postAnnotationSelectedNotification(annotation)
@@ -6712,7 +6696,6 @@ public class SequenceViewerView: NSView {
                 return
             }
         } else if isMultiSequenceMode, let state = multiSequenceState {
-            // Multi-sequence mode: check each track for annotation click
             for stackedInfo in state.stackedSequences {
                 if let annotation = annotationAtPoint(location, forSequence: stackedInfo, frame: frame) {
                     selectedAnnotation = annotation
@@ -6729,7 +6712,6 @@ public class SequenceViewerView: NSView {
                 }
             }
         } else {
-            // Single-sequence mode: use original method
             if let annotation = annotationAtPoint(location) {
                 selectedAnnotation = annotation
                 postAnnotationSelectedNotification(annotation)
@@ -6745,9 +6727,8 @@ public class SequenceViewerView: NSView {
             }
         }
 
-        // If click is in the annotation track area but not on an annotation, deselect
+        // Clear annotation selection if clicking in annotation area but not on one
         if selectedAnnotation != nil {
-            // In multi-sequence mode, check if clicking in any track's annotation area
             var inAnnotationArea = false
             if isMultiSequenceMode, let state = multiSequenceState {
                 for stackedInfo in state.stackedSequences {
@@ -6763,22 +6744,39 @@ public class SequenceViewerView: NSView {
             if inAnnotationArea {
                 selectedAnnotation = nil
                 postAnnotationSelectedNotification(nil)
-                setNeedsDisplay(bounds)
             }
         }
 
-        // Dynamic viewport sub-selection is intentionally disabled.
-        ensureVisibleViewportSelection(frame: frame)
+        // 4. No object hit — begin column selection
+        let clickedBase = basePositionAt(x: location.x, frame: frame)
+        columnDragStartBase = clickedBase
+        isUserColumnSelection = true
+        selectionRange = clickedBase..<(clickedBase + 1)
+        isSelecting = true
         setNeedsDisplay(bounds)
         updateSelectionStatus()
     }
 
     public override func mouseDragged(with event: NSEvent) {
-        // Intentionally disabled: dynamic selection drag.
+        guard isSelecting,
+              let frame = viewController?.referenceFrame,
+              let dragStart = columnDragStartBase else { return }
+
+        let location = convert(event.locationInWindow, from: nil)
+        let currentBase = basePositionAt(x: location.x, frame: frame)
+
+        let lower = min(dragStart, currentBase)
+        let upper = max(dragStart, currentBase) + 1
+        selectionRange = lower..<upper
+        isUserColumnSelection = true
+
+        setNeedsDisplay(bounds)
+        updateSelectionStatus()
     }
 
     public override func mouseUp(with event: NSEvent) {
         isSelecting = false
+        columnDragStartBase = nil
     }
 
     // MARK: - Right-Click Context Menu
@@ -7461,20 +7459,25 @@ public class SequenceViewerView: NSView {
 
     // MARK: - Selection Helpers
 
-    /// Converts screen X coordinate to base position
+    /// Converts screen X coordinate to base position using the reference frame.
+    /// Works in both single-sequence mode and bundle mode.
     private func basePositionAt(x: CGFloat, frame: ReferenceFrame) -> Int {
-        guard let seq = sequence else { return 0 }
-        let visibleBases = frame.end - frame.start
-        let basesPerPixel = visibleBases / Double(bounds.width)
-        let baseOffset = Double(x) * basesPerPixel
-        let basePosition = Int(frame.start + baseOffset)
-        return max(0, min(seq.length - 1, basePosition))
+        let pos = Int(frame.genomicPosition(for: x))
+        return max(0, min(frame.sequenceLength - 1, pos))
     }
 
     /// Selects the entire sequence
     public func selectAll() {
-        guard let seq = sequence else { return }
-        selectionRange = 0..<seq.length
+        let length: Int
+        if let seq = sequence {
+            length = seq.length
+        } else if let frame = viewController?.referenceFrame {
+            length = frame.sequenceLength
+        } else {
+            return
+        }
+        selectionRange = 0..<length
+        isUserColumnSelection = true
         setNeedsDisplay(bounds)
         updateSelectionStatus()
     }
@@ -7489,15 +7492,21 @@ public class SequenceViewerView: NSView {
         selectionRange = lower..<upper
         selectionStartBase = lower
         isSelecting = false
-        logger.info("selectVisibleRegion: selected \(lower)-\(upper) on \(frame.chromosome, privacy: .public)")
+        isUserColumnSelection = false
         setNeedsDisplay(bounds)
         updateSelectionStatus()
     }
 
-    /// Clears the current selection
+    /// Clears the current selection (column, read, and annotation).
     public func clearSelection() {
         selectionRange = nil
         selectionStartBase = nil
+        isUserColumnSelection = false
+        columnDragStartBase = nil
+        if !selectedReadIDs.isEmpty {
+            selectedReadIDs.removeAll()
+            NotificationCenter.default.post(name: .readSelected, object: self, userInfo: nil)
+        }
         setNeedsDisplay(bounds)
         updateSelectionStatus()
     }
@@ -7529,23 +7538,29 @@ public class SequenceViewerView: NSView {
         logger.info("Copied \(end - start) bases to clipboard")
     }
 
-    /// Updates the status bar with visible-region info.
+    /// Updates the status bar with selection info.
     private func updateSelectionStatus() {
-        if let range = selectionRange {
+        var parts: [String] = []
+
+        if isUserColumnSelection, let range = selectionRange {
             let length = range.upperBound - range.lowerBound
-            let selectionText = "Visible: \(range.lowerBound + 1)-\(range.upperBound) (\(length.formatted()) bp)"
-            viewController?.statusBar.update(
-                position: viewController?.statusBar.positionLabel.stringValue,
-                selection: selectionText,
-                scale: viewController?.referenceFrame?.scale ?? 1.0
-            )
-        } else {
-            viewController?.statusBar.update(
-                position: viewController?.statusBar.positionLabel.stringValue,
-                selection: nil,
-                scale: viewController?.referenceFrame?.scale ?? 1.0
-            )
+            parts.append("Selected: \(range.lowerBound + 1)-\(range.upperBound) (\(length.formatted()) bp)")
+        } else if let range = selectionRange {
+            let length = range.upperBound - range.lowerBound
+            parts.append("Visible: \(range.lowerBound + 1)-\(range.upperBound) (\(length.formatted()) bp)")
         }
+
+        if !selectedReadIDs.isEmpty {
+            let count = selectedReadIDs.count
+            parts.append("\(count) read\(count == 1 ? "" : "s") selected")
+        }
+
+        let selectionText = parts.isEmpty ? nil : parts.joined(separator: " | ")
+        viewController?.statusBar.update(
+            position: viewController?.statusBar.positionLabel.stringValue,
+            selection: selectionText,
+            scale: viewController?.referenceFrame?.scale ?? 1.0
+        )
     }
 
     // MARK: - Hover Tooltip (Bundle Mode)

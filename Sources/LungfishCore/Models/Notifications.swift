@@ -192,6 +192,13 @@ extension Notification.Name {
     /// The `userInfo` dictionary contains:
     /// - `"annotation"`: The `SequenceAnnotation` whose reverse complement to copy.
     public static let copyAnnotationReverseComplementRequested = Notification.Name("copyAnnotationReverseComplementRequested")
+
+    /// Posted when an operation starts, completes, fails, or is cancelled.
+    ///
+    /// The `userInfo` dictionary contains:
+    /// - `"operationID"`: The `UUID` of the affected operation.
+    /// - `"operationState"`: The state as a raw `String` ("running", "completed", "failed").
+    public static let operationStateChanged = Notification.Name("operationStateChanged")
 }
 
 // MARK: - Notification UserInfo Keys
@@ -329,4 +336,7 @@ public enum NotificationUserInfoKey {
 
     /// Key for the set of selected read group IDs to display (Set<String>, empty = all).
     public static let selectedReadGroups = "selectedReadGroups"
+
+    /// Key for strand-colored read backgrounds toggle (Bool).
+    public static let showStrandColors = "showStrandColors"
 }

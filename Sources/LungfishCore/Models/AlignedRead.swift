@@ -514,33 +514,6 @@ public enum ReadSortMode: String, Sendable, CaseIterable {
     }
 }
 
-/// Group mode for aligned reads in the viewer.
-public enum ReadGroupMode: String, Sendable, CaseIterable {
-    /// No grouping
-    case none
-    /// Group by read pair (mate pairs displayed together)
-    case readPair
-    /// Group by strand
-    case strand
-    /// Group by read group
-    case readGroup
-    /// Group by first-in-pair / second-in-pair
-    case firstOfPair
-    /// Group by supplementary / primary
-    case supplementaryStatus
-
-    public var displayName: String {
-        switch self {
-        case .none: return "None"
-        case .readPair: return "Read Pair"
-        case .strand: return "Strand"
-        case .readGroup: return "Read Group"
-        case .firstOfPair: return "First of Pair"
-        case .supplementaryStatus: return "Primary/Supplementary"
-        }
-    }
-}
-
 /// Color-by mode for aligned reads.
 public enum ReadColorMode: String, Sendable, CaseIterable {
     /// Color by strand (default: blue forward, red reverse)

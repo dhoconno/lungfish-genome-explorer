@@ -590,8 +590,7 @@ final class ReadTrackRendererTests: XCTestCase {
     // MARK: - Mismatch Color Constants
 
     func testMismatchColorConstantsExist() {
-        // Verify the new color constants are present
-        XCTAssertNotNil(ReadTrackRenderer.mismatchTickColor)
+        // Verify the color constants are present
         XCTAssertNotNil(ReadTrackRenderer.softClipColor)
     }
 

@@ -80,6 +80,10 @@ public final class ReadStyleSectionViewModel {
     /// Whether reads are currently visible in the viewer.
     public var showReads: Bool = true
 
+    /// Whether to tint read backgrounds by strand (forward=blue, reverse=pink).
+    /// When off, all reads share a neutral gray background.
+    public var showStrandColors: Bool = true
+
     /// Forward strand display color.
     public var forwardReadColor: Color = Color(red: 0.69, green: 0.77, blue: 0.87)
 
@@ -664,6 +668,12 @@ public struct ReadStyleSection: View {
                 .onChange(of: viewModel.showIndels) { _, _ in
                     viewModel.onSettingsChanged?()
                 }
+
+            Toggle("Color by Strand", isOn: $viewModel.showStrandColors)
+                .onChange(of: viewModel.showStrandColors) { _, _ in
+                    viewModel.onSettingsChanged?()
+                }
+                .help("When on, forward reads are blue-tinted and reverse reads are pink-tinted. When off, all reads have a neutral gray background.")
 
             Divider()
 

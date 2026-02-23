@@ -111,7 +111,7 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         end: Int,
         excludeFlags: UInt16 = 0x904,
         minMapQ: Int = 0,
-        maxReads: Int = .max,
+        maxReads: Int = 100_000,
         readGroups: Set<String> = []
     ) async throws -> [AlignedRead] {
         guard !chromosome.isEmpty, start >= 0, end > start else {
@@ -286,6 +286,11 @@ public final class AlignmentDataProvider: @unchecked Sendable {
         var arguments = ["consensus"]
         let regionStr = "\(chromosome):\(start + 1)-\(end)"
         arguments += ["-r", regionStr]
+        // -a: output ALL positions including those with no coverage.
+        // Without this flag, samtools 1.22+ drops uncovered positions from
+        // region queries, shifting the output string relative to the requested
+        // coordinates and causing consensus bases to render at wrong positions.
+        arguments += ["-a"]
         arguments += ["-f", "FASTA"]
         arguments += ["-m", mode.rawValue]
         arguments += ["--min-MQ", String(max(0, minMapQ))]
