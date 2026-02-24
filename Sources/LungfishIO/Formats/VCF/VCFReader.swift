@@ -596,6 +596,130 @@ public final class VCFReader: Sendable {
     }
 }
 
+// MARK: - VCFSummary
+
+/// Summary statistics for a VCF file, computed in a single pass.
+///
+/// Contains header metadata, variant counts, chromosome information,
+/// and an inferred reference genome when chromosome names match known assemblies.
+public struct VCFSummary: Sendable {
+    /// Parsed VCF header.
+    public let header: VCFHeader
+    /// Total number of variant records.
+    public let variantCount: Int
+    /// Unique chromosome names from variant records.
+    public let chromosomes: Set<String>
+    /// Maximum variant position per chromosome.
+    public let maxPositionPerChromosome: [String: Int]
+    /// Variant type counts (e.g., "SNP": 98, "INDEL": 15).
+    public let variantTypes: [String: Int]
+    /// Whether the VCF has sample genotype columns.
+    public let hasSampleColumns: Bool
+    /// Inferred reference genome from chromosome names/contigs.
+    public let inferredReference: ReferenceInference.Result?
+    /// Quality score statistics.
+    public let qualityStats: QualityStats
+    /// Filter status counts (e.g., "PASS": 112, "min_dp_10": 4).
+    public let filterCounts: [String: Int]
+
+    /// Quality score statistics for the VCF file.
+    public struct QualityStats: Sendable {
+        public let min: Double?
+        public let max: Double?
+        public let mean: Double?
+        public let count: Int
+    }
+}
+
+extension VCFReader {
+
+    /// Summarizes a VCF file in a single pass.
+    ///
+    /// Reads the header and all variant records, computing:
+    /// - Variant counts and type breakdown
+    /// - Chromosome names and max positions
+    /// - Quality score statistics
+    /// - Filter status counts
+    /// - Reference genome inference
+    ///
+    /// - Parameter url: URL of the VCF file
+    /// - Returns: Summary of the VCF file
+    public func summarize(from url: URL) async throws -> VCFSummary {
+        let header = try await readHeader(from: url)
+
+        var variantCount = 0
+        var chromosomes = Set<String>()
+        var maxPositions: [String: Int] = [:]
+        var typeCounts: [String: Int] = [:]
+        var filterCounts: [String: Int] = [:]
+        var qualSum = 0.0
+        var qualCount = 0
+        var qualMin: Double?
+        var qualMax: Double?
+
+        for try await variant in variants(from: url) {
+            variantCount += 1
+            chromosomes.insert(variant.chromosome)
+
+            // Track max position
+            let currentMax = maxPositions[variant.chromosome] ?? 0
+            if variant.position > currentMax {
+                maxPositions[variant.chromosome] = variant.position
+            }
+
+            // Classify variant type
+            let variantType: String
+            if variant.isSNP {
+                variantType = "SNP"
+            } else if variant.ref.count < variant.alt.first?.count ?? 0 {
+                variantType = "INS"
+            } else if variant.ref.count > 1 && (variant.alt.first?.count ?? 0) < variant.ref.count {
+                variantType = "DEL"
+            } else if variant.ref.count == (variant.alt.first?.count ?? 0) && variant.ref.count > 1 {
+                variantType = "MNP"
+            } else {
+                variantType = "OTHER"
+            }
+            typeCounts[variantType, default: 0] += 1
+
+            // Quality stats
+            if let q = variant.quality {
+                qualSum += q
+                qualCount += 1
+                if qualMin == nil || q < qualMin! { qualMin = q }
+                if qualMax == nil || q > qualMax! { qualMax = q }
+            }
+
+            // Filter counts
+            let filterValue = variant.filter ?? "."
+            filterCounts[filterValue, default: 0] += 1
+        }
+
+        let meanQual = qualCount > 0 ? qualSum / Double(qualCount) : nil
+        let qualityStats = VCFSummary.QualityStats(
+            min: qualMin, max: qualMax, mean: meanQual, count: qualCount
+        )
+
+        // Infer reference
+        let inferredRef = VCFReferenceInference.infer(
+            from: header,
+            chromosomeMaxPositions: maxPositions.isEmpty ? nil : maxPositions
+        )
+
+        return VCFSummary(
+            header: header,
+            variantCount: variantCount,
+            chromosomes: chromosomes,
+            maxPositionPerChromosome: maxPositions,
+            variantTypes: typeCounts,
+            hasSampleColumns: !header.sampleNames.isEmpty,
+            inferredReference: inferredRef.confidence > .none ? inferredRef : nil,
+            qualityStats: qualityStats,
+            filterCounts: filterCounts
+        )
+    }
+}
+
 // MARK: - VCFError
 
 /// Errors that can occur when parsing VCF files.
