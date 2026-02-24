@@ -279,19 +279,19 @@ public actor ENAService: DatabaseService {
         }
     }
 
-    /// Gets the direct HTTP URLs for FASTQ download.
+    /// Gets the direct HTTPS URLs for FASTQ download.
     ///
-    /// ENA provides FTP URLs by default; this converts them to HTTP for easier download.
+    /// ENA provides FTP URLs by default; this converts them to HTTPS for download.
     ///
     /// - Parameter record: The read record containing FTP paths
-    /// - Returns: HTTP URLs for FASTQ files
+    /// - Returns: HTTPS URLs for FASTQ files
     public func fastqHTTPURLs(for record: ENAReadRecord) -> [URL] {
         guard let ftpPaths = record.fastqFTP else { return [] }
 
         return ftpPaths.components(separatedBy: ";").compactMap { ftpPath in
-            // Convert FTP path to HTTP URL
-            // ftp.sra.ebi.ac.uk/vol1/fastq/... -> http://ftp.sra.ebi.ac.uk/vol1/fastq/...
-            let httpPath = "http://\(ftpPath)"
+            // Convert FTP path to HTTPS URL (HTTPS required by App Transport Security)
+            // ftp.sra.ebi.ac.uk/vol1/fastq/... -> https://ftp.sra.ebi.ac.uk/vol1/fastq/...
+            let httpPath = "https://\(ftpPath)"
             return URL(string: httpPath)
         }
     }
@@ -496,11 +496,11 @@ public struct ENAReadRecord: Codable, Sendable {
         return formatter.string(fromByteCount: Int64(bytes))
     }
 
-    /// HTTP URLs for FASTQ download (converted from FTP).
+    /// HTTPS URLs for FASTQ download (converted from FTP).
     public var fastqHTTPURLs: [URL] {
         guard let ftpPaths = fastqFTP else { return [] }
         return ftpPaths.components(separatedBy: ";").compactMap { ftpPath in
-            let httpPath = "http://\(ftpPath)"
+            let httpPath = "https://\(ftpPath)"
             return URL(string: httpPath)
         }
     }
