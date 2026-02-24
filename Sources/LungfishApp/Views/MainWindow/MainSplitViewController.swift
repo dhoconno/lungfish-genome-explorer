@@ -10,6 +10,16 @@ import os.log
 /// Logger for main split view operations
 private let logger = Logger(subsystem: "com.lungfish.browser", category: "MainSplitViewController")
 
+/// Dispatches a @MainActor block on the GCD main queue using assumeIsolated.
+/// Needed in Task.detached contexts where cooperative executor scheduling is unreliable.
+private func performOnMainRunLoop(_ block: @escaping @MainActor @Sendable () -> Void) {
+    DispatchQueue.main.async {
+        MainActor.assumeIsolated {
+            block()
+        }
+    }
+}
+
 /// Options for handling duplicate files during import
 enum DuplicateResolution {
     case replace    // Replace the existing file
@@ -977,10 +987,16 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 let summary = try await reader.summarize(from: url)
                 let variants = try await reader.readAll(from: url)
 
-                DispatchQueue.main.async { [weak viewerController] in
+                DispatchQueue.main.async { [weak viewerController, weak self] in
                     MainActor.assumeIsolated {
                         viewerController?.hideProgress()
-                        viewerController?.displayVCFDataset(summary: summary, variants: variants)
+                        viewerController?.displayVCFDataset(
+                            summary: summary,
+                            variants: variants,
+                            onDownloadReference: { [weak self] inferredRef in
+                                self?.downloadReferenceForVCF(inferredRef, vcfURL: url)
+                            }
+                        )
                         logger.info("loadVCFDatasetInBackground: Dashboard displayed with \(summary.variantCount) variants")
                     }
                 }
@@ -999,6 +1015,105 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                         alert.runModal()
                     }
                 }
+            }
+        }
+    }
+
+    /// Handles "Download Reference" from the VCF dashboard.
+    ///
+    /// Searches NCBI for the inferred assembly, downloads FASTA + GFF3,
+    /// and builds a .lungfishref bundle via DownloadCenter.
+    private func downloadReferenceForVCF(_ inferredRef: ReferenceInference.Result, vcfURL: URL) {
+        guard let assembly = inferredRef.assembly else {
+            logger.warning("downloadReferenceForVCF: No assembly name in inferred reference")
+            return
+        }
+
+        // Confirmation sheet
+        let alert = NSAlert()
+        alert.messageText = "Download Reference Genome"
+        alert.informativeText = "Download the \(assembly) (\(inferredRef.organism ?? "")) reference genome from NCBI? This will create a bundle that can be used with your VCF file."
+        alert.addButton(withTitle: "Download")
+        alert.addButton(withTitle: "Cancel")
+        alert.alertStyle = .informational
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        // Search term: use accession if available, otherwise assembly name
+        let searchTerm: String
+        if let accession = inferredRef.accession {
+            searchTerm = accession
+        } else {
+            searchTerm = "\(inferredRef.organism ?? assembly)[Organism] AND \(assembly)[Assembly Name]"
+        }
+
+        let downloadID = DownloadCenter.shared.start(
+            title: "\(assembly) Reference",
+            detail: "Searching NCBI..."
+        )
+
+        Task.detached {
+            do {
+                let ncbi = NCBIService()
+
+                // Search for the assembly
+                performOnMainRunLoop {
+                    DownloadCenter.shared.update(id: downloadID, progress: 0.05, detail: "Searching NCBI for \(assembly)...")
+                }
+
+                let ids = try await ncbi.esearch(database: .assembly, term: searchTerm, retmax: 5)
+                guard !ids.isEmpty else {
+                    performOnMainRunLoop {
+                        DownloadCenter.shared.fail(id: downloadID, detail: "No assembly found for '\(assembly)'")
+                    }
+                    return
+                }
+
+                // Get assembly summary
+                performOnMainRunLoop {
+                    DownloadCenter.shared.update(id: downloadID, progress: 0.1, detail: "Getting assembly info...")
+                }
+
+                let summaries = try await ncbi.assemblyEsummary(ids: ids)
+                guard let assemblySummary = summaries.first else {
+                    performOnMainRunLoop {
+                        DownloadCenter.shared.fail(id: downloadID, detail: "No assembly details found")
+                    }
+                    return
+                }
+
+                // Download and build bundle
+                performOnMainRunLoop {
+                    DownloadCenter.shared.update(id: downloadID, progress: 0.15, detail: "Downloading genome files...")
+                }
+
+                let genomesDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                    .appendingPathComponent("Genomes", isDirectory: true)
+                try? FileManager.default.createDirectory(at: genomesDir, withIntermediateDirectories: true)
+
+                let viewModel = GenomeDownloadViewModel()
+                let bundleURL = try await viewModel.downloadAndBuild(
+                    assembly: assemblySummary,
+                    outputDirectory: genomesDir
+                ) { progress, message in
+                    // Map 0.15-0.95 range for download+build phase
+                    let scaledProgress = 0.15 + progress * 0.8
+                    performOnMainRunLoop {
+                        DownloadCenter.shared.update(id: downloadID, progress: scaledProgress, detail: message)
+                    }
+                }
+
+                performOnMainRunLoop {
+                    DownloadCenter.shared.complete(id: downloadID, detail: "Bundle ready", bundleURLs: [bundleURL])
+                }
+
+                logger.info("downloadReferenceForVCF: Bundle built at \(bundleURL.path, privacy: .public)")
+            } catch {
+                let errorMessage = "\(error)"
+                performOnMainRunLoop {
+                    DownloadCenter.shared.fail(id: downloadID, detail: errorMessage)
+                }
+                logger.error("downloadReferenceForVCF: Failed - \(errorMessage)")
             }
         }
     }

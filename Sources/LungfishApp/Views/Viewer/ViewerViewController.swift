@@ -894,12 +894,17 @@ public class ViewerViewController: NSViewController {
     }
 
     /// Displays a standalone VCF dataset dashboard in place of the sequence viewer.
-    public func displayVCFDataset(summary: LungfishIO.VCFSummary, variants: [LungfishIO.VCFVariant]) {
+    public func displayVCFDataset(
+        summary: LungfishIO.VCFSummary,
+        variants: [LungfishIO.VCFVariant],
+        onDownloadReference: ((ReferenceInference.Result) -> Void)? = nil
+    ) {
         hideQuickLookPreview()
         hideFASTQDatasetView()
         hideVCFDatasetView()
 
         let controller = VCFDatasetViewController()
+        controller.onDownloadReferenceRequested = onDownloadReference
         addChild(controller)
 
         let dashView = controller.view
