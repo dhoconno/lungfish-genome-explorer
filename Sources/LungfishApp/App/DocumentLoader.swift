@@ -157,10 +157,10 @@ public enum DocumentLoader {
             logger.info("loadFile: BED loaded \(annotations.count) annotations")
 
         case .vcf:
-            let reader = VCFReader()
-            let variants = try await reader.readAll(from: url)
-            annotations = variants.map { $0.toAnnotation() }
-            logger.info("loadFile: VCF loaded \(annotations.count) annotations")
+            // VCF files are handled by the streaming dashboard
+            // (MainSplitViewController.loadVCFDatasetInBackground).
+            // Return a lightweight marker document so the sidebar shows the file.
+            logger.info("loadFile: VCF file detected — dashboard will handle display")
 
         case .bam:
             throw DocumentLoadError.unsupportedFormat("BAM/CRAM files are imported as alignment tracks. Use File \u{203A} Import BAM/CRAM Alignments\u{2026} with a bundle open.")

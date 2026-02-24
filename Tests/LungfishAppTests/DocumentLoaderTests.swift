@@ -247,7 +247,7 @@ final class DocumentLoaderTests: XCTestCase {
         let result = try await DocumentLoader.loadFile(at: vcfURL, type: .vcf)
 
         XCTAssertTrue(result.sequences.isEmpty)
-        XCTAssertEqual(result.annotations.count, 1)  // Variants become annotations
+        XCTAssertTrue(result.annotations.isEmpty)  // VCF now handled by streaming dashboard
         XCTAssertNil(result.error)
     }
 

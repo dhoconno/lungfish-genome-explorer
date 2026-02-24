@@ -205,6 +205,12 @@ extension Notification.Name {
     /// The `userInfo` dictionary contains:
     /// - `"statistics"`: The `FASTQDatasetStatistics` object.
     public static let fastqDatasetLoaded = Notification.Name("fastqDatasetLoaded")
+
+    /// Posted when a standalone VCF dataset has been loaded and its dashboard is displayed.
+    ///
+    /// The `userInfo` dictionary contains:
+    /// - `"summary"`: The `VCFSummary` object.
+    public static let vcfDatasetLoaded = Notification.Name("vcfDatasetLoaded")
 }
 
 // MARK: - Notification UserInfo Keys

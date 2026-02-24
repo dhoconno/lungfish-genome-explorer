@@ -919,6 +919,12 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             return
         }
 
+        // Standalone VCF files use the VCF dataset dashboard
+        if isVCFFile(url) {
+            loadVCFDatasetInBackground(url: url)
+            return
+        }
+
         // Check if already loaded
         if let existingDocument = DocumentManager.shared.documents.first(where: { $0.url == url }) {
             let isFullyLoaded = !existingDocument.sequences.isEmpty || !existingDocument.annotations.isEmpty
@@ -943,6 +949,58 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         }
         let ext = checkURL.pathExtension.lowercased()
         return ext == "fastq" || ext == "fq"
+    }
+
+    /// Returns true if the URL points to a VCF file (by extension).
+    private func isVCFFile(_ url: URL) -> Bool {
+        var checkURL = url
+        if checkURL.pathExtension.lowercased() == "gz" {
+            checkURL = checkURL.deletingPathExtension()
+        }
+        return checkURL.pathExtension.lowercased() == "vcf"
+    }
+
+    /// Loads a standalone VCF file and displays the VCF dataset dashboard.
+    private func loadVCFDatasetInBackground(url: URL) {
+        logger.info("loadVCFDatasetInBackground: Loading '\(url.lastPathComponent, privacy: .public)'")
+
+        guard let viewerController = self.viewerController else {
+            logger.warning("loadVCFDatasetInBackground: Viewer controller not available")
+            return
+        }
+
+        viewerController.showProgress("Analyzing VCF file...")
+
+        Task.detached(priority: .userInitiated) {
+            do {
+                let reader = VCFReader()
+                let summary = try await reader.summarize(from: url)
+                let variants = try await reader.readAll(from: url)
+
+                DispatchQueue.main.async { [weak viewerController] in
+                    MainActor.assumeIsolated {
+                        viewerController?.hideProgress()
+                        viewerController?.displayVCFDataset(summary: summary, variants: variants)
+                        logger.info("loadVCFDatasetInBackground: Dashboard displayed with \(summary.variantCount) variants")
+                    }
+                }
+            } catch {
+                let errorMessage = "\(error)"
+                DispatchQueue.main.async { [weak viewerController] in
+                    MainActor.assumeIsolated {
+                        viewerController?.hideProgress()
+                        logger.error("loadVCFDatasetInBackground: Failed - \(errorMessage)")
+
+                        let alert = NSAlert()
+                        alert.messageText = "Failed to Analyze VCF File"
+                        alert.informativeText = errorMessage
+                        alert.alertStyle = .warning
+                        alert.addButton(withTitle: "OK")
+                        alert.runModal()
+                    }
+                }
+            }
+        }
     }
 
     /// Loads FASTQ file using the streaming statistics collector, then displays the dashboard.

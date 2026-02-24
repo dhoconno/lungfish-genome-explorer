@@ -121,6 +121,9 @@ public class ViewerViewController: NSViewController {
     /// FASTQ dataset dashboard (shown in place of sequence viewer for FASTQ files)
     private var fastqDatasetController: FASTQDatasetViewController?
 
+    /// VCF dataset dashboard (shown in place of sequence viewer for standalone VCF files)
+    private var vcfDatasetController: VCFDatasetViewController?
+
     // MARK: - State
 
     /// Current reference frame for coordinate mapping
@@ -883,6 +886,59 @@ public class ViewerViewController: NSViewController {
         controller.view.removeFromSuperview()
         controller.removeFromParent()
         fastqDatasetController = nil
+
+        // Restore normal viewer components
+        enhancedRulerView.isHidden = false
+        viewerView.isHidden = false
+        statusBar.isHidden = false
+    }
+
+    /// Displays a standalone VCF dataset dashboard in place of the sequence viewer.
+    public func displayVCFDataset(summary: LungfishIO.VCFSummary, variants: [LungfishIO.VCFVariant]) {
+        hideQuickLookPreview()
+        hideFASTQDatasetView()
+        hideVCFDatasetView()
+
+        let controller = VCFDatasetViewController()
+        addChild(controller)
+
+        let dashView = controller.view
+        dashView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(dashView)
+
+        NSLayoutConstraint.activate([
+            dashView.topAnchor.constraint(equalTo: view.topAnchor),
+            dashView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            dashView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            dashView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+
+        controller.configure(summary: summary, variants: variants)
+        vcfDatasetController = controller
+
+        // Hide normal genomic viewer components
+        enhancedRulerView.isHidden = true
+        viewerView.isHidden = true
+        headerView.isHidden = true
+        statusBar.isHidden = true
+        geneTabBarView.isHidden = true
+
+        // Post notification
+        NotificationCenter.default.post(
+            name: .vcfDatasetLoaded,
+            object: self,
+            userInfo: ["summary": summary]
+        )
+
+        logger.info("displayVCFDataset: Showing dashboard with \(summary.variantCount) variants")
+    }
+
+    /// Removes the VCF dataset dashboard and restores normal viewer components.
+    public func hideVCFDatasetView() {
+        guard let controller = vcfDatasetController else { return }
+        controller.view.removeFromSuperview()
+        controller.removeFromParent()
+        vcfDatasetController = nil
 
         // Restore normal viewer components
         enhancedRulerView.isHidden = false
