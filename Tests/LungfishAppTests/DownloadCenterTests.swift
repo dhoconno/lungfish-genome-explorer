@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import os
 @testable import LungfishApp
 
 /// Unit tests for ``DownloadCenter``.
@@ -256,5 +257,194 @@ final class DownloadCenterTests: XCTestCase {
         let id = center.start(title: "Test", detail: "Starting...")
         let item = center.items.first { $0.id == id }
         XCTAssertEqual(item?.bundleURLs, [])
+    }
+
+    // MARK: - Operation Type
+
+    func testDefaultOperationTypeIsDownload() {
+        let id = center.start(title: "Test", detail: "Starting...")
+        let item = center.items.first { $0.id == id }
+        XCTAssertEqual(item?.operationType, .download)
+    }
+
+    func testStartWithOperationType() {
+        let id = center.start(title: "BAM", detail: "Importing...", operationType: .bamImport)
+        let item = center.items.first { $0.id == id }
+        XCTAssertEqual(item?.operationType, .bamImport)
+    }
+
+    func testOperationTypeRawValues() {
+        XCTAssertEqual(OperationType.download.rawValue, "Download")
+        XCTAssertEqual(OperationType.bamImport.rawValue, "BAM Import")
+        XCTAssertEqual(OperationType.vcfImport.rawValue, "VCF Import")
+        XCTAssertEqual(OperationType.bundleBuild.rawValue, "Bundle Build")
+        XCTAssertEqual(OperationType.export.rawValue, "Export")
+    }
+
+    // MARK: - Bundle Locking
+
+    func testCanStartOperationWithNoBundleURL() {
+        XCTAssertTrue(center.canStartOperation(on: nil))
+    }
+
+    func testCanStartOperationOnUnlockedBundle() {
+        let bundleURL = URL(fileURLWithPath: "/tmp/test.lungfishref")
+        XCTAssertTrue(center.canStartOperation(on: bundleURL))
+    }
+
+    func testCannotStartOperationOnLockedBundle() {
+        let bundleURL = URL(fileURLWithPath: "/tmp/test.lungfishref")
+        _ = center.start(
+            title: "Import",
+            detail: "...",
+            operationType: .bamImport,
+            targetBundleURL: bundleURL
+        )
+
+        XCTAssertFalse(center.canStartOperation(on: bundleURL))
+    }
+
+    func testCanStartOperationAfterComplete() {
+        let bundleURL = URL(fileURLWithPath: "/tmp/test.lungfishref")
+        let id = center.start(
+            title: "Import",
+            detail: "...",
+            operationType: .bamImport,
+            targetBundleURL: bundleURL
+        )
+        center.complete(id: id, detail: "Done")
+
+        XCTAssertTrue(center.canStartOperation(on: bundleURL))
+    }
+
+    func testCanStartOperationAfterFail() {
+        let bundleURL = URL(fileURLWithPath: "/tmp/test.lungfishref")
+        let id = center.start(
+            title: "Import",
+            detail: "...",
+            operationType: .bamImport,
+            targetBundleURL: bundleURL
+        )
+        center.fail(id: id, detail: "Error")
+
+        XCTAssertTrue(center.canStartOperation(on: bundleURL))
+    }
+
+    func testDifferentBundlesCanRunConcurrently() {
+        let bundle1 = URL(fileURLWithPath: "/tmp/a.lungfishref")
+        let bundle2 = URL(fileURLWithPath: "/tmp/b.lungfishref")
+
+        _ = center.start(
+            title: "Import A",
+            detail: "...",
+            operationType: .bamImport,
+            targetBundleURL: bundle1
+        )
+
+        XCTAssertTrue(center.canStartOperation(on: bundle2))
+    }
+
+    func testActiveLockHolderReturnsRunningItem() {
+        let bundleURL = URL(fileURLWithPath: "/tmp/test.lungfishref")
+        let id = center.start(
+            title: "Import",
+            detail: "...",
+            operationType: .bamImport,
+            targetBundleURL: bundleURL
+        )
+
+        let holder = center.activeLockHolder(for: bundleURL)
+        XCTAssertEqual(holder?.id, id)
+    }
+
+    func testActiveLockHolderNilForUnlockedBundle() {
+        let bundleURL = URL(fileURLWithPath: "/tmp/test.lungfishref")
+        XCTAssertNil(center.activeLockHolder(for: bundleURL))
+    }
+
+    func testActiveLockHolderNilAfterComplete() {
+        let bundleURL = URL(fileURLWithPath: "/tmp/test.lungfishref")
+        let id = center.start(
+            title: "Import",
+            detail: "...",
+            operationType: .bamImport,
+            targetBundleURL: bundleURL
+        )
+        center.complete(id: id, detail: "Done")
+
+        XCTAssertNil(center.activeLockHolder(for: bundleURL))
+    }
+
+    func testActiveLockHolderNilForNilURL() {
+        XCTAssertNil(center.activeLockHolder(for: nil))
+    }
+
+    // MARK: - Cancel
+
+    func testCancelInvokesCallbackAndFails() {
+        let cancelFlag = OSAllocatedUnfairLock(initialState: false)
+        let id = center.start(
+            title: "Import",
+            detail: "...",
+            operationType: .bamImport,
+            onCancel: { cancelFlag.withLock { $0 = true } }
+        )
+
+        center.cancel(id: id)
+
+        XCTAssertTrue(cancelFlag.withLock { $0 })
+        let item = center.items.first { $0.id == id }
+        XCTAssertEqual(item?.state, .failed)
+        XCTAssertEqual(item?.detail, "Cancelled by user")
+    }
+
+    func testCancelReleaseBundleLock() {
+        let bundleURL = URL(fileURLWithPath: "/tmp/test.lungfishref")
+        let id = center.start(
+            title: "Import",
+            detail: "...",
+            operationType: .bamImport,
+            targetBundleURL: bundleURL
+        )
+
+        center.cancel(id: id)
+
+        XCTAssertTrue(center.canStartOperation(on: bundleURL))
+    }
+
+    func testCancelIgnoresCompletedItem() {
+        let cancelFlag = OSAllocatedUnfairLock(initialState: false)
+        let id = center.start(
+            title: "Import",
+            detail: "...",
+            onCancel: { cancelFlag.withLock { $0 = true } }
+        )
+        center.complete(id: id, detail: "Done")
+
+        center.cancel(id: id)
+
+        XCTAssertFalse(cancelFlag.withLock { $0 })
+        let item = center.items.first { $0.id == id }
+        XCTAssertEqual(item?.state, .completed)
+    }
+
+    func testCancelAllCancelsAllRunning() {
+        let flag1 = OSAllocatedUnfairLock(initialState: false)
+        let flag2 = OSAllocatedUnfairLock(initialState: false)
+        _ = center.start(title: "A", detail: "", onCancel: { flag1.withLock { $0 = true } })
+        _ = center.start(title: "B", detail: "", onCancel: { flag2.withLock { $0 = true } })
+
+        center.cancelAll()
+
+        XCTAssertTrue(flag1.withLock { $0 })
+        XCTAssertTrue(flag2.withLock { $0 })
+        XCTAssertEqual(center.activeCount, 0)
+    }
+
+    // MARK: - OperationCenter Typealias
+
+    func testDownloadCenterTypealiasWorks() {
+        let dc: DownloadCenter = center
+        XCTAssertEqual(dc.activeCount, 0)
     }
 }

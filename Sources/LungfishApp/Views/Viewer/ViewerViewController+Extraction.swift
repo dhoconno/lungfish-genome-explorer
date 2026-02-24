@@ -381,7 +381,8 @@ extension SequenceViewerView {
         // a detached task. On completion we hop back to the main actor for import/refresh.
         let itemId = DownloadCenter.shared.start(
             title: "Extracting \(result.sourceName)",
-            detail: "Preparing..."
+            detail: "Preparing...",
+            operationType: .bundleBuild
         )
 
         let capturedResult = result

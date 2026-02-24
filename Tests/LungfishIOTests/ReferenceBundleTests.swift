@@ -179,6 +179,29 @@ final class ReferenceBundleTests: XCTestCase {
         XCTAssertEqual(trackIds, ["gc_content"])
     }
 
+    func testResolveAlignmentPathsFromBundleRelativeTrackInfo() async throws {
+        let bundleURL = try createValidTestBundle()
+        let alignmentsDir = bundleURL.appendingPathComponent("alignments", isDirectory: true)
+        try FileManager.default.createDirectory(at: alignmentsDir, withIntermediateDirectories: true)
+
+        let alignmentURL = alignmentsDir.appendingPathComponent("sample.sorted.bam")
+        let indexURL = alignmentsDir.appendingPathComponent("sample.sorted.bam.bai")
+        try Data([0x42, 0x41, 0x4D]).write(to: alignmentURL)
+        try Data([0x42, 0x41, 0x49]).write(to: indexURL)
+
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let track = AlignmentTrackInfo(
+            id: "aln_test",
+            name: "sample.sorted.bam",
+            format: .bam,
+            sourcePath: "alignments/sample.sorted.bam",
+            indexPath: "alignments/sample.sorted.bam.bai"
+        )
+
+        XCTAssertEqual(try bundle.resolveAlignmentPath(track), alignmentURL.path)
+        XCTAssertEqual(try bundle.resolveAlignmentIndexPath(track), indexURL.path)
+    }
+
     // MARK: - Error Description Tests
 
     func testReferenceBundleErrorDescriptions() {

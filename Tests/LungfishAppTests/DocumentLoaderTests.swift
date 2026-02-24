@@ -348,7 +348,8 @@ final class DocumentLoaderTests: XCTestCase {
             XCTFail("Expected unsupportedFormat error")
         } catch let error as DocumentLoadError {
             if case .unsupportedFormat(let msg) = error {
-                XCTAssertTrue(msg.contains("BAM"))
+                XCTAssertTrue(msg.contains("alignment tracks"),
+                              "BAM error should direct users to import menu. Got: \(msg)")
             } else {
                 XCTFail("Expected unsupportedFormat, got \(error)")
             }

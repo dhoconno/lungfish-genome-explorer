@@ -179,7 +179,7 @@ public enum DocumentLoader {
             logger.info("loadFile: VCF loaded \(annotations.count) annotations")
 
         case .bam:
-            throw DocumentLoadError.unsupportedFormat("BAM/CRAM support coming soon")
+            throw DocumentLoadError.unsupportedFormat("BAM/CRAM files are imported as alignment tracks. Use File \u{203A} Import BAM/CRAM Alignments\u{2026} with a bundle open.")
 
         case .lungfishProject:
             throw DocumentLoadError.unsupportedFormat("Use openProject for .lungfish files")

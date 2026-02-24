@@ -44,6 +44,9 @@ public final class MainMenu {
         // Tools menu
         mainMenu.addItem(createToolsMenu())
 
+        // Operations menu
+        mainMenu.addItem(createOperationsMenu())
+
         // Window menu
         mainMenu.addItem(createWindowMenu())
 
@@ -195,6 +198,13 @@ public final class MainMenu {
         fileMenu.addItem(
             withTitle: "Import VCF Variants...",
             action: #selector(FileMenuActions.importVCFToBundle(_:)),
+            keyEquivalent: ""
+        )
+
+        // Import BAM/CRAM alignments into the current bundle
+        fileMenu.addItem(
+            withTitle: "Import BAM/CRAM Alignments...",
+            action: #selector(FileMenuActions.importBAMToBundle(_:)),
             keyEquivalent: ""
         )
 
@@ -631,6 +641,52 @@ public final class MainMenu {
         return toolsMenuItem
     }
 
+    // MARK: - Operations Menu
+
+    private static func createOperationsMenu() -> NSMenuItem {
+        let opsMenuItem = NSMenuItem(title: "Operations", action: nil, keyEquivalent: "")
+        let opsMenu = NSMenu(title: "Operations")
+        opsMenu.delegate = OperationsMenuDelegate.shared
+
+        // Placeholder for dynamic items (rebuilt by delegate in menuNeedsUpdate)
+        let placeholderItem = opsMenu.addItem(
+            withTitle: "No Active Operations",
+            action: nil,
+            keyEquivalent: ""
+        )
+        placeholderItem.isEnabled = false
+        placeholderItem.tag = 5000
+
+        opsMenu.addItem(.separator())
+
+        // Show Operations Panel
+        let panelItem = opsMenu.addItem(
+            withTitle: "Show Operations Panel",
+            action: #selector(OperationsMenuActions.showOperationsPanel(_:)),
+            keyEquivalent: "o"
+        )
+        panelItem.keyEquivalentModifierMask = [.command, .shift, .option]
+
+        opsMenu.addItem(.separator())
+
+        // Clear Completed
+        opsMenu.addItem(
+            withTitle: "Clear Completed",
+            action: #selector(OperationsMenuActions.clearCompletedOperations(_:)),
+            keyEquivalent: ""
+        )
+
+        // Cancel All Operations
+        opsMenu.addItem(
+            withTitle: "Cancel All Operations",
+            action: #selector(OperationsMenuActions.cancelAllOperations(_:)),
+            keyEquivalent: ""
+        )
+
+        opsMenuItem.submenu = opsMenu
+        return opsMenuItem
+    }
+
     // MARK: - Window Menu
 
     private static func createWindowMenu() -> NSMenuItem {
@@ -727,6 +783,8 @@ public final class MainMenu {
     func importFiles(_ sender: Any?)
     /// Import VCF variants into the current bundle
     func importVCFToBundle(_ sender: Any?)
+    /// Import BAM/CRAM alignments into the current bundle
+    func importBAMToBundle(_ sender: Any?)
     func exportFASTA(_ sender: Any?)
     func exportGenBank(_ sender: Any?)
     func exportGFF3(_ sender: Any?)
@@ -780,6 +838,85 @@ public final class MainMenu {
     func runNextflow(_ sender: Any?)
     func runSnakemake(_ sender: Any?)
     func openWorkflowBuilder(_ sender: Any?)
+}
+
+/// Operations menu action handlers.
+@MainActor
+@objc protocol OperationsMenuActions {
+    func showOperationsPanel(_ sender: Any?)
+    func cancelAllOperations(_ sender: Any?)
+    func clearCompletedOperations(_ sender: Any?)
+    func cancelOperation(_ sender: Any?)
+}
+
+/// Delegate that dynamically rebuilds the Operations menu before it opens.
+///
+/// On `menuNeedsUpdate`, all items with tags in 5000-5099 are removed
+/// and replaced with the current running/completed/failed operations
+/// from ``OperationCenter.shared``.
+@MainActor
+final class OperationsMenuDelegate: NSObject, NSMenuDelegate {
+
+    static let shared = OperationsMenuDelegate()
+
+    private static let dynamicTagBase = 5000
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        rebuildDynamicItems(in: menu)
+    }
+
+    private func rebuildDynamicItems(in menu: NSMenu) {
+        // Remove all dynamic items (tags 5000-5099)
+        let dynamicItems = menu.items.filter {
+            $0.tag >= Self.dynamicTagBase && $0.tag < Self.dynamicTagBase + 100
+        }
+        for item in dynamicItems {
+            menu.removeItem(item)
+        }
+
+        let items = OperationCenter.shared.items
+
+        if items.isEmpty {
+            let placeholder = NSMenuItem(title: "No Active Operations", action: nil, keyEquivalent: "")
+            placeholder.isEnabled = false
+            placeholder.tag = Self.dynamicTagBase
+            menu.insertItem(placeholder, at: 0)
+            return
+        }
+
+        // Insert dynamic items at the top of the menu
+        for (index, op) in items.prefix(20).enumerated() {
+            let statusIcon: String
+            let progressText: String
+            switch op.state {
+            case .running:
+                statusIcon = "\u{25B6}\u{FE0E}"  // play triangle (text presentation)
+                progressText = " (\(Int(op.progress * 100))%)"
+            case .completed:
+                statusIcon = "\u{2713}"  // checkmark
+                progressText = ""
+            case .failed:
+                statusIcon = "\u{2717}"  // cross
+                progressText = ""
+            }
+
+            let title = "\(statusIcon) \(op.title)\(progressText)"
+            let menuItem = NSMenuItem(
+                title: title,
+                action: op.state == .running
+                    ? #selector(OperationsMenuActions.cancelOperation(_:))
+                    : nil,
+                keyEquivalent: ""
+            )
+            menuItem.tag = Self.dynamicTagBase + index + 1
+            menuItem.representedObject = op.id
+            if op.state != .running {
+                menuItem.isEnabled = false
+            }
+            menuItem.toolTip = op.detail
+            menu.insertItem(menuItem, at: index)
+        }
+    }
 }
 
 /// Help menu action handlers.

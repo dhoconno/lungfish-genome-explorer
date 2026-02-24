@@ -92,6 +92,10 @@ public struct BundleManifest: Codable, Sendable, Equatable {
     /// Signal tracks (BigWig) in the bundle.
     public let tracks: [SignalTrackInfo]
 
+    /// Alignment tracks (BAM/CRAM) referenced by the bundle.
+    /// Alignment files are stored externally; the bundle holds metadata and indexes.
+    public let alignments: [AlignmentTrackInfo]
+
     // MARK: - Extended Metadata
 
     /// Categorized metadata groups for flexible, source-specific metadata storage.
@@ -118,6 +122,7 @@ public struct BundleManifest: Codable, Sendable, Equatable {
         annotations: [AnnotationTrackInfo] = [],
         variants: [VariantTrackInfo] = [],
         tracks: [SignalTrackInfo] = [],
+        alignments: [AlignmentTrackInfo] = [],
         metadata: [MetadataGroup]? = nil
     ) {
         self.formatVersion = formatVersion
@@ -131,6 +136,7 @@ public struct BundleManifest: Codable, Sendable, Equatable {
         self.annotations = annotations
         self.variants = variants
         self.tracks = tracks
+        self.alignments = alignments
         self.metadata = metadata
     }
 
@@ -148,7 +154,28 @@ public struct BundleManifest: Codable, Sendable, Equatable {
         case annotations
         case variants
         case tracks
+        case alignments
         case metadata
+    }
+
+    // MARK: - Backward-Compatible Decoding
+
+    /// Custom decoder that handles manifests created before the `alignments` field existed.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        formatVersion = try container.decode(String.self, forKey: .formatVersion)
+        name = try container.decode(String.self, forKey: .name)
+        identifier = try container.decode(String.self, forKey: .identifier)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        createdDate = try container.decode(Date.self, forKey: .createdDate)
+        modifiedDate = try container.decode(Date.self, forKey: .modifiedDate)
+        source = try container.decode(SourceInfo.self, forKey: .source)
+        genome = try container.decode(GenomeInfo.self, forKey: .genome)
+        annotations = try container.decode([AnnotationTrackInfo].self, forKey: .annotations)
+        variants = try container.decode([VariantTrackInfo].self, forKey: .variants)
+        tracks = try container.decode([SignalTrackInfo].self, forKey: .tracks)
+        alignments = try container.decodeIfPresent([AlignmentTrackInfo].self, forKey: .alignments) ?? []
+        metadata = try container.decodeIfPresent([MetadataGroup].self, forKey: .metadata)
     }
 }
 
@@ -638,6 +665,134 @@ public struct SignalTrackInfo: Codable, Sendable, Equatable, Identifiable {
     }
 }
 
+// MARK: - AlignmentTrackInfo
+
+/// Information about an alignment track (BAM/CRAM) referenced by the bundle.
+///
+/// Alignment files may be either bundle-relative (preferred, copied into `alignments/`)
+/// or legacy absolute external paths. The track stores metadata, alignment/index paths,
+/// and an optional SQLite metadata sidecar.
+///
+/// ## External File References
+///
+/// The `sourcePath` points to the BAM/CRAM file on disk. If the file is moved,
+/// the `sourceBookmark` (a macOS security-scoped bookmark) can resolve the new
+/// location. The `checksumSHA256` and `fileSizeBytes` detect file replacement.
+public struct AlignmentTrackInfo: Codable, Sendable, Equatable, Identifiable {
+
+    /// Unique identifier for the track.
+    public let id: String
+
+    /// Human-readable name (e.g., "Sample 1 - WGS").
+    public let name: String
+
+    /// Description of the track.
+    public let description: String?
+
+    /// File format.
+    public let format: AlignmentFormat
+
+    /// Path to the alignment file (BAM/CRAM/SAM).
+    /// Preferred format: bundle-relative path (e.g., `alignments/aln_123.sorted.bam`).
+    /// Legacy manifests may contain absolute external paths.
+    public let sourcePath: String
+
+    /// Base64-encoded security-scoped Finder bookmark for relocatable files.
+    public let sourceBookmark: String?
+
+    /// Path to the index file (.bai / .csi / .crai).
+    /// Preferred format: bundle-relative path aligned with `sourcePath`.
+    /// Legacy manifests may contain absolute external paths.
+    public let indexPath: String
+
+    /// Base64-encoded bookmark for the index file.
+    public let indexBookmark: String?
+
+    /// Relative path within the bundle to the SQLite metadata database.
+    public let metadataDBPath: String?
+
+    /// SHA-256 checksum of the alignment file at import time.
+    public let checksumSHA256: String?
+
+    /// File size in bytes at import time (for staleness detection).
+    public let fileSizeBytes: Int64?
+
+    /// Date this alignment was added to the bundle.
+    public let addedDate: Date
+
+    /// Total mapped read count (cached from samtools idxstats).
+    public let mappedReadCount: Int64?
+
+    /// Total unmapped read count.
+    public let unmappedReadCount: Int64?
+
+    /// Sample name(s) from @RG headers.
+    public let sampleNames: [String]
+
+    /// Creates alignment track information.
+    public init(
+        id: String,
+        name: String,
+        description: String? = nil,
+        format: AlignmentFormat = .bam,
+        sourcePath: String,
+        sourceBookmark: String? = nil,
+        indexPath: String,
+        indexBookmark: String? = nil,
+        metadataDBPath: String? = nil,
+        checksumSHA256: String? = nil,
+        fileSizeBytes: Int64? = nil,
+        addedDate: Date = Date(),
+        mappedReadCount: Int64? = nil,
+        unmappedReadCount: Int64? = nil,
+        sampleNames: [String] = []
+    ) {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.format = format
+        self.sourcePath = sourcePath
+        self.sourceBookmark = sourceBookmark
+        self.indexPath = indexPath
+        self.indexBookmark = indexBookmark
+        self.metadataDBPath = metadataDBPath
+        self.checksumSHA256 = checksumSHA256
+        self.fileSizeBytes = fileSizeBytes
+        self.addedDate = addedDate
+        self.mappedReadCount = mappedReadCount
+        self.unmappedReadCount = unmappedReadCount
+        self.sampleNames = sampleNames
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case description
+        case format
+        case sourcePath = "source_path"
+        case sourceBookmark = "source_bookmark"
+        case indexPath = "index_path"
+        case indexBookmark = "index_bookmark"
+        case metadataDBPath = "metadata_db_path"
+        case checksumSHA256 = "checksum_sha256"
+        case fileSizeBytes = "file_size_bytes"
+        case addedDate = "added_date"
+        case mappedReadCount = "mapped_read_count"
+        case unmappedReadCount = "unmapped_read_count"
+        case sampleNames = "sample_names"
+    }
+}
+
+/// Alignment file formats.
+public enum AlignmentFormat: String, Codable, Sendable {
+    /// Binary Alignment/Map format.
+    case bam
+    /// CRAM (reference-based compressed alignment).
+    case cram
+    /// SAM (text-based alignment format, not recommended for large files).
+    case sam
+}
+
 /// Types of signal tracks.
 public enum SignalTrackType: String, Codable, Sendable {
     /// Read coverage depth.
@@ -699,6 +854,7 @@ extension BundleManifest {
             annotations: annotations,
             variants: variants + [track],
             tracks: tracks,
+            alignments: alignments,
             metadata: metadata
         )
     }
@@ -731,6 +887,45 @@ extension BundleManifest {
             annotations: annotations,
             variants: updatedVariants,
             tracks: tracks,
+            alignments: alignments,
+            metadata: metadata
+        )
+    }
+
+    /// Returns a new manifest with the given alignment track appended.
+    public func addingAlignmentTrack(_ track: AlignmentTrackInfo) -> BundleManifest {
+        BundleManifest(
+            formatVersion: formatVersion,
+            name: name,
+            identifier: identifier,
+            description: description,
+            createdDate: createdDate,
+            modifiedDate: Date(),
+            source: source,
+            genome: genome,
+            annotations: annotations,
+            variants: variants,
+            tracks: tracks,
+            alignments: alignments + [track],
+            metadata: metadata
+        )
+    }
+
+    /// Returns a new manifest with the specified alignment track removed.
+    public func removingAlignmentTrack(id: String) -> BundleManifest {
+        BundleManifest(
+            formatVersion: formatVersion,
+            name: name,
+            identifier: identifier,
+            description: description,
+            createdDate: createdDate,
+            modifiedDate: Date(),
+            source: source,
+            genome: genome,
+            annotations: annotations,
+            variants: variants,
+            tracks: tracks,
+            alignments: alignments.filter { $0.id != id },
             metadata: metadata
         )
     }
@@ -789,6 +984,12 @@ extension BundleManifest {
             trackIds.insert(track.id)
         }
         for track in tracks {
+            if trackIds.contains(track.id) {
+                errors.append(.duplicateTrackId(track.id))
+            }
+            trackIds.insert(track.id)
+        }
+        for track in alignments {
             if trackIds.contains(track.id) {
                 errors.append(.duplicateTrackId(track.id))
             }

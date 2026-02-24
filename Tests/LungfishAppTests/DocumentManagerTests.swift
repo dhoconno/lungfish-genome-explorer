@@ -438,7 +438,7 @@ final class DocumentManagerTests: XCTestCase {
     }
 
     func testLoadBAMThrows() async throws {
-        // BAM loading is not yet supported and should throw unsupportedFormat
+        // BAM files are imported as alignment tracks, not loaded as standalone documents
         let bamURL = tempDir.appendingPathComponent("test.bam")
         try Data([0x00]).write(to: bamURL)
 
@@ -447,8 +447,8 @@ final class DocumentManagerTests: XCTestCase {
             XCTFail("Loading a BAM file should throw unsupportedFormat")
         } catch let error as DocumentLoadError {
             if case .unsupportedFormat(let message) = error {
-                XCTAssertTrue(message.lowercased().contains("bam") || message.lowercased().contains("coming soon"),
-                               "BAM error should mention BAM/CRAM support status. Got: \(message)")
+                XCTAssertTrue(message.contains("alignment tracks"),
+                               "BAM error should direct users to import menu. Got: \(message)")
             } else {
                 XCTFail("Expected .unsupportedFormat for BAM but got \(error)")
             }

@@ -109,6 +109,23 @@ extension Notification.Name {
     /// Contains userInfo keys: `bundleURL` (URL)
     public static let bundleVariantTracksDeleted = Notification.Name("bundleVariantTracksDeleted")
 
+    /// Posted when a mapped read is selected or deselected in the viewer.
+    ///
+    /// Contains userInfo key: "alignedRead" (AlignedRead) or nil for deselection
+    public static let readSelected = Notification.Name("readSelected")
+
+    /// Posted when alignment/read display settings change in the inspector.
+    ///
+    /// Contains userInfo keys: "showReads" (Bool), "maxReadRows" (Int),
+    /// "minMapQ" (Int), "showMismatches" (Bool), "showSoftClips" (Bool),
+    /// "showIndels" (Bool), "consensusMaskingEnabled" (Bool),
+    /// "consensusGapThresholdPercent" (Int), "consensusMinDepth" (Int),
+    /// "consensusMinMapQ" (Int), "consensusMinBaseQ" (Int),
+    /// "limitReadRows" (Bool), "verticalCompressContig" (Bool),
+    /// "showConsensusTrack" (Bool), "consensusMode" (String),
+    /// "consensusUseAmbiguity" (Bool)
+    public static let readDisplaySettingsChanged = Notification.Name("readDisplaySettingsChanged")
+
 }
 
 // MARK: - Inspector Notifications
@@ -175,6 +192,13 @@ extension Notification.Name {
     /// The `userInfo` dictionary contains:
     /// - `"annotation"`: The `SequenceAnnotation` whose reverse complement to copy.
     public static let copyAnnotationReverseComplementRequested = Notification.Name("copyAnnotationReverseComplementRequested")
+
+    /// Posted when an operation starts, completes, fails, or is cancelled.
+    ///
+    /// The `userInfo` dictionary contains:
+    /// - `"operationID"`: The `UUID` of the affected operation.
+    /// - `"operationState"`: The state as a raw `String` ("running", "completed", "failed").
+    public static let operationStateChanged = Notification.Name("operationStateChanged")
 }
 
 // MARK: - Notification UserInfo Keys
@@ -255,4 +279,64 @@ public enum NotificationUserInfoKey {
 
     /// Key for variant database row ID.
     public static let variantRowId = "variantRowId"
+
+    /// Key for read visibility (Bool).
+    public static let showReads = "showReads"
+
+    /// Key for maximum read rows to render (Int).
+    public static let maxReadRows = "maxReadRows"
+
+    /// Key for minimum MAPQ filter (Int).
+    public static let minMapQ = "minMapQ"
+
+    /// Key for mismatch display toggle (Bool).
+    public static let showMismatches = "showMismatches"
+
+    /// Key for soft clip display toggle (Bool).
+    public static let showSoftClips = "showSoftClips"
+
+    /// Key for insertion/deletion display toggle (Bool).
+    public static let showIndels = "showIndels"
+
+    /// Key for enabling consensus-style high-gap masking (Bool).
+    public static let consensusMaskingEnabled = "consensusMaskingEnabled"
+
+    /// Key for high-gap mask threshold as a percent integer (0-100).
+    public static let consensusGapThresholdPercent = "consensusGapThresholdPercent"
+
+    /// Key for minimum depth required before a consensus/gap decision is applied.
+    public static let consensusMinDepth = "consensusMinDepth"
+
+    /// Key for consensus/depth minimum mapping quality (Int).
+    public static let consensusMinMapQ = "consensusMinMapQ"
+
+    /// Key for consensus/depth minimum base quality (Int).
+    public static let consensusMinBaseQ = "consensusMinBaseQ"
+
+    /// Key for whether read rows should be capped by maxReadRows (Bool).
+    public static let limitReadRows = "limitReadRows"
+
+    /// Key for compact vertical read rendering mode (Bool).
+    public static let verticalCompressContig = "verticalCompressContig"
+
+    /// Key for showing/hiding the consensus row beneath coverage (Bool).
+    public static let showConsensusTrack = "showConsensusTrack"
+
+    /// Key for consensus caller mode ("bayesian" or "simple").
+    public static let consensusMode = "consensusMode"
+
+    /// Key for enabling IUPAC ambiguity codes in consensus output (Bool).
+    public static let consensusUseAmbiguity = "consensusUseAmbiguity"
+
+    /// Key for the aligned read in read selection notifications.
+    public static let alignedRead = "alignedRead"
+
+    /// Key for the samtools exclude flags bitmask (UInt16).
+    public static let excludeFlags = "excludeFlags"
+
+    /// Key for the set of selected read group IDs to display (Set<String>, empty = all).
+    public static let selectedReadGroups = "selectedReadGroups"
+
+    /// Key for strand-colored read backgrounds toggle (Bool).
+    public static let showStrandColors = "showStrandColors"
 }

@@ -396,6 +396,14 @@ public class ViewerViewController: NSViewController {
             object: nil
         )
 
+        // Observer for read display settings from inspector
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleReadDisplaySettingsChanged(_:)),
+            name: .readDisplaySettingsChanged,
+            object: nil
+        )
+
         // Observer for extraction requests from inspector
         NotificationCenter.default.addObserver(
             self,
@@ -712,6 +720,86 @@ public class ViewerViewController: NSViewController {
         // Refresh the drawer to remove variant data
         if let index = annotationSearchIndex {
             annotationDrawerView?.setSearchIndex(index)
+        }
+
+        viewerView.needsDisplay = true
+    }
+
+    @objc private func handleReadDisplaySettingsChanged(_ notification: Notification) {
+        guard let userInfo = notification.userInfo else { return }
+
+        if let showReads = userInfo[NotificationUserInfoKey.showReads] as? Bool {
+            viewerView.showReads = showReads
+        }
+        if let maxRows = userInfo[NotificationUserInfoKey.maxReadRows] as? Int {
+            viewerView.maxReadRowsSetting = maxRows
+        }
+        if let limitRows = userInfo[NotificationUserInfoKey.limitReadRows] as? Bool {
+            viewerView.limitReadRowsSetting = limitRows
+        }
+        if let compressed = userInfo[NotificationUserInfoKey.verticalCompressContig] as? Bool {
+            viewerView.verticallyCompressContigSetting = compressed
+        }
+        if let minQ = userInfo[NotificationUserInfoKey.minMapQ] as? Int {
+            viewerView.minMapQSetting = minQ
+        }
+        if let show = userInfo[NotificationUserInfoKey.showMismatches] as? Bool {
+            viewerView.showMismatchesSetting = show
+        }
+        if let show = userInfo[NotificationUserInfoKey.showSoftClips] as? Bool {
+            viewerView.showSoftClipsSetting = show
+        }
+        if let show = userInfo[NotificationUserInfoKey.showIndels] as? Bool {
+            viewerView.showIndelsSetting = show
+        }
+        if let show = userInfo[NotificationUserInfoKey.showStrandColors] as? Bool {
+            viewerView.showStrandColorsSetting = show
+        }
+        if let enabled = userInfo[NotificationUserInfoKey.consensusMaskingEnabled] as? Bool {
+            viewerView.consensusMaskingEnabledSetting = enabled
+        }
+        if let threshold = userInfo[NotificationUserInfoKey.consensusGapThresholdPercent] as? Int {
+            viewerView.consensusGapThresholdPercentSetting = max(50, min(99, threshold))
+        }
+        if let minDepth = userInfo[NotificationUserInfoKey.consensusMinDepth] as? Int {
+            viewerView.consensusMinDepthSetting = max(1, min(500, minDepth))
+        }
+        if let minMapQ = userInfo[NotificationUserInfoKey.consensusMinMapQ] as? Int {
+            viewerView.consensusMinMapQSetting = max(0, min(60, minMapQ))
+        }
+        if let minBaseQ = userInfo[NotificationUserInfoKey.consensusMinBaseQ] as? Int {
+            viewerView.consensusMinBaseQSetting = max(0, min(60, minBaseQ))
+        }
+        if let showConsensus = userInfo[NotificationUserInfoKey.showConsensusTrack] as? Bool {
+            viewerView.showConsensusTrackSetting = showConsensus
+        }
+        if let modeRaw = userInfo[NotificationUserInfoKey.consensusMode] as? String,
+           let mode = AlignmentConsensusMode(rawValue: modeRaw.lowercased()) {
+            viewerView.consensusModeSetting = mode
+        }
+        if let useAmbiguity = userInfo[NotificationUserInfoKey.consensusUseAmbiguity] as? Bool {
+            viewerView.consensusUseAmbiguitySetting = useAmbiguity
+        }
+        if let flags = userInfo[NotificationUserInfoKey.excludeFlags] as? UInt16 {
+            viewerView.excludeFlagsSetting = flags
+        }
+        if let rgs = userInfo[NotificationUserInfoKey.selectedReadGroups] as? Set<String> {
+            viewerView.selectedReadGroupsSetting = rgs
+        }
+
+        // Force read refetch if fetch-time filters changed
+        if userInfo[NotificationUserInfoKey.minMapQ] != nil
+            || userInfo[NotificationUserInfoKey.consensusMinMapQ] != nil
+            || userInfo[NotificationUserInfoKey.consensusMinBaseQ] != nil
+            || userInfo[NotificationUserInfoKey.consensusMinDepth] != nil
+            || userInfo[NotificationUserInfoKey.showConsensusTrack] != nil
+            || userInfo[NotificationUserInfoKey.consensusMode] != nil
+            || userInfo[NotificationUserInfoKey.consensusUseAmbiguity] != nil
+            || userInfo[NotificationUserInfoKey.excludeFlags] != nil
+            || userInfo[NotificationUserInfoKey.selectedReadGroups] != nil {
+            viewerView.cachedReadRegion = nil
+            viewerView.cachedDepthRegion = nil
+            viewerView.cachedConsensusRegion = nil
         }
 
         viewerView.needsDisplay = true
@@ -1554,9 +1642,15 @@ public class ViewerViewController: NSViewController {
     public func updateStatusBar() {
         guard let frame = referenceFrame else { return }
         // Preserve selection info if we have one from the viewer
-        let selectionInfo = viewerView.selectionRange.map { range in
+        let selectionInfo: String?
+        if viewerView.isUserColumnSelection, let range = viewerView.selectionRange {
             let length = range.upperBound - range.lowerBound
-            return "Visible: \(range.lowerBound + 1)-\(range.upperBound) (\(length.formatted()) bp)"
+            selectionInfo = "Selected: \(range.lowerBound + 1)-\(range.upperBound) (\(length.formatted()) bp)"
+        } else {
+            selectionInfo = viewerView.selectionRange.map { range in
+                let length = range.upperBound - range.lowerBound
+                return "Visible: \(range.lowerBound + 1)-\(range.upperBound) (\(length.formatted()) bp)"
+            }
         }
         statusBar.update(
             position: "\(frame.chromosome):\(Int(frame.start))-\(Int(frame.end))",
@@ -1875,6 +1969,189 @@ public class SequenceViewerView: NSView {
     /// Generation counter for variant fetches — prevents stale results from overwriting newer ones
     private var variantFetchGeneration: Int = 0
 
+    // MARK: - Read Alignment State
+
+    /// Cached aligned reads for the current visible region
+    private var cachedAlignedReads: [AlignedRead] = []
+
+    /// The region for which we have cached read data
+    var cachedReadRegion: GenomicRegion?
+
+    /// Cached sparse depth points for the current visible region (coverage tier).
+    private var cachedDepthPoints: [ReadTrackRenderer.CoveragePoint] = []
+
+    /// The region for which we have cached depth data.
+    var cachedDepthRegion: GenomicRegion?
+
+    /// Cached consensus sequence for the current region.
+    private var cachedConsensusSequence: String?
+
+    /// The region for which we have cached consensus sequence.
+    var cachedConsensusRegion: GenomicRegion?
+
+    /// Option signature used to compute `cachedConsensusSequence`.
+    private var cachedConsensusOptionsSignature: String = ""
+
+    /// Whether we're currently fetching read data
+    private var isFetchingReads: Bool = false {
+        didSet { updateTrackLoadingAnimationState() }
+    }
+
+    /// Timestamp when the current read fetch started.
+    private var readFetchStartTime: Date?
+
+    /// Whether we're currently fetching depth data.
+    private var isFetchingDepth: Bool = false {
+        didSet { updateTrackLoadingAnimationState() }
+    }
+
+    /// Timestamp when the current depth fetch started.
+    private var depthFetchStartTime: Date?
+
+    /// Timer driving the in-track loading badge spinner.
+    private nonisolated(unsafe) var trackLoadingAnimationTimer: Timer?
+
+    /// Current spinner phase in radians.
+    private var trackLoadingAnimationPhase: CGFloat = 0
+
+    /// Whether we're currently fetching consensus sequence data.
+    private var isFetchingConsensus: Bool = false
+
+    /// Generation counter for read fetches — prevents stale results from overwriting newer ones
+    private var readFetchGeneration: Int = 0
+
+    /// Generation counter for depth fetches — prevents stale results from overwriting newer ones.
+    private var depthFetchGeneration: Int = 0
+
+    /// Generation counter for consensus fetches — prevents stale results from overwriting newer ones.
+    private var consensusFetchGeneration: Int = 0
+
+    /// Coverage stats from the currently cached depth points.
+    private var cachedCoverageStats: ReadTrackRenderer.CoverageStats?
+
+    /// Whether to show the read alignment track
+    var showReads: Bool = true
+
+    /// Maximum read rows (configurable from Inspector)
+    var maxReadRowsSetting: Int = 75
+
+    /// Whether read row count is capped by `maxReadRowsSetting`.
+    var limitReadRowsSetting: Bool = false
+
+    /// Whether read rows use compact vertical heights.
+    var verticallyCompressContigSetting: Bool = true
+
+    /// Minimum MAPQ filter (configurable from Inspector)
+    var minMapQSetting: Int = 0
+
+    /// Whether to show mismatches (configurable from Inspector)
+    var showMismatchesSetting: Bool = true
+
+    /// Whether to show soft clips (configurable from Inspector)
+    var showSoftClipsSetting: Bool = true
+
+    /// Whether to show insertions/deletions (configurable from Inspector)
+    var showIndelsSetting: Bool = true
+
+    /// Whether to tint read backgrounds by strand direction.
+    var showStrandColorsSetting: Bool = true
+
+    /// Whether to mask columns that are mostly gaps (consensus-style filtering).
+    var consensusMaskingEnabledSetting: Bool = false
+
+    /// Gap masking threshold in percent (e.g., 90 = hide columns with >=90% gaps).
+    var consensusGapThresholdPercentSetting: Int = 90
+
+    /// Minimum spanning depth required before gap masking is applied.
+    var consensusMinDepthSetting: Int = 8
+
+    /// Minimum mapping quality used for consensus/depth calculations.
+    var consensusMinMapQSetting: Int = 0
+
+    /// Minimum base quality used for consensus/depth calculations.
+    var consensusMinBaseQSetting: Int = 0
+
+    /// Whether the consensus row is shown under depth.
+    var showConsensusTrackSetting: Bool = true
+
+    /// Consensus caller mode.
+    var consensusModeSetting: AlignmentConsensusMode = .bayesian
+
+    /// Whether to emit IUPAC ambiguity codes in consensus output.
+    var consensusUseAmbiguitySetting: Bool = false
+
+    /// Exclude flags bitmask for samtools view (configurable from Inspector)
+    /// Default: unmapped(0x4) + secondary(0x100) + dup(0x400) + supplementary(0x800) = 0xD04
+    var excludeFlagsSetting: UInt16 = 0xD04
+
+    /// Selected read group IDs to display (empty = show all)
+    var selectedReadGroupsSetting: Set<String> = []
+
+    /// Alignment data providers for each imported alignment track
+    private var alignmentDataProviders: [(trackId: String, provider: AlignmentDataProvider)] = []
+
+    /// Currently hovered read (for tooltip caching)
+    private var hoveredRead: AlignedRead?
+
+    /// Set of read UUIDs currently selected (for multi-read selection).
+    var selectedReadIDs: Set<UUID> = []
+
+    /// Currently selected read (for inspector display — first selected read).
+    var selectedRead: AlignedRead? {
+        guard let firstID = selectedReadIDs.first else { return nil }
+        return cachedPackedReads.first(where: { $0.read.id == firstID })?.read
+    }
+
+    /// Cached packed reads for hit-testing (updated during draw)
+    private var cachedPackedReads: [(row: Int, read: AlignedRead)] = []
+
+    /// Cached packed layout overflow count (from last pack operation)
+    private var cachedPackOverflow: Int = 0
+
+    /// Scale at which the pack layout was computed (recompute if scale changes)
+    private var cachedPackScale: Double = 0
+
+    /// Read data generation when pack layout was computed (recompute if data changes)
+    private var cachedPackDataGeneration: Int = -1
+
+    /// Max rows setting when pack layout was computed
+    private var cachedPackMaxRows: Int = 0
+
+    /// Viewport region when pack layout was computed (repack when panned significantly)
+    private var cachedPackViewportStart: Int = 0
+    private var cachedPackViewportEnd: Int = 0
+
+    /// The Y offset at which reads were last rendered (for hit-testing)
+    private var lastRenderedReadY: CGFloat = 0
+
+    /// The Y offset at which coverage was last rendered (for hover).
+    private var lastRenderedCoverageY: CGFloat = 0
+
+    /// The zoom tier at which reads were last rendered
+    private var lastRenderedReadTier: ReadTrackRenderer.ZoomTier = .coverage
+
+    /// Vertical scroll offset for the read track (when rows exceed available space)
+    var readScrollOffset: CGFloat = 0
+
+    /// Maximum height allocated for the read track before requiring scrolling
+    private let maxReadTrackHeight: CGFloat = 300
+
+    /// Total content height of the packed reads (set during draw)
+    private var readContentHeight: CGFloat = 0
+
+    /// Coverage strip height rendered for alignments.
+    private let coverageStripHeight: CGFloat = ReadTrackRenderer.coverageTrackHeight
+
+    /// Consensus strip height rendered below coverage.
+    /// Must match the sequence track height so reference/consensus cells are visually identical.
+    private var consensusStripHeight: CGFloat { trackHeight }
+
+    /// Spacing between coverage and consensus rows.
+    private let coverageToConsensusGap: CGFloat = 2
+
+    /// Spacing between consensus row and read rows.
+    private let consensusToReadGap: CGFloat = 4
+
     /// Whether drag is active (for highlighting)
     private var isDragActive = false
 
@@ -1895,9 +2172,19 @@ public class SequenceViewerView: NSView {
     /// Last logged selection render signature (used to suppress per-frame log spam).
     private var lastSelectionRenderSignature: String?
 
+    /// Whether the current selectionRange was set by user click/drag.
+    /// When true, ensureVisibleViewportSelection() will not overwrite it.
+    var isUserColumnSelection = false
+
+    /// Genomic position where the user started a column-selection drag.
+    private var columnDragStartBase: Int?
+
     /// Currently selected annotation (nil if no annotation selected).
     /// Internal so the AnnotationDrawer extension can set it from table selection.
     var selectedAnnotation: SequenceAnnotation?
+
+    /// Genomic position under the latest context-menu click.
+    private var contextMenuGenomicPosition: Int?
 
     /// Popover for annotation details on double-click
     private var annotationPopover: NSPopover?
@@ -1966,6 +2253,21 @@ public class SequenceViewerView: NSView {
     /// Y offset where variant summary bar starts (below annotations).
     private var variantTrackY: CGFloat {
         max(lastAnnotationBottomY + annotationToVariantPadding, annotationTrackY + annotationToVariantPadding)
+    }
+
+    /// Y position where the variant track ends (updated during variant rendering).
+    private var lastVariantBottomY: CGFloat = 0
+
+    /// Spacing between variant and read tracks.
+    private let variantToReadPadding: CGFloat = 10
+
+    /// Y offset where the read alignment track starts (below variants).
+    private var readTrackY: CGFloat {
+        if showVariants && !filteredVisibleVariantAnnotations.isEmpty {
+            return max(lastVariantBottomY + variantToReadPadding, variantTrackY + variantToReadPadding)
+        }
+        // No variants visible → reads go where variants would
+        return variantTrackY
     }
 
     /// Cached filtered variant annotations. Invalidated by `invalidateFilteredVariantCache()`.
@@ -2111,6 +2413,11 @@ public class SequenceViewerView: NSView {
     /// Built at bundle load time by matching chromosome lengths when names differ.
     /// Empty if all names match or no variant tracks are loaded.
     private var variantChromosomeAliasMap: [String: String] = [:]
+
+    /// Maps reference chromosome names to BAM/CRAM chromosome names.
+    /// Built at bundle load time from AlignmentMetadataDatabase chromosome_stats.
+    /// Empty if all names match or no alignment tracks are loaded.
+    private var alignmentChromosomeAliasMap: [String: String] = [:]
 
     // MARK: - Annotation Color Cache
 
@@ -2262,6 +2569,7 @@ public class SequenceViewerView: NSView {
     }
 
     deinit {
+        trackLoadingAnimationTimer?.invalidate()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -2300,6 +2608,34 @@ public class SequenceViewerView: NSView {
 
         needsDisplay = true
         logger.info("SequenceViewerView: Appearance changed, triggering redraw")
+    }
+
+    /// Starts/stops the loading-badge animation timer based on fetch state.
+    private func updateTrackLoadingAnimationState() {
+        let shouldAnimate = isFetchingReads || isFetchingDepth
+        if shouldAnimate {
+            guard trackLoadingAnimationTimer == nil else { return }
+            trackLoadingAnimationPhase = 0
+            let timer = Timer(timeInterval: 1.0 / 18.0, repeats: true) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.trackLoadingAnimationPhase += 0.34
+                    if self.trackLoadingAnimationPhase > .pi * 2 {
+                        self.trackLoadingAnimationPhase -= .pi * 2
+                    }
+                    self.setNeedsDisplay(self.bounds)
+                }
+            }
+            trackLoadingAnimationTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
+            return
+        }
+
+        if let timer = trackLoadingAnimationTimer {
+            timer.invalidate()
+            trackLoadingAnimationTimer = nil
+            trackLoadingAnimationPhase = 0
+        }
     }
 
     // MARK: - Data Setters
@@ -2618,6 +2954,34 @@ public class SequenceViewerView: NSView {
         self.isFetchingGenotypes = false
         self.genotypeScrollOffset = 0
 
+        // Clear read alignment state
+        self.cachedAlignedReads = []
+        self.cachedReadRegion = nil
+        self.cachedDepthPoints = []
+        self.cachedDepthRegion = nil
+        self.cachedConsensusSequence = nil
+        self.cachedConsensusRegion = nil
+        self.cachedConsensusOptionsSignature = ""
+        self.cachedCoverageStats = nil
+        self.isFetchingReads = false
+        self.isFetchingDepth = false
+        self.isFetchingConsensus = false
+        self.readFetchStartTime = nil
+        self.depthFetchStartTime = nil
+        self.readFetchGeneration = 0
+        self.depthFetchGeneration = 0
+        self.consensusFetchGeneration = 0
+        self.lastVariantBottomY = 0
+        self.alignmentChromosomeAliasMap = [:]
+        self.cachedPackedReads = []
+        self.cachedPackOverflow = 0
+        self.cachedPackScale = 0
+        self.cachedPackDataGeneration = -1
+        self.cachedPackViewportStart = 0
+        self.cachedPackViewportEnd = 0
+        self.readScrollOffset = 0
+        self.readContentHeight = 0
+
         // Cache sample count and build chromosome alias map from variant databases
         self.cachedSampleCount = 0
         self.variantChromosomeAliasMap = [:]
@@ -2647,6 +3011,33 @@ public class SequenceViewerView: NSView {
             }
         }
 
+        // Initialize alignment data providers from bundle manifest
+        self.alignmentDataProviders = []
+        for trackId in bundle.alignmentTrackIds {
+            if let trackInfo = bundle.alignmentTrack(id: trackId),
+               let resolvedPath = try? bundle.resolveAlignmentPath(trackInfo),
+               let resolvedIndexPath = try? bundle.resolveAlignmentIndexPath(trackInfo) {
+                let provider = AlignmentDataProvider(
+                    alignmentPath: resolvedPath,
+                    indexPath: resolvedIndexPath,
+                    format: trackInfo.format,
+                    referenceFastaPath: bundle.referenceFASTAPath()
+                )
+                self.alignmentDataProviders.append((trackId, provider))
+                logger.info("SequenceViewerView.setReferenceBundle: Initialized alignment provider for '\(trackInfo.name, privacy: .public)'")
+            }
+        }
+
+        // Build alignment chromosome alias map from metadata databases
+        if !alignmentDataProviders.isEmpty {
+            self.alignmentChromosomeAliasMap = Self.buildAlignmentChromosomeAliasMap(
+                bundleChromosomes: bundle.manifest.genome.chromosomes,
+                alignmentTracks: bundle.manifest.alignments,
+                bundleURL: bundle.url,
+                logger: logger
+            )
+        }
+
         // Clear rendering caches
         typeColorCache.removeAll()
         typeDensityColorCache.removeAll()
@@ -2673,6 +3064,9 @@ public class SequenceViewerView: NSView {
     /// Dynamic freehand region selection is intentionally disabled; extraction always operates
     /// on the visible region (or a selected annotation via annotation menus).
     private func ensureVisibleViewportSelection(frame: ReferenceFrame) {
+        // Do not overwrite a user-initiated column selection
+        guard !isUserColumnSelection else { return }
+
         let lower = max(0, Int(frame.start))
         let upper = max(lower + 1, Int(ceil(frame.end)))
         let viewportRange = lower..<upper
@@ -2680,7 +3074,6 @@ public class SequenceViewerView: NSView {
         selectionRange = viewportRange
         selectionStartBase = lower
         isSelecting = false
-        logger.debug("ensureVisibleViewportSelection: synced to viewport \(lower)-\(upper) on \(frame.chromosome, privacy: .public)")
     }
 
     /// Clears the current reference bundle.
@@ -2697,12 +3090,29 @@ public class SequenceViewerView: NSView {
         self.cachedGenotypeData = nil
         self.cachedGenotypeSampleDisplayNames = [:]
         self.cachedGenotypeRegion = nil
+        self.cachedAlignedReads = []
+        self.cachedReadRegion = nil
+        self.cachedDepthPoints = []
+        self.cachedDepthRegion = nil
+        self.cachedConsensusSequence = nil
+        self.cachedConsensusRegion = nil
+        self.cachedConsensusOptionsSignature = ""
+        self.cachedCoverageStats = nil
         self.isFetchingBundleData = false
         self.isFetchingAnnotations = false
         self.isFetchingVariants = false
         self.isFetchingGenotypes = false
+        self.isFetchingReads = false
+        self.isFetchingDepth = false
+        self.isFetchingConsensus = false
+        self.readFetchStartTime = nil
+        self.depthFetchStartTime = nil
+        self.readFetchGeneration = 0
+        self.depthFetchGeneration = 0
+        self.consensusFetchGeneration = 0
         self.cachedSampleCount = 0
         self.variantChromosomeAliasMap = [:]
+        self.alignmentChromosomeAliasMap = [:]
         self.sequenceFetchStartTime = nil
         self.annotationFetchStartTime = nil
 
@@ -2815,8 +3225,8 @@ public class SequenceViewerView: NSView {
 
         let visibleRegion = GenomicRegion(
             chromosome: frame.chromosome,
-            start: Int(frame.start),
-            end: Int(frame.end)
+            start: max(0, Int(frame.start)),
+            end: max(Int(frame.start) + 1, Int(ceil(frame.end)))
         )
         let scale = frame.scale  // bp/pixel
         let needsSequence = scale < showLineThreshold  // Only fetch sequence when it would be visible
@@ -3040,8 +3450,242 @@ public class SequenceViewerView: NSView {
                     }
                 }
             }
+
+            // Track the bottom Y of the variant track so reads can stack below
+            let totalVariantHeight = VariantTrackRenderer.totalHeight(
+                sampleCount: cachedSampleCount,
+                state: sampleDisplayState
+            )
+            lastVariantBottomY = vY + totalVariantHeight
         }
 
+        // --- Read alignments below variants ---
+        if !alignmentDataProviders.isEmpty && showReads {
+            let tier = ReadTrackRenderer.zoomTier(scale: scale)
+            let coverageY = readTrackY
+            let maxRowsLimit: Int? = limitReadRowsSetting ? max(1, maxReadRowsSetting) : nil
+            let maxRowsCacheKey = maxRowsLimit ?? 0
+
+            let displaySettings = ReadTrackRenderer.DisplaySettings(
+                showMismatches: showMismatchesSetting,
+                showSoftClips: showSoftClipsSetting,
+                showIndels: showIndelsSetting,
+                consensusMaskingEnabled: consensusMaskingEnabledSetting,
+                consensusGapThreshold: Double(consensusGapThresholdPercentSetting) / 100.0,
+                consensusMinDepth: consensusMinDepthSetting,
+                showStrandColors: showStrandColorsSetting
+            )
+
+            // Coverage strip is always visible.
+            let depthCovered = cachedDepthRegion?.chromosome == visibleRegion.chromosome
+                && (cachedDepthRegion?.start ?? Int.max) <= visibleRegion.start
+                && (cachedDepthRegion?.end ?? Int.min) >= visibleRegion.end
+            if !depthCovered && !isFetchingDepth {
+                fetchDepthAsync(bundle: bundle, region: visibleRegion)
+            }
+            lastRenderedCoverageY = coverageY
+            let coverageRect = CGRect(
+                x: 0,
+                y: coverageY,
+                width: bounds.width,
+                height: coverageStripHeight
+            )
+            ReadTrackRenderer.drawCoverage(
+                depthPoints: cachedDepthPoints,
+                regionStart: visibleRegion.start,
+                regionEnd: visibleRegion.end,
+                frame: frame,
+                context: context,
+                rect: coverageRect
+            )
+            if isFetchingDepth && cachedDepthPoints.isEmpty {
+                let elapsed = depthFetchStartTime.map { Date().timeIntervalSince($0) } ?? 0
+                if elapsed > 0.15 {
+                    drawTrackLoadingBadge(
+                        context: context,
+                        message: "Loading depth...",
+                        yOffset: coverageRect.minY + 2
+                    )
+                }
+            }
+
+            var rowsY = coverageRect.maxY + coverageToConsensusGap
+            if showConsensusTrackSetting {
+                let consensusOptions = currentConsensusOptionsSignature()
+                let consensusCovered = cachedConsensusRegion?.chromosome == visibleRegion.chromosome
+                    && (cachedConsensusRegion?.start ?? Int.max) <= visibleRegion.start
+                    && (cachedConsensusRegion?.end ?? Int.min) >= visibleRegion.end
+                    && cachedConsensusOptionsSignature == consensusOptions
+                if !consensusCovered && !isFetchingConsensus {
+                    fetchConsensusAsync(bundle: bundle, region: visibleRegion)
+                }
+                let consensusRect = CGRect(x: 0, y: rowsY, width: bounds.width, height: consensusStripHeight)
+                drawConsensusTrack(
+                    sequenceString: cachedConsensusSequence,
+                    region: cachedConsensusRegion,
+                    frame: frame,
+                    context: context,
+                    rect: consensusRect
+                )
+                rowsY = consensusRect.maxY + consensusToReadGap
+            }
+
+            // Cache rendering state for hit-testing.
+            lastRenderedReadY = rowsY
+            lastRenderedReadTier = tier
+
+            if tier == .coverage {
+                cachedPackedReads = []
+                readContentHeight = 0
+                if bounds.height - rowsY > 20 {
+                    drawReadZoomHint(context: context, yOffset: rowsY + 2, scale: scale)
+                }
+            } else {
+                let readsCovered = cachedReadRegion?.chromosome == visibleRegion.chromosome
+                    && (cachedReadRegion?.start ?? Int.max) <= visibleRegion.start
+                    && (cachedReadRegion?.end ?? Int.min) >= visibleRegion.end
+                if !readsCovered && !isFetchingReads {
+                    fetchReadsAsync(bundle: bundle, region: visibleRegion)
+                }
+
+                if !cachedAlignedReads.isEmpty {
+                    // Reuse cached pack layout if scale, data, viewport, and settings haven't changed.
+                    // Viewport position matters because reads are filtered to near-viewport before
+                    // packing — if the user pans significantly, the visible reads change.
+                    let viewportShift = abs(visibleRegion.start - cachedPackViewportStart)
+                    let viewportSpan = max(1, visibleRegion.end - visibleRegion.start)
+                    let scaleChanged = (scale != cachedPackScale)
+                    let dataChanged = (readFetchGeneration != cachedPackDataGeneration)
+                    let needsRepack = scaleChanged
+                        || dataChanged
+                        || (maxRowsCacheKey != cachedPackMaxRows)
+                        || (viewportShift > viewportSpan / 4) // Repack when panned >25% of viewport
+
+                    if needsRepack {
+                        // New zoom/data fetch should snap back to top rows for predictable navigation.
+                        if scaleChanged || dataChanged {
+                            readScrollOffset = 0
+                        }
+                        // Filter reads to viewport +/- safety padding while ensuring reads that
+                        // overlap the visible window are never dropped.
+                        // The cached read region can be much wider than the viewport (especially
+                        // when zooming in from a wider view). Packing all reads wastes the limited
+                        // 75-row budget on far off-screen reads, potentially leaving no rows for
+                        // reads in the visible window.
+                        let viewportSpan = visibleRegion.end - visibleRegion.start
+                        let maxReadSpan = max(
+                            1,
+                            cachedAlignedReads.lazy.prefix(50_000).map { max(1, $0.alignmentEnd - $0.position) }.max() ?? 500
+                        )
+                        let packPadding = max(maxReadSpan, min(10_000, max(500, viewportSpan)))
+                        let packStart = max(0, visibleRegion.start - packPadding)
+                        let packEnd = visibleRegion.end + packPadding
+
+                        let readsForPacking = cachedAlignedReads.filter { read in
+                            read.alignmentEnd > packStart && read.position < packEnd
+                        }
+
+                        let (packed, packOverflow) = ReadTrackRenderer.packReads(
+                            readsForPacking,
+                            frame: frame,
+                            maxRows: maxRowsLimit,
+                            sortMode: .position,
+                            prioritizedRegion: visibleRegion.start..<visibleRegion.end
+                        )
+                        cachedPackedReads = packed
+                        cachedPackOverflow = packOverflow
+                        cachedPackScale = scale
+                        cachedPackDataGeneration = readFetchGeneration
+                        cachedPackMaxRows = maxRowsCacheKey
+                        cachedPackViewportStart = visibleRegion.start
+                        cachedPackViewportEnd = visibleRegion.end
+                    }
+                    let rowCount = (cachedPackedReads.map(\.row).max() ?? -1) + 1
+                    let contentHeight = ReadTrackRenderer.totalHeight(
+                        rowCount: rowCount,
+                        tier: tier,
+                        verticalCompress: verticallyCompressContigSetting
+                    )
+                    readContentHeight = contentHeight
+
+                    // Available vertical space: from rY to bottom of view
+                    let availableHeight = max(0, bounds.height - rowsY)
+                    let visibleHeight = min(contentHeight, max(availableHeight, maxReadTrackHeight))
+
+                    // Clamp scroll offset
+                    let maxScroll = max(0, contentHeight - visibleHeight)
+                    if readScrollOffset > maxScroll { readScrollOffset = maxScroll }
+
+                    // Clip to visible read area and translate by scroll offset
+                    let clipRect = CGRect(x: 0, y: rowsY, width: bounds.width, height: visibleHeight)
+                    context.saveGState()
+                    context.clip(to: clipRect)
+                    context.translateBy(x: 0, y: -readScrollOffset)
+
+                    let drawRect = CGRect(x: 0, y: rowsY, width: bounds.width, height: contentHeight)
+                    let maskedPositions: Set<Int>
+                    if displaySettings.consensusMaskingEnabled {
+                        maskedPositions = ReadTrackRenderer.computeHighGapMaskedPositions(
+                            packedReads: cachedPackedReads,
+                            visibleRegion: visibleRegion.start..<visibleRegion.end,
+                            minDepth: displaySettings.consensusMinDepth,
+                            gapThreshold: displaySettings.consensusGapThreshold
+                        )
+                    } else {
+                        maskedPositions = []
+                    }
+
+                    if tier == .packed {
+                        ReadTrackRenderer.drawPackedReads(
+                            packedReads: cachedPackedReads, overflow: cachedPackOverflow, frame: frame,
+                            referenceSequence: cachedBundleSequence,
+                            referenceStart: cachedSequenceRegion?.start ?? Int(frame.start),
+                            settings: displaySettings,
+                            verticalCompress: verticallyCompressContigSetting,
+                            maxRowsLimit: maxRowsLimit,
+                            maskedPositions: maskedPositions,
+                            context: context, rect: drawRect
+                        )
+                    } else {
+                        ReadTrackRenderer.drawBaseReads(
+                            packedReads: cachedPackedReads, overflow: cachedPackOverflow, frame: frame,
+                            referenceSequence: cachedBundleSequence,
+                            referenceStart: cachedSequenceRegion?.start ?? Int(frame.start),
+                            settings: displaySettings,
+                            verticalCompress: verticallyCompressContigSetting,
+                            maxRowsLimit: maxRowsLimit,
+                            maskedPositions: maskedPositions,
+                            context: context, rect: drawRect
+                        )
+                    }
+
+                    context.restoreGState()
+
+                    // Draw scroll indicator if content exceeds visible area
+                    if contentHeight > visibleHeight && maxScroll > 0 {
+                        drawReadScrollIndicator(
+                            context: context, clipRect: clipRect,
+                            contentHeight: contentHeight, scrollOffset: readScrollOffset
+                        )
+                    }
+                } else {
+                    cachedPackedReads = []
+                    readContentHeight = 0
+                }
+
+                if isFetchingReads {
+                    let elapsed = readFetchStartTime.map { Date().timeIntervalSince($0) } ?? 0
+                    if elapsed > 0.15 {
+                        let message = cachedAlignedReads.isEmpty ? "Loading mapped reads..." : "Updating mapped reads..."
+                        drawTrackLoadingBadge(context: context, message: message, yOffset: rowsY + 2)
+                    }
+                }
+            }
+        }
+
+        // Draw selection overlays on top of all content
+        drawColumnSelectionHighlight(frame: frame, context: context)
+        drawSelectedReadHighlights(frame: frame, context: context)
     }
 
     /// Fetches annotations asynchronously for the visible region from SQLite annotation databases.
@@ -3243,6 +3887,78 @@ public class SequenceViewerView: NSView {
         return variantChrom
     }
 
+    // MARK: - Alignment Chromosome Aliasing
+
+    /// Translates a reference chromosome name to the BAM/CRAM chromosome name.
+    /// Returns the original name if no alias is needed.
+    private func alignmentChromosomeName(for refChrom: String) -> String {
+        alignmentChromosomeAliasMap[refChrom] ?? refChrom
+    }
+
+    /// Builds a map from reference chromosome names to BAM/CRAM chromosome names.
+    ///
+    /// BAM files often use different chromosome naming from the reference
+    /// (e.g., "MN908947.3" vs "MN908947", or "chr1" vs "1").
+    /// This method reads the AlignmentMetadataDatabase (populated from samtools idxstats
+    /// at import time) and matches chromosomes by exact sequence length.
+    private static func buildAlignmentChromosomeAliasMap(
+        bundleChromosomes: [ChromosomeInfo],
+        alignmentTracks: [AlignmentTrackInfo],
+        bundleURL: URL,
+        logger: Logger
+    ) -> [String: String] {
+        let refChromNames = Set(bundleChromosomes.map(\.name))
+
+        // Collect BAM chromosome names and lengths from metadata databases
+        var bamChromLengths: [String: Int64] = [:]
+        for track in alignmentTracks {
+            guard let dbRelPath = track.metadataDBPath else { continue }
+            let dbURL = bundleURL.appendingPathComponent(dbRelPath)
+            guard let db = try? AlignmentMetadataDatabase(url: dbURL) else { continue }
+            for stat in db.chromosomeStats() {
+                bamChromLengths[stat.chromosome] = stat.length
+            }
+        }
+
+        guard !bamChromLengths.isEmpty else { return [:] }
+
+        let bamChromNames = Set(bamChromLengths.keys)
+
+        // Check if all BAM chromosomes already match reference names
+        let unmatched = bamChromNames.subtracting(refChromNames)
+        if unmatched.isEmpty { return [:] }
+
+        // Build alias map: ref name → BAM name, matching by exact length
+        var aliasMap: [String: String] = [:]
+        var usedBAMChroms = Set<String>()
+
+        for chrom in bundleChromosomes {
+            // Skip if BAM already has this exact name
+            if bamChromNames.contains(chrom.name) { continue }
+
+            // Find a BAM chromosome with matching length
+            var bestMatch: String?
+            for bamChrom in unmatched where !usedBAMChroms.contains(bamChrom) {
+                guard let bamLength = bamChromLengths[bamChrom] else { continue }
+                if bamLength == chrom.length {
+                    bestMatch = bamChrom
+                    break
+                }
+            }
+
+            if let match = bestMatch {
+                aliasMap[chrom.name] = match
+                usedBAMChroms.insert(match)
+            }
+        }
+
+        if !aliasMap.isEmpty {
+            logger.info("buildAlignmentChromosomeAliasMap: Built \(aliasMap.count) aliases (e.g., \(aliasMap.first?.key ?? "") → \(aliasMap.first?.value ?? ""))")
+        }
+
+        return aliasMap
+    }
+
     /// Fetches variant annotations asynchronously from the VariantDatabase.
     /// Runs SQLite queries on a background thread, converts to SequenceAnnotation,
     /// and merges with the annotation rendering pipeline.
@@ -3318,6 +4034,430 @@ public class SequenceViewerView: NSView {
                         "variantCount": count,
                     ]
                 )
+            }
+        }
+    }
+
+    // MARK: - Read Alignment Fetching
+
+    /// Fetches sparse depth points asynchronously from samtools depth for coverage-tier rendering.
+    ///
+    /// This decouples zoomed-out coverage from full SAM read parsing.
+    private func fetchDepthAsync(bundle: ReferenceBundle, region: GenomicRegion) {
+        guard !alignmentDataProviders.isEmpty else { return }
+
+        depthFetchGeneration += 1
+        let thisGeneration = depthFetchGeneration
+        isFetchingDepth = true
+        depthFetchStartTime = Date()
+
+        let chromLength = bundle.chromosomeLength(named: region.chromosome) ?? Int64(region.end + 1000)
+        let visibleSpan = region.end - region.start
+        let expandAmount = max(5_000, visibleSpan) // 1x viewport padding for panning
+        let expandedStart = max(0, region.start - expandAmount)
+        let expandedEnd = min(Int(chromLength), region.end + expandAmount)
+        let expandedRegion = GenomicRegion(chromosome: region.chromosome, start: expandedStart, end: expandedEnd)
+
+        let providers = alignmentDataProviders
+        let bamChromosome = alignmentChromosomeName(for: region.chromosome)
+        let mapQFilter = max(0, max(minMapQSetting, consensusMinMapQSetting))
+        let baseQFilter = max(0, consensusMinBaseQSetting)
+        let excludeFlags = excludeFlagsSetting
+
+        logger.info(
+            "fetchDepthAsync: gen=\(thisGeneration), Fetching depth for \(expandedRegion.description) (BAM chrom: \(bamChromosome), minMAPQ: \(mapQFilter), minBQ: \(baseQFilter), flags: 0x\(String(excludeFlags, radix: 16)))"
+        )
+
+        Task.detached { [weak self] in
+            var depthByPosition: [Int: Int] = [:]
+            depthByPosition.reserveCapacity(8192)
+
+            for (_, provider) in providers {
+                do {
+                    var points = try await provider.fetchDepth(
+                        chromosome: bamChromosome,
+                        start: expandedStart,
+                        end: expandedEnd,
+                        minMapQ: mapQFilter,
+                        minBaseQ: baseQFilter,
+                        excludeFlags: excludeFlags
+                    )
+
+                    if points.isEmpty, bamChromosome != region.chromosome {
+                        let fallback = try await provider.fetchDepth(
+                            chromosome: region.chromosome,
+                            start: expandedStart,
+                            end: expandedEnd,
+                            minMapQ: mapQFilter,
+                            minBaseQ: baseQFilter,
+                            excludeFlags: excludeFlags
+                        )
+                        if !fallback.isEmpty {
+                            logger.info(
+                                "fetchDepthAsync: Fallback chromosome lookup succeeded for '\(region.chromosome, privacy: .public)' after empty alias query '\(bamChromosome, privacy: .public)'"
+                            )
+                            points = fallback
+                        }
+                    }
+
+                    for point in points where point.depth > 0 {
+                        depthByPosition[point.position, default: 0] += point.depth
+                    }
+                } catch {
+                    logger.error("fetchDepthAsync: Failed to fetch depth: \(error)")
+                }
+            }
+
+            let mergedPoints = depthByPosition
+                .map { ReadTrackRenderer.CoveragePoint(position: $0.key, depth: $0.value) }
+                .sorted { $0.position < $1.position }
+
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let viewer = self else { return }
+                    guard thisGeneration == viewer.depthFetchGeneration else {
+                        logger.info("fetchDepthAsync: Discarding stale result gen=\(thisGeneration) (current=\(viewer.depthFetchGeneration))")
+                        return
+                    }
+                    viewer.cachedDepthPoints = mergedPoints
+                    viewer.cachedDepthRegion = expandedRegion
+                    viewer.cachedCoverageStats = ReadTrackRenderer.summarizeCoverage(
+                        depthPoints: mergedPoints,
+                        regionStart: expandedRegion.start,
+                        regionEnd: expandedRegion.end
+                    )
+                    viewer.isFetchingDepth = false
+                    viewer.depthFetchStartTime = nil
+                    logger.info("fetchDepthAsync: Cached \(mergedPoints.count) depth points")
+                    viewer.setNeedsDisplay(viewer.bounds)
+                }
+            }
+        }
+    }
+
+    /// Returns a stable cache signature for consensus options.
+    private func currentConsensusOptionsSignature() -> String {
+        [
+            consensusModeSetting.rawValue,
+            showConsensusTrackSetting ? "1" : "0",
+            consensusUseAmbiguitySetting ? "1" : "0",
+            String(max(0, max(minMapQSetting, consensusMinMapQSetting))),
+            String(max(0, consensusMinBaseQSetting)),
+            String(max(1, consensusMinDepthSetting)),
+            String(excludeFlagsSetting),
+        ].joined(separator: "|")
+    }
+
+    /// Fetches consensus sequence asynchronously for the current alignment region.
+    private func fetchConsensusAsync(bundle: ReferenceBundle, region: GenomicRegion) {
+        guard showConsensusTrackSetting else { return }
+        guard !alignmentDataProviders.isEmpty else { return }
+
+        consensusFetchGeneration += 1
+        let thisGeneration = consensusFetchGeneration
+        isFetchingConsensus = true
+
+        let chromLength = bundle.chromosomeLength(named: region.chromosome) ?? Int64(region.end + 1000)
+        let visibleSpan = region.end - region.start
+        let expandAmount = max(5_000, visibleSpan)
+        let expandedStart = max(0, region.start - expandAmount)
+        let expandedEnd = min(Int(chromLength), region.end + expandAmount)
+        let expandedRegion = GenomicRegion(chromosome: region.chromosome, start: expandedStart, end: expandedEnd)
+
+        let providers = alignmentDataProviders
+        guard let provider = providers.first?.provider else { return }
+        let bamChromosome = alignmentChromosomeName(for: region.chromosome)
+        let mapQFilter = max(0, max(minMapQSetting, consensusMinMapQSetting))
+        let baseQFilter = max(0, consensusMinBaseQSetting)
+        let minDepth = max(1, consensusMinDepthSetting)
+        let excludeFlags = excludeFlagsSetting
+        let mode = consensusModeSetting
+        let useAmbiguity = consensusUseAmbiguitySetting
+        let optionsSignature = currentConsensusOptionsSignature()
+
+        logger.info(
+            "fetchConsensusAsync: gen=\(thisGeneration), Fetching consensus for \(expandedRegion.description) (BAM chrom: \(bamChromosome), mode: \(mode.rawValue), minMAPQ: \(mapQFilter), minBQ: \(baseQFilter), minDepth: \(minDepth))"
+        )
+
+        Task.detached { [weak self] in
+            var result = AlignmentDataProvider.ConsensusFASTAResult(sequence: "", headerStart: nil)
+            do {
+                result = try await provider.fetchConsensus(
+                    chromosome: bamChromosome,
+                    start: expandedStart,
+                    end: expandedEnd,
+                    mode: mode,
+                    minMapQ: mapQFilter,
+                    minBaseQ: baseQFilter,
+                    minDepth: minDepth,
+                    excludeFlags: excludeFlags,
+                    useAmbiguity: useAmbiguity,
+                    showDeletions: true,
+                    showInsertions: false
+                )
+                if result.sequence.isEmpty, bamChromosome != region.chromosome {
+                    let fallback = try await provider.fetchConsensus(
+                        chromosome: region.chromosome,
+                        start: expandedStart,
+                        end: expandedEnd,
+                        mode: mode,
+                        minMapQ: mapQFilter,
+                        minBaseQ: baseQFilter,
+                        minDepth: minDepth,
+                        excludeFlags: excludeFlags,
+                        useAmbiguity: useAmbiguity,
+                        showDeletions: true,
+                        showInsertions: false
+                    )
+                    if !fallback.sequence.isEmpty {
+                        logger.info(
+                            "fetchConsensusAsync: Fallback chromosome lookup succeeded for '\(region.chromosome, privacy: .public)' after empty alias query '\(bamChromosome, privacy: .public)'"
+                        )
+                        result = fallback
+                    }
+                }
+            } catch {
+                logger.error("fetchConsensusAsync: Failed to fetch consensus: \(error)")
+            }
+
+            let consensus = result.sequence
+            let headerStart = result.headerStart
+
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let viewer = self else { return }
+                    guard thisGeneration == viewer.consensusFetchGeneration else {
+                        logger.info("fetchConsensusAsync: Discarding stale result gen=\(thisGeneration) (current=\(viewer.consensusFetchGeneration))")
+                        return
+                    }
+                    // Determine the actual start position of the consensus output.
+                    // The FASTA header (e.g., ">chr:101-200") tells us the 1-based start.
+                    // If the header start matches our requested start, all is well.
+                    // If it differs, samtools clipped to the data range and we must use
+                    // the actual start to avoid a positional shift in rendering.
+                    let actualStart: Int
+                    if let headerStart {
+                        actualStart = headerStart
+                        if headerStart != expandedStart {
+                            logger.warning(
+                                "fetchConsensusAsync: Header start (\(headerStart)) differs from requested start (\(expandedStart)) — using header value"
+                            )
+                        }
+                    } else {
+                        actualStart = expandedStart
+                    }
+
+                    let expectedLength = expandedEnd - expandedStart
+                    if !consensus.isEmpty && consensus.count != expectedLength {
+                        logger.warning(
+                            "fetchConsensusAsync: Consensus length (\(consensus.count)) differs from expected (\(expectedLength)) for region \(expandedRegion.description)"
+                        )
+                    }
+
+                    if consensus.isEmpty {
+                        viewer.cachedConsensusSequence = nil
+                    } else {
+                        // Normalize to the requested window so consensus and reference rows
+                        // always span identical genomic widths in the viewport.
+                        viewer.cachedConsensusSequence = viewer.normalizedConsensusSequence(
+                            consensus,
+                            sourceStart: actualStart,
+                            targetStart: expandedStart,
+                            targetEnd: expandedEnd
+                        )
+                    }
+                    viewer.cachedConsensusRegion = GenomicRegion(
+                        chromosome: expandedRegion.chromosome,
+                        start: expandedStart,
+                        end: expandedEnd
+                    )
+                    viewer.cachedConsensusOptionsSignature = optionsSignature
+                    viewer.isFetchingConsensus = false
+                    logger.info(
+                        "fetchConsensusAsync: Cached consensus sourceStart=\(actualStart) sourceLength=\(consensus.count) normalizedLength=\(viewer.cachedConsensusSequence?.count ?? 0) headerStart=\(headerStart.map(String.init) ?? "nil")"
+                    )
+                    viewer.setNeedsDisplay(viewer.bounds)
+                }
+            }
+        }
+    }
+
+    /// Draws consensus sequence row below the coverage strip.
+    private func drawConsensusTrack(
+        sequenceString: String?,
+        region: GenomicRegion?,
+        frame: ReferenceFrame,
+        context: CGContext,
+        rect: CGRect
+    ) {
+        let labelAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 9, weight: .medium),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ]
+        ("Consensus" as NSString).draw(
+            at: CGPoint(x: 4, y: rect.minY + 2),
+            withAttributes: labelAttrs
+        )
+
+        guard let sequenceString,
+              let region,
+              region.chromosome == frame.chromosome else {
+            context.setStrokeColor(NSColor.systemGray.withAlphaComponent(0.45).cgColor)
+            context.setLineWidth(1)
+            context.move(to: CGPoint(x: rect.minX, y: rect.midY))
+            context.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+            context.strokePath()
+            return
+        }
+
+        guard let slice = visibleSequenceSlice(
+            sequenceString: sequenceString,
+            cachedRegion: region,
+            frame: frame
+        ) else {
+            context.setStrokeColor(NSColor.systemGray.withAlphaComponent(0.55).cgColor)
+            context.setLineWidth(1)
+            context.move(to: CGPoint(x: rect.minX, y: rect.midY))
+            context.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+            context.strokePath()
+            return
+        }
+
+        let scale = frame.scale
+        let clipInset = navigationLeadingInsetPixels
+        if clipInset > 0 {
+            context.saveGState()
+            let clipRect = CGRect(
+                x: min(clipInset, bounds.width),
+                y: rect.minY,
+                width: max(0, bounds.width - clipInset),
+                height: rect.height
+            )
+            context.clip(to: clipRect)
+        }
+
+        defer {
+            if clipInset > 0 {
+                context.restoreGState()
+            }
+        }
+
+        if scale < showLettersThreshold {
+            drawBasesWithLetters(
+                slice.sequence,
+                startPosition: slice.startPosition,
+                frame: frame,
+                context: context,
+                rowRect: rect,
+                font: NSFont.monospacedSystemFont(ofSize: 12, weight: .medium)
+            )
+        } else if scale < showLineThreshold {
+            // Zoomed out: render as simple colored blocks aggregated by base runs.
+            drawColoredBlocks(
+                slice.sequence,
+                startPosition: slice.startPosition,
+                frame: frame,
+                context: context,
+                rowRect: rect
+            )
+        } else {
+            context.setStrokeColor(NSColor.systemGray.withAlphaComponent(0.55).cgColor)
+            context.setLineWidth(1)
+            context.move(to: CGPoint(x: rect.minX, y: rect.midY))
+            context.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+            context.strokePath()
+        }
+    }
+
+    /// Fetches aligned reads asynchronously from samtools for the visible region.
+    /// Uses the same generation counter pattern as other fetch methods.
+    /// AlignmentDataProvider.fetchReads() is async, so we use Task.detached to avoid
+    /// cooperative executor issues (see MEMORY.md), then return via GCD main queue.
+    private func fetchReadsAsync(bundle: ReferenceBundle, region: GenomicRegion) {
+        guard !alignmentDataProviders.isEmpty else { return }
+
+        readFetchGeneration += 1
+        let thisGeneration = readFetchGeneration
+        isFetchingReads = true
+        readFetchStartTime = Date()
+
+        let chromLength = bundle.chromosomeLength(named: region.chromosome) ?? Int64(region.end + 1000)
+        let visibleSpan = region.end - region.start
+        let currentScale = viewController?.referenceFrame?.scale
+            ?? (Double(max(visibleSpan, 1)) / max(Double(max(bounds.width, 1)), 1.0))
+        let tier = ReadTrackRenderer.zoomTier(scale: currentScale)
+        let expandAmount: Int
+        switch tier {
+        case .coverage:
+            expandAmount = max(10_000, visibleSpan * 2)
+        case .packed:
+            expandAmount = max(20_000, visibleSpan * 2)
+        case .base:
+            expandAmount = max(20_000, visibleSpan * 2)
+        }
+        let expandedStart = max(0, region.start - expandAmount)
+        let expandedEnd = min(Int(chromLength), region.end + expandAmount)
+        let expandedRegion = GenomicRegion(chromosome: region.chromosome, start: expandedStart, end: expandedEnd)
+
+        let providers = alignmentDataProviders
+        // Translate reference chromosome name to BAM chromosome name (e.g., MN908947 → MN908947.3)
+        let bamChromosome = alignmentChromosomeName(for: region.chromosome)
+        let mapQFilter = minMapQSetting
+        let excludeFlags = excludeFlagsSetting
+        let readGroupFilter = selectedReadGroupsSetting
+        let maxReadsPerTrack: Int = limitReadRowsSetting ? 250_000 : Int.max
+
+        logger.info("fetchReadsAsync: gen=\(thisGeneration), Fetching reads for \(expandedRegion.description) (BAM chrom: \(bamChromosome), tier: \(String(describing: tier)), minMAPQ: \(mapQFilter), maxReads/track: \(maxReadsPerTrack), flags: 0x\(String(excludeFlags, radix: 16)))")
+
+        Task.detached { [weak self] in
+            var allReads: [AlignedRead] = []
+            for (_, provider) in providers {
+                do {
+                    var reads = try await provider.fetchReads(
+                        chromosome: bamChromosome,
+                        start: expandedStart,
+                        end: expandedEnd,
+                        excludeFlags: excludeFlags,
+                        minMapQ: mapQFilter,
+                        maxReads: maxReadsPerTrack,
+                        readGroups: readGroupFilter
+                    )
+                    if reads.isEmpty, bamChromosome != region.chromosome {
+                        let fallbackReads = try await provider.fetchReads(
+                            chromosome: region.chromosome,
+                            start: expandedStart,
+                            end: expandedEnd,
+                            excludeFlags: excludeFlags,
+                            minMapQ: mapQFilter,
+                            maxReads: maxReadsPerTrack,
+                            readGroups: readGroupFilter
+                        )
+                        if !fallbackReads.isEmpty {
+                            logger.info("fetchReadsAsync: Fallback chromosome lookup succeeded for '\(region.chromosome, privacy: .public)' after empty alias query '\(bamChromosome, privacy: .public)'")
+                            reads = fallbackReads
+                        }
+                    }
+                    allReads.append(contentsOf: reads)
+                } catch {
+                    logger.error("fetchReadsAsync: Failed to fetch reads: \(error)")
+                }
+            }
+
+            let count = allReads.count
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let viewer = self else { return }
+                    guard thisGeneration == viewer.readFetchGeneration else {
+                        logger.info("fetchReadsAsync: Discarding stale result gen=\(thisGeneration) (current=\(viewer.readFetchGeneration))")
+                        return
+                    }
+                    viewer.cachedAlignedReads = allReads
+                    viewer.cachedReadRegion = expandedRegion
+                    viewer.isFetchingReads = false
+                    viewer.readFetchStartTime = nil
+                    logger.info("fetchReadsAsync: Cached \(count) reads")
+                    viewer.setNeedsDisplay(viewer.bounds)
+                }
             }
         }
     }
@@ -3549,47 +4689,143 @@ public class SequenceViewerView: NSView {
         }
 
         let scale = frame.scale  // bp/pixel
-        
-        // Calculate the offset within the cached sequence for the visible region
-        let visibleStart = Int(frame.start)
-        let visibleEnd = Int(frame.end)
-        let offsetInCache = visibleStart - region.start
-        
-        // Extract the visible portion of the sequence
-        let startIndex = sequenceString.index(sequenceString.startIndex, offsetBy: max(0, offsetInCache))
-        let endIndex = sequenceString.index(startIndex, offsetBy: min(visibleEnd - visibleStart, sequenceString.count - offsetInCache), limitedBy: sequenceString.endIndex) ?? sequenceString.endIndex
-        let visibleSequence = String(sequenceString[startIndex..<endIndex])
+        guard let slice = visibleSequenceSlice(
+            sequenceString: sequenceString,
+            cachedRegion: region,
+            frame: frame
+        ) else { return }
+
+        let sequenceRect = CGRect(x: 0, y: trackY, width: bounds.width, height: trackHeight)
         
         // Draw based on zoom level
         if scale < showLettersThreshold {
             // High zoom: draw individual bases with letters
-            drawBasesWithLetters(visibleSequence, startPosition: visibleStart, frame: frame, context: context)
+            drawBasesWithLetters(
+                slice.sequence,
+                startPosition: slice.startPosition,
+                frame: frame,
+                context: context,
+                rowRect: sequenceRect,
+                font: NSFont.monospacedSystemFont(ofSize: 12, weight: .medium)
+            )
         } else if scale < showLineThreshold {
             // Medium zoom: draw colored blocks
-            drawColoredBlocks(visibleSequence, startPosition: visibleStart, frame: frame, context: context)
+            drawColoredBlocks(
+                slice.sequence,
+                startPosition: slice.startPosition,
+                frame: frame,
+                context: context,
+                rowRect: sequenceRect
+            )
         } else {
             // Low zoom: draw simple line
             drawSequenceLine(frame: frame, context: context)
         }
     }
     
+    /// Slice of sequence that overlaps the visible viewport.
+    private struct VisibleSequenceSlice {
+        let sequence: String
+        let startPosition: Int
+    }
+
+    /// Extracts the visible base window from cached sequence data.
+    /// Uses the same overlap logic for both reference and consensus rows.
+    private func visibleSequenceSlice(
+        sequenceString: String,
+        cachedRegion: GenomicRegion,
+        frame: ReferenceFrame
+    ) -> VisibleSequenceSlice? {
+        let viewport = visibleViewportBaseRange(frame: frame)
+        let visibleStart = viewport.lowerBound
+        let visibleEnd = viewport.upperBound
+        guard visibleEnd > visibleStart else { return nil }
+
+        let overlapStart = max(visibleStart, cachedRegion.start)
+        let overlapEnd = min(visibleEnd, cachedRegion.end)
+        guard overlapEnd > overlapStart else { return nil }
+
+        let offsetInCache = overlapStart - cachedRegion.start
+        guard offsetInCache >= 0, offsetInCache < sequenceString.count else { return nil }
+
+        let span = min(overlapEnd - overlapStart, sequenceString.count - offsetInCache)
+        guard span > 0 else { return nil }
+
+        let startIndex = sequenceString.index(sequenceString.startIndex, offsetBy: offsetInCache)
+        let endIndex = sequenceString.index(startIndex, offsetBy: span)
+        return VisibleSequenceSlice(
+            sequence: String(sequenceString[startIndex..<endIndex]),
+            startPosition: overlapStart
+        )
+    }
+
+    /// Visible genomic base range using the same rounding semantics across
+    /// sequence rendering, consensus rendering, and viewport selection.
+    private func visibleViewportBaseRange(frame: ReferenceFrame) -> Range<Int> {
+        let lower = max(0, Int(frame.start))
+        let upper = max(lower + 1, Int(ceil(frame.end)))
+        return lower..<upper
+    }
+
+    /// Converts a source consensus string into a fixed target genomic window.
+    private func normalizedConsensusSequence(
+        _ rawSequence: String,
+        sourceStart: Int,
+        targetStart: Int,
+        targetEnd: Int
+    ) -> String {
+        let targetLength = max(0, targetEnd - targetStart)
+        guard targetLength > 0 else { return "" }
+        var normalized = Array(repeating: Character("N"), count: targetLength)
+        guard !rawSequence.isEmpty else { return String(normalized) }
+
+        let sourceBases = Array(rawSequence)
+        let sourceEnd = sourceStart + sourceBases.count
+        let overlapStart = max(sourceStart, targetStart)
+        let overlapEnd = min(sourceEnd, targetEnd)
+        guard overlapEnd > overlapStart else { return String(normalized) }
+
+        let sourceOffset = overlapStart - sourceStart
+        let targetOffset = overlapStart - targetStart
+        let copyLength = overlapEnd - overlapStart
+        for i in 0..<copyLength {
+            normalized[targetOffset + i] = sourceBases[sourceOffset + i]
+        }
+        return String(normalized)
+    }
+
+    /// Pixel rect for one genomic base using the frame's exact transform.
+    private func baseCellRect(position: Int, frame: ReferenceFrame, rowRect: CGRect) -> CGRect {
+        let x = frame.screenPosition(for: Double(position))
+        let nextX = frame.screenPosition(for: Double(position + 1))
+        return CGRect(
+            x: x,
+            y: rowRect.minY,
+            width: max(1, nextX - x),
+            height: rowRect.height
+        )
+    }
+
     /// Draws bases with individual letters (high zoom level).
-    private func drawBasesWithLetters(_ sequence: String, startPosition: Int, frame: ReferenceFrame, context: CGContext) {
-        let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .medium)
-        let pixelsPerBase = bounds.width / CGFloat(max(1, frame.end - frame.start))
-        
+    private func drawBasesWithLetters(
+        _ sequence: String,
+        startPosition: Int,
+        frame: ReferenceFrame,
+        context: CGContext,
+        rowRect: CGRect,
+        font: NSFont
+    ) {
         for (index, base) in sequence.enumerated() {
             let position = startPosition + index
-            let x = frame.screenPosition(for: Double(position))
-            let baseWidth = pixelsPerBase
-            
+            let cellRect = baseCellRect(position: position, frame: frame, rowRect: rowRect)
+
             // Draw background
             let color = BaseColors.color(for: base)
             context.setFillColor(color.cgColor)
-            let rect = CGRect(x: x, y: trackY, width: baseWidth, height: trackHeight)
-            context.fill(rect)
+            context.fill(cellRect)
             
             // Draw letter if space permits
+            let baseWidth = cellRect.width
             if baseWidth >= 8 {
                 let displayChar = isRNAMode && base.uppercased() == "T" ? "U" : String(base).uppercased()
                 let attributes: [NSAttributedString.Key: Any] = [
@@ -3598,8 +4834,8 @@ public class SequenceViewerView: NSView {
                 ]
                 let size = (displayChar as NSString).size(withAttributes: attributes)
                 let letterRect = CGRect(
-                    x: x + (baseWidth - size.width) / 2,
-                    y: trackY + (trackHeight - size.height) / 2,
+                    x: cellRect.minX + (baseWidth - size.width) / 2,
+                    y: rowRect.minY + (rowRect.height - size.height) / 2,
                     width: size.width,
                     height: size.height
                 )
@@ -3609,7 +4845,13 @@ public class SequenceViewerView: NSView {
     }
     
     /// Draws colored blocks for bases (medium zoom level).
-    private func drawColoredBlocks(_ sequence: String, startPosition: Int, frame: ReferenceFrame, context: CGContext) {
+    private func drawColoredBlocks(
+        _ sequence: String,
+        startPosition: Int,
+        frame: ReferenceFrame,
+        context: CGContext,
+        rowRect: CGRect
+    ) {
         // Group consecutive bases of the same type for efficient drawing
         var currentBase: Character?
         var blockStart = startPosition
@@ -3624,7 +4866,7 @@ public class SequenceViewerView: NSView {
                     let width = frame.screenPosition(for: Double(position)) - x
                     let color = BaseColors.color(for: prevBase)
                     context.setFillColor(color.cgColor)
-                    let rect = CGRect(x: x, y: trackY, width: max(1, width), height: trackHeight)
+                    let rect = CGRect(x: x, y: rowRect.minY, width: max(1, width), height: rowRect.height)
                     context.fill(rect)
                 }
                 
@@ -3640,7 +4882,7 @@ public class SequenceViewerView: NSView {
             let width = endX - x
             let color = BaseColors.color(for: prevBase)
             context.setFillColor(color.cgColor)
-            let rect = CGRect(x: x, y: trackY, width: max(1, width), height: trackHeight)
+            let rect = CGRect(x: x, y: rowRect.minY, width: max(1, width), height: rowRect.height)
             context.fill(rect)
         }
     }
@@ -4303,8 +5545,160 @@ public class SequenceViewerView: NSView {
             width: size.width,
             height: size.height
         )
-        
+
         (message as NSString).draw(in: rect, withAttributes: attributes)
+    }
+
+    /// Draws a compact loading badge anchored within a track region.
+    private func drawTrackLoadingBadge(context: CGContext, message: String, yOffset: CGFloat) {
+        let textAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 10, weight: .medium),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ]
+        let text = message as NSString
+        let textSize = text.size(withAttributes: textAttrs)
+
+        let spinnerSize: CGFloat = 10
+        let badgeHeight: CGFloat = 18
+        let horizontalPadding: CGFloat = 8
+        let badgeWidth = min(
+            max(120, spinnerSize + 8 + textSize.width + horizontalPadding * 2),
+            max(120, bounds.width - 16)
+        )
+        let badgeRect = CGRect(
+            x: 8,
+            y: max(0, yOffset),
+            width: badgeWidth,
+            height: badgeHeight
+        )
+
+        context.saveGState()
+        context.setFillColor(NSColor.windowBackgroundColor.withAlphaComponent(0.92).cgColor)
+        context.setStrokeColor(NSColor.separatorColor.withAlphaComponent(0.7).cgColor)
+        context.setLineWidth(0.8)
+        let badgePath = CGPath(roundedRect: badgeRect, cornerWidth: 6, cornerHeight: 6, transform: nil)
+        context.addPath(badgePath)
+        context.drawPath(using: .fillStroke)
+
+        let spinnerRect = CGRect(
+            x: badgeRect.minX + horizontalPadding,
+            y: badgeRect.midY - spinnerSize / 2,
+            width: spinnerSize,
+            height: spinnerSize
+        )
+        context.setStrokeColor(NSColor.tertiaryLabelColor.withAlphaComponent(0.35).cgColor)
+        context.setLineWidth(1.2)
+        context.strokeEllipse(in: spinnerRect)
+
+        context.setStrokeColor(NSColor.controlAccentColor.cgColor)
+        context.setLineWidth(1.8)
+        let center = CGPoint(x: spinnerRect.midX, y: spinnerRect.midY)
+        let radius = spinnerSize / 2 - 1
+        let phase = trackLoadingAnimationPhase
+        let sweep: CGFloat = .pi * 1.1
+        context.addArc(
+            center: center,
+            radius: radius,
+            startAngle: phase,
+            endAngle: phase + sweep,
+            clockwise: false
+        )
+        context.strokePath()
+
+        let textRect = CGRect(
+            x: spinnerRect.maxX + 8,
+            y: badgeRect.midY - textSize.height / 2,
+            width: badgeRect.maxX - spinnerRect.maxX - horizontalPadding - 8,
+            height: textSize.height
+        )
+        text.draw(in: textRect, withAttributes: textAttrs)
+        context.restoreGState()
+    }
+
+    /// Draws a hint when zoom level is too low for per-read rendering.
+    private func drawReadZoomHint(context: CGContext, yOffset: CGFloat, scale: Double) {
+        let threshold = ReadTrackRenderer.coverageThresholdBpPerPx
+        let message = "Zoom in to view individual mapped reads (< \(String(format: "%.1f", threshold)) bp/px)"
+        let detail = "Current zoom: \(String(format: "%.1f", scale)) bp/px"
+        let textAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 10, weight: .medium),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ]
+        let detailAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 9, weight: .regular),
+            .foregroundColor: NSColor.tertiaryLabelColor,
+        ]
+
+        let title = message as NSString
+        let subtitle = detail as NSString
+        let titleSize = title.size(withAttributes: textAttrs)
+        let subtitleSize = subtitle.size(withAttributes: detailAttrs)
+        let badgeWidth = min(
+            max(220, max(titleSize.width, subtitleSize.width) + 16),
+            max(220, bounds.width - 16)
+        )
+        let badgeHeight: CGFloat = 34
+        let badgeRect = CGRect(x: 8, y: max(0, yOffset), width: badgeWidth, height: badgeHeight)
+
+        context.saveGState()
+        context.setFillColor(NSColor.windowBackgroundColor.withAlphaComponent(0.9).cgColor)
+        context.setStrokeColor(NSColor.separatorColor.withAlphaComponent(0.8).cgColor)
+        context.setLineWidth(0.8)
+        let path = CGPath(roundedRect: badgeRect, cornerWidth: 6, cornerHeight: 6, transform: nil)
+        context.addPath(path)
+        context.drawPath(using: .fillStroke)
+
+        title.draw(
+            in: CGRect(
+                x: badgeRect.minX + 8,
+                y: badgeRect.minY + 6,
+                width: badgeRect.width - 16,
+                height: titleSize.height
+            ),
+            withAttributes: textAttrs
+        )
+        subtitle.draw(
+            in: CGRect(
+                x: badgeRect.minX + 8,
+                y: badgeRect.minY + 18,
+                width: badgeRect.width - 16,
+                height: subtitleSize.height
+            ),
+            withAttributes: detailAttrs
+        )
+        context.restoreGState()
+    }
+
+    /// Draws a macOS-style scroll indicator on the right edge of the read track.
+    private func drawReadScrollIndicator(
+        context: CGContext, clipRect: CGRect,
+        contentHeight: CGFloat, scrollOffset: CGFloat
+    ) {
+        let trackHeight = clipRect.height
+        guard trackHeight > 0, contentHeight > trackHeight else { return }
+
+        let indicatorWidth: CGFloat = 6
+        let indicatorMinHeight: CGFloat = 20
+        let margin: CGFloat = 2
+
+        let fraction = trackHeight / contentHeight
+        let indicatorHeight = max(indicatorMinHeight, trackHeight * fraction)
+        let scrollFraction = scrollOffset / (contentHeight - trackHeight)
+        let indicatorY = clipRect.minY + scrollFraction * (trackHeight - indicatorHeight)
+
+        let indicatorRect = CGRect(
+            x: clipRect.maxX - indicatorWidth - margin,
+            y: indicatorY,
+            width: indicatorWidth,
+            height: indicatorHeight
+        )
+
+        context.saveGState()
+        context.setFillColor(NSColor(white: 0.4, alpha: 0.5).cgColor)
+        let path = CGPath(roundedRect: indicatorRect, cornerWidth: indicatorWidth / 2, cornerHeight: indicatorWidth / 2, transform: nil)
+        context.addPath(path)
+        context.fillPath()
+        context.restoreGState()
     }
 
     private func drawPlaceholder(context: CGContext) {
@@ -4445,136 +5839,75 @@ public class SequenceViewerView: NSView {
 
         // Draw sequence info header
         drawSequenceInfo(seq, frame: frame, context: context)
+
+        // Draw column selection overlay
+        drawColumnSelectionHighlight(frame: frame, context: context)
     }
 
-    /// Draws the selection highlight overlay with edge handles.
-    /// The overlay spans the full viewport height to make extraction regions explicit.
-    private func drawSelectionHighlight(frame: ReferenceFrame, context: CGContext) {
-        guard let range = selectionRange else { return }
+    /// Draws a Geneious-style column selection highlight spanning the full view height.
+    private func drawColumnSelectionHighlight(frame: ReferenceFrame, context: CGContext) {
+        guard isUserColumnSelection, let range = selectionRange else { return }
 
-        let visibleBases = frame.end - frame.start
-        let pixelsPerBase = bounds.width / CGFloat(max(1, visibleBases))
-
-        // Calculate screen coordinates for selection
-        let startX = CGFloat(range.lowerBound - Int(frame.start)) * pixelsPerBase
-        let endX = CGFloat(range.upperBound - Int(frame.start)) * pixelsPerBase
+        let startX = frame.screenPosition(for: Double(range.lowerBound))
+        let endX = frame.screenPosition(for: Double(range.upperBound))
         let clippedStartX = max(0, startX)
         let clippedEndX = min(bounds.width, endX)
-        let clippedWidth = max(0, clippedEndX - clippedStartX)
-        guard clippedWidth > 0 else { return }
+        let width = clippedEndX - clippedStartX
+        guard width > 0 else { return }
 
-        let signature = "\(range.lowerBound)-\(range.upperBound)|\(Int(clippedStartX.rounded()))-\(Int(clippedEndX.rounded()))"
-        if signature != lastSelectionRenderSignature {
-            logger.info("drawSelectionHighlight: range=\(range.lowerBound)-\(range.upperBound), x=\(clippedStartX, format: .fixed(precision: 1))-\(clippedEndX, format: .fixed(precision: 1)), width=\(clippedWidth, format: .fixed(precision: 1))")
-            lastSelectionRenderSignature = signature
-        }
-
-        // Full-height selection highlight (covers sequence + annotation + variant areas).
-        let fullRect = CGRect(
-            x: clippedStartX,
-            y: 0,
-            width: clippedWidth,
-            height: bounds.height
-        )
-
-        let accent = NSColor.controlAccentColor
-
-        // Draw selection highlight fill.
         context.saveGState()
-        context.setFillColor(accent.withAlphaComponent(0.18).cgColor)
-        context.fill(fullRect)
 
-        // Add subtle diagonal hatching so wide selections remain obvious at all zoom levels.
-        context.saveGState()
-        context.clip(to: fullRect)
-        context.setStrokeColor(accent.withAlphaComponent(0.22).cgColor)
+        // Full-height dark navy column fill (Geneious style)
+        let columnRect = CGRect(x: clippedStartX, y: 0, width: width, height: bounds.height)
+        context.setFillColor(NSColor(red: 0.15, green: 0.22, blue: 0.42, alpha: 0.40).cgColor)
+        context.fill(columnRect)
+
+        // Edge lines at selection boundaries
+        context.setStrokeColor(NSColor(red: 0.15, green: 0.22, blue: 0.42, alpha: 0.75).cgColor)
         context.setLineWidth(1)
-        let stripeStep: CGFloat = 14
-        var stripeX = fullRect.minX - fullRect.height
-        while stripeX < fullRect.maxX + fullRect.height {
-            context.move(to: CGPoint(x: stripeX, y: 0))
-            context.addLine(to: CGPoint(x: stripeX + fullRect.height, y: bounds.height))
-            stripeX += stripeStep
+        if clippedStartX > 0 {
+            context.move(to: CGPoint(x: clippedStartX, y: 0))
+            context.addLine(to: CGPoint(x: clippedStartX, y: bounds.height))
+        }
+        if clippedEndX < bounds.width {
+            context.move(to: CGPoint(x: clippedEndX, y: 0))
+            context.addLine(to: CGPoint(x: clippedEndX, y: bounds.height))
         }
         context.strokePath()
+
         context.restoreGState()
+    }
 
-        // Sequence track highlight (brighter for immediate visibility).
-        let seqRect = CGRect(
-            x: clippedStartX,
-            y: trackY,
-            width: clippedWidth,
-            height: trackHeight
-        )
-        context.setFillColor(accent.withAlphaComponent(0.40).cgColor)
-        context.fill(seqRect)
+    /// Draws dark blue overlay highlights on selected reads.
+    private func drawSelectedReadHighlights(frame: ReferenceFrame, context: CGContext) {
+        guard !selectedReadIDs.isEmpty else { return }
 
-        // Draw full-height edge rails.
-        context.setStrokeColor(accent.cgColor)
-        context.setLineWidth(2)
-        context.move(to: CGPoint(x: clippedStartX, y: 0))
-        context.addLine(to: CGPoint(x: clippedStartX, y: bounds.height))
-        context.move(to: CGPoint(x: clippedEndX, y: 0))
-        context.addLine(to: CGPoint(x: clippedEndX, y: bounds.height))
-        context.strokePath()
+        let metrics = ReadTrackRenderer.layoutMetrics(verticalCompress: verticallyCompressContigSetting)
+        let tier = lastRenderedReadTier
+        guard tier != .coverage else { return }
 
-        // Draw a high-contrast frame so the selection is visible in light/dark backgrounds.
-        let primaryFrame = fullRect.insetBy(dx: 1.5, dy: 1.5)
-        context.setStrokeColor(NSColor.black.withAlphaComponent(0.35).cgColor)
-        context.setLineWidth(3)
-        context.stroke(primaryFrame)
-        context.setStrokeColor(accent.withAlphaComponent(0.98).cgColor)
-        context.setLineWidth(1.5)
-        context.stroke(primaryFrame.insetBy(dx: 1.5, dy: 1.5))
+        let rowHeight: CGFloat = tier == .base ? metrics.baseReadHeight : metrics.packedReadHeight
+        let rY = lastRenderedReadY
 
-        // When selection spans the full visible width, vertical rails are hard to perceive at
-        // the clipped edges. Draw top/bottom boundary bars as an explicit extraction frame.
-        let fullWidthSelection = clippedStartX <= 3 && clippedEndX >= bounds.width - 3
-        let wideSelection = fullWidthSelection || clippedWidth >= (bounds.width * 0.85)
-        if wideSelection {
-            context.setStrokeColor(accent.withAlphaComponent(0.95).cgColor)
-            context.setLineWidth(3)
-            context.move(to: CGPoint(x: 0, y: 1.5))
-            context.addLine(to: CGPoint(x: bounds.width, y: 1.5))
-            context.move(to: CGPoint(x: 0, y: bounds.height - 1.5))
-            context.addLine(to: CGPoint(x: bounds.width, y: bounds.height - 1.5))
-            context.strokePath()
+        context.saveGState()
 
-            // Add an inset frame to make full-width selections unambiguous.
-            let insetRect = CGRect(x: 2, y: 2, width: max(0, bounds.width - 4), height: max(0, bounds.height - 4))
-            context.setStrokeColor(accent.withAlphaComponent(0.85).cgColor)
-            context.setLineWidth(2)
-            context.stroke(insetRect)
+        for (row, read) in cachedPackedReads {
+            guard selectedReadIDs.contains(read.id) else { continue }
+
+            let startPx = frame.screenPosition(for: Double(read.position))
+            let endPx = frame.screenPosition(for: Double(read.alignmentEnd))
+            let y = rY + CGFloat(row) * (rowHeight + metrics.rowGap) - readScrollOffset
+            let readRect = CGRect(x: startPx, y: y, width: endPx - startPx, height: rowHeight)
+
+            // Dark blue overlay (Geneious style)
+            context.setFillColor(NSColor(red: 0.15, green: 0.22, blue: 0.50, alpha: 0.50).cgColor)
+            context.fill(readRect)
+
+            // Border
+            context.setStrokeColor(NSColor(red: 0.2, green: 0.3, blue: 0.6, alpha: 0.85).cgColor)
+            context.setLineWidth(1)
+            context.stroke(readRect)
         }
-
-        // Draw visible-region coordinate badge near the top edge.
-        let startLabel = NumberFormatter.localizedString(from: NSNumber(value: range.lowerBound + 1), number: .decimal)
-        let endLabel = NumberFormatter.localizedString(from: NSNumber(value: range.upperBound), number: .decimal)
-        let badgeText = "Visible Region \(startLabel)-\(endLabel)" as NSString
-        let badgeAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
-            .foregroundColor: NSColor.labelColor
-        ]
-        let badgeSize = badgeText.size(withAttributes: badgeAttrs)
-        let badgePaddingX: CGFloat = 8
-        let badgePaddingY: CGFloat = 4
-        let badgeWidth = badgeSize.width + (badgePaddingX * 2)
-        let badgeHeight = badgeSize.height + (badgePaddingY * 2)
-        let badgeX = min(max(6, clippedStartX + 8), bounds.width - badgeWidth - 6)
-        let badgeRect = CGRect(x: badgeX, y: 6, width: badgeWidth, height: badgeHeight)
-
-        let badgePath = CGPath(roundedRect: badgeRect, cornerWidth: 6, cornerHeight: 6, transform: nil)
-        context.setFillColor(NSColor.windowBackgroundColor.withAlphaComponent(0.9).cgColor)
-        context.addPath(badgePath)
-        context.fillPath()
-        context.setStrokeColor(accent.withAlphaComponent(0.9).cgColor)
-        context.setLineWidth(1.5)
-        context.addPath(badgePath)
-        context.strokePath()
-        badgeText.draw(
-            at: CGPoint(x: badgeRect.minX + badgePaddingX, y: badgeRect.minY + badgePaddingY),
-            withAttributes: badgeAttrs
-        )
 
         context.restoreGState()
     }
@@ -5414,8 +6747,42 @@ public class SequenceViewerView: NSView {
 
         let location = convert(event.locationInWindow, from: nil)
         let isDoubleClick = event.clickCount == 2
+        let hasCmd = event.modifierFlags.contains(.command)
+        let hasShift = event.modifierFlags.contains(.shift)
 
-        // Variant track click should route to variant selection instead of annotation selection.
+        // 1. Read track click — with Cmd/Shift modifier support for multi-select
+        if let read = readAtPoint(location) {
+            if hasCmd {
+                // Cmd+click: toggle read in/out of selection
+                if selectedReadIDs.contains(read.id) {
+                    selectedReadIDs.remove(read.id)
+                } else {
+                    selectedReadIDs.insert(read.id)
+                }
+            } else if hasShift {
+                // Shift+click: add to selection
+                selectedReadIDs.insert(read.id)
+            } else {
+                // Plain click: replace selection with this read
+                selectedReadIDs = [read.id]
+            }
+            NotificationCenter.default.post(
+                name: .readSelected,
+                object: self,
+                userInfo: selectedRead.map { [NotificationUserInfoKey.alignedRead: $0] }
+            )
+            isSelecting = false
+            setNeedsDisplay(bounds)
+            updateSelectionStatus()
+            return
+        }
+        // Clear read selection if clicking elsewhere (unless modifier held)
+        if !selectedReadIDs.isEmpty && !hasCmd && !hasShift {
+            selectedReadIDs.removeAll()
+            NotificationCenter.default.post(name: .readSelected, object: self, userInfo: nil)
+        }
+
+        // 2. Variant track click — route to variant selection
         if let variant = variantAtPoint(location) {
             selectedAnnotation = variant
             postVariantSelectedNotificationIfNeeded(variant)
@@ -5425,9 +6792,8 @@ public class SequenceViewerView: NSView {
             return
         }
 
-        // Check for annotation click — bundle mode, multi-sequence mode, or single-sequence mode
+        // 3. Check for annotation click — bundle mode, multi-sequence mode, or single-sequence mode
         if currentReferenceBundle != nil {
-            // Bundle mode: use bundle-specific hit testing
             if let annotation = bundleAnnotationAtPoint(location) {
                 selectedAnnotation = annotation
                 postAnnotationSelectedNotification(annotation)
@@ -5441,7 +6807,6 @@ public class SequenceViewerView: NSView {
                 return
             }
         } else if isMultiSequenceMode, let state = multiSequenceState {
-            // Multi-sequence mode: check each track for annotation click
             for stackedInfo in state.stackedSequences {
                 if let annotation = annotationAtPoint(location, forSequence: stackedInfo, frame: frame) {
                     selectedAnnotation = annotation
@@ -5458,7 +6823,6 @@ public class SequenceViewerView: NSView {
                 }
             }
         } else {
-            // Single-sequence mode: use original method
             if let annotation = annotationAtPoint(location) {
                 selectedAnnotation = annotation
                 postAnnotationSelectedNotification(annotation)
@@ -5474,9 +6838,8 @@ public class SequenceViewerView: NSView {
             }
         }
 
-        // If click is in the annotation track area but not on an annotation, deselect
+        // Clear annotation selection if clicking in annotation area but not on one
         if selectedAnnotation != nil {
-            // In multi-sequence mode, check if clicking in any track's annotation area
             var inAnnotationArea = false
             if isMultiSequenceMode, let state = multiSequenceState {
                 for stackedInfo in state.stackedSequences {
@@ -5492,22 +6855,39 @@ public class SequenceViewerView: NSView {
             if inAnnotationArea {
                 selectedAnnotation = nil
                 postAnnotationSelectedNotification(nil)
-                setNeedsDisplay(bounds)
             }
         }
 
-        // Dynamic viewport sub-selection is intentionally disabled.
-        ensureVisibleViewportSelection(frame: frame)
+        // 4. No object hit — begin column selection
+        let clickedBase = basePositionAt(x: location.x, frame: frame)
+        columnDragStartBase = clickedBase
+        isUserColumnSelection = true
+        selectionRange = clickedBase..<(clickedBase + 1)
+        isSelecting = true
         setNeedsDisplay(bounds)
         updateSelectionStatus()
     }
 
     public override func mouseDragged(with event: NSEvent) {
-        // Intentionally disabled: dynamic selection drag.
+        guard isSelecting,
+              let frame = viewController?.referenceFrame,
+              let dragStart = columnDragStartBase else { return }
+
+        let location = convert(event.locationInWindow, from: nil)
+        let currentBase = basePositionAt(x: location.x, frame: frame)
+
+        let lower = min(dragStart, currentBase)
+        let upper = max(dragStart, currentBase) + 1
+        selectionRange = lower..<upper
+        isUserColumnSelection = true
+
+        setNeedsDisplay(bounds)
+        updateSelectionStatus()
     }
 
     public override func mouseUp(with event: NSEvent) {
         isSelecting = false
+        columnDragStartBase = nil
     }
 
     // MARK: - Right-Click Context Menu
@@ -5516,6 +6896,7 @@ public class SequenceViewerView: NSView {
     public override func rightMouseDown(with event: NSEvent) {
         guard let frame = viewController?.referenceFrame else { return }
         let location = convert(event.locationInWindow, from: nil)
+        contextMenuGenomicPosition = clampedContextMenuPosition(for: location, frame: frame)
 
         // Check if right-clicking on an annotation — bundle mode, multi-sequence mode, or single-sequence mode
         var clickedAnnotation: SequenceAnnotation?
@@ -5615,6 +6996,8 @@ public class SequenceViewerView: NSView {
         menu.addItem(NSMenuItem.separator())
 
         // --- Navigation ---
+        addCenterViewMenuItem(to: menu)
+
         let zoomItem = NSMenuItem(title: "Zoom to Annotation", action: #selector(zoomToAnnotationAction(_:)), keyEquivalent: "")
         zoomItem.target = self
         zoomItem.representedObject = annotation
@@ -5656,6 +7039,8 @@ public class SequenceViewerView: NSView {
         menu.addItem(NSMenuItem.separator())
 
         // View navigation helper.
+        addCenterViewMenuItem(to: menu)
+
         let zoomItem = NSMenuItem(title: "Zoom to Visible Region", action: #selector(zoomToSelectionAction(_:)), keyEquivalent: "")
         zoomItem.target = self
         menu.addItem(zoomItem)
@@ -5673,6 +7058,8 @@ public class SequenceViewerView: NSView {
         menu.addItem(selectAllItem)
 
         menu.addItem(NSMenuItem.separator())
+
+        addCenterViewMenuItem(to: menu)
 
         // Zoom to Fit
         let zoomFitItem = NSMenuItem(title: "Zoom to Fit", action: #selector(zoomToFitAction(_:)), keyEquivalent: "")
@@ -5712,6 +7099,21 @@ public class SequenceViewerView: NSView {
         NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
 
+    private func clampedContextMenuPosition(for location: NSPoint, frame: ReferenceFrame) -> Int {
+        let clampedX = max(0, min(location.x, bounds.width))
+        let genomicPos = Int(frame.genomicPosition(for: clampedX).rounded(.down))
+        let maxPos = max(0, frame.sequenceLength - 1)
+        return max(0, min(maxPos, genomicPos))
+    }
+
+    private func addCenterViewMenuItem(to menu: NSMenu) {
+        guard let position = contextMenuGenomicPosition else { return }
+        let item = NSMenuItem(title: "Center View Here", action: #selector(centerViewHereAction(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = NSNumber(value: position)
+        menu.addItem(item)
+    }
+
     // MARK: - Context Menu Actions
 
     @objc private func copySelectionAction(_ sender: Any?) {
@@ -5724,6 +7126,41 @@ public class SequenceViewerView: NSView {
 
     @objc private func zoomToFitAction(_ sender: Any?) {
         viewController?.zoomToFit()
+    }
+
+    @objc private func centerViewHereAction(_ sender: NSMenuItem?) {
+        guard let frame = viewController?.referenceFrame else { return }
+
+        let targetPos: Int
+        if let encodedPos = sender?.representedObject as? NSNumber {
+            targetPos = encodedPos.intValue
+        } else if let cachedPos = contextMenuGenomicPosition {
+            targetPos = cachedPos
+        } else {
+            return
+        }
+
+        let maxPos = max(0, frame.sequenceLength - 1)
+        let clampedPos = max(0, min(maxPos, targetPos))
+        let windowLength = max(1.0, frame.end - frame.start)
+
+        var newStart = Double(clampedPos) - (windowLength / 2.0)
+        var newEnd = newStart + windowLength
+
+        if newStart < 0 {
+            newStart = 0
+            newEnd = min(Double(frame.sequenceLength), windowLength)
+        }
+        if newEnd > Double(frame.sequenceLength) {
+            newEnd = Double(frame.sequenceLength)
+            newStart = max(0, newEnd - windowLength)
+        }
+
+        frame.start = newStart
+        frame.end = newEnd
+        setNeedsDisplay(bounds)
+        viewController?.enhancedRulerView.setNeedsDisplay(viewController?.enhancedRulerView.bounds ?? .zero)
+        viewController?.updateStatusBar()
     }
 
     @objc private func zoomToSelectionAction(_ sender: Any?) {
@@ -6088,7 +7525,27 @@ public class SequenceViewerView: NSView {
                 viewController?.updateStatusBar()
                 viewController?.scheduleViewStateSave()
                 return
-            } else if abs(event.scrollingDeltaX) > 0 || abs(event.scrollingDeltaY) > 0 {
+            }
+
+            // Check if mouse is in read track area for vertical scrolling
+            let rY = lastRenderedReadY
+            let readAvailHeight = bounds.height - rY
+            let readVisibleHeight = min(readContentHeight, max(readAvailHeight, maxReadTrackHeight))
+            let inReadArea = !cachedPackedReads.isEmpty && readContentHeight > readVisibleHeight
+                && location.y >= rY && location.y < rY + readVisibleHeight
+
+            if inReadArea && abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) {
+                // Vertical scroll in read track area — scroll through read rows
+                let maxScroll = max(0, readContentHeight - readVisibleHeight)
+                let deltaScale: CGFloat = event.hasPreciseScrollingDeltas ? 1.0 : 8.0
+                let proposedOffset = max(0, min(maxScroll, readScrollOffset - event.scrollingDeltaY * deltaScale))
+                guard abs(proposedOffset - readScrollOffset) > 0.1 else { return }
+                readScrollOffset = proposedOffset
+                setNeedsDisplay(bounds)
+                return
+            }
+
+            if abs(event.scrollingDeltaX) > 0 || abs(event.scrollingDeltaY) > 0 {
                 if hasLoadedGenotypeRows && abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) {
                     // Avoid converting pure vertical scroll into horizontal pan in genotype mode.
                     return
@@ -6113,20 +7570,25 @@ public class SequenceViewerView: NSView {
 
     // MARK: - Selection Helpers
 
-    /// Converts screen X coordinate to base position
+    /// Converts screen X coordinate to base position using the reference frame.
+    /// Works in both single-sequence mode and bundle mode.
     private func basePositionAt(x: CGFloat, frame: ReferenceFrame) -> Int {
-        guard let seq = sequence else { return 0 }
-        let visibleBases = frame.end - frame.start
-        let basesPerPixel = visibleBases / Double(bounds.width)
-        let baseOffset = Double(x) * basesPerPixel
-        let basePosition = Int(frame.start + baseOffset)
-        return max(0, min(seq.length - 1, basePosition))
+        let pos = Int(frame.genomicPosition(for: x))
+        return max(0, min(frame.sequenceLength - 1, pos))
     }
 
     /// Selects the entire sequence
     public func selectAll() {
-        guard let seq = sequence else { return }
-        selectionRange = 0..<seq.length
+        let length: Int
+        if let seq = sequence {
+            length = seq.length
+        } else if let frame = viewController?.referenceFrame {
+            length = frame.sequenceLength
+        } else {
+            return
+        }
+        selectionRange = 0..<length
+        isUserColumnSelection = true
         setNeedsDisplay(bounds)
         updateSelectionStatus()
     }
@@ -6141,15 +7603,21 @@ public class SequenceViewerView: NSView {
         selectionRange = lower..<upper
         selectionStartBase = lower
         isSelecting = false
-        logger.info("selectVisibleRegion: selected \(lower)-\(upper) on \(frame.chromosome, privacy: .public)")
+        isUserColumnSelection = false
         setNeedsDisplay(bounds)
         updateSelectionStatus()
     }
 
-    /// Clears the current selection
+    /// Clears the current selection (column, read, and annotation).
     public func clearSelection() {
         selectionRange = nil
         selectionStartBase = nil
+        isUserColumnSelection = false
+        columnDragStartBase = nil
+        if !selectedReadIDs.isEmpty {
+            selectedReadIDs.removeAll()
+            NotificationCenter.default.post(name: .readSelected, object: self, userInfo: nil)
+        }
         setNeedsDisplay(bounds)
         updateSelectionStatus()
     }
@@ -6181,23 +7649,29 @@ public class SequenceViewerView: NSView {
         logger.info("Copied \(end - start) bases to clipboard")
     }
 
-    /// Updates the status bar with visible-region info.
+    /// Updates the status bar with selection info.
     private func updateSelectionStatus() {
-        if let range = selectionRange {
+        var parts: [String] = []
+
+        if isUserColumnSelection, let range = selectionRange {
             let length = range.upperBound - range.lowerBound
-            let selectionText = "Visible: \(range.lowerBound + 1)-\(range.upperBound) (\(length.formatted()) bp)"
-            viewController?.statusBar.update(
-                position: viewController?.statusBar.positionLabel.stringValue,
-                selection: selectionText,
-                scale: viewController?.referenceFrame?.scale ?? 1.0
-            )
-        } else {
-            viewController?.statusBar.update(
-                position: viewController?.statusBar.positionLabel.stringValue,
-                selection: nil,
-                scale: viewController?.referenceFrame?.scale ?? 1.0
-            )
+            parts.append("Selected: \(range.lowerBound + 1)-\(range.upperBound) (\(length.formatted()) bp)")
+        } else if let range = selectionRange {
+            let length = range.upperBound - range.lowerBound
+            parts.append("Visible: \(range.lowerBound + 1)-\(range.upperBound) (\(length.formatted()) bp)")
         }
+
+        if !selectedReadIDs.isEmpty {
+            let count = selectedReadIDs.count
+            parts.append("\(count) read\(count == 1 ? "" : "s") selected")
+        }
+
+        let selectionText = parts.isEmpty ? nil : parts.joined(separator: " | ")
+        viewController?.statusBar.update(
+            position: viewController?.statusBar.positionLabel.stringValue,
+            selection: selectionText,
+            scale: viewController?.referenceFrame?.scale ?? 1.0
+        )
     }
 
     // MARK: - Hover Tooltip (Bundle Mode)
@@ -6268,6 +7742,46 @@ public class SequenceViewerView: NSView {
         lastHoveredGenotypeCell = nil
         lastHoveredGenotypeTooltipText = nil
         lastHoveredGenotypeStatusText = nil
+
+        // --- Read hit-testing ---
+        if let read = readAtPoint(location) {
+            if hoveredRead?.id != read.id {
+                hoveredRead = read
+                hoveredAnnotation = nil
+                let tooltip = readTooltipText(for: read)
+                hoverTooltip.show(text: tooltip, near: location, in: self)
+
+                if let controller = viewController {
+                    let strandStr = read.isReverse ? "(-)" : "(+)"
+                    let hoverSummary = "Read: \(read.name) \(strandStr) • MAPQ \(read.mapq) • \(read.referenceLength) bp"
+                    controller.statusBar.update(
+                        position: controller.statusBar.positionLabel.stringValue,
+                        selection: hoverSummary,
+                        scale: controller.referenceFrame?.scale ?? 1.0
+                    )
+                }
+            }
+            NSCursor.pointingHand.set()
+            return
+        }
+        hoveredRead = nil
+
+        // --- Coverage hit-testing (coverage tier) ---
+        if let coverageHit = coverageDepthAtPoint(location) {
+            hoveredAnnotation = nil
+            let tooltip = "Depth\n\(coverageHit.chromosome):\(coverageHit.position + 1)\nDepth: \(coverageHit.depth)x"
+            hoverTooltip.show(text: tooltip, near: location, in: self)
+
+            if let controller = viewController {
+                controller.statusBar.update(
+                    position: controller.statusBar.positionLabel.stringValue,
+                    selection: "Depth: \(coverageHit.depth)x at \(coverageHit.chromosome):\(coverageHit.position + 1)",
+                    scale: controller.referenceFrame?.scale ?? 1.0
+                )
+            }
+            NSCursor.crosshair.set()
+            return
+        }
 
         // --- Annotation hit-testing ---
         let annotation: SequenceAnnotation?
@@ -6617,6 +8131,105 @@ public class SequenceViewerView: NSView {
             }
         }
         return best?.annotation
+    }
+
+    // MARK: - Read Hit-Testing
+
+    /// Returns the aligned read at the given point, if any, using the cached packed layout.
+    ///
+    /// Hit-tests against the packed read rows from the most recent draw pass.
+    /// Returns nil in coverage tier (individual reads not visible).
+    private func readAtPoint(_ point: NSPoint) -> AlignedRead? {
+        guard !cachedPackedReads.isEmpty,
+              let frame = viewController?.referenceFrame else { return nil }
+
+        let tier = lastRenderedReadTier
+        guard tier != .coverage else { return nil }
+
+        let metrics = ReadTrackRenderer.layoutMetrics(verticalCompress: verticallyCompressContigSetting)
+        let rowHeight: CGFloat
+        switch tier {
+        case .coverage: return nil
+        case .packed: rowHeight = metrics.packedReadHeight + metrics.rowGap
+        case .base: rowHeight = metrics.baseReadHeight + metrics.rowGap
+        }
+
+        let rY = lastRenderedReadY
+
+        // Check if point is in the visible read track area
+        let availableHeight = bounds.height - rY
+        let visibleHeight = min(readContentHeight, max(availableHeight, maxReadTrackHeight))
+        guard point.y >= rY && point.y < rY + visibleHeight else { return nil }
+
+        // Account for scroll offset: convert screen Y to content Y
+        let contentY = (point.y - rY) + readScrollOffset
+        let rowIndex = Int(contentY / rowHeight)
+
+        // Find reads in this row and check horizontal position
+        for (row, read) in cachedPackedReads where row == rowIndex {
+            let startPx = frame.genomicToPixel(Double(read.position))
+            let endPx = frame.genomicToPixel(Double(read.alignmentEnd))
+            let readWidth = max(ReadTrackRenderer.minReadPixels, endPx - startPx)
+
+            if point.x >= startPx && point.x <= startPx + readWidth {
+                return read
+            }
+        }
+
+        return nil
+    }
+
+    /// Builds a tooltip string for an aligned read.
+    private func readTooltipText(for read: AlignedRead) -> String {
+        let strandStr = read.isReverse ? "(-)" : "(+)"
+        let cigarStr = read.cigarString
+        let mapqStr = "MAPQ: \(read.mapq)"
+        let posStr = "\(read.chromosome):\(read.position + 1)-\(read.alignmentEnd)"
+        let lenStr = "\(read.referenceLength) bp"
+
+        var lines = [
+            read.name,
+            "\(strandStr) \(posStr) (\(lenStr))",
+            "\(mapqStr) • CIGAR: \(cigarStr.prefix(40))\(cigarStr.count > 40 ? "..." : "")",
+        ]
+
+        if read.isPaired {
+            let pairStatus = read.isProperPair ? "Proper pair" : "Improper pair"
+            let mateStr: String
+            if let mateChr = read.mateChromosome, let matePos = read.matePosition {
+                mateStr = "\(mateChr):\(matePos + 1)"
+            } else {
+                mateStr = "unmapped"
+            }
+            lines.append("\(pairStatus) • Mate: \(mateStr)")
+            if read.insertSize != 0 {
+                lines.append("Insert size: \(read.insertSize)")
+            }
+        }
+
+        if let rg = read.readGroup {
+            lines.append("Read group: \(rg)")
+        }
+
+        if read.isSecondary { lines.append("Secondary alignment") }
+        if read.isSupplementary { lines.append("Supplementary alignment") }
+        if read.isDuplicate { lines.append("PCR/optical duplicate") }
+
+        return lines.joined(separator: "\n")
+    }
+
+    /// Returns coverage depth at a point for coverage-tier hover interactions.
+    private func coverageDepthAtPoint(_ point: NSPoint) -> (chromosome: String, position: Int, depth: Int)? {
+        guard let frame = viewController?.referenceFrame else { return nil }
+        guard !cachedDepthPoints.isEmpty else { return nil }
+
+        let rY = lastRenderedCoverageY
+        let h = coverageStripHeight
+        guard point.y >= rY, point.y <= rY + h else { return nil }
+
+        let pos = Int(frame.genomicPosition(for: point.x))
+        let depth = ReadTrackRenderer.depthAt(position: pos, in: cachedDepthPoints)
+        return (frame.chromosome, pos, depth)
     }
 }
 

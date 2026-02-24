@@ -234,7 +234,7 @@ private func loadGenBankSync(from url: URL) throws -> [GenBankRecord] {
 /// Main application delegate handling app lifecycle and global state.
 @MainActor
 public class AppDelegate: NSObject, NSApplicationDelegate,
-    FileMenuActions, ViewMenuActions, SequenceMenuActions, ToolsMenuActions, HelpMenuActions {
+    FileMenuActions, ViewMenuActions, SequenceMenuActions, ToolsMenuActions, OperationsMenuActions, HelpMenuActions {
 
     /// The shared application delegate instance
     public static var shared: AppDelegate? {
@@ -1021,18 +1021,66 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
+    @objc func importBAMToBundle(_ sender: Any?) {
+        debugLog("importBAMToBundle: Menu action triggered")
+
+        // Require a bundle to be loaded
+        guard let viewerController = mainWindowController?.mainSplitViewController?.viewerController,
+              let bundleURL = viewerController.currentBundleURL else {
+            showAlert(title: "No Bundle Loaded", message: "Please open a reference genome bundle before importing alignments.")
+            return
+        }
+
+        guard let window = mainWindowController?.window else {
+            debugLog("importBAMToBundle: No main window available")
+            return
+        }
+
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        var bamTypes: [UTType] = []
+        for ext in ["bam", "cram", "sam"] {
+            if let utType = UTType(filenameExtension: ext) {
+                bamTypes.append(utType)
+            }
+        }
+        panel.allowedContentTypes = bamTypes
+        panel.allowsOtherFileTypes = true
+        panel.message = "Select a BAM, CRAM, or SAM file to import into the current bundle"
+        panel.prompt = "Import"
+
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let bamURL = panel.url else {
+                debugLog("importBAMToBundle: User cancelled")
+                return
+            }
+            debugLog("importBAMToBundle: Selected \(bamURL.lastPathComponent)")
+            self?.performBAMImport(bamURL: bamURL, bundleURL: bundleURL)
+        }
+    }
+
     private func performVCFImport(vcfURL: URL, bundleURL: URL) {
+        guard OperationCenter.shared.canStartOperation(on: bundleURL) else {
+            if let holder = OperationCenter.shared.activeLockHolder(for: bundleURL) {
+                showAlert(title: "Operation in Progress",
+                          message: "\"\(holder.title)\" is currently running on this bundle. Please wait for it to finish.")
+            }
+            return
+        }
+
         let cancelFlag = OSAllocatedUnfairLock(initialState: false)
         let selectedImportProfile = selectedVCFImportProfile()
         let profileLabel = Self.importProfileLabel(selectedImportProfile)
-        mainWindowController?.mainSplitViewController?.activityIndicator?.show(
-            message: "Importing VCF variants (\(profileLabel))...",
-            style: .determinate(progress: 0),
-            cancellable: true
+
+        let opID = OperationCenter.shared.start(
+            title: "Importing \(vcfURL.lastPathComponent)",
+            detail: "Importing VCF variants (\(profileLabel))...",
+            operationType: .vcfImport,
+            targetBundleURL: bundleURL,
+            onCancel: { cancelFlag.withLock { $0 = true } }
         )
-        mainWindowController?.mainSplitViewController?.activityIndicator?.onCancel = {
-            cancelFlag.withLock { $0 = true }
-        }
         let importStartedAt = Date()
 
         DispatchQueue.global(qos: .userInitiated).async {
@@ -1070,13 +1118,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     sourceFile: vcfURL.lastPathComponent,
                     importProfile: selectedImportProfile,
                     shouldCancel: isCancelled,
-                    progressHandler: { [weak self] progress, message in
+                    progressHandler: { progress, message in
                         let clampedProgress = max(0.0, min(1.0, progress))
                         let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: importStartedAt)
+                        let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                         scheduleOnMainRunLoop {
-                            self?.mainWindowController?.mainSplitViewController?.activityIndicator?.updateProgress(clampedProgress)
-                            let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
-                            self?.mainWindowController?.mainSplitViewController?.activityIndicator?.updateMessage(displayMessage)
+                            OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
                         }
                     }
                 )
@@ -1147,15 +1194,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
             debugLog("performVCFImport: Background work done, scheduling main thread callback")
 
-            // Use CFRunLoopPerformBlock to bypass GCD main queue stalls
-            // (DispatchQueue.main.async can be blocked after sheet dismissal)
             scheduleOnMainRunLoop { [weak self] in
                 debugLog("performVCFImport: Main thread callback executing")
-                self?.mainWindowController?.mainSplitViewController?.activityIndicator?.onCancel = nil
-                self?.mainWindowController?.mainSplitViewController?.activityIndicator?.hide()
 
                 switch result {
                 case .success(let (variantCount, _)):
+                    OperationCenter.shared.complete(id: opID, detail: "\(variantCount) variants imported")
+
                     guard let viewerController = self?.mainWindowController?.mainSplitViewController?.viewerController else {
                         debugLog("performVCFImport: No viewer controller")
                         return
@@ -1172,7 +1217,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     if let dbErr = error as? VariantDatabaseError, case .cancelled = dbErr {
                         try? FileManager.default.removeItem(at: dbURL)
                         debugLog("performVCFImport: Cancelled by user")
+                        // cancel() already called fail() via onCancel callback
                     } else {
+                        OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
                         debugLog("performVCFImport: Failed: \(error.localizedDescription)")
                         self?.showAlert(title: "VCF Import Failed", message: error.localizedDescription)
                     }
@@ -1369,6 +1416,79 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         let mins = rounded / 60
         let secs = rounded % 60
         return secs == 0 ? "ETA ~\(mins)m" : "ETA ~\(mins)m \(secs)s"
+    }
+
+    // MARK: - BAM/CRAM Import
+
+    private func performBAMImport(bamURL: URL, bundleURL: URL) {
+        guard OperationCenter.shared.canStartOperation(on: bundleURL) else {
+            if let holder = OperationCenter.shared.activeLockHolder(for: bundleURL) {
+                showAlert(title: "Operation in Progress",
+                          message: "\"\(holder.title)\" is currently running on this bundle. Please wait for it to finish.")
+            }
+            return
+        }
+
+        let cancelFlag = OSAllocatedUnfairLock(initialState: false)
+        let opID = OperationCenter.shared.start(
+            title: "Importing \(bamURL.lastPathComponent)",
+            detail: "Importing alignments...",
+            operationType: .bamImport,
+            targetBundleURL: bundleURL,
+            onCancel: { cancelFlag.withLock { $0 = true } }
+        )
+        let importStartedAt = Date()
+
+        Task.detached {
+            let result: Result<BAMImportService.ImportResult, Error>
+            do {
+                let importResult = try await BAMImportService.importBAM(
+                    bamURL: bamURL,
+                    bundleURL: bundleURL,
+                    progressHandler: { progress, message in
+                        let clampedProgress = max(0.0, min(1.0, progress))
+                        let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: importStartedAt)
+                        let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
+                        scheduleOnMainRunLoop {
+                            OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+                        }
+                    }
+                )
+                result = .success(importResult)
+            } catch {
+                result = .failure(error)
+            }
+
+            scheduleOnMainRunLoop { [weak self] in
+                switch result {
+                case .success(let importResult):
+                    let readCount = importResult.mappedReads + importResult.unmappedReads
+                    OperationCenter.shared.complete(id: opID, detail: "\(readCount) reads imported")
+
+                    guard let viewerController = self?.mainWindowController?.mainSplitViewController?.viewerController else {
+                        debugLog("performBAMImport: No viewer controller")
+                        return
+                    }
+                    do {
+                        try viewerController.displayBundle(at: bundleURL)
+                        debugLog("performBAMImport: Bundle reloaded with alignment track (\(readCount) reads)")
+                    } catch {
+                        debugLog("performBAMImport: Bundle reload failed: \(error)")
+                        self?.showAlert(title: "Import Error", message: "Alignments imported but bundle reload failed: \(error.localizedDescription)")
+                    }
+
+                case .failure(let error):
+                    if cancelFlag.withLock({ $0 }) {
+                        debugLog("performBAMImport: Cancelled by user")
+                        // cancel() already called fail() via onCancel callback
+                    } else {
+                        OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        debugLog("performBAMImport: Failed: \(error)")
+                        self?.showAlert(title: "BAM Import Failed", message: error.localizedDescription)
+                    }
+                }
+            }
+        }
     }
 
     @objc func exportFASTA(_ sender: Any?) {
@@ -1945,8 +2065,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return true
         }
 
-        // "Import VCF Variants..." is only enabled when a bundle is loaded
-        if menuItem.action == #selector(importVCFToBundle(_:)) {
+        // "Import VCF Variants..." and "Import BAM/CRAM Alignments..." are only enabled when a bundle is loaded
+        if menuItem.action == #selector(importVCFToBundle(_:)) || menuItem.action == #selector(importBAMToBundle(_:)) {
             let hasBundle = mainWindowController?.mainSplitViewController?.viewerController?.currentBundleURL != nil
             return hasBundle
         }
@@ -1960,6 +2080,16 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         if menuItem.action == #selector(extractSelection(_:)) {
             let hasViewer = mainWindowController?.mainSplitViewController?.viewerController?.viewerView != nil
             return hasViewer
+        }
+
+        // "Cancel All Operations" needs running operations
+        if menuItem.action == #selector(cancelAllOperations(_:)) {
+            return OperationCenter.shared.activeCount > 0
+        }
+
+        // "Clear Completed" needs finished items
+        if menuItem.action == #selector(clearCompletedOperations(_:)) {
+            return OperationCenter.shared.items.contains { $0.state != .running }
         }
 
         return true
@@ -2819,6 +2949,56 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")
         alert.runModal()
+    }
+
+    // MARK: - OperationsMenuActions
+
+    private var operationsPanelController: OperationsPanelController?
+
+    @objc func showOperationsPanel(_ sender: Any?) {
+        if operationsPanelController == nil {
+            operationsPanelController = OperationsPanelController()
+        }
+        operationsPanelController?.showWindow(nil)
+    }
+
+    @objc func cancelAllOperations(_ sender: Any?) {
+        let runningCount = OperationCenter.shared.activeCount
+        guard runningCount > 0 else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Cancel All Operations?"
+        alert.informativeText = "This will cancel \(runningCount) running operation\(runningCount == 1 ? "" : "s")."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Cancel Operations")
+        alert.addButton(withTitle: "Keep Running")
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            OperationCenter.shared.cancelAll()
+        }
+    }
+
+    @objc func clearCompletedOperations(_ sender: Any?) {
+        OperationCenter.shared.clearCompleted()
+    }
+
+    @objc func cancelOperation(_ sender: Any?) {
+        guard let menuItem = sender as? NSMenuItem,
+              let operationID = menuItem.representedObject as? UUID else { return }
+
+        guard let item = OperationCenter.shared.items.first(where: { $0.id == operationID }),
+              item.state == .running else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Cancel \"\(item.title)\"?"
+        alert.informativeText = "This operation is \(Int(item.progress * 100))% complete."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Cancel Operation")
+        alert.addButton(withTitle: "Keep Running")
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            OperationCenter.shared.cancel(id: operationID)
+        }
     }
 
     // MARK: - HelpMenuActions

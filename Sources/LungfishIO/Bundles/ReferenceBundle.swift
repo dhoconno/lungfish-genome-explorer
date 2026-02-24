@@ -436,6 +436,107 @@ public final class ReferenceBundle: Sendable {
         manifest.tracks.first { $0.id == id }
     }
 
+    // MARK: - Alignment Track Access
+
+    /// Returns available alignment track IDs.
+    public var alignmentTrackIds: [String] {
+        manifest.alignments.map { $0.id }
+    }
+
+    /// Returns information about an alignment track.
+    public func alignmentTrack(id: String) -> AlignmentTrackInfo? {
+        manifest.alignments.first { $0.id == id }
+    }
+
+    /// Whether this bundle has any alignment tracks.
+    public var hasAlignments: Bool {
+        !manifest.alignments.isEmpty
+    }
+
+    /// Resolves the path to an alignment file.
+    ///
+    /// Supports both legacy absolute external paths and bundle-relative paths
+    /// (for in-bundle copied alignments).
+    ///
+    /// - Parameter trackInfo: Alignment track information from the manifest
+    /// - Returns: The resolved path to the alignment file
+    /// - Throws: If the file cannot be found
+    public func resolveAlignmentPath(_ trackInfo: AlignmentTrackInfo) throws -> String {
+        let sourcePath = resolveBundleRelativePath(trackInfo.sourcePath)
+
+        // Check if file exists at original path
+        if FileManager.default.fileExists(atPath: sourcePath) {
+            return sourcePath
+        }
+
+        // Try to resolve via bookmark if available
+        if let bookmarkString = trackInfo.sourceBookmark,
+           let bookmarkData = Data(base64Encoded: bookmarkString) {
+            var isStale = false
+            if let resolved = try? URL(resolvingBookmarkData: bookmarkData,
+                                       options: [.withoutUI, .withSecurityScope],
+                                       relativeTo: nil,
+                                       bookmarkDataIsStale: &isStale),
+               FileManager.default.fileExists(atPath: resolved.path) {
+                logger.info("Resolved stale alignment path via bookmark: \(resolved.path)")
+                return resolved.path
+            }
+        }
+
+        throw ReferenceBundleError.missingFile(trackInfo.sourcePath)
+    }
+
+    /// Resolves the path to an alignment index file.
+    ///
+    /// Supports both legacy absolute external paths and bundle-relative paths.
+    public func resolveAlignmentIndexPath(_ trackInfo: AlignmentTrackInfo) throws -> String {
+        let indexPath = resolveBundleRelativePath(trackInfo.indexPath)
+
+        if FileManager.default.fileExists(atPath: indexPath) {
+            return indexPath
+        }
+
+        if let bookmarkString = trackInfo.indexBookmark,
+           let bookmarkData = Data(base64Encoded: bookmarkString) {
+            var isStale = false
+            if let resolved = try? URL(resolvingBookmarkData: bookmarkData,
+                                       options: [.withoutUI, .withSecurityScope],
+                                       relativeTo: nil,
+                                       bookmarkDataIsStale: &isStale),
+               FileManager.default.fileExists(atPath: resolved.path) {
+                logger.info("Resolved stale alignment index path via bookmark: \(resolved.path)")
+                return resolved.path
+            }
+        }
+
+        throw ReferenceBundleError.missingFile(trackInfo.indexPath)
+    }
+
+    /// Returns the alignment metadata database for a track, if available.
+    ///
+    /// - Parameter trackInfo: Alignment track information from the manifest
+    /// - Returns: The metadata database, or nil if not available
+    public func alignmentMetadataDB(for trackInfo: AlignmentTrackInfo) -> AlignmentMetadataDatabase? {
+        guard let dbPath = trackInfo.metadataDBPath else { return nil }
+        let dbURL = url.appendingPathComponent(dbPath)
+        guard FileManager.default.fileExists(atPath: dbURL.path) else { return nil }
+        return try? AlignmentMetadataDatabase(url: dbURL)
+    }
+
+    /// Returns the absolute path to the reference FASTA within this bundle, if it exists.
+    /// Needed by `AlignmentDataProvider` for CRAM file access.
+    public func referenceFASTAPath() -> String? {
+        let fastaURL = url.appendingPathComponent(manifest.genome.path)
+        return FileManager.default.fileExists(atPath: fastaURL.path) ? fastaURL.path : nil
+    }
+
+    private func resolveBundleRelativePath(_ path: String) -> String {
+        if URL(fileURLWithPath: path).isFileURL && path.hasPrefix("/") {
+            return path
+        }
+        return url.appendingPathComponent(path).path
+    }
+
 }
 
 // MARK: - BundleVariant
@@ -528,6 +629,12 @@ public enum ReferenceBundleError: Error, LocalizedError, Sendable {
     /// Failed to read signal data.
     case signalReadFailed(String)
 
+    /// Failed to read alignment data.
+    case alignmentReadFailed(String)
+
+    /// Alignment file path is stale and cannot be resolved.
+    case alignmentFileNotFound(String)
+
     public var errorDescription: String? {
         switch self {
         case .notADirectory(let url):
@@ -555,6 +662,10 @@ public enum ReferenceBundleError: Error, LocalizedError, Sendable {
             return "Failed to read variants: \(reason)"
         case .signalReadFailed(let reason):
             return "Failed to read signal data: \(reason)"
+        case .alignmentReadFailed(let reason):
+            return "Failed to read alignment data: \(reason)"
+        case .alignmentFileNotFound(let path):
+            return "Alignment file not found: '\(path)'"
         }
     }
 

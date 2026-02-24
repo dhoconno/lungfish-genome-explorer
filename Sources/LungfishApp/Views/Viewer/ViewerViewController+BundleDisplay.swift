@@ -68,8 +68,12 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         // Hide any QuickLook preview and ensure genomics viewer is visible
         hideQuickLookPreview()
 
-        // Set up chromosome navigator
-        configureChromosomeNavigator(with: manifest.genome.chromosomes)
+        // Set up chromosome navigator (only when multiple chromosomes)
+        if manifest.genome.chromosomes.count > 1 {
+            configureChromosomeNavigator(with: manifest.genome.chromosomes)
+        } else {
+            removeChromosomeNavigator()
+        }
 
         // Force layout for valid bounds
         view.layoutSubtreeIfNeeded()
@@ -136,7 +140,9 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         chromosomeNavigatorView?.selectChromosome(named: targetChrom.name)
 
         // Update header with track names
-        let trackNames = [targetChrom.name] + manifest.annotations.map { "Annotations: \($0.name)" }
+        let trackNames = [targetChrom.name]
+            + manifest.annotations.map { "Annotations: \($0.name)" }
+            + manifest.alignments.map { "Reads: \($0.name)" }
         headerView.setTrackNames(trackNames)
 
         // Update ruler

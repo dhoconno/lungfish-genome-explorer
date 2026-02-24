@@ -384,6 +384,303 @@ final class BundleManifestTests: XCTestCase {
         XCTAssertFalse(errors.isEmpty)
     }
 
+    // MARK: - Alignment Track Tests
+
+    func testAlignmentTrackInfoCreation() {
+        let track = AlignmentTrackInfo(
+            id: "aln_test1",
+            name: "sample.bam",
+            format: .bam,
+            sourcePath: "/data/sample.bam",
+            indexPath: "/data/sample.bam.bai",
+            fileSizeBytes: 5_000_000_000,
+            addedDate: Date(),
+            mappedReadCount: 50_000_000,
+            unmappedReadCount: 1_000_000,
+            sampleNames: ["SampleA", "SampleB"]
+        )
+
+        XCTAssertEqual(track.id, "aln_test1")
+        XCTAssertEqual(track.name, "sample.bam")
+        XCTAssertEqual(track.format, .bam)
+        XCTAssertEqual(track.sourcePath, "/data/sample.bam")
+        XCTAssertEqual(track.indexPath, "/data/sample.bam.bai")
+        XCTAssertEqual(track.fileSizeBytes, 5_000_000_000)
+        XCTAssertEqual(track.mappedReadCount, 50_000_000)
+        XCTAssertEqual(track.sampleNames, ["SampleA", "SampleB"])
+    }
+
+    func testAlignmentFormatValues() {
+        XCTAssertEqual(AlignmentFormat.bam.rawValue, "bam")
+        XCTAssertEqual(AlignmentFormat.cram.rawValue, "cram")
+        XCTAssertEqual(AlignmentFormat.sam.rawValue, "sam")
+    }
+
+    func testAddingAlignmentTrack() {
+        let manifest = createValidManifest()
+        XCTAssertTrue(manifest.alignments.isEmpty)
+
+        let track = AlignmentTrackInfo(
+            id: "aln_1",
+            name: "test.bam",
+            format: .bam,
+            sourcePath: "/data/test.bam",
+            indexPath: "/data/test.bam.bai",
+            addedDate: Date(),
+            sampleNames: ["Sample1"]
+        )
+
+        let updated = manifest.addingAlignmentTrack(track)
+        XCTAssertEqual(updated.alignments.count, 1)
+        XCTAssertEqual(updated.alignments[0].id, "aln_1")
+        // Other fields should be preserved
+        XCTAssertEqual(updated.name, manifest.name)
+        XCTAssertEqual(updated.annotations.count, manifest.annotations.count)
+    }
+
+    func testRemovingAlignmentTrack() {
+        let track1 = AlignmentTrackInfo(
+            id: "aln_1", name: "first.bam", format: .bam,
+            sourcePath: "/data/first.bam", indexPath: "/data/first.bam.bai",
+            addedDate: Date(), sampleNames: []
+        )
+        let track2 = AlignmentTrackInfo(
+            id: "aln_2", name: "second.bam", format: .cram,
+            sourcePath: "/data/second.cram", indexPath: "/data/second.cram.crai",
+            addedDate: Date(), sampleNames: []
+        )
+
+        let manifest = createValidManifest()
+            .addingAlignmentTrack(track1)
+            .addingAlignmentTrack(track2)
+        XCTAssertEqual(manifest.alignments.count, 2)
+
+        let removed = manifest.removingAlignmentTrack(id: "aln_1")
+        XCTAssertEqual(removed.alignments.count, 1)
+        XCTAssertEqual(removed.alignments[0].id, "aln_2")
+    }
+
+    func testAlignmentTrackCodable() throws {
+        let track = AlignmentTrackInfo(
+            id: "aln_codable",
+            name: "codable.bam",
+            format: .bam,
+            sourcePath: "/data/codable.bam",
+            sourceBookmark: "base64bookmark==",
+            indexPath: "/data/codable.bam.bai",
+            metadataDBPath: "alignments/aln_codable.stats.db",
+            fileSizeBytes: 1_000_000,
+            addedDate: Date(),
+            mappedReadCount: 5_000_000,
+            unmappedReadCount: 100_000,
+            sampleNames: ["SampleA"]
+        )
+
+        let manifest = createValidManifest().addingAlignmentTrack(track)
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(manifest)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(BundleManifest.self, from: data)
+
+        XCTAssertEqual(decoded.alignments.count, 1)
+        XCTAssertEqual(decoded.alignments[0].id, "aln_codable")
+        XCTAssertEqual(decoded.alignments[0].format, .bam)
+        XCTAssertEqual(decoded.alignments[0].sourcePath, "/data/codable.bam")
+        XCTAssertEqual(decoded.alignments[0].sourceBookmark, "base64bookmark==")
+        XCTAssertEqual(decoded.alignments[0].mappedReadCount, 5_000_000)
+        XCTAssertEqual(decoded.alignments[0].sampleNames, ["SampleA"])
+    }
+
+    func testBackwardCompatibleDecodingWithoutAlignments() throws {
+        // Create a valid manifest, encode it, strip the "alignments" key, then decode
+        let original = createValidManifest()
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = .prettyPrinted
+        let data = try encoder.encode(original)
+
+        // Parse as dictionary, remove "alignments", re-encode
+        var dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        dict.removeValue(forKey: "alignments")
+        let strippedData = try JSONSerialization.data(withJSONObject: dict)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let manifest = try decoder.decode(BundleManifest.self, from: strippedData)
+        XCTAssertTrue(manifest.alignments.isEmpty, "Missing alignments field should decode as empty array")
+        XCTAssertEqual(manifest.name, original.name)
+    }
+
+    func testDuplicateAlignmentTrackIdsValidation() {
+        let track = AlignmentTrackInfo(
+            id: "dup_aln", name: "dup.bam", format: .bam,
+            sourcePath: "/data/dup.bam", indexPath: "/data/dup.bam.bai",
+            addedDate: Date(), sampleNames: []
+        )
+
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "Test",
+            identifier: "test",
+            source: SourceInfo(organism: "Test", assembly: "Test"),
+            genome: GenomeInfo(
+                path: "genome/seq.fa.gz",
+                indexPath: "genome/seq.fa.gz.fai",
+                totalLength: 1000,
+                chromosomes: [
+                    ChromosomeInfo(name: "chr1", length: 1000, offset: 6, lineBases: 50, lineWidth: 51)
+                ]
+            ),
+            annotations: [],
+            variants: [],
+            tracks: [],
+            alignments: [track, track]  // Duplicate IDs
+        )
+
+        let errors = manifest.validate()
+        XCTAssertFalse(errors.isEmpty, "Duplicate alignment track IDs should be a validation error")
+    }
+
+    // MARK: - Extended Alignment Track Tests
+
+    func testMultipleAlignmentTracksRoundTrip() throws {
+        let bamTrack = AlignmentTrackInfo(
+            id: "aln_bam", name: "sample.bam", format: .bam,
+            sourcePath: "/data/sample.bam", indexPath: "/data/sample.bam.bai",
+            mappedReadCount: 30_000_000, unmappedReadCount: 500_000,
+            sampleNames: ["NA12878"]
+        )
+        let cramTrack = AlignmentTrackInfo(
+            id: "aln_cram", name: "sample.cram", format: .cram,
+            sourcePath: "/data/sample.cram", indexPath: "/data/sample.cram.crai",
+            mappedReadCount: 25_000_000, unmappedReadCount: 300_000,
+            sampleNames: ["HG002"]
+        )
+        let samTrack = AlignmentTrackInfo(
+            id: "aln_sam", name: "sample.sam", format: .sam,
+            sourcePath: "/data/sample.sam", indexPath: "",
+            sampleNames: ["HG003"]
+        )
+
+        var manifest = createValidManifest()
+        manifest = manifest.addingAlignmentTrack(bamTrack)
+        manifest = manifest.addingAlignmentTrack(cramTrack)
+        manifest = manifest.addingAlignmentTrack(samTrack)
+        XCTAssertEqual(manifest.alignments.count, 3)
+
+        // Round-trip through JSON
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(manifest)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(BundleManifest.self, from: data)
+
+        XCTAssertEqual(decoded.alignments.count, 3)
+        XCTAssertEqual(decoded.alignments[0].format, .bam)
+        XCTAssertEqual(decoded.alignments[1].format, .cram)
+        XCTAssertEqual(decoded.alignments[2].format, .sam)
+        XCTAssertEqual(decoded.alignments[0].sampleNames, ["NA12878"])
+        XCTAssertEqual(decoded.alignments[1].sampleNames, ["HG002"])
+        XCTAssertEqual(decoded.alignments[2].sampleNames, ["HG003"])
+        XCTAssertEqual(decoded.alignments[0].mappedReadCount, 30_000_000)
+        XCTAssertEqual(decoded.alignments[1].unmappedReadCount, 300_000)
+    }
+
+    func testAlignmentTrackWithAllOptionalFields() throws {
+        let track = AlignmentTrackInfo(
+            id: "full_track",
+            name: "complete.bam",
+            description: "A fully-populated test track",
+            format: .bam,
+            sourcePath: "/data/complete.bam",
+            sourceBookmark: "c291cmNlYm9va21hcms=",
+            indexPath: "/data/complete.bam.bai",
+            indexBookmark: "aW5kZXhib29rbWFyaw==",
+            metadataDBPath: "alignments/full_track.stats.db",
+            checksumSHA256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            fileSizeBytes: 5_368_709_120,
+            addedDate: Date(),
+            mappedReadCount: 100_000_000,
+            unmappedReadCount: 2_000_000,
+            sampleNames: ["SAMPLE_A", "SAMPLE_B"]
+        )
+
+        XCTAssertNotNil(track.description)
+        XCTAssertNotNil(track.sourceBookmark)
+        XCTAssertNotNil(track.indexBookmark)
+        XCTAssertNotNil(track.metadataDBPath)
+        XCTAssertNotNil(track.checksumSHA256)
+        XCTAssertEqual(track.fileSizeBytes, 5_368_709_120)
+        XCTAssertEqual(track.sampleNames.count, 2)
+
+        // Round-trip
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(track)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(AlignmentTrackInfo.self, from: data)
+
+        XCTAssertEqual(decoded.id, track.id)
+        XCTAssertEqual(decoded.description, track.description)
+        XCTAssertEqual(decoded.sourceBookmark, track.sourceBookmark)
+        XCTAssertEqual(decoded.indexBookmark, track.indexBookmark)
+        XCTAssertEqual(decoded.metadataDBPath, track.metadataDBPath)
+        XCTAssertEqual(decoded.checksumSHA256, track.checksumSHA256)
+        XCTAssertEqual(decoded.fileSizeBytes, track.fileSizeBytes)
+        XCTAssertEqual(decoded.sampleNames, track.sampleNames)
+    }
+
+    func testRemoveNonExistentAlignmentTrack() {
+        let track = AlignmentTrackInfo(
+            id: "existing", name: "existing.bam", format: .bam,
+            sourcePath: "/data/existing.bam", indexPath: "/data/existing.bam.bai"
+        )
+
+        var manifest = createValidManifest()
+        manifest = manifest.addingAlignmentTrack(track)
+        XCTAssertEqual(manifest.alignments.count, 1)
+
+        // Removing a non-existent ID should be a no-op
+        let updated = manifest.removingAlignmentTrack(id: "does_not_exist")
+        XCTAssertEqual(updated.alignments.count, 1)
+        XCTAssertEqual(updated.alignments[0].id, "existing")
+    }
+
+    func testAddAndRemoveMultipleAlignmentTracks() {
+        var manifest = createValidManifest()
+
+        let track1 = AlignmentTrackInfo(
+            id: "track1", name: "a.bam", format: .bam,
+            sourcePath: "/data/a.bam", indexPath: "/data/a.bam.bai"
+        )
+        let track2 = AlignmentTrackInfo(
+            id: "track2", name: "b.cram", format: .cram,
+            sourcePath: "/data/b.cram", indexPath: "/data/b.cram.crai"
+        )
+
+        manifest = manifest.addingAlignmentTrack(track1)
+        manifest = manifest.addingAlignmentTrack(track2)
+        XCTAssertEqual(manifest.alignments.count, 2)
+
+        // Remove first track
+        manifest = manifest.removingAlignmentTrack(id: "track1")
+        XCTAssertEqual(manifest.alignments.count, 1)
+        XCTAssertEqual(manifest.alignments[0].id, "track2")
+
+        // Remove second track
+        manifest = manifest.removingAlignmentTrack(id: "track2")
+        XCTAssertTrue(manifest.alignments.isEmpty)
+    }
+
     // MARK: - Helper Methods
 
     private func createValidManifest() -> BundleManifest {
