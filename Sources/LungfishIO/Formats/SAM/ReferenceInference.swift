@@ -250,10 +250,41 @@ public enum ReferenceInference {
         )
     }
 
+    // MARK: - Name-Based Lookup
+
+    /// Looks up a known assembly by matching a single chromosome name against known patterns.
+    ///
+    /// Checks UCSC names, Ensembl names, and RefSeq accession patterns from the
+    /// built-in assembly database. Useful for VCF files where only chromosome names
+    /// are available (no lengths).
+    ///
+    /// - Parameter name: A chromosome or sequence name (e.g., "NC_045512.2", "chr1")
+    /// - Returns: Matching assembly info, or nil if no match found
+    public static func lookupByChromosomeName(_ name: String) -> (assembly: String, organism: String, accession: String?)? {
+        for sig in knownAssemblies {
+            // Direct name match in UCSC or Ensembl name lists
+            if sig.ucscNames.contains(name) || sig.ensemblNames.contains(name) {
+                return (sig.assembly, sig.organism, sig.accession)
+            }
+            // RefSeq prefix match
+            if let pattern = sig.refseqPattern, name.hasPrefix(pattern) {
+                return (sig.assembly, sig.organism, sig.accession)
+            }
+        }
+        return nil
+    }
+
+    /// Returns all known assembly signatures for cross-referencing.
+    ///
+    /// Each tuple contains: assembly name, organism, accession, chr1 length, total size.
+    public static func knownAssemblyList() -> [(assembly: String, organism: String, accession: String?, chr1Length: Int64, totalSize: Int64)] {
+        knownAssemblies.map { ($0.assembly, $0.organism, $0.accession, $0.chr1Length, $0.totalSize) }
+    }
+
     // MARK: - Naming Convention Detection
 
     /// Detects the chromosome naming convention from a set of sequence names.
-    private static func detectNamingConvention(names: Set<String>) -> String? {
+    public static func detectNamingConvention(names: Set<String>) -> String? {
         if names.contains("chr1") || names.contains("chrM") || names.contains("chrX") {
             return "UCSC"
         }
