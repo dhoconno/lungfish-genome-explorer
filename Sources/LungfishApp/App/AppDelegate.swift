@@ -17,6 +17,9 @@ private func debugLog(_ message: String) {
     print("[\(threadInfo)] \(message)")  // Also print to console
     if let data = logMessage.data(using: .utf8) {
         let logURL = FileManager.default.temporaryDirectory.appendingPathComponent("lungfish-debug.log")
+        if !FileManager.default.fileExists(atPath: logURL.path) {
+            FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        }
         if let fileHandle = try? FileHandle(forWritingTo: logURL) {
             fileHandle.seekToEndOfFile()
             fileHandle.write(data)
@@ -1108,8 +1111,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 let variantCount: Int
 
                 // Check if there's a resumable incomplete import from a previous crash.
-                if let importState = VariantDatabase.importState(at: dbURL),
-                   importState != "complete" {
+                let detectedImportState = VariantDatabase.importState(at: dbURL)
+                let dbExists = FileManager.default.fileExists(atPath: dbURL.path)
+                debugLog("performVCFImport: dbExists=\(dbExists), importState=\(detectedImportState ?? "nil"), path=\(dbURL.lastPathComponent)")
+
+                if let importState = detectedImportState, importState != "complete" {
                     debugLog("performVCFImport: Found incomplete import (state=\(importState)), resuming via helper")
                     variantCount = try Self.runVCFResumeViaHelper(
                         outputDBURL: dbURL,
@@ -1143,9 +1149,27 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         }
                     )
                     debugLog("performVCFImport: Materialization resume complete")
+                } else if dbExists, detectedImportState == nil,
+                          VariantDatabase.hasVariantsTable(at: dbURL) {
+                    // DB file exists with a variants table but import_state is unreadable
+                    // (likely corrupted metadata from a crash with journal_mode=OFF).
+                    // Attempt to resume rather than discard tens of GB of imported data.
+                    debugLog("performVCFImport: DB exists with variants table but no readable import_state — attempting resume")
+                    variantCount = try Self.runVCFResumeViaHelper(
+                        outputDBURL: dbURL,
+                        shouldCancel: isCancelled,
+                        progressHandler: { progress, message in
+                            let clampedProgress = max(0.0, min(1.0, progress))
+                            let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: importStartedAt)
+                            let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
+                            scheduleOnMainRunLoop {
+                                OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+                            }
+                        }
+                    )
                 } else {
                     // Remove existing database if re-importing a complete one
-                    if FileManager.default.fileExists(atPath: dbURL.path) {
+                    if dbExists {
                         try FileManager.default.removeItem(at: dbURL)
                     }
 

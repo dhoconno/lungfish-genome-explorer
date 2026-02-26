@@ -317,9 +317,6 @@ public final class VariantDatabase: @unchecked Sendable {
         /// INFO string in variants.info instead.  This eliminates billions of rows
         /// and 2 indexes for large VCFs, reducing DB size by ~50-70%.
         let skipVariantInfo: Bool
-        /// When true, use PRAGMA synchronous = NORMAL instead of OFF.  This causes
-        /// fsync at each commit, preventing dirty page accumulation in the macOS UBC.
-        let syncNormal: Bool
         /// If > 0, close and reopen the SQLite connection after this many variant
         /// inserts to fight malloc fragmentation.  0 = never reset.
         let connectionResetInterval: Int
@@ -1982,7 +1979,6 @@ public final class VariantDatabase: @unchecked Sendable {
                 createIndexesUpFront: false,
                 maxVariantInfoKeysPerVariant: 0,
                 skipVariantInfo: false,
-                syncNormal: false,
                 connectionResetInterval: 0
             )
         case .fast:
@@ -1996,7 +1992,6 @@ public final class VariantDatabase: @unchecked Sendable {
                 createIndexesUpFront: false,
                 maxVariantInfoKeysPerVariant: 0,
                 skipVariantInfo: false,
-                syncNormal: false,
                 connectionResetInterval: 0
             )
         case .ultraLowMemory:
@@ -2018,7 +2013,6 @@ public final class VariantDatabase: @unchecked Sendable {
                 createIndexesUpFront: false,
                 maxVariantInfoKeysPerVariant: 0,
                 skipVariantInfo: true,
-                syncNormal: true,
                 connectionResetInterval: 10_000_000
             )
         case .auto:
@@ -2071,16 +2065,17 @@ public final class VariantDatabase: @unchecked Sendable {
             sqlite3_exec(db, "PRAGMA page_size = \(tuning.pageSizeKB * 1024)", nil, nil, nil)
         }
 
-        sqlite3_exec(db, "PRAGMA journal_mode = OFF", nil, nil, nil)
+        // DELETE journal mode provides crash recovery (unlike OFF) without accumulating dirty
+        // pages in the macOS Unified Buffer Cache (UBC) the way WAL mode does.  WAL defers
+        // writing back to the main DB file, causing the UBC to count those dirty pages against
+        // the process RSS — leading to OOM kills on multi-GB imports.  DELETE mode writes
+        // directly to the main DB file on each COMMIT.
+        sqlite3_exec(db, "PRAGMA journal_mode = DELETE", nil, nil, nil)
         // synchronous = NORMAL forces fsync at each COMMIT, which prevents dirty page accumulation
         // in the macOS Unified Buffer Cache (UBC). With synchronous = OFF on multi-hour imports,
         // the UBC can accumulate tens of GB of dirty pages that the jetsam OOM killer counts
         // against the process, leading to SIGKILL.  NORMAL adds ~5% overhead but bounds memory.
-        if tuning.syncNormal {
-            sqlite3_exec(db, "PRAGMA synchronous = NORMAL", nil, nil, nil)
-        } else {
-            sqlite3_exec(db, "PRAGMA synchronous = OFF", nil, nil, nil)
-        }
+        sqlite3_exec(db, "PRAGMA synchronous = NORMAL", nil, nil, nil)
         sqlite3_exec(db, "PRAGMA locking_mode = EXCLUSIVE", nil, nil, nil)
         sqlite3_exec(db, "PRAGMA threads = \(tuning.workerThreads)", nil, nil, nil)
 
@@ -2826,6 +2821,26 @@ public final class VariantDatabase: @unchecked Sendable {
         return readMetadataValue(db, key: "import_state")
     }
 
+    /// Check whether a database file at the given URL contains a `variants` table.
+    /// Used as a fallback when `importState` returns nil (e.g. corrupted metadata)
+    /// to detect a partial import that may be recoverable.
+    public static func hasVariantsTable(at dbURL: URL) -> Bool {
+        guard FileManager.default.fileExists(atPath: dbURL.path) else { return false }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(dbURL.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+            sqlite3_close(db)
+            return false
+        }
+        defer { sqlite3_close(db) }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='variants'", -1, &stmt, nil) == SQLITE_OK else {
+            return false
+        }
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return false }
+        return sqlite3_column_int(stmt, 0) > 0
+    }
+
     /// Resume an interrupted VCF import by creating any missing indexes.
     ///
     /// When `createFromVCF` is killed (e.g. by the OOM killer) the database may
@@ -2849,7 +2864,7 @@ public final class VariantDatabase: @unchecked Sendable {
         defer { sqlite3_close(db) }
 
         let state = readMetadataValue(db, key: "import_state")
-        guard state == "inserting" || state == "indexing" else {
+        guard state == "inserting" || state == "indexing" || state == nil else {
             if state == "complete" {
                 let count = Int(readMetadataValue(db, key: "import_variant_count") ?? "0") ?? 0
                 return count
@@ -2857,7 +2872,15 @@ public final class VariantDatabase: @unchecked Sendable {
             throw VariantDatabaseError.invalidSchema("Cannot resume: import_state is '\(state ?? "nil")'")
         }
 
-        variantDBLogger.info("resumeImport: Resuming from state '\(state ?? "?")', building missing indexes")
+        // If import_state is nil (e.g. corrupted metadata from a crash with journal_mode=OFF),
+        // try to fix the metadata table so we can mark completion when done.
+        if state == nil {
+            variantDBLogger.info("resumeImport: import_state is nil — metadata may be corrupted, attempting recovery")
+            sqlite3_exec(db, "CREATE TABLE IF NOT EXISTS db_metadata (key TEXT PRIMARY KEY, value TEXT)", nil, nil, nil)
+            sqlite3_exec(db, "INSERT OR REPLACE INTO db_metadata VALUES ('import_state', 'indexing')", nil, nil, nil)
+        }
+
+        variantDBLogger.info("resumeImport: Resuming from state '\(state ?? "nil")', building missing indexes")
 
         // Conservative PRAGMAs for index creation.
         sqlite3_exec(db, "PRAGMA cache_size = -1024", nil, nil, nil)
