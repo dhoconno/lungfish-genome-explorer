@@ -34,6 +34,7 @@ struct VariantQueryBuilderView: View {
     let availableVariantTypes: [String]
     let sampleNames: [String]
     let savedPresets: [QueryPreset]
+    let executionScopeLabel: String
     let onApply: (String) -> Void
     let onSavePreset: (QueryPreset) -> Void
     let onCancel: () -> Void
@@ -45,6 +46,7 @@ struct VariantQueryBuilderView: View {
         availableVariantTypes: [String] = [],
         sampleNames: [String] = [],
         savedPresets: [QueryPreset] = [],
+        executionScopeLabel: String = "Scope: Region (viewport)",
         onApply: @escaping (String) -> Void,
         onSavePreset: @escaping (QueryPreset) -> Void,
         onCancel: @escaping () -> Void
@@ -54,6 +56,7 @@ struct VariantQueryBuilderView: View {
         self.availableVariantTypes = availableVariantTypes
         self.sampleNames = sampleNames
         self.savedPresets = savedPresets
+        self.executionScopeLabel = executionScopeLabel
         self.onApply = onApply
         self.onSavePreset = onSavePreset
         self.onCancel = onCancel
@@ -84,6 +87,15 @@ struct VariantQueryBuilderView: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)
+            .padding(.bottom, 4)
+
+            HStack {
+                Text(executionScopeLabel)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 16)
             .padding(.bottom, 8)
 
             Divider()

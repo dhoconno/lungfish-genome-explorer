@@ -78,6 +78,85 @@ final class VariantDatabaseTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: dbURL.path))
     }
 
+    func testCreateFromVCFPartitionedByChromosome() throws {
+        let vcf = """
+        ##fileformat=VCFv4.3
+        ##INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">
+        ##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+        ##contig=<ID=chr1,length=1000000>
+        ##contig=<ID=chr2,length=1000000>
+        ##contig=<ID=chrM,length=16569>
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2
+        chr2\t100\trs1\tA\tG\t30\tPASS\tDP=10\tGT\t0/1\t0/0
+        chr1\t200\trs2\tC\tT\t31\tPASS\tDP=11\tGT\t1/1\t0/1
+        chr2\t300\trs3\tG\tA\t32\tPASS\tDP=12\tGT\t0/1\t./.
+        chrM\t50\trs4\tT\tC\t33\tPASS\tDP=13\tGT\t1/1\t1/1
+        """
+
+        let vcfURL = try createTempVCF(content: vcf, name: "partitioned.vcf")
+        let dbURL = tempDir.appendingPathComponent("partitioned.db")
+        let count = try VariantDatabase.createFromVCF(
+            vcfURL: vcfURL,
+            outputURL: dbURL,
+            parseGenotypes: true,
+            partitionByChromosome: true
+        )
+
+        XCTAssertEqual(count, 4)
+        XCTAssertEqual(VariantDatabase.metadataValue(at: dbURL, key: "import_partition_mode"), "per-chromosome")
+
+        let db = try VariantDatabase(url: dbURL)
+        XCTAssertEqual(db.totalCount(), 4)
+        XCTAssertEqual(Set(db.allChromosomes()), Set(["chr1", "chr2", "chrM"]))
+        XCTAssertEqual(db.sampleCount(), 2)
+        XCTAssertEqual(db.query(chromosome: "chr2", start: 0, end: 1_000).count, 2)
+    }
+
+    func testMergeImportedDatabaseFromChromosomePartitions() throws {
+        let vcf = """
+        ##fileformat=VCFv4.3
+        ##INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">
+        ##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+        ##contig=<ID=chr1,length=1000000>
+        ##contig=<ID=chr2,length=1000000>
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2
+        chr1\t100\trs1\tA\tG\t30\tPASS\tDP=10\tGT\t0/1\t0/0
+        chr2\t200\trs2\tC\tT\t31\tPASS\tDP=11\tGT\t1/1\t0/1
+        """
+
+        let vcfURL = try createTempVCF(content: vcf, name: "merge.vcf")
+        let dbAURL = tempDir.appendingPathComponent("chr1.db")
+        let dbBURL = tempDir.appendingPathComponent("chr2.db")
+
+        let countA = try VariantDatabase.createFromVCF(
+            vcfURL: vcfURL,
+            outputURL: dbAURL,
+            parseGenotypes: true,
+            onlyChromosome: "chr1"
+        )
+        let countB = try VariantDatabase.createFromVCF(
+            vcfURL: vcfURL,
+            outputURL: dbBURL,
+            parseGenotypes: true,
+            onlyChromosome: "chr2"
+        )
+        XCTAssertEqual(countA, 1)
+        XCTAssertEqual(countB, 1)
+
+        let mergedCount = try VariantDatabase.mergeImportedDatabase(into: dbAURL, from: dbBURL)
+        XCTAssertEqual(mergedCount, 1)
+
+        let mergedDB = try VariantDatabase(url: dbAURL)
+        XCTAssertEqual(mergedDB.totalCount(), 2)
+        XCTAssertEqual(mergedDB.query(chromosome: "chr1", start: 0, end: 1_000).count, 1)
+        XCTAssertEqual(mergedDB.query(chromosome: "chr2", start: 0, end: 1_000).count, 1)
+        XCTAssertEqual(mergedDB.sampleCount(), 2)
+        XCTAssertEqual(
+            VariantDatabase.metadataValue(at: dbAURL, key: "import_partition_mode"),
+            "helper-subprocess-per-chromosome"
+        )
+    }
+
     func testCreateFromVCFOverwritesExisting() throws {
         let vcfURL = try createTempVCF(content: testVCF)
         let dbURL = tempDir.appendingPathComponent("variants.db")
@@ -1607,6 +1686,19 @@ final class VariantDatabaseTests: XCTestCase {
     chr2\t100\trs600\tA\tG\t50.0\tPASS\tIMPACT=HIGH;DP=80
     """
 
+    /// VCF with both IMPACT and consequence annotations for biological high-impact token tests.
+    private let biologicalImpactVCF = """
+    ##fileformat=VCFv4.3
+    ##INFO=<ID=IMPACT,Number=1,Type=String,Description="Variant impact">
+    ##INFO=<ID=CSQ_Consequence,Number=1,Type=String,Description="VEP consequence">
+    ##INFO=<ID=ANN_Consequence,Number=1,Type=String,Description="SnpEff consequence">
+    #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+    chr1\t100\trsBio1\tA\tG\t30.0\tPASS\tIMPACT=LOW;CSQ_Consequence=stop_gained
+    chr1\t200\trsBio2\tA\tT\t25.0\tPASS\tIMPACT=HIGH;CSQ_Consequence=synonymous_variant
+    chr1\t300\trsBio3\tC\tG\t35.0\tPASS\tIMPACT=LOW;CSQ_Consequence=missense_variant
+    chr1\t400\trsBio4\tG\tA\t40.0\tPASS\tIMPACT=MODERATE;ANN_Consequence=frameshift_variant
+    """
+
     func testWarmHighImpactCache() throws {
         let vcfURL = try createTempVCF(content: impactVCF, name: "impact.vcf")
         let dbURL = tempDir.appendingPathComponent("impact.db")
@@ -1694,6 +1786,50 @@ final class VariantDatabaseTests: XCTestCase {
 
         // rs100 has IMPACT=HIGH;DP=50 ✓, rs300 has IMPACT=HIGH;DP=30 ✗, rs600 has IMPACT=HIGH;DP=80 ✓
         XCTAssertEqual(results.count, 2, "Mixed filter should return 2 results (normal EAV path)")
+    }
+
+    func testBiologicalHighImpactTokenTableCreated() throws {
+        let vcfURL = try createTempVCF(content: biologicalImpactVCF, name: "bio_impact_token.vcf")
+        let dbURL = tempDir.appendingPathComponent("bio_impact_token.db")
+        try VariantDatabase.createFromVCF(vcfURL: vcfURL, outputURL: dbURL)
+        let db = try VariantDatabase(url: dbURL)
+
+        XCTAssertNotNil(db.tokenCacheState["highImpactBiological"])
+        XCTAssertTrue(db.tokenCacheState["highImpactBiological"]?.ready == true)
+        XCTAssertEqual(db.tokenCacheState["highImpactBiological"]?.count, 3)
+    }
+
+    func testQueryWithBiologicalHighImpactToken() throws {
+        let vcfURL = try createTempVCF(content: biologicalImpactVCF, name: "bio_impact_query.vcf")
+        let dbURL = tempDir.appendingPathComponent("bio_impact_query.db")
+        try VariantDatabase.createFromVCF(vcfURL: vcfURL, outputURL: dbURL)
+        let db = try VariantDatabase(url: dbURL)
+
+        let results = db.queryForTable(activeTokens: Set(["highImpactBiological"]), limit: 100)
+        XCTAssertEqual(results.count, 3)
+        let ids = Set(results.map(\.variantID))
+        XCTAssertEqual(ids, Set(["rsBio1", "rsBio2", "rsBio4"]))
+    }
+
+    func testBiologicalHighImpactTokenWithSkipVariantInfoImport() throws {
+        let vcfURL = try createTempVCF(content: biologicalImpactVCF, name: "bio_impact_skipinfo.vcf")
+        let dbURL = tempDir.appendingPathComponent("bio_impact_skipinfo.db")
+        try VariantDatabase.createFromVCF(
+            vcfURL: vcfURL,
+            outputURL: dbURL,
+            parseGenotypes: true,
+            importProfile: .ultraLowMemory
+        )
+        let db = try VariantDatabase(url: dbURL)
+
+        XCTAssertTrue(db.variantInfoSkipped)
+        XCTAssertNotNil(db.tokenCacheState["highImpactBiological"])
+        XCTAssertTrue(db.tokenCacheState["highImpactBiological"]?.ready == true)
+        XCTAssertEqual(db.tokenCacheState["highImpactBiological"]?.count, 3)
+
+        let results = db.queryForTable(activeTokens: Set(["highImpactBiological"]), limit: 100)
+        let ids = Set(results.map(\.variantID))
+        XCTAssertEqual(ids, Set(["rsBio1", "rsBio2", "rsBio4"]))
     }
 
     // MARK: - INFO Key Discovery Tests

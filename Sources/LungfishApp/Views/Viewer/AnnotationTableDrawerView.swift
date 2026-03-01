@@ -257,6 +257,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Database size threshold (1 GB) above which filtered queries are automatically
     /// scoped to the current chromosome for performance.
     private static let chromosomeScopeThreshold: UInt64 = 1_000_000_000
+    /// Database size threshold (25 GB) above which only pre-materialized token paths
+    /// are allowed for variant filtering to keep interactions responsive.
+    private static let materializedOnlyThreshold: UInt64 = 25_000_000_000
 
     /// Last variant query match count used for status labeling (especially capped result sets).
     private var lastVariantQueryMatchCount: Int?
@@ -386,6 +389,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     private var variantPresetMorePayloads: [ObjectIdentifier: String] = [:]
     /// Active smart filter tokens for the variant tab.
     private var activeSmartTokens: Set<SmartToken> = []
+    /// Smart token raw values that are materialized and ready across all variant tracks.
+    private var materializedTokenNamesAcrossTracks: Set<String> = []
     /// Smart token chip buttons keyed by token case.
     private var smartTokenButtons: [SmartToken: NSButton] = [:]
     /// Reverse lookup: button identity -> SmartToken.
@@ -1104,6 +1109,12 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     private func updateSearchFieldVisibility() {
         let showVariants = activeTab == .variants
         let showSamples = activeTab == .samples
+        let totalVariantDBSize = totalVariantDatabaseSizeBytes()
+        let isLargeDatabase = totalVariantDBSize >= Self.chromosomeScopeThreshold
+        let isMaterializedOnlyDatabase = totalVariantDBSize >= Self.materializedOnlyThreshold
+        if showVariants {
+            enforceMaterializedOnlyRestrictionsIfNeeded()
+        }
         annotationFilterField.isHidden = activeTab != .annotations
         variantFilterField.isHidden = true  // Always hidden; Query Builder writes to variantFilterText directly
         sampleFilterField.isHidden = true  // Samples use Query Builder; free-text field hidden to reduce toolbar density
@@ -1117,17 +1128,16 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         profileButton.isHidden = !showVariants
         scopeControl.isHidden = !showVariants
         haploidModeButton.isHidden = !showVariants
-        presetFiltersToggleButton.isHidden = !showVariants || infoColumnKeys.isEmpty
+        presetFiltersToggleButton.isHidden = !showVariants || infoColumnKeys.isEmpty || isMaterializedOnlyDatabase
         presetFiltersToggleButton.title = showVariantPresetChips ? "Presets ▾" : "Presets ▸"
         presetFiltersToggleButton.isEnabled = variantPresetLoadState != .loading
-        // Gate Query Builder on database size — hide for large databases unless zoomed to a small region.
+        // Gate Query Builder on database size.
         let queryBuilderVisible: Bool = {
             guard showVariants else { return false }
-            var totalDBSize: UInt64 = 0
-            for url in variantTrackDatabaseURLs {
-                totalDBSize += (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? UInt64) ?? 0
+            if isMaterializedOnlyDatabase {
+                return false
             }
-            if totalDBSize >= Self.chromosomeScopeThreshold {
+            if isLargeDatabase {
                 // Large database: only show if viewport is < 10 Mb
                 if let vp = viewportRegion {
                     return (vp.end - vp.start) < 10_000_000
@@ -1140,12 +1150,12 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         searchBuilderButton.isHidden = !showVariants
         searchBuilderButton.isEnabled = queryBuilderVisible
         if !queryBuilderVisible && showVariants {
-            var totalDBSize: UInt64 = 0
-            for url in variantTrackDatabaseURLs {
-                totalDBSize += (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? UInt64) ?? 0
+            let dbSizeMB = totalVariantDBSize / 1_000_000
+            if isMaterializedOnlyDatabase {
+                searchBuilderButton.toolTip = "Database is very large (\(dbSizeMB) MB). Query Builder is disabled; use Smart Token filters only."
+            } else {
+                searchBuilderButton.toolTip = "Database is large (\(dbSizeMB) MB). Zoom in to a region < 10 Mb to enable Query Builder."
             }
-            let dbSizeMB = totalDBSize / 1_000_000
-            searchBuilderButton.toolTip = "Database is large (\(dbSizeMB) MB). Zoom in to a region < 10 Mb to enable Query Builder."
         } else {
             searchBuilderButton.toolTip = nil
         }
@@ -1155,6 +1165,48 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         updateVariantFilterIndicator()
         rebuildSampleGroupPresetMenu()
         updateScopeControlSelection()
+    }
+
+    private func totalVariantDatabaseSizeBytes() -> UInt64 {
+        var total: UInt64 = 0
+        for url in variantTrackDatabaseURLs {
+            total += (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? UInt64) ?? 0
+        }
+        return total
+    }
+
+    private func isMaterializedOnlyModeEnabled() -> Bool {
+        totalVariantDatabaseSizeBytes() >= Self.materializedOnlyThreshold
+    }
+
+    private func isMaterializedTokenAllowedInStrictMode(_ token: SmartToken) -> Bool {
+        guard isMaterializedOnlyModeEnabled() else { return true }
+        return materializedTokenNamesAcrossTracks.contains(token.rawValue)
+    }
+
+    private func enforceMaterializedOnlyRestrictionsIfNeeded() {
+        guard isMaterializedOnlyModeEnabled() else { return }
+
+        var changed = false
+        if !variantFilterText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            variantFilterText = ""
+            changed = true
+        }
+        if !selectedVariantPresetByKey.isEmpty {
+            selectedVariantPresetByKey.removeAll()
+            changed = true
+        }
+
+        let unsupportedTokens = activeSmartTokens.filter { !isMaterializedTokenAllowedInStrictMode($0) }
+        if !unsupportedTokens.isEmpty {
+            activeSmartTokens.subtract(unsupportedTokens)
+            changed = true
+        }
+
+        if changed {
+            markVariantFilterStateMutated()
+            updateChipStates()
+        }
     }
 
     private func updateScopeControlSelection() {
@@ -1650,6 +1702,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             configureColumnsForTab(.samples)
         }
 
+        // Load pre-built SmartToken cache state (counts from persistent tables, instant).
+        loadSmartTokenCounts(from: index)
+        enforceMaterializedOnlyRestrictionsIfNeeded()
+
         // Rebuild chip buttons for the active tab
         rebuildChipButtons()
         updateSearchFieldVisibility()
@@ -1661,9 +1717,6 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             updateDisplayedAnnotations()
         }
         drawerLogger.info("AnnotationTableDrawerView: Connected to index with \(self.totalAnnotationCount) annotations, \(self.totalVariantCount) variants, \(self.allSampleNames.count) samples")
-
-        // Load pre-built SmartToken cache state (counts from persistent tables, instant).
-        loadSmartTokenCounts(from: index)
     }
 
     /// Reads pre-built token cache counts from variant databases (instant — no table scans).
@@ -1672,16 +1725,28 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// This just reads their row counts to populate chip labels.
     private func loadSmartTokenCounts(from index: AnnotationSearchIndex) {
         let handles = index.variantDatabaseHandles
-        guard !handles.isEmpty else { return }
+        guard !handles.isEmpty else {
+            smartTokenCounts = [:]
+            materializedTokenNamesAcrossTracks = []
+            return
+        }
 
         var aggregatedCounts: [String: Int] = [:]
+        var intersection: Set<String>?
         for handle in handles {
             let state = handle.db.tokenCacheState
+            let readyNames = Set(state.compactMap { key, value in value.ready ? key : nil })
+            if let existing = intersection {
+                intersection = existing.intersection(readyNames)
+            } else {
+                intersection = readyNames
+            }
             for (key, value) in state where value.ready {
                 aggregatedCounts[key, default: 0] += value.count
             }
         }
         smartTokenCounts = aggregatedCounts
+        materializedTokenNamesAcrossTracks = intersection ?? []
         rebuildChipButtons()
     }
 
@@ -1734,6 +1799,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         sampleTokenPayloads.removeAll()
 
         var hasSmartTokens = false
+        let isMaterializedOnlyDatabase = isMaterializedOnlyModeEnabled()
         // Smart tokens for the variants tab (grouped by semantic section).
         if activeTab == .variants {
             let infoKeySet = Set(infoColumnKeys.map(\.key))
@@ -1758,11 +1824,16 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 chipStackView.addArrangedSubview(label)
                 for token in sectionTokens {
                     let isTokenAvailable = token.isAvailable(infoKeys: infoKeySet, variantTypes: variantTypeSet, hasGenotypes: hasGT, hasBookmarks: hasBookmarks, isHaploidOrganism: isHaploidOrganism)
+                    let isTokenMaterialized = isMaterializedTokenAllowedInStrictMode(token)
                     let chip = makeSmartTokenChipButton(token: token)
-                    if !isTokenAvailable {
+                    if !isTokenAvailable || !isTokenMaterialized {
                         chip.isEnabled = false
                         chip.alphaValue = 0.4
-                        chip.toolTip = token.unavailabilityReason(infoKeys: infoKeySet, variantTypes: variantTypeSet, hasGenotypes: hasGT, hasBookmarks: hasBookmarks, isHaploidOrganism: isHaploidOrganism)
+                        if !isTokenMaterialized, isMaterializedOnlyDatabase {
+                            chip.toolTip = "Disabled for very large variant databases (token is not pre-materialized)."
+                        } else {
+                            chip.toolTip = token.unavailabilityReason(infoKeys: infoKeySet, variantTypes: variantTypeSet, hasGenotypes: hasGT, hasBookmarks: hasBookmarks, isHaploidOrganism: isHaploidOrganism)
+                        }
                     }
                     chipStackView.addArrangedSubview(chip)
                     smartTokenButtons[token] = chip
@@ -1808,7 +1879,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             chipButtons[type] = chip
         }
 
-        if activeTab == .variants, showVariantPresetChips, !variantInfoPresetValues.isEmpty {
+        if activeTab == .variants, showVariantPresetChips, !variantInfoPresetValues.isEmpty, !isMaterializedOnlyDatabase {
             let spacer = NSView(frame: NSRect(x: 0, y: 0, width: 12, height: 1))
             spacer.translatesAutoresizingMaskIntoConstraints = false
             spacer.widthAnchor.constraint(equalToConstant: 12).isActive = true
@@ -1880,6 +1951,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     @objc private func smartTokenToggled(_ sender: NSButton) {
         guard let token = smartTokenPayloads[ObjectIdentifier(sender)] else { return }
+        guard isMaterializedTokenAllowedInStrictMode(token) else {
+            sender.state = .off
+            return
+        }
         if sender.state == .on {
             if let group = token.exclusivityGroupKey {
                 for existing in activeSmartTokens where existing != token && existing.exclusivityGroupKey == group {
@@ -1955,6 +2030,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     // MARK: - Filtering
 
     private func updateDisplayedAnnotations() {
+        if activeTab == .variants {
+            enforceMaterializedOnlyRestrictionsIfNeeded()
+        }
+
         let currentFilterText: String = switch activeTab {
         case .annotations: annotationFilterText
         case .variants: variantFilterText
@@ -2066,7 +2145,6 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     }
 
     /// Whether the current query has user-entered filters/tokens.
-    /// Filtered queries run genome-wide first, with optional post-query viewport filtering.
     private var hasActiveSearchFilters: Bool {
         if !activeSmartTokens.isEmpty { return true }
         if !variantFilterText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
@@ -2088,7 +2166,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         typeFilter: Set<String>,
         query: VariantFilterQuery
     ) {
-        let chipInfoFilters: [VariantDatabase.InfoFilter] = selectedVariantPresetByKey.map { key, value in
+        let isLargeDatabase = totalVariantDatabaseSizeBytes() >= Self.chromosomeScopeThreshold
+        let isMaterializedOnlyDatabase = isMaterializedOnlyModeEnabled()
+
+        let chipInfoFilters: [VariantDatabase.InfoFilter] = isMaterializedOnlyDatabase ? [] : selectedVariantPresetByKey.map { key, value in
             VariantDatabase.InfoFilter(key: key, op: .eq, value: value)
         }
 
@@ -2101,12 +2182,15 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         let filterModerateOrHigher = smartComposed.postFilters.contains(where: {
             if case .moderateOrHigherImpact = $0 { return true }; return false
         })
+        let filterBiologicalHighImpact = smartComposed.postFilters.contains(where: {
+            if case .biologicalHighImpact = $0 { return true }; return false
+        })
         // Extract within-sample AF range filter (for viral/bacterial smart tokens)
         let withinSampleAFRange: (min: Double, max: Double)? = smartComposed.postFilters.compactMap {
             if case .withinSampleAFRange(let lo, let hi) = $0 { return (min: lo, max: hi) }
             return nil
         }.first
-        let hasSmartPostFilter = filterBookmarkedOnly || filterModerateOrHigher || withinSampleAFRange != nil
+        let hasSmartPostFilter = filterBookmarkedOnly || filterModerateOrHigher || filterBiologicalHighImpact || withinSampleAFRange != nil
 
         // Merge type restrictions from smart tokens with existing type filter
         var effectiveTypeFilter = typeFilter
@@ -2130,8 +2214,13 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         // Capture active SmartToken raw values for pre-materialized cache JOINs.
         let frozenActiveTokens = Set(activeSmartTokens.map(\.rawValue))
 
-        // Build effective query with smart token overlays
+        // Build effective query with smart token overlays.
+        // For very large databases, force materialized-token-only mode by dropping
+        // user-authored query-builder clauses that are not backed by token caches.
         var effectiveQuery = query
+        if isMaterializedOnlyDatabase {
+            effectiveQuery = VariantFilterQuery()
+        }
         effectiveQuery.infoFilters = mergedInfoFilters
         if let smartMinQ = smartComposed.minQuality, effectiveQuery.minQuality == nil {
             effectiveQuery.minQuality = smartMinQ
@@ -2140,8 +2229,13 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         if let smartFilter = smartComposed.filterValue, effectiveQuery.filterValue == nil {
             effectiveQuery.filterValue = smartFilter
         }
-        // User-requested behavior: filtered queries should search genome-wide first.
+        // Scope control is authoritative:
+        // - Region: query only within the viewport/selected region.
+        // - Genome: allow genome-wide filtering.
+        // Explicit query-region clauses should remain region-scoped.
         let hasGlobalOverrideFilters = hasActiveSearchFilters
+            && !viewportSyncEnabled
+            && effectiveQuery.region == nil
         let viewportPostFilterRegion: (chromosome: String, start: Int, end: Int)? = {
             guard hasGlobalOverrideFilters,
                   viewportSyncEnabled,
@@ -2189,14 +2283,6 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         // For large databases (>1 GB), scope filtered queries to the current chromosome
         // instead of scanning genome-wide, which would be prohibitively slow.
         var filterChromosome: String?
-        let isLargeDatabase: Bool = {
-            var total: UInt64 = 0
-            for url in variantTrackDatabaseURLs {
-                total += (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? UInt64) ?? 0
-            }
-            return total >= Self.chromosomeScopeThreshold
-        }()
-
         if activeGeneList != nil {
             // Gene list path — region is not used
             effectiveRegion = nil
@@ -2239,8 +2325,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         // Freeze filterChromosome for safe capture in the @Sendable dispatch closure.
         let frozenFilterChromosome = filterChromosome
 
-        // Filtered/tokenized queries intentionally start genome-wide; otherwise
-        // let explicit advanced-region clauses tighten/override the region.
+        // In Region scope, queries stay region-bound (viewport/annotation/query region).
+        // In Genome scope, filtered queries can run globally.
         let requestedRegion = hasGlobalOverrideFilters ? nil : (frozenQuery.region ?? effectiveRegion)
         let frozenRegionScope = regionScope
 
@@ -2321,6 +2407,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                     var filtered = applyVariantAdvancedFiltersOffMain(rows, query: frozenQuery)
                     if filterModerateOrHigher {
                         filtered = filterModerateOrHigherImpactOffMain(filtered)
+                    }
+                    if filterBiologicalHighImpact {
+                        filtered = filterBiologicalHighImpactOffMain(filtered)
                     }
                     if filterBookmarkedOnly {
                         filtered = filtered.filter { result in
@@ -3481,9 +3570,16 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     @objc private func openVariantSearchBuilder(_ sender: Any) {
         guard activeTab == .variants, let hostWindow = self.window else { return }
+        guard !isMaterializedOnlyModeEnabled() else {
+            NSSound.beep()
+            return
+        }
 
         let infoKeySet = Set(infoColumnKeys.map(\.key))
         let infoDefs = infoColumnKeys.map { InfoKeyDefinition(key: $0.key, type: $0.type, description: $0.description) }
+        let executionScopeLabel = viewportSyncEnabled
+            ? "Execution Scope: Region (current viewport/region)"
+            : "Execution Scope: Genome-wide"
         let builderView = VariantQueryBuilderView(
             initialFilterText: variantFilterText,
             availableInfoKeys: infoKeySet,
@@ -3491,6 +3587,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             availableVariantTypes: availableVariantTypes,
             sampleNames: allSampleNames,
             savedPresets: savedQueryPresets,
+            executionScopeLabel: executionScopeLabel,
             onApply: { [weak self] filterText in
                 guard let self else { return }
                 DispatchQueue.main.async { [weak self] in
@@ -3595,10 +3692,13 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     private func applyFilterProfile(_ profile: FilterProfile) {
         // Apply smart tokens
-        activeSmartTokens = profile.smartTokens
+        activeSmartTokens = profile.smartTokens.filter { isMaterializedTokenAllowedInStrictMode($0) }
 
         // Apply filter text
-        variantFilterText = profile.filterText
+        variantFilterText = isMaterializedOnlyModeEnabled() ? "" : profile.filterText
+        if isMaterializedOnlyModeEnabled() {
+            selectedVariantPresetByKey.removeAll()
+        }
         markVariantFilterStateMutated()
 
         // Update UI
@@ -3672,6 +3772,12 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     private func loadVariantPresetValuesIfNeeded() {
         guard variantPresetLoadState == .idle else { return }
+        guard !isMaterializedOnlyModeEnabled() else {
+            variantInfoPresetValues = []
+            selectedVariantPresetByKey.removeAll()
+            variantPresetLoadState = .loaded
+            return
+        }
         guard !infoColumnKeys.isEmpty, !variantTrackDatabaseURLs.isEmpty else {
             variantPresetLoadState = .loaded
             return
@@ -6106,6 +6212,42 @@ private func filterModerateOrHigherImpactOffMain(
             guard let raw = info[key], !raw.isEmpty else { continue }
             let value = raw.uppercased()
             if value.contains("HIGH") || value.contains("MODERATE") { return true }
+        }
+        return false
+    }
+}
+
+/// Pure biological high-impact filter (free function, safe to call from any thread).
+///
+/// Matches either explicit `IMPACT=HIGH` style fields, or severe consequence terms.
+private func filterBiologicalHighImpactOffMain(
+    _ results: [AnnotationSearchIndex.SearchResult]
+) -> [AnnotationSearchIndex.SearchResult] {
+    let impactKeys = SmartToken.impactKeys
+    let consequenceKeys = SmartToken.consequenceKeys
+    let highConsequenceTerms = [
+        "transcript_ablation",
+        "splice_acceptor_variant",
+        "splice_donor_variant",
+        "stop_gained",
+        "stop_lost",
+        "start_lost",
+        "frameshift_variant",
+        "exon_loss_variant",
+        "rare_amino_acid_variant",
+    ]
+    return results.filter { result in
+        guard let info = result.infoDict else { return false }
+        for key in impactKeys {
+            guard let raw = info[key], !raw.isEmpty else { continue }
+            if raw.uppercased().contains("HIGH") { return true }
+        }
+        for key in consequenceKeys {
+            guard let raw = info[key], !raw.isEmpty else { continue }
+            let lower = raw.lowercased()
+            if highConsequenceTerms.contains(where: { lower.contains($0) }) {
+                return true
+            }
         }
         return false
     }

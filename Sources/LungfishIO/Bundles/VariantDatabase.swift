@@ -928,6 +928,13 @@ public final class VariantDatabase: @unchecked Sendable {
                 for key in ["IMPACT", "impact", "ANN_IMPACT", "CSQ_IMPACT"] {
                     supersededInfoKeys.insert(key)
                 }
+            case "highImpactBiological":
+                for key in ["IMPACT", "impact", "ANN_IMPACT", "CSQ_IMPACT"] {
+                    supersededInfoKeys.insert(key)
+                }
+                for key in VariantDatabase.impactConsequenceInfoKeys {
+                    supersededInfoKeys.insert(key)
+                }
             case "clinvarPathogenic":
                 for key in ["CLNSIG", "ClinVar_SIG", "clinvar_sig", "CLNDN"] {
                     supersededInfoKeys.insert(key)
@@ -1219,6 +1226,65 @@ public final class VariantDatabase: @unchecked Sendable {
     /// Known INFO keys for the IMPACT field.
     private static let impactInfoKeys = ["IMPACT", "impact", "ANN_IMPACT", "CSQ_IMPACT"]
 
+    /// INFO keys that commonly encode VEP/SnpEff consequence terms.
+    private static let impactConsequenceInfoKeys = [
+        "CSQ_Consequence", "ANN_Consequence", "Consequence", "consequence",
+    ]
+
+    /// Consequence terms treated as biologically high impact.
+    private static let biologicalHighImpactConsequenceTerms = [
+        "transcript_ablation",
+        "splice_acceptor_variant",
+        "splice_donor_variant",
+        "stop_gained",
+        "stop_lost",
+        "start_lost",
+        "frameshift_variant",
+        "exon_loss_variant",
+        "rare_amino_acid_variant",
+    ]
+
+    private static func biologicalHighImpactTokenSQL(
+        impactKeys: [String],
+        consequenceKeys: [String]
+    ) -> String {
+        let impactKeyList = impactKeys.map { "'\($0)'" }.joined(separator: ",")
+        let consequenceKeyList = consequenceKeys.map { "'\($0)'" }.joined(separator: ",")
+        let consequenceMatch = biologicalHighImpactConsequenceTerms
+            .map { "INSTR(LOWER(value), '\($0)') > 0" }
+            .joined(separator: " OR ")
+        return """
+        SELECT DISTINCT variant_id FROM (
+            SELECT variant_id FROM variant_info
+            WHERE key IN (\(impactKeyList)) AND value = 'HIGH'
+            UNION
+            SELECT variant_id FROM variant_info
+            WHERE key IN (\(consequenceKeyList))
+              AND (\(consequenceMatch))
+        )
+        """
+    }
+
+    private static func biologicalHighImpactRawInfoSQL() -> String {
+        let highImpactMatches = [
+            "UPPER(info) LIKE '%IMPACT=HIGH%'",
+            "UPPER(info) LIKE '%ANN_IMPACT=HIGH%'",
+            "UPPER(info) LIKE '%CSQ_IMPACT=HIGH%'",
+        ].joined(separator: " OR ")
+        let severeConsequenceMatches = biologicalHighImpactConsequenceTerms
+            .map { "LOWER(info) LIKE '%\($0)%'" }
+            .joined(separator: " OR ")
+        return """
+        SELECT id AS variant_id FROM variants
+        WHERE info IS NOT NULL AND info != ''
+          AND (
+            \(highImpactMatches)
+            OR
+            \(severeConsequenceMatches)
+          )
+        """
+    }
+
     /// Creates a temp table of variant IDs with IMPACT=HIGH for instant filtering.
     /// Runs once per connection; protected by the progress handler timeout.
     /// Returns true if the cache was created successfully.
@@ -1339,6 +1405,16 @@ public final class VariantDatabase: @unchecked Sendable {
             requiresEAV: false
         ))
 
+        if variantInfoSkipped {
+            defs.append(TokenDef(
+                name: "highImpactBiological",
+                tableName: "_tok_bio_hi",
+                sql: Self.biologicalHighImpactRawInfoSQL(),
+                idColumn: "variant_id",
+                requiresEAV: false
+            ))
+        }
+
         // EAV-based tokens (only for databases with variant_info populated)
         if !variantInfoSkipped {
             if availableInfoKeys.contains("DP") {
@@ -1365,6 +1441,24 @@ public final class VariantDatabase: @unchecked Sendable {
 
             // High impact is handled separately by warmHighImpactCache()
             // but we track its state here too.
+            let availableConsequenceKeys = Self.impactConsequenceInfoKeys
+                .filter { availableInfoKeys.contains($0) }
+            let hasImpactKey = !availableInfoKeys.isDisjoint(with: Set(Self.impactInfoKeys))
+            if hasImpactKey || !availableConsequenceKeys.isEmpty {
+                let tokenSQL = Self.biologicalHighImpactTokenSQL(
+                    impactKeys: Self.impactInfoKeys,
+                    consequenceKeys: availableConsequenceKeys.isEmpty
+                        ? Self.impactConsequenceInfoKeys
+                        : availableConsequenceKeys
+                )
+                defs.append(TokenDef(
+                    name: "highImpactBiological",
+                    tableName: "_tok_bio_hi",
+                    sql: tokenSQL,
+                    idColumn: "variant_id",
+                    requiresEAV: true
+                ))
+            }
 
             let clinvarKey = ["CLNSIG", "ClinVar_SIG", "clinvar_sig", "CLNDN"]
                 .first { availableInfoKeys.contains($0) }
@@ -1502,6 +1596,7 @@ public final class VariantDatabase: @unchecked Sendable {
             ("depthGE10", "_tok_dp10"),
             ("rareVariant", "_tok_rare"),
             ("clinvarPathogenic", "_tok_clinvar"),
+            ("highImpactBiological", "_tok_bio_hi"),
             ("highImpact", "_high_impact"),
         ]
 
@@ -1558,6 +1653,7 @@ public final class VariantDatabase: @unchecked Sendable {
         case "depthGE10": tableName = "_tok_dp10"; idColumn = "variant_id"
         case "rareVariant": tableName = "_tok_rare"; idColumn = "variant_id"
         case "clinvarPathogenic": tableName = "_tok_clinvar"; idColumn = "variant_id"
+        case "highImpactBiological": tableName = "_tok_bio_hi"; idColumn = "variant_id"
         case "highImpact": tableName = "_high_impact"; idColumn = "variant_id"
         default: return nil
         }
@@ -2731,12 +2827,23 @@ public final class VariantDatabase: @unchecked Sendable {
         progressHandler: (@Sendable (Double, String) -> Void)? = nil,
         shouldCancel: (@Sendable () -> Bool)? = nil,
         importProfile: VCFImportProfile = .auto,
-        deferIndexBuild: Bool = false
+        deferIndexBuild: Bool = false,
+        partitionByChromosome: Bool = false,
+        onlyChromosome: String? = nil
     ) throws -> Int {
         try? FileManager.default.removeItem(at: outputURL)
 
         let fileSize: Int64 = (try? FileManager.default.attributesOfItem(atPath: vcfURL.path)[.size] as? Int64) ?? 0
-        let resolvedProfile = resolveImportProfile(importProfile, inputFileSize: fileSize)
+        let ext = vcfURL.pathExtension.lowercased()
+        let estimatedUncompressedSize = ext == "gz"
+            ? estimateGzipUncompressedSize(url: vcfURL, compressedSize: fileSize)
+            : 0
+        // For compressed VCFs, profile auto-selection should use an estimate of the
+        // real parse workload instead of the smaller compressed byte size.
+        let profileInputSize = (ext == "gz" && estimatedUncompressedSize > 0)
+            ? estimatedUncompressedSize
+            : fileSize
+        let resolvedProfile = resolveImportProfile(importProfile, inputFileSize: profileInputSize)
         let tuning = importTuning(for: resolvedProfile)
 
         var db: OpaquePointer?
@@ -3035,108 +3142,143 @@ public final class VariantDatabase: @unchecked Sendable {
             commitImportTransaction(reopen: true)
         }
 
-        func parseLine(_ line: Substring) {
+        let maxPartitionChromosomes = 512
+
+        @inline(__always)
+        func streamVCFLines(
+            onProgress: ((Double) -> Void)? = nil,
+            _ handler: (Substring) -> Void
+        ) throws -> Bool {
+            if ext == "gz" {
+                return try streamGzipLines(
+                    url: vcfURL,
+                    estimatedUncompressedSize: estimatedUncompressedSize,
+                    shouldCancel: shouldCancel,
+                    onProgress: onProgress,
+                    handler
+                )
+            }
+            return try streamPlainLines(
+                url: vcfURL,
+                totalFileSize: fileSize,
+                shouldCancel: shouldCancel,
+                onProgress: onProgress,
+                handler
+            )
+        }
+
+        func parseLine(
+            _ line: Substring,
+            parseHeaders: Bool,
+            activeChromosome: String?
+        ) {
             guard !line.isEmpty, !wasCancelled else { return }
 
-            // Parse ##INFO=<...> header lines for structured INFO definitions
-            if line.hasPrefix("##INFO=") {
-                // When skipping variant_info, we don't need to parse or store INFO defs
-                if !tuning.skipVariantInfo, let insertInfoDefStmt {
-                    let content = line.dropFirst(7)
-                    if let def = parseINFODefinition(content) {
-                        sqlite3_reset(insertInfoDefStmt)
-                        sqliteBindText(insertInfoDefStmt, 1, def.id)
-                        sqliteBindText(insertInfoDefStmt, 2, def.type)
-                        sqliteBindText(insertInfoDefStmt, 3, def.number)
-                        sqliteBindText(insertInfoDefStmt, 4, def.description)
-                        sqlite3_step(insertInfoDefStmt)
-                        writesSinceCommit += 1
+            if line.first == "#" {
+                guard parseHeaders else { return }
 
-                        // Detect structured fields with pipe-delimited sub-fields from Description
-                        // e.g., CSQ: "...Format: Allele|Consequence|IMPACT|SYMBOL|Gene|..."
-                        if let formatRange = def.description.range(of: "Format: ", options: .caseInsensitive) {
-                            let formatStr = String(def.description[formatRange.upperBound...])
-                                .trimmingCharacters(in: .whitespacesAndNewlines)
-                                .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-                            let subFields = formatStr.split(separator: "|").map(String.init)
-                            if subFields.count >= 2 {
-                                structuredInfoFields[def.id] = subFields
-                                // Register each sub-field as a separate info def
-                                for subField in subFields {
-                                    let subKey = "\(def.id)_\(subField)"
-                                    sqlite3_reset(insertInfoDefStmt)
-                                    sqliteBindText(insertInfoDefStmt, 1, subKey)
-                                    sqliteBindText(insertInfoDefStmt, 2, "String")
-                                    sqliteBindText(insertInfoDefStmt, 3, ".")
-                                    sqliteBindText(insertInfoDefStmt, 4, "\(def.id) sub-field: \(subField)")
-                                    sqlite3_step(insertInfoDefStmt)
-                                    writesSinceCommit += 1
+                // Parse ##INFO=<...> header lines for structured INFO definitions
+                if line.hasPrefix("##INFO=") {
+                    // When skipping variant_info, we don't need to parse or store INFO defs
+                    if !tuning.skipVariantInfo, let insertInfoDefStmt {
+                        let content = line.dropFirst(7)
+                        if let def = parseINFODefinition(content) {
+                            sqlite3_reset(insertInfoDefStmt)
+                            sqliteBindText(insertInfoDefStmt, 1, def.id)
+                            sqliteBindText(insertInfoDefStmt, 2, def.type)
+                            sqliteBindText(insertInfoDefStmt, 3, def.number)
+                            sqliteBindText(insertInfoDefStmt, 4, def.description)
+                            sqlite3_step(insertInfoDefStmt)
+                            writesSinceCommit += 1
+
+                            // Detect structured fields with pipe-delimited sub-fields from Description
+                            // e.g., CSQ: "...Format: Allele|Consequence|IMPACT|SYMBOL|Gene|..."
+                            if let formatRange = def.description.range(of: "Format: ", options: .caseInsensitive) {
+                                let formatStr = String(def.description[formatRange.upperBound...])
+                                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                                    .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+                                let subFields = formatStr.split(separator: "|").map(String.init)
+                                if subFields.count >= 2 {
+                                    structuredInfoFields[def.id] = subFields
+                                    // Register each sub-field as a separate info def
+                                    for subField in subFields {
+                                        let subKey = "\(def.id)_\(subField)"
+                                        sqlite3_reset(insertInfoDefStmt)
+                                        sqliteBindText(insertInfoDefStmt, 1, subKey)
+                                        sqliteBindText(insertInfoDefStmt, 2, "String")
+                                        sqliteBindText(insertInfoDefStmt, 3, ".")
+                                        sqliteBindText(insertInfoDefStmt, 4, "\(def.id) sub-field: \(subField)")
+                                        sqlite3_step(insertInfoDefStmt)
+                                        writesSinceCommit += 1
+                                    }
+                                    variantDBLogger.info("createFromVCF: Found structured INFO field '\(def.id)' with \(subFields.count) sub-fields")
                                 }
-                                variantDBLogger.info("createFromVCF: Found structured INFO field '\(def.id)' with \(subFields.count) sub-fields")
                             }
                         }
+                        rotateImportTransactionIfNeeded()
                     }
+                    return
+                }
+
+                // Parse ##contig=<ID=...,length=...> lines for chromosome length info
+                if line.hasPrefix("##contig=") {
+                    let content = line.dropFirst(9)
+                    // Parse <ID=chr1,length=248956422> format
+                    let inner = content.trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
+                    var id: String?
+                    var length: Int64?
+                    for part in inner.split(separator: ",") {
+                        let kv = part.split(separator: "=", maxSplits: 1)
+                        guard kv.count == 2 else { continue }
+                        let key = kv[0].trimmingCharacters(in: .whitespaces)
+                        let val = kv[1].trimmingCharacters(in: .whitespaces)
+                        if key.lowercased() == "id" { id = val }
+                        else if key.lowercased() == "length" { length = Int64(val) }
+                    }
+                    if let id, let length {
+                        contigLengths[id] = length
+                    }
+                    return
+                }
+
+                // Skip other meta-information lines
+                if line.hasPrefix("##") { return }
+
+                // Parse header line for sample names
+                if line.hasPrefix("#CHROM") {
+                    let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
+                    if fields.count > 9 {
+                        sampleNames = fields.dropFirst(9).map(String.init)
+                        // Insert sample records
+                        let srcFile = sourceFile ?? vcfURL.lastPathComponent
+                        for sampleName in sampleNames {
+                            sqlite3_reset(insertSampleStmt)
+                            sqliteBindText(insertSampleStmt, 1, sampleName)
+                            sqliteBindText(insertSampleStmt, 2, sampleName)
+                            sqliteBindText(insertSampleStmt, 3, srcFile)
+                            sqlite3_step(insertSampleStmt)
+                            writesSinceCommit += 1
+                        }
+                        variantDBLogger.info("createFromVCF: Found \(sampleNames.count) samples")
+                    }
+
+                    // Store contig lengths from ##contig header lines for chromosome alias mapping.
+                    // These provide exact chromosome lengths for reliable matching when VCF chromosome
+                    // names differ from the reference (e.g., "1" vs "NC_048383.1").
+                    if !contigLengths.isEmpty {
+                        if let jsonData = try? JSONSerialization.data(withJSONObject: contigLengths.mapValues { NSNumber(value: $0) }),
+                           let jsonString = String(data: jsonData, encoding: .utf8) {
+                            let escapedJSON = jsonString.replacingOccurrences(of: "'", with: "''")
+                            sqlite3_exec(db, "INSERT OR REPLACE INTO db_metadata VALUES ('contig_lengths', '\(escapedJSON)')", nil, nil, nil)
+                            writesSinceCommit += 1
+                            variantDBLogger.info("createFromVCF: Stored \(contigLengths.count) contig lengths from VCF header")
+                        }
+                    }
+
                     rotateImportTransactionIfNeeded()
-                }
-                return
-            }
-
-            // Parse ##contig=<ID=...,length=...> lines for chromosome length info
-            if line.hasPrefix("##contig=") {
-                let content = line.dropFirst(9)
-                // Parse <ID=chr1,length=248956422> format
-                let inner = content.trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
-                var id: String?
-                var length: Int64?
-                for part in inner.split(separator: ",") {
-                    let kv = part.split(separator: "=", maxSplits: 1)
-                    guard kv.count == 2 else { continue }
-                    let key = kv[0].trimmingCharacters(in: .whitespaces)
-                    let val = kv[1].trimmingCharacters(in: .whitespaces)
-                    if key.lowercased() == "id" { id = val }
-                    else if key.lowercased() == "length" { length = Int64(val) }
-                }
-                if let id, let length {
-                    contigLengths[id] = length
-                }
-                return
-            }
-
-            // Skip other meta-information lines
-            if line.hasPrefix("##") { return }
-
-            // Parse header line for sample names
-            if line.hasPrefix("#CHROM") {
-                let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
-                if fields.count > 9 {
-                    sampleNames = fields.dropFirst(9).map(String.init)
-                    // Insert sample records
-                    let srcFile = sourceFile ?? vcfURL.lastPathComponent
-                    for sampleName in sampleNames {
-                        sqlite3_reset(insertSampleStmt)
-                        sqliteBindText(insertSampleStmt, 1, sampleName)
-                        sqliteBindText(insertSampleStmt, 2, sampleName)
-                        sqliteBindText(insertSampleStmt, 3, srcFile)
-                        sqlite3_step(insertSampleStmt)
-                        writesSinceCommit += 1
-                    }
-                    variantDBLogger.info("createFromVCF: Found \(sampleNames.count) samples")
+                    return
                 }
 
-                // Store contig lengths from ##contig header lines for chromosome alias mapping.
-                // These provide exact chromosome lengths for reliable matching when VCF chromosome
-                // names differ from the reference (e.g., "1" vs "NC_048383.1").
-                if !contigLengths.isEmpty {
-                    if let jsonData = try? JSONSerialization.data(withJSONObject: contigLengths.mapValues { NSNumber(value: $0) }),
-                       let jsonString = String(data: jsonData, encoding: .utf8) {
-                        let escapedJSON = jsonString.replacingOccurrences(of: "'", with: "''")
-                        sqlite3_exec(db, "INSERT OR REPLACE INTO db_metadata VALUES ('contig_lengths', '\(escapedJSON)')", nil, nil, nil)
-                        writesSinceCommit += 1
-                        variantDBLogger.info("createFromVCF: Stored \(contigLengths.count) contig lengths from VCF header")
-                    }
-                }
-
-                rotateImportTransactionIfNeeded()
                 return
             }
 
@@ -3145,6 +3287,9 @@ public final class VariantDatabase: @unchecked Sendable {
             guard fields.count >= 8 else { return }
 
             let chromosome = String(fields[0])
+            if let activeChromosome, chromosome != activeChromosome {
+                return
+            }
             guard let pos1based = Int(fields[1]), pos1based >= 1 else { return }
             let position = pos1based - 1  // Convert to 0-based
 
@@ -3410,28 +3555,90 @@ public final class VariantDatabase: @unchecked Sendable {
             rotateImportTransactionIfNeeded()
         }
 
-        // Read VCF content with byte-based progress tracking.
-        // Both plain and .vcf.gz VCFs use line-by-line streaming to avoid large memory spikes.
-        let ext = vcfURL.pathExtension.lowercased()
-        let byteProgress: (Double) -> Void = { fraction in
-            progressHandler?(0.05 + fraction * 0.85, "Parsing variants (\(insertCount))...")
+        var partitionChromosomeOrder: [String] = []
+        var importedByChromosome = false
+
+        if partitionByChromosome, onlyChromosome == nil {
+            progressHandler?(0.06, "Reading chromosome list from VCF header...")
+            partitionChromosomeOrder = try readContigsFromVCFHeader(
+                url: vcfURL,
+                maxChromosomes: maxPartitionChromosomes
+            )
+            if partitionChromosomeOrder.isEmpty {
+                variantDBLogger.info(
+                    "createFromVCF: No usable ##contig chromosome list found; falling back to single-pass import"
+                )
+            }
         }
-        if ext == "gz" {
-            let estimatedSize = estimateGzipUncompressedSize(url: vcfURL, compressedSize: fileSize)
-            wasCancelled = try streamGzipLines(url: vcfURL, estimatedUncompressedSize: estimatedSize, shouldCancel: shouldCancel, onProgress: byteProgress) { line in
-                parseLine(line)
+
+        if partitionByChromosome, onlyChromosome == nil, !partitionChromosomeOrder.isEmpty {
+            importedByChromosome = true
+            var parseHeadersOnThisPass = true
+            let totalChromosomes = partitionChromosomeOrder.count
+
+            for (chromIndex, chromosome) in partitionChromosomeOrder.enumerated() {
+                if isCancelled() {
+                    wasCancelled = true
+                    break
+                }
+
+                let beforeRatio = Double(chromIndex) / Double(max(1, totalChromosomes))
+                let chromWeight = 1.0 / Double(max(1, totalChromosomes))
+                let byteProgress: (Double) -> Void = { fraction in
+                    let clamped = max(0.0, min(1.0, fraction))
+                    let global = 0.15 + (beforeRatio + (chromWeight * clamped)) * 0.75
+                    progressHandler?(
+                        global,
+                        "Importing chromosome \(chromIndex + 1) of \(totalChromosomes): \(chromosome) (\(insertCount) variants)..."
+                    )
+                }
+
+                wasCancelled = try streamVCFLines(onProgress: byteProgress) { line in
+                    parseLine(
+                        line,
+                        parseHeaders: parseHeadersOnThisPass,
+                        activeChromosome: chromosome
+                    )
+                }
+                parseHeadersOnThisPass = false
+                wasCancelled = wasCancelled || isCancelled()
+                if wasCancelled { break }
+
+                let completedFraction = 0.15 + (Double(chromIndex + 1) / Double(max(1, totalChromosomes))) * 0.75
+                progressHandler?(completedFraction, "Imported chromosome \(chromIndex + 1) of \(totalChromosomes): \(chromosome)")
+
+                if chromIndex + 1 < totalChromosomes {
+                    commitImportTransaction(reopen: true, forceShrink: true)
+                    malloc_zone_pressure_relief(nil, 0)
+                }
             }
         } else {
-            wasCancelled = try streamPlainLines(url: vcfURL, totalFileSize: fileSize, shouldCancel: shouldCancel, onProgress: byteProgress) { line in
-                parseLine(line)
+            // Read VCF content with byte-based progress tracking.
+            // Both plain and .vcf.gz VCFs use line-by-line streaming to avoid large memory spikes.
+            let byteProgress: (Double) -> Void = { fraction in
+                progressHandler?(0.05 + fraction * 0.85, "Parsing variants (\(insertCount))...")
+            }
+            wasCancelled = try streamVCFLines(onProgress: byteProgress) { line in
+                parseLine(line, parseHeaders: true, activeChromosome: onlyChromosome)
             }
         }
+
         wasCancelled = wasCancelled || isCancelled()
 
         if wasCancelled {
             sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
             throw VariantDatabaseError.cancelled
         }
+
+        let partitionMode: String
+        if importedByChromosome {
+            partitionMode = "per-chromosome"
+        } else if onlyChromosome != nil {
+            partitionMode = "single-chromosome"
+        } else {
+            partitionMode = "single-pass"
+        }
+        sqlite3_exec(db, "INSERT OR REPLACE INTO db_metadata VALUES ('import_partition_mode', '\(partitionMode)')", nil, nil, nil)
 
         // Finalize all parsed rows before index creation, then explicitly release heap/cache.
         commitImportTransaction(reopen: false, forceShrink: true)
@@ -3577,6 +3784,15 @@ public final class VariantDatabase: @unchecked Sendable {
             ),
         ]
 
+        if skipVariantInfo {
+            tables.append(TableDef(
+                name: "_tok_bio_hi",
+                sql: "CREATE TABLE IF NOT EXISTS _tok_bio_hi AS \(biologicalHighImpactRawInfoSQL())",
+                idColumn: "variant_id",
+                indexSQL: "CREATE INDEX IF NOT EXISTS _idx__tok_bio_hi ON _tok_bio_hi(variant_id)"
+            ))
+        }
+
         if !skipVariantInfo {
             // Check which INFO keys are available from variant_info_defs
             var availableKeys: Set<String> = []
@@ -3629,6 +3845,22 @@ public final class VariantDatabase: @unchecked Sendable {
                     sql: "CREATE TABLE IF NOT EXISTS _high_impact AS SELECT DISTINCT variant_id FROM variant_info WHERE key IN (\(keyList)) AND value = 'HIGH'",
                     idColumn: "variant_id",
                     indexSQL: "CREATE INDEX IF NOT EXISTS _idx_hi ON _high_impact(variant_id)"
+                ))
+            }
+
+            // Biologically high-impact variants:
+            // IMPACT=HIGH plus severe consequence terms.
+            let consequenceKeys = impactConsequenceInfoKeys.filter { availableKeys.contains($0) }
+            if hasImpactKey || !consequenceKeys.isEmpty {
+                let tokenSQL = biologicalHighImpactTokenSQL(
+                    impactKeys: impactKeys,
+                    consequenceKeys: consequenceKeys.isEmpty ? impactConsequenceInfoKeys : consequenceKeys
+                )
+                tables.append(TableDef(
+                    name: "_tok_bio_hi",
+                    sql: "CREATE TABLE IF NOT EXISTS _tok_bio_hi AS \(tokenSQL)",
+                    idColumn: "variant_id",
+                    indexSQL: "CREATE INDEX IF NOT EXISTS _idx__tok_bio_hi ON _tok_bio_hi(variant_id)"
                 ))
             }
         }
@@ -3694,6 +3926,203 @@ public final class VariantDatabase: @unchecked Sendable {
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_step(stmt) == SQLITE_ROW else { return false }
         return sqlite3_column_int(stmt, 0) > 0
+    }
+
+    /// Returns ordered chromosome IDs from VCF `##contig` header lines.
+    ///
+    /// This only reads the VCF header and stops at `#CHROM` (or first variant line).
+    /// Returns an empty list when `##contig` lines are absent.
+    public static func contigsInVCFHeader(
+        url: URL,
+        maxChromosomes: Int = 512
+    ) throws -> [String] {
+        try readContigsFromVCFHeader(url: url, maxChromosomes: maxChromosomes)
+    }
+
+    /// Merges a chromosome-scoped import database into an existing destination import DB.
+    ///
+    /// Expects both databases to use the v3 schema produced by `createFromVCF`.
+    /// Variant row IDs from `sourceDBURL` are offset and appended so genotype/info
+    /// foreign-key relationships remain intact.
+    ///
+    /// - Returns: Number of variants appended from source.
+    @discardableResult
+    public static func mergeImportedDatabase(
+        into destinationDBURL: URL,
+        from sourceDBURL: URL
+    ) throws -> Int {
+        var destDB: OpaquePointer?
+        guard sqlite3_open(destinationDBURL.path, &destDB) == SQLITE_OK, let destDB else {
+            let msg = destDB.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
+            sqlite3_close(destDB)
+            throw VariantDatabaseError.createFailed("Failed to open destination database for merge: \(msg)")
+        }
+        defer { sqlite3_close(destDB) }
+
+        func exec(_ sql: String, on db: OpaquePointer, context: String) throws {
+            var err: UnsafeMutablePointer<CChar>?
+            sqlite3_exec(db, sql, nil, nil, &err)
+            if let err {
+                let msg = String(cString: err)
+                sqlite3_free(err)
+                throw VariantDatabaseError.createFailed("\(context): \(msg)")
+            }
+        }
+
+        // Ensure merge writes are deterministic and low-overhead.
+        sqlite3_exec(destDB, "PRAGMA foreign_keys = OFF", nil, nil, nil)
+        sqlite3_exec(destDB, "PRAGMA synchronous = NORMAL", nil, nil, nil)
+        sqlite3_exec(destDB, "PRAGMA journal_mode = DELETE", nil, nil, nil)
+
+        let sourceAlias = "srcmerge"
+        let escapedSourcePath = sourceDBURL.path.replacingOccurrences(of: "'", with: "''")
+        try exec("ATTACH DATABASE '\(escapedSourcePath)' AS \(sourceAlias)", on: destDB, context: "Attach source DB")
+        defer {
+            sqlite3_exec(destDB, "DETACH DATABASE \(sourceAlias)", nil, nil, nil)
+        }
+
+        // Profile consistency check.
+        let destSkipInfo = readMetadataValue(destDB, key: "skip_variant_info")
+        let sourceSkipInfo = readAttachedMetadataValue(db: destDB, alias: sourceAlias, key: "skip_variant_info")
+        if destSkipInfo != sourceSkipInfo {
+            throw VariantDatabaseError.invalidSchema(
+                "Cannot merge databases with different skip_variant_info modes (\(destSkipInfo ?? "nil") vs \(sourceSkipInfo ?? "nil"))"
+            )
+        }
+
+        let appendedVariants = attachedVariantCount(db: destDB, alias: sourceAlias)
+        if appendedVariants == 0 {
+            return 0
+        }
+
+        let existingMaxID = maxVariantID(db: destDB)
+
+        try exec("BEGIN TRANSACTION", on: destDB, context: "Begin merge transaction")
+        var committed = false
+        defer {
+            if !committed {
+                sqlite3_exec(destDB, "ROLLBACK", nil, nil, nil)
+            }
+        }
+
+        try exec(
+            """
+            INSERT INTO variants (
+                id, chromosome, position, end_pos, variant_id, ref, alt, variant_type, quality, filter, info, sample_count
+            )
+            SELECT
+                id + \(existingMaxID), chromosome, position, end_pos, variant_id, ref, alt, variant_type, quality, filter, info, sample_count
+            FROM \(sourceAlias).variants
+            """,
+            on: destDB,
+            context: "Merge variants"
+        )
+
+        try exec(
+            """
+            INSERT INTO genotypes (
+                variant_id, sample_name, genotype, allele1, allele2, is_phased, depth, genotype_quality, allele_depths, raw_fields
+            )
+            SELECT
+                variant_id + \(existingMaxID), sample_name, genotype, allele1, allele2, is_phased, depth, genotype_quality, allele_depths, raw_fields
+            FROM \(sourceAlias).genotypes
+            """,
+            on: destDB,
+            context: "Merge genotypes"
+        )
+
+        try exec(
+            """
+            INSERT OR REPLACE INTO samples (name, display_name, source_file, metadata)
+            SELECT name, display_name, source_file, metadata
+            FROM \(sourceAlias).samples
+            """,
+            on: destDB,
+            context: "Merge samples"
+        )
+
+        if destSkipInfo != "true" {
+            try exec(
+                """
+                INSERT OR REPLACE INTO variant_info (variant_id, key, value)
+                SELECT variant_id + \(existingMaxID), key, value
+                FROM \(sourceAlias).variant_info
+                """,
+                on: destDB,
+                context: "Merge variant_info"
+            )
+        }
+
+        try exec(
+            """
+            INSERT OR REPLACE INTO variant_info_defs (key, type, number, description)
+            SELECT key, type, number, description
+            FROM \(sourceAlias).variant_info_defs
+            """,
+            on: destDB,
+            context: "Merge variant_info_defs"
+        )
+
+        // Merge contig length metadata.
+        let mergedContigs = mergeContigLengthsJSON(
+            lhs: readMetadataValue(destDB, key: "contig_lengths"),
+            rhs: readAttachedMetadataValue(db: destDB, alias: sourceAlias, key: "contig_lengths")
+        )
+        if let mergedContigs {
+            let escaped = mergedContigs.replacingOccurrences(of: "'", with: "''")
+            try exec(
+                "INSERT OR REPLACE INTO db_metadata VALUES ('contig_lengths', '\(escaped)')",
+                on: destDB,
+                context: "Write merged contig_lengths metadata"
+            )
+        }
+
+        // Token cache tables are import-time snapshots; invalidate so stale caches
+        // are not used after appending additional chromosome partitions.
+        try exec("DROP TABLE IF EXISTS _tok_pass", on: destDB, context: "Drop token cache table")
+        try exec("DROP TABLE IF EXISTS _tok_snv", on: destDB, context: "Drop token cache table")
+        try exec("DROP TABLE IF EXISTS _tok_indel", on: destDB, context: "Drop token cache table")
+        try exec("DROP TABLE IF EXISTS _tok_qual30", on: destDB, context: "Drop token cache table")
+        try exec("DROP TABLE IF EXISTS _tok_dp10", on: destDB, context: "Drop token cache table")
+        try exec("DROP TABLE IF EXISTS _tok_rare", on: destDB, context: "Drop token cache table")
+        try exec("DROP TABLE IF EXISTS _tok_clinvar", on: destDB, context: "Drop token cache table")
+        try exec("DROP TABLE IF EXISTS _tok_bio_hi", on: destDB, context: "Drop token cache table")
+        try exec("DROP TABLE IF EXISTS _high_impact", on: destDB, context: "Drop token cache table")
+
+        // Keep import state resumable and import count accurate.
+        let totalCount = currentVariantCount(destDB)
+        try exec(
+            "INSERT OR REPLACE INTO db_metadata VALUES ('import_variant_count', '\(totalCount)')",
+            on: destDB,
+            context: "Update import_variant_count"
+        )
+        try exec(
+            "INSERT OR REPLACE INTO db_metadata VALUES ('import_state', 'indexing')",
+            on: destDB,
+            context: "Mark import_state indexing"
+        )
+        try exec(
+            "INSERT OR REPLACE INTO db_metadata VALUES ('import_partition_mode', 'helper-subprocess-per-chromosome')",
+            on: destDB,
+            context: "Mark import partition mode"
+        )
+
+        // Keep AUTOINCREMENT sequence aligned with appended explicit IDs.
+        try exec(
+            """
+            INSERT OR REPLACE INTO sqlite_sequence(name, seq)
+            VALUES ('variants', (SELECT COALESCE(MAX(id), 0) FROM variants))
+            """,
+            on: destDB,
+            context: "Update sqlite_sequence"
+        )
+
+        try exec("COMMIT", on: destDB, context: "Commit merge transaction")
+        committed = true
+        _ = sqlite3_db_release_memory(destDB)
+        sqlite3_exec(destDB, "PRAGMA shrink_memory", nil, nil, nil)
+
+        return appendedVariants
     }
 
     /// Resume an interrupted VCF import by creating any missing indexes.
@@ -3801,6 +4230,71 @@ public final class VariantDatabase: @unchecked Sendable {
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
         return Int(sqlite3_column_int64(stmt, 0))
+    }
+
+    private static func maxVariantID(db: OpaquePointer) -> Int64 {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT COALESCE(MAX(id), 0) FROM variants", -1, &stmt, nil) == SQLITE_OK else {
+            return 0
+        }
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+        return sqlite3_column_int64(stmt, 0)
+    }
+
+    private static func attachedVariantCount(db: OpaquePointer, alias: String) -> Int {
+        var stmt: OpaquePointer?
+        let sql = "SELECT COUNT(*) FROM \(alias).variants"
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            return 0
+        }
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+        return Int(sqlite3_column_int64(stmt, 0))
+    }
+
+    private static func readAttachedMetadataValue(db: OpaquePointer, alias: String, key: String) -> String? {
+        let sql = "SELECT value FROM \(alias).db_metadata WHERE key = ?"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            return nil
+        }
+        defer { sqlite3_finalize(stmt) }
+        sqliteBindText(stmt, 1, key)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+        guard let cStr = sqlite3_column_text(stmt, 0) else { return nil }
+        return String(cString: cStr)
+    }
+
+    private static func mergeContigLengthsJSON(lhs: String?, rhs: String?) -> String? {
+        func parse(_ json: String?) -> [String: Int64] {
+            guard let json, !json.isEmpty, let data = json.data(using: .utf8) else { return [:] }
+            guard let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+            var result: [String: Int64] = [:]
+            for (key, value) in raw {
+                if let n = value as? NSNumber {
+                    result[key] = n.int64Value
+                } else if let s = value as? String, let n = Int64(s) {
+                    result[key] = n
+                }
+            }
+            return result
+        }
+
+        var merged = parse(lhs)
+        for (key, value) in parse(rhs) {
+            if merged[key] == nil {
+                merged[key] = value
+            }
+        }
+        guard !merged.isEmpty else { return nil }
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: merged.mapValues { NSNumber(value: $0) },
+            options: [.sortedKeys]
+        ) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
     }
 
     private static func readMetadataValue(_ db: OpaquePointer, key: String) -> String? {
@@ -4445,6 +4939,128 @@ public final class VariantDatabase: @unchecked Sendable {
     }
 
     // MARK: - VCF Line Streaming
+
+    /// Reads chromosome IDs from VCF `##contig` header lines without scanning the full file.
+    ///
+    /// Returns an ordered unique list of contig IDs. If the file has no usable
+    /// `##contig` metadata, returns an empty array.
+    private static func readContigsFromVCFHeader(
+        url: URL,
+        maxChromosomes: Int = 512
+    ) throws -> [String] {
+        @inline(__always)
+        func parseHeaderLine(
+            _ line: String,
+            ordered: inout [String],
+            seen: inout Set<String>
+        ) -> Bool {
+            if line.hasPrefix("#CHROM") {
+                return false
+            }
+            if line.hasPrefix("##contig="),
+               let contigID = parseContigID(fromContigHeaderLine: line),
+               seen.insert(contigID).inserted {
+                ordered.append(contigID)
+                if ordered.count >= maxChromosomes {
+                    // Too many contigs for practical per-chromosome replay.
+                    return false
+                }
+            } else if !line.hasPrefix("#") {
+                // First variant row reached before #CHROM (malformed header); stop.
+                return false
+            }
+            return true
+        }
+
+        var ordered: [String] = []
+        var seen = Set<String>()
+        let ext = url.pathExtension.lowercased()
+
+        if ext == "gz" {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+            process.arguments = ["-dc", url.path]
+
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+
+            let fileHandle = pipe.fileHandleForReading
+            defer {
+                if process.isRunning { process.terminate() }
+                process.waitUntilExit()
+            }
+
+            var buffer = Data()
+            var keepReading = true
+            while keepReading {
+                let chunk = fileHandle.readData(ofLength: 64 * 1024)
+                if chunk.isEmpty { break }
+                buffer.append(chunk)
+
+                var lineStart = buffer.startIndex
+                while let newlineIdx = buffer[lineStart...].firstIndex(of: 0x0A) {
+                    let lineData = buffer[lineStart..<newlineIdx]
+                    let line = String(decoding: lineData, as: UTF8.self)
+                    keepReading = parseHeaderLine(line, ordered: &ordered, seen: &seen)
+                    lineStart = buffer.index(after: newlineIdx)
+                    if !keepReading { break }
+                }
+                if lineStart > buffer.startIndex {
+                    buffer.removeSubrange(..<lineStart)
+                }
+            }
+            return ordered
+        }
+
+        guard let fileHandle = FileHandle(forReadingAtPath: url.path) else {
+            throw VariantDatabaseError.createFailed("Cannot open VCF file: \(url.lastPathComponent)")
+        }
+        defer { fileHandle.closeFile() }
+
+        var buffer = Data()
+        var keepReading = true
+        while keepReading {
+            let chunk = fileHandle.readData(ofLength: 64 * 1024)
+            if chunk.isEmpty { break }
+            buffer.append(chunk)
+
+            var lineStart = buffer.startIndex
+            while let newlineIdx = buffer[lineStart...].firstIndex(of: 0x0A) {
+                let lineData = buffer[lineStart..<newlineIdx]
+                let line = String(decoding: lineData, as: UTF8.self)
+                keepReading = parseHeaderLine(line, ordered: &ordered, seen: &seen)
+                lineStart = buffer.index(after: newlineIdx)
+                if !keepReading { break }
+            }
+            if lineStart > buffer.startIndex {
+                buffer.removeSubrange(..<lineStart)
+            }
+        }
+        return ordered
+    }
+
+    /// Parses a contig ID from a VCF `##contig=<...>` header line.
+    private static func parseContigID(fromContigHeaderLine line: String) -> String? {
+        guard line.hasPrefix("##contig=") else { return nil }
+        let payload = line.dropFirst(9)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
+        guard !payload.isEmpty else { return nil }
+
+        for part in payload.split(separator: ",") {
+            let kv = part.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard kv.count == 2 else { continue }
+            let key = kv[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            if key.caseInsensitiveCompare("ID") == .orderedSame {
+                let raw = kv[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                let value = raw.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+                return value.isEmpty ? nil : value
+            }
+        }
+        return nil
+    }
 
     /// Streams lines from a plain-text VCF file using buffered I/O.
     ///
