@@ -65,6 +65,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     /// A single row in the samples tab display.
     struct SampleDisplayRow {
+        let rowKey: String
         let name: String
         let sourceFile: String
         var isVisible: Bool
@@ -217,6 +218,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     /// All sample names from variant databases.
     private var allSampleNames: [String] = []
+    /// Compound sample row keys (sample + source) used for samples-tab display.
+    private var allSampleRowKeys: [String] = []
+    /// Resolves a compound row key to the canonical sample name.
+    private var sampleNameByRowKey: [String: String] = [:]
 
     /// Per-sample metadata dictionaries.
     private var sampleMetadata: [String: [String: String]] = [:]
@@ -2222,15 +2227,12 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         let filterModerateOrHigher = smartComposed.postFilters.contains(where: {
             if case .moderateOrHigherImpact = $0 { return true }; return false
         })
-        let filterBiologicalHighImpact = smartComposed.postFilters.contains(where: {
-            if case .biologicalHighImpact = $0 { return true }; return false
-        })
         // Extract within-sample AF range filter (for viral/bacterial smart tokens)
         let withinSampleAFRange: (min: Double, max: Double)? = smartComposed.postFilters.compactMap {
             if case .withinSampleAFRange(let lo, let hi) = $0 { return (min: lo, max: hi) }
             return nil
         }.first
-        let hasSmartPostFilter = filterBookmarkedOnly || filterModerateOrHigher || filterBiologicalHighImpact || withinSampleAFRange != nil
+        let hasSmartPostFilter = filterBookmarkedOnly || filterModerateOrHigher || withinSampleAFRange != nil
 
         // Merge type restrictions from smart tokens with existing type filter
         var effectiveTypeFilter = typeFilter
@@ -2448,9 +2450,6 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                     var filtered = applyVariantAdvancedFiltersOffMain(rows, query: frozenQuery)
                     if filterModerateOrHigher {
                         filtered = filterModerateOrHigherImpactOffMain(filtered)
-                    }
-                    if filterBiologicalHighImpact {
-                        filtered = filterBiologicalHighImpactOffMain(filtered)
                     }
                     if filterBookmarkedOnly {
                         filtered = filtered.filter { result in
@@ -2714,9 +2713,14 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             return
         }
         if activeTab == .samples {
-            let total = allSampleNames.count
+            let total = allSampleRowKeys.count
             let shown = displayedSamples.count
-            let hidden = currentSampleDisplayState.hiddenSamples.count
+            let hidden = allSampleRowKeys.reduce(into: 0) { count, rowKey in
+                guard let sampleName = sampleNameByRowKey[rowKey] else { return }
+                if currentSampleDisplayState.hiddenSamples.contains(sampleName) {
+                    count += 1
+                }
+            }
             if isLoading {
                 countLabel.stringValue = "Loading..."
             } else if shown == total {
@@ -5044,26 +5048,38 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
 
     // MARK: - Sample Tab Data
 
+    private func sampleRowKey(name: String, sourceFile: String) -> String {
+        "\(name)|\(sourceFile)"
+    }
+
     /// Populates sample data from all variant database handles in the search index.
     private func populateSampleData(from index: AnnotationSearchIndex) {
         allSampleNames = []
+        allSampleRowKeys = []
+        sampleNameByRowKey = [:]
         sampleMetadata = [:]
         sampleSourceFiles = [:]
         var metadataKeySet = Set<String>()
+        var seenSampleNames = Set<String>()
+        var seenRowKeys = Set<String>()
 
         for handle in index.variantDatabaseHandles {
             let db = handle.db
-            let sourceName = (db.databaseURL.deletingPathExtension().lastPathComponent)
-                .replacingOccurrences(of: "_variants", with: "")
+            let sourceBySample = db.allSourceFiles()
 
             let samples = db.allSampleMetadata()
             for (name, metadata) in samples {
-                if !allSampleNames.contains(name) {
+                if seenSampleNames.insert(name).inserted {
                     allSampleNames.append(name)
                 }
-                sampleSourceFiles[name] = sourceName
+                let sourceFile = sourceBySample[name] ?? ""
+                let rowKey = sampleRowKey(name: name, sourceFile: sourceFile)
+                guard seenRowKeys.insert(rowKey).inserted else { continue }
+                allSampleRowKeys.append(rowKey)
+                sampleNameByRowKey[rowKey] = name
+                sampleSourceFiles[rowKey] = sourceFile
                 if !metadata.isEmpty {
-                    sampleMetadata[name] = metadata
+                    sampleMetadata[rowKey] = metadata
                     for key in metadata.keys {
                         metadataKeySet.insert(key)
                     }
@@ -5073,10 +5089,15 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             // If allSampleMetadata() returned empty, fall back to sampleNames()
             if samples.isEmpty {
                 for name in db.sampleNames() {
-                    if !allSampleNames.contains(name) {
+                    if seenSampleNames.insert(name).inserted {
                         allSampleNames.append(name)
                     }
-                    sampleSourceFiles[name] = sourceName
+                    let sourceFile = sourceBySample[name] ?? ""
+                    let rowKey = sampleRowKey(name: name, sourceFile: sourceFile)
+                    guard seenRowKeys.insert(rowKey).inserted else { continue }
+                    allSampleRowKeys.append(rowKey)
+                    sampleNameByRowKey[rowKey] = name
+                    sampleSourceFiles[rowKey] = sourceFile
                 }
             }
         }
@@ -5092,9 +5113,10 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         let query = parseSampleFilterText(sampleFilterText)
         let freeText = query.textFilter.lowercased()
 
-        displayedSamples = resolvedSampleOrder().compactMap { name in
-            let sourceFile = sampleSourceFiles[name] ?? ""
-            let metadata = sampleMetadata[name] ?? [:]
+        displayedSamples = resolvedSampleOrder().compactMap { rowKey in
+            guard let name = sampleNameByRowKey[rowKey] else { return nil }
+            let sourceFile = sampleSourceFiles[rowKey] ?? ""
+            let metadata = sampleMetadata[rowKey] ?? [:]
             let isVisible = !currentSampleDisplayState.hiddenSamples.contains(name)
 
             // Apply text filter across name, source, and metadata values
@@ -5127,7 +5149,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
                 return nil
             }
 
-            return SampleDisplayRow(name: name, sourceFile: sourceFile, isVisible: isVisible, metadata: metadata)
+            return SampleDisplayRow(rowKey: rowKey, name: name, sourceFile: sourceFile, isVisible: isVisible, metadata: metadata)
         }
 
         // Propagate query-filtered sample subset to viewer genotype row visibility.
@@ -5307,23 +5329,25 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         delegate?.annotationDrawer(self, didUpdateVisibleVariantRenderKeys: keysToEmit)
     }
 
-    /// Returns sample names in effective display order (persisted order + any new samples).
+    /// Returns sample row keys in effective display order (persisted order + any new rows).
     private func resolvedSampleOrder() -> [String] {
-        guard let order = currentSampleDisplayState.sampleOrder else { return allSampleNames }
-        let allSet = Set(allSampleNames)
+        guard let order = currentSampleDisplayState.sampleOrder else { return allSampleRowKeys }
+        let allSet = Set(allSampleRowKeys)
         var ordered = order.filter { allSet.contains($0) }
         let orderedSet = Set(ordered)
-        ordered.append(contentsOf: allSampleNames.filter { !orderedSet.contains($0) })
+        ordered.append(contentsOf: allSampleRowKeys.filter { !orderedSet.contains($0) })
         return ordered
     }
 
-    /// Sorts a set of sample names by samples-tab column key.
+    /// Sorts sample row keys by samples-tab column key.
     private func sortedSampleNames(key: String, ascending: Bool, names: [String]) -> [String] {
-        names.sorted { nameA, nameB in
-            let metaA = sampleMetadata[nameA] ?? [:]
-            let metaB = sampleMetadata[nameB] ?? [:]
-            let sourceA = sampleSourceFiles[nameA] ?? ""
-            let sourceB = sampleSourceFiles[nameB] ?? ""
+        names.sorted { rowKeyA, rowKeyB in
+            let nameA = sampleNameByRowKey[rowKeyA] ?? ""
+            let nameB = sampleNameByRowKey[rowKeyB] ?? ""
+            let metaA = sampleMetadata[rowKeyA] ?? [:]
+            let metaB = sampleMetadata[rowKeyB] ?? [:]
+            let sourceA = sampleSourceFiles[rowKeyA] ?? ""
+            let sourceB = sampleSourceFiles[rowKeyB] ?? ""
             let visibleA = !currentSampleDisplayState.hiddenSamples.contains(nameA)
             let visibleB = !currentSampleDisplayState.hiddenSamples.contains(nameB)
             let result: ComparisonResult
@@ -5345,6 +5369,9 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
                 }
             }
             if result == .orderedSame {
+                if nameA.caseInsensitiveCompare(nameB) == .orderedSame {
+                    return rowKeyA.localizedCaseInsensitiveCompare(rowKeyB) == .orderedAscending
+                }
                 return nameA.localizedCaseInsensitiveCompare(nameB) == .orderedAscending
             }
             return ascending ? result == .orderedAscending : result == .orderedDescending
@@ -5959,8 +5986,10 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             guard let searchIndex = self.searchIndex else { return }
 
             let fieldToRemove = fieldName
-            let sampleNames = self.allSampleNames
-            let metadataSnapshot = self.sampleMetadata
+            let sampleRows = self.allSampleRowKeys.compactMap { rowKey -> (name: String, sourceFile: String, metadata: [String: String])? in
+                guard let sampleName = self.sampleNameByRowKey[rowKey] else { return nil }
+                return (sampleName, self.sampleSourceFiles[rowKey] ?? "", self.sampleMetadata[rowKey] ?? [:])
+            }
             let dbURLs = searchIndex.variantDatabaseHandles.map(\.db.databaseURL)
 
             DispatchQueue.global(qos: .userInitiated).async {
@@ -5968,10 +5997,14 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
                 for dbURL in dbURLs {
                     do {
                         let rwDB = try VariantDatabase(url: dbURL, readWrite: true)
-                        for sampleName in sampleNames {
-                            var updated = metadataSnapshot[sampleName] ?? [:]
+                        let dbSources = Set(rwDB.allSourceFiles().values)
+                        for sample in sampleRows {
+                            if !sample.sourceFile.isEmpty && !dbSources.contains(sample.sourceFile) {
+                                continue
+                            }
+                            var updated = sample.metadata
                             updated.removeValue(forKey: fieldToRemove)
-                            try rwDB.updateSampleMetadata(name: sampleName, metadata: updated)
+                            try rwDB.updateSampleMetadata(name: sample.name, metadata: updated)
                         }
                     } catch {
                         if firstError == nil { firstError = error }
@@ -6003,12 +6036,35 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
     // MARK: - Import Metadata
 
     @objc private func downloadSampleTemplateAction(_ sender: Any?) {
-        guard !allSampleNames.isEmpty else { return }
+        guard let searchIndex else { return }
+
+        let uniqueSourceFiles = Set(
+            searchIndex.variantDatabaseHandles
+                .flatMap { Array($0.db.allSourceFiles().values) }
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
+        let defaultTemplateStem: String
+        if uniqueSourceFiles.count == 1, let onlySource = uniqueSourceFiles.first {
+            let sourceBase = URL(fileURLWithPath: onlySource).deletingPathExtension().lastPathComponent
+            let safeSource = sourceBase
+                .replacingOccurrences(of: "[^A-Za-z0-9._-]+", with: "-", options: .regularExpression)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "-._"))
+            if safeSource.isEmpty {
+                defaultTemplateStem = "sample-metadata-source-template"
+            } else {
+                defaultTemplateStem = "sample-metadata-\(safeSource)-template"
+            }
+        } else if uniqueSourceFiles.count > 1 {
+            defaultTemplateStem = "sample-metadata-multi-source-template"
+        } else {
+            defaultTemplateStem = "sample-metadata-template"
+        }
 
         let panel = NSSavePanel()
         panel.title = "Save Sample Metadata Template"
         panel.prompt = "Save Template"
-        panel.nameFieldStringValue = "sample-metadata-template.tsv"
+        panel.nameFieldStringValue = "\(defaultTemplateStem).tsv"
         panel.allowedContentTypes = [
             .init(filenameExtension: "tsv")!,
             .init(filenameExtension: "csv")!,
@@ -6020,11 +6076,26 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             let isCSV = url.pathExtension.lowercased() == "csv"
             let delimiter = isCSV ? "," : "\t"
 
-            var columns = ["sample_name"]
+            var sampleRows: [(name: String, sourceFile: String)] = []
+            var seenRows = Set<String>()
+            for handle in searchIndex.variantDatabaseHandles {
+                let db = handle.db
+                let dbSourceFiles = db.allSourceFiles()
+                for sampleName in db.sampleNames() {
+                    let sourceFile = dbSourceFiles[sampleName] ?? ""
+                    let normalizedKey = "\(sampleName.lowercased())|\(sourceFile.lowercased())"
+                    if seenRows.insert(normalizedKey).inserted {
+                        sampleRows.append((name: sampleName, sourceFile: sourceFile))
+                    }
+                }
+            }
+            guard !sampleRows.isEmpty else { return }
+
+            var columns = ["sample_name", "source_file"]
             columns.append(contentsOf: self.sampleMetadataFields)
             let header = columns.joined(separator: delimiter)
-            let rows = self.allSampleNames.map { name -> String in
-                var values = [name]
+            let rows = sampleRows.map { row -> String in
+                var values = [row.name, row.sourceFile]
                 values.append(contentsOf: Array(repeating: "", count: self.sampleMetadataFields.count))
                 return values.joined(separator: delimiter)
             }
@@ -6159,6 +6230,8 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         let metaKey = String(columnId.dropFirst(5))
         let newValue = tf.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let sampleName = displayedSamples[row].name
+        let sampleSourceFile = displayedSamples[row].sourceFile
+        let sampleRowKey = displayedSamples[row].rowKey
 
         // Update local model
         if newValue.isEmpty {
@@ -6167,7 +6240,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             displayedSamples[row].metadata[metaKey] = newValue
         }
         // Keep backing metadata cache in sync so refresh/sort/filter preserves edits.
-        sampleMetadata[sampleName] = displayedSamples[row].metadata
+        sampleMetadata[sampleRowKey] = displayedSamples[row].metadata
 
         // Persist to database
         guard let searchIndex else { return }
@@ -6176,6 +6249,10 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         for handle in searchIndex.variantDatabaseHandles {
             do {
                 let rwDB = try VariantDatabase(url: handle.db.databaseURL, readWrite: true)
+                let dbSources = Set(rwDB.allSourceFiles().values)
+                if !sampleSourceFile.isEmpty && !dbSources.contains(sampleSourceFile) {
+                    continue
+                }
                 try rwDB.updateSampleMetadata(name: sampleName, metadata: fullMetadata)
             } catch {
                 drawerLogger.warning("Inline metadata edit failed: \(error.localizedDescription)")
@@ -6235,27 +6312,24 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             guard idx < displayedSamples.count else { return nil }
             return displayedSamples[idx]
         }
-        let draggedNames = draggedItems.map(\.name)
-        let draggedNameSet = Set(draggedNames)
+        let draggedKeys = draggedItems.map(\.rowKey)
+        let draggedKeySet = Set(draggedKeys)
 
         let fullOrder = resolvedSampleOrder()
-        var reordered = fullOrder.filter { !draggedNameSet.contains($0) }
+        var reordered = fullOrder.filter { !draggedKeySet.contains($0) }
 
         // Insert relative to visible rows, but apply to full ordering.
         let insertionIndex: Int
         if row >= displayedSamples.count {
             insertionIndex = reordered.count
         } else {
-            let anchorName = displayedSamples[row].name
-            insertionIndex = reordered.firstIndex(of: anchorName) ?? reordered.count
+            let anchorKey = displayedSamples[row].rowKey
+            insertionIndex = reordered.firstIndex(of: anchorKey) ?? reordered.count
         }
-        reordered.insert(contentsOf: draggedNames, at: insertionIndex)
-
-        // Persist explicit full order, including currently non-visible samples.
-        allSampleNames = reordered
+        reordered.insert(contentsOf: draggedKeys, at: insertionIndex)
 
         // Update display state with new order
-        currentSampleDisplayState.sampleOrder = allSampleNames
+        currentSampleDisplayState.sampleOrder = reordered
         postSampleDisplayStateChange()
         updateDisplayedSamples()
         return true

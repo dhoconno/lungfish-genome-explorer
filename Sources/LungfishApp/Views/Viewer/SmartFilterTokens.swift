@@ -17,7 +17,6 @@ enum SmartToken: String, CaseIterable, Sendable {
     case snv
     case indel
     case highImpact
-    case highImpactBiological
     case moderateImpact
     case rareVariant
     case qualityGE30
@@ -54,7 +53,6 @@ enum SmartToken: String, CaseIterable, Sendable {
         case .snv:                return "SNV"
         case .indel:              return "Indel"
         case .highImpact:         return "High Impact"
-        case .highImpactBiological: return "High Impact (Bio)"
         case .moderateImpact:     return "Moderate+"
         case .rareVariant:        return "Rare (<1%)"
         case .qualityGE30:        return "Qual \u{2265} 30"
@@ -85,7 +83,7 @@ enum SmartToken: String, CaseIterable, Sendable {
     /// Section for chip layout and visual grouping in the drawer UI.
     var uiSection: UISection {
         switch self {
-        case .snv, .indel, .highImpact, .highImpactBiological, .moderateImpact, .clinvarPathogenic:
+        case .snv, .indel, .highImpact, .moderateImpact, .clinvarPathogenic:
             return .biologicalEffect
         case .passOnly, .qualityGE30, .depthGE10:
             return .qualityAndQC
@@ -101,7 +99,7 @@ enum SmartToken: String, CaseIterable, Sendable {
         switch self {
         case .snv, .indel:
             return "variant-type"
-        case .highImpact, .highImpactBiological, .moderateImpact:
+        case .highImpact, .moderateImpact:
             return "impact-tier"
         case .minorVariant, .mixedInfection, .dominantMutation:
             return "within-sample-af"
@@ -130,9 +128,6 @@ enum SmartToken: String, CaseIterable, Sendable {
                 || variantTypes.contains("Insertion") || variantTypes.contains("Deletion")
         case .highImpact, .moderateImpact:
             return !infoKeys.isDisjoint(with: Self.impactKeys)
-        case .highImpactBiological:
-            return !infoKeys.isDisjoint(with: Self.impactKeys)
-                || !infoKeys.isDisjoint(with: Self.consequenceKeys)
         case .rareVariant:
             return !infoKeys.isDisjoint(with: Self.afKeys)
         case .qualityGE30:
@@ -171,8 +166,6 @@ enum SmartToken: String, CaseIterable, Sendable {
             return "No Indel/INS/DEL variants in this database"
         case .highImpact, .moderateImpact:
             return "Requires SnpEff/VEP annotation (IMPACT field not found)"
-        case .highImpactBiological:
-            return "Requires IMPACT or consequence annotation (e.g. CSQ_Consequence)"
         case .rareVariant:
             return "Requires allele frequency annotation (AF field not found)"
         case .depthGE10:
@@ -232,7 +225,6 @@ enum SmartToken: String, CaseIterable, Sendable {
         case heterozygousOnly
         case bookmarkedOnly
         case moderateOrHigherImpact
-        case biologicalHighImpact
         /// Within-sample AF from AD field: alt reads / total reads
         case withinSampleAFRange(min: Double, max: Double)
     }
@@ -256,17 +248,6 @@ enum SmartToken: String, CaseIterable, Sendable {
                 ])]
             }
             return []
-
-        case .highImpactBiological:
-            if let key = Self.impactKeys.first(where: { infoKeys.contains($0) }) {
-                return [
-                    .infoFilters([
-                        VariantDatabase.InfoFilter(key: key, op: .eq, value: "HIGH"),
-                    ]),
-                    .postFilter(.biologicalHighImpact),
-                ]
-            }
-            return [.postFilter(.biologicalHighImpact)]
 
         case .moderateImpact:
             // Requires OR semantics (MODERATE or HIGH). Keep this as a post-filter to avoid

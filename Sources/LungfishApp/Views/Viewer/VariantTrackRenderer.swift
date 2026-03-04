@@ -333,7 +333,9 @@ public enum VariantTrackRenderer {
             // Draw genotype cell for each variant site
             for site in genotypeData.sites {
                 let call = site.genotypes[sampleName] ?? .noCall
-                let color = colorForCallWithImpact(call, impact: site.impact, theme: theme)
+                // Genotype rows should encode zygosity consistently (HomRef/Het/HomAlt/NoCall)
+                // so identical GT classes are always the same color across sites.
+                let color = colorForCall(call, theme: theme)
 
                 let startPx = frame.screenPosition(for: Double(site.position))
                 let endPx = frame.screenPosition(for: Double(site.position + max(1, site.ref.count)))

@@ -2530,37 +2530,108 @@ public final class VariantDatabase: @unchecked Sendable {
         let sampleNameColumnIndex = rawHeaders.firstIndex {
             sampleHeaderAliases.contains($0.lowercased())
         } ?? 0
+        let sourceHeaderAliases = Set(["source", "source_file", "source file", "vcf_source", "vcf file", "vcf_file"])
+        let sourceFileColumnIndex = rawHeaders.firstIndex {
+            sourceHeaderAliases.contains($0.lowercased())
+        }
 
         let metadataColumns: [(index: Int, key: String)] = rawHeaders.enumerated().compactMap { idx, header in
-            guard idx != sampleNameColumnIndex else { return nil }
+            guard idx != sampleNameColumnIndex, idx != sourceFileColumnIndex else { return nil }
             let key = header.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !key.isEmpty else { return nil }
             return (idx, key)
         }
         guard !metadataColumns.isEmpty else { return 0 }
 
-        let existingSamples = sampleNames()
-        let existingSampleLookup = Dictionary(
-            uniqueKeysWithValues: existingSamples.map { (normalizeSampleName($0), $0) }
-        )
+        let sampleSourceSQL = "SELECT name, source_file FROM samples"
+        var sampleSourceStmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sampleSourceSQL, -1, &sampleSourceStmt, nil) == SQLITE_OK else {
+            throw VariantDatabaseError.createFailed("Failed to prepare sample-source lookup statement")
+        }
+        defer { sqlite3_finalize(sampleSourceStmt) }
+
+        var pairLookup: [String: String] = [:]
+        var canonicalSourceLookup: [String: String] = [:]
+        var sampleToSources: [String: Set<String>] = [:]
+        while sqlite3_step(sampleSourceStmt) == SQLITE_ROW {
+            let sampleName = sqlite3_column_text(sampleSourceStmt, 0).map { String(cString: $0) } ?? ""
+            let sourceFile = sqlite3_column_text(sampleSourceStmt, 1).map { String(cString: $0) } ?? ""
+            if sampleName.isEmpty { continue }
+            let normalizedSample = normalizeSampleName(sampleName)
+            let normalizedSource = normalizeImportedCell(sourceFile).lowercased()
+            let pairKey = "\(normalizedSample)|\(normalizedSource)"
+            pairLookup[pairKey] = sampleName
+            canonicalSourceLookup[pairKey] = sourceFile
+            sampleToSources[normalizedSample, default: []].insert(normalizedSource)
+        }
 
         sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
-        let updateSQL = "UPDATE samples SET metadata = ? WHERE name = ?"
-        var updateStmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, updateSQL, -1, &updateStmt, nil) == SQLITE_OK else {
+        let updateSQLByPair = "UPDATE samples SET metadata = ? WHERE name = ? AND COALESCE(source_file, '') = ?"
+        let updateSQLByName = "UPDATE samples SET metadata = ? WHERE name = ?"
+        var updateStmtByPair: OpaquePointer?
+        var updateStmtByName: OpaquePointer?
+        guard sqlite3_prepare_v2(db, updateSQLByPair, -1, &updateStmtByPair, nil) == SQLITE_OK else {
             sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
             throw VariantDatabaseError.createFailed("Failed to prepare update statement")
         }
-        defer { sqlite3_finalize(updateStmt) }
+        guard sqlite3_prepare_v2(db, updateSQLByName, -1, &updateStmtByName, nil) == SQLITE_OK else {
+            sqlite3_finalize(updateStmtByPair)
+            sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+            throw VariantDatabaseError.createFailed("Failed to prepare fallback update statement")
+        }
+        defer {
+            sqlite3_finalize(updateStmtByPair)
+            sqlite3_finalize(updateStmtByName)
+        }
+        var updateStmt: OpaquePointer?
 
         var updatedCount = 0
+        var skippedAmbiguousCount = 0
         for row in rows.dropFirst() {
             guard sampleNameColumnIndex < row.count else { continue }
             let importedSampleName = normalizeImportedCell(row[sampleNameColumnIndex])
             guard !importedSampleName.isEmpty else { continue }
             let normalizedSampleName = normalizeSampleName(importedSampleName)
-            guard let resolvedSampleName = existingSampleLookup[normalizedSampleName] else {
+            guard let possibleSources = sampleToSources[normalizedSampleName] else {
                 variantDBLogger.info("importSampleMetadata: Skipping unknown sample '\(importedSampleName, privacy: .public)'")
+                continue
+            }
+
+            var importedSourceFile: String?
+            if let sourceIndex = sourceFileColumnIndex, sourceIndex < row.count {
+                let value = normalizeImportedCell(row[sourceIndex])
+                if !value.isEmpty {
+                    importedSourceFile = value
+                }
+            }
+            let normalizedImportedSource = importedSourceFile.map { normalizeImportedCell($0).lowercased() }
+
+            let resolvedSampleName: String
+            let resolvedSourceForUpdate: String
+            var usePairUpdate = false
+            if let normalizedImportedSource {
+                let pairKey = "\(normalizedSampleName)|\(normalizedImportedSource)"
+                guard let resolved = pairLookup[pairKey] else {
+                    variantDBLogger.info(
+                        "importSampleMetadata: Skipping sample '\(importedSampleName, privacy: .public)' with unmatched source '\(importedSourceFile ?? "", privacy: .public)'"
+                    )
+                    continue
+                }
+                resolvedSampleName = resolved
+                resolvedSourceForUpdate = canonicalSourceLookup[pairKey] ?? (importedSourceFile ?? "")
+                usePairUpdate = true
+            } else if possibleSources.count == 1 {
+                let onlySource = possibleSources.first ?? ""
+                let pairKey = "\(normalizedSampleName)|\(onlySource)"
+                guard let resolved = pairLookup[pairKey] else { continue }
+                resolvedSampleName = resolved
+                resolvedSourceForUpdate = canonicalSourceLookup[pairKey] ?? onlySource
+                usePairUpdate = sourceFileColumnIndex != nil
+            } else {
+                skippedAmbiguousCount += 1
+                variantDBLogger.info(
+                    "importSampleMetadata: Skipping ambiguous sample '\(importedSampleName, privacy: .public)' (provide source_file column)"
+                )
                 continue
             }
 
@@ -2580,9 +2651,13 @@ public final class VariantDatabase: @unchecked Sendable {
             let jsonData = try JSONSerialization.data(withJSONObject: existing)
             let jsonStr = String(data: jsonData, encoding: .utf8) ?? "{}"
 
+            updateStmt = usePairUpdate ? updateStmtByPair : updateStmtByName
             sqlite3_reset(updateStmt)
             sqliteBindText(updateStmt, 1, jsonStr)
             sqliteBindText(updateStmt, 2, resolvedSampleName)
+            if usePairUpdate {
+                sqliteBindText(updateStmt, 3, resolvedSourceForUpdate)
+            }
 
             if sqlite3_step(updateStmt) == SQLITE_DONE {
                 updatedCount += 1
@@ -2590,6 +2665,9 @@ public final class VariantDatabase: @unchecked Sendable {
         }
 
         sqlite3_exec(db, "COMMIT", nil, nil, nil)
+        if skippedAmbiguousCount > 0 {
+            variantDBLogger.info("importSampleMetadata: Skipped \(skippedAmbiguousCount) ambiguous rows missing source_file")
+        }
         variantDBLogger.info("importSampleMetadata: Updated \(updatedCount) samples from \(url.lastPathComponent)")
         return updatedCount
     }
