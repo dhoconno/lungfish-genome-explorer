@@ -94,7 +94,9 @@ func resolveVariantChromosomeCandidates(
         ordered.append(requestedChromosome)
     }
 
-    return Array(NSOrderedSet(array: ordered)) as? [String] ?? ordered
+    // Deduplicate while preserving priority order (Swift-native, avoids NSObject bridging).
+    var seen = Set<String>()
+    return ordered.filter { seen.insert($0).inserted }
 }
 
 // MARK: - Base Colors (IGV Standard)
@@ -354,13 +356,12 @@ public class ViewerViewController: NSViewController {
     /// from being monopolized by layout-draw cycles and gives GCD main queue blocks
     /// (fetch callbacks) a chance to execute.
     private var layoutSettleWorkItem: DispatchWorkItem?
+    private var deferredRedrawWorkItem: DispatchWorkItem?
 
     public override func viewDidLayout() {
         super.viewDidLayout()
 
-        // Keep custom drawing clipped to viewer bounds across animation/layout churn.
-        viewerView.wantsLayer = true
-        viewerView.layer?.masksToBounds = true
+        // wantsLayer and masksToBounds are set once in loadView(); no need to repeat here.
 
         // Update reference frame width immediately (needed for correct rendering)
         if let frame = referenceFrame, viewerView.bounds.width > 0 {
@@ -374,12 +375,39 @@ public class ViewerViewController: NSViewController {
         // the animation will have their data rendered.
         layoutSettleWorkItem?.cancel()
         let item = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            logger.debug("viewDidLayout: Layout settled, triggering deferred redraw")
-            self.viewerView.setNeedsDisplay(self.viewerView.bounds)
-            self.enhancedRulerView.needsDisplay = true
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                logger.debug("viewDidLayout: Layout settled, triggering deferred redraw")
+                self.viewerView.setNeedsDisplay(self.viewerView.bounds)
+                self.enhancedRulerView.needsDisplay = true
+            }
         }
         layoutSettleWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: item)
+    }
+
+    /// Schedules a cancellable deferred redraw after 0.1s to handle layout timing issues.
+    /// Cancels any previously scheduled deferred redraw to avoid stale renders.
+    /// Optionally syncs the header with stacked sequences.
+    private func scheduleDeferredRedraw(syncStackedSequences: Bool = false) {
+        deferredRedrawWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if let frame = self.referenceFrame, self.viewerView.bounds.width > 0 {
+                    frame.pixelWidth = Int(self.viewerView.bounds.width)
+                }
+                if syncStackedSequences,
+                   let stackedSeqs = self.viewerView.multiSequenceState?.stackedSequences,
+                   !stackedSeqs.isEmpty {
+                    self.headerView.setStackedSequences(stackedSeqs)
+                }
+                self.viewerView.needsDisplay = true
+                self.enhancedRulerView.needsDisplay = true
+                self.headerView.needsDisplay = true
+            }
+        }
+        deferredRedrawWorkItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: item)
     }
 
@@ -1169,19 +1197,7 @@ public class ViewerViewController: NSViewController {
         headerView.needsDisplay = true
         updateStatusBar()
 
-        // Schedule another redraw after a short delay to handle any remaining layout timing issues
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self = self else { return }
-
-            // Update reference frame width if it changed
-            if let frame = self.referenceFrame, self.viewerView.bounds.width > 0 {
-                frame.pixelWidth = Int(self.viewerView.bounds.width)
-            }
-
-            self.viewerView.needsDisplay = true
-            self.enhancedRulerView.needsDisplay = true
-            self.headerView.needsDisplay = true
-        }
+        scheduleDeferredRedraw()
 
         logger.info("displayDocument: Completed displaying document")
     }
@@ -1568,24 +1584,8 @@ public class ViewerViewController: NSViewController {
         headerView.needsDisplay = true
         updateStatusBar()
 
-        // Schedule delayed redraw for layout timing and header sync
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self = self else { return }
+        scheduleDeferredRedraw(syncStackedSequences: true)
 
-            if let frame = self.referenceFrame, self.viewerView.bounds.width > 0 {
-                frame.pixelWidth = Int(self.viewerView.bounds.width)
-            }
-
-            // Re-sync header with updated stacked sequences
-            if let stackedSeqs = self.viewerView.multiSequenceState?.stackedSequences, !stackedSeqs.isEmpty {
-                self.headerView.setStackedSequences(stackedSeqs)
-            }
-
-            self.viewerView.needsDisplay = true
-            self.enhancedRulerView.needsDisplay = true
-            self.headerView.needsDisplay = true
-        }
-        
         logger.info("displayDocuments: Completed displaying \(allSequences.count) sequences stacked")
     }
     
@@ -1648,18 +1648,7 @@ public class ViewerViewController: NSViewController {
         enhancedRulerView.needsDisplay = true
         headerView.needsDisplay = true
 
-        // Schedule delayed redraw for layout timing
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self = self else { return }
-
-            if let frame = self.referenceFrame, self.viewerView.bounds.width > 0 {
-                frame.pixelWidth = Int(self.viewerView.bounds.width)
-            }
-
-            self.viewerView.needsDisplay = true
-            self.enhancedRulerView.needsDisplay = true
-            self.headerView.needsDisplay = true
-        }
+        scheduleDeferredRedraw()
 
         logger.info("displayReferenceBundle: Completed displaying bundle")
     }
@@ -1898,13 +1887,14 @@ public class ViewerViewController: NSViewController {
         // Use DispatchQueue.main.async to exit the drag operation context first,
         // then use Task to avoid deadlock with @MainActor DocumentManager
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-
-            // Show progress after exiting drag context
-            self.showProgress("Loading \(firstURL.lastPathComponent)...")
-
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 guard let self = self else { return }
+
+                // Show progress after exiting drag context
+                self.showProgress("Loading \(firstURL.lastPathComponent)...")
+
+                Task { @MainActor [weak self] in
+                    guard let self = self else { return }
 
                 do {
                     let urlToLoad: URL
@@ -1952,7 +1942,8 @@ public class ViewerViewController: NSViewController {
                     alert.addButton(withTitle: "OK")
                     alert.runModal()
                 }
-            }
+                } // end Task
+            } // end MainActor.assumeIsolated
         }
     }
 
@@ -2892,7 +2883,10 @@ public class SequenceViewerView: NSView {
             guard trackLoadingAnimationTimer == nil else { return }
             trackLoadingAnimationPhase = 0
             let timer = Timer(timeInterval: 1.0 / 18.0, repeats: true) { [weak self] _ in
-                Task { @MainActor [weak self] in
+                // Timer fires on RunLoop.main in .common modes — guaranteed main thread.
+                // Use MainActor.assumeIsolated instead of Task { @MainActor in } to avoid
+                // cooperative executor scheduling delays during AppKit layout-draw cycles.
+                MainActor.assumeIsolated {
                     guard let self else { return }
                     self.trackLoadingAnimationPhase += 0.34
                     if self.trackLoadingAnimationPhase > .pi * 2 {
@@ -2931,9 +2925,11 @@ public class SequenceViewerView: NSView {
         if bounds.width <= 0 || bounds.height <= 0 {
             logger.info("SequenceViewerView.setSequence: bounds not ready (\(self.bounds.width)x\(self.bounds.height)), scheduling delayed redraw")
             DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                self.needsDisplay = true
-                logger.info("SequenceViewerView.setSequence: Delayed redraw triggered, bounds=\(self.bounds.width)x\(self.bounds.height)")
+                MainActor.assumeIsolated {
+                    guard let self = self else { return }
+                    self.needsDisplay = true
+                    logger.info("SequenceViewerView.setSequence: Delayed redraw triggered, bounds=\(self.bounds.width)x\(self.bounds.height)")
+                }
             }
         }
 

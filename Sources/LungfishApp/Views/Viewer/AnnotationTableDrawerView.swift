@@ -1045,9 +1045,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         }) else { return }
 
         isSuppressingDelegateCallbacks = true
+        defer { isSuppressingDelegateCallbacks = false }
         tableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
         tableView.scrollRowToVisible(index)
-        isSuppressingDelegateCallbacks = false
     }
 
     /// Sets the viewer object that owns viewport-sync notifications for this drawer.
@@ -2272,11 +2272,11 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             effectiveQuery.filterValue = smartFilter
         }
         // Scope control is authoritative:
-        // - Region: query only within the viewport/selected region.
-        // - Genome: allow genome-wide filtering.
-        // Explicit query-region clauses should remain region-scoped.
+        // When the user has active text/token/preset filters and no explicit region clause,
+        // queries run globally regardless of the scope control setting.  This ensures the
+        // first filtered result set is genome-wide; viewport post-filtering narrows it
+        // during exploration (see `allowViewportPostFilterDuringExploration`).
         let hasGlobalOverrideFilters = hasActiveSearchFilters
-            && !viewportSyncEnabled
             && effectiveQuery.region == nil
         let viewportPostFilterRegion: (chromosome: String, start: Int, end: Int)? = {
             guard hasGlobalOverrideFilters,
@@ -3874,19 +3874,21 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 if presets.count >= maxKeys { break }
             }
 
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.variantInfoPresetValues = presets
-                self.selectedVariantPresetByKey = self.selectedVariantPresetByKey.filter { key, value in
-                    presets.contains { $0.key == key && $0.values.contains(value) }
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.variantInfoPresetValues = presets
+                    self.selectedVariantPresetByKey = self.selectedVariantPresetByKey.filter { key, value in
+                        presets.contains { $0.key == key && $0.values.contains(value) }
+                    }
+                    self.variantPresetLoadState = .loaded
+                    self.presetFiltersToggleButton.isEnabled = true
+                    self.presetFiltersToggleButton.title = self.showVariantPresetChips ? "Presets ▾" : "Presets ▸"
+                    if self.activeTab == .variants && self.showVariantPresetChips {
+                        self.rebuildChipButtons()
+                    }
+                    self.updateSearchFieldVisibility()
                 }
-                self.variantPresetLoadState = .loaded
-                self.presetFiltersToggleButton.isEnabled = true
-                self.presetFiltersToggleButton.title = self.showVariantPresetChips ? "Presets ▾" : "Presets ▸"
-                if self.activeTab == .variants && self.showVariantPresetChips {
-                    self.rebuildChipButtons()
-                }
-                self.updateSearchFieldVisibility()
             }
         }
     }
@@ -4232,6 +4234,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         guard let index = displayedAnnotations.firstIndex(where: { $0.name == name }) else {
             return false
         }
+        isSuppressingDelegateCallbacks = true
+        defer { isSuppressingDelegateCallbacks = false }
         tableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
         tableView.scrollRowToVisible(index)
         return true

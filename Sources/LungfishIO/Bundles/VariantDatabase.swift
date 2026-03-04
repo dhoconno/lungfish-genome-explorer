@@ -398,6 +398,11 @@ public final class VariantDatabase: @unchecked Sendable {
 
     // MARK: - Metadata Cache
 
+    /// Lock protecting all mutable cache fields below.  Required because
+    /// VariantDatabase is `@unchecked Sendable` and may be accessed from
+    /// both the main thread and background query queues.
+    private let cacheLock = NSLock()
+
     private var _cachedTotalCount: Int?
     private var _cachedAllTypes: [String]?
     private var _cachedAllChromosomes: [String]?
@@ -433,7 +438,16 @@ public final class VariantDatabase: @unchecked Sendable {
         }
         // Enforce FK constraints so genotype rows cannot be orphaned.
         sqlite3_exec(db, "PRAGMA foreign_keys = ON", nil, nil, nil)
+        // Read-side performance tuning: larger page cache and memory-mapped I/O
+        // for interactive queries on multi-GB databases.
+        if !readWrite {
+            sqlite3_exec(db, "PRAGMA cache_size = -65536", nil, nil, nil)   // 64 MB page cache
+            sqlite3_exec(db, "PRAGMA mmap_size = 268435456", nil, nil, nil) // 256 MB mmap
+            sqlite3_exec(db, "PRAGMA temp_store = MEMORY", nil, nil, nil)
+        }
         try Self.validateSchema(db: db)
+        // Eagerly compute variantInfoSkipped (must happen before loadTokenCacheState).
+        self.variantInfoSkipped = Self.readMetadataValue(db, key: "skip_variant_info") == "true"
         // Load pre-built token filter tables (created during import) — instant.
         loadTokenCacheState()
         variantDBLogger.info("Opened variant database: \(url.lastPathComponent)")
@@ -461,6 +475,8 @@ public final class VariantDatabase: @unchecked Sendable {
     }
 
     private static func columnsForTable(db: OpaquePointer, table: String) -> Set<String> {
+        // Guard against injection — PRAGMA doesn't support parameterized bindings.
+        guard table.allSatisfy({ $0.isLetter || $0 == "_" || $0.isNumber }) else { return [] }
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
         let sql = "PRAGMA table_info(\(table))"
@@ -513,18 +529,15 @@ public final class VariantDatabase: @unchecked Sendable {
 
     /// Whether this database was imported with `skipVariantInfo = true`, meaning the
     /// `variant_info` EAV table is empty and the raw INFO string is stored in
-    /// `variants.info` instead.  Returns `false` for standard imports.
-    public lazy var variantInfoSkipped: Bool = {
-        guard let db else { return false }
-        return Self.readMetadataValue(db, key: "skip_variant_info") == "true"
-    }()
+    /// `variants.info` instead.  Computed eagerly in `init` for thread safety.
+    public let variantInfoSkipped: Bool
 
     /// Returns the total number of variants in the database.
     /// Result is cached on first call for read-only databases.
     public func totalCount() -> Int {
-        if let cached = _cachedTotalCount { return cached }
+        if let cached = cacheLock.withLock({ _cachedTotalCount }) { return cached }
         let result = computeTotalCount()
-        if isReadOnly { _cachedTotalCount = result }
+        if isReadOnly { cacheLock.withLock { _cachedTotalCount = result } }
         return result
     }
 
@@ -540,9 +553,9 @@ public final class VariantDatabase: @unchecked Sendable {
     /// Returns all distinct variant type strings (SNP, INS, DEL, MNP, COMPLEX, REF).
     /// Result is cached on first call for read-only databases.
     public func allTypes() -> [String] {
-        if let cached = _cachedAllTypes { return cached }
+        if let cached = cacheLock.withLock({ _cachedAllTypes }) { return cached }
         let result = computeAllTypes()
-        if isReadOnly { _cachedAllTypes = result }
+        if isReadOnly { cacheLock.withLock { _cachedAllTypes = result } }
         return result
     }
 
@@ -564,9 +577,9 @@ public final class VariantDatabase: @unchecked Sendable {
     /// Returns all distinct chromosome names in the database.
     /// Result is cached on first call for read-only databases.
     public func allChromosomes() -> [String] {
-        if let cached = _cachedAllChromosomes { return cached }
+        if let cached = cacheLock.withLock({ _cachedAllChromosomes }) { return cached }
         let result = computeAllChromosomes()
-        if isReadOnly { _cachedAllChromosomes = result }
+        if isReadOnly { cacheLock.withLock { _cachedAllChromosomes = result } }
         return result
     }
 
@@ -588,9 +601,9 @@ public final class VariantDatabase: @unchecked Sendable {
     /// Returns the maximum end position per chromosome.
     /// Result is cached on first call for read-only databases.
     public func chromosomeMaxPositions() -> [String: Int] {
-        if let cached = _cachedChromosomeMaxPositions { return cached }
+        if let cached = cacheLock.withLock({ _cachedChromosomeMaxPositions }) { return cached }
         let result = computeChromosomeMaxPositions()
-        if isReadOnly { _cachedChromosomeMaxPositions = result }
+        if isReadOnly { cacheLock.withLock { _cachedChromosomeMaxPositions = result } }
         return result
     }
 
@@ -614,7 +627,13 @@ public final class VariantDatabase: @unchecked Sendable {
     /// Returns per-chromosome variant counts.
     /// Result is cached on first call for read-only databases.
     public func chromosomeVariantCounts() -> [String: Int] {
-        if let cached = _cachedChromosomeCounts { return cached }
+        if let cached = cacheLock.withLock({ _cachedChromosomeCounts }) { return cached }
+        let result = computeChromosomeVariantCounts()
+        if isReadOnly { cacheLock.withLock { _cachedChromosomeCounts = result } }
+        return result
+    }
+
+    private func computeChromosomeVariantCounts() -> [String: Int] {
         guard let db else { return [:] }
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
@@ -625,7 +644,6 @@ public final class VariantDatabase: @unchecked Sendable {
                 result[String(cString: cStr)] = Int(sqlite3_column_int64(stmt, 1))
             }
         }
-        if isReadOnly { _cachedChromosomeCounts = result }
         return result
     }
 
@@ -670,6 +688,7 @@ public final class VariantDatabase: @unchecked Sendable {
         var sql = "SELECT id, chromosome, position, end_pos, variant_id, ref, alt, variant_type, quality, filter, info, sample_count FROM variants"
         var conditions: [String] = []
         var bindingsText: [(Int32, String)] = []
+        var bindingsInt64: [(Int32, Int64)] = []
         var bindingsDouble: [(Int32, Double)] = []
         var paramIndex: Int32 = 1
 
@@ -678,11 +697,11 @@ public final class VariantDatabase: @unchecked Sendable {
         paramIndex += 1
 
         conditions.append("position < ?")
-        bindingsDouble.append((paramIndex, Double(end)))
+        bindingsInt64.append((paramIndex, Int64(end)))
         paramIndex += 1
 
         conditions.append("end_pos > ?")
-        bindingsDouble.append((paramIndex, Double(start)))
+        bindingsInt64.append((paramIndex, Int64(start)))
         paramIndex += 1
 
         if !types.isEmpty {
@@ -717,6 +736,9 @@ public final class VariantDatabase: @unchecked Sendable {
 
         for (idx, value) in bindingsText {
             sqliteBindText(stmt, idx, value)
+        }
+        for (idx, value) in bindingsInt64 {
+            sqlite3_bind_int64(stmt, idx, value)
         }
         for (idx, value) in bindingsDouble {
             sqlite3_bind_double(stmt, idx, value)
@@ -1838,29 +1860,12 @@ public final class VariantDatabase: @unchecked Sendable {
         guard !variants.isEmpty else { return [] }
 
         // Step 2: fetch all genotypes for just those variant IDs.
+        // Chunk to avoid exceeding SQLITE_MAX_VARIABLE_NUMBER (default 999).
         let variantIDs = variants.compactMap(\.id)
         guard !variantIDs.isEmpty else {
             return variants.map { ($0, []) }
         }
-        let placeholders = variantIDs.map { _ in "?" }.joined(separator: ",")
-        let genotypeSQL = """
-            SELECT variant_id, sample_name, genotype, allele1, allele2,
-                   is_phased, depth, genotype_quality, allele_depths, raw_fields
-            FROM genotypes
-            WHERE variant_id IN (\(placeholders))
-            ORDER BY variant_id, sample_name
-            """
-        var genotypeStmt: OpaquePointer?
-        defer { sqlite3_finalize(genotypeStmt) }
-        guard sqlite3_prepare_v2(db, genotypeSQL, -1, &genotypeStmt, nil) == SQLITE_OK else {
-            variantDBLogger.error("genotypesInRegion: Failed to prepare genotype query")
-            return variants.map { ($0, []) }
-        }
-        for (idx, variantID) in variantIDs.enumerated() {
-            sqlite3_bind_int64(genotypeStmt, Int32(idx + 1), variantID)
-        }
-        let genotypeRows = readGenotypeRows(stmt: genotypeStmt!)
-        let genotypeMap = Dictionary(grouping: genotypeRows, by: \.variantRowId)
+        let genotypeMap = genotypes(forVariantIds: variantIDs)
         return variants.map { variant in
             let rows = variant.id.flatMap { genotypeMap[$0] } ?? []
             return (variant: variant, genotypes: rows)
@@ -2031,13 +2036,9 @@ public final class VariantDatabase: @unchecked Sendable {
     }
 
     /// Returns the total number of variants in the database.
+    /// Delegates to `totalCount()` which caches the result for read-only databases.
     public func totalVariantCount() -> Int {
-        guard let db else { return 0 }
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM variants", -1, &stmt, nil) == SQLITE_OK,
-              sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
-        return Int(sqlite3_column_int64(stmt, 0))
+        totalCount()
     }
 
     // MARK: - Structured INFO Queries
@@ -2806,7 +2807,7 @@ public final class VariantDatabase: @unchecked Sendable {
             let sql = "INSERT OR REPLACE INTO variant_bookmarks (variant_id, flag_type) VALUES (?, ?)"
             if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
                 sqlite3_bind_int64(stmt, 1, variantId)
-                sqlite3_bind_text(stmt, 2, (flag as NSString).utf8String, -1, nil)
+                sqliteBindText(stmt, 2, flag)
                 sqlite3_step(stmt)
             }
             sqlite3_finalize(stmt)
@@ -2900,7 +2901,7 @@ public final class VariantDatabase: @unchecked Sendable {
         var stmt: OpaquePointer?
         let sql = "UPDATE variant_bookmarks SET note = ? WHERE variant_id = ?"
         if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-            sqlite3_bind_text(stmt, 1, (note as NSString).utf8String, -1, nil)
+            sqliteBindText(stmt, 1, note)
             sqlite3_bind_int64(stmt, 2, variantId)
             sqlite3_step(stmt)
         }
@@ -3144,13 +3145,13 @@ public final class VariantDatabase: @unchecked Sendable {
         }
 
         // Insert metadata flags for v3 import optimizations.
-        sqlite3_exec(db, "INSERT INTO db_metadata VALUES ('schema_version', '3')", nil, nil, nil)
-        sqlite3_exec(db, "INSERT INTO db_metadata VALUES ('omit_homref', 'true')", nil, nil, nil)
-        sqlite3_exec(db, "INSERT INTO db_metadata VALUES ('import_state', 'inserting')", nil, nil, nil)
-        sqlite3_exec(db, "INSERT INTO db_metadata VALUES ('import_source', '\(vcfURL.lastPathComponent)')", nil, nil, nil)
-        sqlite3_exec(db, "INSERT INTO db_metadata VALUES ('import_profile', '\(resolvedProfile.rawValue)')", nil, nil, nil)
+        Self.insertMetadataRow(db, key: "schema_version", value: "3")
+        Self.insertMetadataRow(db, key: "omit_homref", value: "true")
+        Self.insertMetadataRow(db, key: "import_state", value: "inserting")
+        Self.insertMetadataRow(db, key: "import_source", value: vcfURL.lastPathComponent)
+        Self.insertMetadataRow(db, key: "import_profile", value: resolvedProfile.rawValue)
         if tuning.skipVariantInfo {
-            sqlite3_exec(db, "INSERT INTO db_metadata VALUES ('skip_variant_info', 'true')", nil, nil, nil)
+            Self.insertMetadataRow(db, key: "skip_variant_info", value: "true")
         }
 
         // For ultra-low-memory profile: cap SQLite heap and create indexes upfront so
@@ -3308,7 +3309,8 @@ public final class VariantDatabase: @unchecked Sendable {
             if let commitErr {
                 let msg = String(cString: commitErr)
                 sqlite3_free(commitErr)
-                variantDBLogger.warning("createFromVCF: COMMIT failed: \(msg)")
+                variantDBLogger.warning("createFromVCF: COMMIT failed: \(msg), issuing ROLLBACK")
+                sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
             }
 
             transactionCommitCount += 1
@@ -3462,8 +3464,7 @@ public final class VariantDatabase: @unchecked Sendable {
                     if !contigLengths.isEmpty {
                         if let jsonData = try? JSONSerialization.data(withJSONObject: contigLengths.mapValues { NSNumber(value: $0) }),
                            let jsonString = String(data: jsonData, encoding: .utf8) {
-                            let escapedJSON = jsonString.replacingOccurrences(of: "'", with: "''")
-                            sqlite3_exec(db, "INSERT OR REPLACE INTO db_metadata VALUES ('contig_lengths', '\(escapedJSON)')", nil, nil, nil)
+                            Self.insertMetadataRow(db, key: "contig_lengths", value: jsonString, replace: true)
                             writesSinceCommit += 1
                             variantDBLogger.info("createFromVCF: Stored \(contigLengths.count) contig lengths from VCF header")
                         }
@@ -3832,17 +3833,17 @@ public final class VariantDatabase: @unchecked Sendable {
         } else {
             partitionMode = "single-pass"
         }
-        sqlite3_exec(db, "INSERT OR REPLACE INTO db_metadata VALUES ('import_partition_mode', '\(partitionMode)')", nil, nil, nil)
+        Self.insertMetadataRow(db, key: "import_partition_mode", value: partitionMode, replace: true)
 
         // Finalize all parsed rows before index creation, then explicitly release heap/cache.
         commitImportTransaction(reopen: false, forceShrink: true)
 
         // Record variant count and transition to indexing state.
-        sqlite3_exec(db, "INSERT OR REPLACE INTO db_metadata VALUES ('import_variant_count', '\(insertCount)')", nil, nil, nil)
+        Self.insertMetadataRow(db, key: "import_variant_count", value: "\(insertCount)", replace: true)
         sqlite3_exec(db, "UPDATE db_metadata SET value = 'indexing' WHERE key = 'import_state'", nil, nil, nil)
 
         if deferIndexBuild && resolvedProfile == .ultraLowMemory {
-            sqlite3_exec(db, "INSERT OR REPLACE INTO db_metadata VALUES ('index_build_deferred', 'true')", nil, nil, nil)
+            Self.insertMetadataRow(db, key: "index_build_deferred", value: "true", replace: true)
             progressHandler?(0.92, "Insert phase complete, deferring index build...")
             variantDBLogger.info("createFromVCF: Deferred index build for ultra-low-memory staged import")
             return insertCount
@@ -3879,7 +3880,7 @@ public final class VariantDatabase: @unchecked Sendable {
                         sqlite3_free(idxErr)
                         variantDBLogger.warning("createFromVCF: Index '\(name)' creation failed: \(msg)")
                     }
-                    sqlite3_exec(db, "INSERT OR REPLACE INTO db_metadata VALUES ('idx_\(name)', 'created')", nil, nil, nil)
+                    Self.insertMetadataRow(db, key: "idx_\(name)", value: "created", replace: true)
                     releaseSQLiteMemory(forceShrink: true)
                 }
 
@@ -4263,12 +4264,7 @@ public final class VariantDatabase: @unchecked Sendable {
             rhs: readAttachedMetadataValue(db: destDB, alias: sourceAlias, key: "contig_lengths")
         )
         if let mergedContigs {
-            let escaped = mergedContigs.replacingOccurrences(of: "'", with: "''")
-            try exec(
-                "INSERT OR REPLACE INTO db_metadata VALUES ('contig_lengths', '\(escaped)')",
-                on: destDB,
-                context: "Write merged contig_lengths metadata"
-            )
+            Self.insertMetadataRow(destDB, key: "contig_lengths", value: mergedContigs, replace: true)
         }
 
         // Token cache tables are import-time snapshots; invalidate so stale caches
@@ -4285,21 +4281,9 @@ public final class VariantDatabase: @unchecked Sendable {
 
         // Keep import state resumable and import count accurate.
         let totalCount = currentVariantCount(destDB)
-        try exec(
-            "INSERT OR REPLACE INTO db_metadata VALUES ('import_variant_count', '\(totalCount)')",
-            on: destDB,
-            context: "Update import_variant_count"
-        )
-        try exec(
-            "INSERT OR REPLACE INTO db_metadata VALUES ('import_state', 'indexing')",
-            on: destDB,
-            context: "Mark import_state indexing"
-        )
-        try exec(
-            "INSERT OR REPLACE INTO db_metadata VALUES ('import_partition_mode', 'helper-subprocess-per-chromosome')",
-            on: destDB,
-            context: "Mark import partition mode"
-        )
+        Self.insertMetadataRow(destDB, key: "import_variant_count", value: "\(totalCount)", replace: true)
+        Self.insertMetadataRow(destDB, key: "import_state", value: "indexing", replace: true)
+        Self.insertMetadataRow(destDB, key: "import_partition_mode", value: "helper-subprocess-per-chromosome", replace: true)
 
         // Keep AUTOINCREMENT sequence aligned with appended explicit IDs.
         try exec(
@@ -4491,6 +4475,22 @@ public final class VariantDatabase: @unchecked Sendable {
         return String(data: data, encoding: .utf8)
     }
 
+    /// Inserts or replaces a key-value pair in db_metadata using parameterized binding
+    /// to prevent SQL injection from user-controlled values (filenames, chromosome names, etc).
+    @discardableResult
+    private static func insertMetadataRow(_ db: OpaquePointer, key: String, value: String, replace: Bool = false) -> Bool {
+        let sql = replace
+            ? "INSERT OR REPLACE INTO db_metadata VALUES (?, ?)"
+            : "INSERT INTO db_metadata VALUES (?, ?)"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return false }
+        sqliteBindText(stmt, 1, key)
+        sqliteBindText(stmt, 2, value)
+        let rc = sqlite3_step(stmt)
+        sqlite3_finalize(stmt)
+        return rc == SQLITE_DONE
+    }
+
     private static func readMetadataValue(_ db: OpaquePointer, key: String) -> String? {
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, "SELECT value FROM db_metadata WHERE key = ?", -1, &stmt, nil) == SQLITE_OK else {
@@ -4593,13 +4593,13 @@ public final class VariantDatabase: @unchecked Sendable {
 
         guard maxId > 0 else {
             // Empty database — nothing to materialize.
-            sqlite3_exec(db, "INSERT OR REPLACE INTO db_metadata VALUES ('materialize_state', 'complete')", nil, nil, nil)
+            Self.insertMetadataRow(db, key: "materialize_state", value: "complete", replace: true)
             sqlite3_exec(db, "UPDATE db_metadata SET value = 'false' WHERE key = 'skip_variant_info'", nil, nil, nil)
             return 0
         }
 
         // Mark state.
-        sqlite3_exec(db, "INSERT OR REPLACE INTO db_metadata VALUES ('materialize_state', 'materializing')", nil, nil, nil)
+        Self.insertMetadataRow(db, key: "materialize_state", value: "materializing", replace: true)
 
         variantDBLogger.info("materializeVariantInfo: Starting from id \(lastProcessedId), maxId \(maxId)")
         progressHandler?(0.0, "Materializing INFO fields...")
@@ -4670,7 +4670,7 @@ public final class VariantDatabase: @unchecked Sendable {
 
             // Update cursor and commit.
             lastProcessedId = batchLastId
-            sqlite3_exec(db, "INSERT OR REPLACE INTO db_metadata VALUES ('materialize_last_variant_id', '\(lastProcessedId)')", nil, nil, nil)
+            Self.insertMetadataRow(db, key: "materialize_last_variant_id", value: "\(lastProcessedId)", replace: true)
             sqlite3_exec(db, "COMMIT", nil, nil, nil)
 
             // Release memory.
@@ -4721,7 +4721,7 @@ public final class VariantDatabase: @unchecked Sendable {
         }
 
         // Finalize: mark complete, clear cursor, flip skip flag.
-        sqlite3_exec(db, "INSERT OR REPLACE INTO db_metadata VALUES ('materialize_state', 'complete')", nil, nil, nil)
+        Self.insertMetadataRow(db, key: "materialize_state", value: "complete", replace: true)
         sqlite3_exec(db, "DELETE FROM db_metadata WHERE key = 'materialize_last_variant_id'", nil, nil, nil)
         sqlite3_exec(db, "UPDATE db_metadata SET value = 'false' WHERE key = 'skip_variant_info'", nil, nil, nil)
 
@@ -4833,8 +4833,8 @@ public final class VariantDatabase: @unchecked Sendable {
             throw VariantDatabaseError.createFailed(msg)
         }
 
-        sqlite3_exec(destDB, "INSERT INTO db_metadata VALUES ('schema_version', '3')", nil, nil, nil)
-        sqlite3_exec(destDB, "INSERT INTO db_metadata VALUES ('extracted_from_region', '\(chromosome):\(start)-\(end)')", nil, nil, nil)
+        Self.insertMetadataRow(destDB, key: "schema_version", value: "3")
+        Self.insertMetadataRow(destDB, key: "extracted_from_region", value: "\(chromosome):\(start)-\(end)")
 
         sqlite3_exec(destDB, "BEGIN TRANSACTION", nil, nil, nil)
 

@@ -298,10 +298,14 @@ public final class VCFDatasetViewController: NSViewController,
         }
     }
 
+    private static let countFormatter: NumberFormatter = {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        return f
+    }()
+
     private func formatCount(_ count: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        return formatter.string(from: NSNumber(value: count)) ?? "\(count)"
+        Self.countFormatter.string(from: NSNumber(value: count)) ?? "\(count)"
     }
 
     // MARK: - Sorting

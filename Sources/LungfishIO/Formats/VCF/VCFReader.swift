@@ -93,7 +93,7 @@ public struct VCFVariant: Sendable, Identifiable, Equatable {
         if let endStr = info["END"], let endVal = Int(endStr) {
             return endVal
         }
-        return position + ref.count - 1
+        return position + max(ref.count, 1) - 1
     }
 
     /// Converts to a SequenceAnnotation.
@@ -135,12 +135,20 @@ public struct VCFGenotype: Sendable, Equatable {
     /// All field values keyed by FORMAT field name
     public let fields: [String: String]
 
-    /// Parses the allele indices from the genotype.
-    public var alleleIndices: [Int] {
-        let separators = CharacterSet(charactersIn: "/|")
-        return rawGenotype
-            .components(separatedBy: separators)
-            .compactMap { Int($0) }
+    /// Allele indices parsed once at init. Missing alleles (".") are represented as -1.
+    public let alleleIndices: [Int]
+
+    public init(rawGenotype: String, fields: [String: String]) {
+        self.rawGenotype = rawGenotype
+        self.fields = fields
+        self.alleleIndices = rawGenotype
+            .split(whereSeparator: { $0 == "/" || $0 == "|" })
+            .map { $0 == "." ? -1 : (Int($0) ?? -1) }
+    }
+
+    /// Whether any allele is missing (".").
+    public var hasMissingAlleles: Bool {
+        alleleIndices.contains(-1)
     }
 
     /// Whether this genotype is phased (uses | separator)
@@ -148,21 +156,20 @@ public struct VCFGenotype: Sendable, Equatable {
         rawGenotype.contains("|")
     }
 
-    /// Whether this is homozygous reference (0/0)
+    /// Whether this is homozygous reference (0/0). Missing alleles (-1) cause this to return false.
     public var isHomRef: Bool {
-        alleleIndices.allSatisfy { $0 == 0 }
+        !alleleIndices.isEmpty && alleleIndices.allSatisfy { $0 == 0 }
     }
 
-    /// Whether this is homozygous alternate
+    /// Whether this is homozygous alternate. Missing alleles (-1) cause this to return false.
     public var isHomAlt: Bool {
-        let indices = alleleIndices
-        return !indices.isEmpty && indices.allSatisfy { $0 > 0 && $0 == indices[0] }
+        !alleleIndices.isEmpty && alleleIndices.allSatisfy { $0 > 0 && $0 == alleleIndices[0] }
     }
 
-    /// Whether this is heterozygous
+    /// Whether this is heterozygous. Missing alleles are excluded from consideration.
     public var isHet: Bool {
-        let indices = Set(alleleIndices)
-        return indices.count > 1
+        let nonMissing = alleleIndices.filter { $0 >= 0 }
+        return Set(nonMissing).count > 1
     }
 
     /// Depth of coverage (DP field)
@@ -520,6 +527,10 @@ public final class VCFReader: Sendable {
                         if remaining.first == "," {
                             remaining = remaining.dropFirst()
                         }
+                    } else {
+                        // Unterminated quote — consume rest as value and stop
+                        dict[key] = String(remaining)
+                        break
                     }
                 } else {
                     // Unquoted value

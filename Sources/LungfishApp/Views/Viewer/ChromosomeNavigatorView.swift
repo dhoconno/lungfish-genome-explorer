@@ -106,6 +106,8 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
         didSet {
             guard selectedChromosomeIndex >= 0,
                   selectedChromosomeIndex < displayedChromosomes.count else { return }
+            isSuppressingDelegateCallbacks = true
+            defer { isSuppressingDelegateCallbacks = false }
             tableView.selectRowIndexes(IndexSet(integer: selectedChromosomeIndex), byExtendingSelection: false)
             tableView.scrollRowToVisible(selectedChromosomeIndex)
         }
@@ -389,9 +391,9 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
         }
         // Suppress the delegate so tableViewSelectionDidChange doesn't reset the frame
         isSuppressingDelegateCallbacks = true
+        defer { isSuppressingDelegateCallbacks = false }
         tableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
         tableView.scrollRowToVisible(index)
-        isSuppressingDelegateCallbacks = false
         logger.info("ChromosomeNavigatorView: Programmatically selected '\(name, privacy: .public)' at index \(index)")
         return true
     }
