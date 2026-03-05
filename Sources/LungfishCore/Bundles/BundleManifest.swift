@@ -81,7 +81,11 @@ public struct BundleManifest: Codable, Sendable, Equatable {
     // MARK: - Genome Content
 
     /// Information about the reference genome sequence.
-    public let genome: GenomeInfo
+    /// `nil` for variant-only bundles created from standalone VCF import.
+    public let genome: GenomeInfo?
+
+    /// Whether this bundle contains only variant data (no reference sequence).
+    public var isVariantOnly: Bool { genome == nil }
 
     /// Annotation tracks in the bundle.
     public let annotations: [AnnotationTrackInfo]
@@ -118,7 +122,7 @@ public struct BundleManifest: Codable, Sendable, Equatable {
         createdDate: Date = Date(),
         modifiedDate: Date = Date(),
         source: SourceInfo,
-        genome: GenomeInfo,
+        genome: GenomeInfo? = nil,
         annotations: [AnnotationTrackInfo] = [],
         variants: [VariantTrackInfo] = [],
         tracks: [SignalTrackInfo] = [],
@@ -170,7 +174,7 @@ public struct BundleManifest: Codable, Sendable, Equatable {
         createdDate = try container.decode(Date.self, forKey: .createdDate)
         modifiedDate = try container.decode(Date.self, forKey: .modifiedDate)
         source = try container.decode(SourceInfo.self, forKey: .source)
-        genome = try container.decode(GenomeInfo.self, forKey: .genome)
+        genome = try container.decodeIfPresent(GenomeInfo.self, forKey: .genome)
         annotations = try container.decode([AnnotationTrackInfo].self, forKey: .annotations)
         variants = try container.decode([VariantTrackInfo].self, forKey: .variants)
         tracks = try container.decode([SignalTrackInfo].self, forKey: .tracks)
@@ -959,14 +963,17 @@ extension BundleManifest {
         if identifier.isEmpty {
             errors.append(.missingField("identifier"))
         }
-        if genome.path.isEmpty {
-            errors.append(.missingField("genome.path"))
-        }
-        if genome.indexPath.isEmpty {
-            errors.append(.missingField("genome.indexPath"))
-        }
-        if genome.chromosomes.isEmpty {
-            errors.append(.missingField("genome.chromosomes"))
+        // Genome fields are only required for bundles with sequence data.
+        if let genome {
+            if genome.path.isEmpty {
+                errors.append(.missingField("genome.path"))
+            }
+            if genome.indexPath.isEmpty {
+                errors.append(.missingField("genome.indexPath"))
+            }
+            if genome.chromosomes.isEmpty {
+                errors.append(.missingField("genome.chromosomes"))
+            }
         }
 
         // Check for duplicate track IDs

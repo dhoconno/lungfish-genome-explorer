@@ -43,6 +43,7 @@ extension AnnotationTableDrawerView {
         let depth: Int?         // DP
         let genotypeQuality: Int? // GQ
         let alleleBalance: Double? // Computed from AD
+        let infoDict: [String: String] // INFO key-value pairs for this variant
 
         /// Classifies genotype for display.
         static func classify(allele1: Int, allele2: Int) -> String {
@@ -113,6 +114,16 @@ extension AnnotationTableDrawerView {
             tableView.addTableColumn(col)
         }
 
+        // Add dynamic INFO columns (same promoted ordering as Calls tab)
+        let promotedKeys = Self.promotedInfoKeys(from: infoColumnKeys)
+        let promotedKeySet = Set(promotedKeys.map { $0.key })
+        for info in promotedKeys {
+            addGenotypeInfoColumn(info)
+        }
+        for info in infoColumnKeys where !promotedKeySet.contains(info.key) {
+            addGenotypeInfoColumn(info)
+        }
+
         // Apply saved column preferences for genotype tab
         if let saved = ColumnPrefsKey.load(tab: "variantGenotypes") {
             let hiddenIds = Set(saved.columns.filter { !$0.isVisible }.map(\.id))
@@ -131,6 +142,22 @@ extension AnnotationTableDrawerView {
         }
     }
 
+    /// Adds a single INFO column to the genotype subtab.
+    private func addGenotypeInfoColumn(_ info: (key: String, type: String, description: String)) {
+        let identifier = NSUserInterfaceItemIdentifier("gtinfo_\(info.key)")
+        let col = NSTableColumn(identifier: identifier)
+        col.title = info.key
+        col.headerToolTip = info.description.isEmpty ? info.key : "\(info.description) (\(info.key))"
+        col.width = max(80, CGFloat(info.key.count + 2) * 7)
+        col.minWidth = 40
+        col.resizingMask = .autoresizingMask
+        col.sortDescriptorPrototype = NSSortDescriptor(
+            key: "gtinfo_\(info.key)", ascending: true,
+            selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))
+        )
+        tableView.addTableColumn(col)
+    }
+
     // MARK: - Build Genotype Rows
 
     /// Batch-fetches genotypes for the currently displayed variant rows.
@@ -147,6 +174,7 @@ extension AnnotationTableDrawerView {
         genotypeFetchGeneration += 1
         let thisGeneration = genotypeFetchGeneration
         let searchIdx = searchIndex
+        let hiddenSamples = currentSampleDisplayState.hiddenSamples
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let searchIdx else { return }
@@ -162,6 +190,7 @@ extension AnnotationTableDrawerView {
                 let variantIds = trackVariants.compactMap(\.variantRowId)
                 guard !variantIds.isEmpty else { continue }
                 let genotypesByVariant = db.genotypes(forVariantIds: variantIds)
+                let infoByVariant = db.batchInfoValues(variantIds: variantIds)
                 let variantPairs: [(Int64, AnnotationSearchIndex.SearchResult)] = trackVariants.compactMap { variant in
                     guard let rowId = variant.variantRowId else { return nil }
                     return (rowId, variant)
@@ -170,7 +199,11 @@ extension AnnotationTableDrawerView {
 
                 for variantId in variantIds {
                     guard let variant = variantById[variantId] else { continue }
+                    let info = infoByVariant[variantId] ?? [:]
                     for gt in genotypesByVariant[variantId] ?? [] {
+                        // Skip hidden samples
+                        if hiddenSamples.contains(gt.sampleName) { continue }
+
                         let zygosity = GenotypeDisplayRow.classify(allele1: gt.allele1, allele2: gt.allele2)
                         let ab = GenotypeDisplayRow.computeAlleleBalance(from: gt.alleleDepths)
 
@@ -187,7 +220,8 @@ extension AnnotationTableDrawerView {
                             alleleDepths: gt.alleleDepths ?? "",
                             depth: gt.depth,
                             genotypeQuality: gt.genotypeQuality,
-                            alleleBalance: ab
+                            alleleBalance: ab,
+                            infoDict: info
                         ))
                     }
                 }
@@ -196,12 +230,140 @@ extension AnnotationTableDrawerView {
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
                     guard let self, self.genotypeFetchGeneration == thisGeneration else { return }
-                    self.displayedGenotypes = rows
+                    self.baseDisplayedGenotypes = rows
+                    self.displayedGenotypes = self.filterGenotypeRows(rows)
                     self.tableView.reloadData()
                     self.updateCountLabel()
                 }
             }
         }
+    }
+
+    /// Filters genotype rows by the active variant filter text and column filter clauses.
+    func filterGenotypeRows(_ rows: [GenotypeDisplayRow]) -> [GenotypeDisplayRow] {
+        var result = rows
+
+        // Apply text filter
+        let filter = variantFilterText.trimmingCharacters(in: .whitespaces).lowercased()
+        if !filter.isEmpty {
+            result = result.filter { row in
+                row.sampleName.localizedCaseInsensitiveContains(filter)
+                    || row.zygosity.localizedCaseInsensitiveContains(filter)
+                    || row.genotype.localizedCaseInsensitiveContains(filter)
+                    || row.variantID.localizedCaseInsensitiveContains(filter)
+                    || row.chromosome.localizedCaseInsensitiveContains(filter)
+            }
+        }
+
+        // Apply column filter clauses
+        if !genotypeColumnFilterClauses.isEmpty {
+            result = result.filter { row in
+                genotypeColumnFilterClauses.allSatisfy { clause in
+                    let actual = genotypeColumnValue(row, key: clause.key)
+                    return genotypeColumnMatches(actual: actual, op: clause.op, expected: clause.value, key: clause.key)
+                }
+            }
+        }
+
+        return result
+    }
+
+    // MARK: - Genotype Column Filter Support
+
+    /// Returns the filter key for a genotype column identifier.
+    func genotypeFilterKey(forColumnIdentifier columnId: String) -> String? {
+        switch columnId {
+        case Self.gtSampleColumn.rawValue: return "sample"
+        case Self.gtVariantColumn.rawValue: return "variant"
+        case Self.gtChromColumn.rawValue: return "chromosome"
+        case Self.gtPositionColumn.rawValue: return "position"
+        case Self.gtGenotypeColumn.rawValue: return "genotype"
+        case Self.gtZygosityColumn.rawValue: return "zygosity"
+        case Self.gtADColumn.rawValue: return "ad"
+        case Self.gtDPColumn.rawValue: return "dp"
+        case Self.gtGQColumn.rawValue: return "gq"
+        case Self.gtABColumn.rawValue: return "ab"
+        default:
+            if columnId.hasPrefix("gtinfo_") { return columnId }
+            return nil
+        }
+    }
+
+    /// Returns true if the genotype column key is numeric.
+    func isGenotypeFilterNumericKey(_ key: String) -> Bool {
+        switch key {
+        case "position", "dp", "gq", "ab":
+            return true
+        default:
+            if key.hasPrefix("gtinfo_") {
+                let infoKey = String(key.dropFirst(7))
+                return isNumericInfoKey(infoKey)
+            }
+            return false
+        }
+    }
+
+    /// Extracts the display value for a genotype row by filter key.
+    private func genotypeColumnValue(_ row: GenotypeDisplayRow, key: String) -> String {
+        switch key {
+        case "sample": return row.sampleName
+        case "variant": return row.variantID
+        case "chromosome": return row.chromosome
+        case "position": return String(row.position + 1)
+        case "genotype": return row.genotype
+        case "zygosity": return row.zygosity
+        case "ad": return row.alleleDepths
+        case "dp": return row.depth.map(String.init) ?? ""
+        case "gq": return row.genotypeQuality.map(String.init) ?? ""
+        case "ab": return row.alleleBalance.map { String(format: "%.2f", $0) } ?? ""
+        default:
+            if key.hasPrefix("gtinfo_") {
+                let infoKey = String(key.dropFirst(7))
+                return row.infoDict[infoKey] ?? ""
+            }
+            return ""
+        }
+    }
+
+    /// Checks if an actual value matches a filter clause.
+    private func genotypeColumnMatches(actual: String, op: String, expected: String, key: String) -> Bool {
+        let normActual = actual.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normExpected = expected.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isNumericOp = op == ">" || op == ">=" || op == "<" || op == "<="
+        let isKnownNumeric = key == "position" || key == "dp" || key == "gq" || key == "ab"
+        if (isKnownNumeric || (isNumericOp && key.hasPrefix("gtinfo_"))),
+           let lhs = Double(normActual), let rhs = Double(normExpected) {
+            switch op {
+            case ">": return lhs > rhs
+            case ">=": return lhs >= rhs
+            case "<": return lhs < rhs
+            case "<=": return lhs <= rhs
+            case "=": return lhs == rhs
+            case "!=": return lhs != rhs
+            default: break
+            }
+        }
+        return sampleStringMatches(actual: normActual, op: op, expected: normExpected)
+    }
+
+    /// Reapplies genotype column filters, syncs variant display, and refreshes the table.
+    func applyGenotypeColumnFiltersFromBase() {
+        displayedGenotypes = filterGenotypeRows(baseDisplayedGenotypes)
+
+        // Sync displayedAnnotations to only include variants with surviving genotype rows
+        if genotypeColumnFilterClauses.isEmpty {
+            displayedAnnotations = applyVariantColumnFilters(to: baseDisplayedVariantAnnotations)
+        } else {
+            let survivingVariantIds = Set(displayedGenotypes.map(\.variantRowId))
+            displayedAnnotations = applyVariantColumnFilters(to: baseDisplayedVariantAnnotations).filter { row in
+                guard let rowId = row.variantRowId else { return false }
+                return survivingVariantIds.contains(rowId)
+            }
+        }
+
+        tableView.reloadData()
+        updateCountLabel()
+        emitVisibleVariantRenderKeyUpdateIfNeeded()
     }
 
     // MARK: - Genotype Cell Value
@@ -237,6 +399,10 @@ extension AnnotationTableDrawerView {
             }
             return "."
         default:
+            if identifier.rawValue.hasPrefix("gtinfo_") {
+                let key = String(identifier.rawValue.dropFirst(7))
+                return gt.infoDict[key] ?? "."
+            }
             return ""
         }
     }
@@ -270,6 +436,14 @@ extension AnnotationTableDrawerView {
         let text = genotypeCellValueString(for: identifier, row: row)
         cellView.textField?.stringValue = text
 
+        // Right-align numeric columns (position, DP, GQ, AB, numeric INFO)
+        let isNumeric = identifier == Self.gtPositionColumn
+            || identifier == Self.gtDPColumn
+            || identifier == Self.gtGQColumn
+            || identifier == Self.gtABColumn
+            || (identifier.rawValue.hasPrefix("gtinfo_") && Double(text) != nil)
+        cellView.textField?.alignment = isNumeric ? .right : .left
+
         // Color the GT and Zygosity columns using the active variant color theme
         if (identifier == Self.gtGenotypeColumn || identifier == Self.gtZygosityColumn),
            row < displayedGenotypes.count {
@@ -291,5 +465,151 @@ extension AnnotationTableDrawerView {
         case "Hom Ref": return theme.homRef.nsColor
         default:        return .secondaryLabelColor
         }
+    }
+
+    // MARK: - Genotype Column Header Filter Menu
+
+    /// Shows the genotype column header filter menu on column click.
+    func showGenotypeColumnHeaderFilterMenu(column: Int) {
+        guard column >= 0, column < tableView.tableColumns.count else { return }
+        guard let headerView = tableView.headerView else { return }
+        let menu = NSMenu()
+        buildGenotypeColumnHeaderContextMenu(menu, column: column)
+        let rect = headerView.headerRect(ofColumn: column)
+        let anchorPoint = NSPoint(x: rect.minX + 8, y: rect.minY - 2)
+        menu.popUp(positioning: nil, at: anchorPoint, in: headerView)
+    }
+
+    /// Builds the genotype column header context menu with sort and filter options.
+    func buildGenotypeColumnHeaderContextMenu(_ menu: NSMenu, column: Int) {
+        guard column >= 0, column < tableView.tableColumns.count else { return }
+        let tableColumn = tableView.tableColumns[column]
+        guard let key = genotypeFilterKey(forColumnIdentifier: tableColumn.identifier.rawValue) else { return }
+        let displayName = tableColumn.title.isEmpty ? "Column" : tableColumn.title
+
+        // Sort options
+        let sortAscItem = NSMenuItem(
+            title: "Sort \(displayName) Ascending",
+            action: #selector(sortGenotypeColumnAscending(_:)),
+            keyEquivalent: ""
+        )
+        sortAscItem.target = self
+        sortAscItem.representedObject = tableColumn
+        menu.addItem(sortAscItem)
+
+        let sortDescItem = NSMenuItem(
+            title: "Sort \(displayName) Descending",
+            action: #selector(sortGenotypeColumnDescending(_:)),
+            keyEquivalent: ""
+        )
+        sortDescItem.target = self
+        sortDescItem.representedObject = tableColumn
+        menu.addItem(sortDescItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        // Filter options
+        if isGenotypeFilterNumericKey(key) {
+            for (label, op) in [
+                ("Equals\u{2026}", "="),
+                ("\u{2265}\u{2026}", ">="),
+                (">\u{2026}", ">"),
+                ("\u{2264}\u{2026}", "<="),
+                ("<\u{2026}", "<"),
+            ] {
+                let item = NSMenuItem(
+                    title: "Filter \(displayName) \(label)",
+                    action: #selector(promptGenotypeColumnFilterAction(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.representedObject = ["key": key, "op": op]
+                menu.addItem(item)
+            }
+        } else {
+            for (label, op) in [
+                ("Contains\u{2026}", "~"),
+                ("Equals\u{2026}", "="),
+                ("Begins With\u{2026}", "^="),
+                ("Ends With\u{2026}", "$="),
+            ] {
+                let item = NSMenuItem(
+                    title: "Filter \(displayName) \(label)",
+                    action: #selector(promptGenotypeColumnFilterAction(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.representedObject = ["key": key, "op": op]
+                menu.addItem(item)
+            }
+        }
+
+        menu.addItem(NSMenuItem.separator())
+        addGenotypeColumnFilterItem(to: menu, title: "Filter \(displayName) Is Empty", key: key, op: "=", value: "")
+        addGenotypeColumnFilterItem(to: menu, title: "Filter \(displayName) Is Not Empty", key: key, op: "!=", value: "")
+
+        if !genotypeColumnFilterClauses.isEmpty {
+            menu.addItem(NSMenuItem.separator())
+            let clearItem = NSMenuItem(
+                title: "Clear Genotype Column Filters",
+                action: #selector(clearGenotypeColumnFilters(_:)),
+                keyEquivalent: ""
+            )
+            clearItem.target = self
+            menu.addItem(clearItem)
+        }
+    }
+
+    private func addGenotypeColumnFilterItem(to menu: NSMenu, title: String, key: String, op: String, value: String) {
+        let item = NSMenuItem(title: title, action: #selector(applyGenotypeColumnFilterAction(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = ["key": key, "op": op, "value": value]
+        menu.addItem(item)
+    }
+
+    @objc private func promptGenotypeColumnFilterAction(_ sender: NSMenuItem) {
+        guard let payload = sender.representedObject as? [String: String],
+              let key = payload["key"],
+              let op = payload["op"],
+              let window = self.window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Add Genotype Column Filter"
+        alert.informativeText = "Enter a value for \(key)."
+        alert.addButton(withTitle: "Apply")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        field.placeholderString = "Filter value"
+        alert.accessoryView = field
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            let value = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let self, !value.isEmpty else { return }
+            self.genotypeColumnFilterClauses.append(VariantColumnFilterClause(key: key, op: op, value: value))
+            self.applyGenotypeColumnFiltersFromBase()
+        }
+    }
+
+    @objc private func applyGenotypeColumnFilterAction(_ sender: NSMenuItem) {
+        guard let payload = sender.representedObject as? [String: String],
+              let key = payload["key"],
+              let op = payload["op"],
+              let value = payload["value"] else { return }
+        genotypeColumnFilterClauses.append(VariantColumnFilterClause(key: key, op: op, value: value))
+        applyGenotypeColumnFiltersFromBase()
+    }
+
+    @objc private func clearGenotypeColumnFilters(_ sender: Any?) {
+        genotypeColumnFilterClauses.removeAll()
+        applyGenotypeColumnFiltersFromBase()
+    }
+
+    @objc private func sortGenotypeColumnAscending(_ sender: NSMenuItem) {
+        guard let column = sender.representedObject as? NSTableColumn else { return }
+        column.sortDescriptorPrototype.map { tableView.sortDescriptors = [NSSortDescriptor(key: $0.key, ascending: true, selector: $0.selector)] }
+    }
+
+    @objc private func sortGenotypeColumnDescending(_ sender: NSMenuItem) {
+        guard let column = sender.representedObject as? NSTableColumn else { return }
+        column.sortDescriptorPrototype.map { tableView.sortDescriptors = [NSSortDescriptor(key: $0.key, ascending: false, selector: $0.selector)] }
     }
 }

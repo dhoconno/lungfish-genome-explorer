@@ -458,7 +458,7 @@ public class InspectorViewController: NSViewController {
         }
 
         // Auto-select the first chromosome so the Chromosome section is visible immediately
-        if let chromosomes = manifest?.genome.chromosomes, !chromosomes.isEmpty {
+        if let chromosomes = manifest?.genome?.chromosomes, !chromosomes.isEmpty {
             let sorted = naturalChromosomeSort(chromosomes)
             updateSelectedChromosome(sorted.first)
         }

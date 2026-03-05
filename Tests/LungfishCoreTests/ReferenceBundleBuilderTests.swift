@@ -481,9 +481,9 @@ final class ReferenceBundleBuilderTests: XCTestCase {
         XCTAssertEqual(manifest.identifier, "org.test.manifest")
         XCTAssertEqual(manifest.source.organism, "Test Organism")
         XCTAssertEqual(manifest.source.assembly, "TestAssembly")
-        XCTAssertEqual(manifest.genome.chromosomes.count, 2)
-        XCTAssertEqual(manifest.genome.chromosomes[0].name, "chr1")
-        XCTAssertEqual(manifest.genome.chromosomes[1].name, "chr2")
+        XCTAssertEqual(manifest.genome!.chromosomes.count, 2)
+        XCTAssertEqual(manifest.genome!.chromosomes[0].name, "chr1")
+        XCTAssertEqual(manifest.genome!.chromosomes[1].name, "chr2")
     }
 }
 

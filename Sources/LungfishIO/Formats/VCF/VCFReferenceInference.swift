@@ -187,6 +187,26 @@ public enum VCFReferenceInference {
         )
     }
 
+    // MARK: - NCBI Accession Extraction
+
+    /// Extracts NCBI accession patterns from chromosome names.
+    ///
+    /// Recognizes RefSeq accession prefixes:
+    /// - `NC_` — Complete genomic molecule (chromosome)
+    /// - `NW_` — WGS contig
+    /// - `NT_` — Intermediate assembled contig
+    /// - `AC_` — Alternate complete genomic molecule
+    ///
+    /// - Parameter chromosomeNames: Set of chromosome names from VCF records
+    /// - Returns: Array of unique NCBI accession strings found
+    public static func extractNCBIAccessions(from chromosomeNames: Set<String>) -> [String] {
+        // Match patterns like NC_045512.2, NW_025791760.1, NT_187361.1, AC_000158.1
+        let pattern = /^(NC|NW|NT|AC)_\d{6,9}\.\d+$/
+        return chromosomeNames
+            .filter { $0.wholeMatch(of: pattern) != nil }
+            .sorted()
+    }
+
     // MARK: - Private Helpers
 
     /// Refines a name-based result using max variant positions as crude length estimates.

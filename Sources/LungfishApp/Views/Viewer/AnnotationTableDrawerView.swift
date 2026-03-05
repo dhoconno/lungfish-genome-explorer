@@ -11,6 +11,98 @@ import os.log
 /// Logger for annotation drawer operations
 private let drawerLogger = Logger(subsystem: "com.lungfish.browser", category: "AnnotationDrawer")
 
+// MARK: - WideColumnDividerHeaderView
+
+/// Custom header view that expands the column-resize grab zone from ~3px to 8px each side.
+private final class WideColumnDividerHeaderView: NSTableHeaderView {
+    private let expandedHitZone: CGFloat = 8
+
+    override func mouseDown(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        if let dividerX = nearestColumnDivider(at: location.x) {
+            let adjusted = NSPoint(x: dividerX, y: location.y)
+            if let adjustedEvent = NSEvent.mouseEvent(
+                with: event.type,
+                location: convert(adjusted, to: nil),
+                modifierFlags: event.modifierFlags,
+                timestamp: event.timestamp,
+                windowNumber: event.windowNumber,
+                context: nil,
+                eventNumber: event.eventNumber,
+                clickCount: event.clickCount,
+                pressure: event.pressure
+            ) {
+                super.mouseDown(with: adjustedEvent)
+                return
+            }
+        }
+        super.mouseDown(with: event)
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard let tableView else { return }
+        for i in 0..<tableView.numberOfColumns {
+            let rect = headerRect(ofColumn: i)
+            let cursorRect = NSRect(
+                x: rect.maxX - expandedHitZone,
+                y: 0,
+                width: expandedHitZone * 2,
+                height: bounds.height
+            )
+            addCursorRect(cursorRect, cursor: .resizeLeftRight)
+        }
+    }
+
+    private func nearestColumnDivider(at x: CGFloat) -> CGFloat? {
+        guard let tableView else { return nil }
+        for i in 0..<tableView.numberOfColumns {
+            let dividerX = headerRect(ofColumn: i).maxX
+            if abs(x - dividerX) <= expandedHitZone {
+                return dividerX
+            }
+        }
+        return nil
+    }
+}
+
+// MARK: - DrawerDividerView
+
+/// Drag handle at the top of the annotation drawer for resizing.
+final class DrawerDividerView: NSView {
+    weak var drawerDelegate: AnnotationTableDrawerDelegate?
+    private var dragStartY: CGFloat = 0
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .resizeUpDown)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.separatorColor.setFill()
+        NSBezierPath.fill(NSRect(x: 0, y: 0, width: bounds.width, height: 1))
+        // Subtle grip indicator
+        let cx = bounds.midX
+        let cy = bounds.midY
+        NSColor.tertiaryLabelColor.setFill()
+        for offset: CGFloat in [-2, 0, 2] {
+            NSBezierPath.fill(NSRect(x: cx - 10, y: cy + offset, width: 20, height: 0.5))
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        dragStartY = NSEvent.mouseLocation.y
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        let currentY = NSEvent.mouseLocation.y
+        let delta = currentY - dragStartY
+        dragStartY = currentY
+        if let drawer = superview as? AnnotationTableDrawerView {
+            drawer.delegate?.annotationDrawerDidDragDivider(drawer, deltaY: delta)
+        }
+    }
+}
+
 // MARK: - AnnotationTableDrawerDelegate
 
 /// Delegate protocol for annotation table selection events.
@@ -20,6 +112,7 @@ protocol AnnotationTableDrawerDelegate: AnyObject {
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didDeleteVariants count: Int)
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didResolveGeneRegions regions: [GeneRegion])
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didUpdateVisibleVariantRenderKeys keys: Set<String>?)
+    func annotationDrawerDidDragDivider(_ drawer: AnnotationTableDrawerView, deltaY: CGFloat)
 }
 
 private extension String {
@@ -87,6 +180,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     /// Displayed genotype rows (genotype subtab).
     var displayedGenotypes: [GenotypeDisplayRow] = []
+    /// Base genotype rows before local column filters.
+    var baseDisplayedGenotypes: [GenotypeDisplayRow] = []
 
     /// Generation counter for stale genotype fetch prevention.
     var genotypeFetchGeneration: Int = 0
@@ -98,11 +193,11 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     private var totalVariantCount: Int = 0
 
     /// Filtered and displayed annotations/variants.
-    private(set) var displayedAnnotations: [AnnotationSearchIndex.SearchResult] = []
+    var displayedAnnotations: [AnnotationSearchIndex.SearchResult] = []
 
     /// Per-tab filter text so each tab preserves its own search state.
     private var annotationFilterText: String = ""
-    private var variantFilterText: String = ""
+    var variantFilterText: String = ""
     private var sampleFilterText: String = ""
 
     /// Visible types for the annotation tab (empty means show all).
@@ -153,7 +248,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     private var isSuppressingDelegateCallbacks = false
 
     /// INFO field definitions for dynamic variant columns (key + type for sort awareness).
-    private var infoColumnKeys: [(key: String, type: String, description: String)] = []
+    var infoColumnKeys: [(key: String, type: String, description: String)] = []
     /// Preset INFO values used to render variant filter chips (key -> values).
     private var variantInfoPresetValues: [(key: String, values: [String])] = []
     private enum VariantPresetLoadState {
@@ -243,7 +338,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     private var sampleFilterBaselineHiddenSamples: Set<String>?
 
     /// Local copy of sample display state for driving visibility toggles.
-    private var currentSampleDisplayState: SampleDisplayState = {
+    var currentSampleDisplayState: SampleDisplayState = {
         AnnotationTableDrawerView.defaultSampleDisplayState()
     }()
 
@@ -315,7 +410,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     private let chipSummaryLabel = NSTextField(labelWithString: "")
     private let chipScrollView = NSScrollView()
     private let chipStackView = NSStackView()
-    private let dragHandle = NSView()
+    private let dragHandle = DrawerDividerView()
     private let tabControl = NSSegmentedControl()
     private let loadingIndicator = NSProgressIndicator()
     private let tooManyLabel = NSTextField(wrappingLabelWithString: "")
@@ -410,9 +505,11 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Bookmarked variant keys (`trackId:variantRowId`) for star column display.
     var bookmarkedVariantKeys: Set<String> = []
     /// Base result set from the last variant SQL query before local column filters.
-    private var baseDisplayedVariantAnnotations: [AnnotationSearchIndex.SearchResult] = []
+    var baseDisplayedVariantAnnotations: [AnnotationSearchIndex.SearchResult] = []
     /// Header-driven local filters applied only to currently loaded variant rows.
     private var variantColumnFilterClauses: [VariantColumnFilterClause] = []
+    /// Header-driven local filters applied only to currently loaded genotype rows.
+    var genotypeColumnFilterClauses: [VariantColumnFilterClause] = []
     /// Last local variant key set emitted to the viewer for viewport render syncing.
     private var lastEmittedVisibleVariantRenderKeys: Set<String>?
     /// Column configuration popover (gear menu).
@@ -469,9 +566,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         wantsLayer = true
         layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
 
-        // Drag handle bar at top (visual divider)
-        dragHandle.wantsLayer = true
-        dragHandle.layer?.backgroundColor = NSColor.separatorColor.cgColor
+        // Drag handle bar at top (resizable divider)
         dragHandle.translatesAutoresizingMaskIntoConstraints = false
         addSubview(dragHandle)
 
@@ -777,6 +872,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         // Configure initial table columns (annotation mode)
         configureColumnsForTab(.annotations)
 
+        tableView.headerView = WideColumnDividerHeaderView()
         tableView.dataSource = self
         tableView.delegate = self
         tableView.rowHeight = 22
@@ -829,7 +925,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             dragHandle.topAnchor.constraint(equalTo: topAnchor),
             dragHandle.leadingAnchor.constraint(equalTo: leadingAnchor),
             dragHandle.trailingAnchor.constraint(equalTo: trailingAnchor),
-            dragHandle.heightAnchor.constraint(equalToConstant: 1),
+            dragHandle.heightAnchor.constraint(equalToConstant: 5),
 
             headerBar.topAnchor.constraint(equalTo: dragHandle.bottomAnchor),
             headerBar.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -1511,7 +1607,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     ]
 
     /// Returns the subset of `infoColumnKeys` that match promoted patterns, in display order.
-    private static func promotedInfoKeys(
+    static func promotedInfoKeys(
         from infoColumnKeys: [(key: String, type: String, description: String)]
     ) -> [(key: String, type: String, description: String)] {
         let keySet = Set(infoColumnKeys.map(\.key))
@@ -2743,7 +2839,14 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             if !variantColumnFilterClauses.isEmpty {
                 let shown = numberFormatter.string(from: NSNumber(value: displayedAnnotations.count)) ?? "\(displayedAnnotations.count)"
                 let base = numberFormatter.string(from: NSNumber(value: baseDisplayedVariantAnnotations.count)) ?? "\(baseDisplayedVariantAnnotations.count)"
-                countLabel.stringValue = "\(shown) of \(base) shown (local column filters)"
+                let filterDesc = variantColumnFilterClauses.map { clause in
+                    let displayKey = clause.key.hasPrefix("info_") ? String(clause.key.dropFirst(5)) : clause.key
+                    if clause.value.isEmpty {
+                        return clause.op == "=" ? "\(displayKey) is empty" : "\(displayKey) is not empty"
+                    }
+                    return "\(displayKey)\(clause.op)\(clause.value)"
+                }.joined(separator: ", ")
+                countLabel.stringValue = "\(shown) of \(base) shown (\(filterDesc))"
                 return
             }
             let total = numberFormatter.string(from: NSNumber(value: totalVariantCount)) ?? "\(totalVariantCount)"
@@ -2875,7 +2978,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         var metadataFilters: [(field: String, op: String, value: String)] = []
     }
 
-    private struct VariantColumnFilterClause {
+    struct VariantColumnFilterClause {
         var key: String
         var op: String
         var value: String
@@ -3978,7 +4081,19 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                     let bVal = b.alleleBalance ?? -1.0
                     result = aVal < bVal ? .orderedAscending : (aVal > bVal ? .orderedDescending : .orderedSame)
                 default:
-                    result = .orderedSame
+                    if key.hasPrefix("gtinfo_") {
+                        let infoKey = String(key.dropFirst(7))
+                        let aVal = a.infoDict[infoKey] ?? ""
+                        let bVal = b.infoDict[infoKey] ?? ""
+                        // Try numeric comparison first
+                        if let aNum = Double(aVal), let bNum = Double(bVal) {
+                            result = aNum < bNum ? .orderedAscending : (aNum > bNum ? .orderedDescending : .orderedSame)
+                        } else {
+                            result = aVal.localizedCaseInsensitiveCompare(bVal)
+                        }
+                    } else {
+                        result = .orderedSame
+                    }
                 }
                 return ascending ? result == .orderedAscending : result == .orderedDescending
             }
@@ -4222,7 +4337,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     }
 
     /// Whether an INFO key represents a numeric type (Integer or Float) for sorting.
-    private func isNumericInfoKey(_ key: String) -> Bool {
+    func isNumericInfoKey(_ key: String) -> Bool {
         infoColumnKeys.first(where: { $0.key == key }).map { $0.type == "Integer" || $0.type == "Float" } ?? false
     }
 
@@ -4487,6 +4602,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         }
         if activeTab == .variants && activeVariantSubtab == .calls {
             showVariantColumnHeaderFilterMenu(column: columnIndex)
+            return
+        }
+        if activeTab == .variants && activeVariantSubtab == .genotypes {
+            showGenotypeColumnHeaderFilterMenu(column: columnIndex)
         }
     }
 }
@@ -4526,8 +4645,11 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             return
         }
 
-        // Genotype subtab: no context menu yet (defer to Calls subtab for variant actions)
+        // Genotype subtab: show column header context menu on header right-click
         if activeTab == .variants && activeVariantSubtab == .genotypes {
+            if tableView.clickedColumn >= 0 && tableView.clickedRow < 0 {
+                buildGenotypeColumnHeaderContextMenu(menu, column: tableView.clickedColumn)
+            }
             return
         }
 
@@ -5195,7 +5317,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         }
     }
 
-    private func sampleStringMatches(actual: String, op: String, expected: String) -> Bool {
+    func sampleStringMatches(actual: String, op: String, expected: String) -> Bool {
         let normalizedActual = actual.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedExpected = expected.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -5258,8 +5380,11 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
     private func variantColumnMatches(actual: String, op: String, expected: String, key: String) -> Bool {
         let normalizedActual = actual.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedExpected = expected.trimmingCharacters(in: .whitespacesAndNewlines)
-        let numericKeys = Set(["position", "quality", "samples"])
-        if numericKeys.contains(key), let lhs = Double(normalizedActual), let rhs = Double(normalizedExpected) {
+        // Numeric comparison for known numeric keys and info_* columns with numeric operators
+        let isNumericOp = op == ">" || op == ">=" || op == "<" || op == "<="
+        let isKnownNumeric = key == "position" || key == "quality" || key == "samples"
+        if (isKnownNumeric || (isNumericOp && key.hasPrefix("info_"))),
+           let lhs = Double(normalizedActual), let rhs = Double(normalizedExpected) {
             switch op {
             case ">": return lhs > rhs
             case ">=": return lhs >= rhs
@@ -5273,7 +5398,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         return sampleStringMatches(actual: normalizedActual, op: op, expected: normalizedExpected)
     }
 
-    private func applyVariantColumnFilters(to rows: [AnnotationSearchIndex.SearchResult]) -> [AnnotationSearchIndex.SearchResult] {
+    func applyVariantColumnFilters(to rows: [AnnotationSearchIndex.SearchResult]) -> [AnnotationSearchIndex.SearchResult] {
         guard !variantColumnFilterClauses.isEmpty else { return rows }
         return rows.filter { row in
             variantColumnFilterClauses.allSatisfy { clause in
@@ -5299,7 +5424,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         }
     }
 
-    private func emitVisibleVariantRenderKeyUpdateIfNeeded() {
+    func emitVisibleVariantRenderKeyUpdateIfNeeded() {
         // During async query churn, keep the last stable viewport sync set only
         // while there are no stable rows to mirror yet.
         if activeTab == .variants && isVariantQuerying && (scrollView.isHidden || displayedAnnotations.isEmpty) {

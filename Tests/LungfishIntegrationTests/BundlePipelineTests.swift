@@ -843,9 +843,9 @@ final class BundlePipelineTests: XCTestCase {
         XCTAssertEqual(loaded.source.commonName, "Fruit fly")
         XCTAssertEqual(loaded.source.taxonomyId, 7227)
         XCTAssertEqual(loaded.source.assemblyAccession, "GCF_000001215.4")
-        XCTAssertEqual(loaded.genome.totalLength, 143_726_002)
-        XCTAssertEqual(loaded.genome.chromosomes.count, 3)
-        XCTAssertEqual(loaded.genome.chromosomes[2].isMitochondrial, true)
+        XCTAssertEqual(loaded.genome!.totalLength, 143_726_002)
+        XCTAssertEqual(loaded.genome!.chromosomes.count, 3)
+        XCTAssertEqual(loaded.genome!.chromosomes[2].isMitochondrial, true)
         XCTAssertEqual(loaded.annotations.count, 1)
         XCTAssertEqual(loaded.annotations[0].featureCount, 17_559)
 
@@ -1043,9 +1043,9 @@ final class BundlePipelineTests: XCTestCase {
 
         let loaded = try BundleManifest.load(from: bundleDir)
         XCTAssertEqual(loaded.identifier, "org-lungfish-ref-gcf_009858895-2")
-        XCTAssertEqual(loaded.genome.totalLength, 29_903)
-        XCTAssertEqual(loaded.genome.chromosomes[0].name, "NC_045512.2")
-        XCTAssertEqual(loaded.genome.chromosomes[0].aliases, ["MN908947.3"])
+        XCTAssertEqual(loaded.genome!.totalLength, 29_903)
+        XCTAssertEqual(loaded.genome!.chromosomes[0].name, "NC_045512.2")
+        XCTAssertEqual(loaded.genome!.chromosomes[0].aliases, ["MN908947.3"])
         XCTAssertEqual(loaded.annotations[0].featureCount, 12)
 
         let errors = loaded.validate()

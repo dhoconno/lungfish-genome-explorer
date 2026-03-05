@@ -633,7 +633,7 @@ public final class DocumentManager {
 
         document.bundleManifest = manifest
 
-        logger.info("loadReferenceBundle: Bundle '\(manifest.name, privacy: .public)' loaded with \(manifest.genome.chromosomes.count) chromosomes, \(manifest.annotations.count) annotation tracks")
+        logger.info("loadReferenceBundle: Bundle '\(manifest.name, privacy: .public)' loaded with \(manifest.genome?.chromosomes.count ?? 0) chromosomes, \(manifest.annotations.count) annotation tracks")
     }
 }
 

@@ -380,7 +380,7 @@ public final class BAMImportService: @unchecked Sendable {
     /// Finds the reference FASTA path within a bundle (needed for CRAM).
     private static func findReferenceFASTA(in bundleURL: URL) -> String? {
         let manifest = try? BundleManifest.load(from: bundleURL)
-        guard let path = manifest?.genome.path else { return nil }
+        guard let path = manifest?.genome?.path else { return nil }
         let fastaURL = bundleURL.appendingPathComponent(path)
         return FileManager.default.fileExists(atPath: fastaURL.path) ? fastaURL.path : nil
     }

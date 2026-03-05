@@ -186,12 +186,16 @@ public class EnhancedCoordinateRulerView: NSView {
         NSRect(x: 0, y: 0, width: bounds.width, height: Self.infoBarHeight)
     }
 
-    /// Rectangle for the mini-map section
+    /// Rectangle for the mini-map section, aligned with the genomic data area.
     private var miniMapRect: NSRect {
-        NSRect(x: Self.horizontalPadding,
-               y: Self.infoBarHeight,
-               width: bounds.width - Self.horizontalPadding * 2,
-               height: Self.miniMapHeight)
+        let leading = referenceFrame?.leadingInset ?? Self.horizontalPadding
+        let trailing = referenceFrame?.trailingInset ?? Self.horizontalPadding
+        let x = max(Self.horizontalPadding, leading)
+        let maxX = bounds.width - max(Self.horizontalPadding, trailing)
+        return NSRect(x: x,
+                      y: Self.infoBarHeight,
+                      width: max(1, maxX - x),
+                      height: Self.miniMapHeight)
     }
 
     /// Rectangle for the coordinate ruler section
@@ -539,10 +543,10 @@ public class EnhancedCoordinateRulerView: NSView {
         guard visibleRange > 0 else { return }
 
         let rulerY = Self.infoBarHeight + Self.miniMapHeight
-        let pixelsPerBase = bounds.width / CGFloat(visibleRange)
+        let pixelsPerBase = frame.dataPixelWidth / CGFloat(visibleRange)
 
         // Calculate tick interval based on zoom level
-        let tickInterval = calculateTickInterval(visibleRange: visibleRange, pixelWidth: bounds.width)
+        let tickInterval = calculateTickInterval(visibleRange: visibleRange, pixelWidth: frame.dataPixelWidth)
         let minorTickInterval = tickInterval / 5
 
         // Font for position labels - use a slightly larger, bolder font for visibility
@@ -572,8 +576,9 @@ public class EnhancedCoordinateRulerView: NSView {
         while minorPos <= frame.end {
             // Skip positions that will have major ticks
             if minorPos.truncatingRemainder(dividingBy: tickInterval) != 0 {
-                let x = CGFloat((minorPos - frame.start) * Double(pixelsPerBase))
-                if x >= 0 && x <= bounds.width {
+                let x = frame.leadingInset + CGFloat((minorPos - frame.start) * Double(pixelsPerBase))
+                let rightEdge = bounds.width - frame.trailingInset
+                if x >= frame.leadingInset && x <= rightEdge {
                     context.move(to: CGPoint(x: x, y: minorTickTop))
                     context.addLine(to: CGPoint(x: x, y: majorTickBottom))
                     context.strokePath()
@@ -590,9 +595,10 @@ public class EnhancedCoordinateRulerView: NSView {
         context.setLineWidth(1)
         var majorPos = (frame.start / tickInterval).rounded(.up) * tickInterval
         while majorPos <= frame.end {
-            let x = CGFloat((majorPos - frame.start) * Double(pixelsPerBase))
+            let x = frame.leadingInset + CGFloat((majorPos - frame.start) * Double(pixelsPerBase))
 
-            if x >= 0 && x <= bounds.width {
+            let rightEdge = bounds.width - frame.trailingInset
+            if x >= frame.leadingInset && x <= rightEdge {
                 // Major tick mark
                 context.move(to: CGPoint(x: x, y: majorTickTop))
                 context.addLine(to: CGPoint(x: x, y: majorTickBottom))
@@ -607,8 +613,10 @@ public class EnhancedCoordinateRulerView: NSView {
                 let labelLeftEdge = labelX
                 let labelRightEdge = labelX + labelSize.width
 
-                let hasRoomOnLeft = labelLeftEdge >= Self.horizontalPadding
-                let hasRoomOnRight = labelRightEdge <= bounds.width - Self.horizontalPadding
+                let leftBound = max(Self.horizontalPadding, frame.leadingInset)
+                let rightBound = bounds.width - max(Self.horizontalPadding, frame.trailingInset)
+                let hasRoomOnLeft = labelLeftEdge >= leftBound
+                let hasRoomOnRight = labelRightEdge <= rightBound
                 let noOverlap = labelLeftEdge >= lastLabelRightEdge + Self.minimumLabelSpacing
 
                 if hasRoomOnLeft && hasRoomOnRight && noOverlap {

@@ -83,7 +83,7 @@ struct BundleInfoSubcommand: AsyncParsableCommand {
 
         case .tsv:
             print("name\tidentifier\torganism\tassembly\ttotal_length\tchromosomes\tannotations\tvariants\ttracks")
-            print("\(manifest.name)\t\(manifest.identifier)\t\(manifest.source.organism)\t\(manifest.source.assembly)\t\(manifest.genome.totalLength)\t\(manifest.genome.chromosomes.count)\t\(manifest.annotations.count)\t\(manifest.variants.count)\t\(manifest.tracks.count)")
+            print("\(manifest.name)\t\(manifest.identifier)\t\(manifest.source.organism)\t\(manifest.source.assembly)\t\(manifest.genome?.totalLength ?? 0)\t\(manifest.genome?.chromosomes.count ?? 0)\t\(manifest.annotations.count)\t\(manifest.variants.count)\t\(manifest.tracks.count)")
 
         case .text:
             print(formatter.header("Bundle Information"))
@@ -105,17 +105,21 @@ struct BundleInfoSubcommand: AsyncParsableCommand {
             ]))
 
             print("\n" + formatter.header("Genome"))
-            print(formatter.keyValueTable([
-                ("Total Length", "\(formatter.number(Int(manifest.genome.totalLength))) bp"),
-                ("Chromosomes", formatter.number(manifest.genome.chromosomes.count)),
-                ("Sequence File", manifest.genome.path),
-                ("Index File", manifest.genome.indexPath),
-            ]))
+            if let genome = manifest.genome {
+                print(formatter.keyValueTable([
+                    ("Total Length", "\(formatter.number(Int(genome.totalLength))) bp"),
+                    ("Chromosomes", formatter.number(genome.chromosomes.count)),
+                    ("Sequence File", genome.path),
+                    ("Index File", genome.indexPath),
+                ]))
+            } else {
+                print("  (variant-only bundle — no reference genome)")
+            }
 
-            if !manifest.genome.chromosomes.isEmpty {
+            if let chromosomes = manifest.genome?.chromosomes, !chromosomes.isEmpty {
                 print("\n" + formatter.header("Chromosomes"))
                 let chromHeaders = ["Name", "Length (bp)", "Primary", "Mitochondrial"]
-                let chromRows = manifest.genome.chromosomes.map { chrom -> [String] in
+                let chromRows = chromosomes.map { chrom -> [String] in
                     [
                         chrom.name,
                         formatter.number(Int(chrom.length)),
@@ -422,14 +426,16 @@ struct BundleValidateSubcommand: AsyncParsableCommand {
                     errors.append(contentsOf: validationErrors.map { $0.localizedDescription })
 
                     // Check referenced files exist
-                    let genomePath = bundleURL.appendingPathComponent(manifest.genome.path)
-                    if !FileManager.default.fileExists(atPath: genomePath.path) {
-                        errors.append("Genome file not found: \(manifest.genome.path)")
-                    }
+                    if let genome = manifest.genome {
+                        let genomePath = bundleURL.appendingPathComponent(genome.path)
+                        if !FileManager.default.fileExists(atPath: genomePath.path) {
+                            errors.append("Genome file not found: \(genome.path)")
+                        }
 
-                    let indexPath = bundleURL.appendingPathComponent(manifest.genome.indexPath)
-                    if !FileManager.default.fileExists(atPath: indexPath.path) {
-                        errors.append("Index file not found: \(manifest.genome.indexPath)")
+                        let indexPath = bundleURL.appendingPathComponent(genome.indexPath)
+                        if !FileManager.default.fileExists(atPath: indexPath.path) {
+                            errors.append("Index file not found: \(genome.indexPath)")
+                        }
                     }
 
                     for anno in manifest.annotations {

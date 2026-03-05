@@ -28,7 +28,8 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         guard let bottomConstraint = annotationDrawerBottomConstraint else { return }
 
         let isOpen = isAnnotationDrawerOpen
-        let target: CGFloat = isOpen ? annotationDrawerHeight : 0
+        let currentHeight = annotationDrawerHeightConstraint?.constant ?? annotationDrawerHeight
+        let target: CGFloat = isOpen ? currentHeight : 0
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.25
@@ -82,17 +83,21 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         // The drawer sits between the viewer content area and the status bar.
         // We constrain its bottom to be just above the status bar, and use
         // a height constraint. The bottom offset starts at drawerHeight (hidden below view).
-        let bottomConstraint = drawer.bottomAnchor.constraint(equalTo: statusBar.topAnchor, constant: annotationDrawerHeight)
+        let persistedHeight = UserDefaults.standard.double(forKey: "annotationDrawerHeight")
+        let drawerHeight = persistedHeight > 0 ? CGFloat(persistedHeight) : annotationDrawerHeight
+        let bottomConstraint = drawer.bottomAnchor.constraint(equalTo: statusBar.topAnchor, constant: drawerHeight)
+        let heightConstraint = drawer.heightAnchor.constraint(equalToConstant: drawerHeight)
 
         NSLayoutConstraint.activate([
             drawer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             drawer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            drawer.heightAnchor.constraint(equalToConstant: annotationDrawerHeight),
+            heightConstraint,
             bottomConstraint,
         ])
 
         annotationDrawerView = drawer
         annotationDrawerBottomConstraint = bottomConstraint
+        annotationDrawerHeightConstraint = heightConstraint
         isAnnotationDrawerOpen = false
 
         // Update the viewer and header bottom constraints to sit above the drawer
@@ -215,6 +220,16 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         viewerView.setNeedsDisplay(viewerView.bounds)
     }
 
+    public func annotationDrawerDidDragDivider(_ drawer: AnnotationTableDrawerView, deltaY: CGFloat) {
+        guard let heightConstraint = annotationDrawerHeightConstraint else { return }
+        let maxHeight = view.bounds.height * 0.7
+        let newHeight = max(100, min(maxHeight, heightConstraint.constant + deltaY))
+        heightConstraint.constant = newHeight
+        annotationDrawerBottomConstraint?.constant = 0  // Keep visible while dragging
+        view.layoutSubtreeIfNeeded()
+        UserDefaults.standard.set(Double(newHeight), forKey: "annotationDrawerHeight")
+    }
+
     public func annotationDrawer(_ drawer: AnnotationTableDrawerView, didResolveGeneRegions regions: [GeneRegion]) {
         let wasVisible = !geneTabBarView.isHidden
 
@@ -300,6 +315,7 @@ extension ViewerViewController {
 
     private static var annotationDrawerViewKey: UInt8 = 0
     private static var annotationDrawerBottomKey: UInt8 = 0
+    private static var annotationDrawerHeightKey: UInt8 = 0
     private static var annotationDrawerOpenKey: UInt8 = 0
     private static var annotationSearchIndexKey: UInt8 = 0
     private static var lastSelectedGeneTabSelectionKey: UInt8 = 0
@@ -312,6 +328,11 @@ extension ViewerViewController {
     var annotationDrawerBottomConstraint: NSLayoutConstraint? {
         get { objc_getAssociatedObject(self, &Self.annotationDrawerBottomKey) as? NSLayoutConstraint }
         set { objc_setAssociatedObject(self, &Self.annotationDrawerBottomKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+
+    var annotationDrawerHeightConstraint: NSLayoutConstraint? {
+        get { objc_getAssociatedObject(self, &Self.annotationDrawerHeightKey) as? NSLayoutConstraint }
+        set { objc_setAssociatedObject(self, &Self.annotationDrawerHeightKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
     var isAnnotationDrawerOpen: Bool {

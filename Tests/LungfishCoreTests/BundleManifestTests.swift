@@ -56,8 +56,8 @@ final class BundleManifestTests: XCTestCase {
         XCTAssertEqual(manifest.identifier, "com.example.grch38")
         XCTAssertEqual(manifest.source.organism, "Homo sapiens")
         XCTAssertEqual(manifest.source.assembly, "GRCh38")
-        XCTAssertEqual(manifest.genome.chromosomes.count, 2)
-        XCTAssertEqual(manifest.genome.totalLength, 3_100_000_000)
+        XCTAssertEqual(manifest.genome!.chromosomes.count, 2)
+        XCTAssertEqual(manifest.genome!.totalLength, 3_100_000_000)
     }
 
     // MARK: - SourceInfo Tests
@@ -256,8 +256,8 @@ final class BundleManifestTests: XCTestCase {
         XCTAssertEqual(manifest.name, decoded.name)
         XCTAssertEqual(manifest.identifier, decoded.identifier)
         XCTAssertEqual(manifest.source.organism, decoded.source.organism)
-        XCTAssertEqual(manifest.genome.path, decoded.genome.path)
-        XCTAssertEqual(manifest.genome.chromosomes.count, decoded.genome.chromosomes.count)
+        XCTAssertEqual(manifest.genome!.path, decoded.genome!.path)
+        XCTAssertEqual(manifest.genome!.chromosomes.count, decoded.genome!.chromosomes.count)
         XCTAssertEqual(manifest.annotations.count, decoded.annotations.count)
     }
 

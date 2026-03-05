@@ -1145,14 +1145,16 @@ public final class NativeBundleBuilder: ObservableObject {
             let manifestErrors = manifest.validate()
             validationErrors.append(contentsOf: manifestErrors.map { $0.localizedDescription })
 
-            let genomePath = bundleURL.appendingPathComponent(manifest.genome.path)
-            if !fileManager.fileExists(atPath: genomePath.path) {
-                validationErrors.append("Genome file not found: \(manifest.genome.path)")
-            }
+            if let genome = manifest.genome {
+                let genomePath = bundleURL.appendingPathComponent(genome.path)
+                if !fileManager.fileExists(atPath: genomePath.path) {
+                    validationErrors.append("Genome file not found: \(genome.path)")
+                }
 
-            let indexPath = bundleURL.appendingPathComponent(manifest.genome.indexPath)
-            if !fileManager.fileExists(atPath: indexPath.path) {
-                validationErrors.append("Genome index not found: \(manifest.genome.indexPath)")
+                let indexPath = bundleURL.appendingPathComponent(genome.indexPath)
+                if !fileManager.fileExists(atPath: indexPath.path) {
+                    validationErrors.append("Genome index not found: \(genome.indexPath)")
+                }
             }
 
         } catch {

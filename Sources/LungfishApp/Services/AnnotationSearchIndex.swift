@@ -222,7 +222,7 @@ public final class AnnotationSearchIndex {
             database = db
             databaseTrackId = trackId
             bundleIdentifier = bundle.manifest.identifier
-            bundleGenomeTotalLength = bundle.manifest.genome.totalLength
+            bundleGenomeTotalLength = bundle.manifest.genome?.totalLength ?? 0
             annotationDatabases = [(trackId: trackId, db: db)]
             isBuilding = false
             let count = database?.totalCount() ?? 0
@@ -278,7 +278,7 @@ public final class AnnotationSearchIndex {
         database = nil
         databaseTrackId = ""
         bundleIdentifier = bundle.manifest.identifier
-        bundleGenomeTotalLength = bundle.manifest.genome.totalLength
+        bundleGenomeTotalLength = bundle.manifest.genome?.totalLength ?? 0
         rebuildBundleAliasMaps(from: bundle)
 
         for trackId in bundle.annotationTrackIds {
@@ -896,7 +896,7 @@ public final class AnnotationSearchIndex {
         bundleAliasGroupsByExact = [:]
         bundleAliasGroupsByCanonical = [:]
 
-        for chromosome in bundle.manifest.genome.chromosomes {
+        for chromosome in bundle.manifest.genome?.chromosomes ?? [] {
             var group = Set<String>()
             group.insert(chromosome.name)
             group.formUnion(chromosome.aliases)

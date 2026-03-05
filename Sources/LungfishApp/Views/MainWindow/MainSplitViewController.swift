@@ -897,8 +897,9 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     /// - Showing a `ChromosomeNavigatorView` for chromosome selection
     /// - Setting up the `ReferenceFrame` for the first chromosome
     /// - Configuring the `SequenceViewerView` for on-demand rendering
-    private func displayReferenceBundle(at url: URL) {
-        if viewerController.currentBundleDataProvider != nil,
+    private func displayReferenceBundle(at url: URL, forceReload: Bool = false) {
+        if !forceReload,
+           viewerController.currentBundleDataProvider != nil,
            viewerController.currentBundleURL?.standardizedFileURL == url.standardizedFileURL {
             logger.debug("displayReferenceBundle: '\(url.lastPathComponent, privacy: .public)' already displayed, skipping reload")
             viewerController.openAnnotationDrawerIfBundleHasData()
@@ -940,9 +941,9 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             return
         }
 
-        // Standalone VCF files use the VCF dataset dashboard
-        if isVCFFile(url) {
-            loadVCFDatasetInBackground(url: url)
+        // Standalone VCF files use the auto-ingestion pipeline
+        if Self.isVCFFile(url) {
+            loadVCFFilesInBackground(urls: [url])
             return
         }
 
@@ -973,7 +974,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     }
 
     /// Returns true if the URL points to a VCF file (by extension).
-    private func isVCFFile(_ url: URL) -> Bool {
+    static func isVCFFile(_ url: URL) -> Bool {
         var checkURL = url
         if checkURL.pathExtension.lowercased() == "gz" {
             checkURL = checkURL.deletingPathExtension()
@@ -981,45 +982,72 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         return checkURL.pathExtension.lowercased() == "vcf"
     }
 
-    /// Loads a standalone VCF file and displays the VCF dataset dashboard.
-    private func loadVCFDatasetInBackground(url: URL) {
-        logger.info("loadVCFDatasetInBackground: Loading '\(url.lastPathComponent, privacy: .public)'")
+    /// Loads one or more standalone VCF files into a single auto-ingested bundle.
+    func loadVCFFilesInBackground(urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        let fileCount = urls.count
+        logger.info("loadVCFFilesInBackground: Auto-ingesting \(fileCount) VCF file(s)")
 
         guard let viewerController = self.viewerController else {
-            logger.warning("loadVCFDatasetInBackground: Viewer controller not available")
+            logger.warning("loadVCFFilesInBackground: Viewer controller not available")
             return
         }
 
-        viewerController.showProgress("Analyzing VCF file...")
+        let label = fileCount == 1
+            ? "Importing VCF file\u{2026}"
+            : "Importing \(fileCount) VCF files\u{2026}"
+        viewerController.showProgress(label)
 
-        Task.detached(priority: .userInitiated) {
+        Task.detached(priority: .userInitiated) { [weak self] in
             do {
-                let reader = VCFReader()
-                let summary = try await reader.summarize(from: url)
-                let variants = try await reader.readAll(from: url)
+                let genomesDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                    .appendingPathComponent("Genomes", isDirectory: true)
+                try? FileManager.default.createDirectory(at: genomesDir, withIntermediateDirectories: true)
 
-                DispatchQueue.main.async { [weak viewerController, weak self] in
-                    MainActor.assumeIsolated {
-                        viewerController?.hideProgress()
-                        viewerController?.displayVCFDataset(
-                            summary: summary,
-                            variants: variants,
-                            onDownloadReference: { [weak self] inferredRef in
-                                self?.downloadReferenceForVCF(inferredRef, vcfURL: url)
+                let result = try await VCFAutoIngestor.ingest(
+                    vcfURLs: urls,
+                    outputDirectory: genomesDir,
+                    progressHandler: { progress, message in
+                        DispatchQueue.main.async { [weak viewerController] in
+                            MainActor.assumeIsolated {
+                                viewerController?.showProgress(message)
                             }
-                        )
-                        logger.info("loadVCFDatasetInBackground: Dashboard displayed with \(summary.variantCount) variants")
+                        }
+                    }
+                )
+
+                logger.info("loadVCFFilesInBackground: Bundle created at \(result.bundleURL.lastPathComponent, privacy: .public) with \(result.variantCount) variants from \(fileCount) file(s)")
+
+                let bundleURL = result.bundleURL
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        self?.displayReferenceBundle(at: bundleURL)
                     }
                 }
+
+                if !result.ncbiAccessions.isEmpty || result.inferredReference.accession != nil {
+                    let assemblyName = result.inferredReference.assembly ?? "reference"
+                    logger.info("loadVCFFilesInBackground: Starting background reference download for \(assemblyName, privacy: .public)")
+                    DispatchQueue.main.async { [weak self] in
+                        MainActor.assumeIsolated {
+                            self?.downloadReferenceForNakedBundle(
+                                inferredRef: result.inferredReference,
+                                ncbiAccessions: result.ncbiAccessions,
+                                bundleURL: result.bundleURL
+                            )
+                        }
+                    }
+                }
+
             } catch {
                 let errorMessage = "\(error)"
                 DispatchQueue.main.async { [weak viewerController] in
                     MainActor.assumeIsolated {
                         viewerController?.hideProgress()
-                        logger.error("loadVCFDatasetInBackground: Failed - \(errorMessage)")
+                        logger.error("loadVCFFilesInBackground: Failed - \(errorMessage)")
 
                         let alert = NSAlert()
-                        alert.messageText = "Failed to Analyze VCF File"
+                        alert.messageText = "Failed to Import VCF Files"
                         alert.informativeText = errorMessage
                         alert.alertStyle = .warning
                         alert.addButton(withTitle: "OK")
@@ -1028,6 +1056,193 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 }
             }
         }
+    }
+
+    /// Silently downloads reference genome for a naked (variant-only) bundle.
+    ///
+    /// Tries two strategies in order:
+    /// 1. NCBI Assembly search (gives full genome FASTA + GFF3 annotations)
+    /// 2. GenBank nucleotide fetch by accession (fallback for single-contig organisms)
+    ///
+    /// On completion, updates the bundle's manifest with genome info
+    /// and reloads the bundle in the viewer.
+    private func downloadReferenceForNakedBundle(
+        inferredRef: ReferenceInference.Result,
+        ncbiAccessions: [String],
+        bundleURL: URL
+    ) {
+        let assemblyName = inferredRef.assembly ?? ncbiAccessions.first ?? "Reference"
+
+        let downloadID = DownloadCenter.shared.start(
+            title: "\(assemblyName) Reference",
+            detail: "Searching NCBI\u{2026}"
+        )
+
+        Task.detached { [weak self] in
+            do {
+                let tempDir = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("lungfish-ref-\(UUID().uuidString)", isDirectory: true)
+                try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+                defer { try? FileManager.default.removeItem(at: tempDir) }
+
+                // Strategy 1: Try NCBI Assembly search
+                let tempBundleURL = try await Self.tryAssemblyDownload(
+                    inferredRef: inferredRef,
+                    outputDirectory: tempDir,
+                    downloadID: downloadID
+                )
+
+                if let sourceBundleURL = tempBundleURL {
+                    // Assembly download succeeded — merge into naked bundle
+                    try Self.mergeGenomeIntoBundle(
+                        sourceBundleURL: sourceBundleURL,
+                        targetBundleURL: bundleURL
+                    )
+                } else if let firstAccession = ncbiAccessions.first {
+                    // Strategy 2: Fall back to GenBank nucleotide fetch
+                    performOnMainRunLoop {
+                        DownloadCenter.shared.update(id: downloadID, progress: 0.15, detail: "Fetching \(firstAccession) from GenBank\u{2026}")
+                    }
+
+                    let genBankVM = GenBankBundleDownloadViewModel()
+                    let genBankBundleURL = try await genBankVM.downloadAndBuild(
+                        accession: firstAccession,
+                        outputDirectory: tempDir
+                    ) { progress, message in
+                        let scaledProgress = 0.15 + progress * 0.8
+                        performOnMainRunLoop {
+                            DownloadCenter.shared.update(id: downloadID, progress: scaledProgress, detail: message)
+                        }
+                    }
+
+                    try Self.mergeGenomeIntoBundle(
+                        sourceBundleURL: genBankBundleURL,
+                        targetBundleURL: bundleURL
+                    )
+                } else {
+                    performOnMainRunLoop {
+                        DownloadCenter.shared.fail(id: downloadID, detail: "No reference found for '\(assemblyName)'")
+                    }
+                    return
+                }
+
+                performOnMainRunLoop {
+                    DownloadCenter.shared.complete(id: downloadID, detail: "Reference genome added to bundle")
+                }
+
+                logger.info("downloadReferenceForNakedBundle: Genome merged into \(bundleURL.lastPathComponent, privacy: .public)")
+
+                // Reload the bundle in the viewer (force reload since URL hasn't changed)
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        self?.displayReferenceBundle(at: bundleURL, forceReload: true)
+                    }
+                }
+
+            } catch {
+                let errorMessage = "\(error)"
+                performOnMainRunLoop {
+                    DownloadCenter.shared.fail(id: downloadID, detail: errorMessage)
+                }
+                logger.error("downloadReferenceForNakedBundle: Failed - \(errorMessage)")
+            }
+        }
+    }
+
+    /// Attempts to download reference via NCBI Assembly search.
+    /// Returns the temp bundle URL on success, or nil if no assembly found.
+    private nonisolated static func tryAssemblyDownload(
+        inferredRef: ReferenceInference.Result,
+        outputDirectory: URL,
+        downloadID: UUID
+    ) async throws -> URL? {
+        guard let assembly = inferredRef.assembly else { return nil }
+
+        let searchTerm: String
+        if let accession = inferredRef.accession {
+            searchTerm = accession
+        } else {
+            searchTerm = "\(inferredRef.organism ?? assembly)[Organism] AND \(assembly)[Assembly Name]"
+        }
+
+        let ncbi = NCBIService()
+
+        performOnMainRunLoop {
+            DownloadCenter.shared.update(id: downloadID, progress: 0.05, detail: "Searching NCBI Assembly for \(assembly)\u{2026}")
+        }
+
+        let ids = try await ncbi.esearch(database: .assembly, term: searchTerm, retmax: 5)
+        guard !ids.isEmpty else {
+            logger.info("tryAssemblyDownload: No assembly found for '\(searchTerm, privacy: .public)', will try GenBank fallback")
+            return nil
+        }
+
+        performOnMainRunLoop {
+            DownloadCenter.shared.update(id: downloadID, progress: 0.1, detail: "Getting assembly info\u{2026}")
+        }
+
+        let summaries = try await ncbi.assemblyEsummary(ids: ids)
+        guard let assemblySummary = summaries.first else {
+            logger.info("tryAssemblyDownload: No assembly summary for ids=\(ids, privacy: .public), will try GenBank fallback")
+            return nil
+        }
+
+        performOnMainRunLoop {
+            DownloadCenter.shared.update(id: downloadID, progress: 0.15, detail: "Downloading genome files\u{2026}")
+        }
+
+        let viewModel = GenomeDownloadViewModel()
+        let bundleURL = try await viewModel.downloadAndBuild(
+            assembly: assemblySummary,
+            outputDirectory: outputDirectory
+        ) { progress, message in
+            let scaledProgress = 0.15 + progress * 0.8
+            performOnMainRunLoop {
+                DownloadCenter.shared.update(id: downloadID, progress: scaledProgress, detail: message)
+            }
+        }
+
+        return bundleURL
+    }
+
+    /// Merges genome files from a fully-built temp bundle into a naked (variant-only) bundle.
+    private nonisolated static func mergeGenomeIntoBundle(sourceBundleURL: URL, targetBundleURL: URL) throws {
+        let fm = FileManager.default
+
+        // Load source manifest to get genome info and annotation tracks
+        let sourceManifest = try BundleManifest.load(from: sourceBundleURL)
+
+        // Copy genome directory (remove existing first, ignore if absent)
+        let sourceGenomeDir = sourceBundleURL.appendingPathComponent("genome")
+        let targetGenomeDir = targetBundleURL.appendingPathComponent("genome")
+        try? fm.removeItem(at: targetGenomeDir)
+        try fm.copyItem(at: sourceGenomeDir, to: targetGenomeDir)
+
+        // Copy annotation files (remove existing first, ignore if absent)
+        let sourceAnnoDir = sourceBundleURL.appendingPathComponent("annotations")
+        let targetAnnoDir = targetBundleURL.appendingPathComponent("annotations")
+        try? fm.removeItem(at: targetAnnoDir)
+        if fm.fileExists(atPath: sourceAnnoDir.path) {
+            try fm.copyItem(at: sourceAnnoDir, to: targetAnnoDir)
+        }
+
+        // Update target manifest: add genome + annotations from source, keep existing variants
+        let targetManifest = try BundleManifest.load(from: targetBundleURL)
+        let updatedManifest = BundleManifest(
+            formatVersion: targetManifest.formatVersion,
+            name: sourceManifest.name.isEmpty ? targetManifest.name : sourceManifest.name,
+            identifier: targetManifest.identifier,
+            description: targetManifest.description,
+            createdDate: targetManifest.createdDate,
+            modifiedDate: Date(),
+            source: sourceManifest.source,
+            genome: sourceManifest.genome,
+            annotations: sourceManifest.annotations,
+            variants: targetManifest.variants,
+            alignments: targetManifest.alignments,
+            metadata: targetManifest.metadata
+        )
+        try updatedManifest.save(to: targetBundleURL)
     }
 
     /// Handles "Download Reference" from the VCF dashboard.

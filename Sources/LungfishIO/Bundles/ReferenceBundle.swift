@@ -92,15 +92,17 @@ public final class ReferenceBundle: Sendable {
             throw ReferenceBundleError.validationFailed(validationErrors)
         }
 
-        // Verify essential files exist
-        let genomeURL = url.appendingPathComponent(manifest.genome.path)
-        guard FileManager.default.fileExists(atPath: genomeURL.path) else {
-            throw ReferenceBundleError.missingFile(manifest.genome.path)
-        }
+        // Verify essential genome files exist (variant-only bundles skip this).
+        if let genome = manifest.genome {
+            let genomeURL = url.appendingPathComponent(genome.path)
+            guard FileManager.default.fileExists(atPath: genomeURL.path) else {
+                throw ReferenceBundleError.missingFile(genome.path)
+            }
 
-        let indexURL = url.appendingPathComponent(manifest.genome.indexPath)
-        guard FileManager.default.fileExists(atPath: indexURL.path) else {
-            throw ReferenceBundleError.missingFile(manifest.genome.indexPath)
+            let indexURL = url.appendingPathComponent(genome.indexPath)
+            guard FileManager.default.fileExists(atPath: indexURL.path) else {
+                throw ReferenceBundleError.missingFile(genome.indexPath)
+            }
         }
 
         logger.info("Opened bundle: \(self.manifest.name) (\(self.manifest.identifier))")
@@ -144,7 +146,7 @@ public final class ReferenceBundle: Sendable {
 
     /// List of chromosome names in the bundle.
     public var chromosomeNames: [String] {
-        manifest.genome.chromosomes.map { $0.name }
+        manifest.genome?.chromosomes.map { $0.name } ?? []
     }
 
     /// Returns information about a specific chromosome.
@@ -152,7 +154,7 @@ public final class ReferenceBundle: Sendable {
     /// - Parameter name: Chromosome name (e.g., "chr1")
     /// - Returns: Chromosome information, or nil if not found
     public func chromosome(named name: String) -> ChromosomeInfo? {
-        manifest.genome.chromosomes.first { chrom in
+        manifest.genome?.chromosomes.first { chrom in
             chrom.name == name || chrom.aliases.contains(name)
         }
     }
@@ -175,6 +177,11 @@ public final class ReferenceBundle: Sendable {
     /// - Returns: The sequence string for the region
     /// - Throws: `ReferenceBundleError` if the sequence cannot be fetched
     public func fetchSequence(region: GenomicRegion) async throws -> String {
+        // Variant-only bundle — no sequence data available
+        guard let genome = manifest.genome else {
+            return ""
+        }
+
         // Validate chromosome exists
         guard let chromInfo = chromosome(named: region.chromosome) else {
             throw ReferenceBundleError.chromosomeNotFound(region.chromosome)
@@ -185,24 +192,24 @@ public final class ReferenceBundle: Sendable {
             throw ReferenceBundleError.regionOutOfBounds(region, chromInfo.length)
         }
 
-        let genomeURL = url.appendingPathComponent(manifest.genome.path)
-        let faiURL = url.appendingPathComponent(manifest.genome.indexPath)
+        let genomeURL = url.appendingPathComponent(genome.path)
+        let faiURL = url.appendingPathComponent(genome.indexPath)
 
         // Check if we have a bgzip-compressed file with GZI index
-        if let gzipIndexPath = manifest.genome.gzipIndexPath {
+        if let gzipIndexPath = genome.gzipIndexPath {
             let gziURL = url.appendingPathComponent(gzipIndexPath)
-            
+
             // Use bgzip-aware reader for random access to compressed files
             let reader = try await BgzipIndexedFASTAReader(url: genomeURL, faiURL: faiURL, gziURL: gziURL)
             let sequence = try await reader.fetch(region: region)
-            
+
             logger.debug("Fetched sequence (bgzip): \(region.chromosome):\(region.start)-\(region.end) (\(sequence.count) bp)")
             return sequence
         } else {
             // Fall back to uncompressed indexed FASTA reader
             let reader = try IndexedFASTAReader(url: genomeURL, indexURL: faiURL)
             let sequence = try await reader.fetch(region: region)
-            
+
             logger.debug("Fetched sequence: \(region.chromosome):\(region.start)-\(region.end) (\(sequence.count) bp)")
             return sequence
         }
@@ -219,6 +226,11 @@ public final class ReferenceBundle: Sendable {
     public func fetchSequenceSync(region: GenomicRegion) throws -> String {
         logger.info("fetchSequenceSync: START \(region.description)")
 
+        // Variant-only bundle — no sequence data available
+        guard let genome = manifest.genome else {
+            return ""
+        }
+
         // Validate chromosome exists
         guard let chromInfo = chromosome(named: region.chromosome) else {
             logger.error("fetchSequenceSync: Chromosome '\(region.chromosome)' not found in manifest")
@@ -231,11 +243,11 @@ public final class ReferenceBundle: Sendable {
             throw ReferenceBundleError.regionOutOfBounds(region, chromInfo.length)
         }
 
-        let genomeURL = url.appendingPathComponent(manifest.genome.path)
-        let faiURL = url.appendingPathComponent(manifest.genome.indexPath)
+        let genomeURL = url.appendingPathComponent(genome.path)
+        let faiURL = url.appendingPathComponent(genome.indexPath)
 
         // Check if we have a bgzip-compressed file with GZI index
-        if let gzipIndexPath = manifest.genome.gzipIndexPath {
+        if let gzipIndexPath = genome.gzipIndexPath {
             let gziURL = url.appendingPathComponent(gzipIndexPath)
 
             logger.info("fetchSequenceSync: Creating SyncBgzipFASTAReader for \(genomeURL.lastPathComponent)")
@@ -526,7 +538,8 @@ public final class ReferenceBundle: Sendable {
     /// Returns the absolute path to the reference FASTA within this bundle, if it exists.
     /// Needed by `AlignmentDataProvider` for CRAM file access.
     public func referenceFASTAPath() -> String? {
-        let fastaURL = url.appendingPathComponent(manifest.genome.path)
+        guard let genome = manifest.genome else { return nil }
+        let fastaURL = url.appendingPathComponent(genome.path)
         return FileManager.default.fileExists(atPath: fastaURL.path) ? fastaURL.path : nil
     }
 

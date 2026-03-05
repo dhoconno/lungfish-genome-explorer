@@ -984,12 +984,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     @objc func importVCFToBundle(_ sender: Any?) {
         debugLog("importVCFToBundle: Menu action triggered")
 
-        // Require a bundle to be loaded
-        guard let viewerController = mainWindowController?.mainSplitViewController?.viewerController,
-              let bundleURL = viewerController.currentBundleURL else {
-            showAlert(title: "No Bundle Loaded", message: "Please open a reference genome bundle before importing VCF variants.")
-            return
-        }
+        let viewerController = mainWindowController?.mainSplitViewController?.viewerController
+        let bundleURL = viewerController?.currentBundleURL
 
         guard let window = mainWindowController?.window else {
             debugLog("importVCFToBundle: No main window available")
@@ -1000,7 +996,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true
         var vcfTypes: [UTType] = []
         if let vcfType = UTType(filenameExtension: "vcf") {
             vcfTypes.append(vcfType)
@@ -1011,16 +1007,31 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
         panel.allowedContentTypes = vcfTypes
         panel.allowsOtherFileTypes = true
-        panel.message = "Select a VCF file to import into the current bundle"
+        panel.message = bundleURL != nil
+            ? "Select VCF file(s) to import into the current bundle"
+            : "Select VCF file(s) to open"
         panel.prompt = "Import"
 
         panel.beginSheetModal(for: window) { [weak self] response in
-            guard response == .OK, let vcfURL = panel.url else {
+            guard response == .OK else {
                 debugLog("importVCFToBundle: User cancelled")
                 return
             }
-            debugLog("importVCFToBundle: Selected \(vcfURL.lastPathComponent)")
-            self?.performVCFImport(vcfURL: vcfURL, bundleURL: bundleURL)
+            let selectedURLs = panel.urls
+            guard !selectedURLs.isEmpty else { return }
+            debugLog("importVCFToBundle: Selected \(selectedURLs.count) file(s)")
+
+            if let bundleURL {
+                // Existing bundle loaded — import into it (use first file for backward compat)
+                if let firstURL = selectedURLs.first {
+                    self?.performVCFImport(vcfURL: firstURL, bundleURL: bundleURL)
+                }
+            } else {
+                // No bundle loaded — auto-ingest into a new naked bundle
+                if let mainSplit = self?.mainWindowController?.mainSplitViewController {
+                    mainSplit.loadVCFFilesInBackground(urls: selectedURLs)
+                }
+            }
         }
     }
 
@@ -1344,7 +1355,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 let currentManifestForChrom = try BundleManifest.load(from: bundleURL)
                 let rwDB = try VariantDatabase(url: dbURL, readWrite: true)
                 let vcfChroms = rwDB.allChromosomes()
-                let chromMapping = mapVCFChromosomes(vcfChroms, toBundleChromosomes: currentManifestForChrom.genome.chromosomes)
+                let chromMapping = mapVCFChromosomes(vcfChroms, toBundleChromosomes: currentManifestForChrom.genome?.chromosomes ?? [])
                 if !chromMapping.isEmpty {
                     try rwDB.renameChromosomes(chromMapping)
                     debugLog("performVCFImport: Remapped chromosomes: \(chromMapping)")
@@ -2624,9 +2635,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return true
         }
 
-        // "Import VCF Variants..." and "Import BAM/CRAM Alignments..." are only enabled when a bundle is loaded
-        if menuItem.action == #selector(importVCFToBundle(_:))
-            || menuItem.action == #selector(importBAMToBundle(_:))
+        // "Import VCF Variants..." is always enabled (auto-ingest creates bundle if needed)
+        if menuItem.action == #selector(importVCFToBundle(_:)) {
+            return true
+        }
+
+        // "Import BAM/CRAM Alignments..." and sample metadata require a loaded bundle
+        if menuItem.action == #selector(importBAMToBundle(_:))
             || menuItem.action == #selector(importSampleMetadataToBundle(_:)) {
             let hasBundle = mainWindowController?.mainSplitViewController?.viewerController?.currentBundleURL != nil
             return hasBundle

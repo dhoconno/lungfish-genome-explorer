@@ -940,15 +940,15 @@ final class CrossModuleTests: XCTestCase {
         XCTAssertEqual(loaded.source.database, "NCBI")
 
         // Verify genome info
-        XCTAssertEqual(loaded.genome.path, "genome/sequence.fa.gz")
-        XCTAssertEqual(loaded.genome.indexPath, "genome/sequence.fa.gz.fai")
-        XCTAssertEqual(loaded.genome.gzipIndexPath, "genome/sequence.fa.gz.gzi")
-        XCTAssertEqual(loaded.genome.totalLength, 3_088_286_401)
-        XCTAssertEqual(loaded.genome.md5Checksum, "abc123def456")
+        XCTAssertEqual(loaded.genome!.path, "genome/sequence.fa.gz")
+        XCTAssertEqual(loaded.genome!.indexPath, "genome/sequence.fa.gz.fai")
+        XCTAssertEqual(loaded.genome!.gzipIndexPath, "genome/sequence.fa.gz.gzi")
+        XCTAssertEqual(loaded.genome!.totalLength, 3_088_286_401)
+        XCTAssertEqual(loaded.genome!.md5Checksum, "abc123def456")
 
         // Verify chromosomes
-        XCTAssertEqual(loaded.genome.chromosomes.count, 2)
-        let chr1 = loaded.genome.chromosomes[0]
+        XCTAssertEqual(loaded.genome!.chromosomes.count, 2)
+        let chr1 = loaded.genome!.chromosomes[0]
         XCTAssertEqual(chr1.name, "chr1")
         XCTAssertEqual(chr1.length, 248_956_422)
         XCTAssertEqual(chr1.offset, 6)
@@ -958,7 +958,7 @@ final class CrossModuleTests: XCTestCase {
         XCTAssertTrue(chr1.isPrimary)
         XCTAssertFalse(chr1.isMitochondrial)
 
-        let chrM = loaded.genome.chromosomes[1]
+        let chrM = loaded.genome!.chromosomes[1]
         XCTAssertEqual(chrM.name, "chrM")
         XCTAssertEqual(chrM.length, 16_569)
         XCTAssertTrue(chrM.isMitochondrial)

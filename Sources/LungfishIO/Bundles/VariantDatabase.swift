@@ -3443,10 +3443,10 @@ public final class VariantDatabase: @unchecked Sendable {
                 // Parse header line for sample names
                 if line.hasPrefix("#CHROM") {
                     let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
+                    let srcFile = sourceFile ?? vcfURL.lastPathComponent
                     if fields.count > 9 {
                         sampleNames = fields.dropFirst(9).map(String.init)
                         // Insert sample records
-                        let srcFile = sourceFile ?? vcfURL.lastPathComponent
                         for sampleName in sampleNames {
                             sqlite3_reset(insertSampleStmt)
                             sqliteBindText(insertSampleStmt, 1, sampleName)
@@ -3456,6 +3456,18 @@ public final class VariantDatabase: @unchecked Sendable {
                             writesSinceCommit += 1
                         }
                         variantDBLogger.info("createFromVCF: Found \(sampleNames.count) samples")
+                    } else {
+                        // No sample columns (e.g. LoFreq) — create a synthetic sample
+                        // using the VCF filename so multi-file merges can be tracked
+                        let syntheticName = URL(fileURLWithPath: srcFile).deletingPathExtension().lastPathComponent
+                        sampleNames = [syntheticName]
+                        sqlite3_reset(insertSampleStmt)
+                        sqliteBindText(insertSampleStmt, 1, syntheticName)
+                        sqliteBindText(insertSampleStmt, 2, syntheticName)
+                        sqliteBindText(insertSampleStmt, 3, srcFile)
+                        sqlite3_step(insertSampleStmt)
+                        writesSinceCommit += 1
+                        variantDBLogger.info("createFromVCF: No sample columns — created synthetic sample '\(syntheticName, privacy: .public)'")
                     }
 
                     // Store contig lengths from ##contig header lines for chromosome alias mapping.
@@ -3745,6 +3757,30 @@ public final class VariantDatabase: @unchecked Sendable {
                     sqlite3_step(updateSampleCountStmt)
                     writesSinceCommit += 1
                 }
+            } else if parseGenotypes && fields.count <= 9 && !sampleNames.isEmpty {
+                // No-sample VCF (e.g. LoFreq): create a synthetic genotype record
+                // linking this variant to the synthetic sample so sample filtering works.
+                let syntheticName = sampleNames[0]
+                sqlite3_reset(insertGenotypeStmt)
+                sqlite3_bind_int64(insertGenotypeStmt, 1, variantRowId)
+                sqliteBindText(insertGenotypeStmt, 2, syntheticName)
+                sqlite3_bind_null(insertGenotypeStmt, 3)   // genotype (no GT field)
+                sqlite3_bind_int(insertGenotypeStmt, 4, 1) // allele1 = alt
+                sqlite3_bind_int(insertGenotypeStmt, 5, 1) // allele2 = alt
+                sqlite3_bind_int(insertGenotypeStmt, 6, 0) // not phased
+                sqlite3_bind_null(insertGenotypeStmt, 7)    // depth
+                sqlite3_bind_null(insertGenotypeStmt, 8)    // GQ
+                sqlite3_bind_null(insertGenotypeStmt, 9)    // AD
+                sqlite3_bind_null(insertGenotypeStmt, 10)   // raw_fields
+                sqlite3_step(insertGenotypeStmt)
+                writesSinceCommit += 1
+
+                // Set sample_count = 1
+                sqlite3_reset(updateSampleCountStmt)
+                sqlite3_bind_int(updateSampleCountStmt, 1, 1)
+                sqlite3_bind_int64(updateSampleCountStmt, 2, variantRowId)
+                sqlite3_step(updateSampleCountStmt)
+                writesSinceCommit += 1
             }
 
             rotateImportTransactionIfNeeded()

@@ -51,6 +51,10 @@ public struct SampleDisplayState: Sendable, Codable, Equatable {
     /// Name of the selected color theme. Maps to `VariantColorTheme.named(_:)`.
     public var colorThemeName: String = VariantColorTheme.modern.name
 
+    /// User-specified override for the sample name gutter width in pixels.
+    /// When nil, the gutter auto-sizes to fit the longest sample name.
+    public var sampleGutterWidthOverride: CGFloat?
+
     /// Named groups of samples for comparison analysis.
     public var sampleGroups: [SampleGroup] = []
 
@@ -91,7 +95,7 @@ public struct SampleDisplayState: Sendable, Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case sortFields, filters, hiddenSamples, showGenotypeRows, showSummaryBar
         case rowHeight, summaryBarHeight, sampleOrder, displayNameField, colorThemeName
-        case sampleGroups
+        case sampleGroups, sampleGutterWidthOverride
     }
 
     public init(from decoder: Decoder) throws {
@@ -107,6 +111,7 @@ public struct SampleDisplayState: Sendable, Codable, Equatable {
         displayNameField = try container.decodeIfPresent(String.self, forKey: .displayNameField)
         colorThemeName = try container.decodeIfPresent(String.self, forKey: .colorThemeName) ?? VariantColorTheme.modern.name
         sampleGroups = try container.decodeIfPresent([SampleGroup].self, forKey: .sampleGroups) ?? []
+        sampleGutterWidthOverride = try container.decodeIfPresent(CGFloat.self, forKey: .sampleGutterWidthOverride)
 
         let decodedHeight = try container.decodeIfPresent(CGFloat.self, forKey: .rowHeight) ?? Self.defaultRowHeight
         rowHeight = Self.clampRowHeight(decodedHeight)
@@ -127,6 +132,7 @@ public struct SampleDisplayState: Sendable, Codable, Equatable {
         if !sampleGroups.isEmpty {
             try container.encode(sampleGroups, forKey: .sampleGroups)
         }
+        try container.encodeIfPresent(sampleGutterWidthOverride, forKey: .sampleGutterWidthOverride)
     }
 
     /// Returns the ordered, filtered list of sample names to display.

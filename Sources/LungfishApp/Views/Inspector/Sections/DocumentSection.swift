@@ -138,7 +138,9 @@ public struct DocumentSection: View {
             Divider()
 
             // Genome summary
-            genomeSection(manifest.genome, annotations: manifest.annotations, variants: manifest.variants)
+            if let genome = manifest.genome {
+                genomeSection(genome, annotations: manifest.annotations, variants: manifest.variants)
+            }
 
             // Extended metadata groups
             if let groups = manifest.metadata, !groups.isEmpty {

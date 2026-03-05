@@ -66,7 +66,7 @@ public final class BundleDataProvider {
 
     /// Chromosomes from the bundle manifest.
     public var chromosomes: [ChromosomeInfo] {
-        manifest.genome.chromosomes
+        manifest.genome?.chromosomes ?? []
     }
 
     /// The bundle name from the manifest.
@@ -94,7 +94,7 @@ public final class BundleDataProvider {
     /// - Parameter name: Chromosome name (e.g., "chr1")
     /// - Returns: The chromosome info, or `nil` if not found
     public func chromosomeInfo(named name: String) -> ChromosomeInfo? {
-        manifest.genome.chromosomes.first { $0.name == name || $0.aliases.contains(name) }
+        manifest.genome?.chromosomes.first { $0.name == name || $0.aliases.contains(name) }
     }
 
     /// Fetches sequence bases for a genomic region.

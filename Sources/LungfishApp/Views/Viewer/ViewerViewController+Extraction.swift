@@ -346,7 +346,7 @@ extension SequenceViewerView {
         var sourceVariantTracks: [SequenceExtractionPipeline.SourceVariantTrack] = []
         var sourceBundleChromosomes: [ChromosomeInfo] = []
         if let bundle = currentReferenceBundle {
-            sourceBundleChromosomes = bundle.manifest.genome.chromosomes
+            sourceBundleChromosomes = bundle.manifest.genome?.chromosomes ?? []
             sourceAnnotationTracks = bundle.annotationTrackIds.compactMap { trackID in
                 guard let trackInfo = bundle.annotationTrack(id: trackID),
                       let dbPath = trackInfo.databasePath else {

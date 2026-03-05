@@ -366,7 +366,9 @@ public class ViewerViewController: NSViewController {
         // Update reference frame width immediately (needed for correct rendering)
         if let frame = referenceFrame, viewerView.bounds.width > 0 {
             frame.pixelWidth = Int(viewerView.bounds.width)
-            logger.debug("viewDidLayout: Updated referenceFrame width to \(frame.pixelWidth)")
+            frame.leadingInset = viewerView.variantDataStartX
+            frame.trailingInset = 12
+            logger.debug("viewDidLayout: Updated referenceFrame width to \(frame.pixelWidth) inset=\(frame.leadingInset)")
         }
 
         // Coalesce rapid layout changes: schedule a deferred redraw that fires
@@ -396,6 +398,8 @@ public class ViewerViewController: NSViewController {
                 guard let self else { return }
                 if let frame = self.referenceFrame, self.viewerView.bounds.width > 0 {
                     frame.pixelWidth = Int(self.viewerView.bounds.width)
+                    frame.leadingInset = self.viewerView.variantDataStartX
+                    frame.trailingInset = 12
                 }
                 if syncStackedSequences,
                    let stackedSeqs = self.viewerView.multiSequenceState?.stackedSequences,
@@ -1054,6 +1058,8 @@ public class ViewerViewController: NSViewController {
         // Update reference frame to match the new view size
         if let frame = referenceFrame, viewerView.bounds.width > 0 {
             frame.pixelWidth = Int(viewerView.bounds.width)
+            frame.leadingInset = viewerView.variantDataStartX
+            frame.trailingInset = 12
         }
 
         // Invalidate the pre-rendered tile — its dimensions are stale
@@ -1612,8 +1618,12 @@ public class ViewerViewController: NSViewController {
         view.layoutSubtreeIfNeeded()
         let effectiveWidth = max(800, Int(viewerView.bounds.width))
 
-        // Get the first chromosome to display
-        guard let firstChrom = bundle.manifest.genome.chromosomes.first else {
+        // Get the first chromosome to display (from genome or synthesized from variants)
+        var chromosomes = bundle.manifest.genome?.chromosomes ?? []
+        if chromosomes.isEmpty && !bundle.manifest.variants.isEmpty {
+            chromosomes = Self.synthesizeChromosomesFromVariants(bundle: bundle)
+        }
+        guard let firstChrom = chromosomes.first else {
             logger.error("displayReferenceBundle: No chromosomes in bundle")
             return
         }
@@ -1660,7 +1670,15 @@ public class ViewerViewController: NSViewController {
 
     /// Zooms in on the current view
     public func zoomIn() {
-        referenceFrame?.zoomIn(factor: 2.0)
+        guard let frame = referenceFrame else { return }
+        let insetPx = Double(viewerView.navigationLeadingInsetPixels)
+        let pw = Double(max(1, frame.pixelWidth))
+        // Visual center of the data area (excluding gutter)
+        let dataCenterFraction = (insetPx + pw) / (2.0 * pw)
+        let center = frame.start + (frame.end - frame.start) * dataCenterFraction
+        let halfWidth = (frame.end - frame.start) / (2 * 2.0)
+        frame.start = max(0, center - halfWidth)
+        frame.end = min(Double(frame.sequenceLength), center + halfWidth)
         viewerView.setNeedsDisplay(viewerView.bounds)
         enhancedRulerView.setNeedsDisplay(enhancedRulerView.bounds)
         updateStatusBar()
@@ -1669,7 +1687,24 @@ public class ViewerViewController: NSViewController {
 
     /// Zooms out from the current view
     public func zoomOut() {
-        referenceFrame?.zoomOut(factor: 2.0)
+        guard let frame = referenceFrame else { return }
+        let insetPx = Double(viewerView.navigationLeadingInsetPixels)
+        let pw = Double(max(1, frame.pixelWidth))
+        let dataCenterFraction = (insetPx + pw) / (2.0 * pw)
+        let center = frame.start + (frame.end - frame.start) * dataCenterFraction
+        let halfWidth = (frame.end - frame.start) * 2.0 / 2
+        var newStart = center - halfWidth
+        var newEnd = center + halfWidth
+        if newStart < 0 {
+            newStart = 0
+            newEnd = min(Double(frame.sequenceLength), newStart + halfWidth * 2)
+        }
+        if newEnd > Double(frame.sequenceLength) {
+            newEnd = Double(frame.sequenceLength)
+            newStart = max(0, newEnd - halfWidth * 2)
+        }
+        frame.start = newStart
+        frame.end = newEnd
         viewerView.setNeedsDisplay(viewerView.bounds)
         enhancedRulerView.setNeedsDisplay(enhancedRulerView.bounds)
         updateStatusBar()
@@ -1861,15 +1896,33 @@ public class ViewerViewController: NSViewController {
     func handleFileDrop(_ urls: [URL]) {
         logger.info("handleFileDrop: Received \(urls.count) URLs")
 
-        // Process files sequentially
-        guard let firstURL = urls.first else {
+        guard !urls.isEmpty else {
             logger.warning("handleFileDrop: No URLs to process")
             return
         }
 
+        // Separate VCF files from other file types
+        let vcfURLs = urls.filter { isVCFFile($0) }
+        let otherURLs = urls.filter { !isVCFFile($0) }
+
+        // Route VCF files through MainSplitViewController's auto-ingest pipeline
+        if !vcfURLs.isEmpty {
+            logger.info("handleFileDrop: Routing \(vcfURLs.count) VCF files to auto-ingest pipeline")
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    if let appDelegate = NSApp.delegate as? AppDelegate,
+                       let mainSplit = appDelegate.mainWindowController?.mainSplitViewController {
+                        mainSplit.loadVCFFilesInBackground(urls: vcfURLs)
+                    }
+                }
+            }
+        }
+
+        // Process non-VCF files through the standard path
+        guard let firstURL = otherURLs.first else { return }
+
         logger.info("handleFileDrop: Processing '\(firstURL.lastPathComponent, privacy: .public)'")
 
-        // Get the project/working directory to determine if file is internal or external
         let projectURL = DocumentManager.shared.activeProject?.url
         let workingURL = (NSApp.delegate as? AppDelegate)?.getWorkingDirectoryURL()
 
@@ -1882,15 +1935,10 @@ public class ViewerViewController: NSViewController {
             isInternalFile = false
         }
 
-        logger.info("handleFileDrop: isInternalFile=\(isInternalFile)")
-
-        // Use DispatchQueue.main.async to exit the drag operation context first,
-        // then use Task to avoid deadlock with @MainActor DocumentManager
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated {
                 guard let self = self else { return }
 
-                // Show progress after exiting drag context
                 self.showProgress("Loading \(firstURL.lastPathComponent)...")
 
                 Task { @MainActor [weak self] in
@@ -1900,11 +1948,9 @@ public class ViewerViewController: NSViewController {
                     let urlToLoad: URL
 
                     if isInternalFile {
-                        // File is already in project, load directly
                         urlToLoad = firstURL
                         logger.info("handleFileDrop: Loading internal file directly")
                     } else {
-                        // External file - copy to project downloads folder
                         logger.info("handleFileDrop: External file, copying to project")
                         urlToLoad = try await self.copyExternalFileToProject(firstURL, projectURL: projectURL, workingURL: workingURL)
                     }
@@ -1914,20 +1960,15 @@ public class ViewerViewController: NSViewController {
                     self.hideProgress()
                     self.displayDocument(document)
 
-                    // With filesystem-backed sidebar: if file is inside project, watcher handles refresh
-                    // Otherwise add to "Open Documents" section
                     if let appDelegate = NSApp.delegate as? AppDelegate,
                        let sidebarController = appDelegate.mainWindowController?.mainSplitViewController?.sidebarController {
                         if let projectURL = sidebarController.currentProjectURL {
                             let docPath = document.url.standardizedFileURL.path
                             let projectPath = projectURL.standardizedFileURL.path
                             if !docPath.hasPrefix(projectPath) {
-                                // File is outside project - add to sidebar
                                 sidebarController.addLoadedDocument(document)
                             }
-                            // Else: File is inside project, FileSystemWatcher handles it
                         } else {
-                            // No project open - add to sidebar
                             sidebarController.addLoadedDocument(document)
                         }
                     }
@@ -1945,6 +1986,10 @@ public class ViewerViewController: NSViewController {
                 } // end Task
             } // end MainActor.assumeIsolated
         }
+    }
+
+    private func isVCFFile(_ url: URL) -> Bool {
+        MainSplitViewController.isVCFFile(url)
     }
 
     /// Copies an external file into the project's downloads folder
@@ -2632,6 +2677,9 @@ public class SequenceViewerView: NSView {
         return state
     }()
 
+    /// Whether the user is dragging the sample gutter edge.
+    private var isDraggingGutterEdge: Bool = false
+
     /// Number of samples in the current variant database (cached for layout).
     private var cachedSampleCount: Int = 0
 
@@ -2645,6 +2693,21 @@ public class SequenceViewerView: NSView {
             sampleNames: sampleNames,
             sampleDisplayNames: cachedGenotypeSampleDisplayNames
         )
+    }
+
+    /// The X pixel where variant data begins (after sample gutter + margin).
+    /// Returns 0 when genotype rows are hidden or no samples exist.
+    var variantDataStartX: CGFloat {
+        guard sampleDisplayState.showGenotypeRows, sampleDisplayState.rowHeight >= 8 else { return 0 }
+        let sampleNames = cachedGenotypeData?.sampleNames ?? []
+        guard !sampleNames.isEmpty else { return 0 }
+        let gutterW = VariantTrackRenderer.sampleLabelGutterWidth(
+            samples: sampleNames,
+            sampleDisplayNames: cachedGenotypeSampleDisplayNames,
+            rowHeight: sampleDisplayState.rowHeight,
+            override: sampleDisplayState.sampleGutterWidthOverride
+        )
+        return gutterW + VariantTrackRenderer.sampleLabelToDataMargin
     }
 
     /// Vertical scroll offset for genotype rows (in pixels).
@@ -3275,7 +3338,7 @@ public class SequenceViewerView: NSView {
 
                     // Fast path: name/alias/contig-length matching only.
                     let aliasMap = Self.buildVariantChromosomeAliasMap(
-                        bundleChromosomes: bundle.manifest.genome.chromosomes,
+                        bundleChromosomes: bundle.manifest.genome?.chromosomes ?? [],
                         variantDB: db,
                         logger: logger,
                         includeMaxPositionFallback: false
@@ -3326,7 +3389,7 @@ public class SequenceViewerView: NSView {
         // Build alignment chromosome alias map from metadata databases
         if !alignmentDataProviders.isEmpty {
             self.alignmentChromosomeAliasMap = Self.buildAlignmentChromosomeAliasMap(
-                bundleChromosomes: bundle.manifest.genome.chromosomes,
+                bundleChromosomes: bundle.manifest.genome?.chromosomes ?? [],
                 alignmentTracks: bundle.manifest.alignments,
                 bundleURL: bundle.url,
                 logger: logger
@@ -3482,6 +3545,10 @@ public class SequenceViewerView: NSView {
         logger.debug("SequenceViewerView.draw: hasVC=\(hasVC), hasFrame=\(hasFrame), hasBundle=\(hasBundle), bounds=\(self.bounds.width)x\(self.bounds.height)")
         
         if let frame = viewController?.referenceFrame {
+            // Update leading inset for sample name gutter (affects all coordinate mapping)
+            frame.leadingInset = variantDataStartX
+            frame.trailingInset = 12
+
             if shouldDrawMultiSequence, let state = multiSequenceState {
                 // Multi-sequence mode: draw stacked sequences with per-sequence annotations
                 logger.debug("SequenceViewerView.draw: Drawing \(state.stackedSequences.count) stacked sequences")
@@ -3996,6 +4063,41 @@ public class SequenceViewerView: NSView {
             }
         }
 
+        // Draw gutter background overlays for non-variant content areas
+        // (sequence track, annotation track). The variant track handles its own gutter.
+        let gutterInset = frame.leadingInset
+        let contentTop: CGFloat = 0
+        let contentBottom = variantTrackY
+        let contentHeight = max(0, contentBottom - contentTop)
+
+        if gutterInset > 0 && contentHeight > 0 {
+            // Left gutter background
+            context.setFillColor(CGColor(red: 0.96, green: 0.96, blue: 0.96, alpha: 1.0))
+            context.fill(CGRect(x: 0, y: contentTop, width: gutterInset, height: contentHeight))
+            // Left vertical separator
+            context.setStrokeColor(CGColor(red: 0.82, green: 0.82, blue: 0.82, alpha: 1.0))
+            context.setLineWidth(0.5)
+            let sepX = gutterInset - VariantTrackRenderer.sampleLabelToDataMargin / 2
+            context.move(to: CGPoint(x: sepX, y: contentTop))
+            context.addLine(to: CGPoint(x: sepX, y: contentBottom))
+            context.strokePath()
+        }
+
+        // Right margin overlay — clean visual boundary before inspector
+        let trailingInset = frame.trailingInset
+        if trailingInset > 0 {
+            let rightX = bounds.width - trailingInset
+            // Right margin background (full height)
+            context.setFillColor(NSColor.windowBackgroundColor.cgColor)
+            context.fill(CGRect(x: rightX, y: 0, width: trailingInset, height: bounds.height))
+            // Right vertical separator
+            context.setStrokeColor(CGColor(red: 0.82, green: 0.82, blue: 0.82, alpha: 1.0))
+            context.setLineWidth(0.5)
+            context.move(to: CGPoint(x: rightX + 0.5, y: 0))
+            context.addLine(to: CGPoint(x: rightX + 0.5, y: bounds.height))
+            context.strokePath()
+        }
+
         // Draw selection overlays on top of all content
         drawColumnSelectionHighlight(frame: frame, context: context)
         drawSelectedReadHighlights(frame: frame, context: context)
@@ -4225,7 +4327,7 @@ public class SequenceViewerView: NSView {
         onComplete: @escaping @MainActor @Sendable ([String: String]) -> Void
     ) {
         guard !bundle.variantTrackIds.isEmpty else { return }
-        let bundleChromosomes = bundle.manifest.genome.chromosomes
+        let bundleChromosomes = bundle.manifest.genome?.chromosomes ?? []
         let initial = initialAliasMap
 
         variantAliasWarmupQueue.async {
@@ -4754,20 +4856,20 @@ public class SequenceViewerView: NSView {
         }
 
         let scale = frame.scale
-        let clipInset = navigationLeadingInsetPixels
-        if clipInset > 0 {
+        let inset = frame.leadingInset
+        if inset > 0 {
             context.saveGState()
             let clipRect = CGRect(
-                x: min(clipInset, bounds.width),
+                x: inset,
                 y: rect.minY,
-                width: max(0, bounds.width - clipInset),
+                width: max(0, bounds.width - inset),
                 height: rect.height
             )
             context.clip(to: clipRect)
         }
 
         defer {
-            if clipInset > 0 {
+            if inset > 0 {
                 context.restoreGState()
             }
         }
@@ -5127,14 +5229,15 @@ public class SequenceViewerView: NSView {
     
     /// Draws sequence data from a bundle.
     private func drawBundleSequence(_ sequenceString: String, region: GenomicRegion, frame: ReferenceFrame, context: CGContext) {
-        let clipInset = navigationLeadingInsetPixels
-        if clipInset > 0 {
+        let inset = frame.leadingInset
+        let dataRight = bounds.width - frame.trailingInset
+        if inset > 0 || frame.trailingInset > 0 {
             context.saveGState()
             defer { context.restoreGState() }
             let clipRect = CGRect(
-                x: min(clipInset, bounds.width),
+                x: inset,
                 y: trackY,
-                width: max(0, bounds.width - clipInset),
+                width: max(0, dataRight - inset),
                 height: trackHeight
             )
             context.clip(to: clipRect)
@@ -5147,7 +5250,7 @@ public class SequenceViewerView: NSView {
             frame: frame
         ) else { return }
 
-        let sequenceRect = CGRect(x: 0, y: trackY, width: bounds.width, height: trackHeight)
+        let sequenceRect = CGRect(x: inset, y: trackY, width: frame.dataPixelWidth, height: trackHeight)
         
         // Draw based on zoom level
         if scale < showLettersThreshold {
@@ -5459,9 +5562,9 @@ public class SequenceViewerView: NSView {
         // Clip strictly to the annotation lane so labels/features never overlap sequence track.
         context.saveGState()
         let annotationClipRect = CGRect(
-            x: 0,
+            x: frame.leadingInset,
             y: annotationTrackY,
-            width: CGFloat(frame.pixelWidth),
+            width: max(0, CGFloat(frame.pixelWidth) - frame.leadingInset - frame.trailingInset),
             height: max(0, bounds.height - annotationTrackY)
         )
         context.clip(to: annotationClipRect)
@@ -5647,8 +5750,9 @@ public class SequenceViewerView: NSView {
 
     /// Draws a density histogram of annotation counts per pixel column.
     private func drawAnnotationDensity(_ annotations: [SequenceAnnotation], frame: ReferenceFrame, context: CGContext) {
-        let viewWidth = CGFloat(frame.pixelWidth)
-        let binCount = max(1, Int(viewWidth))
+        let dataWidth = frame.dataPixelWidth
+        let inset = frame.leadingInset
+        let binCount = max(1, Int(dataWidth))
         let bpPerBin = (frame.end - frame.start) / Double(binCount)
 
         // Build density histogram with per-type tracking
@@ -5672,13 +5776,13 @@ public class SequenceViewerView: NSView {
 
         // Draw background
         context.setFillColor(NSColor.controlBackgroundColor.withAlphaComponent(0.3).cgColor)
-        context.fill(CGRect(x: 0, y: y, width: viewWidth, height: trackHeight))
+        context.fill(CGRect(x: inset, y: y, width: dataWidth, height: trackHeight))
 
         // Draw density bars colored by dominant annotation type per bin
         for (i, count) in bins.enumerated() {
             guard count > 0 else { continue }
             let barHeight = trackHeight * CGFloat(count) / CGFloat(maxCount)
-            let rect = CGRect(x: CGFloat(i), y: y + trackHeight - barHeight, width: 1, height: barHeight)
+            let rect = CGRect(x: inset + CGFloat(i), y: y + trackHeight - barHeight, width: 1, height: barHeight)
             // Color by the most frequent type in this bin (cached CGColor)
             let dominantType = binTypeCounts[i].max(by: { $0.value < $1.value })?.key ?? .gene
             context.setFillColor(cachedDensityColor(for: dominantType))
@@ -5692,7 +5796,7 @@ public class SequenceViewerView: NSView {
             .font: font,
             .foregroundColor: NSColor.secondaryLabelColor,
         ]
-        let labelRect = CGRect(x: 4, y: y + 2, width: viewWidth - 8, height: 14)
+        let labelRect = CGRect(x: inset + 4, y: y + 2, width: dataWidth - 8, height: 14)
         (labelText as NSString).draw(in: labelRect, withAttributes: attrs)
     }
 
@@ -6210,14 +6314,15 @@ public class SequenceViewerView: NSView {
 
     private func drawSequence(_ seq: Sequence, frame: ReferenceFrame, context: CGContext) {
         ensureVisibleViewportSelection(frame: frame)
-        let clipInset = navigationLeadingInsetPixels
-        if clipInset > 0 {
+        let clipInset = frame.leadingInset
+        let clipRight = bounds.width - frame.trailingInset
+        if clipInset > 0 || frame.trailingInset > 0 {
             context.saveGState()
             defer { context.restoreGState() }
             let clipRect = CGRect(
                 x: min(clipInset, bounds.width),
                 y: trackY,
-                width: max(0, bounds.width - clipInset),
+                width: max(0, clipRight - clipInset),
                 height: trackHeight
             )
             context.clip(to: clipRect)
@@ -6390,7 +6495,7 @@ public class SequenceViewerView: NSView {
     /// Draws annotation features below the sequence track
     private func drawAnnotations(frame: ReferenceFrame, context: CGContext) {
         let visibleBases = frame.end - frame.start
-        let pixelsPerBase = bounds.width / CGFloat(max(1, visibleBases))
+        let pixelsPerBase = frame.dataPixelWidth / CGFloat(max(1, visibleBases))
 
         // Annotation colors from user settings
         let settings = AppSettings.shared
@@ -6417,11 +6522,11 @@ public class SequenceViewerView: NSView {
                 continue
             }
 
-            // Calculate screen coordinates
-            let rawStartX = CGFloat(interval.start - visibleStart) * pixelsPerBase
-            let endX = CGFloat(interval.end - visibleStart) * pixelsPerBase
-            // Clamp startX to view bounds to prevent drawing into gutter/outside area
-            let startX = max(0, rawStartX)
+            // Calculate screen coordinates (offset by leadingInset for gutter)
+            let rawStartX = frame.leadingInset + CGFloat(interval.start - visibleStart) * pixelsPerBase
+            let endX = frame.leadingInset + CGFloat(interval.end - visibleStart) * pixelsPerBase
+            // Clamp startX to data area start
+            let startX = max(frame.leadingInset, rawStartX)
             let width = max(2, endX - startX)
 
             // Find a row that doesn't overlap
@@ -6555,13 +6660,13 @@ public class SequenceViewerView: NSView {
         guard startBase < qualityScores.count else { return }
 
         let visibleBases = frame.end - frame.start
-        let pixelsPerBase = bounds.width / CGFloat(max(1, visibleBases))
+        let pixelsPerBase = frame.dataPixelWidth / CGFloat(max(1, visibleBases))
 
         context.saveGState()
 
         // Draw quality overlay for each visible base
         for i in startBase..<min(endBase, qualityScores.count) {
-            let x = CGFloat(i - startBase) * pixelsPerBase
+            let x = frame.leadingInset + CGFloat(i - startBase) * pixelsPerBase
             let qualityScore = qualityScores[i]
             let qualityColor = QualityColors.color(forScore: qualityScore)
 
@@ -6582,7 +6687,7 @@ public class SequenceViewerView: NSView {
         let endBase = min(seq.length, Int(frame.end) + 1)
 
         let visibleBases = frame.end - frame.start
-        let pixelsPerBase = bounds.width / CGFloat(max(1, visibleBases))
+        let pixelsPerBase = frame.dataPixelWidth / CGFloat(max(1, visibleBases))
 
         // Font sizing based on available space
         let fontSize = min(pixelsPerBase * 0.75, trackHeight * 0.8)
@@ -6590,11 +6695,11 @@ public class SequenceViewerView: NSView {
         let font = NSFont.monospacedSystemFont(ofSize: max(6, fontSize), weight: .bold)
 
         // Draw quality overlay BEFORE the base colors so it appears behind
-        let trackRect = CGRect(x: 0, y: trackY, width: bounds.width, height: trackHeight)
+        let trackRect = CGRect(x: frame.leadingInset, y: trackY, width: frame.dataPixelWidth, height: trackHeight)
         drawQualityOverlay(context: context, sequence: seq, frame: frame, rect: trackRect)
 
         for i in startBase..<endBase {
-            let x = CGFloat(i - startBase) * pixelsPerBase
+            let x = frame.leadingInset + CGFloat(i - startBase) * pixelsPerBase
             let baseChar = seq[i]
 
             // Draw background color using appearance settings
@@ -6630,10 +6735,10 @@ public class SequenceViewerView: NSView {
         let endBase = min(seq.length, Int(frame.end) + 1)
 
         let visibleBases = frame.end - frame.start
-        let pixelsPerBase = bounds.width / CGFloat(max(1, visibleBases))
+        let pixelsPerBase = frame.dataPixelWidth / CGFloat(max(1, visibleBases))
 
         // Draw quality overlay BEFORE the base colors so it appears behind
-        let trackRect = CGRect(x: 0, y: trackY, width: bounds.width, height: trackHeight)
+        let trackRect = CGRect(x: frame.leadingInset, y: trackY, width: frame.dataPixelWidth, height: trackHeight)
         drawQualityOverlay(context: context, sequence: seq, frame: frame, rect: trackRect)
 
         // Aggregate bases into bins for colored bar display
@@ -6641,7 +6746,7 @@ public class SequenceViewerView: NSView {
 
         for binStart in stride(from: startBase, to: endBase, by: basesPerBin) {
             let binEnd = min(binStart + basesPerBin, endBase)
-            let x = CGFloat(binStart - startBase) * pixelsPerBase
+            let x = frame.leadingInset + CGFloat(binStart - startBase) * pixelsPerBase
             let width = CGFloat(binEnd - binStart) * pixelsPerBase
 
             // Find dominant base in this bin
@@ -6665,7 +6770,7 @@ public class SequenceViewerView: NSView {
         let endBase = min(seq.length, Int(frame.end) + 1)
 
         let visibleBases = frame.end - frame.start
-        let pixelsPerBase = bounds.width / CGFloat(max(1, visibleBases))
+        let pixelsPerBase = frame.dataPixelWidth / CGFloat(max(1, visibleBases))
 
         // Calculate bin size for density display (2 pixels per bin minimum)
         let binSize = max(1, Int(frame.scale * 2))
@@ -6676,7 +6781,7 @@ public class SequenceViewerView: NSView {
 
         for binStart in stride(from: startBase, to: endBase, by: binSize) {
             let binEnd = min(binStart + binSize, endBase)
-            let x = CGFloat(binStart - startBase) * pixelsPerBase
+            let x = frame.leadingInset + CGFloat(binStart - startBase) * pixelsPerBase
             let width = CGFloat(binEnd - binStart) * pixelsPerBase
 
             // Calculate GC content for this bin
@@ -6716,11 +6821,11 @@ public class SequenceViewerView: NSView {
         let endBase = min(seq.length, Int(frame.end) + 1)
 
         let visibleBases = frame.end - frame.start
-        let pixelsPerBase = bounds.width / CGFloat(max(1, visibleBases))
+        let pixelsPerBase = frame.dataPixelWidth / CGFloat(max(1, visibleBases))
 
         // Calculate the visible portion of the sequence
-        let startX = CGFloat(startBase - Int(frame.start)) * pixelsPerBase
-        let endX = CGFloat(endBase - Int(frame.start)) * pixelsPerBase
+        let startX = frame.leadingInset + CGFloat(startBase - Int(frame.start)) * pixelsPerBase
+        let endX = frame.leadingInset + CGFloat(endBase - Int(frame.start)) * pixelsPerBase
         let lineWidth = max(1, endX - startX)
 
         // Draw a simple gray bar to represent the sequence
@@ -6846,7 +6951,7 @@ public class SequenceViewerView: NSView {
         guard let frame = viewController?.referenceFrame else { return nil }
 
         let visibleBases = frame.end - frame.start
-        let pixelsPerBase = bounds.width / CGFloat(max(1, visibleBases))
+        let pixelsPerBase = frame.dataPixelWidth / CGFloat(max(1, visibleBases))
         let visibleStart = Int(frame.start)
         let visibleEnd = Int(frame.end)
 
@@ -6867,10 +6972,10 @@ public class SequenceViewerView: NSView {
             }
 
             // Calculate screen coordinates (must match drawAnnotations logic exactly)
-            let rawStartX = CGFloat(annotStart - visibleStart) * pixelsPerBase
-            let endX = CGFloat(annotEnd - visibleStart) * pixelsPerBase
-            // Clamp startX to view bounds (same as in drawAnnotations)
-            let startX = max(0, rawStartX)
+            let rawStartX = frame.leadingInset + CGFloat(annotStart - visibleStart) * pixelsPerBase
+            let endX = frame.leadingInset + CGFloat(annotEnd - visibleStart) * pixelsPerBase
+            // Clamp startX to data area start
+            let startX = max(frame.leadingInset, rawStartX)
             let width = max(2, endX - startX)
 
             // Find row assignment (same logic as drawAnnotations)
@@ -6913,7 +7018,7 @@ public class SequenceViewerView: NSView {
         guard let frame = viewController?.referenceFrame else { return nil }
 
         let visibleBases = frame.end - frame.start
-        let pixelsPerBase = bounds.width / CGFloat(max(1, visibleBases))
+        let pixelsPerBase = frame.dataPixelWidth / CGFloat(max(1, visibleBases))
         let visibleStart = Int(frame.start)
         let visibleEnd = Int(frame.end)
 
@@ -6928,9 +7033,9 @@ public class SequenceViewerView: NSView {
                 continue
             }
 
-            let rawStartX = CGFloat(annotStart - visibleStart) * pixelsPerBase
-            let endX = CGFloat(annotEnd - visibleStart) * pixelsPerBase
-            let startX = max(0, rawStartX)
+            let rawStartX = frame.leadingInset + CGFloat(annotStart - visibleStart) * pixelsPerBase
+            let endX = frame.leadingInset + CGFloat(annotEnd - visibleStart) * pixelsPerBase
+            let startX = max(frame.leadingInset, rawStartX)
             let width = max(2, endX - startX)
 
             var row = 0
@@ -7192,12 +7297,65 @@ public class SequenceViewerView: NSView {
         }
     }
 
+    // MARK: - Gutter Edge Drag
+
+    /// Returns the X position of the gutter right edge, or nil if no genotype rows are showing.
+    private func gutterEdgeX() -> CGFloat? {
+        guard sampleDisplayState.showGenotypeRows, sampleDisplayState.rowHeight >= 8 else { return nil }
+        let samples = cachedGenotypeData?.sampleNames ?? []
+        guard !samples.isEmpty else { return nil }
+        let gutterWidth = VariantTrackRenderer.sampleLabelGutterWidth(
+            samples: samples,
+            sampleDisplayNames: cachedGenotypeSampleDisplayNames,
+            rowHeight: sampleDisplayState.rowHeight,
+            override: sampleDisplayState.sampleGutterWidthOverride
+        )
+        return gutterWidth
+    }
+
+    /// Returns true if the point is within 6px of the gutter right edge and in the genotype area.
+    private func isNearGutterEdge(at point: NSPoint) -> Bool {
+        guard let edgeX = gutterEdgeX() else { return false }
+        let genotypeTopY = variantTrackY + effectiveSummaryBarHeight + effectiveSummaryToRowGap
+        guard point.y >= genotypeTopY else { return false }
+        return abs(point.x - edgeX) <= 6
+    }
+
+    /// Returns the sample name if the point is within the gutter label area.
+    private func sampleNameAtGutterPoint(_ point: NSPoint) -> String? {
+        guard let edgeX = gutterEdgeX(),
+              point.x < edgeX,
+              let genotypeData = filteredVisibleGenotypeData(),
+              !genotypeData.sampleNames.isEmpty else { return nil }
+        let genotypeTopY = variantTrackY + effectiveSummaryBarHeight + effectiveSummaryToRowGap
+        guard point.y >= genotypeTopY else { return nil }
+        let rowH = sampleDisplayState.rowHeight
+        guard rowH >= 8 else { return nil }
+        let relativeY = point.y - genotypeTopY + genotypeScrollOffset
+        let sampleIdx = Int(relativeY / rowH)
+        guard sampleIdx >= 0, sampleIdx < genotypeData.sampleNames.count else { return nil }
+        return genotypeData.sampleNames[sampleIdx]
+    }
+
     // MARK: - Mouse Selection
 
     public override func mouseDown(with event: NSEvent) {
         guard let frame = viewController?.referenceFrame else { return }
 
         let location = convert(event.locationInWindow, from: nil)
+
+        // Check gutter edge drag FIRST — double-click resets to auto-size
+        if isNearGutterEdge(at: location) {
+            if event.clickCount == 2 {
+                sampleDisplayState.sampleGutterWidthOverride = nil
+                setNeedsDisplay(bounds)
+                viewController?.scheduleViewStateSave()
+            } else {
+                isDraggingGutterEdge = true
+            }
+            return
+        }
+
         let isDoubleClick = event.clickCount == 2
         let hasCmd = event.modifierFlags.contains(.command)
         let hasShift = event.modifierFlags.contains(.shift)
@@ -7321,6 +7479,19 @@ public class SequenceViewerView: NSView {
     }
 
     public override func mouseDragged(with event: NSEvent) {
+        if isDraggingGutterEdge {
+            let location = convert(event.locationInWindow, from: nil)
+            let newWidth = max(40, min(400, location.x))
+            sampleDisplayState.sampleGutterWidthOverride = newWidth
+            // Update frame inset immediately so ruler stays in sync
+            if let frame = viewController?.referenceFrame {
+                frame.leadingInset = variantDataStartX
+            }
+            setNeedsDisplay(bounds)
+            viewController?.enhancedRulerView.needsDisplay = true
+            return
+        }
+
         guard isSelecting,
               let frame = viewController?.referenceFrame,
               let dragStart = columnDragStartBase else { return }
@@ -7338,6 +7509,11 @@ public class SequenceViewerView: NSView {
     }
 
     public override func mouseUp(with event: NSEvent) {
+        if isDraggingGutterEdge {
+            isDraggingGutterEdge = false
+            viewController?.scheduleViewStateSave()
+            return
+        }
         isSelecting = false
         columnDragStartBase = nil
     }
@@ -7941,8 +8117,15 @@ public class SequenceViewerView: NSView {
     public override func scrollWheel(with event: NSEvent) {
         guard let frame = viewController?.referenceFrame else { return }
 
+        // scrollingDeltaY/X give raw physical device direction (up/right = positive).
+        // isDirectionInvertedFromDevice is true when natural scrolling is ON.
+        // verticalSign: +1 for traditional (physical up → offset decreases → scroll up),
+        //              -1 for natural (physical up → offset increases → content follows finger down).
+        let verticalSign: CGFloat = event.isDirectionInvertedFromDevice ? -1 : 1
+
         if event.modifierFlags.contains(.command) || event.modifierFlags.contains(.option) {
-            // Zoom with Cmd+scroll or Option+scroll — invalidate tile and redraw immediately
+            // Zoom with Cmd+scroll or Option+scroll
+            // Convention: physical scroll/swipe up = zoom in, regardless of natural scrolling.
             if event.scrollingDeltaY > 0 {
                 viewController?.zoomIn()
             } else if event.scrollingDeltaY < 0 {
@@ -7969,10 +8152,9 @@ public class SequenceViewerView: NSView {
                 let deltaScale: CGFloat = event.hasPreciseScrollingDeltas
                     ? 1.0
                     : max(8, rowH * 0.9)
-                let proposedOffset = max(0, min(maxOffset, genotypeScrollOffset - event.scrollingDeltaY * deltaScale))
+                let proposedOffset = max(0, min(maxOffset, genotypeScrollOffset + verticalSign * event.scrollingDeltaY * deltaScale))
                 guard abs(proposedOffset - genotypeScrollOffset) > 0.1 else { return }
                 genotypeScrollOffset = proposedOffset
-                // Redraw immediately for smooth trackpad scrolling.
                 setNeedsDisplay(bounds)
                 viewController?.updateStatusBar()
                 viewController?.scheduleViewStateSave()
@@ -7990,7 +8172,7 @@ public class SequenceViewerView: NSView {
                 // Vertical scroll in read track area — scroll through read rows
                 let maxScroll = max(0, readContentHeight - readVisibleHeight)
                 let deltaScale: CGFloat = event.hasPreciseScrollingDeltas ? 1.0 : 8.0
-                let proposedOffset = max(0, min(maxScroll, readScrollOffset - event.scrollingDeltaY * deltaScale))
+                let proposedOffset = max(0, min(maxScroll, readScrollOffset + verticalSign * event.scrollingDeltaY * deltaScale))
                 guard abs(proposedOffset - readScrollOffset) > 0.1 else { return }
                 readScrollOffset = proposedOffset
                 setNeedsDisplay(bounds)
@@ -8005,9 +8187,13 @@ public class SequenceViewerView: NSView {
             }
 
             // Horizontal pan — update coordinates immediately, coalesce redraw at 60fps
+            // When natural scrolling is on (isDirectionInvertedFromDevice), deltas are
+            // inverted from the device direction: negate so content follows finger.
+            // When off, deltas match the device: use directly (traditional scrollbar feel).
             let panScale = event.hasPreciseScrollingDeltas ? 1.0 : 2.0
-            let panAmount = Double(event.scrollingDeltaX) * frame.scale * panScale
-            frame.pan(by: -panAmount)
+            let rawPan = Double(event.scrollingDeltaX) * frame.scale * panScale
+            let panAmount = event.isDirectionInvertedFromDevice ? -rawPan : rawPan
+            frame.pan(by: panAmount)
 
             scrollRedrawTimer?.invalidate()
             scrollRedrawTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: false) { [weak self] _ in
@@ -8176,6 +8362,21 @@ public class SequenceViewerView: NSView {
 
     public override func mouseMoved(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
+
+        // --- Gutter edge cursor ---
+        if isNearGutterEdge(at: location) {
+            NSCursor.resizeLeftRight.set()
+            hoverTooltip.hide()
+            return
+        }
+
+        // --- Sample name gutter hover tooltip ---
+        if let sampleName = sampleNameAtGutterPoint(location) {
+            let displayName = cachedGenotypeSampleDisplayNames[sampleName] ?? sampleName
+            hoverTooltip.show(text: displayName, near: location, in: self)
+            NSCursor.arrow.set()
+            return
+        }
 
         // --- Genotype cell hit-testing ---
         if let genotypeTooltip = genotypeTooltipAtPoint(location) {
@@ -8357,7 +8558,6 @@ public class SequenceViewerView: NSView {
         guard sampleIdx >= 0, sampleIdx < genotypeData.sampleNames.count else { return nil }
 
         // Determine which variant site the mouse is over
-        let genomicPos = frame.genomicPosition(for: point.x)
         var bestSiteIdx: Int?
         for (idx, site) in genotypeData.sites.enumerated() {
             let siteEnd = site.position + max(1, site.ref.count)
@@ -8369,7 +8569,7 @@ public class SequenceViewerView: NSView {
                 break
             }
             // For very zoomed out views where variants are sub-pixel, find closest
-            if cellWidth <= 1 && abs(Double(site.position) - genomicPos) < frame.scale {
+            if cellWidth <= 1 && abs(Double(site.position) - frame.genomicPosition(for: point.x)) < frame.scale {
                 bestSiteIdx = idx
                 break
             }
@@ -9190,7 +9390,7 @@ public class CoordinateRulerView: NSView {
         let visibleRange = frame.end - frame.start
         guard visibleRange > 0 else { return }
 
-        let pixelsPerBase = bounds.width / CGFloat(visibleRange)
+        let pixelsPerBase = frame.dataPixelWidth / CGFloat(visibleRange)
 
         // Calculate tick intervals using 1-2-5-10 rule
         let (majorInterval, minorInterval) = calculateTickIntervals(visibleRange: visibleRange)
@@ -9316,12 +9516,14 @@ public class CoordinateRulerView: NSView {
             // Skip positions that are major tick positions
             let isMajorTick = majorInterval > 0 && abs(pos.truncatingRemainder(dividingBy: majorInterval)) < 0.001
             if !isMajorTick {
-                let x = CGFloat((pos - frame.start)) * pixelsPerBase
+                let x = frame.leadingInset + CGFloat((pos - frame.start)) * pixelsPerBase
 
-                // Draw minor tick at bottom
-                context.move(to: CGPoint(x: x, y: bounds.maxY - minorTickHeight))
-                context.addLine(to: CGPoint(x: x, y: bounds.maxY))
-                context.strokePath()
+                // Draw minor tick at bottom (clip to data area)
+                if x >= frame.leadingInset && x <= bounds.width - frame.trailingInset {
+                    context.move(to: CGPoint(x: x, y: bounds.maxY - minorTickHeight))
+                    context.addLine(to: CGPoint(x: x, y: bounds.maxY))
+                    context.strokePath()
+                }
             }
 
             pos += interval
@@ -9353,12 +9555,14 @@ public class CoordinateRulerView: NSView {
 
         var pos = (frame.start / interval).rounded(.up) * interval
         while pos < frame.end {
-            let x = CGFloat((pos - frame.start)) * pixelsPerBase
+            let x = frame.leadingInset + CGFloat((pos - frame.start)) * pixelsPerBase
 
-            // Draw major tick at bottom
-            context.move(to: CGPoint(x: x, y: bounds.maxY - majorTickHeight))
-            context.addLine(to: CGPoint(x: x, y: bounds.maxY))
-            context.strokePath()
+            // Draw major tick at bottom (clip to data area)
+            if x >= frame.leadingInset && x <= bounds.width - frame.trailingInset {
+                context.move(to: CGPoint(x: x, y: bounds.maxY - majorTickHeight))
+                context.addLine(to: CGPoint(x: x, y: bounds.maxY))
+                context.strokePath()
+            }
 
             // Draw label centered above tick
             let label = formatPosition(Int(pos))
@@ -9368,8 +9572,8 @@ public class CoordinateRulerView: NSView {
             // Only draw label if it fits and doesn't overlap with previous label
             let labelPadding: CGFloat = 4
             if labelX > lastLabelEndX + labelPadding &&
-               labelX >= 0 &&
-               labelX + labelSize.width <= bounds.width {
+               labelX >= frame.leadingInset &&
+               labelX + labelSize.width <= bounds.width - frame.trailingInset {
                 // Position label above the tick, leaving room for tick marks
                 let labelY = bounds.maxY - majorTickHeight - labelSize.height - 2
                 (label as NSString).draw(at: CGPoint(x: labelX, y: labelY), withAttributes: attributes)
@@ -9596,9 +9800,22 @@ public class ReferenceFrame {
     /// Maximum sequence length (for bounds checking)
     public var sequenceLength: Int
 
-    /// Base pairs per pixel
+    /// Horizontal inset in pixels reserved for sample name gutter.
+    /// When > 0, genomic content is rendered to the right of this inset.
+    /// All coordinate mapping (screenPosition, genomicPosition, scale) respects this.
+    public var leadingInset: CGFloat = 0
+
+    /// Trailing inset in pixels to keep content from touching the right edge.
+    public var trailingInset: CGFloat = 0
+
+    /// Width of the data area in pixels (total width minus leading and trailing insets).
+    public var dataPixelWidth: CGFloat {
+        max(1, CGFloat(pixelWidth) - leadingInset - trailingInset)
+    }
+
+    /// Base pairs per pixel (in the data area, excluding leading inset)
     public var scale: Double {
-        (end - start) / Double(max(1, pixelWidth))
+        (end - start) / Double(dataPixelWidth)
     }
 
     public init(chromosome: String, start: Double, end: Double, pixelWidth: Int, sequenceLength: Int = Int.max) {
@@ -9609,14 +9826,16 @@ public class ReferenceFrame {
         self.sequenceLength = sequenceLength
     }
 
-    /// Converts a screen X coordinate to genomic position
+    /// Converts a screen X coordinate to genomic position.
+    /// Accounts for leadingInset: screen positions in the inset area map to positions before `start`.
     public func genomicPosition(for screenX: CGFloat) -> Double {
-        start + Double(screenX) * scale
+        start + Double(screenX - leadingInset) * scale
     }
 
-    /// Converts a genomic position to screen X coordinate
+    /// Converts a genomic position to screen X coordinate.
+    /// Result is offset by leadingInset so genomic data appears after the inset.
     public func screenPosition(for genomicPos: Double) -> CGFloat {
-        CGFloat((genomicPos - start) / scale)
+        leadingInset + CGFloat((genomicPos - start) / scale)
     }
 
     /// Pans by the specified amount in base pairs, respecting sequence bounds.

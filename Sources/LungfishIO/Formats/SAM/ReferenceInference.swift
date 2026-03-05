@@ -145,7 +145,7 @@ public enum ReferenceInference {
         ),
         // SARS-CoV-2
         AssemblySignature(
-            assembly: "SARS-CoV-2", organism: "SARS-CoV-2", accession: nil,
+            assembly: "SARS-CoV-2", organism: "Severe acute respiratory syndrome coronavirus 2", accession: "GCF_009858895.2",
             chr1Length: 29_903, totalSize: 29_903,
             ucscNames: ["MN908947.3", "NC_045512.2"],
             ensemblNames: ["MN908947.3", "NC_045512.2"],

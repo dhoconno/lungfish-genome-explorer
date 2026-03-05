@@ -41,7 +41,7 @@ public enum VariantTrackRenderer {
     /// Fallback area reserved for sample labels when no sample strings are available yet.
     private static let sampleLabelFallbackWidth: CGFloat = 150
     /// Visual spacing between sample label area and genotype data area.
-    private static let sampleLabelToDataMargin: CGFloat = 12
+    static let sampleLabelToDataMargin: CGFloat = 12
 
     // MARK: - Color Palette
 
@@ -106,17 +106,24 @@ public enum VariantTrackRenderer {
         let gutterWidth = sampleLabelGutterWidth(
             samples: sampleNames,
             sampleDisplayNames: sampleDisplayNames,
-            rowHeight: state.rowHeight
+            rowHeight: state.rowHeight,
+            override: state.sampleGutterWidthOverride
         )
         // Include a modest safety pad so jump/zoom targets sit in drawable data area.
         return gutterWidth + sampleLabelToDataMargin + 10
     }
 
-    private static func sampleLabelGutterWidth(
+    /// Computes the width of the sample label gutter.
+    /// If an override is set, returns it directly (clamped to valid range).
+    static func sampleLabelGutterWidth(
         samples: [String],
         sampleDisplayNames: [String: String],
-        rowHeight: CGFloat
+        rowHeight: CGFloat,
+        override: CGFloat? = nil
     ) -> CGFloat {
+        if let override {
+            return max(40, min(400, override))
+        }
         guard !samples.isEmpty else { return sampleLabelFallbackWidth }
         let fontSize = max(7, min(rowHeight - 2, 12))
         let attrs: [NSAttributedString.Key: Any] = [
@@ -136,9 +143,12 @@ public enum VariantTrackRenderer {
 
     /// Draws the variant summary bar showing variant density and type distribution.
     ///
+    /// Uses `frame.leadingInset` and `frame.dataPixelWidth` to position content
+    /// to the right of the sample name gutter, aligned with all other genomic content.
+    ///
     /// - Parameters:
     ///   - variants: Variant annotations in the visible region
-    ///   - frame: The reference frame for coordinate mapping
+    ///   - frame: The reference frame for coordinate mapping (includes leadingInset)
     ///   - context: The graphics context to draw into
     ///   - yOffset: Y position for the top of the summary bar
     public static func drawSummaryBar(
@@ -162,22 +172,32 @@ public enum VariantTrackRenderer {
         context.saveGState()
         defer { context.restoreGState() }
 
-        // Background
-        context.setFillColor(CGColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1.0))
-        context.fill(CGRect(x: 0, y: yOffset, width: CGFloat(pixelWidth), height: barHeight))
+        let inset = frame.leadingInset
+        let dataPixels = max(1, Int(frame.dataPixelWidth))
 
-        // Bin variants into per-pixel buckets by type
-        var snpCounts = [Int](repeating: 0, count: pixelWidth)
-        var insCounts = [Int](repeating: 0, count: pixelWidth)
-        var delCounts = [Int](repeating: 0, count: pixelWidth)
-        var otherCounts = [Int](repeating: 0, count: pixelWidth)
+        // Gutter background (opaque, matches genotype row gutter)
+        if inset > 0 {
+            context.setFillColor(CGColor(red: 0.96, green: 0.96, blue: 0.96, alpha: 1.0))
+            context.fill(CGRect(x: 0, y: yOffset, width: inset, height: barHeight))
+        }
+
+        // Data area background
+        context.setFillColor(CGColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1.0))
+        context.fill(CGRect(x: inset, y: yOffset, width: frame.dataPixelWidth, height: barHeight))
+
+        // Bin variants into per-pixel buckets in the data area
+        var snpCounts = [Int](repeating: 0, count: dataPixels)
+        var insCounts = [Int](repeating: 0, count: dataPixels)
+        var delCounts = [Int](repeating: 0, count: dataPixels)
+        var otherCounts = [Int](repeating: 0, count: dataPixels)
+
+        let dataScale = Double(dataPixels) / (frame.end - frame.start)
 
         for variant in variants {
-            let startPx = Int(frame.screenPosition(for: Double(variant.start)))
-            let endPx = Int(frame.screenPosition(for: Double(variant.end)))
-            let px = max(0, min(startPx, pixelWidth - 1))
-            let pxEnd = max(px, min(endPx, pixelWidth - 1))
-            guard pxEnd < pixelWidth else { continue }
+            let startBin = Int((Double(variant.start) - frame.start) * dataScale)
+            let endBin = Int((Double(variant.end) - frame.start) * dataScale)
+            let px = max(0, min(startBin, dataPixels - 1))
+            let pxEnd = max(px, min(endBin, dataPixels - 1))
 
             let vtype = variant.qualifiers["variant_type"]?.values.first ?? ""
 
@@ -193,22 +213,22 @@ public enum VariantTrackRenderer {
 
         // Find max count for normalization
         var computedMax = 1
-        for px in 0..<pixelWidth {
+        for px in 0..<dataPixels {
             let total = snpCounts[px] + insCounts[px] + delCounts[px] + otherCounts[px]
             if total > computedMax { computedMax = total }
         }
         let maxCount = computedMax
         let barBottom = yOffset + barHeight
+        let insetInt = Int(ceil(inset))
 
-        // Draw stacked bars per pixel
-        for px in 0..<pixelWidth {
+        // Draw stacked bars per pixel in data area
+        for px in 0..<dataPixels {
             let total = snpCounts[px] + insCounts[px] + delCounts[px] + otherCounts[px]
             guard total > 0 else { continue }
 
             let normalizedHeight = (CGFloat(total) / CGFloat(maxCount)) * (barHeight - 2)
             var currentY = barBottom - 1  // 1px margin at bottom
 
-            // Draw stacked from bottom: SNP, INS, DEL, other
             let segments: [(Int, CGColor)] = [
                 (snpCounts[px], snpCG),
                 (insCounts[px], insCG),
@@ -220,7 +240,7 @@ public enum VariantTrackRenderer {
                 guard count > 0 else { continue }
                 let segHeight = (CGFloat(count) / CGFloat(total)) * normalizedHeight
                 context.setFillColor(color)
-                context.fill(CGRect(x: CGFloat(px), y: currentY - segHeight, width: 1, height: segHeight))
+                context.fill(CGRect(x: CGFloat(px + insetInt), y: currentY - segHeight, width: 1, height: segHeight))
                 currentY -= segHeight
             }
         }
@@ -232,15 +252,16 @@ public enum VariantTrackRenderer {
         context.addLine(to: CGPoint(x: CGFloat(pixelWidth), y: barBottom))
         context.strokePath()
 
-        // Label
+        // Label — draw in gutter area if available, otherwise at left edge of data
         let label = "\(variants.count) variants" as NSString
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 8, weight: .medium),
             .foregroundColor: NSColor.secondaryLabelColor,
         ]
         let labelSize = label.size(withAttributes: attrs)
+        let labelX: CGFloat = inset > labelSize.width + 8 ? 4 : inset + 4
         label.draw(
-            at: CGPoint(x: 4, y: yOffset + (barHeight - labelSize.height) / 2),
+            at: CGPoint(x: labelX, y: yOffset + (barHeight - labelSize.height) / 2),
             withAttributes: attrs
         )
     }
@@ -287,11 +308,10 @@ public enum VariantTrackRenderer {
 
         let showLabels = rowH >= 8
         let totalRows = samples.count
+        let inset = frame.leadingInset
         let labelGutterWidth = showLabels
-            ? sampleLabelGutterWidth(samples: samples, sampleDisplayNames: sampleDisplayNames, rowHeight: rowH)
+            ? sampleLabelGutterWidth(samples: samples, sampleDisplayNames: sampleDisplayNames, rowHeight: rowH, override: state.sampleGutterWidthOverride)
             : 0
-        let dataStartX = showLabels ? (labelGutterWidth + sampleLabelToDataMargin) : 0
-        let dataWidth = max(0, CGFloat(frame.pixelWidth) - dataStartX)
 
         // Compute visible row range from scroll offset
         let firstVisibleRow = max(0, Int(scrollOffset / rowH))
@@ -300,47 +320,29 @@ public enum VariantTrackRenderer {
 
         guard firstVisibleRow <= lastVisibleRow else { return }
 
+        // Paragraph style for truncating sample labels to gutter width
+        let truncationStyle: NSParagraphStyle = {
+            let style = NSMutableParagraphStyle()
+            style.lineBreakMode = .byTruncatingTail
+            return style
+        }()
+
         // Draw genotype cells for each visible sample
         for sampleIdx in firstVisibleRow...lastVisibleRow {
             let sampleName = samples[sampleIdx]
             let rowY = yOffset + CGFloat(sampleIdx) * rowH - scrollOffset
 
-            // Sample name label (when rows are tall enough)
-            if showLabels {
-                let label = (sampleDisplayNames[sampleName] ?? sampleName) as NSString
-                let fontSize = max(7, min(rowH - 2, 12))
-                let labelAttrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.systemFont(ofSize: fontSize, weight: .regular),
-                    .foregroundColor: NSColor.labelColor,
-                ]
-                context.setFillColor(CGColor(red: 0.96, green: 0.96, blue: 0.96, alpha: 0.98))
-                context.fill(CGRect(x: 0, y: rowY, width: labelGutterWidth, height: rowH))
-                // Keep an explicit blank gutter before genotype cells.
-                context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1.0))
-                context.fill(CGRect(x: labelGutterWidth, y: rowY, width: sampleLabelToDataMargin, height: rowH))
-                context.setStrokeColor(CGColor(red: 0.82, green: 0.82, blue: 0.82, alpha: 1.0))
-                context.setLineWidth(0.5)
-                let sepX = labelGutterWidth + sampleLabelToDataMargin / 2
-                context.move(to: CGPoint(x: sepX, y: rowY))
-                context.addLine(to: CGPoint(x: sepX, y: rowY + rowH))
-                context.strokePath()
-                label.draw(
-                    at: CGPoint(x: 2, y: rowY + 1),
-                    withAttributes: labelAttrs
-                )
-            }
-
-            // Draw genotype cell for each variant site
+            // Draw genotype cell for each variant site (BEFORE labels so labels overlay)
+            // Uses frame.screenPosition() which includes leadingInset, aligning cells
+            // with all other genomic content (sequence, annotations, ruler).
             for site in genotypeData.sites {
                 let call = site.genotypes[sampleName] ?? .noCall
-                // Genotype rows should encode zygosity consistently (HomRef/Het/HomAlt/NoCall)
-                // so identical GT classes are always the same color across sites.
                 let color = colorForCall(call, theme: theme)
 
                 let startPx = frame.screenPosition(for: Double(site.position))
                 let endPx = frame.screenPosition(for: Double(site.position + max(1, site.ref.count)))
                 let cellWidth = max(1, endPx - startPx)
-                let clippedStart = max(dataStartX, startPx)
+                let clippedStart = max(inset, startPx)
                 let clippedEnd = min(CGFloat(frame.pixelWidth), startPx + cellWidth)
                 guard clippedEnd > clippedStart else { continue }
 
@@ -353,13 +355,40 @@ public enum VariantTrackRenderer {
                 ))
             }
 
+            // Sample name label drawn ON TOP of genotype cells (when rows are tall enough)
+            if showLabels {
+                let label = (sampleDisplayNames[sampleName] ?? sampleName) as NSString
+                let fontSize = max(7, min(rowH - 2, 12))
+                let labelAttrs: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: fontSize, weight: .regular),
+                    .foregroundColor: NSColor.labelColor,
+                    .paragraphStyle: truncationStyle,
+                ]
+                // Fully opaque gutter background to cover any variant cells beneath
+                context.setFillColor(CGColor(red: 0.96, green: 0.96, blue: 0.96, alpha: 1.0))
+                context.fill(CGRect(x: 0, y: rowY, width: labelGutterWidth, height: rowH))
+                // Opaque margin between labels and data
+                context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1.0))
+                context.fill(CGRect(x: labelGutterWidth, y: rowY, width: sampleLabelToDataMargin, height: rowH))
+                // Vertical separator
+                context.setStrokeColor(CGColor(red: 0.82, green: 0.82, blue: 0.82, alpha: 1.0))
+                context.setLineWidth(0.5)
+                let sepX = labelGutterWidth + sampleLabelToDataMargin / 2
+                context.move(to: CGPoint(x: sepX, y: rowY))
+                context.addLine(to: CGPoint(x: sepX, y: rowY + rowH))
+                context.strokePath()
+                // Draw label truncated to gutter width
+                let labelRect = CGRect(x: 2, y: rowY + 1, width: labelGutterWidth - 4, height: rowH - 2)
+                label.draw(in: labelRect, withAttributes: labelAttrs)
+            }
+
             // Row separator when rows are tall enough
             if rowH >= 4 && sampleIdx < totalRows - 1 {
                 context.setStrokeColor(CGColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1.0))
                 context.setLineWidth(0.5)
                 let sepY = rowY + rowH
                 context.move(to: CGPoint(x: 0, y: sepY))
-                context.addLine(to: CGPoint(x: dataStartX + dataWidth, y: sepY))
+                context.addLine(to: CGPoint(x: CGFloat(frame.pixelWidth), y: sepY))
                 context.strokePath()
             }
         }

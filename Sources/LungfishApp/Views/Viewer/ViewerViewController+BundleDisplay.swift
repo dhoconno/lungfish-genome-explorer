@@ -68,9 +68,16 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         // Hide any QuickLook preview and ensure genomics viewer is visible
         hideQuickLookPreview()
 
+        // Get chromosome list: from genome if available, otherwise synthesize from variant databases
+        var chromosomes = manifest.genome?.chromosomes ?? []
+        if chromosomes.isEmpty && !manifest.variants.isEmpty {
+            chromosomes = Self.synthesizeChromosomesFromVariants(bundle: bundle)
+            bundleLogger.info("displayBundle: Synthesized \(chromosomes.count) chromosomes from variant data")
+        }
+
         // Set up chromosome navigator (only when multiple chromosomes)
-        if manifest.genome.chromosomes.count > 1 {
-            configureChromosomeNavigator(with: manifest.genome.chromosomes)
+        if chromosomes.count > 1 {
+            configureChromosomeNavigator(with: chromosomes)
         } else {
             removeChromosomeNavigator()
         }
@@ -102,7 +109,7 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         }
 
         // Navigate to saved chromosome/position or first chromosome
-        let sortedChroms = naturalChromosomeSort(manifest.genome.chromosomes)
+        let sortedChroms = naturalChromosomeSort(chromosomes)
         guard let firstChrom = sortedChroms.first else {
             bundleLogger.error("displayBundle: No chromosomes in bundle")
             hideProgress()
@@ -184,7 +191,7 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
             object: self,
             userInfo: [
                 NotificationUserInfoKey.bundleURL: url,
-                NotificationUserInfoKey.chromosomes: manifest.genome.chromosomes,
+                NotificationUserInfoKey.chromosomes: chromosomes,
                 NotificationUserInfoKey.manifest: manifest,
                 NotificationUserInfoKey.referenceBundle: bundle,
             ]
@@ -216,7 +223,40 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
             }
         }
 
-        bundleLogger.info("displayBundle: Bundle displayed successfully with \(manifest.genome.chromosomes.count) chromosomes")
+        bundleLogger.info("displayBundle: Bundle displayed successfully with \(chromosomes.count) chromosomes")
+    }
+
+    // MARK: - Variant-Only Chromosome Synthesis
+
+    /// Synthesizes chromosome info from variant database max positions.
+    /// Used for variant-only bundles that have no genome info.
+    static func synthesizeChromosomesFromVariants(bundle: ReferenceBundle) -> [ChromosomeInfo] {
+        var chromosomes: [ChromosomeInfo] = []
+
+        for trackInfo in bundle.manifest.variants {
+            guard let dbPath = trackInfo.databasePath else { continue }
+            let dbURL = bundle.url.appendingPathComponent(dbPath)
+            guard FileManager.default.fileExists(atPath: dbURL.path),
+                  let db = try? VariantDatabase(url: dbURL) else { continue }
+
+            let maxPositions = db.chromosomeMaxPositions()
+
+            for (name, maxPos) in maxPositions {
+                // Use max position + 10% padding as estimated length
+                let estimatedLength = Int64(Double(maxPos) * 1.1)
+                if !chromosomes.contains(where: { $0.name == name }) {
+                    chromosomes.append(ChromosomeInfo(
+                        name: name,
+                        length: max(estimatedLength, 1000),
+                        offset: 0,
+                        lineBases: 80,
+                        lineWidth: 81
+                    ))
+                }
+            }
+        }
+
+        return chromosomes
     }
 
     // MARK: - Chromosome Navigator

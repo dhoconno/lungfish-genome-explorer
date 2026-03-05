@@ -458,9 +458,9 @@ final class BundleManifestTests: XCTestCase {
         XCTAssertEqual(manifest.formatVersion, "1.0")
         XCTAssertEqual(manifest.source.organism, "Homo sapiens")
         XCTAssertEqual(manifest.source.assembly, "GRCh38")
-        XCTAssertEqual(manifest.genome.chromosomes.count, 2)
-        XCTAssertEqual(manifest.genome.path, "genome/sequence.fa.gz")
-        XCTAssertEqual(manifest.genome.indexPath, "genome/sequence.fa.gz.fai")
+        XCTAssertEqual(manifest.genome!.chromosomes.count, 2)
+        XCTAssertEqual(manifest.genome!.path, "genome/sequence.fa.gz")
+        XCTAssertEqual(manifest.genome!.indexPath, "genome/sequence.fa.gz.fai")
     }
 
     func testManifestDefaultAnnotationsEmpty() {
@@ -575,8 +575,8 @@ final class BundleManifestTests: XCTestCase {
         XCTAssertEqual(loaded.name, original.name)
         XCTAssertEqual(loaded.identifier, original.identifier)
         XCTAssertEqual(loaded.formatVersion, original.formatVersion)
-        XCTAssertEqual(loaded.genome.chromosomes.count, original.genome.chromosomes.count)
-        XCTAssertEqual(loaded.genome.path, original.genome.path)
+        XCTAssertEqual(loaded.genome!.chromosomes.count, original.genome!.chromosomes.count)
+        XCTAssertEqual(loaded.genome!.path, original.genome!.path)
         XCTAssertEqual(loaded.source.organism, original.source.organism)
     }
 
@@ -870,7 +870,7 @@ final class LoadedDocumentBundleTests: XCTestCase {
         document.bundleManifest = manifest
         XCTAssertNotNil(document.bundleManifest)
         XCTAssertEqual(document.bundleManifest?.name, "Test")
-        XCTAssertEqual(document.bundleManifest?.genome.chromosomes.count, 1)
+        XCTAssertEqual(document.bundleManifest?.genome!.chromosomes.count, 1)
     }
 
     func testLoadedDocumentBundleManifestCanBeCleared() {
