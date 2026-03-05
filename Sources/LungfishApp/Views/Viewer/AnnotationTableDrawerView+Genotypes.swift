@@ -173,15 +173,12 @@ extension AnnotationTableDrawerView {
 
         genotypeFetchGeneration += 1
         let thisGeneration = genotypeFetchGeneration
-        let searchIdx = searchIndex
+        let handlesByTrack = Dictionary(
+            uniqueKeysWithValues: (searchIndex?.variantDatabaseHandles ?? []).map { ($0.trackId, $0.db) }
+        )
         let hiddenSamples = currentSampleDisplayState.hiddenSamples
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let searchIdx else { return }
-            let handlesByTrack = Dictionary(
-                uniqueKeysWithValues: searchIdx.variantDatabaseHandles.map { ($0.trackId, $0.db) }
-            )
-
             var rows: [GenotypeDisplayRow] = []
 
             let variantsByTrack = Dictionary(grouping: variants, by: \.trackId)

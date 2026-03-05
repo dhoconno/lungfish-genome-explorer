@@ -5035,10 +5035,12 @@ public class SequenceViewerView: NSView {
         isFetchingGenotypes = true
         let fetchStart = Date()
 
-        // Expand region for panning buffer (same pattern as variant fetch)
+        // Query a tight viewport-centered window for genotypes.
+        // Using a large expanded window with LIMIT can starve the visible viewport
+        // at dense loci (first-N rows may all be outside what the user can see).
         let chromLength = bundle.chromosomeLength(named: region.chromosome) ?? Int64(region.end + 1000)
         let visibleSpan = region.end - region.start
-        let expandAmount = max(50_000, visibleSpan * 2)
+        let expandAmount = min(10_000, max(1_000, visibleSpan / 2))
         let expandedStart = max(0, region.start - expandAmount)
         let expandedEnd = min(Int(chromLength), region.end + expandAmount)
         let expandedRegion = GenomicRegion(chromosome: region.chromosome, start: expandedStart, end: expandedEnd)

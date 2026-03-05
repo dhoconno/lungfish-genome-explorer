@@ -5191,6 +5191,11 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         "\(name)|\(sourceFile)"
     }
 
+    nonisolated private static func sourceFileMatches(_ lhs: String, _ rhs: String) -> Bool {
+        lhs.trimmingCharacters(in: .whitespacesAndNewlines)
+            .caseInsensitiveCompare(rhs.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame
+    }
+
     /// Populates sample data from all variant database handles in the search index.
     private func populateSampleData(from index: AnnotationSearchIndex) {
         allSampleNames = []
@@ -5259,11 +5264,12 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             guard let name = sampleNameByRowKey[rowKey] else { return nil }
             let sourceFile = sampleSourceFiles[rowKey] ?? ""
             let metadata = sampleMetadata[rowKey] ?? [:]
+            let displayName = sampleDisplayNamesCache[rowKey]
             let isVisible = !currentSampleDisplayState.hiddenSamples.contains(name)
 
             // Apply text filter across name, source, and metadata values
             if !freeText.isEmpty {
-                let searchText = ([name, sourceFile] + metadata.values).joined(separator: " ").lowercased()
+                let searchText = ([name, displayName ?? "", sourceFile] + metadata.values).joined(separator: " ").lowercased()
                 guard searchText.contains(freeText) else { return nil }
             }
             if let nameFilter = query.nameFilter,
@@ -5291,7 +5297,6 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
                 return nil
             }
 
-            let displayName = sampleDisplayNamesCache[rowKey]
             return SampleDisplayRow(rowKey: rowKey, name: name, sourceFile: sourceFile, isVisible: isVisible, metadata: metadata, displayName: displayName)
         }
 
@@ -5502,6 +5507,10 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
                 result = visibleA == visibleB ? .orderedSame : (visibleA ? .orderedAscending : .orderedDescending)
             case "sample_name":
                 result = nameA.localizedCaseInsensitiveCompare(nameB)
+            case "display_name":
+                let displayA = (sampleDisplayNamesCache[rowKeyA] ?? nameA).trimmingCharacters(in: .whitespacesAndNewlines)
+                let displayB = (sampleDisplayNamesCache[rowKeyB] ?? nameB).trimmingCharacters(in: .whitespacesAndNewlines)
+                result = displayA.localizedCaseInsensitiveCompare(displayB)
             case "source_file":
                 result = sourceA.localizedCaseInsensitiveCompare(sourceB)
             default:
@@ -6152,9 +6161,12 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
                 for dbURL in dbURLs {
                     do {
                         let rwDB = try VariantDatabase(url: dbURL, readWrite: true)
-                        let dbSources = Set(rwDB.allSourceFiles().values)
+                        let dbSourceBySample = rwDB.allSourceFiles()
                         for sample in sampleRows {
-                            if !sample.sourceFile.isEmpty && !dbSources.contains(sample.sourceFile) {
+                            guard let dbSource = dbSourceBySample[sample.name] else {
+                                continue
+                            }
+                            if !Self.sourceFileMatches(dbSource, sample.sourceFile) {
                                 continue
                             }
                             var updated = sample.metadata
@@ -6389,13 +6401,19 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         if columnId == Self.sampleDisplayNameColumn {
             let displayName = newValue.isEmpty ? nil : newValue
             displayedSamples[row].displayName = displayName
+            if let displayName {
+                sampleDisplayNamesCache[sampleRowKey] = displayName
+            } else {
+                sampleDisplayNamesCache.removeValue(forKey: sampleRowKey)
+            }
             // Persist to DB
             if let searchIndex {
                 for handle in searchIndex.variantDatabaseHandles {
                     do {
                         let rwDB = try VariantDatabase(url: handle.db.databaseURL, readWrite: true)
-                        let dbSources = Set(rwDB.allSourceFiles().values)
-                        if !sampleSourceFile.isEmpty && !dbSources.contains(sampleSourceFile) { continue }
+                        let dbSourceBySample = rwDB.allSourceFiles()
+                        guard let dbSource = dbSourceBySample[sampleName],
+                              Self.sourceFileMatches(dbSource, sampleSourceFile) else { continue }
                         rwDB.setDisplayName(forSample: sampleName, displayName: displayName)
                     } catch {
                         drawerLogger.warning("Display name edit failed: \(error.localizedDescription)")
@@ -6433,10 +6451,9 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         for handle in searchIndex.variantDatabaseHandles {
             do {
                 let rwDB = try VariantDatabase(url: handle.db.databaseURL, readWrite: true)
-                let dbSources = Set(rwDB.allSourceFiles().values)
-                if !sampleSourceFile.isEmpty && !dbSources.contains(sampleSourceFile) {
-                    continue
-                }
+                let dbSourceBySample = rwDB.allSourceFiles()
+                guard let dbSource = dbSourceBySample[sampleName],
+                      Self.sourceFileMatches(dbSource, sampleSourceFile) else { continue }
                 try rwDB.updateSampleMetadata(name: sampleName, metadata: fullMetadata)
             } catch {
                 drawerLogger.warning("Inline metadata edit failed: \(error.localizedDescription)")
