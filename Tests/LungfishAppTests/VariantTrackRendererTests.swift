@@ -584,6 +584,31 @@ final class VariantTrackRendererEdgeCaseTests: XCTestCase {
         )
     }
 
+    func testGenotypeRowsWithUnboundedHeightAndScroll() {
+        let frame = makeFrame()
+        let ctx = makeBitmapContext(height: 200)
+        let state = SampleDisplayState(showGenotypeRows: true, rowHeight: 8)
+        let sites = [
+            VariantSite(position: 500, ref: "A", alt: "G", variantType: "SNP",
+                       genotypes: ["S1": .het, "S2": .homAlt])
+        ]
+        let data = GenotypeDisplayData(
+            sampleNames: ["S1", "S2"],
+            sites: sites,
+            region: GenomicRegion(chromosome: "chr1", start: 0, end: 1000)
+        )
+
+        VariantTrackRenderer.drawGenotypeRows(
+            genotypeData: data,
+            frame: frame,
+            context: ctx,
+            yOffset: 30,
+            state: state,
+            scrollOffset: .infinity,
+            availableHeight: .greatestFiniteMagnitude
+        )
+    }
+
     func testTotalHeightWithDefaultState() {
         let state = SampleDisplayState(showGenotypeRows: true)
         let height = VariantTrackRenderer.totalHeight(sampleCount: 3, state: state)

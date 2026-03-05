@@ -288,24 +288,45 @@ public enum VariantTrackRenderer {
         let rowH = state.rowHeight
         guard rowH > 0 else { return }
 
+        let showLabels = rowH >= 8
+        let totalRows = samples.count
+        let totalContentHeight = CGFloat(totalRows) * rowH
+        guard totalContentHeight > 0 else { return }
+
+        // Normalize unbounded/invalid values so row-range math remains safe.
+        let effectiveAvailableHeight: CGFloat = {
+            guard availableHeight.isFinite, availableHeight > 0 else { return totalContentHeight }
+            return min(availableHeight, totalContentHeight)
+        }()
+        let maxScrollOffset = max(0, totalContentHeight - effectiveAvailableHeight)
+        let effectiveScrollOffset: CGFloat = {
+            guard scrollOffset.isFinite else { return 0 }
+            return min(max(scrollOffset, 0), maxScrollOffset)
+        }()
+
         context.saveGState()
         defer { context.restoreGState() }
 
         // Clip to available area so rows don't overflow
-        let clipRect = CGRect(x: 0, y: yOffset, width: CGFloat(frame.pixelWidth), height: availableHeight)
+        let clipRect = CGRect(x: 0, y: yOffset, width: CGFloat(frame.pixelWidth), height: effectiveAvailableHeight)
         context.clip(to: clipRect)
 
-        let showLabels = rowH >= 8
-        let totalRows = samples.count
         let inset = frame.leadingInset
         let labelGutterWidth = showLabels
             ? sampleLabelGutterWidth(samples: samples, sampleDisplayNames: sampleDisplayNames, rowHeight: rowH, override: state.sampleGutterWidthOverride)
             : 0
 
         // Compute visible row range from scroll offset
-        let firstVisibleRow = max(0, Int(scrollOffset / rowH))
-        let visibleRowCount = Int(ceil(availableHeight / rowH)) + 1
-        let lastVisibleRow = min(totalRows - 1, firstVisibleRow + visibleRowCount)
+        let firstVisibleRow: Int
+        let lastVisibleRow: Int
+        if effectiveAvailableHeight >= totalContentHeight {
+            firstVisibleRow = 0
+            lastVisibleRow = totalRows - 1
+        } else {
+            firstVisibleRow = max(0, Int(floor(effectiveScrollOffset / rowH)))
+            let visibleRowCount = max(1, Int(ceil(effectiveAvailableHeight / rowH)) + 1)
+            lastVisibleRow = min(totalRows - 1, firstVisibleRow + visibleRowCount)
+        }
 
         guard firstVisibleRow <= lastVisibleRow else { return }
 
@@ -319,7 +340,7 @@ public enum VariantTrackRenderer {
         // Draw genotype cells for each visible sample
         for sampleIdx in firstVisibleRow...lastVisibleRow {
             let sampleName = samples[sampleIdx]
-            let rowY = yOffset + CGFloat(sampleIdx) * rowH - scrollOffset
+            let rowY = yOffset + CGFloat(sampleIdx) * rowH - effectiveScrollOffset
 
             // Draw genotype cell for each variant site (BEFORE labels so labels overlay)
             // Uses frame.screenPosition() which includes leadingInset, aligning cells
@@ -388,15 +409,14 @@ public enum VariantTrackRenderer {
         }
 
         // Draw scroll indicator if content exceeds visible area
-        let totalContentHeight = CGFloat(totalRows) * rowH
-        if totalContentHeight > availableHeight && availableHeight > 0 {
+        if totalContentHeight > effectiveAvailableHeight {
             drawScrollIndicator(
                 context: context,
                 x: CGFloat(frame.pixelWidth) - scrollIndicatorWidth - 2,
                 yOffset: yOffset,
-                availableHeight: availableHeight,
+                availableHeight: effectiveAvailableHeight,
                 totalContentHeight: totalContentHeight,
-                scrollOffset: scrollOffset
+                scrollOffset: effectiveScrollOffset
             )
         }
     }
