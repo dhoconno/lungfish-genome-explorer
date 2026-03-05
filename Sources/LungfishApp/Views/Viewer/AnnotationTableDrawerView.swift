@@ -120,6 +120,19 @@ protocol AnnotationTableDrawerDelegate: AnyObject {
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didUpdateVisibleVariantRenderKeys keys: Set<String>?)
     func annotationDrawerDidDragDivider(_ drawer: AnnotationTableDrawerView, deltaY: CGFloat)
     func annotationDrawerDidFinishDraggingDivider(_ drawer: AnnotationTableDrawerView)
+    func annotationDrawer(
+        _ drawer: AnnotationTableDrawerView,
+        fallbackConsequenceFor result: AnnotationSearchIndex.SearchResult
+    ) -> (consequence: String?, aaChange: String?)
+}
+
+extension AnnotationTableDrawerDelegate {
+    func annotationDrawer(
+        _ drawer: AnnotationTableDrawerView,
+        fallbackConsequenceFor result: AnnotationSearchIndex.SearchResult
+    ) -> (consequence: String?, aaChange: String?) {
+        (nil, nil)
+    }
 }
 
 private extension String {
@@ -277,7 +290,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     /// True if the variant data comes from a haploid organism (virus/bacteria).
     /// Enables within-sample frequency smart tokens and related UI.
-    private var isHaploidOrganism: Bool = false
+    var isHaploidOrganism: Bool = false
 
     /// Whether to auto-sync variant table with viewport (when variants tab is active).
     private(set) var viewportSyncEnabled: Bool = true
@@ -434,6 +447,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     private let downloadTemplateButton = NSButton()
     private let importMetadataButton = NSButton()
     let exportButton = NSButton()
+    let autoSizeColumnsButton = NSButton()
     let columnConfigButton = NSButton()
     let profileButton = NSPopUpButton(frame: .zero, pullsDown: true)
     let variantSubtabControl = NSSegmentedControl()
@@ -445,6 +459,12 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Maximum number of annotations to display in the table.
     /// Beyond this, user must filter to narrow down results.
     private static var maxDisplayCount: Int { AppSettings.shared.maxTableDisplayCount }
+    /// Maximum rows sampled when estimating content width for auto-size.
+    private static let autoSizeRowSampleLimit: Int = 500
+    /// Above this visible-row count, per-row fallback consequence inference is deferred.
+    private static let consequenceComputationRowLimit: Int = 4_000
+    private static let deferredConsequenceText = "Too many variants to compute (zoom in)"
+    private static let deferredAAChangeText = "Zoom in to compute"
     private static let variantQueryDebounceInterval: TimeInterval = 0.12
 
     private enum SampleSmartToken: String, CaseIterable {
@@ -521,6 +541,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     private var variantColumnFilterClauses: [VariantColumnFilterClause] = []
     /// Header-driven local filters applied only to currently loaded genotype rows.
     var genotypeColumnFilterClauses: [VariantColumnFilterClause] = []
+    /// Cache for delegate-provided fallback consequence/AA strings per variant row key.
+    private var fallbackConsequenceCache: [String: (consequence: String?, aaChange: String?)] = [:]
     /// Last local variant key set emitted to the viewer for viewport render syncing.
     private var lastEmittedVisibleVariantRenderKeys: Set<String>?
     /// Column configuration popover (gear menu).
@@ -546,6 +568,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     static let filterColumn = NSUserInterfaceItemIdentifier("FilterColumn")
     static let samplesColumn = NSUserInterfaceItemIdentifier("SamplesColumn")
     static let sourceColumn = NSUserInterfaceItemIdentifier("SourceColumn")
+    static let consequenceColumn = NSUserInterfaceItemIdentifier("ConsequenceColumn")
+    static let aaChangeColumn = NSUserInterfaceItemIdentifier("AAChangeColumn")
 
     // Sample column identifiers (internal for extension access)
     static let sampleVisibleColumn = NSUserInterfaceItemIdentifier("SampleVisibleColumn")
@@ -810,9 +834,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         exportButton.controlSize = .small
         exportButton.imageScaling = .scaleProportionallyDown
         exportButton.target = self
-        exportButton.action = #selector(exportTableContents(_:))
+        exportButton.action = #selector(showExportMenu(_:))
         exportButton.translatesAutoresizingMaskIntoConstraints = false
-        exportButton.toolTip = "Export table as CSV/TSV"
+        exportButton.toolTip = "Export table data"
         headerBar.addSubview(exportButton)
 
         // Filter profile popup (header bar) — only shown on variants tab
@@ -835,6 +859,21 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         columnConfigButton.translatesAutoresizingMaskIntoConstraints = false
         columnConfigButton.toolTip = "Column visibility and order"
         headerBar.addSubview(columnConfigButton)
+
+        // Auto-size columns button
+        autoSizeColumnsButton.image = NSImage(
+            systemSymbolName: "arrow.left.and.right.text.vertical",
+            accessibilityDescription: "Size columns to fit"
+        )
+        autoSizeColumnsButton.bezelStyle = .recessed
+        autoSizeColumnsButton.isBordered = false
+        autoSizeColumnsButton.controlSize = .small
+        autoSizeColumnsButton.imageScaling = .scaleProportionallyDown
+        autoSizeColumnsButton.target = self
+        autoSizeColumnsButton.action = #selector(autoSizeVisibleTableColumns(_:))
+        autoSizeColumnsButton.translatesAutoresizingMaskIntoConstraints = false
+        autoSizeColumnsButton.toolTip = "Size visible columns to fit content"
+        headerBar.addSubview(autoSizeColumnsButton)
 
         // Count label
         countLabel.font = .monospacedDigitSystemFont(ofSize: 10, weight: .regular)
@@ -892,6 +931,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         tableView.usesAlternatingRowBackgroundColors = true
         tableView.allowsMultipleSelection = false
         tableView.style = .plain
+        tableView.columnAutoresizingStyle = .noColumnAutoresizing
         tableView.gridStyleMask = []
         tableView.target = self
         tableView.doubleAction = #selector(tableViewDoubleClicked(_:))
@@ -954,7 +994,12 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             exportButton.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
             exportButton.widthAnchor.constraint(equalToConstant: 20),
             exportButton.heightAnchor.constraint(equalToConstant: 20),
-            exportButton.trailingAnchor.constraint(equalTo: columnConfigButton.leadingAnchor, constant: -2),
+            exportButton.trailingAnchor.constraint(equalTo: autoSizeColumnsButton.leadingAnchor, constant: -2),
+
+            autoSizeColumnsButton.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
+            autoSizeColumnsButton.widthAnchor.constraint(equalToConstant: 20),
+            autoSizeColumnsButton.heightAnchor.constraint(equalToConstant: 20),
+            autoSizeColumnsButton.trailingAnchor.constraint(equalTo: columnConfigButton.leadingAnchor, constant: -2),
 
             columnConfigButton.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
             columnConfigButton.widthAnchor.constraint(equalToConstant: 20),
@@ -1134,9 +1179,21 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         // Ignore if we're the source of the notification
         if notification.object as AnyObject? === self { return }
 
+        let requestedMode = (notification.userInfo?[NotificationUserInfoKey.variantSelectionMode] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
         // Switch to variants tab if not already there
         if activeTab != .variants {
             switchToTab(.variants)
+        }
+
+        if requestedMode == "genotypes", activeVariantSubtab != .genotypes {
+            variantSubtabControl.selectedSegment = VariantSubtab.genotypes.rawValue
+            variantSubtabChanged(variantSubtabControl)
+        } else if requestedMode == "calls", activeVariantSubtab != .calls {
+            variantSubtabControl.selectedSegment = VariantSubtab.calls.rawValue
+            variantSubtabChanged(variantSubtabControl)
         }
 
         selectVariant(matching: result)
@@ -1492,6 +1549,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         (filterColumn, "Filter", 70, 40, "filter"),
         (samplesColumn, "Samples", 60, 40, "samples"),
         (sourceColumn, "Source", 100, 60, "source"),
+        (consequenceColumn, "Consequence", 170, 90, "consequence"),
+        (aaChangeColumn, "AA Change", 120, 80, "aa_change"),
     ]
 
     /// Column definitions for the samples tab (fixed columns — metadata columns are dynamic).
@@ -1521,7 +1580,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             col.title = title
             col.width = width
             col.minWidth = minWidth
-            col.resizingMask = .autoresizingMask
+            col.resizingMask = [.autoresizingMask, .userResizingMask]
             col.sortDescriptorPrototype = NSSortDescriptor(
                 key: sortKey, ascending: true,
                 selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))
@@ -1556,7 +1615,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 col.title = field.capitalized
                 col.width = max(60, CGFloat(field.count) * 8)
                 col.minWidth = 40
-                col.resizingMask = .autoresizingMask
+                col.resizingMask = [.autoresizingMask, .userResizingMask]
                 col.sortDescriptorPrototype = NSSortDescriptor(
                     key: "meta_\(field)", ascending: true,
                     selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))
@@ -1644,7 +1703,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         col.headerToolTip = fullName
         col.width = max(80, CGFloat(info.key.count + 2) * 7)
         col.minWidth = 40
-        col.resizingMask = .autoresizingMask
+        col.resizingMask = [.autoresizingMask, .userResizingMask]
         col.sortDescriptorPrototype = NSSortDescriptor(
             key: "info_\(info.key)", ascending: true,
             selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))
@@ -1699,6 +1758,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         postSampleDisplayStateChange()
         rebuildHaploidModeMenu()
         rebuildChipButtons()
+        if activeTab == .variants, activeVariantSubtab == .genotypes {
+            configureColumnsForGenotypes()
+            tableView.reloadData()
+        }
         if activeTab == .variants {
             updateDisplayedAnnotations()
         }
@@ -4154,6 +4217,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 result = sa < sb ? .orderedAscending : (sa > sb ? .orderedDescending : .orderedSame)
             case "source":
                 result = (a.sourceFile ?? "").localizedCaseInsensitiveCompare(b.sourceFile ?? "")
+            case "consequence":
+                result = variantConsequenceText(for: a).localizedCaseInsensitiveCompare(variantConsequenceText(for: b))
+            case "aa_change":
+                result = variantAAChangeText(for: a).localizedCaseInsensitiveCompare(variantAAChangeText(for: b))
             default:
                 // Dynamic INFO column sort (key starts with "info_")
                 if key.hasPrefix("info_") {
@@ -4290,6 +4357,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         case Self.sourceColumn:
             tf.stringValue = annotation.sourceFile ?? ""
             tf.font = .systemFont(ofSize: 11)
+        case Self.consequenceColumn:
+            tf.stringValue = variantConsequenceText(for: annotation)
+        case Self.aaChangeColumn:
+            tf.stringValue = variantAAChangeText(for: annotation)
 
         default:
             // Dynamic INFO columns (identifier starts with "info_")
@@ -4337,6 +4408,242 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             return String(format: "%.1f kb", Double(bp) / 1_000.0)
         default:
             return String(format: "%.1f Mb", Double(bp) / 1_000_000.0)
+        }
+    }
+
+    private func variantConsequenceText(for row: AnnotationSearchIndex.SearchResult) -> String {
+        if let info = row.infoDict {
+            let candidates = [
+                "CSQ_Consequence", "ANN_Consequence", "Consequence", "consequence",
+                "ANN_Annotation", "EFFECT", "effect",
+            ]
+            for key in candidates {
+                if let value = normalizedVariantInfoValue(info[key]) {
+                    return value
+                }
+            }
+        }
+        let fallback = fallbackConsequenceForRow(row).consequence?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let fallback, !fallback.isEmpty { return fallback }
+        if shouldShowDeferredConsequencePlaceholder(for: row) {
+            return Self.deferredConsequenceText
+        }
+        return ""
+    }
+
+    private func variantAAChangeText(for row: AnnotationSearchIndex.SearchResult) -> String {
+        if let info = row.infoDict {
+            let candidates = [
+                "CSQ_HGVSp", "HGVSp", "ANN_HGVS_p", "AA_CHANGE",
+                "CSQ_Amino_acids", "Amino_acids", "ANN_AA_pos_len",
+            ]
+            for key in candidates {
+                if let value = normalizedVariantInfoValue(info[key]) {
+                    return value
+                }
+            }
+        }
+        let fallback = fallbackConsequenceForRow(row).aaChange?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let fallback, !fallback.isEmpty { return fallback }
+        if shouldShowDeferredConsequencePlaceholder(for: row) {
+            return Self.deferredAAChangeText
+        }
+        return ""
+    }
+
+    private func fallbackConsequenceForRow(
+        _ row: AnnotationSearchIndex.SearchResult
+    ) -> (consequence: String?, aaChange: String?) {
+        let key = variantFallbackKey(for: row)
+        if let cached = fallbackConsequenceCache[key] {
+            return cached
+        }
+        let resolved = delegate?.annotationDrawer(self, fallbackConsequenceFor: row) ?? (nil, nil)
+        let consequence = resolved.0?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let aaChange = resolved.1?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if (consequence?.isEmpty == false) || (aaChange?.isEmpty == false) {
+            fallbackConsequenceCache[key] = (consequence, aaChange)
+            return (consequence, aaChange)
+        }
+        return resolved
+    }
+
+    private func normalizedVariantInfoValue(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        switch trimmed.lowercased() {
+        case ".", "na", "n/a", "null", "none":
+            return nil
+        default:
+            return trimmed
+        }
+    }
+
+    private func shouldShowDeferredConsequencePlaceholder(for row: AnnotationSearchIndex.SearchResult) -> Bool {
+        guard row.isVariant, activeTab == .variants else { return false }
+        let visibleCount = max(displayedAnnotations.count, lastVariantQueryMatchCount ?? 0)
+        return visibleCount > Self.consequenceComputationRowLimit
+    }
+
+    private func variantFallbackKey(for row: AnnotationSearchIndex.SearchResult) -> String {
+        if let rowId = row.variantRowId {
+            return "\(row.trackId):\(rowId)"
+        }
+        let ref = row.ref ?? ""
+        let alt = row.alt ?? ""
+        return "\(row.trackId):\(row.chromosome):\(row.start):\(ref):\(alt)"
+    }
+
+    // MARK: - Column Sizing
+
+    @objc func autoSizeVisibleTableColumns(_ sender: Any?) {
+        let columns = tableView.tableColumns
+        guard !columns.isEmpty else { return }
+
+        let rowCount = rowCountForAutoSizing()
+        let sampledRows = min(rowCount, Self.autoSizeRowSampleLimit)
+        let bodyFont = NSFont.systemFont(ofSize: 11)
+        let headerFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
+
+        for column in columns {
+            autoSize(column: column, sampledRows: sampledRows, bodyFont: bodyFont, headerFont: headerFont)
+        }
+    }
+
+    @objc func autoSizeSingleColumnFromMenu(_ sender: NSMenuItem) {
+        guard let identifier = sender.representedObject as? String,
+              let column = tableView.tableColumns.first(where: { $0.identifier.rawValue == identifier }) else { return }
+
+        let rowCount = rowCountForAutoSizing()
+        let sampledRows = min(rowCount, Self.autoSizeRowSampleLimit)
+        autoSize(
+            column: column,
+            sampledRows: sampledRows,
+            bodyFont: NSFont.systemFont(ofSize: 11),
+            headerFont: NSFont.systemFont(ofSize: 11, weight: .semibold)
+        )
+    }
+
+    func addColumnSizingMenuItems(_ menu: NSMenu, tableColumn: NSTableColumn?) {
+        if let tableColumn {
+            let displayName = tableColumn.title.isEmpty ? "Column" : tableColumn.title
+            let sizeColumnItem = NSMenuItem(
+                title: "Size \(displayName) to Fit",
+                action: #selector(autoSizeSingleColumnFromMenu(_:)),
+                keyEquivalent: ""
+            )
+            sizeColumnItem.target = self
+            sizeColumnItem.representedObject = tableColumn.identifier.rawValue
+            menu.addItem(sizeColumnItem)
+        }
+
+        let sizeAllItem = NSMenuItem(
+            title: "Size All Columns to Fit",
+            action: #selector(autoSizeVisibleTableColumns(_:)),
+            keyEquivalent: ""
+        )
+        sizeAllItem.target = self
+        menu.addItem(sizeAllItem)
+    }
+
+    private func rowCountForAutoSizing() -> Int {
+        if activeTab == .samples { return displayedSamples.count }
+        if activeTab == .variants && activeVariantSubtab == .genotypes { return displayedGenotypes.count }
+        return displayedAnnotations.count
+    }
+
+    private func autoSize(
+        column: NSTableColumn,
+        sampledRows: Int,
+        bodyFont: NSFont,
+        headerFont: NSFont
+    ) {
+        if column.identifier == Self.bookmarkColumn {
+            column.width = 28
+            return
+        }
+        if column.identifier == Self.sampleVisibleColumn {
+            column.width = 30
+            return
+        }
+
+        let headerTitle = column.title.isEmpty ? " " : column.title
+        var targetWidth = (headerTitle as NSString).size(withAttributes: [.font: headerFont]).width + 16
+
+        if sampledRows > 0 {
+            for row in 0..<sampledRows {
+                let text = autoSizeCellValueString(for: column.identifier, row: row)
+                guard !text.isEmpty else { continue }
+                let width = (text as NSString).size(withAttributes: [.font: bodyFont]).width + 12
+                if width > targetWidth { targetWidth = width }
+            }
+        }
+
+        let clamped = min(max(targetWidth, column.minWidth), 700)
+        column.width = ceil(clamped)
+    }
+
+    private func autoSizeCellValueString(for identifier: NSUserInterfaceItemIdentifier, row: Int) -> String {
+        if activeTab == .samples {
+            guard row < displayedSamples.count else { return "" }
+            let sample = displayedSamples[row]
+            if identifier == Self.sampleDisplayNameColumn {
+                let displayName = sample.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+                return (displayName?.isEmpty == false) ? displayName! : sample.name
+            }
+            return sampleFilterValue(sample: sample, columnIdentifier: identifier.rawValue)
+        }
+
+        if activeTab == .variants && activeVariantSubtab == .genotypes {
+            return genotypeCellValueString(for: identifier, row: row)
+        }
+
+        guard row < displayedAnnotations.count else { return "" }
+        let annotation = displayedAnnotations[row]
+        switch identifier {
+        case Self.nameColumn, Self.variantIdColumn:
+            return annotation.name
+        case Self.typeColumn, Self.variantTypeColumn:
+            return annotation.type
+        case Self.chromosomeColumn, Self.variantChromColumn:
+            return annotation.chromosome
+        case Self.startColumn:
+            return numberFormatter.string(from: NSNumber(value: annotation.start)) ?? "\(annotation.start)"
+        case Self.endColumn:
+            return numberFormatter.string(from: NSNumber(value: annotation.end)) ?? "\(annotation.end)"
+        case Self.sizeColumn:
+            return formatSize(annotation.end - annotation.start)
+        case Self.strandColumn:
+            return annotation.strand
+        case Self.positionColumn:
+            let displayPos = annotation.start + 1
+            return numberFormatter.string(from: NSNumber(value: displayPos)) ?? "\(displayPos)"
+        case Self.refColumn:
+            return annotation.ref ?? ""
+        case Self.altColumn:
+            return annotation.alt ?? ""
+        case Self.qualityColumn:
+            if let q = annotation.quality {
+                return q < 0 ? "." : String(format: "%.1f", q)
+            }
+            return "."
+        case Self.filterColumn:
+            return annotation.filter ?? "."
+        case Self.samplesColumn:
+            return "\(annotation.sampleCount ?? 0)"
+        case Self.sourceColumn:
+            return annotation.sourceFile ?? ""
+        case Self.consequenceColumn:
+            return variantConsequenceText(for: annotation)
+        case Self.aaChangeColumn:
+            return variantAAChangeText(for: annotation)
+        default:
+            if identifier.rawValue.hasPrefix("info_") {
+                let infoKey = String(identifier.rawValue.dropFirst(5))
+                return annotation.infoDict?[infoKey] ?? ""
+            }
+            return ""
         }
     }
 
@@ -4869,6 +5176,8 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         case Self.filterColumn.rawValue: return "filter"
         case Self.samplesColumn.rawValue: return "samples"
         case Self.sourceColumn.rawValue: return "source"
+        case Self.consequenceColumn.rawValue: return "consequence"
+        case Self.aaChangeColumn.rawValue: return "aa_change"
         default:
             if columnId.hasPrefix("info_") { return columnId }
             return nil
@@ -4942,6 +5251,9 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         let tableColumn = tableView.tableColumns[column]
         guard let key = variantFilterKey(forColumnIdentifier: tableColumn.identifier.rawValue) else { return }
         let displayName = tableColumn.title.isEmpty ? "Column" : tableColumn.title
+
+        addColumnSizingMenuItems(menu, tableColumn: tableColumn)
+        menu.addItem(NSMenuItem.separator())
 
         if isVariantFilterNumericKey(key) {
             let equalsItem = NSMenuItem(
@@ -5393,6 +5705,10 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             return row.sampleCount.map { String($0) } ?? ""
         case "source":
             return row.sourceFile ?? ""
+        case "consequence":
+            return variantConsequenceText(for: row)
+        case "aa_change":
+            return variantAAChangeText(for: row)
         default:
             if key.hasPrefix("info_") {
                 let infoKey = String(key.dropFirst(5))
@@ -5435,6 +5751,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
 
     private func setVariantBaseResults(_ rows: [AnnotationSearchIndex.SearchResult]) {
         baseDisplayedVariantAnnotations = rows
+        fallbackConsequenceCache = [:]
         displayedAnnotations = applyVariantColumnFilters(to: rows)
     }
 
@@ -5957,6 +6274,9 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
     }
 
     private func buildSampleGlobalContextMenu(_ menu: NSMenu) {
+        addColumnSizingMenuItems(menu, tableColumn: nil)
+        menu.addItem(NSMenuItem.separator())
+
         let showAllItem = NSMenuItem(title: "Show All Samples", action: #selector(showAllSamplesAction(_:)), keyEquivalent: "")
         showAllItem.target = self
         menu.addItem(showAllItem)
@@ -5996,6 +6316,9 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             return
         }
         let displayName = tableColumn.title.isEmpty ? "Visible" : tableColumn.title
+
+        addColumnSizingMenuItems(menu, tableColumn: tableColumn)
+        menu.addItem(NSMenuItem.separator())
 
         let containsItem = NSMenuItem(
             title: "Filter \(displayName) Contains\u{2026}",

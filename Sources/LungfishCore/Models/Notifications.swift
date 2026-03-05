@@ -286,6 +286,10 @@ public enum NotificationUserInfoKey {
     /// Key for selected variant search result.
     public static let searchResult = "searchResult"
 
+    /// Key indicating preferred table focus behavior for a variant selection event.
+    /// Expected values include "calls" and "genotypes".
+    public static let variantSelectionMode = "variantSelectionMode"
+
     /// Key for variant track ID.
     public static let variantTrackId = "variantTrackId"
 

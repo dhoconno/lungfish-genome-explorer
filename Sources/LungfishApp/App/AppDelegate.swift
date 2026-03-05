@@ -2226,13 +2226,232 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @objc func exportImage(_ sender: Any?) {
-        // Image export requires rendering the viewer - not yet implemented
-        showNotImplementedAlert("Image Export")
+        guard let viewerController = mainWindowController?.mainSplitViewController?.viewerController else {
+            showExportError(message: "No viewer is currently available for export.")
+            return
+        }
+
+        presentViewerGraphicsExportPanel(
+            viewerController: viewerController,
+            defaultFormat: .png,
+            includeBitmapFormats: true
+        )
     }
 
     @objc func exportPDF(_ sender: Any?) {
-        // PDF export requires rendering the viewer - not yet implemented
-        showNotImplementedAlert("PDF Export")
+        guard let viewerController = mainWindowController?.mainSplitViewController?.viewerController else {
+            showExportError(message: "No viewer is currently available for export.")
+            return
+        }
+
+        presentViewerGraphicsExportPanel(
+            viewerController: viewerController,
+            defaultFormat: .pdf,
+            includeBitmapFormats: false
+        )
+    }
+
+    private enum ViewerExportScope: String, CaseIterable {
+        case tracks = "tracks"
+        case fullViewer = "full"
+        case selectedRegion = "selection"
+
+        var title: String {
+            switch self {
+            case .tracks: return "Tracks View (Sequence + Variants + Annotations)"
+            case .fullViewer: return "Full Viewer Pane (Ruler + Tracks + Table)"
+            case .selectedRegion: return "Selected Region Only"
+            }
+        }
+    }
+
+    private enum ViewerGraphicFormat: String, CaseIterable {
+        case png
+        case jpeg
+        case tiff
+        case pdf
+
+        var title: String { rawValue.uppercased() }
+
+        var contentType: UTType {
+            switch self {
+            case .png: return .png
+            case .jpeg: return .jpeg
+            case .tiff: return .tiff
+            case .pdf: return .pdf
+            }
+        }
+
+        var fileExtension: String { rawValue }
+
+        var isVector: Bool { self == .pdf }
+    }
+
+    private func presentViewerGraphicsExportPanel(
+        viewerController: ViewerViewController,
+        defaultFormat: ViewerGraphicFormat,
+        includeBitmapFormats: Bool
+    ) {
+        guard let window = mainWindowController?.window else {
+            showExportError(message: "Unable to determine active window for export.")
+            return
+        }
+
+        let hasSelection = viewerController.viewerView.selectionRange?.isEmpty == false
+        let formats: [ViewerGraphicFormat] = includeBitmapFormats ? [.png, .jpeg, .tiff, .pdf] : [.pdf]
+        let scopes: [ViewerExportScope] = hasSelection ? [.tracks, .fullViewer, .selectedRegion] : [.tracks, .fullViewer]
+        let initialFormat = formats.contains(defaultFormat) ? defaultFormat : (formats.first ?? .png)
+
+        let panel = NSSavePanel()
+        panel.title = "Export Viewer Graphics"
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = formats.map(\.contentType)
+        panel.nameFieldStringValue = "viewer-export.\(initialFormat.fileExtension)"
+
+        let scopeLabel = NSTextField(labelWithString: "Scope:")
+        let scopePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        scopes.forEach { scopePopup.addItem(withTitle: $0.title) }
+        if let idx = scopes.firstIndex(of: .tracks) { scopePopup.selectItem(at: idx) }
+
+        let formatLabel = NSTextField(labelWithString: "Format:")
+        let formatPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        formats.forEach { formatPopup.addItem(withTitle: $0.title) }
+        if let idx = formats.firstIndex(of: initialFormat) { formatPopup.selectItem(at: idx) }
+
+        let scaleLabel = NSTextField(labelWithString: "Bitmap Scale:")
+        let scalePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        ["1x", "2x", "4x"].forEach { scalePopup.addItem(withTitle: $0) }
+        scalePopup.selectItem(at: 1)
+        scalePopup.isEnabled = !initialFormat.isVector
+
+        let accessory = NSStackView(views: [scopeLabel, scopePopup, formatLabel, formatPopup, scaleLabel, scalePopup])
+        accessory.orientation = .vertical
+        accessory.alignment = .leading
+        accessory.spacing = 6
+        panel.accessoryView = accessory
+
+        func selectedFormat() -> ViewerGraphicFormat {
+            let idx = max(0, min(formats.count - 1, formatPopup.indexOfSelectedItem))
+            return formats[idx]
+        }
+
+        scalePopup.isEnabled = !selectedFormat().isVector
+
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let self, let rawURL = panel.url else { return }
+
+            let scope = scopes[max(0, min(scopes.count - 1, scopePopup.indexOfSelectedItem))]
+            let format = selectedFormat()
+            let scale: CGFloat
+            switch scalePopup.indexOfSelectedItem {
+            case 2: scale = 4
+            case 1: scale = 2
+            default: scale = 1
+            }
+
+            let outputURL = rawURL.pathExtension.lowercased() == format.fileExtension
+                ? rawURL
+                : rawURL.deletingPathExtension().appendingPathExtension(format.fileExtension)
+
+            do {
+                let data = try self.viewerExportData(
+                    viewerController: viewerController,
+                    scope: scope,
+                    format: format,
+                    bitmapScale: scale
+                )
+                try data.write(to: outputURL, options: .atomic)
+                self.showExportSuccess(filename: outputURL.lastPathComponent, count: 1, itemType: "graphic")
+            } catch {
+                self.showExportError(message: "Failed to export viewer graphics: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func viewerExportData(
+        viewerController: ViewerViewController,
+        scope: ViewerExportScope,
+        format: ViewerGraphicFormat,
+        bitmapScale: CGFloat
+    ) throws -> Data {
+        let (view, rect) = try viewerExportViewAndRect(viewerController: viewerController, scope: scope)
+        if format.isVector {
+            return view.dataWithPDF(inside: rect)
+        }
+
+        let pdfData = view.dataWithPDF(inside: rect)
+        guard let image = NSImage(data: pdfData) else {
+            throw NSError(domain: "LungfishExport", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unable to render export image"])
+        }
+
+        let pixelsWide = max(1, Int((rect.width * bitmapScale).rounded(.up)))
+        let pixelsHigh = max(1, Int((rect.height * bitmapScale).rounded(.up)))
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: pixelsWide,
+            pixelsHigh: pixelsHigh,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            throw NSError(domain: "LungfishExport", code: 2, userInfo: [NSLocalizedDescriptionKey: "Unable to allocate bitmap export buffer"])
+        }
+
+        rep.size = NSSize(width: rect.width, height: rect.height)
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        guard let context = NSGraphicsContext(bitmapImageRep: rep) else {
+            throw NSError(domain: "LungfishExport", code: 3, userInfo: [NSLocalizedDescriptionKey: "Unable to create bitmap graphics context"])
+        }
+        NSGraphicsContext.current = context
+        image.draw(in: NSRect(origin: .zero, size: rep.size), from: .zero, operation: .sourceOver, fraction: 1)
+
+        let nsType: NSBitmapImageRep.FileType
+        switch format {
+        case .png: nsType = .png
+        case .jpeg: nsType = .jpeg
+        case .tiff: nsType = .tiff
+        case .pdf: nsType = .png
+        }
+        guard let data = rep.representation(using: nsType, properties: [:]) else {
+            throw NSError(domain: "LungfishExport", code: 4, userInfo: [NSLocalizedDescriptionKey: "Unable to encode bitmap export data"])
+        }
+        return data
+    }
+
+    private func viewerExportViewAndRect(
+        viewerController: ViewerViewController,
+        scope: ViewerExportScope
+    ) throws -> (NSView, NSRect) {
+        switch scope {
+        case .tracks:
+            return (viewerController.viewerView, viewerController.viewerView.bounds)
+        case .fullViewer:
+            return (viewerController.view, viewerController.view.bounds)
+        case .selectedRegion:
+            guard let frame = viewerController.referenceFrame,
+                  let range = viewerController.viewerView.selectionRange,
+                  !range.isEmpty else {
+                throw NSError(
+                    domain: "LungfishExport",
+                    code: 5,
+                    userInfo: [NSLocalizedDescriptionKey: "No selected region is available for export."]
+                )
+            }
+
+            let rawStartX = frame.screenPosition(for: Double(range.lowerBound))
+            let rawEndX = frame.screenPosition(for: Double(range.upperBound))
+            let minX = max(frame.leadingInset, min(rawStartX, rawEndX))
+            let maxDataX = max(frame.leadingInset, viewerController.viewerView.bounds.width - frame.trailingInset)
+            let maxX = min(maxDataX, max(rawStartX, rawEndX))
+            let width = max(1, maxX - minX)
+            let rect = NSRect(x: minX, y: 0, width: width, height: viewerController.viewerView.bounds.height)
+            return (viewerController.viewerView, rect)
+        }
     }
 
     /// Shows an error alert for export failures

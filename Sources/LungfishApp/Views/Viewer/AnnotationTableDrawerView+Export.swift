@@ -10,32 +10,117 @@ import os.log
 private let exportLogger = Logger(subsystem: "com.lungfish.app", category: "TableExport")
 
 extension AnnotationTableDrawerView {
+    private enum TableExportScope: String {
+        case visible
+        case selected
+
+        var label: String {
+            switch self {
+            case .visible: return "Visible Rows"
+            case .selected: return "Selected Rows"
+            }
+        }
+    }
+
+    private enum TableExportFormat: String {
+        case csv
+        case tsv
+        case json
+
+        var label: String {
+            rawValue.uppercased()
+        }
+
+        var contentType: UTType {
+            switch self {
+            case .csv: return .commaSeparatedText
+            case .tsv: return .tabSeparatedText
+            case .json: return .json
+            }
+        }
+
+        var fileExtension: String {
+            switch self {
+            case .csv: return "csv"
+            case .tsv: return "tsv"
+            case .json: return "json"
+            }
+        }
+    }
+
+    private struct TableExportRequest {
+        let scope: TableExportScope
+        let format: TableExportFormat
+    }
 
     // MARK: - Export Action
 
+    /// Shows a contextual export menu with scope and format options.
+    @objc func showExportMenu(_ sender: Any?) {
+        let hasSelection = !tableView.selectedRowIndexes.isEmpty
+        let menu = NSMenu(title: "Export")
+
+        let options: [(TableExportScope, TableExportFormat)] = [
+            (.visible, .csv), (.visible, .tsv), (.visible, .json),
+            (.selected, .csv), (.selected, .tsv), (.selected, .json),
+        ]
+
+        for (scope, format) in options {
+            let item = NSMenuItem(
+                title: "Export \(scope.label) (\(format.label))…",
+                action: #selector(performTableExport(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = TableExportRequest(scope: scope, format: format)
+            if scope == .selected && !hasSelection {
+                item.isEnabled = false
+            }
+            menu.addItem(item)
+        }
+
+        let anchorView = (sender as? NSView) ?? exportButton
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: anchorView.bounds.height + 2), in: anchorView)
+    }
+
+    @objc private func performTableExport(_ sender: NSMenuItem) {
+        guard let request = sender.representedObject as? TableExportRequest else { return }
+        exportTableContents(scope: request.scope, format: request.format)
+    }
+
     /// Exports the currently visible table contents as CSV or TSV.
     @objc func exportTableContents(_ sender: Any?) {
+        showExportMenu(sender)
+    }
+
+    private func exportTableContents(scope: TableExportScope, format: TableExportFormat) {
+        let rowIndexes = exportRowIndexes(for: scope)
+        guard !rowIndexes.isEmpty else {
+            if let window = self.window {
+                let alert = NSAlert()
+                alert.messageText = "Nothing to Export"
+                alert.informativeText = "No rows are available for the selected export scope."
+                alert.alertStyle = .informational
+                alert.beginSheetModal(for: window)
+            }
+            return
+        }
+
         let panel = NSSavePanel()
         panel.title = "Export Table"
-        panel.nameFieldStringValue = defaultExportFilename()
-        panel.allowedContentTypes = [.commaSeparatedText, .tabSeparatedText]
+        panel.nameFieldStringValue = defaultExportFilename(scope: scope, format: format)
+        panel.allowedContentTypes = [format.contentType]
         panel.canCreateDirectories = true
 
         guard let window = self.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let url = panel.url, let self else { return }
 
-            let delimiter: String
-            if url.pathExtension.lowercased() == "tsv" || url.pathExtension.lowercased() == "txt" {
-                delimiter = "\t"
-            } else {
-                delimiter = ","
-            }
-
             do {
-                let content = self.buildExportContent(delimiter: delimiter)
-                try content.write(to: url, atomically: true, encoding: .utf8)
-                exportLogger.info("Exported \(self.exportRowCount()) rows to \(url.lastPathComponent)")
+                let outputURL = self.normalizedExportURL(from: url, format: format)
+                let content = self.buildExportContent(format: format, rowIndexes: rowIndexes)
+                try content.write(to: outputURL, atomically: true, encoding: .utf8)
+                exportLogger.info("Exported \(rowIndexes.count) rows to \(outputURL.lastPathComponent)")
             } catch {
                 exportLogger.error("Export failed: \(error)")
                 let alert = NSAlert()
@@ -50,7 +135,7 @@ extension AnnotationTableDrawerView {
     // MARK: - Export Helpers
 
     /// Builds the full CSV/TSV string from the currently visible table.
-    private func buildExportContent(delimiter: String) -> String {
+    private func buildExportDelimitedContent(delimiter: String, rowIndexes: [Int]) -> String {
         let columns = tableView.tableColumns
         var lines: [String] = []
 
@@ -59,8 +144,7 @@ extension AnnotationTableDrawerView {
         lines.append(headers.joined(separator: delimiter))
 
         // Data rows
-        let rowCount = exportRowCount()
-        for row in 0..<rowCount {
+        for row in rowIndexes {
             let fields = columns.map { col -> String in
                 let value = cellValueString(for: col.identifier, row: row)
                 return escapeField(value, delimiter: delimiter)
@@ -69,6 +153,35 @@ extension AnnotationTableDrawerView {
         }
 
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    private func buildExportJSONContent(rowIndexes: [Int]) throws -> String {
+        let columns = tableView.tableColumns
+        let rows = rowIndexes.map { row -> [String: String] in
+            var record: [String: String] = [:]
+            for column in columns {
+                record[column.title] = cellValueString(for: column.identifier, row: row)
+            }
+            return record
+        }
+        let payload: [String: Any] = [
+            "tab": exportTabName(),
+            "scope": rowIndexes.count == exportRowCount() ? "visible" : "selected",
+            "rows": rows,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+        return String(decoding: data, as: UTF8.self) + "\n"
+    }
+
+    private func buildExportContent(format: TableExportFormat, rowIndexes: [Int]) -> String {
+        switch format {
+        case .csv:
+            return buildExportDelimitedContent(delimiter: ",", rowIndexes: rowIndexes)
+        case .tsv:
+            return buildExportDelimitedContent(delimiter: "\t", rowIndexes: rowIndexes)
+        case .json:
+            return (try? buildExportJSONContent(rowIndexes: rowIndexes)) ?? "{\n  \"rows\": []\n}\n"
+        }
     }
 
     /// Extracts the display string for a given column/row, matching what the table shows.
@@ -164,14 +277,37 @@ extension AnnotationTableDrawerView {
         return displayedAnnotations.count
     }
 
-    /// Generates a default filename based on the active tab.
-    private func defaultExportFilename() -> String {
-        switch activeTab {
-        case .annotations: return "annotations.csv"
-        case .variants:
-            return activeVariantSubtab == .genotypes ? "genotypes.csv" : "variants.csv"
-        case .samples: return "samples.csv"
+    private func exportRowIndexes(for scope: TableExportScope) -> [Int] {
+        switch scope {
+        case .visible:
+            return Array(0..<exportRowCount())
+        case .selected:
+            return tableView.selectedRowIndexes.compactMap { idx in
+                guard idx >= 0, idx < exportRowCount() else { return nil }
+                return idx
+            }
         }
+    }
+
+    private func exportTabName() -> String {
+        switch activeTab {
+        case .annotations: return "annotations"
+        case .variants:
+            return activeVariantSubtab == .genotypes ? "genotypes" : "variants"
+        case .samples: return "samples"
+        }
+    }
+
+    private func normalizedExportURL(from url: URL, format: TableExportFormat) -> URL {
+        if url.pathExtension.lowercased() == format.fileExtension {
+            return url
+        }
+        return url.deletingPathExtension().appendingPathExtension(format.fileExtension)
+    }
+
+    /// Generates a default filename based on tab + export scope + format.
+    private func defaultExportFilename(scope: TableExportScope, format: TableExportFormat) -> String {
+        "\(exportTabName())-\(scope.rawValue).\(format.fileExtension)"
     }
 
     /// Escapes a field value for CSV/TSV output.

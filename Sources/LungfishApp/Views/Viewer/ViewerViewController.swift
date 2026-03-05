@@ -2439,6 +2439,10 @@ public class SequenceViewerView: NSView {
     /// Keyed by annotation UUID. Invalidated on chromosome/sequence change.
     var cachedCDSTranslations: [UUID: TranslationResult] = [:]
 
+    /// Cached CDS coding contexts used for codon-level consequence fallback in hover text.
+    /// Keyed by annotation UUID. Invalidated on chromosome/sequence change.
+    private var cachedCDSCodingContexts: [UUID: CDSCodingContext] = [:]
+
     /// Color scheme for amino acid rendering.
     var translationColorScheme: AminoAcidColorScheme = .zappo
 
@@ -2450,6 +2454,15 @@ public class SequenceViewerView: NSView {
 
     /// Whether to render stop codon cells in translation tracks.
     var translationShowStopCodons: Bool = true
+
+    /// Precomputed CDS coordinate/codon mapping for local consequence prediction.
+    private struct CDSCodingContext {
+        let annotation: SequenceAnnotation
+        let codingBases: [Character]
+        let codingGenomePositions: [Int]
+        let phaseOffset: Int
+        let codonTable: CodonTable
+    }
 
     // MARK: - Annotation Track Layout Constants
 
@@ -3296,6 +3309,7 @@ public class SequenceViewerView: NSView {
         self.cachedVariantAnnotations = []
         self.cachedVariantRegion = nil
         self.cachedCDSTranslations = [:]
+        self.cachedCDSCodingContexts = [:]
         self.localVariantRenderFilterKeys = nil
         self.invalidateFilteredVariantCache()
         self.isFetchingBundleData = false
@@ -3470,6 +3484,7 @@ public class SequenceViewerView: NSView {
         self.cachedVariantAnnotations = []
         self.cachedVariantRegion = nil
         self.cachedCDSTranslations = [:]
+        self.cachedCDSCodingContexts = [:]
         self.localVariantRenderFilterKeys = nil
         self.invalidateFilteredVariantCache()
         self.cachedGenotypeData = nil
@@ -4233,6 +4248,7 @@ public class SequenceViewerView: NSView {
                 let elapsed = viewer.annotationFetchStartTime.map { Date().timeIntervalSince($0) } ?? 0
                 viewer.cachedBundleAnnotations = allAnnotations
                 viewer.cachedAnnotationRegion = expandedRegion
+                viewer.cachedCDSCodingContexts = [:]
                 viewer.isFetchingAnnotations = false
                 viewer.annotationFetchStartTime = nil
                 viewer.invalidateAnnotationTile()
@@ -5250,6 +5266,7 @@ public class SequenceViewerView: NSView {
                     let elapsed = viewer.sequenceFetchStartTime.map { Date().timeIntervalSince($0) } ?? 0
                     viewer.cachedBundleSequence = sequence
                     viewer.cachedSequenceRegion = expandedRegion
+                    viewer.cachedCDSCodingContexts = [:]
                     viewer.isFetchingBundleData = false
                     viewer.sequenceFetchStartTime = nil
                     viewer.bundleFetchError = nil
@@ -7211,14 +7228,25 @@ public class SequenceViewerView: NSView {
     /// Posts a variant selection notification when the selected annotation is a variant.
     @discardableResult
     private func postVariantSelectedNotificationIfNeeded(_ annotation: SequenceAnnotation) -> Bool {
+        guard let result = variantSearchResult(for: annotation) else { return false }
+        NotificationCenter.default.post(
+            name: .variantSelected,
+            object: self,
+            userInfo: [NotificationUserInfoKey.searchResult: result]
+        )
+        return true
+    }
+
+    /// Builds a `SearchResult` payload for a variant-like annotation.
+    private func variantSearchResult(for annotation: SequenceAnnotation) -> AnnotationSearchIndex.SearchResult? {
         let variantTypes: Set<AnnotationType> = [.snp, .insertion, .deletion, .variation]
         let isVariantByType = variantTypes.contains(annotation.type)
         let isVariantByQualifiers = annotation.qualifiers["variant_row_id"] != nil
             || annotation.qualifiers["variant_type"] != nil
             || annotation.qualifiers["ref"] != nil
             || annotation.qualifiers["alt"] != nil
-        guard isVariantByType || isVariantByQualifiers else { return false }
-        guard let chromosome = annotation.chromosome else { return false }
+        guard isVariantByType || isVariantByQualifiers else { return nil }
+        guard let chromosome = annotation.chromosome else { return nil }
 
         let rowId = annotation.qualifiers["variant_row_id"]?.values.first.flatMap { Int64($0) }
         let trackId = annotation.qualifiers["variant_track_id"]?.values.first ?? ""
@@ -7229,7 +7257,7 @@ public class SequenceViewerView: NSView {
         let filter = annotation.qualifiers["filter"]?.values.first
         let sampleCount = annotation.qualifiers["sample_count"]?.values.first.flatMap(Int.init)
 
-        let result = AnnotationSearchIndex.SearchResult(
+        return AnnotationSearchIndex.SearchResult(
             name: annotation.name,
             chromosome: chromosome,
             start: annotation.start,
@@ -7244,12 +7272,6 @@ public class SequenceViewerView: NSView {
             sampleCount: sampleCount,
             variantRowId: rowId
         )
-        NotificationCenter.default.post(
-            name: .variantSelected,
-            object: self,
-            userInfo: [NotificationUserInfoKey.searchResult: result]
-        )
-        return true
     }
 
     /// Shows a popover with annotation details at the specified location.
@@ -7644,6 +7666,18 @@ public class SequenceViewerView: NSView {
         let location = convert(event.locationInWindow, from: nil)
         contextMenuGenomicPosition = clampedContextMenuPosition(for: location, frame: frame)
 
+        // Variant context menu takes priority over generic annotation menus.
+        if let variant = variantAtPoint(location),
+           let variantResult = variantSearchResult(for: variant) {
+            if selectedAnnotation?.id != variant.id {
+                selectedAnnotation = variant
+                postAnnotationSelectedNotification(variant)
+                setNeedsDisplay(bounds)
+            }
+            showVariantContextMenu(for: variantResult, at: event)
+            return
+        }
+
         // Check if right-clicking on an annotation — bundle mode, multi-sequence mode, or single-sequence mode
         var clickedAnnotation: SequenceAnnotation?
         if currentReferenceBundle != nil {
@@ -7679,6 +7713,32 @@ public class SequenceViewerView: NSView {
 
         // No selection - show general context menu
         showGeneralContextMenu(at: event)
+    }
+
+    /// Creates and shows context menu for variant actions.
+    private func showVariantContextMenu(for result: AnnotationSearchIndex.SearchResult, at event: NSEvent) {
+        let menu = NSMenu(title: "Variant")
+
+        let viewVariantItem = NSMenuItem(title: "View Variant in Table", action: #selector(viewVariantInTableAction(_:)), keyEquivalent: "")
+        viewVariantItem.target = self
+        viewVariantItem.representedObject = result
+        menu.addItem(viewVariantItem)
+
+        let viewGenotypesItem = NSMenuItem(title: "View Genotypes at Site", action: #selector(viewVariantGenotypesAction(_:)), keyEquivalent: "")
+        viewGenotypesItem.target = self
+        viewGenotypesItem.representedObject = result
+        menu.addItem(viewGenotypesItem)
+
+        menu.addItem(NSMenuItem.separator())
+        addCenterViewMenuItem(to: menu)
+
+        if selectionRange != nil {
+            let zoomItem = NSMenuItem(title: "Zoom to Visible Region", action: #selector(zoomToSelectionAction(_:)), keyEquivalent: "")
+            zoomItem.target = self
+            menu.addItem(zoomItem)
+        }
+
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
 
     /// Creates and shows context menu for annotation
@@ -7846,7 +7906,9 @@ public class SequenceViewerView: NSView {
     }
 
     private func clampedContextMenuPosition(for location: NSPoint, frame: ReferenceFrame) -> Int {
-        let clampedX = max(0, min(location.x, bounds.width))
+        let dataMinX = frame.leadingInset
+        let dataMaxX = max(dataMinX, min(bounds.width - frame.trailingInset, bounds.width))
+        let clampedX = max(dataMinX, min(location.x, dataMaxX))
         let genomicPos = Int(frame.genomicPosition(for: clampedX).rounded(.down))
         let maxPos = max(0, frame.sequenceLength - 1)
         return max(0, min(maxPos, genomicPos))
@@ -7917,6 +7979,30 @@ public class SequenceViewerView: NSView {
         setNeedsDisplay(bounds)
         viewController?.enhancedRulerView.setNeedsDisplay(viewController?.enhancedRulerView.bounds ?? .zero)
         viewController?.updateStatusBar()
+    }
+
+    @objc private func viewVariantInTableAction(_ sender: NSMenuItem?) {
+        guard let result = sender?.representedObject as? AnnotationSearchIndex.SearchResult else { return }
+        NotificationCenter.default.post(
+            name: .variantSelected,
+            object: self,
+            userInfo: [
+                NotificationUserInfoKey.searchResult: result,
+                NotificationUserInfoKey.variantSelectionMode: "calls",
+            ]
+        )
+    }
+
+    @objc private func viewVariantGenotypesAction(_ sender: NSMenuItem?) {
+        guard let result = sender?.representedObject as? AnnotationSearchIndex.SearchResult else { return }
+        NotificationCenter.default.post(
+            name: .variantSelected,
+            object: self,
+            userInfo: [
+                NotificationUserInfoKey.searchResult: result,
+                NotificationUserInfoKey.variantSelectionMode: "genotypes",
+            ]
+        )
     }
 
     @objc private func createAnnotationFromSelection(_ sender: Any?) {
@@ -8683,23 +8769,36 @@ public class SequenceViewerView: NSView {
         let relativeY = point.y - genotypeTopY + genotypeScrollOffset
         let sampleIdx = Int(relativeY / rowH)
         guard sampleIdx >= 0, sampleIdx < genotypeData.sampleNames.count else { return nil }
+        let sampleName = genotypeData.sampleNames[sampleIdx]
 
         // Determine which variant site the mouse is over
         var bestSiteIdx: Int?
+        var sampleMatchedSiteIdx: Int?
         for (idx, site) in genotypeData.sites.enumerated() {
             let siteEnd = site.position + max(1, site.ref.count)
             let startPx = frame.screenPosition(for: Double(site.position))
             let endPx = frame.screenPosition(for: Double(siteEnd))
             let cellWidth = max(1, endPx - startPx)
             if point.x >= startPx && point.x < startPx + cellWidth {
-                bestSiteIdx = idx
-                break
+                if site.genotypes[sampleName] != nil {
+                    sampleMatchedSiteIdx = idx
+                    break
+                }
+                bestSiteIdx = bestSiteIdx ?? idx
+                continue
             }
             // For very zoomed out views where variants are sub-pixel, find closest
             if cellWidth <= 1 && abs(Double(site.position) - frame.genomicPosition(for: point.x)) < frame.scale {
-                bestSiteIdx = idx
-                break
+                if site.genotypes[sampleName] != nil {
+                    sampleMatchedSiteIdx = idx
+                    break
+                }
+                bestSiteIdx = bestSiteIdx ?? idx
+                continue
             }
+        }
+        if sampleMatchedSiteIdx != nil {
+            bestSiteIdx = sampleMatchedSiteIdx
         }
 
         guard let siteIdx = bestSiteIdx else {
@@ -8716,7 +8815,6 @@ public class SequenceViewerView: NSView {
         }
         lastHoveredGenotypeCell = (sampleIdx, siteIdx)
 
-        let sampleName = genotypeData.sampleNames[sampleIdx]
         let site = genotypeData.sites[siteIdx]
 
         // No tooltip for samples without data at this site
@@ -8762,6 +8860,8 @@ public class SequenceViewerView: NSView {
             tooltip += "\nAA Change: \(aaChange)"
         }
 
+        var hasExplicitConsequence = false
+
         // Enrich with additional CSQ/INFO fields from variant database
         if let rowId = site.databaseRowId,
            let handles = viewController?.annotationSearchIndex?.variantDatabaseHandles {
@@ -8773,6 +8873,7 @@ public class SequenceViewerView: NSView {
                 // Show CSQ consequence string (more detailed than the impact classification)
                 if let consequence = infoDict["CSQ_Consequence"] {
                     tooltip += "\nConsequence: \(consequence)"
+                    hasExplicitConsequence = true
                 }
                 if let codons = infoDict["CSQ_Codons"] {
                     tooltip += "\nCodons: \(codons)"
@@ -8783,11 +8884,302 @@ public class SequenceViewerView: NSView {
             }
         }
 
+        // Fallback codon-level consequence prediction from CDS annotations when CSQ/ANN
+        // annotations are missing or incomplete.
+        let predictedImpacts = predictedCDSConsequences(
+            for: site,
+            sampleName: sampleName,
+            genotypeData: genotypeData
+        )
+        if !predictedImpacts.isEmpty {
+            if !hasExplicitConsequence {
+                tooltip += "\nConsequence: \(predictedImpacts.joined(separator: "; "))"
+            } else {
+                tooltip += "\nCDS impact(s): \(predictedImpacts.joined(separator: "; "))"
+            }
+        }
+
         let aaStatus = site.shortAAChange.map { " \u{2022} \($0)" } ?? ""
         let statusText = "Genotype: \(sampleName) \u{2022} \(callLabel) \u{2022} \(chrom):\(displayPos.formatted()) \(site.ref)\u{2192}\(site.alt)\(aaStatus)"
         lastHoveredGenotypeTooltipText = tooltip
         lastHoveredGenotypeStatusText = statusText
         return GenotypeTooltipResult(tooltip: tooltip, statusText: statusText)
+    }
+
+    /// Predicts coding consequences from overlapping CDS annotations for a site/sample.
+    ///
+    /// Used as a fallback when CSQ/ANN consequence fields are unavailable or incomplete.
+    /// Includes same-codon compound substitutions by applying all alt-carrying calls from
+    /// the current sample within the codon before translating.
+    private func predictedCDSConsequences(
+        for site: VariantSite,
+        sampleName: String,
+        genotypeData: GenotypeDisplayData
+    ) -> [String] {
+        guard let frame = viewController?.referenceFrame else { return [] }
+        let chrom = frame.chromosome
+        let siteStart = site.position
+        let siteEnd = site.position + max(1, site.ref.count)
+
+        let overlappingCDS = cachedBundleAnnotations.filter { annotation in
+            annotation.type == .cds
+                && (annotation.chromosome ?? chrom) == chrom
+                && annotation.overlaps(start: siteStart, end: siteEnd)
+        }
+        guard !overlappingCDS.isEmpty else { return [] }
+
+        var rendered = Set<String>()
+        var details: [String] = []
+
+        for cds in overlappingCDS {
+            guard let context = cdsCodingContext(for: cds) else { continue }
+            let impactedCodingIndices = context.codingGenomePositions.enumerated().compactMap { pair -> Int? in
+                let genomicPos = pair.element
+                return (genomicPos >= siteStart && genomicPos < siteEnd) ? pair.offset : nil
+            }
+            guard let firstCodingIndex = impactedCodingIndices.first else { continue }
+
+            // Indels are classified directly by frame-preservation.
+            if site.ref.count != site.alt.count {
+                let delta = site.alt.count - site.ref.count
+                let effect = (abs(delta) % 3 == 0) ? "inframe_indel" : "frameshift_variant"
+                let label = "\(cds.name): \(effect)"
+                if rendered.insert(label).inserted {
+                    details.append(label)
+                }
+                continue
+            }
+
+            guard firstCodingIndex >= context.phaseOffset else { continue }
+            let codonStart = context.phaseOffset + ((firstCodingIndex - context.phaseOffset) / 3) * 3
+            guard codonStart + 2 < context.codingBases.count,
+                  codonStart + 2 < context.codingGenomePositions.count else { continue }
+
+            let refCodonChars = Array(context.codingBases[codonStart...(codonStart + 2)])
+            let codonGenomePositions = Array(context.codingGenomePositions[codonStart...(codonStart + 2)])
+            var altCodonChars = refCodonChars
+
+            for (codonOffset, genomicPos) in codonGenomePositions.enumerated() {
+                guard let codonVariant = genotypeData.sites.first(where: {
+                    $0.position == genomicPos &&
+                    ($0.genotypes[sampleName] == .het || $0.genotypes[sampleName] == .homAlt)
+                }) else { continue }
+                guard codonVariant.ref.count == 1,
+                      let firstAltBase = codonVariant.alt.split(separator: ",").first?.first else { continue }
+                let orientedBase: Character
+                if context.annotation.strand == .reverse {
+                    orientedBase = complementDNA(firstAltBase)
+                } else {
+                    orientedBase = Character(String(firstAltBase).uppercased())
+                }
+                altCodonChars[codonOffset] = orientedBase
+            }
+
+            let refCodon = String(refCodonChars).uppercased()
+            let altCodon = String(altCodonChars).uppercased()
+            guard refCodon.count == 3, altCodon.count == 3 else { continue }
+
+            let refAA = context.codonTable.translate(refCodon)
+            let altAA = context.codonTable.translate(altCodon)
+            let aminoIndex = ((codonStart - context.phaseOffset) / 3) + 1
+
+            let effect: String
+            if refAA == altAA {
+                effect = "synonymous_variant"
+            } else if altAA == "*" {
+                effect = "stop_gained"
+            } else if refAA == "*" {
+                effect = "stop_lost"
+            } else {
+                effect = "missense_variant"
+            }
+
+            let label = "\(cds.name): \(effect) \(refAA)\(aminoIndex)\(altAA)"
+            if rendered.insert(label).inserted {
+                details.append(label)
+            }
+        }
+
+        return details
+    }
+
+    /// Predicts variant consequence/AA-change for table rows when CSQ/ANN INFO is absent.
+    ///
+    /// This variant-only fallback does not require per-sample genotype context.
+    func fallbackConsequenceForTableVariant(
+        chromosome: String,
+        position: Int,
+        ref: String,
+        alt: String
+    ) -> (consequence: String?, aaChange: String?) {
+        let refChromosome = referenceChromosomeName(forVariantDBChromosome: chromosome)
+        let siteStart = position
+        let siteEnd = position + max(1, ref.count)
+        let firstAlt = alt.split(separator: ",").first.map(String.init) ?? alt
+        guard !firstAlt.isEmpty else { return (nil, nil) }
+
+        let overlappingCDS = cachedBundleAnnotations.filter { annotation in
+            annotation.type == .cds
+                && (annotation.chromosome ?? refChromosome) == refChromosome
+                && annotation.overlaps(start: siteStart, end: siteEnd)
+        }
+        guard !overlappingCDS.isEmpty else { return (nil, nil) }
+
+        var consequences: [String] = []
+        var aaChanges: [String] = []
+        var seenConsequence = Set<String>()
+        var seenAA = Set<String>()
+
+        let altChars = Array(firstAlt.uppercased())
+        for cds in overlappingCDS {
+            guard let context = cdsCodingContext(for: cds) else { continue }
+            let impactedCodingIndices = context.codingGenomePositions.enumerated().compactMap { pair -> Int? in
+                let genomicPos = pair.element
+                return (genomicPos >= siteStart && genomicPos < siteEnd) ? pair.offset : nil
+            }
+            guard let firstCodingIndex = impactedCodingIndices.first else { continue }
+
+            if ref.count != firstAlt.count {
+                let delta = firstAlt.count - ref.count
+                let effect = (abs(delta) % 3 == 0) ? "inframe_indel" : "frameshift_variant"
+                let label = "\(cds.name): \(effect)"
+                if seenConsequence.insert(label).inserted {
+                    consequences.append(label)
+                }
+                continue
+            }
+
+            guard firstCodingIndex >= context.phaseOffset else { continue }
+            let codonStart = context.phaseOffset + ((firstCodingIndex - context.phaseOffset) / 3) * 3
+            guard codonStart + 2 < context.codingBases.count,
+                  codonStart + 2 < context.codingGenomePositions.count else { continue }
+
+            let refCodonChars = Array(context.codingBases[codonStart...(codonStart + 2)])
+            let codonGenomePositions = Array(context.codingGenomePositions[codonStart...(codonStart + 2)])
+            var altCodonChars = refCodonChars
+
+            for (codonOffset, genomicPos) in codonGenomePositions.enumerated() {
+                let altIndex = genomicPos - siteStart
+                guard altIndex >= 0, altIndex < altChars.count else { continue }
+                var replacement = altChars[altIndex]
+                if context.annotation.strand == .reverse {
+                    replacement = complementDNA(replacement)
+                }
+                altCodonChars[codonOffset] = replacement
+            }
+
+            let refCodon = String(refCodonChars).uppercased()
+            let altCodon = String(altCodonChars).uppercased()
+            guard refCodon.count == 3, altCodon.count == 3 else { continue }
+
+            let refAA = context.codonTable.translate(refCodon)
+            let altAA = context.codonTable.translate(altCodon)
+            let aaIndex = ((codonStart - context.phaseOffset) / 3) + 1
+
+            let effect: String
+            if refAA == altAA {
+                effect = "synonymous_variant"
+            } else if altAA == "*" {
+                effect = "stop_gained"
+            } else if refAA == "*" {
+                effect = "stop_lost"
+            } else {
+                effect = "missense_variant"
+            }
+
+            let aaChange = "\(refAA)\(aaIndex)\(altAA)"
+            let consequence = "\(cds.name): \(effect) \(aaChange)"
+            if seenConsequence.insert(consequence).inserted {
+                consequences.append(consequence)
+            }
+            if seenAA.insert(aaChange).inserted {
+                aaChanges.append(aaChange)
+            }
+        }
+
+        let consequenceText = consequences.isEmpty ? nil : consequences.joined(separator: "; ")
+        let aaText = aaChanges.isEmpty ? nil : aaChanges.joined(separator: ", ")
+        return (consequenceText, aaText)
+    }
+
+    /// Returns a cached CDS coding context, building one from the local sequence cache when needed.
+    private func cdsCodingContext(for annotation: SequenceAnnotation) -> CDSCodingContext? {
+        if let cached = cachedCDSCodingContexts[annotation.id] {
+            return cached
+        }
+        guard annotation.type == .cds else { return nil }
+        let sequenceProvider: (Int, Int) -> String? = { [weak self] start, end in
+            guard let self else { return nil }
+            guard start < end else { return nil }
+
+            // Fast path: use cached sequence window if it fully covers the request.
+            if let sequence = self.cachedBundleSequence, let region = self.cachedSequenceRegion,
+               start >= region.start, end <= region.end {
+                let offsetStart = start - region.start
+                let offsetEnd = end - region.start
+                guard offsetStart >= 0, offsetEnd <= sequence.count else { return nil }
+                let startIdx = sequence.index(sequence.startIndex, offsetBy: offsetStart)
+                let endIdx = sequence.index(sequence.startIndex, offsetBy: offsetEnd)
+                return String(sequence[startIdx..<endIdx])
+            }
+
+            // Fallback path: pull the exact interval directly from bundle-backed FASTA.
+            guard let bundle = self.currentReferenceBundle,
+                  let frame = self.viewController?.referenceFrame else { return nil }
+            let fetchRegion = GenomicRegion(chromosome: frame.chromosome, start: start, end: end)
+            return try? bundle.fetchSequenceSync(region: fetchRegion)
+        }
+
+        let sortedIntervals = annotation.intervals.sorted { $0.start < $1.start }
+        var exonSequences: [(sequence: String, interval: AnnotationInterval)] = []
+        for interval in sortedIntervals {
+            guard let seq = sequenceProvider(interval.start, interval.end), !seq.isEmpty else { continue }
+            exonSequences.append((seq, interval))
+        }
+        guard !exonSequences.isEmpty else { return nil }
+
+        let concatenated = exonSequences.map(\.sequence).joined()
+        let codingSequence: String
+        if annotation.strand == .reverse {
+            codingSequence = reverseComplementString(concatenated)
+        } else {
+            codingSequence = concatenated
+        }
+
+        var codingPositions: [Int] = []
+        codingPositions.reserveCapacity(codingSequence.count)
+        for (seq, interval) in exonSequences {
+            for idx in 0..<seq.count {
+                codingPositions.append(interval.start + idx)
+            }
+        }
+        if annotation.strand == .reverse {
+            codingPositions.reverse()
+        }
+
+        let codingBases = Array(codingSequence.uppercased())
+        guard codingBases.count == codingPositions.count else { return nil }
+
+        let context = CDSCodingContext(
+            annotation: annotation,
+            codingBases: codingBases,
+            codingGenomePositions: codingPositions,
+            phaseOffset: exonSequences.first?.interval.phase ?? 0,
+            codonTable: .standard
+        )
+        cachedCDSCodingContexts[annotation.id] = context
+        return context
+    }
+
+    /// DNA complement for a nucleotide base.
+    private func complementDNA(_ base: Character) -> Character {
+        switch Character(String(base).uppercased()) {
+        case "A": return "T"
+        case "T": return "A"
+        case "C": return "G"
+        case "G": return "C"
+        default: return Character(String(base).uppercased())
+        }
     }
 
     public override func mouseExited(with event: NSEvent) {
@@ -9087,35 +9479,50 @@ private func enrichSitesWithCSQImpact(
         guard let rowId = sites[i].databaseRowId,
               let info = infoMapByTrack[trackId]?[rowId] else { continue }
 
-        let consequence = info["CSQ_Consequence"]
-        let csqImpact = info["CSQ_IMPACT"]
-        let symbol = info["CSQ_SYMBOL"] ?? info["CSQ_Gene"]
-        let aminoAcids = info["CSQ_Amino_acids"]
-        let proteinPos = info["CSQ_Protein_position"]
+        let consequence = info["CSQ_Consequence"] ?? info["ANN_Consequence"] ?? info["Consequence"]
+        let csqImpact = info["CSQ_IMPACT"] ?? info["ANN_IMPACT"] ?? info["IMPACT"] ?? info["impact"]
+        let symbol = info["CSQ_SYMBOL"] ?? info["CSQ_Gene"] ?? info["ANN_Gene"] ?? info["GENE"] ?? info["Gene"]
+        let aminoAcids = info["CSQ_Amino_acids"] ?? info["ANN_AA_pos_len"]
+        let proteinPos = info["CSQ_Protein_position"] ?? info["Protein_position"]
 
         // Classify impact from CSQ fields
         if consequence != nil || csqImpact != nil {
             sites[i].impact = VariantImpact.fromCSQ(impact: csqImpact, consequence: consequence)
             sites[i].geneSymbol = symbol
 
-            // Build amino acid change string (e.g., "p.R123C") and compact form (e.g., "R123C")
-            if let aas = aminoAcids, aas.contains("/") {
-                let parts = aas.split(separator: "/")
-                if parts.count == 2, let pos = proteinPos {
+            // Build amino-acid changes from possibly multi-entry CSQ strings.
+            if let aasRaw = aminoAcids {
+                let aaEntries = splitMultiInfoValue(aasRaw)
+                let posEntries = splitMultiInfoValue(proteinPos ?? "")
+                var longChanges: [String] = []
+                var shortChanges: [String] = []
+                for (idx, aaEntry) in aaEntries.enumerated() {
+                    guard aaEntry.contains("/") else { continue }
+                    let parts = aaEntry.split(separator: "/", omittingEmptySubsequences: false)
+                    guard parts.count == 2 else { continue }
                     let refAA = String(parts[0])
                     let altAA = String(parts[1])
-                    sites[i].aminoAcidChange = "p.\(refAA)\(pos)\(altAA)"
-                    // Single-letter shorthand (VEP uses single-letter by default)
+                    let pos = idx < posEntries.count ? posEntries[idx] : (proteinPos ?? "")
+                    let normalizedPos = pos.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !normalizedPos.isEmpty else { continue }
+                    longChanges.append("p.\(refAA)\(normalizedPos)\(altAA)")
                     if refAA.count == 1 && altAA.count == 1 {
-                        sites[i].shortAAChange = "\(refAA)\(pos)\(altAA)"
+                        shortChanges.append("\(refAA)\(normalizedPos)\(altAA)")
                     } else {
-                        // 3-letter codes: convert to single-letter
                         let refSingle = threeLetterToSingleAA(refAA)
                         let altSingle = threeLetterToSingleAA(altAA)
                         if let r = refSingle, let a = altSingle {
-                            sites[i].shortAAChange = "\(r)\(pos)\(a)"
+                            shortChanges.append("\(r)\(normalizedPos)\(a)")
                         }
                     }
+                }
+                let dedupLong = orderedUniqueStrings(longChanges)
+                let dedupShort = orderedUniqueStrings(shortChanges)
+                if !dedupLong.isEmpty {
+                    sites[i].aminoAcidChange = dedupLong.joined(separator: ", ")
+                }
+                if !dedupShort.isEmpty {
+                    sites[i].shortAAChange = dedupShort.joined(separator: ", ")
                 }
             }
         } else {
@@ -9153,6 +9560,24 @@ private func threeLetterToSingleAA(_ code: String) -> String? {
     // Already single-letter?
     if code.count == 1 { return code }
     return map[code]
+}
+
+/// Splits an INFO field value containing comma/ampersand-delimited items.
+private func splitMultiInfoValue(_ raw: String) -> [String] {
+    raw.split(whereSeparator: { $0 == "," || $0 == "&" })
+        .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+}
+
+/// Returns unique strings preserving first-seen order.
+private func orderedUniqueStrings(_ values: [String]) -> [String] {
+    var seen = Set<String>()
+    var result: [String] = []
+    result.reserveCapacity(values.count)
+    for value in values where seen.insert(value).inserted {
+        result.append(value)
+    }
+    return result
 }
 
 // MARK: - TrackHeaderViewDelegate
