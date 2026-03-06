@@ -80,6 +80,19 @@ public actor PathoplexusService: DatabaseService {
         return try await search(organism: organism, filters: filters, limit: query.limit, offset: query.offset)
     }
 
+    /// Fetches metadata for a specific accession, returning the full PathoplexusMetadata
+    /// including INSDC accession fields. Used by the download logic to determine
+    /// whether to fetch from GenBank or download FASTA-only.
+    public func fetchMetadataForAccession(
+        organism: String,
+        accession: String
+    ) async throws -> PathoplexusMetadata? {
+        var filters = PathoplexusFilters()
+        filters.accession = accession
+        let results = try await fetchMetadata(organism: organism, filters: filters, limit: 1)
+        return results.first
+    }
+
     public func fetch(accession: String) async throws -> DatabaseRecord {
         // Parse organism from accession if possible (e.g., "LOC_MPOX_...")
         let organism = parseOrganismFromAccession(accession) ?? "mpox"
@@ -183,14 +196,36 @@ public actor PathoplexusService: DatabaseService {
         let metadata = try await fetchMetadata(organism: organism, filters: filters, limit: limit, offset: offset)
 
         let records = metadata.map { meta in
-            SearchResultRecord(
+            // Build a descriptive title
+            var titleParts: [String] = []
+            titleParts.append(meta.organism ?? organism)
+            if let country = meta.geoLocCountry, !country.isEmpty {
+                titleParts.append(country)
+            }
+            if let clade = meta.clade, !clade.isEmpty {
+                titleParts.append("Clade: \(clade)")
+            }
+            let title = titleParts.joined(separator: " - ")
+
+            // Build host display string
+            let hostDisplay: String? = meta.hostNameScientific ?? meta.hostNameCommon
+
+            // Determine source database tag (INSDC vs Pathoplexus-only)
+            let sourceDB: String? = meta.hasINSDCAccession ? "INSDC" : nil
+
+            return SearchResultRecord(
                 id: meta.accession,
                 accession: meta.accession,
-                title: "\(meta.organism ?? organism) - \(meta.geoLocCountry ?? "Unknown location")",
+                title: title,
                 organism: meta.organism,
                 length: meta.length,
                 date: meta.collectionDate,
-                source: .pathoplexus
+                source: .pathoplexus,
+                host: hostDisplay,
+                geoLocation: meta.geoLocCountry,
+                collectionDate: meta.sampleCollectionDate,
+                sourceDatabase: sourceDB,
+                pangolinClassification: meta.lineage
             )
         }
 
@@ -335,6 +370,18 @@ public actor PathoplexusService: DatabaseService {
         }
         if let status = filters.versionStatus {
             queryItems.append(URLQueryItem(name: "versionStatus", value: status.rawValue))
+        }
+        if let clade = filters.clade, !clade.isEmpty {
+            queryItems.append(URLQueryItem(name: "clade", value: clade))
+        }
+        if let lineage = filters.lineage, !lineage.isEmpty {
+            queryItems.append(URLQueryItem(name: "lineage", value: lineage))
+        }
+        if let host = filters.hostNameScientific, !host.isEmpty {
+            queryItems.append(URLQueryItem(name: "hostNameScientific", value: host))
+        }
+        if let terms = filters.dataUseTerms {
+            queryItems.append(URLQueryItem(name: "dataUseTerms", value: terms.rawValue))
         }
 
         if !queryItems.isEmpty {

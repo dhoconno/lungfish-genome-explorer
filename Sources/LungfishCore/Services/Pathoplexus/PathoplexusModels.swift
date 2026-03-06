@@ -64,6 +64,18 @@ public struct PathoplexusFilters: Sendable, Equatable {
     /// Version status filter
     public var versionStatus: VersionStatus?
 
+    /// Filter by clade
+    public var clade: String?
+
+    /// Filter by lineage
+    public var lineage: String?
+
+    /// Filter by host name (scientific)
+    public var hostNameScientific: String?
+
+    /// Filter by data use terms (OPEN or RESTRICTED)
+    public var dataUseTerms: DataUseTerms?
+
     public init(
         accession: String? = nil,
         accessionVersion: String? = nil,
@@ -74,7 +86,11 @@ public struct PathoplexusFilters: Sendable, Equatable {
         lengthTo: Int? = nil,
         nucleotideMutations: [String]? = nil,
         aminoAcidMutations: [String]? = nil,
-        versionStatus: VersionStatus? = nil
+        versionStatus: VersionStatus? = nil,
+        clade: String? = nil,
+        lineage: String? = nil,
+        hostNameScientific: String? = nil,
+        dataUseTerms: DataUseTerms? = nil
     ) {
         self.accession = accession
         self.accessionVersion = accessionVersion
@@ -86,6 +102,10 @@ public struct PathoplexusFilters: Sendable, Equatable {
         self.nucleotideMutations = nucleotideMutations
         self.aminoAcidMutations = aminoAcidMutations
         self.versionStatus = versionStatus
+        self.clade = clade
+        self.lineage = lineage
+        self.hostNameScientific = hostNameScientific
+        self.dataUseTerms = dataUseTerms
     }
 }
 
@@ -133,12 +153,44 @@ public struct PathoplexusMetadata: Sendable, Codable, Identifiable {
     /// Version status
     public let versionStatus: String?
 
+    /// INSDC accession base (e.g., "PP123456") — links to GenBank/ENA/DDBJ
+    public let insdcAccessionBase: String?
+
+    /// INSDC accession with version (e.g., "PP123456.1")
+    public let insdcAccessionFull: String?
+
+    /// Clade classification
+    public let clade: String?
+
+    /// Lineage classification
+    public let lineage: String?
+
+    /// Scientific name of the host organism
+    public let hostNameScientific: String?
+
+    /// Common name of the host organism
+    public let hostNameCommon: String?
+
     /// Parsed collection date
     public var collectionDate: Date? {
         guard let dateStr = sampleCollectionDate else { return nil }
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.date(from: dateStr)
+    }
+
+    /// Whether this record has an INSDC accession that can be used to fetch from GenBank
+    public var hasINSDCAccession: Bool {
+        if let base = insdcAccessionBase, !base.isEmpty { return true }
+        if let full = insdcAccessionFull, !full.isEmpty { return true }
+        return false
+    }
+
+    /// Best INSDC accession to use for GenBank retrieval
+    public var bestINSDCAccession: String? {
+        if let full = insdcAccessionFull, !full.isEmpty { return full }
+        if let base = insdcAccessionBase, !base.isEmpty { return base }
+        return nil
     }
 
     enum CodingKeys: String, CodingKey {
@@ -152,6 +204,12 @@ public struct PathoplexusMetadata: Sendable, Codable, Identifiable {
         case authors
         case dataUseTerms
         case versionStatus
+        case insdcAccessionBase
+        case insdcAccessionFull
+        case clade
+        case lineage
+        case hostNameScientific
+        case hostNameCommon
     }
 
     public init(from decoder: Decoder) throws {
@@ -175,6 +233,12 @@ public struct PathoplexusMetadata: Sendable, Codable, Identifiable {
         authors = try container.decodeIfPresent(String.self, forKey: .authors)
         dataUseTerms = try container.decodeIfPresent(String.self, forKey: .dataUseTerms)
         versionStatus = try container.decodeIfPresent(String.self, forKey: .versionStatus)
+        insdcAccessionBase = try container.decodeIfPresent(String.self, forKey: .insdcAccessionBase)
+        insdcAccessionFull = try container.decodeIfPresent(String.self, forKey: .insdcAccessionFull)
+        clade = try container.decodeIfPresent(String.self, forKey: .clade)
+        lineage = try container.decodeIfPresent(String.self, forKey: .lineage)
+        hostNameScientific = try container.decodeIfPresent(String.self, forKey: .hostNameScientific)
+        hostNameCommon = try container.decodeIfPresent(String.self, forKey: .hostNameCommon)
     }
 }
 

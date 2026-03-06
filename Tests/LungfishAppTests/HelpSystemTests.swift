@@ -172,7 +172,7 @@ final class HelpWindowControllerTests: XCTestCase {
     func testWindowControllerCreation() {
         let controller = HelpWindowController()
         XCTAssertNotNil(controller.window)
-        XCTAssertEqual(controller.window?.title, "Lungfish Help")
+        XCTAssertEqual(controller.window?.title, "Lungfish Genome Explorer Help")
     }
 
     func testWindowHasMinimumSize() {

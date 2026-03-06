@@ -431,13 +431,18 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
     // MARK: - Computed Properties
 
-    /// Whether search text is valid (non-empty after trimming)
+    /// Whether search text is valid (non-empty after trimming, or any text for Pathoplexus which allows browsing)
     var isSearchTextValid: Bool {
-        !searchText.trimmingCharacters(in: .whitespaces).isEmpty
+        // Pathoplexus allows browsing all records without a search term
+        if isPathoplexusSearch { return true }
+        return !searchText.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     /// Count of active advanced filters
     var activeFilterCount: Int {
+        if isPathoplexusSearch {
+            return pathoplexusActiveFilterCount
+        }
         var count = 0
         if ncbiSearchType == .virus {
             // Virus-specific filters (Datasets v2)
@@ -485,6 +490,101 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
     /// Called when a download is kicked off so the sheet can dismiss immediately.
     var onDownloadStarted: (() -> Void)?
+
+    // MARK: - Pathoplexus-Specific Properties
+
+    /// Selected organism for Pathoplexus searches
+    @Published var pathoplexusOrganism: PathoplexusOrganism?
+
+    /// All available Pathoplexus organisms
+    let pathoplexusOrganisms: [PathoplexusOrganism] = [
+        PathoplexusOrganism(id: "cchf", displayName: "Crimean-Congo hemorrhagic fever", segmented: true, segments: ["S", "M", "L"]),
+        PathoplexusOrganism(id: "ebola-sudan", displayName: "Sudan ebolavirus", segmented: false, segments: nil),
+        PathoplexusOrganism(id: "ebola-zaire", displayName: "Zaire ebolavirus", segmented: false, segments: nil),
+        PathoplexusOrganism(id: "hmpv", displayName: "Human metapneumovirus", segmented: false, segments: nil),
+        PathoplexusOrganism(id: "marburg", displayName: "Marburg virus", segmented: false, segments: nil),
+        PathoplexusOrganism(id: "measles", displayName: "Measles virus", segmented: false, segments: nil),
+        PathoplexusOrganism(id: "mpox", displayName: "Mpox virus", segmented: false, segments: nil),
+        PathoplexusOrganism(id: "rsv-a", displayName: "RSV-A", segmented: false, segments: nil),
+        PathoplexusOrganism(id: "rsv-b", displayName: "RSV-B", segmented: false, segments: nil),
+        PathoplexusOrganism(id: "west-nile", displayName: "West Nile virus", segmented: false, segments: nil)
+    ]
+
+    /// Country filter for Pathoplexus
+    @Published var pathoplexusCountryFilter: String = ""
+
+    /// Clade filter for Pathoplexus
+    @Published var pathoplexusCladeFilter: String = ""
+
+    /// Lineage filter for Pathoplexus
+    @Published var pathoplexusLineageFilter: String = ""
+
+    /// Host filter for Pathoplexus
+    @Published var pathoplexusHostFilter: String = ""
+
+    /// Nucleotide mutations filter for Pathoplexus (comma-separated, e.g. "C180T,A200G")
+    @Published var pathoplexusNucMutationsFilter: String = ""
+
+    /// Amino acid mutations filter for Pathoplexus (comma-separated, e.g. "GP:440G")
+    @Published var pathoplexusAAMutationsFilter: String = ""
+
+    /// Data use terms filter for Pathoplexus
+    @Published var pathoplexusDataUseTerms: DataUseTerms?
+
+    /// Collection date from for Pathoplexus
+    @Published var pathoplexusDateFrom: String = ""
+
+    /// Collection date to for Pathoplexus
+    @Published var pathoplexusDateTo: String = ""
+
+    /// Whether the user has accepted the Pathoplexus ABS consent
+    @Published var hasAcceptedPathoplexusConsent: Bool = UserDefaults.standard.bool(forKey: "PathoplexusABSConsentAccepted")
+
+    /// Whether we're showing the ABS consent screen
+    var isShowingPathoplexusConsent: Bool {
+        source == .pathoplexus && !hasAcceptedPathoplexusConsent
+    }
+
+    /// Whether this is a Pathoplexus search
+    var isPathoplexusSearch: Bool {
+        source == .pathoplexus
+    }
+
+    /// Accepts the Pathoplexus ABS consent
+    func acceptPathoplexusConsent() {
+        hasAcceptedPathoplexusConsent = true
+        UserDefaults.standard.set(true, forKey: "PathoplexusABSConsentAccepted")
+    }
+
+    /// Active filter count for Pathoplexus
+    var pathoplexusActiveFilterCount: Int {
+        var count = 0
+        if !pathoplexusCountryFilter.isEmpty { count += 1 }
+        if !pathoplexusCladeFilter.isEmpty { count += 1 }
+        if !pathoplexusLineageFilter.isEmpty { count += 1 }
+        if !pathoplexusHostFilter.isEmpty { count += 1 }
+        if !pathoplexusNucMutationsFilter.isEmpty { count += 1 }
+        if !pathoplexusAAMutationsFilter.isEmpty { count += 1 }
+        if pathoplexusDataUseTerms != nil { count += 1 }
+        if !pathoplexusDateFrom.isEmpty || !pathoplexusDateTo.isEmpty { count += 1 }
+        if !minLength.isEmpty || !maxLength.isEmpty { count += 1 }
+        return count
+    }
+
+    /// Clears Pathoplexus-specific filters
+    func clearPathoplexusFilters() {
+        pathoplexusCountryFilter = ""
+        pathoplexusCladeFilter = ""
+        pathoplexusLineageFilter = ""
+        pathoplexusHostFilter = ""
+        pathoplexusNucMutationsFilter = ""
+        pathoplexusAAMutationsFilter = ""
+        pathoplexusDataUseTerms = nil
+        pathoplexusDateFrom = ""
+        pathoplexusDateTo = ""
+        minLength = ""
+        maxLength = ""
+    }
 
     // MARK: - Services
 
@@ -562,6 +662,8 @@ public class DatabaseBrowserViewModel: ObservableObject {
         virusCompletenessFilter = .any
         virusReleasedSinceFilter = ""
         virusAnnotatedOnly = false
+        // Pathoplexus filters
+        clearPathoplexusFilters()
     }
 
     /// Cancels the current search operation
@@ -624,6 +726,18 @@ public class DatabaseBrowserViewModel: ObservableObject {
         let capturedVirusCompleteness = virusCompletenessFilter.apiValue
         let capturedVirusReleasedSince = virusReleasedSinceFilter.trimmingCharacters(in: .whitespaces)
         let capturedVirusAnnotatedOnly = virusAnnotatedOnly
+
+        // Capture Pathoplexus-specific filters
+        let capturedPpOrganism = pathoplexusOrganism
+        let capturedPpCountry = pathoplexusCountryFilter.trimmingCharacters(in: .whitespaces)
+        let capturedPpClade = pathoplexusCladeFilter.trimmingCharacters(in: .whitespaces)
+        let capturedPpLineage = pathoplexusLineageFilter.trimmingCharacters(in: .whitespaces)
+        let capturedPpHost = pathoplexusHostFilter.trimmingCharacters(in: .whitespaces)
+        let capturedPpNucMutations = pathoplexusNucMutationsFilter.trimmingCharacters(in: .whitespaces)
+        let capturedPpAAMutations = pathoplexusAAMutationsFilter.trimmingCharacters(in: .whitespaces)
+        let capturedPpDataUseTerms = pathoplexusDataUseTerms
+        let capturedPpDateFrom = pathoplexusDateFrom.trimmingCharacters(in: .whitespaces)
+        let capturedPpDateTo = pathoplexusDateTo.trimmingCharacters(in: .whitespaces)
 
         // Capture services as they are actors (safe to use across isolation boundaries)
         let ncbi = ncbiService
@@ -811,9 +925,50 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         self.objectWillChange.send()
                         self.searchPhase = .loadingDetails
                     }
-                    logger.info("performSearch: Calling Pathoplexus search")
+
+                    let ppOrganism = capturedPpOrganism?.id ?? "mpox"
+                    logger.info("performSearch: Calling Pathoplexus search for organism=\(ppOrganism, privacy: .public)")
+
+                    // Build Pathoplexus-specific filters
+                    let dateFormatter = DateFormatter()
+                    dateFormatter.dateFormat = "yyyy-MM-dd"
+
+                    var ppFilters = PathoplexusFilters()
+                    if !capturedPpCountry.isEmpty { ppFilters.geoLocCountry = capturedPpCountry }
+                    if !capturedPpClade.isEmpty { ppFilters.clade = capturedPpClade }
+                    if !capturedPpLineage.isEmpty { ppFilters.lineage = capturedPpLineage }
+                    if !capturedPpHost.isEmpty { ppFilters.hostNameScientific = capturedPpHost }
+                    ppFilters.dataUseTerms = capturedPpDataUseTerms
+                    if let minLen = query.minLength, minLen > 0 { ppFilters.lengthFrom = minLen }
+                    if let maxLen = query.maxLength, maxLen > 0 { ppFilters.lengthTo = maxLen }
+
+                    if !capturedPpNucMutations.isEmpty {
+                        ppFilters.nucleotideMutations = capturedPpNucMutations.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+                    }
+                    if !capturedPpAAMutations.isEmpty {
+                        ppFilters.aminoAcidMutations = capturedPpAAMutations.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+                    }
+
+                    if !capturedPpDateFrom.isEmpty {
+                        ppFilters.sampleCollectionDateFrom = dateFormatter.date(from: capturedPpDateFrom)
+                    }
+                    if !capturedPpDateTo.isEmpty {
+                        ppFilters.sampleCollectionDateTo = dateFormatter.date(from: capturedPpDateTo)
+                    }
+
+                    // If the search text looks like an accession, filter by it
+                    let ppSearchText = query.term.trimmingCharacters(in: .whitespaces)
+                    if !ppSearchText.isEmpty {
+                        ppFilters.accession = ppSearchText
+                    }
+
                     let pathoplexusService = PathoplexusService()
-                    searchResults = try await pathoplexusService.search(query)
+                    searchResults = try await pathoplexusService.search(
+                        organism: ppOrganism,
+                        filters: ppFilters,
+                        limit: query.limit,
+                        offset: query.offset
+                    )
                     logger.info("performSearch: Pathoplexus returned \(searchResults.totalCount) total, \(searchResults.records.count) records")
 
                 default:
@@ -995,6 +1150,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
         // Capture the genome download view model for genome assembly downloads
         let genomeVM = genomeDownloadViewModel
         let genBankVM = genBankDownloadViewModel
+        let ppOrganism = pathoplexusOrganism?.id ?? "mpox"
 
         // Build a descriptive title including accession(s) for the Downloads popover
         let accessionList = recordsToDownload.prefix(3).map(\.accession).joined(separator: ", ")
@@ -1197,26 +1353,68 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         }
 
                     case .pathoplexus:
-                        // Pathoplexus downloads as FASTA
+                        // Check if this record has an INSDC accession for GenBank retrieval
                         let pathoplexusService = PathoplexusService()
-                        let dbRecord = try await pathoplexusService.fetch(accession: record.accession)
-                        let tempDir = FileManager.default.temporaryDirectory
-                        let filename = "\(dbRecord.accession).fasta"
-                        fileURL = tempDir.appendingPathComponent(filename)
+                        let ppMeta = try await pathoplexusService.fetchMetadataForAccession(
+                            organism: ppOrganism,
+                            accession: record.accession
+                        )
 
-                        var fastaContent = ">\(dbRecord.accession)"
-                        if !dbRecord.title.isEmpty {
-                            fastaContent += " \(dbRecord.title)"
+                        if let insdcAccession = ppMeta?.bestINSDCAccession {
+                            // Has INSDC accession — fetch from GenBank with annotations
+                            logger.info("performBatchDownload: Pathoplexus record \(record.accession, privacy: .public) has INSDC accession \(insdcAccession, privacy: .public), fetching from GenBank")
+                            performOnMainRunLoop {
+                                DownloadCenter.shared.update(
+                                    id: downloadCenterTaskID,
+                                    progress: progressFraction,
+                                    detail: "Fetching GenBank record \(insdcAccession)..."
+                                )
+                            }
+
+                            let bundleURL = try await genBankVM.downloadAndBuild(
+                                accession: insdcAccession,
+                                outputDirectory: batchDir
+                            ) { progress, message in
+                                let overall = (Double(index) + progress) / Double(totalCount)
+                                performOnMainRunLoop {
+                                    DownloadCenter.shared.update(
+                                        id: downloadCenterTaskID,
+                                        progress: overall,
+                                        detail: "\(insdcAccession): \(message)"
+                                    )
+                                }
+                            }
+                            fileURL = bundleURL
+                            logger.info("performBatchDownload: Built GenBank bundle from Pathoplexus INSDC at \(bundleURL.path, privacy: .public)")
+                        } else {
+                            // No INSDC accession — download FASTA only from Pathoplexus
+                            logger.info("performBatchDownload: Pathoplexus record \(record.accession, privacy: .public) has no INSDC accession, downloading FASTA only")
+                            performOnMainRunLoop {
+                                DownloadCenter.shared.update(
+                                    id: downloadCenterTaskID,
+                                    progress: progressFraction,
+                                    detail: "Downloading FASTA for \(record.accession)..."
+                                )
+                            }
+
+                            let dbRecord = try await pathoplexusService.fetch(accession: record.accession)
+                            let filename = "\(dbRecord.accession).fasta"
+                            fileURL = batchDir.appendingPathComponent(filename)
+
+                            var fastaContent = ">\(dbRecord.accession)"
+                            if !dbRecord.title.isEmpty {
+                                fastaContent += " \(dbRecord.title)"
+                            }
+                            fastaContent += "\n"
+                            let sequence = dbRecord.sequence
+                            var idx = sequence.startIndex
+                            while idx < sequence.endIndex {
+                                let endIdx = sequence.index(idx, offsetBy: 80, limitedBy: sequence.endIndex) ?? sequence.endIndex
+                                fastaContent += String(sequence[idx..<endIdx]) + "\n"
+                                idx = endIdx
+                            }
+                            try fastaContent.write(to: fileURL, atomically: true, encoding: .utf8)
                         }
-                        fastaContent += "\n"
-                        let sequence = dbRecord.sequence
-                        var idx = sequence.startIndex
-                        while idx < sequence.endIndex {
-                            let endIdx = sequence.index(idx, offsetBy: 80, limitedBy: sequence.endIndex) ?? sequence.endIndex
-                            fastaContent += String(sequence[idx..<endIdx]) + "\n"
-                            idx = endIdx
-                        }
-                        try fastaContent.write(to: fileURL, atomically: true, encoding: .utf8)
 
                     default:
                         throw DatabaseServiceError.invalidQuery(reason: "Unsupported database")
@@ -1336,26 +1534,34 @@ public struct DatabaseBrowserView: View {
     @ObservedObject var viewModel: DatabaseBrowserViewModel
 
     public var body: some View {
-        VStack(spacing: 0) {
-            // Header with database name
-            headerSection
+        if viewModel.isShowingPathoplexusConsent {
+            PathoplexusConsentView(
+                onAccept: { viewModel.acceptPathoplexusConsent() },
+                onCancel: { viewModel.onCancel?() }
+            )
+            .frame(minWidth: 650, minHeight: 450)
+        } else {
+            VStack(spacing: 0) {
+                // Header with database name
+                headerSection
 
-            Divider()
+                Divider()
 
-            // Search controls
-            searchSection
+                // Search controls
+                searchSection
 
-            Divider()
+                Divider()
 
-            // Results list
-            resultsSection
+                // Results list
+                resultsSection
 
-            Divider()
+                Divider()
 
-            // Status bar and actions
-            footerSection
+                // Status bar and actions
+                footerSection
+            }
+            .frame(minWidth: 650, minHeight: 450)
         }
-        .frame(minWidth: 650, minHeight: 450)
     }
 
     // MARK: - Sections
@@ -1411,6 +1617,32 @@ public struct DatabaseBrowserView: View {
                     Spacer()
                 }
             }
+
+            // Pathoplexus-specific controls: organism smart chips
+            if viewModel.isPathoplexusSearch {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Organism:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    // Wrap chips in a flow layout
+                    FlowLayout(spacing: 6) {
+                        ForEach(viewModel.pathoplexusOrganisms) { organism in
+                            PathoplexusOrganismChip(
+                                organism: organism,
+                                isSelected: viewModel.pathoplexusOrganism?.id == organism.id,
+                                onTap: {
+                                    if viewModel.pathoplexusOrganism?.id == organism.id {
+                                        viewModel.pathoplexusOrganism = nil
+                                    } else {
+                                        viewModel.pathoplexusOrganism = organism
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
         }
         .padding()
         .background(Color(nsColor: .controlBackgroundColor))
@@ -1425,6 +1657,8 @@ public struct DatabaseBrowserView: View {
             return "building.columns"
         case .ena:
             return "globe.europe.africa"
+        case .pathoplexus:
+            return "microbe"
         default:
             return "magnifyingglass"
         }
@@ -1576,6 +1810,9 @@ public struct DatabaseBrowserView: View {
     }
 
     private var searchPlaceholder: String {
+        if viewModel.isPathoplexusSearch {
+            return "Search by accession (or leave empty to browse all)"
+        }
         switch viewModel.searchScope {
         case .all:
             return "Search all fields (accession, organism, title...)"
@@ -1656,9 +1893,12 @@ public struct DatabaseBrowserView: View {
                 }
             }
 
-            // Expandable filters — virus gets its own filter set
+            // Expandable filters — each source gets its own filter set
             if viewModel.isAdvancedExpanded {
-                if viewModel.ncbiSearchType == .virus {
+                if viewModel.isPathoplexusSearch {
+                    pathoplexusFiltersGrid
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                } else if viewModel.ncbiSearchType == .virus {
                     virusFiltersGrid
                         .transition(.opacity.combined(with: .move(edge: .top)))
                 } else {
@@ -1732,6 +1972,149 @@ public struct DatabaseBrowserView: View {
 
             // Help text
             Text("Virus filters use the NCBI Datasets v2 API. Use RefSeq Only (above) for curated reference sequences.")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .padding(.top, 4)
+        }
+        .padding(12)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .cornerRadius(8)
+    }
+
+    // MARK: - Pathoplexus Filters Grid
+
+    private var pathoplexusFiltersGrid: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Country and Host row
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Country", systemImage: "location")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField("e.g., USA, Germany", text: $viewModel.pathoplexusCountryFilter)
+                        .textFieldStyle(.roundedBorder)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Host", systemImage: "person")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField("e.g., Homo sapiens", text: $viewModel.pathoplexusHostFilter)
+                        .textFieldStyle(.roundedBorder)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // Clade and Lineage row
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Clade", systemImage: "arrow.triangle.branch")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField("e.g., IIb", text: $viewModel.pathoplexusCladeFilter)
+                        .textFieldStyle(.roundedBorder)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Lineage", systemImage: "chart.line.uptrend.xyaxis")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField("e.g., B.1", text: $viewModel.pathoplexusLineageFilter)
+                        .textFieldStyle(.roundedBorder)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // Mutations row
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Nucleotide Mutations", systemImage: "dna")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField("e.g., C180T, A200G", text: $viewModel.pathoplexusNucMutationsFilter)
+                        .textFieldStyle(.roundedBorder)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Amino Acid Mutations", systemImage: "testtube.2")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField("e.g., GP:440G", text: $viewModel.pathoplexusAAMutationsFilter)
+                        .textFieldStyle(.roundedBorder)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // Date range and length row
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Collection Date", systemImage: "calendar")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    HStack(spacing: 8) {
+                        TextField("YYYY-MM-DD", text: $viewModel.pathoplexusDateFrom)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 110)
+
+                        Text("to")
+                            .foregroundColor(.secondary)
+
+                        TextField("YYYY-MM-DD", text: $viewModel.pathoplexusDateTo)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 110)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Sequence Length", systemImage: "ruler")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    HStack(spacing: 8) {
+                        TextField("Min", text: $viewModel.minLength)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+
+                        Text("to")
+                            .foregroundColor(.secondary)
+
+                        TextField("Max", text: $viewModel.maxLength)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+
+                        Text("bp")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                Spacer()
+            }
+
+            // Data use terms
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Data Use Terms", systemImage: "lock.shield")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Picker("", selection: $viewModel.pathoplexusDataUseTerms) {
+                        Text("Any").tag(nil as DataUseTerms?)
+                        Text("Open").tag(DataUseTerms.open as DataUseTerms?)
+                        Text("Restricted").tag(DataUseTerms.restricted as DataUseTerms?)
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 180)
+                }
+
+                Spacer()
+            }
+
+            Text("Pathoplexus filters are combined with AND logic. Records with INSDC accessions will be fetched from GenBank with annotations.")
                 .font(.caption2)
                 .foregroundColor(.secondary)
                 .padding(.top, 4)
@@ -2168,6 +2551,220 @@ public struct DatabaseBrowserView: View {
         .padding(.horizontal)
         .padding(.top, 8)
         .padding(.bottom, 4)
+    }
+}
+
+// MARK: - Pathoplexus Organism Chip
+
+/// A selectable chip for a Pathoplexus organism.
+struct PathoplexusOrganismChip: View {
+    let organism: PathoplexusOrganism
+    let isSelected: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 4) {
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.caption2.bold())
+                }
+                Text(organism.displayName)
+                    .font(.caption)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(isSelected ? Color.accentColor : Color(nsColor: .controlBackgroundColor))
+            .foregroundColor(isSelected ? .white : .primary)
+            .cornerRadius(14)
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(isSelected ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - FlowLayout
+
+/// A horizontal flow layout that wraps children to new lines when they don't fit.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = arrangeSubviews(proposal: proposal, subviews: subviews)
+        return result.size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = arrangeSubviews(proposal: proposal, subviews: subviews)
+        for (index, position) in result.positions.enumerated() {
+            subviews[index].place(
+                at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y),
+                proposal: .unspecified
+            )
+        }
+    }
+
+    private func arrangeSubviews(proposal: ProposedViewSize, subviews: Subviews) -> (size: CGSize, positions: [CGPoint]) {
+        let maxWidth = proposal.width ?? .infinity
+        var positions: [CGPoint] = []
+        var currentX: CGFloat = 0
+        var currentY: CGFloat = 0
+        var lineHeight: CGFloat = 0
+        var totalWidth: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+
+            if currentX + size.width > maxWidth && currentX > 0 {
+                // Wrap to next line
+                currentX = 0
+                currentY += lineHeight + spacing
+                lineHeight = 0
+            }
+
+            positions.append(CGPoint(x: currentX, y: currentY))
+            lineHeight = max(lineHeight, size.height)
+            currentX += size.width + spacing
+            totalWidth = max(totalWidth, currentX - spacing)
+        }
+
+        return (
+            size: CGSize(width: totalWidth, height: currentY + lineHeight),
+            positions: positions
+        )
+    }
+}
+
+// MARK: - Pathoplexus ABS Consent View
+
+/// Access and Benefit Sharing consent screen shown on first Pathoplexus use.
+struct PathoplexusConsentView: View {
+    var onAccept: () -> Void
+    var onCancel: () -> Void
+
+    @State private var hasScrolledToBottom = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            VStack(spacing: 12) {
+                Image(systemName: "microbe")
+                    .font(.system(size: 40))
+                    .foregroundColor(.accentColor)
+
+                Text("Pathoplexus: Pathogen Data Sharing")
+                    .font(.title2.bold())
+
+                Text("Access and Benefit Sharing Notice")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.top, 24)
+            .padding(.bottom, 16)
+
+            Divider()
+
+            // Scrollable consent text
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Group {
+                        Text("About Pathoplexus")
+                            .font(.headline)
+
+                        Text("Pathoplexus is an open database for viral pathogen genomic sequences that supports both open and time-limited data sharing. It was developed to promote equitable access to pathogen genomic data while respecting the rights and contributions of data generators.")
+
+                        Text("Data Use Terms")
+                            .font(.headline)
+
+                        Text("Sequences in Pathoplexus may be shared under two types of data use terms:")
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "lock.open")
+                                    .foregroundColor(.green)
+                                    .frame(width: 20)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Open Data").bold()
+                                    Text("Immediately available for public access and unrestricted use.")
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "lock.shield")
+                                    .foregroundColor(.orange)
+                                    .frame(width: 20)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Restricted Data").bold()
+                                    Text("Time-limited protection (up to one year) to allow data generators a head start on analysis and publication.")
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                        .padding(.leading, 8)
+                    }
+
+                    Group {
+                        Text("Access and Benefit Sharing Principles")
+                            .font(.headline)
+
+                        Text("The Nagoya Protocol and related international frameworks recognize that the benefits arising from the use of genetic resources should be shared fairly and equitably. When using data from Pathoplexus, please:")
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            bulletPoint("Respect the data use terms associated with each sequence")
+                            bulletPoint("Acknowledge the contributions of data generators in publications")
+                            bulletPoint("Consider the provenance of sequences and the communities from which they originated")
+                            bulletPoint("Support equitable sharing of benefits arising from the use of pathogen genomic data")
+                            bulletPoint("Cite Pathoplexus and the original data submitters when publishing results")
+                        }
+                        .padding(.leading, 8)
+
+                        Text("Your Responsibilities")
+                            .font(.headline)
+
+                        Text("By proceeding, you acknowledge that you understand and agree to respect the data use terms of the sequences you access through Pathoplexus. You will use the data responsibly and in accordance with applicable legal and ethical frameworks for pathogen data sharing.")
+                    }
+                }
+                .padding(24)
+                .font(.body)
+            }
+
+            Divider()
+
+            // Footer with buttons
+            HStack {
+                Button("Cancel") {
+                    onCancel()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Text("You will only see this notice once.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Button("I Understand and Agree") {
+                    onAccept()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding()
+            .background(Color(nsColor: .controlBackgroundColor))
+        }
+    }
+
+    private func bulletPoint(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Text("\u{2022}")
+                .font(.body)
+            Text(text)
+        }
     }
 }
 
