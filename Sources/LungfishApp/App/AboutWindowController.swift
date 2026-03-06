@@ -17,7 +17,7 @@ final class AboutWindowController: NSWindowController {
 
     convenience init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 480),
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 500),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: true
@@ -46,11 +46,15 @@ final class AboutWindowController: NSWindowController {
             container.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
         ])
 
-        // App icon
+        // Logo
         let iconView = NSImageView()
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.imageScaling = .scaleProportionallyUpOrDown
-        iconView.image = NSApp.applicationIconImage
+        if let logo = NSImage(named: "AboutLogo") {
+            iconView.image = logo
+        } else {
+            iconView.image = NSApp.applicationIconImage
+        }
         container.addSubview(iconView)
 
         // App name
@@ -60,6 +64,14 @@ final class AboutWindowController: NSWindowController {
         nameLabel.alignment = .center
         nameLabel.textColor = .labelColor
         container.addSubview(nameLabel)
+
+        // Tagline
+        let taglineLabel = NSTextField(labelWithString: "Seeing the invisible. Informing action.")
+        taglineLabel.translatesAutoresizingMaskIntoConstraints = false
+        taglineLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        taglineLabel.alignment = .center
+        taglineLabel.textColor = .secondaryLabelColor
+        container.addSubview(taglineLabel)
 
         // Version
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
@@ -130,17 +142,20 @@ final class AboutWindowController: NSWindowController {
 
         // Constraints
         NSLayoutConstraint.activate([
-            iconView.topAnchor.constraint(equalTo: container.topAnchor, constant: 24),
+            iconView.topAnchor.constraint(equalTo: container.topAnchor, constant: 20),
             iconView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 80),
-            iconView.heightAnchor.constraint(equalToConstant: 80),
+            iconView.widthAnchor.constraint(equalToConstant: 96),
+            iconView.heightAnchor.constraint(equalToConstant: 96),
 
-            nameLabel.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 10),
+            nameLabel.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 8),
             nameLabel.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             nameLabel.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 20),
             nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -20),
 
-            versionLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 4),
+            taglineLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 2),
+            taglineLabel.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+
+            versionLabel.topAnchor.constraint(equalTo: taglineLabel.bottomAnchor, constant: 4),
             versionLabel.centerXAnchor.constraint(equalTo: container.centerXAnchor),
 
             separator.topAnchor.constraint(equalTo: versionLabel.bottomAnchor, constant: 12),
