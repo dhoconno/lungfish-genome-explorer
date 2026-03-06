@@ -64,7 +64,7 @@ public final class MainMenu {
 
         // About
         appMenu.addItem(
-            withTitle: "About Lungfish",
+            withTitle: "About Lungfish Genome Explorer",
             action: #selector(AppDelegate.showAboutPanel(_:)),
             keyEquivalent: ""
         )
@@ -92,7 +92,7 @@ public final class MainMenu {
 
         // Hide/Show/Quit
         appMenu.addItem(
-            withTitle: "Hide Lungfish",
+            withTitle: "Hide Lungfish Genome Explorer",
             action: #selector(NSApplication.hide(_:)),
             keyEquivalent: "h"
         )
@@ -113,7 +113,7 @@ public final class MainMenu {
         appMenu.addItem(.separator())
 
         appMenu.addItem(
-            withTitle: "Quit Lungfish",
+            withTitle: "Quit Lungfish Genome Explorer",
             action: #selector(NSApplication.terminate(_:)),
             keyEquivalent: "q"
         )
@@ -734,7 +734,7 @@ public final class MainMenu {
         let helpMenu = NSMenu(title: "Help")
 
         helpMenu.addItem(
-            withTitle: "Lungfish Help",
+            withTitle: "Lungfish Genome Explorer Help",
             action: #selector(HelpMenuActions.showLungfishHelp(_:)),
             keyEquivalent: "?"
         )

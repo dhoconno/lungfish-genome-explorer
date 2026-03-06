@@ -355,7 +355,7 @@ public actor PathoplexusService: DatabaseService {
         lastRequestTime = Date()
 
         var request = URLRequest(url: url)
-        request.setValue("Lungfish Genome Browser", forHTTPHeaderField: "User-Agent")
+        request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = 60
 
@@ -383,7 +383,7 @@ public actor PathoplexusService: DatabaseService {
 
     private func makeRequestString(url: URL) async throws -> String {
         var request = URLRequest(url: url)
-        request.setValue("Lungfish Genome Browser", forHTTPHeaderField: "User-Agent")
+        request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 60
 
         let (data, response) = try await httpClient.data(for: request)

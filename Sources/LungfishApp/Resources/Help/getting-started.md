@@ -1,4 +1,4 @@
-# Getting Started with Lungfish Genome Browser
+# Getting Started with Lungfish Genome Explorer
 
 Welcome to Lungfish, a native macOS application for visualizing and exploring genomic data. This guide will help you get up and running quickly.
 

@@ -187,7 +187,7 @@ public actor NFCoreRegistry {
 
         // Download schema
         var request = URLRequest(url: schemaURL)
-        request.setValue("Lungfish Genome Browser", forHTTPHeaderField: "User-Agent")
+        request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
 
         let (data, response) = try await session.data(for: request)
 
@@ -230,7 +230,7 @@ public actor NFCoreRegistry {
     /// Fetches pipelines from the nf-core API.
     private func fetchPipelines() async throws -> [NFCorePipeline] {
         var request = URLRequest(url: apiBaseURL)
-        request.setValue("Lungfish Genome Browser", forHTTPHeaderField: "User-Agent")
+        request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 30
 
         let (data, response): (Data, URLResponse)

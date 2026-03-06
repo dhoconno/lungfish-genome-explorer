@@ -40,7 +40,7 @@ public actor GeminiProvider: AIProvider {
         var request = URLRequest(url: endpointURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Lungfish Genome Browser", forHTTPHeaderField: "User-Agent")
+        request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
         request.httpBody = jsonData
         request.timeoutInterval = 120
 

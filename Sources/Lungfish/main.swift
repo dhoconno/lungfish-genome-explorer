@@ -1,4 +1,4 @@
-// main.swift - Lungfish Genome Browser application entry point
+// main.swift - Lungfish Genome Explorer application entry point
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 

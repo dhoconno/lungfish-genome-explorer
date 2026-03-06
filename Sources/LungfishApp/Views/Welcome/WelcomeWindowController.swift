@@ -179,8 +179,8 @@ struct WelcomeView: View {
                         .resizable()
                         .frame(width: 64, height: 64)
 
-                    Text("Lungfish")
-                        .font(.system(size: 28, weight: .bold))
+                    Text("Lungfish Genome Explorer")
+                        .font(.system(size: 22, weight: .bold))
 
                     Text("Genome Browser")
                         .font(.system(size: 14))
@@ -403,7 +403,7 @@ public final class WelcomeWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = "Welcome to Lungfish"
+        window.title = "Welcome to Lungfish Genome Explorer"
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
         window.center()

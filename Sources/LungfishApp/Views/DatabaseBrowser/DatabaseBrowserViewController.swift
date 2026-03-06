@@ -1169,7 +1169,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             }
 
                             var request = URLRequest(url: fastqURL)
-                            request.setValue("Lungfish Genome Browser", forHTTPHeaderField: "User-Agent")
+                            request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
                             request.timeoutInterval = 600
 
                             let (data, response) = try await URLSession.shared.data(for: request)

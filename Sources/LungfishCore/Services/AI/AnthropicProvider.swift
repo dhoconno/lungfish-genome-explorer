@@ -39,7 +39,7 @@ public actor AnthropicProvider: AIProvider {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-        request.setValue("Lungfish Genome Browser", forHTTPHeaderField: "User-Agent")
+        request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
         request.httpBody = jsonData
         request.timeoutInterval = 120
 

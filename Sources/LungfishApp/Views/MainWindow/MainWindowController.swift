@@ -75,7 +75,7 @@ public class MainWindowController: NSWindowController {
             defer: false
         )
 
-        window.title = "Lungfish"
+        window.title = "Lungfish Genome Explorer"
         window.minSize = NSSize(width: 800, height: 500)
         window.setFrameAutosaveName("MainWindow")
         window.titlebarAppearsTransparent = false

@@ -1,4 +1,4 @@
-// LungfishPlugin - Plugin system for Lungfish Genome Browser
+// LungfishPlugin - Plugin system for Lungfish Genome Explorer
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 

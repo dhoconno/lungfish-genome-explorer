@@ -5,7 +5,7 @@
 import ArgumentParser
 import Foundation
 
-/// Lungfish Genome Browser Command-Line Interface
+/// Lungfish Genome Explorer Command-Line Interface
 ///
 /// Provides headless access to Lungfish functionality for:
 /// - File format conversion
@@ -16,9 +16,9 @@ import Foundation
 struct LungfishCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "lungfish",
-        abstract: "Lungfish Genome Browser CLI - Bioinformatics tools for sequence analysis",
+        abstract: "Lungfish Genome Explorer CLI - Bioinformatics tools for sequence analysis",
         discussion: """
-            The Lungfish CLI provides headless access to the Lungfish Genome Browser's
+            The Lungfish CLI provides headless access to the Lungfish Genome Explorer's
             bioinformatics capabilities. Use it for scripting, automation, pipeline
             integration, and debugging workflows.
 

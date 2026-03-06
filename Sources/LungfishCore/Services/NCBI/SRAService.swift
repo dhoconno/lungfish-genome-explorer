@@ -94,7 +94,7 @@ public actor SRAService {
         ]
 
         var request = URLRequest(url: components.url!)
-        request.setValue("Lungfish Genome Browser", forHTTPHeaderField: "User-Agent")
+        request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 30
 
         let (data, response) = try await httpClient.data(for: request)
@@ -332,7 +332,7 @@ public actor SRAService {
                 logger.info("Attempting to download from ENA: \(fileURL.absoluteString, privacy: .public)")
 
                 var request = URLRequest(url: fileURL)
-                request.setValue("Lungfish Genome Browser", forHTTPHeaderField: "User-Agent")
+                request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
 
                 let (data, response) = try await httpClient.data(for: request)
 

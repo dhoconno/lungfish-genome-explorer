@@ -346,7 +346,7 @@ public final class GenomeDownloadViewModel: @unchecked Sendable {
             database: "NCBI",
             sourceURL: URL(string: "https://www.ncbi.nlm.nih.gov/assembly/\(accession)"),
             downloadDate: Date(),
-            notes: "Downloaded via Lungfish Genome Browser"
+            notes: "Downloaded via Lungfish Genome Explorer"
         )
 
         let genomeInfo = GenomeInfo(

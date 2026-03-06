@@ -1,4 +1,4 @@
-// LungfishWorkflow - Workflow integration for Lungfish Genome Browser
+// LungfishWorkflow - Workflow integration for Lungfish Genome Explorer
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 

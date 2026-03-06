@@ -1,4 +1,4 @@
-// LungfishUI - Rendering and track system for Lungfish Genome Browser
+// LungfishUI - Rendering and track system for Lungfish Genome Explorer
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 

@@ -9,7 +9,7 @@
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Lungfish Help</string>
+    <string>Lungfish Genome Explorer Help</string>
     <key>CFBundlePackageType</key>
     <string>BNDL</string>
     <key>CFBundleShortVersionString</key>
@@ -19,7 +19,7 @@
     <key>HPDBookAccessPath</key>
     <string>en.lproj/index.html</string>
     <key>HPDBookTitle</key>
-    <string>Lungfish Help</string>
+    <string>Lungfish Genome Explorer Help</string>
     <key>HPDBookType</key>
     <string>3</string>
 </dict>

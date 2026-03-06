@@ -1,4 +1,4 @@
-// AboutWindowController.swift - Custom About Lungfish window
+// AboutWindowController.swift - Custom About Lungfish Genome Explorer window
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -22,7 +22,7 @@ final class AboutWindowController: NSWindowController {
             backing: .buffered,
             defer: true
         )
-        window.title = "About Lungfish"
+        window.title = "About Lungfish Genome Explorer"
         window.isReleasedWhenClosed = false
         window.center()
         window.isMovableByWindowBackground = true
@@ -54,20 +54,12 @@ final class AboutWindowController: NSWindowController {
         container.addSubview(iconView)
 
         // App name
-        let nameLabel = NSTextField(labelWithString: "Lungfish")
+        let nameLabel = NSTextField(labelWithString: "Lungfish Genome Explorer")
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
-        nameLabel.font = .systemFont(ofSize: 22, weight: .semibold)
+        nameLabel.font = .systemFont(ofSize: 20, weight: .semibold)
         nameLabel.alignment = .center
         nameLabel.textColor = .labelColor
         container.addSubview(nameLabel)
-
-        // Tagline
-        let taglineLabel = NSTextField(labelWithString: "Genome Browser")
-        taglineLabel.translatesAutoresizingMaskIntoConstraints = false
-        taglineLabel.font = .systemFont(ofSize: 13, weight: .regular)
-        taglineLabel.alignment = .center
-        taglineLabel.textColor = .secondaryLabelColor
-        container.addSubview(taglineLabel)
 
         // Version
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
@@ -148,10 +140,7 @@ final class AboutWindowController: NSWindowController {
             nameLabel.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 20),
             nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -20),
 
-            taglineLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 2),
-            taglineLabel.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-
-            versionLabel.topAnchor.constraint(equalTo: taglineLabel.bottomAnchor, constant: 4),
+            versionLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 4),
             versionLabel.centerXAnchor.constraint(equalTo: container.centerXAnchor),
 
             separator.topAnchor.constraint(equalTo: versionLabel.bottomAnchor, constant: 12),

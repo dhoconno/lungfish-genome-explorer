@@ -965,7 +965,7 @@ public actor NCBIService: DatabaseService {
         lastRequestTime = Date()
 
         var request = URLRequest(url: url)
-        request.setValue("Lungfish Genome Browser", forHTTPHeaderField: "User-Agent")
+        request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 30
 
         let (data, response) = try await httpClient.data(for: request)

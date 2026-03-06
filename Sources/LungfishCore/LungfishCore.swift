@@ -1,4 +1,4 @@
-// LungfishCore - Core data models and services for Lungfish Genome Browser
+// LungfishCore - Core data models and services for Lungfish Genome Explorer
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 

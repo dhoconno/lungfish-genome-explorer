@@ -28,7 +28,7 @@ let helpTopics: [HelpTopic] = [
 ]
 
 enum HelpBookIntegration {
-    static let bookName = "Lungfish Help"
+    static let bookName = "Lungfish Genome Explorer Help"
 
     /// Opens the system Help Book for the given topic, returning true on success.
     @MainActor
@@ -67,7 +67,7 @@ public final class HelpWindowController: NSWindowController {
             backing: .buffered,
             defer: true
         )
-        window.title = "Lungfish Help"
+        window.title = "Lungfish Genome Explorer Help"
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 520, height: 380)
         window.setFrameAutosaveName("LungfishHelpWindow")

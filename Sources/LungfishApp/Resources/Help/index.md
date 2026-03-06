@@ -1,6 +1,6 @@
-# Lungfish Genome Browser Help
+# Lungfish Genome Explorer Help
 
-Welcome to the Lungfish Genome Browser documentation. Lungfish is a native macOS application for visualizing, exploring, and analyzing genomic data.
+Welcome to the Lungfish Genome Explorer documentation. Lungfish is a native macOS application for visualizing, exploring, and analyzing genomic data.
 
 ## Topics
 
@@ -28,6 +28,6 @@ Configure AI providers, API keys, model selection, and application preferences.
 
 ## Getting Help
 
-- **Help > Lungfish Help** (Cmd+?) — Opens this documentation
+- **Help > Lungfish Genome Explorer Help** (Cmd+?) — Opens this documentation
 - **Help > Report an Issue** — Report bugs or request features
 - **AI Assistant** (Shift+Cmd+A) — Ask the AI for help exploring your data
