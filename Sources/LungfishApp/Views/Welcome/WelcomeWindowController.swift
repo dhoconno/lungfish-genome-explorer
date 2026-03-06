@@ -175,15 +175,15 @@ struct WelcomeView: View {
             VStack(alignment: .leading, spacing: 0) {
                 // App icon and title
                 VStack(alignment: .leading, spacing: 8) {
-                    Image(nsImage: NSApplication.shared.applicationIconImage)
+                    Image(nsImage: Self.loadLogo())
                         .resizable()
                         .frame(width: 64, height: 64)
 
                     Text("Lungfish Genome Explorer")
                         .font(.system(size: 22, weight: .bold))
 
-                    Text("Genome Browser")
-                        .font(.system(size: 14))
+                    Text("Seeing the invisible. Informing action.")
+                        .font(.system(size: 12))
                         .foregroundColor(.secondary)
                 }
                 .padding(.bottom, 32)
@@ -253,6 +253,14 @@ struct WelcomeView: View {
             .background(Color(nsColor: .controlBackgroundColor))
         }
         .frame(width: 650, height: 400)
+    }
+
+    private static func loadLogo() -> NSImage {
+        if let url = Bundle.module.url(forResource: "about-logo", withExtension: "png", subdirectory: "Images"),
+           let image = NSImage(contentsOf: url) {
+            return image
+        }
+        return NSApplication.shared.applicationIconImage
     }
 
     private func performAction(_ action: WelcomeAction) {

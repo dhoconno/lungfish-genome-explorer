@@ -179,7 +179,10 @@ let package = Package(
             dependencies: [
                 "LungfishApp",
             ],
-            path: "Sources/Lungfish"
+            path: "Sources/Lungfish",
+            resources: [
+                .copy("AppIcon.icns"),
+            ]
         ),
 
         // MARK: - LungfishCLI (Command-Line Interface)
