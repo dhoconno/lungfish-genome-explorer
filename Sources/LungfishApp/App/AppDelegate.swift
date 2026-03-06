@@ -252,6 +252,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     /// Settings window controller (lazy singleton)
     private var settingsWindowController: SettingsWindowController?
+    private var aboutWindowController: AboutWindowController?
 
     /// AI assistant service (lazy singleton), hosted inside Inspector.
     private var aiAssistantService: AIAssistantService?
@@ -858,6 +859,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 sidebarController?.openProject(at: url)
             }
         }
+    }
+
+    @IBAction func showAboutPanel(_ sender: Any?) {
+        if aboutWindowController == nil {
+            aboutWindowController = AboutWindowController()
+        }
+        aboutWindowController?.showWindow(sender)
     }
 
     @IBAction func showPreferences(_ sender: Any?) {

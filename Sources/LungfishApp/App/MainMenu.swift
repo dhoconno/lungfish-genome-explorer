@@ -65,7 +65,7 @@ public final class MainMenu {
         // About
         appMenu.addItem(
             withTitle: "About Lungfish",
-            action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
+            action: #selector(AppDelegate.showAboutPanel(_:)),
             keyEquivalent: ""
         )
 
