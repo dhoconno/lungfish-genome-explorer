@@ -537,6 +537,10 @@ public struct DocumentSection: View {
                 Link(value, destination: linkURL)
                     .font(.callout)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .contextMenu {
+                        Button("Copy Value") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(value, forType: .string) }
+                        Button("Copy Link") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(urlString, forType: .string) }
+                    }
             } else {
                 Text(value)
                     .font(.callout)

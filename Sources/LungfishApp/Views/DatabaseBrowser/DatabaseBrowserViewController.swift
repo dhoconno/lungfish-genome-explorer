@@ -29,7 +29,8 @@ private func appendPathoplexusMetadata(_ meta: PathoplexusMetadata, organism: St
         // Record group
         var recordItems: [MetadataItem] = []
         let ppVersion = meta.accessionVersion ?? meta.accession
-        let ppRecordURL = "https://pathoplexus.org/\(organism)/search?accession=\(ppVersion)"
+        let encodedVersion = ppVersion.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ppVersion
+        let ppRecordURL = "https://pathoplexus.org/\(organism)/search?accession=\(encodedVersion)"
         recordItems.append(MetadataItem(label: "Accession", value: meta.accession, url: ppRecordURL))
         if let v = meta.accessionVersion { recordItems.append(MetadataItem(label: "Version", value: v, url: ppRecordURL)) }
         if let v = meta.displayName { recordItems.append(MetadataItem(label: "Display Name", value: v)) }
@@ -404,7 +405,7 @@ public enum PathoplexusINSDCFilter: String, CaseIterable, Identifiable, Sendable
 // MARK: - Result Sort Order
 
 /// Sort options for search results.
-enum ResultSortOrder: String, CaseIterable, Identifiable {
+enum ResultSortOrder: String, CaseIterable, Identifiable, Sendable {
     case accession = "Accession"
     case dateNewest = "Date (Newest)"
     case dateOldest = "Date (Oldest)"
@@ -554,13 +555,27 @@ public class DatabaseBrowserViewModel: ObservableObject {
         case .accession:
             return filtered // default API order
         case .dateNewest:
-            return filtered.sorted { ($0.collectionDate ?? "") > ($1.collectionDate ?? "") }
+            return filtered.sorted {
+                switch ($0.collectionDate, $1.collectionDate) {
+                case (nil, nil): return false
+                case (nil, _): return false
+                case (_, nil): return true
+                case let (a?, b?): return a > b
+                }
+            }
         case .dateOldest:
-            return filtered.sorted { ($0.collectionDate ?? "") < ($1.collectionDate ?? "") }
+            return filtered.sorted {
+                switch ($0.collectionDate, $1.collectionDate) {
+                case (nil, nil): return false
+                case (nil, _): return false
+                case (_, nil): return true
+                case let (a?, b?): return a < b
+                }
+            }
         case .lengthLongest:
-            return filtered.sorted { ($0.length ?? 0) > ($1.length ?? 0) }
+            return filtered.sorted { ($0.length ?? -1) > ($1.length ?? -1) }
         case .lengthShortest:
-            return filtered.sorted { ($0.length ?? 0) < ($1.length ?? 0) }
+            return filtered.sorted { ($0.length ?? Int.max) < ($1.length ?? Int.max) }
         case .location:
             return filtered.sorted { ($0.geoLocation ?? "zzz") < ($1.geoLocation ?? "zzz") }
         case .subtype:
@@ -2266,7 +2281,7 @@ public struct DatabaseBrowserView: View {
                 }
             }
         }
-        .background(Color.white)
+        .background(Color(nsColor: .textBackgroundColor))
         .cornerRadius(8)
         .overlay(
             RoundedRectangle(cornerRadius: 8)
@@ -3436,7 +3451,7 @@ struct AutocompleteRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(isHovered ? Color.accentColor.opacity(0.1) : Color.white)
+        .background(isHovered ? Color.accentColor.opacity(0.1) : Color(nsColor: .textBackgroundColor))
         .onHover { hovering in
             isHovered = hovering
         }

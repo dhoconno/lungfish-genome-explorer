@@ -226,13 +226,17 @@ public struct PathoplexusMetadata: Sendable, Codable, Identifiable {
 
     // MARK: - Computed Properties
 
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
     /// Parsed collection date
     public var collectionDate: Date? {
         guard let dateStr = sampleCollectionDate else { return nil }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        return formatter.date(from: dateStr)
+        return Self.dateFormatter.date(from: dateStr)
     }
 
     /// Whether this record has an INSDC accession that can be used to fetch from GenBank

@@ -75,8 +75,8 @@ public actor PathoplexusService: DatabaseService {
             filters.sampleCollectionDateTo = formatter.string(from: dateRange.upperBound)
         }
 
-        // If the term looks like an accession, search by accession
-        if query.term.contains("LOC_") || query.term.contains(".") {
+        // If the term looks like a Pathoplexus accession (PP_ prefix), search by accession
+        if query.term.hasPrefix("PP_") {
             filters.accession = query.term
         }
 
@@ -102,7 +102,7 @@ public actor PathoplexusService: DatabaseService {
 
     public func fetch(accession: String, organism: String?) async throws -> DatabaseRecord {
         let normalizedAccession = accession.trimmingCharacters(in: .whitespacesAndNewlines)
-        let organism = organism ?? parseOrganismFromAccession(normalizedAccession) ?? "mpox"
+        let organism = organism ?? "mpox"
 
         var filters = PathoplexusFilters()
         filters.accession = normalizedAccession
@@ -255,8 +255,8 @@ public actor PathoplexusService: DatabaseService {
                 host: hostDisplay,
                 geoLocation: meta.bestLocation ?? meta.geoLocCountry,
                 collectionDate: meta.sampleCollectionDate,
-                completeness: meta.dataUseTerms,
-                isolateName: normalizedINSDC,
+                completeness: meta.completeness.map { String(format: "%.0f%%", $0 * 100) },
+                isolateName: meta.displayName,
                 sourceDatabase: sourceDB,
                 pangolinClassification: meta.lineage,
                 subtype: meta.subtype
@@ -470,30 +470,8 @@ public actor PathoplexusService: DatabaseService {
         return string
     }
 
-    private func parseOrganismFromAccession(_ accession: String) -> String? {
-        let parts = accession.uppercased().components(separatedBy: "_")
-        guard parts.count >= 2 else { return nil }
-
-        let mapping: [String: String] = [
-            "MPOX": "mpox",
-            "EBOLA": "ebola-zaire",
-            "SUDAN": "ebola-sudan",
-            "MARBURG": "marburg",
-            "RSV": "rsv-a",
-            "MEASLES": "measles",
-            "HMPV": "hmpv",
-            "WNV": "west-nile",
-            "CCHF": "cchf"
-        ]
-
-        for part in parts {
-            if let organism = mapping[part] {
-                return organism
-            }
-        }
-
-        return nil
-    }
+    // Note: Pathoplexus accessions (PP_XXXXX) do not encode the organism,
+    // so callers must always provide the organism explicitly.
 
     private func parseFASTA(_ content: String) -> [FASTARecord] {
         var records: [FASTARecord] = []

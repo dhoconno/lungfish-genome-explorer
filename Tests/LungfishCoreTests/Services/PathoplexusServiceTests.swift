@@ -260,13 +260,14 @@ final class PathoplexusServiceTests: XCTestCase {
     // MARK: - Error Handling Tests
 
     func testHandlesNetworkError() async throws {
-        // No response registered
+        // No response registered — should throw an error (either DatabaseServiceError or URLError)
 
         do {
             _ = try await service.getAggregatedCount(organism: "mpox", filters: PathoplexusFilters())
             XCTFail("Should have thrown an error")
         } catch {
-            // Expected
+            // Any error is acceptable — the mock has no registered response
+            // so the underlying URLSession or mock will throw a network error
         }
     }
 
@@ -385,6 +386,277 @@ final class DataUseTermsTests: XCTestCase {
 
     func testDataUseTermsCaseIterable() {
         XCTAssertEqual(DataUseTerms.allCases.count, 2)
+    }
+}
+
+// MARK: - Search Result Mapping Tests
+
+final class PathoplexusSearchMappingTests: XCTestCase {
+
+    var mockClient: MockHTTPClient!
+    var service: PathoplexusService!
+
+    override func setUp() async throws {
+        mockClient = MockHTTPClient()
+        service = PathoplexusService(httpClient: mockClient)
+    }
+
+    func testSearchMapsSubtypeFromMetadata() async throws {
+        await mockClient.registerPathoplexusCount(1)
+        await mockClient.registerPathoplexusMetadata([
+            [
+                "accession": "PP_001",
+                "organism": "RSV A",
+                "subtype": "A.2.1",
+                "length": 15000
+            ]
+        ])
+
+        let query = SearchQuery(term: "rsv", organism: "rsv-a", limit: 10)
+        let results = try await service.search(query)
+
+        XCTAssertEqual(results.records.count, 1)
+        XCTAssertEqual(results.records[0].subtype, "A.2.1")
+    }
+
+    func testSearchMapsCompletenessFromMetadataFraction() async throws {
+        await mockClient.registerPathoplexusCount(1)
+        await mockClient.registerPathoplexusMetadata([
+            [
+                "accession": "PP_001",
+                "completeness": 0.95,
+                "length": 15000
+            ]
+        ])
+
+        let query = SearchQuery(term: "test", organism: "mpox", limit: 10)
+        let results = try await service.search(query)
+
+        XCTAssertEqual(results.records.count, 1)
+        XCTAssertEqual(results.records[0].completeness, "95%")
+    }
+
+    func testSearchMapsIsolateNameFromDisplayName() async throws {
+        await mockClient.registerPathoplexusCount(1)
+        await mockClient.registerPathoplexusMetadata([
+            [
+                "accession": "PP_001",
+                "displayName": "Japan/PP_001.1",
+                "length": 15000
+            ]
+        ])
+
+        let query = SearchQuery(term: "test", organism: "mpox", limit: 10)
+        let results = try await service.search(query)
+
+        XCTAssertEqual(results.records.count, 1)
+        XCTAssertEqual(results.records[0].isolateName, "Japan/PP_001.1")
+    }
+
+    func testSearchByPPAccessionSetsAccessionFilter() async throws {
+        await mockClient.registerPathoplexusCount(1)
+        await mockClient.registerPathoplexusMetadata([
+            ["accession": "PP_0015NF5", "length": 18959]
+        ])
+
+        let query = SearchQuery(term: "PP_0015NF5", organism: "mpox", limit: 10)
+        _ = try await service.search(query)
+
+        let requests = await mockClient.requests
+        XCTAssertGreaterThan(requests.count, 0)
+        let url = requests.last!.url!.absoluteString
+        XCTAssertTrue(url.contains("accession=PP_0015NF5"), "URL should contain accession filter: \(url)")
+    }
+
+    func testSearchByFreeTextDoesNotSetAccessionFilter() async throws {
+        await mockClient.registerPathoplexusCount(1)
+        await mockClient.registerPathoplexusMetadata([
+            ["accession": "PP_001", "length": 18959]
+        ])
+
+        let query = SearchQuery(term: "ebola", organism: "ebola-zaire", limit: 10)
+        _ = try await service.search(query)
+
+        let requests = await mockClient.requests
+        let url = requests.last!.url!.absoluteString
+        XCTAssertFalse(url.contains("accession=ebola"), "Free text should not set accession filter: \(url)")
+    }
+}
+
+// MARK: - PathoplexusMetadata Computed Property Tests
+
+final class PathoplexusMetadataComputedTests: XCTestCase {
+
+    func testCollectionDateParsesValidDate() async throws {
+        let mockClient = MockHTTPClient()
+        let service = PathoplexusService(httpClient: mockClient)
+
+        await mockClient.registerPathoplexusMetadata([
+            ["accession": "PP_001", "sampleCollectionDate": "2024-06-15", "length": 1000]
+        ])
+
+        let metadata = try await service.fetchMetadata(organism: "mpox", filters: PathoplexusFilters())
+        XCTAssertEqual(metadata.count, 1)
+        XCTAssertNotNil(metadata[0].collectionDate)
+
+        let calendar = Calendar(identifier: .gregorian)
+        let components = calendar.dateComponents([.year, .month, .day], from: metadata[0].collectionDate!)
+        XCTAssertEqual(components.year, 2024)
+        XCTAssertEqual(components.month, 6)
+        XCTAssertEqual(components.day, 15)
+    }
+
+    func testCollectionDateReturnsNilForMissing() async throws {
+        let mockClient = MockHTTPClient()
+        let service = PathoplexusService(httpClient: mockClient)
+
+        await mockClient.registerPathoplexusMetadata([
+            ["accession": "PP_001", "length": 1000]
+        ])
+
+        let metadata = try await service.fetchMetadata(organism: "mpox", filters: PathoplexusFilters())
+        XCTAssertNil(metadata[0].collectionDate)
+    }
+
+    func testBestLocationCombinesCityAdminCountry() async throws {
+        let mockClient = MockHTTPClient()
+        let service = PathoplexusService(httpClient: mockClient)
+
+        await mockClient.registerPathoplexusMetadata([
+            [
+                "accession": "PP_001",
+                "geoLocCity": "Sapporo",
+                "geoLocAdmin1": "Hokkaido",
+                "geoLocCountry": "Japan",
+                "length": 1000
+            ]
+        ])
+
+        let metadata = try await service.fetchMetadata(organism: "mpox", filters: PathoplexusFilters())
+        XCTAssertEqual(metadata[0].bestLocation, "Sapporo, Hokkaido, Japan")
+    }
+
+    func testBestLocationCountryOnly() async throws {
+        let mockClient = MockHTTPClient()
+        let service = PathoplexusService(httpClient: mockClient)
+
+        await mockClient.registerPathoplexusMetadata([
+            ["accession": "PP_001", "geoLocCountry": "USA", "length": 1000]
+        ])
+
+        let metadata = try await service.fetchMetadata(organism: "mpox", filters: PathoplexusFilters())
+        XCTAssertEqual(metadata[0].bestLocation, "USA")
+    }
+
+    func testCompletenessHandlesDoubleValue() async throws {
+        let mockClient = MockHTTPClient()
+        let service = PathoplexusService(httpClient: mockClient)
+
+        await mockClient.registerPathoplexusMetadata([
+            ["accession": "PP_001", "completeness": 0.98, "length": 1000]
+        ])
+
+        let metadata = try await service.fetchMetadata(organism: "mpox", filters: PathoplexusFilters())
+        XCTAssertEqual(metadata[0].completeness, 0.98)
+    }
+
+    func testCompletenessHandlesStringValue() async throws {
+        let mockClient = MockHTTPClient()
+        let service = PathoplexusService(httpClient: mockClient)
+
+        await mockClient.registerPathoplexusMetadata([
+            ["accession": "PP_001", "completeness": "0.95", "length": 1000]
+        ])
+
+        let metadata = try await service.fetchMetadata(organism: "mpox", filters: PathoplexusFilters())
+        XCTAssertEqual(metadata[0].completeness, 0.95)
+    }
+
+    func testBestINSDCAccessionPrefersFull() async throws {
+        let mockClient = MockHTTPClient()
+        let service = PathoplexusService(httpClient: mockClient)
+
+        await mockClient.registerPathoplexusMetadata([
+            [
+                "accession": "PP_001",
+                "insdcAccessionBase": "AB160902",
+                "insdcAccessionFull": "AB160902.1",
+                "length": 1000
+            ]
+        ])
+
+        let metadata = try await service.fetchMetadata(organism: "mpox", filters: PathoplexusFilters())
+        XCTAssertEqual(metadata[0].bestINSDCAccession, "AB160902.1")
+        XCTAssertTrue(metadata[0].hasINSDCAccession)
+    }
+
+    func testBestINSDCAccessionFallsBackToBase() async throws {
+        let mockClient = MockHTTPClient()
+        let service = PathoplexusService(httpClient: mockClient)
+
+        await mockClient.registerPathoplexusMetadata([
+            [
+                "accession": "PP_001",
+                "insdcAccessionBase": "AB160902",
+                "length": 1000
+            ]
+        ])
+
+        let metadata = try await service.fetchMetadata(organism: "mpox", filters: PathoplexusFilters())
+        XCTAssertEqual(metadata[0].bestINSDCAccession, "AB160902")
+    }
+
+    func testHasINSDCAccessionFalseWhenEmpty() async throws {
+        let mockClient = MockHTTPClient()
+        let service = PathoplexusService(httpClient: mockClient)
+
+        await mockClient.registerPathoplexusMetadata([
+            ["accession": "PP_001", "length": 1000]
+        ])
+
+        let metadata = try await service.fetchMetadata(organism: "mpox", filters: PathoplexusFilters())
+        XCTAssertFalse(metadata[0].hasINSDCAccession)
+        XCTAssertNil(metadata[0].bestINSDCAccession)
+    }
+}
+
+// MARK: - MetadataItem URL Tests
+
+final class MetadataItemURLTests: XCTestCase {
+
+    func testMetadataItemWithURL() {
+        let item = MetadataItem(label: "Accession", value: "PP_001", url: "https://pathoplexus.org/mpox/search?accession=PP_001")
+        XCTAssertEqual(item.label, "Accession")
+        XCTAssertEqual(item.value, "PP_001")
+        XCTAssertEqual(item.url, "https://pathoplexus.org/mpox/search?accession=PP_001")
+    }
+
+    func testMetadataItemWithoutURLDefaultsToNil() {
+        let item = MetadataItem(label: "Length", value: "1000 bp")
+        XCTAssertNil(item.url)
+    }
+
+    func testMetadataItemURLRoundTrip() throws {
+        let item = MetadataItem(label: "INSDC", value: "AB160902.1", url: "https://www.ncbi.nlm.nih.gov/nuccore/AB160902.1")
+        let data = try JSONEncoder().encode(item)
+        let decoded = try JSONDecoder().decode(MetadataItem.self, from: data)
+
+        XCTAssertEqual(decoded.label, item.label)
+        XCTAssertEqual(decoded.value, item.value)
+        XCTAssertEqual(decoded.url, item.url)
+        XCTAssertEqual(decoded.id, item.id)
+    }
+
+    func testMetadataItemBackwardCompatibleDecodingWithoutURL() throws {
+        let json = """
+        {"id": "test-id", "label": "Length", "value": "1000 bp"}
+        """
+        let data = json.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(MetadataItem.self, from: data)
+
+        XCTAssertEqual(decoded.label, "Length")
+        XCTAssertEqual(decoded.value, "1000 bp")
+        XCTAssertNil(decoded.url)
     }
 }
 
