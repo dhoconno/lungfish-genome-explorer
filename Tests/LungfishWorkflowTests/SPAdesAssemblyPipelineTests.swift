@@ -294,6 +294,7 @@ final class SPAdesAssemblyPipelineTests: XCTestCase {
         let errors: [SPAdesPipelineError] = [
             .noInputFiles,
             .inputFileNotFound(URL(fileURLWithPath: "/tmp/missing.fq.gz")),
+            .pairedReadsMismatch(forwardCount: 2, reverseCount: 1),
             .runtimeUnavailable("No Apple Silicon"),
             .spadesError(exitCode: 1, message: "Out of memory", suggestion: "Increase memory"),
             .outputNotFound("contigs.fasta"),
@@ -309,6 +310,11 @@ final class SPAdesAssemblyPipelineTests: XCTestCase {
         XCTAssertNotNil(SPAdesPipelineError.noInputFiles.recoverySuggestion)
         XCTAssertNotNil(SPAdesPipelineError.runtimeUnavailable("test").recoverySuggestion)
         XCTAssertNil(SPAdesPipelineError.cancelled.recoverySuggestion)
+
+        let mismatchErr = SPAdesPipelineError.pairedReadsMismatch(forwardCount: 3, reverseCount: 1)
+        XCTAssertNotNil(mismatchErr.recoverySuggestion)
+        XCTAssertTrue(mismatchErr.errorDescription?.contains("3") ?? false)
+        XCTAssertTrue(mismatchErr.errorDescription?.contains("1") ?? false)
 
         let spadesErr = SPAdesPipelineError.spadesError(
             exitCode: 137, message: "OOM killed", suggestion: "Reduce memory usage"

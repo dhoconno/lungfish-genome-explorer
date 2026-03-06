@@ -297,9 +297,19 @@ public actor ContainerLogStreamer {
         return .info
     }
 
+    /// Delivers a log entry to all active subscriptions, pruning cancelled ones.
     private func deliverEntry(_ entry: LogEntry) {
-        for subscription in subscriptions.values {
-            subscription.handler(entry)
+        var cancelledIDs: [UUID] = []
+        for (id, subscription) in subscriptions {
+            if subscription.isCancelled {
+                cancelledIDs.append(id)
+            } else {
+                subscription.handler(entry)
+            }
+        }
+        // Prune cancelled subscriptions
+        for id in cancelledIDs {
+            subscriptions.removeValue(forKey: id)
         }
     }
 }
@@ -577,9 +587,20 @@ public enum ANSIParser {
 // MARK: - LogSubscription
 
 /// A cancellable subscription to log entries.
+///
+/// Call ``cancel()`` to stop receiving entries. The subscription will be
+/// automatically removed from the streamer on its next delivery pass.
 public final class LogSubscription: Sendable, Identifiable {
     public let id = UUID()
     public let handler: @Sendable (LogEntry) -> Void
+
+    /// Atomic flag indicating the subscription has been cancelled.
+    private let _isCancelled = OSAllocatedUnfairLock(initialState: false)
+
+    /// Whether this subscription has been cancelled.
+    public var isCancelled: Bool {
+        _isCancelled.withLock { $0 }
+    }
 
     init(handler: @escaping @Sendable (LogEntry) -> Void) {
         self.handler = handler
@@ -587,10 +608,9 @@ public final class LogSubscription: Sendable, Identifiable {
 
     /// Cancels the subscription.
     ///
-    /// After calling this, no more entries will be delivered.
-    /// Note: Must call `unsubscribe` on the streamer for cleanup.
+    /// After calling this, no more entries will be delivered. The streamer
+    /// will remove the subscription on its next delivery pass.
     public func cancel() {
-        // The actual unsubscription happens in the streamer
-        // This is a marker that the subscription should be removed
+        _isCancelled.withLock { $0 = true }
     }
 }

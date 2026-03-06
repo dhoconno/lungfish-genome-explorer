@@ -64,6 +64,10 @@ public struct AssemblyConfigurationView: View {
         }
         .frame(width: 650, height: 600)
         .background(Color(nsColor: .windowBackgroundColor))
+        .interactiveDismissDisabled(viewModel.assemblyState.isInProgress)
+        .onAppear {
+            viewModel.checkRuntimeAvailability()
+        }
     }
 
     // MARK: - Header Section
@@ -85,6 +89,9 @@ public struct AssemblyConfigurationView: View {
 
             Spacer()
 
+            // Runtime status indicator
+            runtimeStatusIndicator
+
             // Preset menu
             Menu {
                 Button("Bacterial Isolate") {
@@ -103,6 +110,38 @@ public struct AssemblyConfigurationView: View {
             .disabled(viewModel.assemblyState.isInProgress)
         }
         .padding(16)
+    }
+
+    // MARK: - Runtime Status Indicator
+
+    /// Visual indicator showing whether the container runtime is available.
+    @ViewBuilder
+    private var runtimeStatusIndicator: some View {
+        HStack(spacing: 4) {
+            switch viewModel.runtimeStatus {
+            case .checking:
+                ProgressView()
+                    .controlSize(.mini)
+                Text("Checking...")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            case .available:
+                Circle()
+                    .fill(.green)
+                    .frame(width: 8, height: 8)
+                Text("Runtime Available")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            case .unavailable:
+                Circle()
+                    .fill(.red)
+                    .frame(width: 8, height: 8)
+                Text("Runtime Unavailable")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        }
+        .padding(.trailing, 8)
     }
 
     // MARK: - Algorithm Section

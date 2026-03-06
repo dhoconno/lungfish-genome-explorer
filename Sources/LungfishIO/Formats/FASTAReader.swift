@@ -117,7 +117,9 @@ public final class FASTAReader: Sendable {
             throw FASTAError.invalidEncoding
         }
 
-        for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
+        // Normalize CR-LF to LF, then split on LF to handle both Unix and Windows line endings
+        let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
+        for line in normalized.split(separator: "\n", omittingEmptySubsequences: false) {
             if line.hasPrefix(">") {
                 let headerLine = String(line.dropFirst())
                 let (name, desc) = parseHeader(headerLine)
@@ -150,7 +152,9 @@ public final class FASTAReader: Sendable {
         var currentBases = ""
         var lineNumber = 0
 
-        for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
+        // Normalize CR-LF to LF, then split on LF to handle both Unix and Windows line endings
+        let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
+        for line in normalized.split(separator: "\n", omittingEmptySubsequences: false) {
             lineNumber += 1
             let trimmedLine = line.trimmingCharacters(in: .whitespaces)
 

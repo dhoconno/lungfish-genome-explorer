@@ -168,6 +168,9 @@ public final class SPAdesAssemblyPipeline: @unchecked Sendable {
         let startTime = Date()
         progress(0.0, "Preparing assembly workspace...")
 
+        // Validate input files before expensive operations
+        try validateInputs(config: config)
+
         // Check for cancellation before expensive operations
         try Task.checkCancellation()
 
@@ -286,6 +289,41 @@ public final class SPAdesAssemblyPipeline: @unchecked Sendable {
             commandLine: commandLine,
             exitCode: exitCode
         )
+    }
+
+    // MARK: - Input Validation
+
+    /// Validates the assembly configuration before starting the pipeline.
+    ///
+    /// Checks that:
+    /// - At least some input files are provided
+    /// - Forward and reverse read counts match (paired-end consistency)
+    /// - All referenced input files exist on disk
+    ///
+    /// - Parameter config: The assembly configuration to validate
+    /// - Throws: `SPAdesPipelineError` if validation fails
+    private func validateInputs(config: SPAdesAssemblyConfig) throws {
+        // Must have at least one input file
+        guard !config.allInputFiles.isEmpty else {
+            throw SPAdesPipelineError.noInputFiles
+        }
+
+        // Paired-end reads must have matching forward/reverse counts
+        if !config.forwardReads.isEmpty || !config.reverseReads.isEmpty {
+            guard config.forwardReads.count == config.reverseReads.count else {
+                throw SPAdesPipelineError.pairedReadsMismatch(
+                    forwardCount: config.forwardReads.count,
+                    reverseCount: config.reverseReads.count
+                )
+            }
+        }
+
+        // Verify all input files exist
+        for file in config.allInputFiles {
+            guard FileManager.default.fileExists(atPath: file.path) else {
+                throw SPAdesPipelineError.inputFileNotFound(file)
+            }
+        }
     }
 
     // MARK: - Command Construction
@@ -418,6 +456,7 @@ public struct SPAdesWorkspace: Sendable {
 public enum SPAdesPipelineError: Error, LocalizedError {
     case noInputFiles
     case inputFileNotFound(URL)
+    case pairedReadsMismatch(forwardCount: Int, reverseCount: Int)
     case runtimeUnavailable(String)
     case spadesError(exitCode: Int32, message: String, suggestion: String)
     case outputNotFound(String)
@@ -429,6 +468,8 @@ public enum SPAdesPipelineError: Error, LocalizedError {
             return "No input FASTQ files provided"
         case .inputFileNotFound(let url):
             return "Input file not found: \(url.lastPathComponent)"
+        case .pairedReadsMismatch(let fwd, let rev):
+            return "Paired-end read count mismatch: \(fwd) forward reads vs \(rev) reverse reads"
         case .runtimeUnavailable(let reason):
             return "Container runtime unavailable: \(reason)"
         case .spadesError(let code, let message, _):
@@ -446,6 +487,8 @@ public enum SPAdesPipelineError: Error, LocalizedError {
             return "Add at least one FASTQ file"
         case .inputFileNotFound:
             return "Check the file path and permissions"
+        case .pairedReadsMismatch:
+            return "Ensure each forward read (R1) has a corresponding reverse read (R2)"
         case .runtimeUnavailable:
             return "Requires macOS 26+ on Apple Silicon"
         case .spadesError(_, _, let suggestion):
@@ -457,4 +500,3 @@ public enum SPAdesPipelineError: Error, LocalizedError {
         }
     }
 }
-

@@ -71,6 +71,8 @@ public final class GzipInputStream: Sendable {
 
     /// Returns an async sequence of lines from the decompressed file.
     ///
+    /// Handles both Unix (`\n`) and Windows (`\r\n`) line endings.
+    ///
     /// - Returns: AsyncThrowingStream of String lines
     public func lines() -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
@@ -96,8 +98,10 @@ public final class GzipInputStream: Sendable {
                         throw GzipError.decompressionFailed("Invalid UTF-8 encoding")
                     }
 
-                    // Yield lines
-                    for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
+                    // Normalize CR-LF to LF to handle Windows line endings,
+                    // then split on LF
+                    let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
+                    for line in normalized.split(separator: "\n", omittingEmptySubsequences: false) {
                         continuation.yield(String(line))
                     }
 

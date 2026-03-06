@@ -8,6 +8,7 @@ import Foundation
 import SwiftUI
 import Combine
 import os.log
+import UserNotifications
 import LungfishWorkflow
 import LungfishIO
 
@@ -107,6 +108,15 @@ public enum AssemblyState: Equatable {
     }
 }
 
+// MARK: - Runtime Status
+
+/// Represents the container runtime availability status.
+public enum RuntimeStatus {
+    case checking
+    case available
+    case unavailable
+}
+
 // MARK: - Input File
 
 /// Represents a FASTQ input file for assembly.
@@ -126,6 +136,12 @@ public struct AssemblyInputFile: Identifiable, Hashable {
             return ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
         }
         return "Unknown size"
+    }
+
+    /// Returns the file size in bytes, or 0 if unavailable.
+    public var fileSizeBytes: Int64 {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        return attributes?[.size] as? Int64 ?? 0
     }
 
     public init(url: URL, isPaired: Bool = false) {
@@ -248,6 +264,9 @@ public class AssemblyConfigurationViewModel: ObservableObject {
     /// Minimum contig length to report
     @Published public var minContigLength: Int = 200
 
+    /// Container runtime availability status.
+    @Published public var runtimeStatus: RuntimeStatus = .checking
+
     // MARK: - Computed Properties
 
     /// Available system memory in GB
@@ -320,6 +339,7 @@ public class AssemblyConfigurationViewModel: ObservableObject {
         maxThreads = min(Double(availableCores), 8)
 
         setupKmerStringBinding()
+        requestNotificationPermission()
 
         logger.info("AssemblyConfigurationViewModel initialized: memory=\(self.availableMemoryGB)GB, cores=\(self.availableCores)")
     }
@@ -333,6 +353,87 @@ public class AssemblyConfigurationViewModel: ObservableObject {
                 return config.customKmers.map(String.init).joined(separator: ",")
             }
             .assign(to: &$customKmerString)
+    }
+
+    // MARK: - Runtime Availability
+
+    /// Checks whether a container runtime is available and updates `runtimeStatus`.
+    public func checkRuntimeAvailability() {
+        runtimeStatus = .checking
+        Task {
+            let available = await NewContainerRuntimeFactory.createRuntime() != nil
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.runtimeStatus = available ? .available : .unavailable
+                    logger.info("Runtime availability check: \(available ? "available" : "unavailable")")
+                }
+            }
+        }
+    }
+
+    // MARK: - Notifications
+
+    /// Requests permission to deliver user notifications on assembly completion.
+    private func requestNotificationPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+            if let error = error {
+                logger.warning("Notification authorization error: \(error)")
+            } else {
+                logger.debug("Notification authorization granted: \(granted)")
+            }
+        }
+    }
+
+    /// Posts a user notification for assembly completion or failure.
+    ///
+    /// - Parameters:
+    ///   - title: Notification title
+    ///   - body: Notification body text
+    ///   - isSuccess: Whether the assembly succeeded (determines notification category)
+    private func postAssemblyNotification(title: String, body: String, isSuccess: Bool) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = isSuccess ? .default : UNNotificationSound.defaultCritical
+
+        let request = UNNotificationRequest(
+            identifier: "assembly-\(UUID().uuidString)",
+            content: content,
+            trigger: nil // Deliver immediately
+        )
+
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                logger.warning("Failed to post notification: \(error)")
+            }
+        }
+    }
+
+    // MARK: - Disk Space Check
+
+    /// Checks whether there is sufficient disk space at the output directory for assembly.
+    ///
+    /// SPAdes requires at least 2x the total input file size plus 1 GB overhead.
+    ///
+    /// - Returns: A tuple of (sufficient, requiredBytes, availableBytes).
+    ///   Returns `(true, 0, 0)` if the output directory is not set.
+    public func checkDiskSpace() -> (sufficient: Bool, requiredBytes: Int64, availableBytes: Int64) {
+        guard let outputDir = outputDirectory else {
+            return (true, 0, 0)
+        }
+
+        let totalInputBytes: Int64 = inputFiles.reduce(0) { $0 + $1.fileSizeBytes }
+        let requiredBytes: Int64 = totalInputBytes * 2 + 1_073_741_824 // 2x input + 1 GB
+
+        do {
+            let resourceValues = try outputDir.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+            let availableBytes = Int64(resourceValues.volumeAvailableCapacityForImportantUsage ?? 0)
+            return (availableBytes >= requiredBytes, requiredBytes, availableBytes)
+        } catch {
+            logger.warning("Failed to check disk space: \(error)")
+            // If we cannot determine available space, proceed anyway
+            return (true, requiredBytes, 0)
+        }
     }
 
     // MARK: - Input File Management
@@ -493,11 +594,27 @@ public class AssemblyConfigurationViewModel: ObservableObject {
 
     /// Starts the assembly process.
     ///
-    /// Validates configuration, creates an `SPAdesAssemblyConfig`, runs the
-    /// pipeline via Apple Containers, then builds a `.lungfishref` bundle.
+    /// Validates configuration, checks runtime availability and disk space,
+    /// creates an `SPAdesAssemblyConfig`, runs the pipeline via Apple Containers,
+    /// then builds a `.lungfishref` bundle.
     public func startAssembly() {
         guard canStartAssembly else {
             logger.warning("Cannot start assembly: validation failed or already in progress")
+            return
+        }
+
+        // Pre-flight: check runtime availability
+        if runtimeStatus == .unavailable {
+            showNoRuntimeAlert()
+            return
+        }
+
+        // Pre-flight: check disk space
+        let diskCheck = checkDiskSpace()
+        if !diskCheck.sufficient {
+            let requiredFormatted = ByteCountFormatter.string(fromByteCount: diskCheck.requiredBytes, countStyle: .file)
+            let availableFormatted = ByteCountFormatter.string(fromByteCount: diskCheck.availableBytes, countStyle: .file)
+            showDiskSpaceAlert(required: requiredFormatted, available: availableFormatted)
             return
         }
 
@@ -666,6 +783,11 @@ public class AssemblyConfigurationViewModel: ObservableObject {
                         self?.appendLog("Bundle created: \(bundleURL.lastPathComponent)", level: .info)
                         self?.appendLog("Assembly completed successfully!", level: .info)
                         self?.onAssemblyComplete?(bundleURL)
+                        self?.postAssemblyNotification(
+                            title: "Assembly Complete",
+                            body: "Project \"\(projectNameCapture)\" assembled successfully.",
+                            isSuccess: true
+                        )
                     }
                 }
 
@@ -686,6 +808,11 @@ public class AssemblyConfigurationViewModel: ObservableObject {
                         self?.assemblyState = .failed(error: errorMessage)
                         self?.appendLog("Error: \(errorMessage)", level: .error)
                         self?.onAssemblyFailed?(errorMessage)
+                        self?.postAssemblyNotification(
+                            title: "Assembly Failed",
+                            body: "Project \"\(projectNameCapture)\" failed: \(errorMessage)",
+                            isSuccess: false
+                        )
                     }
                 }
             }
@@ -700,6 +827,52 @@ public class AssemblyConfigurationViewModel: ObservableObject {
         assemblyState = .cancelled
         appendLog("Assembly cancelled", level: .warning)
         logger.info("Assembly cancelled by user")
+    }
+
+    // MARK: - Alert Helpers
+
+    /// Shows an alert explaining that no container runtime is available.
+    private func showNoRuntimeAlert() {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Container Runtime Unavailable"
+        alert.informativeText = """
+            No container runtime is available on this system. \
+            Sequence assembly requires a container runtime to execute \
+            bioinformatics tools.
+
+            Requirements:
+            - macOS 26 (Tahoe) or later on Apple Silicon for native containers
+            - Or Docker Desktop installed and running as a fallback
+
+            Please ensure your system meets these requirements and try again.
+            """
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+        logger.warning("Assembly blocked: no container runtime available")
+    }
+
+    /// Shows an alert warning that disk space is insufficient.
+    ///
+    /// - Parameters:
+    ///   - required: Formatted string of required disk space
+    ///   - available: Formatted string of available disk space
+    private func showDiskSpaceAlert(required: String, available: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Insufficient Disk Space"
+        alert.informativeText = """
+            The output directory does not have enough free space for this assembly.
+
+            Required: \(required)
+            Available: \(available)
+
+            SPAdes needs at least 2x the total input file size plus 1 GB of overhead. \
+            Please free up disk space or choose a different output directory.
+            """
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+        logger.warning("Assembly blocked: insufficient disk space (required=\(required), available=\(available))")
     }
 
     // MARK: - Elapsed Timer

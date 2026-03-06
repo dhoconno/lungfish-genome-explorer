@@ -62,8 +62,11 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
     /// Active native containers indexed by container ID.
     private var nativeContainers: [String: LinuxContainer] = [:]
 
-    /// Cache of pulled images.
-    private var imageCache: [String: ContainerImage] = [:]
+    /// Cache of pulled images with timestamps for expiry.
+    private var imageCache: [String: CachedImage] = [:]
+
+    /// Maximum age for cached images before they are considered stale (7 days).
+    private static let imageCacheMaxAge: TimeInterval = 7 * 24 * 60 * 60
 
     /// Path to the local image store.
     private let imageStorePath: URL
@@ -106,7 +109,7 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
         // Find kernel path - use provided path or look for bundled kernel
         let resolvedKernelPath = Self.resolveKernelPath(kernelPath)
         self.kernelPath = resolvedKernelPath
-        
+
         // Debug: print kernel path resolution to stderr
         if let kp = resolvedKernelPath {
             logger.info("Resolved kernel path: \(kp.path)")
@@ -164,10 +167,11 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
     public func pullImage(reference: String) async throws -> ContainerImage {
         logger.info("Pulling image: \(reference, privacy: .public)")
 
-        // Check cache first
+        // Evict expired entries and check cache
+        evictExpiredImages()
         if let cached = imageCache[reference] {
             logger.info("Image found in cache: \(reference, privacy: .public)")
-            return cached
+            return cached.image
         }
 
         guard let manager = containerManager else {
@@ -193,7 +197,7 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
                 runtimeType: .appleContainerization
             )
 
-            imageCache[reference] = image
+            imageCache[reference] = CachedImage(image: image, cachedAt: Date())
             logger.info("Image pulled successfully: \(reference, privacy: .public)")
 
             return image
@@ -226,11 +230,17 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
         do {
             let containerID = UUID().uuidString
 
+            // Compute rootfs size: base 4 GiB + proportional to memory allocation.
+            // This ensures the rootfs has enough space for container operations
+            // while scaling with the container's resource needs.
+            let memoryBytes = config.memoryBytes ?? UInt64(8.gib())
+            let rootfsSize = UInt64(4.gib()) + (memoryBytes / 2)
+
             // Create the Linux container using ContainerManager
             let linuxContainer = try await manager.create(
                 containerID,
                 reference: image.reference,
-                rootfsSizeInBytes: 8.gib()
+                rootfsSizeInBytes: rootfsSize
             ) { containerConfig in
                 // Resource allocation
                 if let cpuCount = config.cpuCount {
@@ -537,6 +547,29 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
         containerManager != nil
     }
 
+    // MARK: - Image Cache Expiry
+
+    /// A cached container image with a timestamp for expiry tracking.
+    private struct CachedImage {
+        let image: ContainerImage
+        let cachedAt: Date
+    }
+
+    /// Removes expired entries from the image cache.
+    private func evictExpiredImages() {
+        let now = Date()
+        let keysToRemove = imageCache.compactMap { (key, cached) -> String? in
+            if now.timeIntervalSince(cached.cachedAt) > Self.imageCacheMaxAge {
+                return key
+            }
+            return nil
+        }
+        for key in keysToRemove {
+            imageCache.removeValue(forKey: key)
+            logger.debug("Evicted expired image from cache: \(key)")
+        }
+    }
+
     // MARK: - Bundled Resource Helpers
 
     /// Resolves the kernel path, checking for bundled kernel if no path provided.
@@ -551,7 +584,7 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
                 return bundleKernel
             }
         }
-        
+
         // SPM flat bundle structure - check directly in bundle path
         let bundlePath = Bundle.module.bundlePath
         let flatBundleKernel = URL(fileURLWithPath: bundlePath)
@@ -586,7 +619,7 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
         try FileManager.default.createDirectory(at: contentStorePath, withIntermediateDirectories: true)
         let contentStore = try LocalContentStore(path: contentStorePath)
         let imageStore = try ImageStore(path: storePath, contentStore: contentStore)
-        
+
         // Check if vminit:latest already exists in the image store
         do {
             _ = try await imageStore.get(reference: "vminit:latest")
@@ -599,13 +632,13 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
         // Find the bundled initfs tarball
         // Check SPM Bundle resources first
         var initfsTarball: URL?
-        
+
         if let bundleInitfs = Bundle.module.url(forResource: "init.rootfs.tar", withExtension: "gz", subdirectory: "Containerization") {
             if FileManager.default.fileExists(atPath: bundleInitfs.path) {
                 initfsTarball = bundleInitfs
             }
         }
-        
+
         // SPM flat bundle structure - check directly in bundle path
         if initfsTarball == nil {
             let bundlePath = Bundle.module.bundlePath
@@ -641,7 +674,7 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
         // Use InitImage.create to convert the rootfs tarball into an OCI image.
         do {
             let platform = Platform(arch: "arm64", os: "linux", variant: "v8")
-            
+
             _ = try await InitImage.create(
                 reference: "vminit:latest",
                 rootfs: initfsTarball,

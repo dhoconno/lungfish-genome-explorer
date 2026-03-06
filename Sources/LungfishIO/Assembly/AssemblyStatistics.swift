@@ -73,6 +73,8 @@ public enum AssemblyStatisticsCalculator {
 
     /// Computes statistics from FASTA content as a string.
     ///
+    /// Handles both Unix (`\n`) and Windows (`\r\n`) line endings.
+    ///
     /// - Parameter fasta: FASTA-formatted string
     /// - Returns: Computed assembly statistics
     public static func compute(fromFASTAString fasta: String) -> AssemblyStatistics {
@@ -82,7 +84,10 @@ public enum AssemblyStatisticsCalculator {
         var currentLength: Int64 = 0
         var currentGC: Int64 = 0
 
-        for line in fasta.split(separator: "\n", omittingEmptySubsequences: false) {
+        // Normalize CR-LF to LF to handle Windows line endings
+        let normalized = fasta.replacingOccurrences(of: "\r\n", with: "\n")
+
+        for line in normalized.split(separator: "\n", omittingEmptySubsequences: false) {
             if line.hasPrefix(">") {
                 // New contig — flush previous
                 if currentLength > 0 {
