@@ -137,17 +137,11 @@ public class AssemblyConfigurationViewModel: ObservableObject {
     /// Current assembly state
     @Published public var assemblyState: AssemblyState = .idle
 
-    /// Log output from assembly process
-    @Published public var logOutput: [LogEntry] = []
-
     /// Whether to perform error correction (SPAdes only)
     @Published public var performErrorCorrection: Bool = true
 
     /// SPAdes assembly mode (isolate, meta, plasmid, rna, bio)
     @Published public var spadesMode: SPAdesMode = .isolate
-
-    /// Elapsed time since assembly started
-    @Published public var elapsedTime: TimeInterval = 0
 
     /// Minimum contig length to report
     @Published public var minContigLength: Int = 200
@@ -198,23 +192,17 @@ public class AssemblyConfigurationViewModel: ObservableObject {
         return "\(inputFileURLs.count) file\(inputFileURLs.count == 1 ? "" : "s") (\(sizeStr))"
     }
 
-    // MARK: - Callbacks
-
-    /// Called when assembly completes successfully
-    public var onAssemblyComplete: ((URL) -> Void)?
-
-    /// Called when assembly fails
-    public var onAssemblyFailed: ((String) -> Void)?
-
     /// Called when user cancels the configuration
     public var onCancel: (() -> Void)?
+
+    /// Called to dismiss the hosting sheet (set by the controller)
+    public var onDismiss: (() -> Void)?
 
     // MARK: - Private Properties
 
     private var assemblyTask: Task<Void, Never>?
+    private var activeOperationID: UUID?
     private var cancellables = Set<AnyCancellable>()
-    private var elapsedTimer: Timer?
-    private var assemblyStartTime: Date?
 
     /// Auto-detected forward reads (R1)
     private var detectedForwardReads: [URL] = []
@@ -224,12 +212,6 @@ public class AssemblyConfigurationViewModel: ObservableObject {
     private var detectedUnpairedReads: [URL] = []
 
     // MARK: - Lifecycle
-
-    deinit {
-        MainActor.assumeIsolated {
-            elapsedTimer?.invalidate()
-        }
-    }
 
     /// Creates a new view model with pre-set input files and output directory.
     ///
@@ -359,25 +341,6 @@ public class AssemblyConfigurationViewModel: ObservableObject {
         }
     }
 
-    private func postAssemblyNotification(title: String, body: String, isSuccess: Bool) {
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = isSuccess ? .default : UNNotificationSound.defaultCritical
-
-        let request = UNNotificationRequest(
-            identifier: "assembly-\(UUID().uuidString)",
-            content: content,
-            trigger: nil
-        )
-
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                logger.warning("Failed to post notification: \(error)")
-            }
-        }
-    }
-
     // MARK: - Disk Space Check
 
     public func checkDiskSpace() -> (sufficient: Bool, requiredBytes: Int64, availableBytes: Int64) {
@@ -479,38 +442,22 @@ public class AssemblyConfigurationViewModel: ObservableObject {
             return
         }
 
-        logger.info("Starting SPAdes assembly: mode=\(self.spadesMode.displayName, privacy: .public)")
-
-        assemblyState = .validating
-        logOutput.removeAll()
-        elapsedTime = 0
-        appendLog("Starting SPAdes assembly...", level: .info)
-        appendLog("Mode: \(spadesMode.displayName)", level: .info)
-        appendLog("Input: \(inputSummary)", level: .info)
-
         let validation = validateConfiguration()
         if !validation.isValid {
             assemblyState = .failed(error: validation.errors.joined(separator: "; "))
-            appendLog("Validation failed: \(validation.errors.joined(separator: ", "))", level: .error)
             return
         }
 
-        for warning in validation.warnings {
-            appendLog("Warning: \(warning)", level: .warning)
-        }
+        logger.info("Starting SPAdes assembly: mode=\(self.spadesMode.displayName, privacy: .public)")
 
         assemblyState = .preparing
-        appendLog("Preparing assembly environment...", level: .info)
-        startElapsedTimer()
 
         let forwardReads = detectedForwardReads
         let reverseReads = detectedReverseReads
         let unpairedReads = detectedUnpairedReads
-
         let kmerSizes: [Int]? = kmerConfig.autoSelect ? nil : parseKmerString(customKmerString)
 
         guard let outputDir = outputDirectory else {
-            stopElapsedTimer()
             assemblyState = .failed(error: "No output directory")
             return
         }
@@ -531,111 +478,144 @@ public class AssemblyConfigurationViewModel: ObservableObject {
 
         let projectNameCapture = projectName
 
-        assemblyTask = Task.detached { [weak self] in
-            do {
-                let runtime = try await AppleContainerRuntime()
+        // Register with OperationCenter so the task survives sheet dismissal
+        let task = Task.detached {
+            await AssemblyConfigurationViewModel.runAssemblyOperation(
+                config: spadesConfig,
+                outputDir: outputDir,
+                projectName: projectNameCapture
+            )
+        }
 
-                DispatchQueue.main.async { [weak self] in
+        let operationID = OperationCenter.shared.start(
+            title: "SPAdes Assembly: \(projectNameCapture)",
+            detail: "Initializing...",
+            operationType: .assembly,
+            onCancel: { task.cancel() }
+        )
+        assemblyTask = task
+
+        // Store the operation ID so notification callbacks can update it
+        self.activeOperationID = operationID
+    }
+
+    /// Runs the assembly pipeline and reports progress to OperationCenter.
+    /// This is a static method so it captures no `self` reference — the sheet
+    /// can safely dismiss while this continues in the background.
+    private static func runAssemblyOperation(
+        config: SPAdesAssemblyConfig,
+        outputDir: URL,
+        projectName: String
+    ) async {
+        // Find our operation ID from OperationCenter
+        let operationID: UUID? = await MainActor.run {
+            OperationCenter.shared.items.first(where: {
+                $0.title == "SPAdes Assembly: \(projectName)" && $0.state == .running
+            })?.id
+        }
+
+        guard let opID = operationID else {
+            logger.error("Assembly operation not found in OperationCenter")
+            return
+        }
+
+        do {
+            let runtime = try await AppleContainerRuntime()
+
+            await MainActor.run {
+                OperationCenter.shared.update(id: opID, progress: 0.02, detail: "Container runtime initialized")
+            }
+
+            let pipeline = SPAdesAssemblyPipeline()
+            let result = try await pipeline.run(
+                config: config,
+                runtime: runtime
+            ) { fraction, message in
+                // Scale pipeline progress to 0.02–0.95
+                let scaledProgress = 0.02 + fraction * 0.93
+                DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        self?.appendLog("Apple Container runtime initialized", level: .info)
+                        OperationCenter.shared.update(id: opID, progress: scaledProgress, detail: message)
                     }
                 }
+            }
 
-                let pipeline = SPAdesAssemblyPipeline()
-                let result = try await pipeline.run(
-                    config: spadesConfig,
-                    runtime: runtime
-                ) { [weak self] fraction, message in
-                    DispatchQueue.main.async { [weak self] in
-                        MainActor.assumeIsolated {
-                            self?.assemblyState = .running(progress: fraction, stage: message)
-                            self?.appendLog(message, level: .info)
-                        }
-                    }
-                }
+            let stats = result.statistics
+            logger.info("Assembly stats: contigs=\(stats.contigCount), N50=\(stats.n50), total=\(stats.totalLengthBP)bp")
 
-                let stats = result.statistics
-                DispatchQueue.main.async { [weak self] in
+            await MainActor.run {
+                OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Creating reference bundle...")
+            }
+
+            let inputRecords = config.allInputFiles.map { url in
+                ProvenanceBuilder.inputRecord(for: url)
+            }
+            let provenance = ProvenanceBuilder.build(
+                config: config,
+                result: result,
+                inputRecords: inputRecords
+            )
+
+            let bundleBuilder = AssemblyBundleBuilder()
+            let bundleURL = try await bundleBuilder.build(
+                result: result,
+                config: config,
+                provenance: provenance,
+                outputDirectory: outputDir,
+                bundleName: projectName
+            ) { fraction, message in
+                let overallFraction = 0.95 + fraction * 0.05
+                DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        self?.appendLog("Assembly statistics:", level: .info)
-                        self?.appendLog("  Contigs: \(stats.contigCount)", level: .info)
-                        self?.appendLog("  Total length: \(stats.totalLengthBP.formatted()) bp", level: .info)
-                        self?.appendLog("  N50: \(stats.n50.formatted()) bp", level: .info)
-                        self?.appendLog("  GC: \(String(format: "%.1f", stats.gcPercent))%", level: .info)
+                        OperationCenter.shared.update(id: opID, progress: overallFraction, detail: message)
                     }
                 }
+            }
 
-                let inputRecords = spadesConfig.allInputFiles.map { url in
-                    ProvenanceBuilder.inputRecord(for: url)
-                }
-                let provenance = ProvenanceBuilder.build(
-                    config: spadesConfig,
-                    result: result,
-                    inputRecords: inputRecords
-                )
+            await MainActor.run {
+                OperationCenter.shared.complete(id: opID, detail: "Assembly complete", bundleURLs: [bundleURL])
+            }
 
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        self?.assemblyState = .running(progress: 0.97, stage: "Creating reference bundle...")
-                        self?.appendLog("Creating .lungfishref bundle...", level: .info)
-                    }
-                }
+            postAssemblyNotificationStatic(
+                title: "Assembly Complete",
+                body: "Project \"\(projectName)\" assembled successfully.",
+                isSuccess: true
+            )
 
-                let bundleBuilder = AssemblyBundleBuilder()
-                let bundleURL = try await bundleBuilder.build(
-                    result: result,
-                    config: spadesConfig,
-                    provenance: provenance,
-                    outputDirectory: outputDir,
-                    bundleName: projectNameCapture
-                ) { [weak self] fraction, message in
-                    let overallFraction = 0.95 + fraction * 0.05
-                    DispatchQueue.main.async { [weak self] in
-                        MainActor.assumeIsolated {
-                            self?.assemblyState = .running(progress: overallFraction, stage: message)
-                        }
-                    }
-                }
+        } catch is CancellationError {
+            await MainActor.run {
+                OperationCenter.shared.fail(id: opID, detail: "Cancelled by user")
+            }
+        } catch {
+            let errorMessage = "\(error)"
+            logger.error("Assembly failed: \(error)")
+            await MainActor.run {
+                OperationCenter.shared.fail(id: opID, detail: errorMessage)
+            }
 
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        self?.stopElapsedTimer()
-                        self?.assemblyState = .completed(outputPath: bundleURL.path)
-                        self?.appendLog("Bundle created: \(bundleURL.lastPathComponent)", level: .info)
-                        self?.appendLog("Assembly completed successfully!", level: .info)
-                        self?.onAssemblyComplete?(bundleURL)
-                        self?.postAssemblyNotification(
-                            title: "Assembly Complete",
-                            body: "Project \"\(projectNameCapture)\" assembled successfully.",
-                            isSuccess: true
-                        )
-                    }
-                }
+            postAssemblyNotificationStatic(
+                title: "Assembly Failed",
+                body: "Project \"\(projectName)\" failed: \(errorMessage)",
+                isSuccess: false
+            )
+        }
+    }
 
-            } catch is CancellationError {
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        self?.stopElapsedTimer()
-                        self?.assemblyState = .cancelled
-                        self?.appendLog("Assembly cancelled by user", level: .warning)
-                    }
-                }
-            } catch {
-                let errorMessage = "\(error)"
-                logger.error("Assembly failed: \(error)")
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        self?.stopElapsedTimer()
-                        self?.assemblyState = .failed(error: errorMessage)
-                        self?.appendLog("Error: \(errorMessage)", level: .error)
-                        self?.onAssemblyFailed?(errorMessage)
-                        self?.postAssemblyNotification(
-                            title: "Assembly Failed",
-                            body: "Project \"\(projectNameCapture)\" failed: \(errorMessage)",
-                            isSuccess: false
-                        )
-                    }
-                }
+    private static func postAssemblyNotificationStatic(title: String, body: String, isSuccess: Bool) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = isSuccess ? .default : UNNotificationSound.defaultCritical
+
+        let request = UNNotificationRequest(
+            identifier: "assembly-\(UUID().uuidString)",
+            content: content,
+            trigger: nil
+        )
+
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                logger.warning("Failed to post notification: \(error)")
             }
         }
     }
@@ -643,9 +623,11 @@ public class AssemblyConfigurationViewModel: ObservableObject {
     public func cancelAssembly() {
         assemblyTask?.cancel()
         assemblyTask = nil
-        stopElapsedTimer()
+        if let opID = activeOperationID {
+            OperationCenter.shared.fail(id: opID, detail: "Cancelled by user")
+            activeOperationID = nil
+        }
         assemblyState = .cancelled
-        appendLog("Assembly cancelled", level: .warning)
         logger.info("Assembly cancelled by user")
     }
 
@@ -686,84 +668,6 @@ public class AssemblyConfigurationViewModel: ObservableObject {
         alert.addButton(withTitle: "OK")
         alert.runModal()
         logger.warning("Assembly blocked: insufficient disk space (required=\(required), available=\(available))")
-    }
-
-    // MARK: - Elapsed Timer
-
-    private func startElapsedTimer() {
-        assemblyStartTime = Date()
-        elapsedTime = 0
-        elapsedTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            DispatchQueue.main.async { [weak self] in
-                MainActor.assumeIsolated {
-                    guard let self, let start = self.assemblyStartTime else { return }
-                    self.elapsedTime = Date().timeIntervalSince(start)
-                }
-            }
-        }
-    }
-
-    private func stopElapsedTimer() {
-        elapsedTimer?.invalidate()
-        elapsedTimer = nil
-    }
-
-    public var formattedElapsedTime: String {
-        let total = Int(elapsedTime)
-        let hours = total / 3600
-        let minutes = (total % 3600) / 60
-        let seconds = total % 60
-        if hours > 0 {
-            return "\(hours)h \(minutes)m \(seconds)s"
-        } else if minutes > 0 {
-            return "\(minutes)m \(seconds)s"
-        }
-        return "\(seconds)s"
-    }
-
-    // MARK: - Logging
-
-    public func appendLog(_ message: String, level: LogLevel = .info) {
-        let entry = LogEntry(timestamp: Date(), message: message, level: level)
-        logOutput.append(entry)
-    }
-
-    public struct LogEntry: Identifiable {
-        public let id = UUID()
-        public let timestamp: Date
-        public let message: String
-        public let level: LogLevel
-
-        public var formattedTimestamp: String {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "HH:mm:ss"
-            return formatter.string(from: timestamp)
-        }
-    }
-
-    public enum LogLevel: String {
-        case debug
-        case info
-        case warning
-        case error
-
-        public var color: Color {
-            switch self {
-            case .debug: return .gray
-            case .info: return .primary
-            case .warning: return .orange
-            case .error: return .red
-            }
-        }
-
-        public var icon: String {
-            switch self {
-            case .debug: return "ant"
-            case .info: return "info.circle"
-            case .warning: return "exclamationmark.triangle"
-            case .error: return "xmark.circle"
-            }
-        }
     }
 
     // MARK: - Preset Configurations

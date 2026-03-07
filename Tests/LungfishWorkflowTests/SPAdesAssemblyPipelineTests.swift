@@ -328,7 +328,7 @@ final class SPAdesAssemblyPipelineTests: XCTestCase {
     func testSPAdesImageReference() {
         let ref = SPAdesAssemblyPipeline.spadesImageReference
         XCTAssertTrue(ref.contains("spades"), "Image reference should contain 'spades'")
-        XCTAssertTrue(ref.contains("arm64"), "Image reference should be arm64")
+        XCTAssertTrue(ref.contains("biocontainers"), "Image reference should be from biocontainers")
         XCTAssertTrue(ref.contains("4.0.0"), "Image reference should specify version")
     }
 

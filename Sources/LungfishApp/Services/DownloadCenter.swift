@@ -13,6 +13,7 @@ public enum OperationType: String, Sendable {
     case vcfImport = "VCF Import"
     case bundleBuild = "Bundle Build"
     case export = "Export"
+    case assembly = "Assembly"
 }
 
 @MainActor

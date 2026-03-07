@@ -12,6 +12,7 @@ import ContainerizationOCI
 import ContainerizationArchive
 import ContainerizationExtras
 import ContainerizationError
+import ContainerizationEXT4
 
 // MARK: - AppleContainerRuntime
 
@@ -185,6 +186,9 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
             // Pull the image using the image store
             let pulledImage = try await manager.imageStore.get(reference: reference, pull: true)
 
+            // Detect actual platform of the pulled image
+            let detectedPlatform = try await Self.detectImagePlatform(pulledImage)
+
             let image = ContainerImage(
                 id: pulledImage.digest ?? UUID().uuidString,
                 reference: reference,
@@ -192,8 +196,8 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
                 rootfsPath: nil, // Managed by ContainerManager
                 sizeBytes: nil,
                 pulledAt: Date(),
-                architecture: "arm64",
-                os: "linux",
+                architecture: detectedPlatform.architecture,
+                os: detectedPlatform.os,
                 runtimeType: .appleContainerization
             )
 
@@ -231,56 +235,37 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
             let containerID = UUID().uuidString
 
             // Compute rootfs size: base 4 GiB + proportional to memory allocation.
-            // This ensures the rootfs has enough space for container operations
-            // while scaling with the container's resource needs.
             let memoryBytes = config.memoryBytes ?? UInt64(8.gib())
             let rootfsSize = UInt64(4.gib()) + (memoryBytes / 2)
 
-            // Create the Linux container using ContainerManager
-            let linuxContainer = try await manager.create(
-                containerID,
-                reference: image.reference,
-                rootfsSizeInBytes: rootfsSize
-            ) { containerConfig in
-                // Resource allocation
-                if let cpuCount = config.cpuCount {
-                    containerConfig.cpus = cpuCount
-                } else {
-                    containerConfig.cpus = ProcessInfo.processInfo.activeProcessorCount
-                }
+            // Determine the image platform. ContainerManager.create() hardcodes
+            // Platform.current (arm64) for unpacking and config retrieval, which
+            // fails for amd64-only images. Detect this and use a manual unpack
+            // path with Rosetta x86_64 emulation when needed.
+            let pulledImage = try await manager.imageStore.get(reference: image.reference, pull: true)
+            let imagePlatform = try await Self.detectImagePlatform(pulledImage)
 
-                if let memoryBytes = config.memoryBytes {
-                    containerConfig.memoryInBytes = memoryBytes
-                } else {
-                    containerConfig.memoryInBytes = 8.gib()
-                }
+            let linuxContainer: LinuxContainer
 
-                // Hostname
-                containerConfig.hostname = config.hostname ?? name
-
-                // Process configuration (command to run)
-                if let command = config.command, !command.isEmpty {
-                    containerConfig.process.arguments = command
-                }
-
-                // Working directory
-                if let workingDir = config.workingDirectory {
-                    containerConfig.process.workingDirectory = workingDir
-                }
-
-                // Environment variables
-                for (key, value) in config.environment {
-                    containerConfig.process.environmentVariables.append("\(key)=\(value)")
-                }
-
-                // Mount bindings using virtiofs shares
-                for mount in config.mounts {
-                    let czMount = Mount.share(
-                        source: mount.source,
-                        destination: mount.destination,
-                        options: mount.readOnly ? ["ro"] : []
-                    )
-                    containerConfig.mounts.append(czMount)
+            if imagePlatform.architecture == "amd64" {
+                logger.info("Image is amd64 — using Rosetta unpack path")
+                linuxContainer = try await createContainerForAmd64(
+                    id: containerID,
+                    image: pulledImage,
+                    platform: imagePlatform,
+                    rootfsSize: rootfsSize,
+                    manager: &manager,
+                    config: config,
+                    name: name
+                )
+            } else {
+                // Native arm64 image — use standard ContainerManager path
+                linuxContainer = try await manager.create(
+                    containerID,
+                    image: pulledImage,
+                    rootfsSizeInBytes: rootfsSize
+                ) { containerConfig in
+                    Self.applyContainerConfig(&containerConfig, from: config, name: name)
                 }
             }
 
@@ -295,7 +280,7 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
                 image: image,
                 configuration: config,
                 hostname: config.hostname ?? name,
-                nativeContainer: AnySendable(containerID) // Store ID, we manage LinuxContainer separately
+                nativeContainer: AnySendable(containerID)
             )
 
             activeContainers[containerID] = container
@@ -305,12 +290,177 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
             return container
 
         } catch {
-
             logger.error("Failed to create container \(name, privacy: .public): \(error)")
             throw ContainerRuntimeError.containerCreationFailed(
                 name: name,
                 reason: "\(error)"
             )
+        }
+    }
+
+    // MARK: - Amd64 Image Support (Rosetta)
+
+    /// Detects the best platform for an image.
+    /// Prefers .current (arm64) if available, falls back to amd64 for Rosetta.
+    private static func detectImagePlatform(_ image: Containerization.Image) async throws -> Platform {
+        do {
+            let index = try await image.index()
+            let platforms = index.manifests.compactMap(\.platform)
+
+            // Prefer native arm64 if available
+            if let native = platforms.first(where: { $0 == .current }) {
+                return native
+            }
+            // Fall back to amd64 (will use Rosetta)
+            if let amd64 = platforms.first(where: { $0.architecture == "amd64" }) {
+                return amd64
+            }
+            // Return whatever is available
+            if let first = platforms.first {
+                return first
+            }
+        } catch {
+            // Single-manifest images may not have an index
+        }
+        return .current
+    }
+
+    /// Creates a container for an amd64 image using manual unpack + Rosetta.
+    ///
+    /// ContainerManager.create() hardcodes Platform.current for both unpacking
+    /// layers and reading the image config. For amd64 images on arm64, we must:
+    /// 1. Unpack layers using the amd64 platform
+    /// 2. Read the image config (entrypoint, env, workdir) using amd64 platform
+    /// 3. Create LinuxContainer directly with our own VZVirtualMachineManager
+    private func createContainerForAmd64(
+        id: String,
+        image: Containerization.Image,
+        platform: Platform,
+        rootfsSize: UInt64,
+        manager: inout ContainerManager,
+        config: ContainerConfiguration,
+        name: String
+    ) async throws -> LinuxContainer {
+        // Create container root directory
+        let containerRoot = manager.imageStore.path
+            .appendingPathComponent("containers")
+            .appendingPathComponent(id)
+        try FileManager.default.createDirectory(at: containerRoot, withIntermediateDirectories: true)
+
+        let rootfsPath = containerRoot.appendingPathComponent("rootfs.ext4")
+
+        // Unpack image layers using the amd64 platform
+        let unpacker = EXT4Unpacker(blockSizeInBytes: rootfsSize)
+        let rootfs = try await unpacker.unpack(image, for: platform, at: rootfsPath)
+
+        // Read image config from the amd64 manifest
+        let ociImage = try await image.config(for: platform)
+        let imageConfig = ociImage.config
+
+        // Build the kernel and initfs for our own VZVirtualMachineManager.
+        // We need rosetta enabled to run amd64 binaries.
+        guard let kernelPath = self.kernelPath else {
+            throw ContainerRuntimeError.runtimeNotAvailable(
+                .appleContainerization,
+                reason: "Kernel path required for amd64 container creation"
+            )
+        }
+
+        let kernel = Kernel(path: kernelPath, platform: .linuxArm)
+
+        // Reuse the initfs.ext4 that ContainerManager already unpacked during init
+        let initfsPath = manager.imageStore.path.appendingPathComponent("initfs.ext4")
+        let initfsMount = Mount.block(
+            format: "ext4",
+            source: initfsPath.absolutePath(),
+            destination: "/",
+            options: ["ro"]
+        )
+
+        let vmm = VZVirtualMachineManager(
+            kernel: kernel,
+            initialFilesystem: initfsMount,
+            rosetta: true
+        )
+
+        // Build LinuxContainer configuration
+        var containerConfig = LinuxContainer.Configuration()
+
+        // Apply image config (entrypoint, cmd, env, workdir)
+        if let imageConfig {
+            containerConfig.process = .init(from: imageConfig)
+        }
+
+        // Capture stdout/stderr for diagnostics
+        let logWriter = LogWriter(logger: logger, stream: "container")
+        containerConfig.process.stdout = logWriter
+        containerConfig.process.stderr = logWriter
+
+        // Apply user-specified overrides
+        Self.applyContainerConfig(&containerConfig, from: config, name: name)
+
+        // Set up networking (NAT)
+        var mutableNetwork = NATNetwork()
+        if let interface = try mutableNetwork.create(id) {
+            containerConfig.interfaces = [interface]
+            if let gateway = interface.ipv4Gateway {
+                containerConfig.dns = .init(nameservers: [gateway.description])
+            }
+        }
+
+        containerConfig.bootLog = BootLog.file(
+            path: containerRoot.appendingPathComponent("bootlog.log")
+        )
+
+        return LinuxContainer(
+            id,
+            rootfs: rootfs,
+            vmm: vmm,
+            configuration: containerConfig
+        )
+    }
+
+    /// Applies user ContainerConfiguration to a LinuxContainer.Configuration.
+    private static func applyContainerConfig(
+        _ containerConfig: inout LinuxContainer.Configuration,
+        from config: ContainerConfiguration,
+        name: String
+    ) {
+        if let cpuCount = config.cpuCount {
+            containerConfig.cpus = cpuCount
+        } else {
+            containerConfig.cpus = ProcessInfo.processInfo.activeProcessorCount
+        }
+
+        // VZ requires memorySize to be a multiple of 1 MiB
+        let mib: UInt64 = 1024 * 1024
+        if let memoryBytes = config.memoryBytes {
+            containerConfig.memoryInBytes = ((memoryBytes + mib - 1) / mib) * mib
+        } else {
+            containerConfig.memoryInBytes = 8.gib()
+        }
+
+        containerConfig.hostname = config.hostname ?? name
+
+        if let command = config.command, !command.isEmpty {
+            containerConfig.process.arguments = command
+        }
+
+        if let workingDir = config.workingDirectory {
+            containerConfig.process.workingDirectory = workingDir
+        }
+
+        for (key, value) in config.environment {
+            containerConfig.process.environmentVariables.append("\(key)=\(value)")
+        }
+
+        for mount in config.mounts {
+            let czMount = Mount.share(
+                source: mount.source,
+                destination: mount.destination,
+                options: mount.readOnly ? ["ro"] : []
+            )
+            containerConfig.mounts.append(czMount)
         }
     }
 
@@ -766,4 +916,28 @@ public struct NATNetwork: ContainerManager.Network, Sendable {
             releasedAddresses.append(offset)
         }
     }
+}
+
+// MARK: - Log Writer
+
+/// A `Writer` that logs container stdout/stderr to the system logger.
+@available(macOS 26, *)
+final class LogWriter: Writer, Sendable {
+    private let logger: Logger
+    private let stream: String
+
+    init(logger: Logger, stream: String) {
+        self.logger = logger
+        self.stream = stream
+    }
+
+    func write(_ data: Data) throws {
+        if let text = String(data: data, encoding: .utf8) {
+            for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+                logger.info("[\(self.stream)] \(line, privacy: .public)")
+            }
+        }
+    }
+
+    func close() throws {}
 }

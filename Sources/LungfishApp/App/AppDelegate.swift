@@ -3296,23 +3296,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             from: window,
             inputFiles: inputFiles,
             outputDirectory: outputDirectory,
-            onComplete: { [weak self] outputURL in
-                debugLog("Assembly completed: \(outputURL.path)")
-                if outputURL.pathExtension == "lungfishref" {
-                    _ = self?.openDocument(at: outputURL)
-                }
-                // Refresh sidebar to show new assembly output
-                self?.refreshSidebarAndSelectImportedURL(outputURL)
-            },
-            onFailed: { error in
-                debugLog("Assembly failed: \(error)")
-                let alert = NSAlert()
-                alert.messageText = "Assembly Failed"
-                alert.informativeText = error
-                alert.alertStyle = .critical
-                alert.addButton(withTitle: "OK")
-                alert.runModal()
-            },
             onCancel: {
                 debugLog("Assembly configuration cancelled")
             }

@@ -193,7 +193,10 @@ public final class SPAdesAssemblyPipeline: @unchecked Sendable {
         // 5. Create and run the container
         // Give the container 15% more memory than SPAdes --memory to leave headroom
         // for the Linux kernel, libc, and other OS overhead inside the VM
-        let containerMemoryBytes = UInt64(Double(config.memoryGB.gib()) * 1.15)
+        // Round up to nearest MiB — VZ requires memorySize to be a multiple of 1 MiB
+        let rawMemoryBytes = UInt64(Double(config.memoryGB.gib()) * 1.15)
+        let mib: UInt64 = 1024 * 1024
+        let containerMemoryBytes = ((rawMemoryBytes + mib - 1) / mib) * mib
         let containerConfig = ContainerConfiguration(
             cpuCount: config.threads,
             memoryBytes: containerMemoryBytes,
@@ -337,20 +340,20 @@ public final class SPAdesAssemblyPipeline: @unchecked Sendable {
         // Mode flag
         args.append(config.mode.flag)
 
-        // Input files (using container paths via workspace file name map)
-        let nameFor: (URL) -> String = { url in
-            workspace.fileNameMap[url] ?? url.lastPathComponent
+        // Input files (using full container paths from workspace file name map)
+        let containerPath: (URL) -> String = { url in
+            workspace.fileNameMap[url] ?? "/input/\(url.lastPathComponent)"
         }
 
         for (index, _) in config.forwardReads.enumerated() {
-            args += ["-1", "/input/\(nameFor(config.forwardReads[index]))"]
+            args += ["-1", containerPath(config.forwardReads[index])]
             if index < config.reverseReads.count {
-                args += ["-2", "/input/\(nameFor(config.reverseReads[index]))"]
+                args += ["-2", containerPath(config.reverseReads[index])]
             }
         }
 
         for read in config.unpairedReads {
-            args += ["-s", "/input/\(nameFor(read))"]
+            args += ["-s", containerPath(read)]
         }
 
         // K-mer sizes
@@ -367,11 +370,6 @@ public final class SPAdesAssemblyPipeline: @unchecked Sendable {
             args.append("--only-assembler")
         }
 
-        // Minimum contig length (SPAdes 4.0+ supports this)
-        if config.minContigLength > 0 {
-            args += ["--min-contig-length", String(config.minContigLength)]
-        }
-
         // Output directory (inside container)
         args += ["-o", "/output"]
 
@@ -380,52 +378,49 @@ public final class SPAdesAssemblyPipeline: @unchecked Sendable {
 
     // MARK: - Workspace
 
-    /// Creates a temporary workspace with symlinked input files.
+    /// Creates a workspace by mounting each input file's parent directory
+    /// directly into the container.
     ///
-    /// Deduplicates filenames to prevent silent overwrites when files from
-    /// different directories share the same name. The mapping from original
-    /// URL to workspace filename is stored in the returned workspace.
+    /// Symlinks don't resolve inside the guest VM (virtiofs shares host
+    /// directories, not host filesystem semantics), so we mount the real
+    /// directories and reference files by their original names.
+    ///
+    /// Each unique parent directory gets its own mount at `/input/0`,
+    /// `/input/1`, etc. The ``fileNameMap`` stores the full container path
+    /// for each file (e.g. `/input/0/SRR1770413_1.fastq.gz`).
     private func createWorkspace(config: SPAdesAssemblyConfig) throws -> SPAdesWorkspace {
         let tempDir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("lungfish-spades-\(UUID().uuidString.prefix(8))")
-        let inputDir = tempDir.appendingPathComponent("input")
         let outputDir = config.outputDirectory.appendingPathComponent(config.projectName)
 
-        try FileManager.default.createDirectory(at: inputDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
 
-        // Symlink input files, deduplicating names to prevent collisions
-        var usedNames = Set<String>()
+        // Group files by parent directory
+        var dirIndex: [URL: Int] = [:]
         var fileNameMap: [URL: String] = [:]
+        var mounts: [MountBinding] = []
 
         for file in config.allInputFiles {
-            var name = file.lastPathComponent
-            if usedNames.contains(name) {
-                // Deduplicate: insert index before extension
-                let stem = file.deletingPathExtension().lastPathComponent
-                let ext = file.pathExtension
-                var index = 2
-                repeat {
-                    name = ext.isEmpty ? "\(stem)_\(index)" : "\(stem)_\(index).\(ext)"
-                    index += 1
-                } while usedNames.contains(name)
-                logger.info("Renamed duplicate input: \(file.lastPathComponent) → \(name)")
+            let parentDir = file.deletingLastPathComponent().standardizedFileURL
+            if dirIndex[parentDir] == nil {
+                let idx = dirIndex.count
+                dirIndex[parentDir] = idx
+                mounts.append(MountBinding(
+                    source: parentDir,
+                    destination: "/input/\(idx)",
+                    readOnly: true
+                ))
             }
-            usedNames.insert(name)
-            fileNameMap[file] = name
-
-            let dest = inputDir.appendingPathComponent(name)
-            try FileManager.default.createSymbolicLink(at: dest, withDestinationURL: file)
+            let idx = dirIndex[parentDir]!
+            fileNameMap[file] = "/input/\(idx)/\(file.lastPathComponent)"
         }
 
-        let mounts = [
-            MountBinding(source: inputDir, destination: "/input", readOnly: true),
-            MountBinding(source: outputDir, destination: "/output", readOnly: false),
-        ]
+        mounts.append(MountBinding(source: outputDir, destination: "/output", readOnly: false))
 
         return SPAdesWorkspace(
             tempDir: tempDir,
-            inputDir: inputDir,
+            inputDir: tempDir, // No longer used for symlinks
             outputDir: outputDir,
             mounts: mounts,
             fileNameMap: fileNameMap
@@ -440,13 +435,13 @@ public final class SPAdesAssemblyPipeline: @unchecked Sendable {
 public struct SPAdesWorkspace: Sendable {
     /// Root of the temporary workspace.
     public let tempDir: URL
-    /// Directory containing symlinked input files.
+    /// Legacy field (no longer used for symlinks).
     public let inputDir: URL
     /// Output directory on the host.
     public let outputDir: URL
     /// Mount bindings for the container.
     public let mounts: [MountBinding]
-    /// Maps original file URLs to their (possibly deduplicated) workspace filenames.
+    /// Maps original file URLs to their full container paths (e.g. `/input/0/reads.fastq.gz`).
     public let fileNameMap: [URL: String]
 }
 

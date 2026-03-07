@@ -24,12 +24,6 @@ public class AssemblyConfigurationViewController: NSViewController {
     private var hostingView: NSHostingView<AssemblyConfigurationView>!
     private var viewModel: AssemblyConfigurationViewModel!
 
-    /// Callback when assembly completes successfully
-    public var onAssemblyComplete: ((URL) -> Void)?
-
-    /// Callback when assembly fails
-    public var onAssemblyFailed: ((String) -> Void)?
-
     /// Callback when user cancels configuration
     public var onCancel: (() -> Void)?
 
@@ -58,16 +52,12 @@ public class AssemblyConfigurationViewController: NSViewController {
             outputDirectory: outputDirectory
         )
 
-        viewModel.onAssemblyComplete = { [weak self] outputURL in
-            self?.handleAssemblyComplete(outputURL)
-        }
-
-        viewModel.onAssemblyFailed = { [weak self] error in
-            self?.handleAssemblyFailed(error)
-        }
-
         viewModel.onCancel = { [weak self] in
             self?.handleCancel()
+        }
+
+        viewModel.onDismiss = { [weak self] in
+            self?.dismissSheet()
         }
 
         let configView = AssemblyConfigurationView(viewModel: viewModel)
@@ -83,16 +73,6 @@ public class AssemblyConfigurationViewController: NSViewController {
     }
 
     // MARK: - Callback Handlers
-
-    private func handleAssemblyComplete(_ outputURL: URL) {
-        logger.info("Assembly completed: \(outputURL.path, privacy: .public)")
-        onAssemblyComplete?(outputURL)
-    }
-
-    private func handleAssemblyFailed(_ error: String) {
-        logger.error("Assembly failed: \(error, privacy: .public)")
-        onAssemblyFailed?(error)
-    }
 
     private func handleCancel() {
         logger.info("Assembly configuration cancelled")
@@ -121,33 +101,25 @@ public struct AssemblySheetPresenter {
 
     /// Presents the SPAdes assembly configuration sheet.
     ///
+    /// Assembly progress is tracked via ``OperationCenter`` and survives
+    /// sheet dismissal. Completed bundles are delivered through
+    /// ``OperationCenter/onBundleReady``.
+    ///
     /// - Parameters:
     ///   - window: The parent window to attach the sheet to
     ///   - inputFiles: FASTQ file URLs to assemble
     ///   - outputDirectory: Directory for assembly output
-    ///   - onComplete: Called when assembly completes
-    ///   - onFailed: Called when assembly fails
     ///   - onCancel: Called when user cancels
     public static func present(
         from window: NSWindow,
         inputFiles: [URL],
         outputDirectory: URL?,
-        onComplete: ((URL) -> Void)? = nil,
-        onFailed: ((String) -> Void)? = nil,
         onCancel: (() -> Void)? = nil
     ) {
         let controller = AssemblyConfigurationViewController(
             inputFiles: inputFiles,
             outputDirectory: outputDirectory
         )
-
-        controller.onAssemblyComplete = { outputURL in
-            onComplete?(outputURL)
-        }
-
-        controller.onAssemblyFailed = { error in
-            onFailed?(error)
-        }
 
         controller.onCancel = {
             onCancel?()

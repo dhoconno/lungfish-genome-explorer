@@ -17,7 +17,6 @@ private let logger = Logger(subsystem: "com.lungfish.browser", category: "Assemb
 /// The user configures SPAdes mode, resources, and advanced options.
 public struct AssemblyConfigurationView: View {
     @ObservedObject var viewModel: AssemblyConfigurationViewModel
-    @Environment(\.dismiss) private var dismiss
 
     public init(viewModel: AssemblyConfigurationViewModel) {
         self.viewModel = viewModel
@@ -30,16 +29,10 @@ public struct AssemblyConfigurationView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    if viewModel.assemblyState.isInProgress ||
-                       viewModel.assemblyState == .completed(outputPath: "") ||
-                       viewModel.assemblyState == .failed(error: "") {
-                        progressSection
-                    } else {
-                        inputSummarySection
-                        modeSection
-                        resourceSection
-                        advancedSection
-                    }
+                    inputSummarySection
+                    modeSection
+                    resourceSection
+                    advancedSection
                 }
                 .padding(20)
             }
@@ -49,7 +42,6 @@ public struct AssemblyConfigurationView: View {
         }
         .frame(width: 550, height: 520)
         .background(Color(nsColor: .windowBackgroundColor))
-        .interactiveDismissDisabled(viewModel.assemblyState.isInProgress)
         .onAppear {
             viewModel.checkRuntimeAvailability()
         }
@@ -328,219 +320,51 @@ public struct AssemblyConfigurationView: View {
         .cornerRadius(8)
     }
 
-    // MARK: - Progress Section
-
-    @ViewBuilder
-    private var progressSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 12) {
-                progressIcon
-                    .font(.system(size: 24))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(progressTitle)
-                        .font(.headline)
-                    Text(viewModel.assemblyState.statusMessage)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                if viewModel.assemblyState.isInProgress {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-            }
-
-            if case .running(let progress, _) = viewModel.assemblyState {
-                if let progress = progress {
-                    ProgressView(value: progress, total: 1.0) {
-                        HStack {
-                            Text("\(Int(progress * 100))%")
-                                .font(.caption)
-                                .monospacedDigit()
-                            Spacer()
-                            Text("Elapsed: \(viewModel.formattedElapsedTime)")
-                                .font(.caption)
-                                .monospacedDigit()
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .progressViewStyle(.linear)
-                } else {
-                    ProgressView()
-                        .progressViewStyle(.linear)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Output Log")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                    Spacer()
-                    Button {
-                        copyLogToClipboard()
-                    } label: {
-                        Label("Copy", systemImage: "doc.on.doc")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 2) {
-                            ForEach(viewModel.logOutput) { entry in
-                                HStack(alignment: .top, spacing: 8) {
-                                    Text(entry.formattedTimestamp)
-                                        .font(.system(.caption, design: .monospaced))
-                                        .foregroundStyle(.secondary)
-                                        .frame(width: 70, alignment: .leading)
-
-                                    Image(systemName: entry.level.icon)
-                                        .font(.caption)
-                                        .foregroundStyle(entry.level.color)
-                                        .frame(width: 16)
-
-                                    Text(entry.message)
-                                        .font(.system(.callout, design: .monospaced))
-                                        .foregroundStyle(entry.level.color)
-                                }
-                                .id(entry.id)
-                            }
-                        }
-                        .padding(8)
-                    }
-                    .background(Color(nsColor: .textBackgroundColor))
-                    .cornerRadius(6)
-                    .frame(height: 200)
-                    .onChange(of: viewModel.logOutput.count) { _, _ in
-                        if let lastEntry = viewModel.logOutput.last {
-                            withAnimation {
-                                proxy.scrollTo(lastEntry.id, anchor: .bottom)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        .padding(16)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(8)
-    }
-
-    private var progressIcon: some View {
-        Group {
-            switch viewModel.assemblyState {
-            case .idle, .validating, .preparing, .running:
-                Image(systemName: "gearshape.2")
-                    .foregroundStyle(.blue)
-            case .completed:
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-            case .failed:
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.red)
-            case .cancelled:
-                Image(systemName: "stop.circle.fill")
-                    .foregroundStyle(.orange)
-            }
-        }
-    }
-
-    private var progressTitle: String {
-        switch viewModel.assemblyState {
-        case .idle: return "Ready"
-        case .validating: return "Validating"
-        case .preparing: return "Preparing"
-        case .running: return "Running Assembly"
-        case .completed: return "Assembly Complete"
-        case .failed: return "Assembly Failed"
-        case .cancelled: return "Assembly Cancelled"
-        }
-    }
-
     // MARK: - Footer Section
 
     @ViewBuilder
     private var footerSection: some View {
         HStack(spacing: 12) {
-            if !viewModel.assemblyState.isInProgress {
-                let validation = viewModel.validateConfiguration()
-                if !validation.errors.isEmpty {
-                    HStack(spacing: 4) {
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .foregroundStyle(.red)
-                        Text(validation.errors.first ?? "")
-                            .font(.callout)
-                            .foregroundStyle(.red)
-                            .lineLimit(1)
-                    }
-                } else if !validation.warnings.isEmpty {
-                    HStack(spacing: 4) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                        Text(validation.warnings.first ?? "")
-                            .font(.callout)
-                            .foregroundStyle(.orange)
-                            .lineLimit(1)
-                    }
+            let validation = viewModel.validateConfiguration()
+            if !validation.errors.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundStyle(.red)
+                    Text(validation.errors.first ?? "")
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                        .lineLimit(1)
+                }
+            } else if !validation.warnings.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text(validation.warnings.first ?? "")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                        .lineLimit(1)
                 }
             }
 
             Spacer()
 
-            if viewModel.assemblyState.isInProgress {
-                Button("Cancel") {
-                    viewModel.cancelAssembly()
-                }
-                .buttonStyle(.bordered)
-            } else if case .completed = viewModel.assemblyState {
-                Button("Done") {
-                    dismiss()
-                }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-            } else if case .failed = viewModel.assemblyState {
-                Button("Try Again") {
-                    viewModel.assemblyState = .idle
-                }
-                .buttonStyle(.bordered)
-
-                Button("Close") {
-                    dismiss()
-                }
-                .buttonStyle(.borderedProminent)
-            } else {
-                Button("Cancel") {
-                    viewModel.onCancel?()
-                    dismiss()
-                }
-                .keyboardShortcut(.cancelAction)
-
-                Button("Start Assembly") {
-                    viewModel.startAssembly()
-                }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(!viewModel.canStartAssembly)
+            Button("Cancel") {
+                viewModel.onCancel?()
+                viewModel.onDismiss?()
             }
+            .keyboardShortcut(.cancelAction)
+
+            Button("Start Assembly") {
+                viewModel.startAssembly()
+                viewModel.onDismiss?()
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(!viewModel.canStartAssembly)
         }
         .padding(16)
     }
 
-    // MARK: - Actions
-
-    private func copyLogToClipboard() {
-        let logText = viewModel.logOutput.map { entry in
-            "[\(entry.formattedTimestamp)] [\(entry.level.rawValue.uppercased())] \(entry.message)"
-        }.joined(separator: "\n")
-
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(logText, forType: .string)
-    }
 }
 
 // MARK: - Preview
