@@ -57,6 +57,9 @@ public final class DocumentSectionViewModel {
     /// Ingestion pipeline metadata (clumpify/compress/index status).
     var ingestionMetadata: IngestionMetadata?
 
+    /// FASTQ derivative lineage metadata, when this dataset is pointer-based.
+    var fastqDerivativeManifest: FASTQDerivedBundleManifest?
+
     /// Updates the view model with FASTQ dataset statistics.
     func updateFASTQStatistics(_ stats: FASTQDatasetStatistics) {
         self.fastqStatistics = stats
@@ -76,6 +79,11 @@ public final class DocumentSectionViewModel {
     func updateIngestionMetadata(_ ingestion: IngestionMetadata?) {
         self.ingestionMetadata = ingestion
     }
+
+    /// Updates FASTQ derivative metadata.
+    func updateFASTQDerivativeMetadata(_ manifest: FASTQDerivedBundleManifest?) {
+        self.fastqDerivativeManifest = manifest
+    }
 }
 
 // MARK: - DocumentSection
@@ -94,6 +102,7 @@ public struct DocumentSection: View {
     @State private var isFASTQStatsExpanded = true
     @State private var isSRAMetadataExpanded = true
     @State private var isENAMetadataExpanded = true
+    @State private var isFASTQDerivativeExpanded = true
     @State private var expandedMetadataGroups: Set<String> = []
     @State private var trackedManifestIdentifier: String?
 
@@ -372,6 +381,11 @@ public struct DocumentSection: View {
                 Divider()
                 ingestionMetadataSection(ingestion)
             }
+
+            if let derivative = viewModel.fastqDerivativeManifest {
+                Divider()
+                fastqDerivativeSection(derivative)
+            }
         }
     }
 
@@ -563,6 +577,23 @@ public struct DocumentSection: View {
         } label: {
             Text("Ingestion")
                 .font(.headline)
+        }
+    }
+
+    private func fastqDerivativeSection(_ manifest: FASTQDerivedBundleManifest) -> some View {
+        DisclosureGroup(isExpanded: $isFASTQDerivativeExpanded) {
+            VStack(alignment: .leading, spacing: 4) {
+                metadataRow(label: "Mode", value: "Pointer Dataset")
+                metadataRow(label: "Operation", value: manifest.operation.displaySummary)
+                metadataRow(label: "Lineage Steps", value: "\(manifest.lineage.count)")
+                metadataRow(label: "Parent", value: manifest.parentBundleRelativePath)
+                metadataRow(label: "Root", value: manifest.rootBundleRelativePath)
+                metadataRow(label: "Root FASTQ", value: manifest.rootFASTQFilename)
+                metadataRow(label: "Read IDs", value: manifest.readIDListFilename)
+                metadataRow(label: "Created", value: dateString(manifest.createdAt))
+            }
+        } label: {
+            sectionLabel("Derived FASTQ")
         }
     }
 

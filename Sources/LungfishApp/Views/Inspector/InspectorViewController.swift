@@ -493,6 +493,8 @@ public class InspectorViewController: NSViewController {
 
         let ingestion = notification.userInfo?["ingestionMetadata"] as? IngestionMetadata
         viewModel.documentSectionViewModel.updateIngestionMetadata(ingestion)
+        let derivative = notification.userInfo?["fastqDerivativeManifest"] as? FASTQDerivedBundleManifest
+        viewModel.documentSectionViewModel.updateFASTQDerivativeMetadata(derivative)
 
         viewModel.selectedTab = .document
     }

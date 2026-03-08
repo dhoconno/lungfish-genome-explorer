@@ -931,7 +931,10 @@ public class ViewerViewController: NSViewController {
         fastqURL: URL? = nil,
         sraRunInfo: SRARunInfo? = nil,
         enaReadRecord: ENAReadRecord? = nil,
-        ingestionMetadata: IngestionMetadata? = nil
+        ingestionMetadata: IngestionMetadata? = nil,
+        fastqSourceURL: URL? = nil,
+        fastqDerivativeManifest: FASTQDerivedBundleManifest? = nil,
+        onRunOperation: ((FASTQDerivativeRequest) async throws -> Void)? = nil
     ) {
         hideQuickLookPreview()
         hideFASTQDatasetView()
@@ -950,13 +953,22 @@ public class ViewerViewController: NSViewController {
             dashView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
 
-        controller.configure(statistics: statistics, records: records, fastqURL: fastqURL)
+        controller.configure(
+            statistics: statistics,
+            records: records,
+            fastqURL: fastqURL,
+            sourceURL: fastqSourceURL,
+            derivativeManifest: fastqDerivativeManifest
+        )
+        controller.onRunOperation = onRunOperation
         controller.onStatisticsUpdated = { [weak self] updatedStats in
             guard let self else { return }
             var updatedUserInfo: [String: Any] = ["statistics": updatedStats]
             if let sra = sraRunInfo { updatedUserInfo["sraRunInfo"] = sra }
             if let ena = enaReadRecord { updatedUserInfo["enaReadRecord"] = ena }
             if let ingestion = ingestionMetadata { updatedUserInfo["ingestionMetadata"] = ingestion }
+            if let source = fastqSourceURL { updatedUserInfo["fastqSourceURL"] = source }
+            if let derivative = fastqDerivativeManifest { updatedUserInfo["fastqDerivativeManifest"] = derivative }
             NotificationCenter.default.post(
                 name: .fastqDatasetLoaded,
                 object: self,
@@ -977,6 +989,8 @@ public class ViewerViewController: NSViewController {
         if let sra = sraRunInfo { userInfo["sraRunInfo"] = sra }
         if let ena = enaReadRecord { userInfo["enaReadRecord"] = ena }
         if let ingestion = ingestionMetadata { userInfo["ingestionMetadata"] = ingestion }
+        if let source = fastqSourceURL { userInfo["fastqSourceURL"] = source }
+        if let derivative = fastqDerivativeManifest { userInfo["fastqDerivativeManifest"] = derivative }
         NotificationCenter.default.post(
             name: .fastqDatasetLoaded,
             object: self,

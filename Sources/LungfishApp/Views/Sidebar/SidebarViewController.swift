@@ -502,8 +502,7 @@ public class SidebarViewController: NSViewController {
                 if url.pathExtension.lowercased() == "lungfishref" {
                     itemType = .referenceBundle
                     icon = "cylinder.split.1x2"  // Database-like icon for genome bundles
-                } else if FASTQBundle.isBundleURL(url),
-                          FASTQBundle.resolvePrimaryFASTQURL(for: url) != nil {
+                } else if FASTQBundle.isBundleURL(url) {
                     itemType = .fastqBundle
                     icon = "doc.text"
                 } else {

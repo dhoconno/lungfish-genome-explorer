@@ -92,6 +92,8 @@ public class MainSplitViewController: NSSplitViewController {
 
     /// FASTQ URL currently targeted by the active background load.
     private var activeFASTQLoadURL: URL?
+    /// Original selected FASTQ source URL (bundle or raw FASTQ path).
+    private var activeFASTQSourceURL: URL?
 
     // MARK: - Configuration
 
@@ -837,6 +839,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         }
         fastqLoadGeneration &+= 1
         activeFASTQLoadURL = nil
+        activeFASTQSourceURL = nil
         if hideProgress {
             viewerController.hideProgress()
         }
@@ -877,7 +880,13 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     private func displayContent(for item: SidebarItem) {
         logger.info("displayContent: Selected '\(item.title, privacy: .public)' type=\(String(describing: item.type))")
 
-        let selectedFASTQURL = item.url.flatMap { FASTQBundle.resolvePrimaryFASTQURL(for: $0) }?.standardizedFileURL
+        let selectedFASTQURL: URL? = {
+            guard let url = item.url else { return nil }
+            if FASTQBundle.isBundleURL(url) {
+                return url.standardizedFileURL
+            }
+            return FASTQBundle.resolvePrimaryFASTQURL(for: url)?.standardizedFileURL
+        }()
         if selectedFASTQURL == nil {
             cancelFASTQLoadIfNeeded(hideProgress: true, reason: "selected non-FASTQ item '\(item.title)'")
         }
@@ -968,8 +977,8 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     /// Display genomics file - cache-first, then load via DocumentManager.
     private func displayGenomicsFile(url: URL) {
         // FASTQ files/packages use the streaming statistics dashboard (not bulk loading)
-        if let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: url) {
-            loadFASTQDatasetInBackground(url: fastqURL)
+        if FASTQBundle.isBundleURL(url) || FASTQBundle.resolvePrimaryFASTQURL(for: url) != nil {
+            loadFASTQDatasetInBackground(sourceURL: url)
             return
         }
 
@@ -999,7 +1008,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
 
     /// Returns true if the URL points to a FASTQ file (by extension).
     private func isFASTQFile(_ url: URL) -> Bool {
-        FASTQBundle.resolvePrimaryFASTQURL(for: url) != nil
+        FASTQBundle.isBundleURL(url) || FASTQBundle.resolvePrimaryFASTQURL(for: url) != nil
     }
 
     /// Returns true if the URL points to a VCF file (by extension).
@@ -1433,9 +1442,13 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     /// Checks for cached statistics in the sidecar metadata file first. If found,
     /// uses them directly (still loads sample records for the table). Otherwise,
     /// computes statistics in a single streaming pass and caches them.
-    private func loadFASTQDatasetInBackground(url: URL) {
-        let fastqURL = url.standardizedFileURL
-        logger.info("loadFASTQDatasetInBackground: Loading '\(fastqURL.lastPathComponent, privacy: .public)'")
+    private func loadFASTQDatasetInBackground(sourceURL: URL) {
+        let standardizedSourceURL = sourceURL.standardizedFileURL
+        let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: standardizedSourceURL)?.standardizedFileURL
+        let derivedManifest = FASTQBundle.isBundleURL(standardizedSourceURL)
+            ? FASTQBundle.loadDerivedManifest(in: standardizedSourceURL)
+            : nil
+        logger.info("loadFASTQDatasetInBackground: Loading source '\(standardizedSourceURL.lastPathComponent, privacy: .public)'")
 
         guard let viewerController = self.viewerController else {
             logger.warning("loadFASTQDatasetInBackground: Viewer controller not available")
@@ -1448,11 +1461,45 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         fastqLoadGeneration &+= 1
         let generation = fastqLoadGeneration
         activeFASTQLoadURL = fastqURL
+        activeFASTQSourceURL = standardizedSourceURL
 
         let isCurrentRequest: @MainActor () -> Bool = { [weak self] in
             guard let self = self else { return false }
             return self.fastqLoadGeneration == generation &&
-                self.activeFASTQLoadURL?.standardizedFileURL == fastqURL
+                self.activeFASTQSourceURL?.standardizedFileURL == standardizedSourceURL
+        }
+
+        // Pointer-only derived bundles can render immediately from cached manifest stats.
+        if fastqURL == nil, let derivedManifest {
+            viewerController.displayFASTQDataset(
+                statistics: derivedManifest.cachedStatistics,
+                records: [],
+                fastqURL: nil,
+                sraRunInfo: nil,
+                enaReadRecord: nil,
+                ingestionMetadata: derivedManifest.pairingMode.map {
+                    IngestionMetadata(
+                        isClumpified: true,
+                        isCompressed: true,
+                        pairingMode: $0,
+                        qualityBinning: nil,
+                        originalFilenames: [],
+                        ingestionDate: derivedManifest.createdAt,
+                        originalSizeBytes: nil
+                    )
+                },
+                fastqSourceURL: standardizedSourceURL,
+                fastqDerivativeManifest: derivedManifest,
+                onRunOperation: { [weak self] request in
+                    try await self?.runFASTQOperation(request, sourceURL: standardizedSourceURL)
+                }
+            )
+            return
+        }
+
+        guard let fastqURL else {
+            logger.error("loadFASTQDatasetInBackground: No FASTQ payload or derivative manifest for '\(standardizedSourceURL.path, privacy: .public)'")
+            return
         }
 
         // Check for cached metadata
@@ -1465,7 +1512,12 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 fastqURL: fastqURL,
                 sraRunInfo: cachedMeta?.sraRunInfo,
                 enaReadRecord: cachedMeta?.enaReadRecord,
-                ingestionMetadata: cachedMeta?.ingestion
+                ingestionMetadata: cachedMeta?.ingestion,
+                fastqSourceURL: standardizedSourceURL,
+                fastqDerivativeManifest: derivedManifest,
+                onRunOperation: { [weak self] request in
+                    try await self?.runFASTQOperation(request, sourceURL: standardizedSourceURL)
+                }
             )
             logger.info("loadFASTQDatasetInBackground: Displayed from cache without read table scan")
             return
@@ -1523,7 +1575,12 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                             fastqURL: fastqURL,
                             sraRunInfo: sraRunInfo,
                             enaReadRecord: enaReadRecord,
-                            ingestionMetadata: ingestionMeta
+                            ingestionMetadata: ingestionMeta,
+                            fastqSourceURL: standardizedSourceURL,
+                            fastqDerivativeManifest: derivedManifest,
+                            onRunOperation: { [weak self] request in
+                                try await self?.runFASTQOperation(request, sourceURL: standardizedSourceURL)
+                            }
                         )
                         logger.info("loadFASTQDatasetInBackground: Dashboard displayed with \(statistics.readCount) total reads")
                     }
@@ -1548,6 +1605,46 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                     }
                 }
             }
+        }
+    }
+
+    private func runFASTQOperation(_ request: FASTQDerivativeRequest, sourceURL: URL) async throws {
+        let standardizedSourceURL = sourceURL.standardizedFileURL
+        let sourceBundleURL: URL
+        if FASTQBundle.isBundleURL(standardizedSourceURL) {
+            sourceBundleURL = standardizedSourceURL
+        } else if standardizedSourceURL.deletingLastPathComponent().pathExtension.lowercased() == FASTQBundle.directoryExtension {
+            let parent = standardizedSourceURL.deletingLastPathComponent()
+            sourceBundleURL = parent
+        } else {
+            throw FASTQDerivativeError.sourceMustBeBundle
+        }
+
+        await MainActor.run {
+            self.viewerController.showProgress("Running FASTQ operation...")
+        }
+        defer {
+            Task { @MainActor in
+                self.viewerController.hideProgress()
+            }
+        }
+
+        let derivedURL = try await FASTQDerivativeService.shared.createDerivative(
+            from: sourceBundleURL,
+            request: request,
+            progress: { [weak self] message in
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        self?.viewerController.showProgress(message)
+                    }
+                }
+            }
+        )
+
+        await MainActor.run {
+            self.sidebarController.reloadFromFilesystem()
+            self.sidebarController.selectItem(forURL: derivedURL)
+            self.requestInspectorDocumentModeAfterDownload()
         }
     }
 
