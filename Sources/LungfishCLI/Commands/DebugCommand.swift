@@ -383,7 +383,6 @@ struct FASTQIngestSubcommand: AsyncParsableCommand {
         if globalOptions.outputFormat == .json {
             let payload = FastqIngestResultPayload(
                 outputFile: result.outputFile.path,
-                indexFile: result.indexFile?.path,
                 wasClumpified: result.wasClumpified,
                 qualityBinning: result.qualityBinning.rawValue,
                 originalFilenames: result.originalFilenames,
@@ -395,7 +394,6 @@ struct FASTQIngestSubcommand: AsyncParsableCommand {
         } else {
             print(formatter.success("Pipeline completed"))
             print("output: \(result.outputFile.path)")
-            print("index:  \(result.indexFile?.path ?? "none")")
             print("clumpified: \(result.wasClumpified)")
             print("size: \(result.originalSizeBytes) -> \(result.finalSizeBytes) bytes")
         }
@@ -440,7 +438,6 @@ struct FASTQIngestSubcommand: AsyncParsableCommand {
 
 private struct FastqIngestResultPayload: Codable {
     let outputFile: String
-    let indexFile: String?
     let wasClumpified: Bool
     let qualityBinning: String
     let originalFilenames: [String]

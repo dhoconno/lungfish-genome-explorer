@@ -1845,7 +1845,6 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             metadata.ingestion = IngestionMetadata(
                                 isClumpified: ingestionResult.wasClumpified,
                                 isCompressed: true,
-                                isIndexed: false,
                                 pairingMode: {
                                     switch ingestionResult.pairingMode {
                                     case .singleEnd:

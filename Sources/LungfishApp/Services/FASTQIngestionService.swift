@@ -51,18 +51,13 @@ public enum FASTQIngestionService {
             inputFiles = [url]
         }
 
-        // Enforce clumpify for all FASTQ ingestions so downstream statistics
-        // operate on the normalized read order.
-        let clumpifyEnabled = true
-
         let outputDir = url.deletingLastPathComponent()
         let config = FASTQIngestionConfig(
             inputFiles: inputFiles,
             pairingMode: pairingMode,
             outputDirectory: outputDir,
             threads: min(ProcessInfo.processInfo.processorCount, 8),
-            deleteOriginals: true,
-            skipClumpify: !clumpifyEnabled
+            deleteOriginals: true
         )
 
         let baseName = FASTQIngestionPipeline.deriveBaseName(from: url)
@@ -128,7 +123,6 @@ public enum FASTQIngestionService {
             let ingestion = IngestionMetadata(
                 isClumpified: result.wasClumpified,
                 isCompressed: true,
-                isIndexed: false,
                 pairingMode: pairingMode,
                 qualityBinning: result.qualityBinning.rawValue,
                 originalFilenames: result.originalFilenames,

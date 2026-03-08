@@ -72,9 +72,6 @@ public final class AppSettings: Sendable {
     /// Temporary file retention in hours before cleanup.
     public var tempFileRetentionHours: Int = 24
 
-    /// Whether to clumpify (k-mer sort + quality bin) imported FASTQ files for better compression.
-    public var fastqClumpifyEnabled: Bool = true
-
     // MARK: - Appearance
 
     /// Nucleotide base color configuration (persisted as hex strings).
@@ -179,7 +176,6 @@ public final class AppSettings: Sendable {
         var maxUndoLevels: Int
         var vcfImportProfile: String
         var tempFileRetentionHours: Int
-        var fastqClumpifyEnabled: Bool
         // Appearance
         var sequenceAppearance: SequenceAppearance
         var annotationTypeColorHexes: [String: String]
@@ -208,7 +204,6 @@ public final class AppSettings: Sendable {
             maxUndoLevels: Int,
             vcfImportProfile: String,
             tempFileRetentionHours: Int,
-            fastqClumpifyEnabled: Bool,
             sequenceAppearance: SequenceAppearance,
             annotationTypeColorHexes: [String: String],
             variantColorThemeName: String,
@@ -233,7 +228,6 @@ public final class AppSettings: Sendable {
             self.maxUndoLevels = maxUndoLevels
             self.vcfImportProfile = vcfImportProfile
             self.tempFileRetentionHours = tempFileRetentionHours
-            self.fastqClumpifyEnabled = fastqClumpifyEnabled
             self.sequenceAppearance = sequenceAppearance
             self.annotationTypeColorHexes = annotationTypeColorHexes
             self.variantColorThemeName = variantColorThemeName
@@ -262,7 +256,6 @@ public final class AppSettings: Sendable {
             maxUndoLevels = try container.decodeIfPresent(Int.self, forKey: .maxUndoLevels) ?? 100
             vcfImportProfile = try container.decodeIfPresent(String.self, forKey: .vcfImportProfile) ?? "auto"
             tempFileRetentionHours = try container.decodeIfPresent(Int.self, forKey: .tempFileRetentionHours) ?? 24
-            fastqClumpifyEnabled = try container.decodeIfPresent(Bool.self, forKey: .fastqClumpifyEnabled) ?? true
             // Appearance
             sequenceAppearance = try container.decodeIfPresent(SequenceAppearance.self, forKey: .sequenceAppearance) ?? .default
             annotationTypeColorHexes = try container.decodeIfPresent([String: String].self, forKey: .annotationTypeColorHexes) ?? [
@@ -330,7 +323,6 @@ public final class AppSettings: Sendable {
             maxUndoLevels: Self.clamp(maxUndoLevels, to: Self.maxUndoLevelsBounds),
             vcfImportProfile: Self.normalizedImportProfile(vcfImportProfile),
             tempFileRetentionHours: Self.clamp(tempFileRetentionHours, to: Self.tempRetentionHoursBounds),
-            fastqClumpifyEnabled: fastqClumpifyEnabled,
             sequenceAppearance: sequenceAppearance,
             annotationTypeColorHexes: annotationTypeColorHexes,
             variantColorThemeName: Self.normalizedVariantThemeName(variantColorThemeName),
@@ -358,7 +350,6 @@ public final class AppSettings: Sendable {
         maxUndoLevels = Self.clamp(snapshot.maxUndoLevels, to: Self.maxUndoLevelsBounds)
         vcfImportProfile = Self.normalizedImportProfile(snapshot.vcfImportProfile)
         tempFileRetentionHours = Self.clamp(snapshot.tempFileRetentionHours, to: Self.tempRetentionHoursBounds)
-        fastqClumpifyEnabled = snapshot.fastqClumpifyEnabled
         sequenceAppearance = snapshot.sequenceAppearance
         annotationTypeColorHexes = snapshot.annotationTypeColorHexes
         variantColorThemeName = Self.normalizedVariantThemeName(snapshot.variantColorThemeName)
@@ -436,7 +427,6 @@ public final class AppSettings: Sendable {
             maxUndoLevels = fresh.maxUndoLevels
             vcfImportProfile = fresh.vcfImportProfile
             tempFileRetentionHours = fresh.tempFileRetentionHours
-            fastqClumpifyEnabled = fresh.fastqClumpifyEnabled
         case .appearance:
             sequenceAppearance = fresh.sequenceAppearance
             annotationTypeColorHexes = fresh.annotationTypeColorHexes

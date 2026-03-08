@@ -77,8 +77,6 @@ public enum NativeTool: String, CaseIterable, Sendable {
     case bedGraphToBigWig
     case pigz
     case seqkit
-    case fastp
-    case vsearch
     case clumpify
     case java
 
@@ -93,8 +91,6 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .bedGraphToBigWig: return "bedGraphToBigWig"
         case .pigz: return "pigz"
         case .seqkit: return "seqkit"
-        case .fastp: return "fastp"
-        case .vsearch: return "vsearch"
         case .clumpify: return "clumpify.sh"
         case .java: return "java"
         }
@@ -124,8 +120,6 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .bedToBigBed, .bedGraphToBigWig: return "ucsc-tools"
         case .pigz: return "pigz"
         case .seqkit: return "seqkit"
-        case .fastp: return "fastp"
-        case .vsearch: return "vsearch"
         case .clumpify: return "bbtools"
         case .java: return "openjdk"
         }
@@ -142,10 +136,6 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return "zlib License"
         case .seqkit:
             return "MIT License"
-        case .fastp:
-            return "MIT License"
-        case .vsearch:
-            return "Dual-license: BSD-2-Clause / GPL-3.0-or-later"
         case .clumpify:
             return "BBMap License"
         case .java:

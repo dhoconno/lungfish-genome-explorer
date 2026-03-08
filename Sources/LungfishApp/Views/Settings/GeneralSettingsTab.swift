@@ -37,13 +37,6 @@ struct GeneralSettingsTab: View {
                 )
             }
 
-            Section("FASTQ Import") {
-                Toggle("Optimize FASTQ compression on import", isOn: $settings.fastqClumpifyEnabled)
-                Text("Sorts reads by sequence similarity and bins quality scores to reduce file size. Recommended for most workflows.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
             Section("VCF Import") {
                 Picker("Import profile:", selection: $settings.vcfImportProfile) {
                     Text("Auto").tag("auto")
@@ -78,6 +71,5 @@ struct GeneralSettingsTab: View {
         .onChange(of: settings.maxUndoLevels) { _, _ in settings.save() }
         .onChange(of: settings.vcfImportProfile) { _, _ in settings.save() }
         .onChange(of: settings.tempFileRetentionHours) { _, _ in settings.save() }
-        .onChange(of: settings.fastqClumpifyEnabled) { _, _ in settings.save() }
     }
 }

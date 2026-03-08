@@ -533,7 +533,6 @@ public struct DocumentSection: View {
             VStack(alignment: .leading, spacing: 6) {
                 metadataRow(label: "Clumpified", value: ingestion.isClumpified ? "Yes" : "No")
                 metadataRow(label: "Compressed", value: ingestion.isCompressed ? "Yes" : "No")
-                metadataRow(label: "Indexed", value: ingestion.isIndexed ? "Yes" : "No")
                 metadataRow(label: "Pairing", value: ingestion.pairingMode.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)
                 if let binning = ingestion.qualityBinning, binning != "none" {
                     metadataRow(label: "Quality Binning", value: binning)

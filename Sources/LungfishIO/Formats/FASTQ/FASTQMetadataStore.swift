@@ -199,9 +199,6 @@ public struct IngestionMetadata: Codable, Sendable {
     /// Whether the file is gzip-compressed.
     public var isCompressed: Bool
 
-    /// Whether the file has been indexed (samtools fqidx).
-    public var isIndexed: Bool
-
     /// Pairing mode (single-end, paired-end, or interleaved).
     public var pairingMode: PairingMode
 
@@ -221,7 +218,6 @@ public struct IngestionMetadata: Codable, Sendable {
     public init(
         isClumpified: Bool = false,
         isCompressed: Bool = false,
-        isIndexed: Bool = false,
         pairingMode: PairingMode = .singleEnd,
         qualityBinning: String? = nil,
         originalFilenames: [String] = [],
@@ -230,7 +226,6 @@ public struct IngestionMetadata: Codable, Sendable {
     ) {
         self.isClumpified = isClumpified
         self.isCompressed = isCompressed
-        self.isIndexed = isIndexed
         self.pairingMode = pairingMode
         self.qualityBinning = qualityBinning
         self.originalFilenames = originalFilenames

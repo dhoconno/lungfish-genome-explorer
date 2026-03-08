@@ -7,6 +7,21 @@ import os.log
 
 private let logger = Logger(subsystem: "com.lungfish.workflow", category: "FASTQIngestionPipeline")
 
+// MARK: - QualityBinningScheme
+
+/// Quality score binning schemes for FASTQ compression optimization.
+///
+/// Binning reduces the alphabet of quality characters, improving gzip compression.
+/// All schemes preserve enough resolution for variant calling and QC.
+public enum QualityBinningScheme: String, Sendable, CaseIterable, Codable {
+    /// Illumina NovaSeq/NovaSeqX native binning (4 levels).
+    case illumina4
+    /// 8-level binning — good balance of compression and resolution.
+    case eightLevel
+    /// No binning — preserve original quality scores.
+    case none
+}
+
 // MARK: - FASTQIngestionConfig
 
 /// Configuration for the FASTQ ingestion pipeline.
@@ -66,8 +81,6 @@ public struct FASTQIngestionConfig: Sendable {
 public struct FASTQIngestionResult: Sendable {
     /// URL of the final processed FASTQ file (.fastq.gz).
     public let outputFile: URL
-    /// URL of the FASTQ index file (.fastq.gz.fai).
-    public let indexFile: URL?
     /// Whether the file was clumpified (k-mer sorted).
     public let wasClumpified: Bool
     /// Quality binning scheme applied.
@@ -247,7 +260,6 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
 
         return FASTQIngestionResult(
             outputFile: compressedFile,
-            indexFile: nil,
             wasClumpified: wasClumpified,
             qualityBinning: config.qualityBinning,
             originalFilenames: originalFilenames,

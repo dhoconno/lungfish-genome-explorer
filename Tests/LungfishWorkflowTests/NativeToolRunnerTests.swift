@@ -164,8 +164,6 @@ final class NativeToolRunnerTests: XCTestCase {
         XCTAssertEqual(NativeTool.bedToBigBed.executableName, "bedToBigBed")
         XCTAssertEqual(NativeTool.bedGraphToBigWig.executableName, "bedGraphToBigWig")
         XCTAssertEqual(NativeTool.seqkit.executableName, "seqkit")
-        XCTAssertEqual(NativeTool.fastp.executableName, "fastp")
-        XCTAssertEqual(NativeTool.vsearch.executableName, "vsearch")
         XCTAssertEqual(NativeTool.clumpify.executableName, "clumpify.sh")
         XCTAssertEqual(NativeTool.java.executableName, "java")
         XCTAssertEqual(NativeTool.clumpify.relativeExecutablePath, "bbtools/clumpify.sh")
