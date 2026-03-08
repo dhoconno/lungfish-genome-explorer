@@ -191,8 +191,6 @@ public actor NativeToolRunner {
         "ucsc-tools": "469",
         "pigz": "2.8",
         "seqkit": "2.9.0",
-        "fastp": "1.1.0",
-        "vsearch": "2.29.2",
         "bbtools": "39.13",
         "openjdk": "21.0.10"
     ]

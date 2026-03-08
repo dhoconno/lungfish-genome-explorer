@@ -244,8 +244,6 @@ final class AboutWindowController: NSWindowController {
             ("SAMtools / HTSlib / BCFtools", "MIT"),
             ("UCSC Genome Browser Tools", "MIT"),
             ("SeqKit", "MIT"),
-            ("fastp", "MIT"),
-            ("VSEARCH", "BSD-2-Clause / GPL-3.0-or-later"),
             ("BBTools (including clumpify.sh)", "BBMap License"),
             ("OpenJDK Runtime (Temurin)", "GPL-2.0 with Classpath Exception"),
             ("minimap2", "MIT"),
