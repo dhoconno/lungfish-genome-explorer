@@ -5,7 +5,6 @@
 import AppKit
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
 import UniformTypeIdentifiers
 import os
 
@@ -297,9 +296,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         AppSettings.load()
         lastAppliedTempRetentionHours = AppSettings.shared.tempFileRetentionHours
 
-        // Configure application appearance
-        configureAppearance()
-
         // Register for system notifications
         registerNotifications()
 
@@ -482,122 +478,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// 3. **Load** - Load each file in background, update sidebar as each completes
     ///
     /// This approach follows professional genome browser patterns (IGV, UCSC) and:
-    /// - Shows the file list immediately (UI remains responsive)
-    /// - Loads file content in the background without blocking MainActor
-    /// - Updates sidebar items as files are parsed
-    private func loadProjectFolderAsync(_ url: URL) {
-        let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController
-        let viewerController = mainWindowController?.mainSplitViewController?.viewerController
-
-        // Phase 1: Fast folder scan (synchronous, just reads directory entries)
-        let scannedFiles: [FileScanResult]
-        do {
-            scannedFiles = try DocumentLoader.scanFolder(at: url)
-        } catch {
-            debugLog("loadProjectFolderAsync: Scan failed - \(error.localizedDescription)")
-            let alert = NSAlert()
-            alert.messageText = "Failed to Scan Project"
-            alert.informativeText = error.localizedDescription
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-            return
-        }
-
-        guard !scannedFiles.isEmpty else {
-            debugLog("loadProjectFolderAsync: Empty folder")
-            // Still add the folder to sidebar (empty project)
-            sidebarController?.addProjectFolder(url, documents: [])
-            viewerController?.showNoSequenceSelected()
-            return
-        }
-
-        debugLog("loadProjectFolderAsync: Found \(scannedFiles.count) files")
-
-        // Phase 2: Create placeholder documents for sidebar (immediate UI response)
-        var placeholderDocuments: [LoadedDocument] = []
-        for scan in scannedFiles {
-            let doc = LoadedDocument(url: scan.url, type: scan.type)
-            // Document is a placeholder - sequences/annotations are empty
-            placeholderDocuments.append(doc)
-        }
-
-        // Update sidebar with placeholder items immediately
-        sidebarController?.addProjectFolder(url, documents: placeholderDocuments)
-        debugLog("loadProjectFolderAsync: Sidebar populated with \(placeholderDocuments.count) placeholders")
-
-        // Phase 3: Background loading for each file
-        // Track first document display using lock-protected state for thread safety
-        final class DisplayTracker: @unchecked Sendable {
-            private let lock = NSLock()
-            private var _displayedFirst = false
-            var displayedFirst: Bool {
-                get { lock.lock(); defer { lock.unlock() }; return _displayedFirst }
-                set { lock.lock(); defer { lock.unlock() }; _displayedFirst = newValue }
-            }
-        }
-        let tracker = DisplayTracker()
-
-        for scan in scannedFiles {
-            Task { [weak self] in
-                do {
-                    let result = try await DocumentLoader.loadFile(at: scan.url, type: scan.type)
-
-                    await MainActor.run { [weak self] in
-                        guard let self = self else { return }
-                        let viewerController = self.mainWindowController?.mainSplitViewController?.viewerController
-                        let sidebarController = self.mainWindowController?.mainSplitViewController?.sidebarController
-
-                        // Create and populate document with loaded content
-                        let document = LoadedDocument(url: result.url, type: result.type)
-                        document.sequences = result.sequences
-                        document.annotations = result.annotations
-
-                        // Register with DocumentManager (replaces placeholder if exists)
-                        DocumentManager.shared.registerDocument(document)
-
-                        // Refresh sidebar item to show loaded state
-                        sidebarController?.refreshItem(for: result.url)
-
-                        // Display first successfully loaded document with sequences
-                        if !tracker.displayedFirst && !result.sequences.isEmpty {
-                            tracker.displayedFirst = true
-                            viewerController?.displayDocument(document)
-                            debugLog("loadProjectFolderAsync: Displayed first document: \(document.name)")
-                        }
-                    }
-                } catch {
-                    debugLog("loadProjectFolderAsync: Failed to load \(scan.url.lastPathComponent): \(error.localizedDescription)")
-                }
-            }
-        }
-    }
-
-    /// Internal method for testing - loads a project folder without dialog.
-    ///
-    /// Note: No loading spinner shown - follows same pattern as loadProjectFolderAsync().
-    private func loadProjectFolderForTesting(_ url: URL) async {
-        let viewerController = mainWindowController?.mainSplitViewController?.viewerController
-        let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController
-
-        do {
-            let documents = try await DocumentManager.shared.loadProjectFolder(at: url)
-
-            if !documents.isEmpty {
-                sidebarController?.addProjectFolder(url, documents: documents)
-
-                if let firstDoc = documents.first {
-                    viewerController?.displayDocument(firstDoc)
-                }
-            } else {
-                // Empty project - show clear empty state
-                viewerController?.showNoSequenceSelected()
-            }
-        } catch {
-            // Error handling - no spinner to hide
-        }
-    }
-
     public func applicationWillTerminate(_ notification: Notification) {
         // Save application state
         saveApplicationState()
@@ -648,11 +528,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     // MARK: - Private Methods
-
-    private func configureAppearance() {
-        // Use system appearance (respects Dark Mode)
-        // No custom appearance overrides - follow HIG
-    }
 
     private func registerNotifications() {
         // Register for relevant system notifications
