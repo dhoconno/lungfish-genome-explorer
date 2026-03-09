@@ -472,84 +472,74 @@ public class MainSplitViewController: NSSplitViewController {
         // Get project URL from either the sidebar (new model) or DocumentManager (legacy)
         let projectURL = sidebarController.currentProjectURL ?? DocumentManager.shared.activeProject?.url
 
-        // If we have an active project, copy the file there
-        if let projectURL = projectURL {
-            // Determine the target directory based on the destination item
-            let targetDir: URL
-            if let destItem = destinationItem, destItem.type == .folder, let folderURL = destItem.url {
-                // Drop onto a folder - use that folder
-                targetDir = folderURL
-            } else {
-                // Drop onto project root or no specific destination - use project root
-                targetDir = projectURL
+        // Determine the target directory based on the destination item
+        let targetDir: URL = {
+            if let projectURL {
+                if let destItem = destinationItem, destItem.type == .folder, let folderURL = destItem.url {
+                    return folderURL
+                }
+                return projectURL
             }
+            return url.deletingLastPathComponent()
+        }()
 
-            // Create target directory if needed
+        // ONT directory detection — route to ONT import pipeline
+        if isONTDirectory(url) {
+            importONTDirectoryInBackground(sourceURL: url, projectURL: targetDir)
+            return
+        }
+
+        // FASTQ files: ingest in temp → create bundle in project
+        if FASTQBundle.isFASTQFileURL(url) {
+            importFASTQFileInBackground(sourceURL: url, projectDirectory: targetDir)
+            return
+        }
+
+        // Non-FASTQ files: copy to project as before
+        if let projectURL = projectURL {
             let fileManager = FileManager.default
             if !fileManager.fileExists(atPath: targetDir.path) {
-                do {
-                    try fileManager.createDirectory(at: targetDir, withIntermediateDirectories: true)
-                    logger.debug("handleSidebarFileDropped: Created target directory: \(targetDir.path, privacy: .public)")
-                } catch {
-                    logger.error("handleSidebarFileDropped: Failed to create target directory: \(error.localizedDescription, privacy: .public)")
-                }
+                try? fileManager.createDirectory(at: targetDir, withIntermediateDirectories: true)
             }
 
-            // Copy file to project
             let destinationURL = targetDir.appendingPathComponent(url.lastPathComponent)
             if !fileManager.fileExists(atPath: destinationURL.path) {
                 do {
                     try fileManager.copyItem(at: url, to: destinationURL)
                     urlToLoad = destinationURL
                     logger.info("handleSidebarFileDropped: Copied file to project at \(destinationURL.path, privacy: .public)")
-                    // Explicitly refresh sidebar since DispatchSource may not detect all changes
                     sidebarController.reloadFromFilesystem()
                 } catch {
                     logger.error("handleSidebarFileDropped: Failed to copy file: \(error.localizedDescription, privacy: .public)")
-                    // Continue with original URL
                 }
             } else {
-                // File already exists - prompt user for action
-                logger.info("handleSidebarFileDropped: File '\(url.lastPathComponent, privacy: .public)' already exists, prompting user")
-
                 let resolution = showDuplicateFileDialog(filename: url.lastPathComponent)
                 switch resolution {
                 case .replace:
-                    // Replace existing file
                     do {
                         try fileManager.removeItem(at: destinationURL)
                         try fileManager.copyItem(at: url, to: destinationURL)
                         urlToLoad = destinationURL
-                        logger.info("handleSidebarFileDropped: Replaced existing file")
                         sidebarController.reloadFromFilesystem()
                     } catch {
                         logger.error("handleSidebarFileDropped: Failed to replace file: \(error.localizedDescription, privacy: .public)")
                     }
                 case .keepBoth:
-                    // Generate unique name and copy
                     let uniqueURL = generateUniqueFilename(for: url, in: targetDir)
                     do {
                         try fileManager.copyItem(at: url, to: uniqueURL)
                         urlToLoad = uniqueURL
-                        logger.info("handleSidebarFileDropped: Created copy with unique name: \(uniqueURL.lastPathComponent, privacy: .public)")
                         sidebarController.reloadFromFilesystem()
                     } catch {
                         logger.error("handleSidebarFileDropped: Failed to copy with unique name: \(error.localizedDescription, privacy: .public)")
                     }
                 case .skip:
-                    // Use existing file
                     urlToLoad = destinationURL
-                    logger.info("handleSidebarFileDropped: Using existing file")
                 }
             }
         }
 
-        // Trigger FASTQ ingestion for dropped FASTQ files/bundles
-        if let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: urlToLoad) {
-            FASTQIngestionService.ingestIfNeeded(url: fastqURL)
-        }
-
-        // Load the document and display it via the established GCD dispatch pattern
+        // Standalone VCF files use the auto-ingestion pipeline (handled by displayGenomicsFile)
         loadGenomicsFileInBackground(url: urlToLoad)
     }
 
@@ -591,6 +581,167 @@ public class MainSplitViewController: NSSplitViewController {
         }
 
         return newURL
+    }
+
+    // MARK: - FASTQ Import Pipeline
+
+    /// Imports a FASTQ file: ingests in temp dir, then creates a `.lungfishfastq`
+    /// bundle in the project with the processed file inside.
+    ///
+    /// Flow: source FASTQ → copy to temp → clumpify + compress → create bundle
+    /// in project → move processed file into bundle → display.
+    private func importFASTQFileInBackground(sourceURL: URL, projectDirectory: URL) {
+        guard let viewerController = self.viewerController else { return }
+
+        let baseName = FASTQBundle.deriveBaseName(from: sourceURL)
+        var effectiveBundleName = baseName
+
+        let bundleExt = FASTQBundle.directoryExtension
+        var bundleURL = projectDirectory.appendingPathComponent("\(effectiveBundleName).\(bundleExt)")
+
+        // Check for existing bundle
+        if FileManager.default.fileExists(atPath: bundleURL.path) {
+            let resolution = showDuplicateFileDialog(filename: "\(effectiveBundleName).\(bundleExt)")
+            switch resolution {
+            case .replace:
+                do {
+                    try FileManager.default.removeItem(at: bundleURL)
+                } catch {
+                    logger.error("importFASTQFileInBackground: Failed to remove existing bundle: \(error)")
+                    let alert = NSAlert()
+                    alert.messageText = "Failed to Replace Bundle"
+                    alert.informativeText = "\(error)"
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: "OK")
+                    alert.runModal()
+                    return
+                }
+            case .keepBoth:
+                var counter = 2
+                var uniqueName = "\(baseName) \(counter)"
+                while FileManager.default.fileExists(atPath: projectDirectory.appendingPathComponent("\(uniqueName).\(bundleExt)").path) {
+                    counter += 1
+                    uniqueName = "\(baseName) \(counter)"
+                }
+                effectiveBundleName = uniqueName
+                bundleURL = projectDirectory.appendingPathComponent("\(effectiveBundleName).\(bundleExt)")
+            case .skip:
+                displayGenomicsFile(url: bundleURL)
+                return
+            }
+        }
+
+        viewerController.showProgress("Importing \(sourceURL.lastPathComponent)\u{2026}")
+
+        FASTQIngestionService.ingestAndBundle(
+            sourceURL: sourceURL,
+            projectDirectory: projectDirectory,
+            bundleName: effectiveBundleName
+        ) { [weak self, weak viewerController] result in
+            viewerController?.hideProgress()
+            switch result {
+            case .success(let bundleURL):
+                self?.sidebarController.reloadFromFilesystem()
+                self?.displayGenomicsFile(url: bundleURL)
+            case .failure(let error):
+                logger.error("importFASTQFileInBackground: \(error)")
+                let alert = NSAlert()
+                alert.messageText = "Failed to Import FASTQ"
+                alert.informativeText = "\(error)"
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
+            }
+        }
+    }
+
+    /// Returns `true` when the URL looks like an ONT instrument output directory
+    /// (contains `barcode*` subdirectories with `.fastq.gz` chunks).
+    private func isONTDirectory(_ url: URL) -> Bool {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else {
+            return false
+        }
+        // Quick probe — try detecting layout without throwing
+        let importer = ONTDirectoryImporter()
+        return (try? importer.detectLayout(at: url)) != nil
+    }
+
+    /// Imports an ONT output directory into per-barcode `.lungfishfastq` bundles
+    /// via the ONTDirectoryImporter, running in the background.
+    private func importONTDirectoryInBackground(sourceURL: URL, projectURL: URL) {
+        guard let viewerController = self.viewerController else { return }
+
+        // Ask whether to include unclassified reads
+        let includeUnclassified: Bool = {
+            let importer = ONTDirectoryImporter()
+            guard let layout = try? importer.detectLayout(at: sourceURL),
+                  layout.hasUnclassified else { return false }
+            let alert = NSAlert()
+            alert.messageText = "ONT Directory Import"
+            alert.informativeText = "Found \(layout.barcodeDirectories.count) barcode directories. Include unclassified reads?"
+            alert.addButton(withTitle: "Include Unclassified")
+            alert.addButton(withTitle: "Barcoded Only")
+            return alert.runModal() == .alertFirstButtonReturn
+        }()
+
+        let config = ONTImportConfig(
+            sourceDirectory: sourceURL,
+            outputDirectory: projectURL,
+            includeUnclassified: includeUnclassified
+        )
+
+        viewerController.showProgress("Importing ONT directory\u{2026}")
+
+        let opID = OperationCenter.shared.start(
+            title: "ONT Import: \(sourceURL.lastPathComponent)",
+            detail: "Detecting layout\u{2026}",
+            operationType: .ingestion
+        )
+
+        Task.detached(priority: .userInitiated) { [weak self] in
+            do {
+                let importer = ONTDirectoryImporter()
+                let result = try await importer.importDirectory(config: config) { fraction, message in
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
+                        }
+                    }
+                }
+
+                let detail = "\(result.bundleURLs.count) barcode bundles, \(result.totalReadCount) reads"
+                logger.info("importONTDirectoryInBackground: \(detail)")
+
+                DispatchQueue.main.async { [weak self, weak viewerController] in
+                    MainActor.assumeIsolated {
+                        viewerController?.hideProgress()
+                        OperationCenter.shared.complete(id: opID, detail: detail, bundleURLs: result.bundleURLs)
+                        self?.sidebarController.reloadFromFilesystem()
+
+                        // Display the first bundle
+                        if let firstBundle = result.bundleURLs.first {
+                            self?.displayGenomicsFile(url: firstBundle)
+                        }
+                    }
+                }
+            } catch {
+                logger.error("importONTDirectoryInBackground: \(error)")
+                DispatchQueue.main.async { [weak viewerController] in
+                    MainActor.assumeIsolated {
+                        viewerController?.hideProgress()
+                        OperationCenter.shared.fail(id: opID, detail: "\(error)")
+
+                        let alert = NSAlert()
+                        alert.messageText = "ONT Import Failed"
+                        alert.informativeText = "\(error)"
+                        alert.alertStyle = .warning
+                        alert.addButton(withTitle: "OK")
+                        alert.runModal()
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Panel State
@@ -976,8 +1127,50 @@ extension MainSplitViewController: SidebarSelectionDelegate {
 
     /// Display genomics file - cache-first, then load via DocumentManager.
     private func displayGenomicsFile(url: URL) {
-        // FASTQ files/packages use the streaming statistics dashboard (not bulk loading)
-        if FASTQBundle.isBundleURL(url) || FASTQBundle.resolvePrimaryFASTQURL(for: url) != nil {
+        // FASTQ bundles use the streaming statistics dashboard
+        if FASTQBundle.isBundleURL(url) {
+            loadFASTQDatasetInBackground(sourceURL: url)
+            return
+        }
+
+        // Naked FASTQ files in the project: auto-bundle in place, then display the bundle
+        if FASTQBundle.isFASTQFileURL(url),
+           !FASTQBundle.isBundleURL(url.deletingLastPathComponent()) {
+            let parentDir = url.deletingLastPathComponent()
+            let baseName = FASTQBundle.deriveBaseName(from: url)
+            let bundleURL = parentDir.appendingPathComponent("\(baseName).\(FASTQBundle.directoryExtension)")
+
+            // If bundle already exists (e.g. from a previous partial import), just display it
+            if FASTQBundle.isBundleURL(bundleURL) {
+                loadFASTQDatasetInBackground(sourceURL: bundleURL)
+                return
+            }
+
+            // Wrap naked file into a bundle in place (no ingestion — it may already be ingested)
+            let fm = FileManager.default
+            do {
+                try fm.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+                let destURL = bundleURL.appendingPathComponent(url.lastPathComponent)
+                try fm.moveItem(at: url, to: destURL)
+                // Move sidecar too if it exists
+                let sidecarName = url.lastPathComponent + ".lungfish-meta.json"
+                let sidecarURL = parentDir.appendingPathComponent(sidecarName)
+                if fm.fileExists(atPath: sidecarURL.path) {
+                    try fm.moveItem(at: sidecarURL, to: bundleURL.appendingPathComponent(sidecarName))
+                }
+                logger.info("displayGenomicsFile: Auto-bundled naked FASTQ \(url.lastPathComponent) → \(bundleURL.lastPathComponent)")
+                sidebarController.reloadFromFilesystem()
+                loadFASTQDatasetInBackground(sourceURL: bundleURL)
+            } catch {
+                logger.error("displayGenomicsFile: Failed to auto-bundle FASTQ: \(error)")
+                // Fall back to displaying naked file
+                loadFASTQDatasetInBackground(sourceURL: url)
+            }
+            return
+        }
+
+        // FASTQ file inside a bundle — just display it
+        if FASTQBundle.resolvePrimaryFASTQURL(for: url) != nil {
             loadFASTQDatasetInBackground(sourceURL: url)
             return
         }

@@ -194,9 +194,14 @@ public final class FASTQDatasetViewController: NSViewController {
         configureMiddlePane()
     }
 
+    private var didSetInitialSplitPositions = false
+
     public override func viewDidLayout() {
         super.viewDidLayout()
-        updateSplitPositions()
+        if !didSetInitialSplitPositions, view.bounds.height > 200 {
+            didSetInitialSplitPositions = true
+            updateSplitPositions()
+        }
     }
 
     // MARK: - Public API
@@ -233,8 +238,10 @@ public final class FASTQDatasetViewController: NSViewController {
         mainSplitView.delegate = self
         view.addSubview(mainSplitView)
 
+        // NSSplitView manages pane frames via autoresizing masks — do NOT set
+        // translatesAutoresizingMaskIntoConstraints = false on direct pane views.
+        // Min sizes are enforced via the NSSplitViewDelegate instead.
         for pane in [topPane, middlePane] {
-            pane.translatesAutoresizingMaskIntoConstraints = false
             mainSplitView.addSubview(pane)
         }
 
@@ -244,9 +251,6 @@ public final class FASTQDatasetViewController: NSViewController {
             mainSplitView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             mainSplitView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
-
-        topPane.heightAnchor.constraint(greaterThanOrEqualToConstant: 80).isActive = true
-        middlePane.heightAnchor.constraint(greaterThanOrEqualToConstant: 200).isActive = true
     }
 
     // MARK: - Top Pane: Summary + Sparklines
@@ -278,7 +282,6 @@ public final class FASTQDatasetViewController: NSViewController {
             sparklineStrip.leadingAnchor.constraint(equalTo: topPane.leadingAnchor),
             sparklineStrip.trailingAnchor.constraint(equalTo: topPane.trailingAnchor),
             sparklineStrip.heightAnchor.constraint(equalToConstant: 52),
-            sparklineStrip.bottomAnchor.constraint(lessThanOrEqualTo: topPane.bottomAnchor),
 
             qualityReportButton.trailingAnchor.constraint(equalTo: topPane.trailingAnchor, constant: -8),
             qualityReportButton.centerYAnchor.constraint(equalTo: sparklineStrip.centerYAnchor),
@@ -295,10 +298,13 @@ public final class FASTQDatasetViewController: NSViewController {
         middleSplitView.delegate = self
         middlePane.addSubview(middleSplitView)
 
-        sidebarPane.translatesAutoresizingMaskIntoConstraints = false
-        previewPane.translatesAutoresizingMaskIntoConstraints = false
+        // NSSplitView manages pane frames — do NOT set
+        // translatesAutoresizingMaskIntoConstraints = false on these.
         middleSplitView.addSubview(sidebarPane)
         middleSplitView.addSubview(previewPane)
+
+        middleSplitView.setHoldingPriority(.defaultHigh, forSubviewAt: 0) // sidebar holds
+        middleSplitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)  // preview flexes
 
         NSLayoutConstraint.activate([
             middleSplitView.topAnchor.constraint(equalTo: middlePane.topAnchor),
@@ -1203,6 +1209,9 @@ extension FASTQDatasetViewController: NSTextFieldDelegate {
 
 extension FASTQDatasetViewController: NSSplitViewDelegate {
     public func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        if splitView === mainSplitView {
+            return 104 // minimum top pane height (48 + 2 + 52 + 2)
+        }
         if splitView === middleSplitView {
             return 200 // minimum sidebar width
         }
@@ -1210,6 +1219,9 @@ extension FASTQDatasetViewController: NSSplitViewDelegate {
     }
 
     public func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        if splitView === mainSplitView {
+            return 160 // maximum top pane height
+        }
         if splitView === middleSplitView {
             return 320 // maximum sidebar width
         }
