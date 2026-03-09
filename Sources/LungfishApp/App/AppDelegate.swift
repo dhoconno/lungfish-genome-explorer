@@ -5,6 +5,7 @@
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 import UniformTypeIdentifiers
 import os
 
@@ -3503,16 +3504,124 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
-    @objc func runNextflow(_ sender: Any?) {
-        showNotImplementedAlert("Nextflow Runner")
+    // MARK: - Provenance Export
+
+    @objc func exportProvenanceShell(_ sender: Any?) {
+        exportProvenance(format: .shell)
     }
 
-    @objc func runSnakemake(_ sender: Any?) {
-        showNotImplementedAlert("Snakemake Runner")
+    @objc func exportProvenancePython(_ sender: Any?) {
+        exportProvenance(format: .python)
     }
 
-    @objc func openWorkflowBuilder(_ sender: Any?) {
-        showNotImplementedAlert("Workflow Builder")
+    @objc func exportProvenanceNextflow(_ sender: Any?) {
+        exportProvenance(format: .nextflow)
+    }
+
+    @objc func exportProvenanceSnakemake(_ sender: Any?) {
+        exportProvenance(format: .snakemake)
+    }
+
+    @objc func exportProvenanceMethods(_ sender: Any?) {
+        exportProvenance(format: .methods)
+    }
+
+    @objc func exportProvenanceJSON(_ sender: Any?) {
+        exportProvenance(format: .json)
+    }
+
+    private func exportProvenance(format: ProvenanceExportFormat) {
+        // Find provenance for the currently selected/displayed file
+        let run: WorkflowRun?
+
+        // Try the selected sidebar item first
+        if let selectedURL = mainWindowController?.mainSplitViewController?.sidebarController?.selectedFileURL {
+            run = ProvenanceRecorder.findProvenance(forFile: selectedURL)
+        } else {
+            // Fall back to most recent completed run
+            Task {
+                let runs = await ProvenanceRecorder.shared.allRuns()
+                let completedRun = runs.first { $0.status == .completed }
+                if let completedRun {
+                    self.presentProvenanceExportSheet(run: completedRun, format: format)
+                } else {
+                    self.showNoProvenanceAlert()
+                }
+            }
+            return
+        }
+
+        guard let run else {
+            showNoProvenanceAlert()
+            return
+        }
+
+        presentProvenanceExportSheet(run: run, format: format)
+    }
+
+    private func presentProvenanceExportSheet(run: WorkflowRun, format: ProvenanceExportFormat) {
+        let exporter = ProvenanceExporter()
+        let content: String
+        do {
+            content = try exporter.export(run, format: format)
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Export Failed"
+            alert.informativeText = error.localizedDescription
+            alert.alertStyle = .warning
+            alert.runModal()
+            return
+        }
+
+        let savePanel = NSSavePanel()
+        savePanel.nameFieldStringValue = format.defaultFilename
+        savePanel.allowedContentTypes = [.plainText]
+        savePanel.canCreateDirectories = true
+
+        guard let window = mainWindowController?.window else {
+            // Fallback: run as modal
+            if savePanel.runModal() == .OK, let url = savePanel.url {
+                do {
+                    try content.write(to: url, atomically: true, encoding: .utf8)
+                    debugLog("Provenance exported to \(url.path)")
+                } catch {
+                    debugLog("Provenance export write failed: \(error)")
+                }
+            }
+            return
+        }
+
+        savePanel.beginSheetModal(for: window) { response in
+            guard response == .OK, let url = savePanel.url else { return }
+            do {
+                try content.write(to: url, atomically: true, encoding: .utf8)
+                debugLog("Provenance exported to \(url.path)")
+
+                // Make shell/python scripts executable
+                if format == .shell || format == .python {
+                    try FileManager.default.setAttributes(
+                        [.posixPermissions: 0o755],
+                        ofItemAtPath: url.path
+                    )
+                }
+            } catch {
+                debugLog("Provenance export write failed: \(error)")
+                let alert = NSAlert()
+                alert.messageText = "Export Failed"
+                alert.informativeText = "Could not write file: \(error.localizedDescription)"
+                alert.alertStyle = .warning
+                alert.runModal()
+            }
+        }
+    }
+
+    private func showNoProvenanceAlert() {
+        let alert = NSAlert()
+        alert.messageText = "No Provenance Available"
+        alert.informativeText = "No provenance record was found for the selected file. Provenance is recorded when files are created through tool operations (assembly, import, conversion, etc.)."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     private func showNotImplementedAlert(_ feature: String) {

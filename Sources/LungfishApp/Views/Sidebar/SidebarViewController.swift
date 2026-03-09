@@ -1430,6 +1430,11 @@ extension SidebarViewController: NSOutlineViewDataSource {
         return items
     }
 
+    /// Returns the URL of the first selected sidebar item that has a file URL.
+    public var selectedFileURL: URL? {
+        selectedItems().first(where: { $0.url != nil })?.url
+    }
+
     // MARK: - Delete Operations
 
     /// Deletes the currently selected items, moving files to Trash
