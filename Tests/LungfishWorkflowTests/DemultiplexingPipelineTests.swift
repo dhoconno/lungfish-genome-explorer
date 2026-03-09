@@ -78,6 +78,7 @@ final class DemultiplexingPipelineTests: XCTestCase {
             .inputFileNotFound(URL(fileURLWithPath: "/tmp/test.fastq")),
             .cutadaptFailed(exitCode: 1, stderr: "error message"),
             .noBarcodes,
+            .automaticBarcodeDiscoveryDisabled,
             .outputParsingFailed("bad json"),
             .bundleCreationFailed(barcode: "D701", underlying: NSError(domain: "test", code: 1)),
         ]

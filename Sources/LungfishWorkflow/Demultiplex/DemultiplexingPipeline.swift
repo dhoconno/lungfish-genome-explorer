@@ -85,6 +85,7 @@ public enum DemultiplexError: Error, LocalizedError {
     case inputFileNotFound(URL)
     case cutadaptFailed(exitCode: Int32, stderr: String)
     case noBarcodes
+    case automaticBarcodeDiscoveryDisabled
     case outputParsingFailed(String)
     case bundleCreationFailed(barcode: String, underlying: Error)
 
@@ -96,6 +97,8 @@ public enum DemultiplexError: Error, LocalizedError {
             return "cutadapt failed (exit \(code)): \(String(stderr.suffix(500)))"
         case .noBarcodes:
             return "Barcode kit has no barcodes defined"
+        case .automaticBarcodeDiscoveryDisabled:
+            return "Automatic barcode discovery is temporarily disabled. Select a known fixed barcode kit."
         case .outputParsingFailed(let msg):
             return "Failed to parse cutadapt output: \(msg)"
         case .bundleCreationFailed(let barcode, let error):
@@ -168,7 +171,6 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         progress(0.0, "Generating adapter sequences...")
         let adapterConfig = try await createAdapterConfiguration(
             for: config,
-            inputFASTQ: inputFASTQ,
             workDirectory: workDir
         )
 
@@ -368,7 +370,6 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
     private func createAdapterConfiguration(
         for config: DemultiplexConfig,
-        inputFASTQ: URL,
         workDirectory: URL
     ) async throws -> AdapterConfiguration {
         let adapterFASTA = workDirectory.appendingPathComponent("adapters.fasta")
@@ -408,70 +409,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             return AdapterConfiguration(adapterFASTA: adapterFASTA, adapterFlag: "-g")
 
         case .combinatorialDual:
-            let maxPairEntries = 96
-            let maxFallbackBarcodes = 13 // 13*14/2 = 91 pairs
-            let candidateIDs = try await BarcodeKitSuggestionEngine.dominantBarcodeIDs(
-                in: inputFASTQ,
-                kit: config.barcodeKit,
-                sampleReadLimit: 1_000,
-                minimumHitFraction: 0.01,
-                maxCandidates: maxFallbackBarcodes
-            )
-            let dominantPairs = try await BarcodeKitSuggestionEngine.dominantBarcodePairs(
-                in: inputFASTQ,
-                kit: config.barcodeKit,
-                sampleReadLimit: 1_000,
-                minimumHitFraction: 0.005,
-                maxPairs: maxPairEntries
-            )
-
-            let lookup = Dictionary(uniqueKeysWithValues: config.barcodeKit.barcodes.map { ($0.id, $0) })
-
-            var linkedEntries: [(name: String, first: String, second: String)] = []
-            if !dominantPairs.isEmpty {
-                linkedEntries.reserveCapacity(dominantPairs.count)
-                for pairID in dominantPairs {
-                    let parts = pairID.components(separatedBy: "--")
-                    guard parts.count == 2 else { continue }
-                    guard let lhs = lookup[parts[0]], let rhs = lookup[parts[1]] else { continue }
-                    linkedEntries.append((name: pairID, first: lhs.i7Sequence, second: rhs.i7Sequence))
-                }
-            } else {
-                let selectedFromSample = candidateIDs.compactMap { lookup[$0] }
-
-                let selected: [IlluminaBarcode]
-                if selectedFromSample.count >= 2 {
-                    selected = Array(selectedFromSample.prefix(maxFallbackBarcodes))
-                } else if selectedFromSample.count == 1 {
-                    let seen = Set(selectedFromSample.map(\.id))
-                    selected = Array(
-                        (selectedFromSample + config.barcodeKit.barcodes.filter { !seen.contains($0.id) })
-                            .prefix(maxFallbackBarcodes)
-                    )
-                } else {
-                    selected = Array(config.barcodeKit.barcodes.prefix(maxFallbackBarcodes))
-                }
-
-                linkedEntries.reserveCapacity(selected.count * selected.count)
-                for (idx, lhs) in selected.enumerated() {
-                    for rhs in selected[idx...] {
-                        let name = canonicalPairName(lhs.id, rhs.id)
-                        linkedEntries.append((name: name, first: lhs.i7Sequence, second: rhs.i7Sequence))
-                    }
-                }
-            }
-
-            if linkedEntries.count > maxPairEntries {
-                linkedEntries = Array(linkedEntries.prefix(maxPairEntries))
-            }
-            guard !linkedEntries.isEmpty else { throw DemultiplexError.noBarcodes }
-
-            try writeLinkedAdapterFASTA(
-                entries: linkedEntries,
-                location: config.barcodeLocation,
-                to: adapterFASTA
-            )
-            return AdapterConfiguration(adapterFASTA: adapterFASTA, adapterFlag: "-g")
+            throw DemultiplexError.automaticBarcodeDiscoveryDisabled
         }
     }
 
@@ -544,13 +482,6 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         case .anywhere:
             return "\(first)...\(second)"
         }
-    }
-
-    private func canonicalPairName(_ lhs: String, _ rhs: String) -> String {
-        if lhs.localizedStandardCompare(rhs) == .orderedDescending {
-            return "\(rhs)--\(lhs)"
-        }
-        return "\(lhs)--\(rhs)"
     }
 
     private func barcodeSequenceInfo(
