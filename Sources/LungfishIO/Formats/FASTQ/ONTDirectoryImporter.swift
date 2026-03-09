@@ -404,7 +404,7 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
                 barcodeType: .symmetric
             ),
             parameters: DemultiplexParameters(
-                tool: "dorado",
+                tool: "ont-directory-import",
                 wallClockSeconds: Date().timeIntervalSince(startTime)
             ),
             barcodes: barcodeResults,

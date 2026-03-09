@@ -437,7 +437,10 @@ public final class FASTQReader: Sendable {
     }
 
     private func validateSequenceCharacters(_ sequence: String, lineNumber: Int) throws {
-        let validBases = CharacterSet(charactersIn: "ACGTUNacgtun")
+        // Accept all IUPAC nucleotide codes (R, Y, S, W, K, M, B, D, H, V)
+        // in addition to standard bases, since consensus callers and some
+        // instruments emit ambiguity codes.
+        let validBases = CharacterSet(charactersIn: "ACGTUNRYSWKMBDHVacgtunryswkmbdhv")
         for char in sequence.unicodeScalars {
             if !validBases.contains(char) {
                 throw FASTQError.invalidSequenceCharacter(

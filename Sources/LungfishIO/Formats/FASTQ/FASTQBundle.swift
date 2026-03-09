@@ -169,20 +169,27 @@ public enum FASTQBundle {
     public static func resolveBundle(relativePath: String, from anchorBundleURL: URL) -> URL {
         let resolved = URL(fileURLWithPath: relativePath, relativeTo: anchorBundleURL).standardizedFileURL
         let parentDir = anchorBundleURL.deletingLastPathComponent().standardizedFileURL
-        // Validate the resolved path stays within the parent directory
-        guard resolved.path.hasPrefix(parentDir.path) else {
+        // Validate the resolved path stays within the parent directory.
+        // Append "/" to prevent prefix matching siblings (e.g. /foo/bar vs /foo/barcode).
+        let parentPrefix = parentDir.path.hasSuffix("/") ? parentDir.path : parentDir.path + "/"
+        guard resolved.path.hasPrefix(parentPrefix) || resolved.path == parentDir.path else {
             // Return anchor itself as a safe fallback — caller will check isBundleURL
             return anchorBundleURL
         }
         return resolved
     }
 
-    /// Derives a stable base name by stripping all extensions from a FASTQ filename.
+    /// Derives a stable base name by stripping known FASTQ/compression extensions.
+    ///
+    /// Only removes `.fastq`, `.fq`, `.gz`, `.bz2`, `.zst`, and `.lungfishfastq`
+    /// extensions rather than stripping all extensions, so filenames like
+    /// `patient.42.sample.fastq.gz` become `patient.42.sample` (not `patient`).
     public static func deriveBaseName(from fastqURL: URL) -> String {
-        var strippedURL = fastqURL
-        while !strippedURL.pathExtension.isEmpty {
-            strippedURL = strippedURL.deletingPathExtension()
+        let knownExtensions: Set<String> = ["fastq", "fq", "gz", "bz2", "zst", "lungfishfastq"]
+        var url = fastqURL
+        while knownExtensions.contains(url.pathExtension.lowercased()) {
+            url = url.deletingPathExtension()
         }
-        return strippedURL.lastPathComponent
+        return url.lastPathComponent
     }
 }
