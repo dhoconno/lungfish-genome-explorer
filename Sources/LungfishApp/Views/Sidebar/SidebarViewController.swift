@@ -112,6 +112,14 @@ public class SidebarViewController: NSViewController {
     /// Root items displayed in the sidebar
     private var rootItems: [SidebarItem] = []
 
+    /// Filtered copy of rootItems when search is active; nil when no filter.
+    private var filteredRootItems: [SidebarItem]?
+
+    /// The items the outline view data source should use.
+    private var displayItems: [SidebarItem] {
+        filteredRootItems ?? rootItems
+    }
+
     /// The currently open project URL (filesystem-backed model)
     private var projectURL: URL?
 
@@ -261,15 +269,43 @@ public class SidebarViewController: NSViewController {
     // MARK: - Actions
 
     @objc private func searchFieldChanged(_ sender: NSSearchField) {
-        // Filter outline view based on search text
-        let searchText = sender.stringValue
+        let searchText = sender.stringValue.trimmingCharacters(in: .whitespaces)
         if searchText.isEmpty {
-            // Reset filter
-            loadSampleData()
+            filteredRootItems = nil
         } else {
-            // Filter items
-            // TODO: Implement filtering
+            filteredRootItems = filterItems(rootItems, matching: searchText.lowercased())
         }
+        outlineView.reloadData()
+        // Expand all groups when filtering so matches are visible
+        if filteredRootItems != nil {
+            outlineView.expandItem(nil, expandChildren: true)
+        }
+    }
+
+    /// Recursively filters the sidebar tree, keeping items whose title or
+    /// subtitle match the query, and any group/folder that has matching descendants.
+    private func filterItems(_ items: [SidebarItem], matching query: String) -> [SidebarItem] {
+        var result: [SidebarItem] = []
+        for item in items {
+            let titleMatch = item.title.lowercased().contains(query)
+            let subtitleMatch = item.subtitle?.lowercased().contains(query) == true
+            let urlMatch = item.url?.lastPathComponent.lowercased().contains(query) == true
+
+            let filteredChildren = filterItems(item.children, matching: query)
+
+            if titleMatch || subtitleMatch || urlMatch || !filteredChildren.isEmpty {
+                let copy = SidebarItem(
+                    title: item.title,
+                    type: item.type,
+                    icon: item.icon,
+                    children: filteredChildren.isEmpty && (titleMatch || subtitleMatch || urlMatch) ? item.children : filteredChildren,
+                    url: item.url,
+                    subtitle: item.subtitle
+                )
+                result.append(copy)
+            }
+        }
+        return result
     }
 
     // MARK: - Public API
@@ -1148,7 +1184,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
 
     public func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
         if item == nil {
-            return rootItems.count
+            return displayItems.count
         }
         if let sidebarItem = item as? SidebarItem {
             return sidebarItem.children.count
@@ -1158,7 +1194,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
 
     public func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
         if item == nil {
-            return rootItems[index]
+            return displayItems[index]
         }
         if let sidebarItem = item as? SidebarItem {
             return sidebarItem.children[index]

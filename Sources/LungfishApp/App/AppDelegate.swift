@@ -2465,15 +2465,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @objc func setDisplayModeCollapsed(_ sender: Any?) {
-        // TODO: Implement display mode change
+        showNotImplementedAlert("Collapsed Display Mode")
     }
 
     @objc func setDisplayModeSquished(_ sender: Any?) {
-        // TODO: Implement display mode change
+        showNotImplementedAlert("Squished Display Mode")
     }
 
     @objc func setDisplayModeExpanded(_ sender: Any?) {
-        // TODO: Implement display mode change
+        showNotImplementedAlert("Expanded Display Mode")
     }
 
     @objc func toggleNucleotideMode(_ sender: Any?) {
@@ -2854,11 +2854,16 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     // MARK: - SequenceMenuActions
 
     @objc func reverseComplement(_ sender: Any?) {
-        // TODO: Implement reverse complement
+        guard let viewerView = mainWindowController?.mainSplitViewController?.viewerController?.viewerView else {
+            showAlert(title: "No Viewer", message: "Open a sequence to use Reverse Complement.")
+            return
+        }
+        // Delegate to the viewer view's reverse complement copy action
+        viewerView.performReverseComplement()
     }
 
     @objc func translate(_ sender: Any?) {
-        // TODO: Implement translation
+        mainWindowController?.showTranslationTool(sender)
     }
 
 
@@ -3148,11 +3153,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @objc func findORFs(_ sender: Any?) {
-        // TODO: Implement ORF finding
+        showNotImplementedAlert("ORF Finder")
     }
 
     @objc func findRestrictionSites(_ sender: Any?) {
-        // TODO: Implement restriction site finding
+        showNotImplementedAlert("Restriction Site Finder")
     }
 
     // MARK: - ToolsMenuActions
