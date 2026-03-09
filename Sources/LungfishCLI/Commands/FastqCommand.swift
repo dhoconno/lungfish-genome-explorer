@@ -39,6 +39,8 @@ struct FastqCommand: AsyncParsableCommand {
             FastqDeinterleaveSubcommand.self,
             FastqInterleaveSubcommand.self,
             FastqDeduplicateSubcommand.self,
+            FastqDemultiplexSubcommand.self,
+            FastqImportONTSubcommand.self,
         ]
     )
 }
@@ -722,5 +724,216 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
             throw CLIError.conversionFailed(reason: "seqkit rmdup failed: \(result.stderr)")
         }
         FileHandle.standardError.write(Data("Deduplicated reads written to \(output.output)\n".utf8))
+    }
+}
+
+// MARK: - Demultiplex
+
+struct FastqDemultiplexSubcommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "demultiplex",
+        abstract: "Demultiplex reads by internal barcodes using cutadapt",
+        discussion: """
+            Splits multiplexed FASTQ reads into per-barcode output files using
+            embedded cutadapt. Supports single- and dual-indexed Illumina kits,
+            custom barcode CSVs, and flexible barcode location (5', 3', or anywhere).
+
+            Useful for internal Illumina barcodes within ONT reads, re-demultiplexing,
+            or demultiplexing with custom barcode sets.
+
+            Built-in kits: truseq-single-a, truseq-single-b, truseq-ht-dual,
+            nextera-xt-v2, idt-ud-indexes.
+
+            Examples:
+              lungfish fastq demultiplex reads.fastq.gz --kit truseq-single-a -o demux-out/
+              lungfish fastq demultiplex reads.fastq.gz --kit custom.csv -o demux-out/ --location anywhere
+            """
+    )
+
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
+    var input: String
+
+    @Option(name: .customLong("kit"),
+            help: "Barcode kit: truseq-single-a, truseq-single-b, truseq-ht-dual, nextera-xt-v2, idt-ud-indexes, or path to custom CSV")
+    var kit: String
+
+    @Option(name: [.customLong("output"), .customShort("o")],
+            help: "Output directory for per-barcode bundles")
+    var output: String
+
+    @Option(name: .customLong("location"),
+            help: "Barcode location: 5prime, 3prime, anywhere (default: anywhere)")
+    var location: String = "anywhere"
+
+    @Option(name: .customLong("error-rate"),
+            help: "Maximum error rate for barcode matching (default: 0.15)")
+    var errorRate: Double = 0.15
+
+    @Option(name: .customLong("overlap"),
+            help: "Minimum overlap length (default: 3)")
+    var overlap: Int = 3
+
+    @Flag(name: .customLong("no-trim"),
+          help: "Keep barcode sequences in output reads (do not trim)")
+    var noTrim: Bool = false
+
+    @Flag(name: .customLong("discard-unassigned"),
+          help: "Discard reads that do not match any barcode")
+    var discardUnassigned: Bool = false
+
+    @Option(name: .customLong("threads"),
+            help: "Number of threads for cutadapt (default: 4)")
+    var threads: Int = 4
+
+    func run() async throws {
+        guard errorRate >= 0 && errorRate <= 1 else {
+            throw ValidationError("Error rate must be between 0 and 1 (got \(errorRate))")
+        }
+
+        let inputURL = try validateInput(input)
+        let outputURL = URL(fileURLWithPath: output)
+
+        // Resolve barcode kit
+        let barcodeKit: IlluminaBarcodeDefinition
+        if let builtin = IlluminaBarcodeKitRegistry.kit(byID: kit) {
+            barcodeKit = builtin
+        } else if FileManager.default.fileExists(atPath: kit) {
+            let csvURL = URL(fileURLWithPath: kit)
+            let name = csvURL.deletingPathExtension().lastPathComponent
+            barcodeKit = try IlluminaBarcodeKitRegistry.loadCustomKit(from: csvURL, name: name)
+        } else {
+            throw ValidationError(
+                "Unknown barcode kit '\(kit)'. Use one of: truseq-single-a, truseq-single-b, "
+                + "truseq-ht-dual, nextera-xt-v2, idt-ud-indexes, or a path to a custom CSV."
+            )
+        }
+
+        // Parse barcode location
+        let barcodeLocation: BarcodeLocation
+        switch location.lowercased() {
+        case "5prime", "five-prime", "fiveprime": barcodeLocation = .fivePrime
+        case "3prime", "three-prime", "threeprime": barcodeLocation = .threePrime
+        case "anywhere", "any": barcodeLocation = .anywhere
+        default:
+            throw ValidationError("Invalid barcode location '\(location)'. Use: 5prime, 3prime, anywhere")
+        }
+
+        let config = DemultiplexConfig(
+            inputURL: inputURL,
+            barcodeKit: barcodeKit,
+            outputDirectory: outputURL,
+            barcodeLocation: barcodeLocation,
+            errorRate: errorRate,
+            minimumOverlap: overlap,
+            trimBarcodes: !noTrim,
+            unassignedDisposition: discardUnassigned ? .discard : .keep,
+            threads: threads
+        )
+
+        let pipeline = DemultiplexingPipeline()
+        let result = try await pipeline.run(config: config) { fraction, message in
+            FileHandle.standardError.write(Data("[\(String(format: "%3.0f%%", fraction * 100))] \(message)\n".utf8))
+        }
+
+        // Summary output
+        FileHandle.standardError.write(Data("\n--- Demultiplexing Summary ---\n".utf8))
+        FileHandle.standardError.write(Data("Kit: \(barcodeKit.displayName)\n".utf8))
+        FileHandle.standardError.write(Data("Input reads: \(result.manifest.inputReadCount)\n".utf8))
+        FileHandle.standardError.write(Data("Assigned: \(result.manifest.assignedReadCount) (\(String(format: "%.1f%%", result.manifest.assignmentRate * 100)))\n".utf8))
+        FileHandle.standardError.write(Data("Unassigned: \(result.manifest.unassigned.readCount)\n".utf8))
+        FileHandle.standardError.write(Data("Barcodes with reads: \(result.manifest.barcodes.filter { $0.readCount > 0 }.count)\n".utf8))
+        FileHandle.standardError.write(Data("Output: \(output)\n".utf8))
+        FileHandle.standardError.write(Data("Time: \(String(format: "%.1f", result.wallClockSeconds))s\n".utf8))
+
+        for barcode in result.manifest.barcodes where barcode.readCount > 0 {
+            FileHandle.standardError.write(Data("  \(barcode.displayName): \(barcode.readCount) reads\n".utf8))
+        }
+    }
+}
+
+// MARK: - Import ONT
+
+struct FastqImportONTSubcommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "import-ont",
+        abstract: "Import ONT output directory into per-barcode bundles",
+        discussion: """
+            Imports Oxford Nanopore sequencing output directories into per-barcode
+            .lungfishfastq bundles. Concatenates chunked FASTQ files within each
+            barcode directory and generates a demultiplex manifest.
+
+            Accepts either a fastq_pass/ parent directory or a single barcode
+            directory (e.g., fastq_pass/barcode01/).
+
+            Examples:
+              lungfish fastq import-ont fastq_pass/ -o imported/
+              lungfish fastq import-ont fastq_pass/barcode13/ -o imported/
+              lungfish fastq import-ont fastq_pass/ -o imported/ --include-unclassified
+            """
+    )
+
+    @Argument(help: "ONT output directory (fastq_pass/ or single barcode directory)")
+    var input: String
+
+    @Option(name: [.customLong("output"), .customShort("o")],
+            help: "Output directory for .lungfishfastq bundles")
+    var output: String
+
+    @Flag(name: .customLong("include-unclassified"),
+          help: "Include unclassified reads (default: skip)")
+    var includeUnclassified: Bool = false
+
+    @Option(name: .customLong("concurrency"),
+            help: "Max concurrent barcode imports (default: 4)")
+    var concurrency: Int = 4
+
+    func run() async throws {
+        guard concurrency >= 1 else {
+            throw ValidationError("Concurrency must be at least 1 (got \(concurrency))")
+        }
+
+        let inputURL = URL(fileURLWithPath: input)
+        let outputURL = URL(fileURLWithPath: output)
+
+        guard FileManager.default.fileExists(atPath: inputURL.path) else {
+            throw CLIError.inputFileNotFound(path: input)
+        }
+
+        let importer = ONTDirectoryImporter()
+
+        // Detect layout first
+        let layout = try importer.detectLayout(at: inputURL)
+        FileHandle.standardError.write(Data("Detected \(layout.barcodeDirectories.count) barcode directories, \(layout.totalChunkCount) chunks\n".utf8))
+
+        let config = ONTImportConfig(
+            sourceDirectory: inputURL,
+            outputDirectory: outputURL,
+            maxConcurrentBarcodes: concurrency,
+            includeUnclassified: includeUnclassified
+        )
+
+        let result = try await importer.importDirectory(config: config) { fraction, message in
+            FileHandle.standardError.write(Data("[\(String(format: "%3.0f%%", fraction * 100))] \(message)\n".utf8))
+        }
+
+        // Summary output
+        FileHandle.standardError.write(Data("\n--- ONT Import Summary ---\n".utf8))
+        if let flowCell = result.flowCellID {
+            FileHandle.standardError.write(Data("Flow Cell: \(flowCell)\n".utf8))
+        }
+        if let sample = result.sampleID {
+            FileHandle.standardError.write(Data("Sample: \(sample)\n".utf8))
+        }
+        if let model = result.basecallModel {
+            FileHandle.standardError.write(Data("Basecall Model: \(model)\n".utf8))
+        }
+        FileHandle.standardError.write(Data("Barcodes: \(result.bundleURLs.count)\n".utf8))
+        FileHandle.standardError.write(Data("Total reads: \(result.totalReadCount)\n".utf8))
+        FileHandle.standardError.write(Data("Output: \(output)\n".utf8))
+        FileHandle.standardError.write(Data("Time: \(String(format: "%.1f", result.wallClockSeconds))s\n".utf8))
+
+        for barcode in result.manifest.barcodes {
+            FileHandle.standardError.write(Data("  \(barcode.barcodeID): \(barcode.readCount) reads\n".utf8))
+        }
     }
 }

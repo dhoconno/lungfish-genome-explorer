@@ -79,6 +79,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
     case seqkit
     case fastp
     case vsearch
+    case cutadapt
     case clumpify
     case bbduk
     case bbmerge
@@ -100,6 +101,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .seqkit: return "seqkit"
         case .fastp: return "fastp"
         case .vsearch: return "vsearch"
+        case .cutadapt: return "cutadapt"
         case .clumpify: return "clumpify.sh"
         case .bbduk: return "bbduk.sh"
         case .bbmerge: return "bbmerge.sh"
@@ -146,6 +148,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .seqkit: return "seqkit"
         case .fastp: return "fastp"
         case .vsearch: return "vsearch"
+        case .cutadapt: return "cutadapt"
         case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat: return "bbtools"
         case .java: return "openjdk"
         }
@@ -176,6 +179,8 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return "MIT License"
         case .vsearch:
             return "GPL-3.0 or BSD-2-Clause (dual)"
+        case .cutadapt:
+            return "MIT License"
         case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat:
             return "BBMap License"
         case .java:
@@ -233,6 +238,7 @@ public actor NativeToolRunner {
         "seqkit": "2.9.0",
         "fastp": "1.1.0",
         "vsearch": "2.29.2",
+        "cutadapt": "4.9",
         "bbtools": "39.13",
         "openjdk": "21.0.10"
     ]
