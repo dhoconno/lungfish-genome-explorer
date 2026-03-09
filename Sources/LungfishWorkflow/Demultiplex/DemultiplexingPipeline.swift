@@ -166,11 +166,11 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
         // Step 1: Generate adapter FASTA (5% progress)
         progress(0.0, "Generating adapter sequences...")
-        let adapterFASTA = workDir.appendingPathComponent("adapters.fasta")
-        let i5FASTA = try IlluminaBarcodeKitRegistry.generateCutadaptFASTA(
-            for: config.barcodeKit,
-            to: adapterFASTA,
-            location: config.barcodeLocation
+        let adapterConfig = try await createAdapterConfiguration(
+            for: config,
+            inputFASTQ: inputFASTQ,
+            workDirectory: workDir,
+            progress: progress
         )
 
         // Step 2: Build cutadapt command (5% progress)
@@ -188,8 +188,8 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
         var args = buildCutadaptArguments(
             config: config,
-            adapterFASTA: adapterFASTA,
-            i5FASTA: i5FASTA,
+            adapterFASTA: adapterConfig.adapterFASTA,
+            adapterFlag: adapterConfig.adapterFlag,
             outputPattern: outputPattern,
             unassignedPath: unassignedPath,
             jsonReportPath: jsonReportPath
@@ -273,13 +273,12 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                 }
             } else {
                 assignedReadCount += readCount
-                // Look up barcode definition for sequences
-                let barcodeDef = config.barcodeKit.barcodes.first { $0.id == baseName }
+                let sequenceInfo = barcodeSequenceInfo(for: baseName, kit: config.barcodeKit)
                 barcodeResults.append(BarcodeResult(
                     barcodeID: baseName,
-                    sampleName: barcodeDef?.sampleName,
-                    forwardSequence: barcodeDef?.i7Sequence,
-                    reverseSequence: barcodeDef?.i5Sequence,
+                    sampleName: sequenceInfo.sampleName,
+                    forwardSequence: sequenceInfo.forward,
+                    reverseSequence: sequenceInfo.reverse,
                     readCount: readCount,
                     baseCount: baseCount,
                     bundleRelativePath: bundleName
@@ -304,7 +303,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             vendor: config.barcodeKit.vendor,
             barcodeCount: config.barcodeKit.barcodes.count,
             isDualIndexed: config.barcodeKit.isDualIndexed,
-            barcodeType: config.barcodeKit.isDualIndexed ? .asymmetric : .singleEnd
+            barcodeType: config.barcodeKit.pairingMode == .singleEnd ? .singleEnd : .asymmetric
         )
 
         // Build the cutadapt version string
@@ -363,32 +362,216 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         return url
     }
 
+    private struct AdapterConfiguration {
+        let adapterFASTA: URL
+        let adapterFlag: String
+    }
+
+    private func createAdapterConfiguration(
+        for config: DemultiplexConfig,
+        inputFASTQ: URL,
+        workDirectory: URL,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> AdapterConfiguration {
+        let adapterFASTA = workDirectory.appendingPathComponent("adapters.fasta")
+
+        switch config.barcodeKit.pairingMode {
+        case .singleEnd:
+            _ = try IlluminaBarcodeKitRegistry.generateCutadaptFASTA(
+                for: config.barcodeKit,
+                to: adapterFASTA,
+                location: config.barcodeLocation,
+                includeAdapterContext: config.barcodeKit.vendor.lowercased() == "illumina"
+            )
+            return AdapterConfiguration(
+                adapterFASTA: adapterFASTA,
+                adapterFlag: adapterFlag(for: config.barcodeLocation)
+            )
+
+        case .fixedDual:
+            let entries: [(name: String, first: String, second: String)] = config.barcodeKit.barcodes.compactMap { barcode in
+                guard let i5 = barcode.i5Sequence else { return nil }
+                return (
+                    name: barcode.id,
+                    first: contextualizedSequence(
+                        barcode.i7Sequence,
+                        role: .i7,
+                        vendor: config.barcodeKit.vendor
+                    ),
+                    second: contextualizedSequence(
+                        i5,
+                        role: .i5,
+                        vendor: config.barcodeKit.vendor
+                    )
+                )
+            }
+            guard !entries.isEmpty else { throw DemultiplexError.noBarcodes }
+            try writeLinkedAdapterFASTA(entries: entries, location: config.barcodeLocation, to: adapterFASTA)
+            return AdapterConfiguration(adapterFASTA: adapterFASTA, adapterFlag: "-g")
+
+        case .combinatorialDual:
+            progress(0.02, "Scanning first 1000 reads for barcode candidates...")
+            let candidateIDs = try await BarcodeKitSuggestionEngine.dominantBarcodeIDs(
+                in: inputFASTQ,
+                kit: config.barcodeKit,
+                sampleReadLimit: 1_000,
+                minimumHitFraction: 0.01,
+                maxCandidates: 64
+            )
+
+            let lookup = Dictionary(uniqueKeysWithValues: config.barcodeKit.barcodes.map { ($0.id, $0) })
+            let selectedFromSample = candidateIDs.compactMap { lookup[$0] }
+
+            let selected: [IlluminaBarcode]
+            if selectedFromSample.count >= 2 {
+                selected = selectedFromSample
+            } else if selectedFromSample.count == 1 {
+                let seen = Set(selectedFromSample.map(\.id))
+                selected = Array((selectedFromSample + config.barcodeKit.barcodes.filter { !seen.contains($0.id) }).prefix(16))
+            } else {
+                selected = Array(config.barcodeKit.barcodes.prefix(32))
+            }
+
+            var linkedEntries: [(name: String, first: String, second: String)] = []
+            linkedEntries.reserveCapacity(selected.count * selected.count)
+            for (idx, lhs) in selected.enumerated() {
+                for rhs in selected[idx...] {
+                    let name = canonicalPairName(lhs.id, rhs.id)
+                    linkedEntries.append((name: name, first: lhs.i7Sequence, second: rhs.i7Sequence))
+                }
+            }
+            guard !linkedEntries.isEmpty else { throw DemultiplexError.noBarcodes }
+
+            try writeLinkedAdapterFASTA(
+                entries: linkedEntries,
+                location: config.barcodeLocation,
+                to: adapterFASTA
+            )
+
+            progress(
+                0.04,
+                "Prepared \(selected.count) candidate barcodes (\(linkedEntries.count) barcode pairs)"
+            )
+            return AdapterConfiguration(adapterFASTA: adapterFASTA, adapterFlag: "-g")
+        }
+    }
+
+    private enum BarcodeRole {
+        case i7
+        case i5
+    }
+
+    private func contextualizedSequence(_ sequence: String, role: BarcodeRole, vendor: String) -> String {
+        guard vendor.lowercased() == "illumina" else { return sequence.uppercased() }
+        switch role {
+        case .i7:
+            return IlluminaAdapterContext.withContext(
+                sequence: sequence.uppercased(),
+                upstream: IlluminaAdapterContext.i7Upstream,
+                downstream: IlluminaAdapterContext.i7Downstream
+            )
+        case .i5:
+            return IlluminaAdapterContext.withContext(
+                sequence: sequence.uppercased(),
+                upstream: IlluminaAdapterContext.i5Upstream,
+                downstream: IlluminaAdapterContext.i5Downstream
+            )
+        }
+    }
+
+    private func adapterFlag(for location: BarcodeLocation) -> String {
+        switch location {
+        case .fivePrime:
+            return "-g"
+        case .threePrime:
+            return "-a"
+        case .anywhere:
+            return "-b"
+        }
+    }
+
+    private func writeLinkedAdapterFASTA(
+        entries: [(name: String, first: String, second: String)],
+        location: BarcodeLocation,
+        to outputURL: URL
+    ) throws {
+        var lines: [String] = []
+        lines.reserveCapacity(max(1, entries.count * 4))
+
+        for entry in entries {
+            let first = entry.first.uppercased()
+            let second = entry.second.uppercased()
+            let forwardPattern = linkedAdapterPattern(first: first, second: second, location: location)
+            lines.append(">\(entry.name)")
+            lines.append(forwardPattern)
+
+            if first != second {
+                let reversePattern = linkedAdapterPattern(first: second, second: first, location: location)
+                lines.append(">\(entry.name)")
+                lines.append(reversePattern)
+            }
+        }
+
+        let content = lines.joined(separator: "\n") + "\n"
+        try content.write(to: outputURL, atomically: true, encoding: .utf8)
+    }
+
+    private func linkedAdapterPattern(first: String, second: String, location: BarcodeLocation) -> String {
+        switch location {
+        case .fivePrime:
+            return "^\(first)...\(second)"
+        case .threePrime:
+            return "\(first)...\(second)$"
+        case .anywhere:
+            return "\(first)...\(second)"
+        }
+    }
+
+    private func canonicalPairName(_ lhs: String, _ rhs: String) -> String {
+        if lhs.localizedStandardCompare(rhs) == .orderedDescending {
+            return "\(rhs)--\(lhs)"
+        }
+        return "\(lhs)--\(rhs)"
+    }
+
+    private func barcodeSequenceInfo(
+        for outputName: String,
+        kit: IlluminaBarcodeDefinition
+    ) -> (sampleName: String?, forward: String?, reverse: String?) {
+        switch kit.pairingMode {
+        case .singleEnd, .fixedDual:
+            if let barcode = kit.barcodes.first(where: { $0.id == outputName }) {
+                return (barcode.sampleName, barcode.i7Sequence, barcode.i5Sequence)
+            }
+            return (nil, nil, nil)
+
+        case .combinatorialDual:
+            let parts = outputName.components(separatedBy: "--")
+            if parts.count == 2,
+               let first = kit.barcodes.first(where: { $0.id == parts[0] }),
+               let second = kit.barcodes.first(where: { $0.id == parts[1] }) {
+                return (nil, first.i7Sequence, second.i7Sequence)
+            }
+            if let barcode = kit.barcodes.first(where: { $0.id == outputName }) {
+                return (barcode.sampleName, barcode.i7Sequence, nil)
+            }
+            return (nil, nil, nil)
+        }
+    }
+
     /// Builds the cutadapt argument array.
     private func buildCutadaptArguments(
         config: DemultiplexConfig,
         adapterFASTA: URL,
-        i5FASTA: URL?,
+        adapterFlag: String,
         outputPattern: String,
         unassignedPath: String,
         jsonReportPath: String
     ) -> [String] {
         var args: [String] = []
 
-        // Adapter specification
-        switch config.barcodeLocation {
-        case .fivePrime:
-            args += ["-g", "file:\(adapterFASTA.path)"]
-        case .threePrime:
-            args += ["-a", "file:\(adapterFASTA.path)"]
-        case .anywhere:
-            args += ["-b", "file:\(adapterFASTA.path)"]
-        }
-
-        // Dual-index: for paired-end input, add i5 adapters for R2.
-        // For single-end input (common with ONT reads containing Illumina barcodes),
-        // only use i7 adapters — cutadapt --pair-adapters requires paired-end input.
-        // The i5 FASTA is intentionally ignored for single-end demultiplexing.
-        _ = i5FASTA  // Retained for future paired-end support
+        // Adapter specification.
+        args += [adapterFlag, "file:\(adapterFASTA.path)"]
 
         // Error rate and overlap
         args += ["-e", String(config.errorRate)]
@@ -397,8 +580,10 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         // Search both strand orientations (ONT reads can be in either direction)
         args += ["--revcomp"]
 
-        // Allow multiple adapter matches per read (Illumina libraries have adapters on both ends)
-        args += ["--times", "2"]
+        // Single-end barcode mode can trim both ends from one read via repeated matching.
+        if config.barcodeKit.pairingMode == .singleEnd {
+            args += ["--times", "2"]
+        }
 
         // Trim or retain barcode
         args += ["--action", config.trimBarcodes ? "trim" : "none"]

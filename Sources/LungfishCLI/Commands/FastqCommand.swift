@@ -742,7 +742,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             or demultiplexing with custom barcode sets.
 
             Built-in kits: truseq-single-a, truseq-single-b, truseq-ht-dual,
-            nextera-xt-v2, idt-ud-indexes.
+            nextera-xt-v2, idt-ud-indexes, pacbio-sequel-384-v1.
 
             Examples:
               lungfish fastq demultiplex reads.fastq.gz --kit truseq-single-a -o demux-out/
@@ -754,7 +754,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
     var input: String
 
     @Option(name: .customLong("kit"),
-            help: "Barcode kit: truseq-single-a, truseq-single-b, truseq-ht-dual, nextera-xt-v2, idt-ud-indexes, or path to custom CSV")
+            help: "Barcode kit: truseq-single-a, truseq-single-b, truseq-ht-dual, nextera-xt-v2, idt-ud-indexes, pacbio-sequel-384-v1, or path to custom CSV")
     var kit: String
 
     @Option(name: [.customLong("output"), .customShort("o")],
@@ -804,7 +804,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         } else {
             throw ValidationError(
                 "Unknown barcode kit '\(kit)'. Use one of: truseq-single-a, truseq-single-b, "
-                + "truseq-ht-dual, nextera-xt-v2, idt-ud-indexes, or a path to a custom CSV."
+                + "truseq-ht-dual, nextera-xt-v2, idt-ud-indexes, pacbio-sequel-384-v1, or a path to a custom CSV."
             )
         }
 

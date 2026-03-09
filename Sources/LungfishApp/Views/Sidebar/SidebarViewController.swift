@@ -121,6 +121,9 @@ public class SidebarViewController: NSViewController {
     /// Suppresses delegate and notification callbacks during programmatic selection changes.
     private var suppressSelectionCallbacks = false
 
+    /// Last width recommendation posted to the split-view controller.
+    private var lastRecommendedSidebarWidth: CGFloat = 0
+
     // MARK: - Delegate
 
     /// Delegate for selection change callbacks.
@@ -240,7 +243,7 @@ public class SidebarViewController: NSViewController {
         // Start with empty sidebar - documents will be added when loaded
         // The "OPEN DOCUMENTS" group is created automatically when first document is loaded
         rootItems = []
-        outlineView.reloadData()
+        reloadOutlineView()
         logger.info("loadSampleData: Sidebar initialized (empty, waiting for documents)")
     }
 
@@ -262,7 +265,61 @@ public class SidebarViewController: NSViewController {
 
     /// Reloads the sidebar content
     public func reloadData() {
+        reloadOutlineView()
+    }
+
+    private func reloadOutlineView() {
         outlineView.reloadData()
+        postPreferredSidebarWidthIfNeeded()
+    }
+
+    private func postPreferredSidebarWidthIfNeeded() {
+        let width = recommendedSidebarWidth()
+        guard abs(width - lastRecommendedSidebarWidth) >= 2 else { return }
+        lastRecommendedSidebarWidth = width
+        NotificationCenter.default.post(
+            name: .sidebarPreferredWidthRecommended,
+            object: self,
+            userInfo: ["width": width]
+        )
+    }
+
+    private func recommendedSidebarWidth() -> CGFloat {
+        let contentWidth = maxLabelWidth(in: rootItems, depth: 0)
+        let estimated = contentWidth + 40 // icon + paddings + trailing breathing room
+        return min(max(estimated, 220), 720)
+    }
+
+    private func maxLabelWidth(in items: [SidebarItem], depth: Int) -> CGFloat {
+        var maxWidth: CGFloat = 0
+
+        for item in items {
+            let font: NSFont
+            if item.type == .group {
+                font = .systemFont(ofSize: 11, weight: .semibold)
+            } else {
+                font = .systemFont(ofSize: 13)
+            }
+
+            let titleWidth = (item.title as NSString).size(withAttributes: [.font: font]).width
+            let subtitleWidth: CGFloat
+            if let subtitle = item.subtitle, !subtitle.isEmpty {
+                subtitleWidth = (subtitle as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 10)]).width
+            } else {
+                subtitleWidth = 0
+            }
+
+            let indentWidth = CGFloat(depth) * outlineView.indentationPerLevel
+            let iconWidth: CGFloat = item.type == .group ? 0 : 20
+            let width = indentWidth + iconWidth + max(titleWidth, subtitleWidth)
+            maxWidth = max(maxWidth, width)
+
+            if !item.children.isEmpty {
+                maxWidth = max(maxWidth, maxLabelWidth(in: item.children, depth: depth + 1))
+            }
+        }
+
+        return maxWidth
     }
 
     /// Selects an item in the sidebar
@@ -364,7 +421,7 @@ public class SidebarViewController: NSViewController {
         fileSystemWatcher = nil
         projectURL = nil
         rootItems = []
-        outlineView.reloadData()
+        reloadOutlineView()
     }
 
     /// Reloads the sidebar from the filesystem.
@@ -377,7 +434,7 @@ public class SidebarViewController: NSViewController {
         guard let projectURL = projectURL else {
             logger.debug("reloadFromFilesystem: No project URL set")
             rootItems = []
-            outlineView.reloadData()
+            reloadOutlineView()
             return
         }
 
@@ -395,7 +452,7 @@ public class SidebarViewController: NSViewController {
         rootItems = buildRootItems(from: projectURL)
 
         // Reload the outline view
-        outlineView.reloadData()
+        reloadOutlineView()
 
         // Expand all folders at root level
         for item in rootItems where item.type == .folder {
@@ -724,7 +781,7 @@ public class SidebarViewController: NSViewController {
         openDocsGroup!.children.append(item)
         logger.info("addLoadedDocument: Added item to sidebar, reloading")
 
-        outlineView.reloadData()
+        reloadOutlineView()
 
         // Expand the open documents group and select the new item
         outlineView.expandItem(openDocsGroup)
@@ -810,7 +867,7 @@ public class SidebarViewController: NSViewController {
         downloadsFolder!.children.append(item)
         logger.info("addDownloadedDocument: Added '\(document.name, privacy: .public)' to Downloads folder, reloading")
 
-        outlineView.reloadData()
+        reloadOutlineView()
 
         // Expand the project and downloads folder, then select the new item
         outlineView.expandItem(projectItem)
@@ -915,7 +972,7 @@ public class SidebarViewController: NSViewController {
         rootItems.append(folderItem)
 
         logger.info("addProjectFolder: Reloading outline view with \(folderItem.children.count) children")
-        outlineView.reloadData()
+        reloadOutlineView()
 
         // Expand the folder to show contents
         outlineView.expandItem(folderItem)
@@ -1029,7 +1086,7 @@ public class SidebarViewController: NSViewController {
         }
 
         // Reload and select the new item
-        outlineView.reloadData()
+        reloadOutlineView()
         outlineView.expandItem(projectItem)
 
         let row = outlineView.row(forItem: docItem)
@@ -1390,7 +1447,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
             removeItemFromSidebar(item)
         }
 
-        outlineView.reloadData()
+        reloadOutlineView()
 
         // Show error if some items failed
         if !failedItems.isEmpty {
@@ -1592,6 +1649,8 @@ extension SidebarViewController: NSOutlineViewDelegate {
             cellView?.textField?.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
             cellView?.textField?.textColor = .secondaryLabelColor
             cellView?.imageView?.image = nil
+            cellView?.toolTip = nil
+            cellView?.textField?.toolTip = nil
         } else {
             cellView?.textField?.font = NSFont.systemFont(ofSize: 13)
             cellView?.textField?.textColor = .labelColor
@@ -1600,6 +1659,10 @@ extension SidebarViewController: NSOutlineViewDelegate {
                 cellView?.imageView?.image = NSImage(systemSymbolName: iconName, accessibilityDescription: sidebarItem.title)
                 cellView?.imageView?.contentTintColor = sidebarItem.type.tintColor
             }
+
+            let detail = sidebarItem.url?.path ?? sidebarItem.title
+            cellView?.toolTip = detail
+            cellView?.textField?.toolTip = detail
         }
 
         return cellView
@@ -2400,7 +2463,7 @@ extension SidebarViewController: NSMenuDelegate {
         guard let url = item.url else {
             // Item has no URL, just update the title (legacy behavior)
             item.title = newName
-            outlineView.reloadData()
+            reloadOutlineView()
             return
         }
 
@@ -2600,5 +2663,6 @@ public extension Notification.Name {
     static let sidebarSelectionChanged = Notification.Name("SidebarSelectionChanged")
     static let sidebarFileDropped = Notification.Name("SidebarFileDropped")
     static let sidebarFileDropCompleted = Notification.Name("SidebarFileDropCompleted")
+    static let sidebarPreferredWidthRecommended = Notification.Name("SidebarPreferredWidthRecommended")
     static let sidebarItemsDeleted = Notification.Name("SidebarItemsDeleted")
 }

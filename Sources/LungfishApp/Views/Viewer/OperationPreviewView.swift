@@ -1438,7 +1438,7 @@ final class OperationPreviewView: NSView {
             .font: NSFont.systemFont(ofSize: 12, weight: .medium),
             .foregroundColor: FASTQPalette.summaryText,
         ]
-        let titleStr = NSAttributedString(string: "Split reads by internal Illumina barcode", attributes: titleAttrs)
+        let titleStr = NSAttributedString(string: "Split reads by internal barcode signatures", attributes: titleAttrs)
         titleStr.draw(at: CGPoint(x: rect.midX - titleStr.size().width / 2, y: rect.minY))
 
         // Input reads (left side)

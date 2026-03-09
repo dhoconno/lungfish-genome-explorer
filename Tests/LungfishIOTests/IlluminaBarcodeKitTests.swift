@@ -14,7 +14,7 @@ final class IlluminaBarcodeKitTests: XCTestCase {
 
     func testBuiltinKitCount() {
         let kits = IlluminaBarcodeKitRegistry.builtinKits()
-        XCTAssertEqual(kits.count, 5)
+        XCTAssertEqual(kits.count, 6)
     }
 
     func testTruSeqSingleA() {
@@ -22,6 +22,7 @@ final class IlluminaBarcodeKitTests: XCTestCase {
         XCTAssertEqual(kit.id, "truseq-single-a")
         XCTAssertEqual(kit.barcodes.count, 12)
         XCTAssertFalse(kit.isDualIndexed)
+        XCTAssertEqual(kit.pairingMode, .singleEnd)
         XCTAssertEqual(kit.vendor, "illumina")
         XCTAssertEqual(kit.barcodes[0].id, "D701")
         XCTAssertEqual(kit.barcodes[0].i7Sequence, "ATTACTCG")
@@ -33,6 +34,7 @@ final class IlluminaBarcodeKitTests: XCTestCase {
         XCTAssertEqual(kit.id, "truseq-single-b")
         XCTAssertEqual(kit.barcodes.count, 8)
         XCTAssertFalse(kit.isDualIndexed)
+        XCTAssertEqual(kit.pairingMode, .singleEnd)
     }
 
     func testTruSeqHTDual() {
@@ -40,6 +42,7 @@ final class IlluminaBarcodeKitTests: XCTestCase {
         XCTAssertEqual(kit.id, "truseq-ht-dual")
         XCTAssertEqual(kit.barcodes.count, 96) // 12 i7 × 8 i5
         XCTAssertTrue(kit.isDualIndexed)
+        XCTAssertEqual(kit.pairingMode, .fixedDual)
         // Check first barcode is a combination
         XCTAssertEqual(kit.barcodes[0].id, "D701-D501")
         XCTAssertNotNil(kit.barcodes[0].i5Sequence)
@@ -50,6 +53,7 @@ final class IlluminaBarcodeKitTests: XCTestCase {
         XCTAssertEqual(kit.id, "nextera-xt-v2")
         XCTAssertEqual(kit.barcodes.count, 84) // 12 × 7
         XCTAssertTrue(kit.isDualIndexed)
+        XCTAssertEqual(kit.pairingMode, .fixedDual)
     }
 
     func testIDTUDIndexes() {
@@ -57,6 +61,22 @@ final class IlluminaBarcodeKitTests: XCTestCase {
         XCTAssertEqual(kit.id, "idt-ud-indexes")
         XCTAssertEqual(kit.barcodes.count, 24)
         XCTAssertTrue(kit.isDualIndexed)
+        XCTAssertEqual(kit.pairingMode, .fixedDual)
+    }
+
+    func testPacBioSequel384V1() {
+        let kit = IlluminaBarcodeKitRegistry.pacbioSequel384V1
+        XCTAssertEqual(kit.id, "pacbio-sequel-384-v1")
+        XCTAssertEqual(kit.vendor, "pacbio")
+        XCTAssertTrue(kit.isDualIndexed)
+        XCTAssertEqual(kit.pairingMode, .combinatorialDual)
+        XCTAssertEqual(kit.barcodes.count, 384)
+        XCTAssertEqual(kit.barcodes.first?.id, "bc1001")
+        XCTAssertEqual(kit.barcodes.first?.i7Sequence, "CACATATCAGAGTGCG")
+        XCTAssertEqual(kit.barcodes[1].id, "bc1002")
+        XCTAssertEqual(kit.barcodes[1].i7Sequence, "ACACACAGACTGTGAG")
+        XCTAssertEqual(kit.barcodes[49].id, "bc1050")
+        XCTAssertEqual(kit.barcodes[49].i7Sequence, "GATATACGCGAGAGAG")
     }
 
     func testKitLookupByID() {
@@ -90,6 +110,7 @@ final class IlluminaBarcodeKitTests: XCTestCase {
         XCTAssertEqual(kit.displayName, "My Custom Kit")
         XCTAssertEqual(kit.vendor, "custom")
         XCTAssertTrue(kit.isDualIndexed) // BC01 has i5
+        XCTAssertEqual(kit.pairingMode, .fixedDual)
         XCTAssertEqual(kit.barcodes.count, 3)
         XCTAssertEqual(kit.barcodes[0].id, "BC01")
         XCTAssertEqual(kit.barcodes[0].i7Sequence, "ACGTACGT")

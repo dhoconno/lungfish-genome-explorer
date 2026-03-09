@@ -6,6 +6,16 @@ import Foundation
 
 // MARK: - Illumina Barcode Definition
 
+/// How barcode sequences are paired within a read during demultiplexing.
+public enum BarcodePairingMode: String, Codable, Sendable, CaseIterable {
+    /// A single barcode sequence is used for assignment.
+    case singleEnd
+    /// Barcode entries define explicit forward/reverse pairs.
+    case fixedDual
+    /// Any two barcodes from the same set may form a valid asymmetric pair.
+    case combinatorialDual
+}
+
 /// A barcode kit definition for demultiplexing, supporting single- and dual-indexed kits.
 public struct IlluminaBarcodeDefinition: Codable, Sendable, Equatable, Identifiable {
     /// Unique identifier (e.g., "truseq-single-a").
@@ -20,6 +30,9 @@ public struct IlluminaBarcodeDefinition: Codable, Sendable, Equatable, Identifia
     /// Whether this kit uses dual indexing (i5 + i7).
     public let isDualIndexed: Bool
 
+    /// Pairing strategy for barcode assignment.
+    public let pairingMode: BarcodePairingMode
+
     /// Individual barcode entries.
     public let barcodes: [IlluminaBarcode]
 
@@ -28,13 +41,45 @@ public struct IlluminaBarcodeDefinition: Codable, Sendable, Equatable, Identifia
         displayName: String,
         vendor: String = "illumina",
         isDualIndexed: Bool = false,
+        pairingMode: BarcodePairingMode? = nil,
         barcodes: [IlluminaBarcode]
     ) {
         self.id = id
         self.displayName = displayName
         self.vendor = vendor
         self.isDualIndexed = isDualIndexed
+        self.pairingMode = pairingMode ?? (isDualIndexed ? .fixedDual : .singleEnd)
         self.barcodes = barcodes
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case displayName
+        case vendor
+        case isDualIndexed
+        case pairingMode
+        case barcodes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        vendor = try container.decodeIfPresent(String.self, forKey: .vendor) ?? "illumina"
+        isDualIndexed = try container.decodeIfPresent(Bool.self, forKey: .isDualIndexed) ?? false
+        pairingMode = try container.decodeIfPresent(BarcodePairingMode.self, forKey: .pairingMode)
+            ?? (isDualIndexed ? .fixedDual : .singleEnd)
+        barcodes = try container.decode([IlluminaBarcode].self, forKey: .barcodes)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(displayName, forKey: .displayName)
+        try container.encode(vendor, forKey: .vendor)
+        try container.encode(isDualIndexed, forKey: .isDualIndexed)
+        try container.encode(pairingMode, forKey: .pairingMode)
+        try container.encode(barcodes, forKey: .barcodes)
     }
 }
 
@@ -117,7 +162,7 @@ public enum IlluminaBarcodeKitRegistry {
 
     /// Returns all built-in barcode kit definitions.
     public static func builtinKits() -> [IlluminaBarcodeDefinition] {
-        [truseqSingleA, truseqSingleB, truseqHTDual, nexteraXTv2, idtUDIndexes]
+        [truseqSingleA, truseqSingleB, truseqHTDual, nexteraXTv2, idtUDIndexes, pacbioSequel384V1]
     }
 
     /// Looks up a built-in kit by ID.
@@ -176,6 +221,7 @@ public enum IlluminaBarcodeKitRegistry {
             displayName: name,
             vendor: "custom",
             isDualIndexed: isDualIndexed,
+            pairingMode: isDualIndexed ? .fixedDual : .singleEnd,
             barcodes: barcodes
         )
     }
@@ -331,6 +377,7 @@ public enum IlluminaBarcodeKitRegistry {
             id: "truseq-ht-dual",
             displayName: "TruSeq HT Dual Index (96 combinations)",
             isDualIndexed: true,
+            pairingMode: .fixedDual,
             barcodes: barcodes
         )
     }()
@@ -340,6 +387,7 @@ public enum IlluminaBarcodeKitRegistry {
         id: "nextera-xt-v2",
         displayName: "Nextera XT Index Kit v2",
         isDualIndexed: true,
+        pairingMode: .fixedDual,
         barcodes: {
             let i7s: [(String, String)] = [
                 ("N701", "TAAGGCGA"), ("N702", "CGTACTAG"),
@@ -375,6 +423,7 @@ public enum IlluminaBarcodeKitRegistry {
         id: "idt-ud-indexes",
         displayName: "IDT for Illumina UD Indexes (96 pairs)",
         isDualIndexed: true,
+        pairingMode: .fixedDual,
         barcodes: {
             // Representative subset — first 24 pairs (A01-A24).
             // Full kit has 96 unique pairs.
@@ -410,4 +459,46 @@ public enum IlluminaBarcodeKitRegistry {
             }
         }()
     )
+
+    /// PacBio Sequel 384 barcodes (`bc1001`-`bc1384`) as a combinatorial asymmetric set.
+    ///
+    /// Source: Pacific Biosciences "Sequel_384_barcodes_v1.fasta".
+    public static let pacbioSequel384V1: IlluminaBarcodeDefinition = {
+        let barcodes = parseFASTARecords(PacBioBarcodeData.sequel384V1FASTA)
+        return IlluminaBarcodeDefinition(
+            id: "pacbio-sequel-384-v1",
+            displayName: "PacBio Sequel 384 (v1)",
+            vendor: "pacbio",
+            isDualIndexed: true,
+            pairingMode: .combinatorialDual,
+            barcodes: barcodes
+        )
+    }()
+
+    private static func parseFASTARecords(_ fasta: String) -> [IlluminaBarcode] {
+        var parsed: [IlluminaBarcode] = []
+        var currentID: String?
+        var sequenceLines: [String] = []
+
+        func flushCurrent() {
+            guard let currentID else { return }
+            let sequence = sequenceLines.joined().trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            guard !sequence.isEmpty else { return }
+            parsed.append(IlluminaBarcode(id: currentID, i7Sequence: sequence))
+        }
+
+        for rawLine in fasta.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+            if line.hasPrefix(">") {
+                flushCurrent()
+                currentID = String(line.dropFirst()).trimmingCharacters(in: .whitespaces)
+                sequenceLines = []
+            } else {
+                sequenceLines.append(line)
+            }
+        }
+        flushCurrent()
+        return parsed
+    }
 }

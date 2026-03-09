@@ -3,6 +3,24 @@ import XCTest
 @testable import LungfishWorkflow
 
 final class DemultiplexingPipelineTests: XCTestCase {
+    private func makeTempDir() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DemultiplexingPipelineTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func writeFASTQ(sequences: [String], to url: URL) throws {
+        var lines: [String] = []
+        lines.reserveCapacity(sequences.count * 4)
+        for (idx, sequence) in sequences.enumerated() {
+            lines.append("@read_\(idx)")
+            lines.append(sequence)
+            lines.append("+")
+            lines.append(String(repeating: "I", count: sequence.count))
+        }
+        try lines.joined(separator: "\n").appending("\n").write(to: url, atomically: true, encoding: .utf8)
+    }
 
     // MARK: - NativeTool.cutadapt Registration
 
@@ -96,5 +114,53 @@ final class DemultiplexingPipelineTests: XCTestCase {
         XCTAssertEqual(config.minimumOverlap, 5)
         XCTAssertFalse(config.trimBarcodes)
         XCTAssertEqual(config.threads, 8)
+    }
+
+    func testFixedDualLinkedAdaptersMatchBothOrientations() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let inputFASTQ = dir.appendingPathComponent("input.fastq")
+        try writeFASTQ(
+            sequences: [
+                "ACGTACGTAAAAAATGCATGCA",   // i7 ... i5
+                "TGCATGCATTTTTTACGTACGT",   // i5 ... i7 (swapped orientation)
+                "GGGGGGGGCCCCCCCC",         // unassigned
+            ],
+            to: inputFASTQ
+        )
+
+        let outputDir = dir.appendingPathComponent("demux-out", isDirectory: true)
+        let kit = IlluminaBarcodeDefinition(
+            id: "fixed-dual-test",
+            displayName: "Fixed Dual Test",
+            vendor: "custom",
+            isDualIndexed: true,
+            pairingMode: .fixedDual,
+            barcodes: [
+                IlluminaBarcode(id: "P01", i7Sequence: "ACGTACGT", i5Sequence: "TGCATGCA"),
+            ]
+        )
+
+        let pipeline = DemultiplexingPipeline()
+        let result = try await pipeline.run(
+            config: DemultiplexConfig(
+                inputURL: inputFASTQ,
+                barcodeKit: kit,
+                outputDirectory: outputDir,
+                barcodeLocation: .anywhere,
+                errorRate: 0.0,
+                minimumOverlap: 8,
+                trimBarcodes: true,
+                threads: 1
+            ),
+            progress: { _, _ in }
+        )
+
+        XCTAssertEqual(result.manifest.inputReadCount, 3)
+        XCTAssertEqual(result.manifest.barcodes.count, 1)
+        XCTAssertEqual(result.manifest.barcodes.first?.barcodeID, "P01")
+        XCTAssertEqual(result.manifest.barcodes.first?.readCount, 2)
+        XCTAssertEqual(result.manifest.unassigned.readCount, 1)
     }
 }

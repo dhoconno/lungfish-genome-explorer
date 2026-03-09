@@ -100,9 +100,9 @@ public class MainSplitViewController: NSSplitViewController {
     /// Minimum sidebar width
     private let sidebarMinWidth: CGFloat = 180
     /// Default sidebar width
-    private let sidebarDefaultWidth: CGFloat = 220
+    private let sidebarDefaultWidth: CGFloat = 240
     /// Maximum sidebar width
-    private let sidebarMaxWidth: CGFloat = 350
+    private let sidebarMaxWidth: CGFloat = 720
 
     /// Minimum inspector width
     private let inspectorMinWidth: CGFloat = 200
@@ -124,6 +124,11 @@ public class MainSplitViewController: NSSplitViewController {
         configureActivityIndicator()
         configureNotifications()
         restorePanelState()
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                self?.applySidebarPreferredWidth(self?.sidebarDefaultWidth ?? 240, allowShrink: true)
+            }
+        }
         logger.info("viewDidLoad: MainSplitViewController setup complete")
     }
 
@@ -247,6 +252,14 @@ public class MainSplitViewController: NSSplitViewController {
             self,
             selector: #selector(handleSidebarFileDropped(_:)),
             name: .sidebarFileDropped,
+            object: nil
+        )
+
+        // Listen for sidebar width recommendations based on current filename lengths.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleSidebarPreferredWidthRecommended(_:)),
+            name: .sidebarPreferredWidthRecommended,
             object: nil
         )
 
@@ -797,6 +810,23 @@ public class MainSplitViewController: NSSplitViewController {
             object: self,
             userInfo: userInfo
         )
+    }
+
+    @objc private func handleSidebarPreferredWidthRecommended(_ notification: Notification) {
+        guard let rawWidth = notification.userInfo?["width"] as? CGFloat else { return }
+        applySidebarPreferredWidth(rawWidth, allowShrink: false)
+    }
+
+    private func applySidebarPreferredWidth(_ width: CGFloat, allowShrink: Bool) {
+        guard splitView.subviews.count > 1 else { return }
+        guard !sidebarItem.isCollapsed else { return }
+
+        let clamped = min(max(width, sidebarMinWidth), sidebarMaxWidth)
+        let current = splitView.subviews[0].frame.width
+        let target = allowShrink ? clamped : max(current, clamped)
+        guard abs(target - current) >= 1 else { return }
+
+        splitView.setPosition(target, ofDividerAt: 0)
     }
 
     // MARK: - Panel State
