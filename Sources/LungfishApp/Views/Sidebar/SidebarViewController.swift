@@ -124,6 +124,11 @@ public class SidebarViewController: NSViewController {
     /// Last width recommendation posted to the split-view controller.
     private var lastRecommendedSidebarWidth: CGFloat = 0
 
+    /// Local event monitor for Delete key — stored so it can be removed in deinit.
+    /// `nonisolated(unsafe)` because deinit is nonisolated in Swift 6.2, but we only
+    /// mutate this on the main actor (viewDidLoad) and read it in deinit (safe at teardown).
+    nonisolated(unsafe) private var keyEventMonitor: Any?
+
     // MARK: - Delegate
 
     /// Delegate for selection change callbacks.
@@ -210,6 +215,12 @@ public class SidebarViewController: NSViewController {
         self.view = containerView
     }
 
+    deinit {
+        if let monitor = keyEventMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
+
     public override func viewDidLoad() {
         super.viewDidLoad()
 
@@ -220,7 +231,7 @@ public class SidebarViewController: NSViewController {
         loadSampleData()
 
         // Set up key event monitoring for Delete key
-        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self = self,
                   let sidebarWindow = self.view.window,
                   event.window === sidebarWindow,  // Ensure event is for THIS window, not sheets

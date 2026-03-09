@@ -243,18 +243,31 @@ final class AboutWindowController: NSWindowController {
         appendHeading("Embedded Tools")
 
         let versions = NativeToolRunner.bundledVersions
-        let embeddedTools: [(String, String, String)] = [
-            ("SAMtools", versions["samtools"] ?? "?", "MIT"),
-            ("HTSlib", versions["htslib"] ?? "?", "MIT"),
-            ("BCFtools", versions["bcftools"] ?? "?", "MIT"),
-            ("UCSC Genome Browser Tools", "v\(versions["ucsc-tools"] ?? "?")", "MIT"),
-            ("SeqKit", versions["seqkit"] ?? "?", "MIT"),
-            ("fastp", versions["fastp"] ?? "?", "MIT"),
-            ("cutadapt", versions["cutadapt"] ?? "?", "MIT"),
-            ("BBTools", versions["bbtools"] ?? "?", "BBMap License"),
-            ("VSEARCH", versions["vsearch"] ?? "?", "BSD-2-Clause / GPL-3.0"),
-            ("pigz", versions["pigz"] ?? "?", "zlib"),
-            ("OpenJDK Runtime (Temurin)", versions["openjdk"] ?? "?", "GPL-2.0 w/ Classpath"),
+
+        // (display name, version, license, GitHub/source URL)
+        let embeddedTools: [(String, String, String, String)] = [
+            ("SAMtools", versions["samtools"] ?? "1.22.1", "MIT",
+             "https://github.com/samtools/samtools"),
+            ("HTSlib", versions["htslib"] ?? "1.22.1", "MIT",
+             "https://github.com/samtools/htslib"),
+            ("BCFtools", versions["bcftools"] ?? "1.22", "MIT",
+             "https://github.com/samtools/bcftools"),
+            ("UCSC Genome Browser Tools", "v\(versions["ucsc-tools"] ?? "469")", "MIT",
+             "https://github.com/ucscGenomeBrowser/kent"),
+            ("SeqKit", versions["seqkit"] ?? "2.9.0", "MIT",
+             "https://github.com/shenwei356/seqkit"),
+            ("fastp", versions["fastp"] ?? "1.1.0", "MIT",
+             "https://github.com/OpenGene/fastp"),
+            ("cutadapt", versions["cutadapt"] ?? "4.9", "MIT",
+             "https://github.com/marcelm/cutadapt"),
+            ("BBTools", versions["bbtools"] ?? "39.13", "BBMap License",
+             "https://sourceforge.net/projects/bbmap/"),
+            ("VSEARCH", versions["vsearch"] ?? "2.29.2", "BSD-2-Clause",
+             "https://github.com/torognes/vsearch"),
+            ("pigz", versions["pigz"] ?? "2.8", "zlib",
+             "https://github.com/madler/pigz"),
+            ("OpenJDK Runtime (Temurin)", versions["openjdk"] ?? "21.0.10", "GPL-2.0 w/ Classpath Exception",
+             "https://github.com/adoptium/temurin-build"),
         ]
 
         let versionStyle: [NSAttributedString.Key: Any] = [
@@ -263,28 +276,48 @@ final class AboutWindowController: NSWindowController {
             .paragraphStyle: centered,
         ]
 
-        for (name, version, license) in embeddedTools {
+        let linkStyle: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 10),
+            .foregroundColor: NSColor.linkColor,
+            .paragraphStyle: centered,
+            .underlineStyle: NSUnderlineStyle.single.rawValue,
+        ]
+
+        for (name, version, license, urlString) in embeddedTools {
             credits.append(NSAttributedString(string: "\(name) \(version)", attributes: bodyStyle))
             credits.append(NSAttributedString(string: "  \(license)\n", attributes: versionStyle))
+            if let url = URL(string: urlString) {
+                var attrs = linkStyle
+                attrs[.link] = url
+                credits.append(NSAttributedString(string: "\(urlString)\n", attributes: attrs))
+            }
         }
 
         // Other Open Source Dependencies
         appendHeading("Other Open Source")
-        let otherDeps: [(String, String)] = [
-            ("minimap2", "MIT"),
-            ("BWA", "GPL-3.0"),
-            ("SPAdes", "GPL-2.0"),
-            ("FastQC / MultiQC", "GPL / GPL-3.0"),
-            ("Swift Argument Parser", "Apache 2.0"),
-            ("Swift Collections", "Apache 2.0"),
-            ("Swift Algorithms", "Apache 2.0"),
-            ("Swift System", "Apache 2.0"),
-            ("Swift Async Algorithms", "Apache 2.0"),
-            ("Apple Containerization", "Apache 2.0"),
+
+        // (display name, license, GitHub/source URL)
+        let otherDeps: [(String, String, String?)] = [
+            ("minimap2", "MIT", "https://github.com/lh3/minimap2"),
+            ("BWA", "GPL-3.0", "https://github.com/lh3/bwa"),
+            ("SPAdes", "GPL-2.0", "https://github.com/ablab/spades"),
+            ("FastQC", "GPL-2.0", "https://github.com/s-andrews/FastQC"),
+            ("MultiQC", "GPL-3.0", "https://github.com/MultiQC/MultiQC"),
+            ("Swift Argument Parser", "Apache 2.0", "https://github.com/apple/swift-argument-parser"),
+            ("Swift Collections", "Apache 2.0", "https://github.com/apple/swift-collections"),
+            ("Swift Algorithms", "Apache 2.0", "https://github.com/apple/swift-algorithms"),
+            ("Swift System", "Apache 2.0", "https://github.com/apple/swift-system"),
+            ("Swift Async Algorithms", "Apache 2.0", "https://github.com/apple/swift-async-algorithms"),
+            ("Apple Containerization", "Apache 2.0", "https://github.com/apple/containerization"),
         ]
-        for (name, license) in otherDeps {
+        for (name, license, urlString) in otherDeps {
             credits.append(NSAttributedString(string: name, attributes: bodyStyle))
             credits.append(NSAttributedString(string: "  \(license)\n", attributes: secondaryStyle))
+            if let urlString, let url = URL(string: urlString) {
+                var attrs = linkStyle
+                attrs[.link] = url
+                credits.append(NSAttributedString(string: "\(urlString)\n", attributes: attrs))
+            }
         }
 
         // Data Sources

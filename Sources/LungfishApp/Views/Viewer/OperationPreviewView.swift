@@ -127,7 +127,6 @@ final class OperationPreviewView: NSView {
     private(set) var operationKind: OperationKind = .none
     var parameters = Parameters() { didSet { needsDisplay = true } }
     private var statistics: FASTQDatasetStatistics?
-    private var animationProgress: CGFloat = 1.0
     private let fastaScrollView = NSScrollView()
     private let fastaTextView = NSTextView()
     private var showsFASTAPreview = true
@@ -384,16 +383,8 @@ final class OperationPreviewView: NSView {
         let threshold = parameters.qualityThreshold
         let windowSize = parameters.windowSize
 
-        // Generate a synthetic quality profile (Q35 tapering to Q5)
-        var qualities: [Int] = (0..<readLength).map { pos in
-            let fraction = Double(pos) / Double(readLength - 1)
-            let q = Int(35.0 - fraction * 30.0 + Double.random(in: -3...3))
-            return max(2, min(40, q))
-        }
-        qualities.sort { a, b in false } // keep original order — the random is seeded implicitly
-
-        // Simple deterministic quality profile
-        qualities = (0..<readLength).map { pos in
+        // Deterministic quality profile (Q35 tapering to Q3)
+        let qualities: [Int] = (0..<readLength).map { pos in
             let fraction = Double(pos) / Double(readLength - 1)
             return max(2, min(40, Int(35.0 - fraction * 32.0)))
         }

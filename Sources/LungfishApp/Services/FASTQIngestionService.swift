@@ -180,20 +180,26 @@ public enum FASTQIngestionService {
                 ? "Clumpified and compressed (saved \(savedStr))"
                 : "Compressed (saved \(savedStr))"
 
-            await MainActor.run {
-                OperationCenter.shared.complete(id: opID, detail: detail, bundleURLs: [])
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    OperationCenter.shared.complete(id: opID, detail: detail, bundleURLs: [])
+                }
             }
 
             logger.info("Ingestion complete: \(result.outputFile.lastPathComponent)")
 
         } catch is CancellationError {
-            await MainActor.run {
-                OperationCenter.shared.fail(id: opID, detail: "Cancelled")
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    OperationCenter.shared.fail(id: opID, detail: "Cancelled")
+                }
             }
         } catch {
             logger.error("Ingestion failed: \(error)")
-            await MainActor.run {
-                OperationCenter.shared.fail(id: opID, detail: "\(error)")
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    OperationCenter.shared.fail(id: opID, detail: "\(error)")
+                }
             }
         }
     }

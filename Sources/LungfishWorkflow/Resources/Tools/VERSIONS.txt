@@ -12,7 +12,7 @@ Versions:
 - pigz: 2.8 (zlib license)
 - seqkit: 2.9.0 (MIT license)
 - fastp: 1.1.0 (MIT license)
-- vsearch: 2.29.2 (BSD-2-Clause / GPL-3.0-or-later)
+- vsearch: 2.29.2 (BSD-2-Clause; dual-licensed, BSD-2-Clause elected)
 - cutadapt: 4.9 (MIT license)
 - bbtools (clumpify.sh): 39.13 (BBMap license)
 - openjdk runtime (temurin jre): 21.0.10 (GPL-2.0 with Classpath Exception)
