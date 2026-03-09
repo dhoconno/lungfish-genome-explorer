@@ -32,6 +32,7 @@ public final class FASTQDatasetViewController: NSViewController {
         case pairedEndRepair
         case primerRemoval
         case errorCorrection
+        case demultiplex
 
         var title: String {
             switch self {
@@ -49,6 +50,7 @@ public final class FASTQDatasetViewController: NSViewController {
             case .pairedEndRepair: return "Repair Paired Reads"
             case .primerRemoval: return "Custom Primer Removal"
             case .errorCorrection: return "Error Correction"
+            case .demultiplex: return "Demultiplex (Illumina Barcodes)"
             }
         }
 
@@ -68,6 +70,7 @@ public final class FASTQDatasetViewController: NSViewController {
             case .pairedEndRepair: return "wrench.and.screwdriver"
             case .primerRemoval: return "xmark.seal"
             case .errorCorrection: return "wand.and.stars"
+            case .demultiplex: return "barcode"
             }
         }
 
@@ -79,6 +82,7 @@ public final class FASTQDatasetViewController: NSViewController {
             case .errorCorrection: return "CORRECTION"
             case .pairedEndMerge, .pairedEndRepair: return "REFORMATTING"
             case .searchText, .searchMotif: return "SEARCH"
+            case .demultiplex: return "DEMULTIPLEXING"
             }
         }
 
@@ -98,6 +102,7 @@ public final class FASTQDatasetViewController: NSViewController {
             case .pairedEndRepair: return .pairedEndRepair
             case .primerRemoval: return .primerRemoval
             case .errorCorrection: return .errorCorrection
+            case .demultiplex: return .demultiplex
             }
         }
     }
@@ -110,6 +115,7 @@ public final class FASTQDatasetViewController: NSViewController {
         ("TRIMMING", [.qualityTrim, .adapterTrim, .fixedTrim, .primerRemoval]),
         ("FILTERING", [.lengthFilter, .contaminantFilter, .deduplicate]),
         ("CORRECTION", [.errorCorrection]),
+        ("DEMULTIPLEXING", [.demultiplex]),
         ("REFORMATTING", [.pairedEndMerge, .pairedEndRepair]),
         ("SEARCH", [.searchText, .searchMotif]),
     ]
@@ -168,6 +174,9 @@ public final class FASTQDatasetViewController: NSViewController {
     private let mergeStrictnessPopup = NSPopUpButton()
     private let primerSourcePopup = NSPopUpButton()
     private let interleaveDirectionPopup = NSPopUpButton()
+    private let demuxKitPopup = NSPopUpButton()
+    private let demuxLocationPopup = NSPopUpButton()
+    private let demuxTrimCheckbox = NSButton(checkboxWithTitle: "Trim barcodes", target: nil, action: nil)
 
     // MARK: - Lifecycle
 
@@ -620,6 +629,28 @@ public final class FASTQDatasetViewController: NSViewController {
             fieldOneInput.placeholderString = "50"
             parameterBar.addArrangedSubview(fieldOneLabel)
             parameterBar.addArrangedSubview(fieldOneInput)
+
+        case .demultiplex:
+            if demuxKitPopup.numberOfItems == 0 {
+                demuxKitPopup.addItems(withTitles: [
+                    "TruSeq Single A (D701-D712)",
+                    "TruSeq Single B (D501-D508)",
+                    "TruSeq HT Dual (96)",
+                    "Nextera XT v2 (84)",
+                    "IDT UD Indexes (24)",
+                ])
+            }
+            if demuxLocationPopup.numberOfItems == 0 {
+                demuxLocationPopup.addItems(withTitles: ["Anywhere", "5' End", "3' End"])
+            }
+            demuxTrimCheckbox.state = .on
+            fieldOneLabel.stringValue = "Error Rate:"
+            fieldOneInput.placeholderString = "0.15"
+            parameterBar.addArrangedSubview(demuxKitPopup)
+            parameterBar.addArrangedSubview(demuxLocationPopup)
+            parameterBar.addArrangedSubview(fieldOneLabel)
+            parameterBar.addArrangedSubview(fieldOneInput)
+            parameterBar.addArrangedSubview(demuxTrimCheckbox)
         }
 
         // Add spacer to push controls left
@@ -1019,6 +1050,23 @@ public final class FASTQDatasetViewController: NSViewController {
                 return nil
             }
             return .errorCorrection(kmerSize: kmerSize)
+
+        case .demultiplex:
+            let kitIDs = ["truseq-single-a", "truseq-single-b", "truseq-ht-dual", "nextera-xt-v2", "idt-ud-indexes"]
+            let kitID = kitIDs[demuxKitPopup.indexOfSelectedItem]
+            let location: String
+            switch demuxLocationPopup.indexOfSelectedItem {
+            case 1: location = "fivePrime"
+            case 2: location = "threePrime"
+            default: location = "anywhere"
+            }
+            let errorRate = Double(fieldOneInput.stringValue) ?? 0.15
+            guard errorRate >= 0, errorRate <= 1 else {
+                setStatus("Error rate must be between 0 and 1.")
+                return nil
+            }
+            let trim = demuxTrimCheckbox.state == .on
+            return .demultiplex(kitID: kitID, customCSVPath: nil, location: location, errorRate: errorRate, trimBarcodes: trim)
         }
     }
 
@@ -1055,6 +1103,8 @@ public final class FASTQDatasetViewController: NSViewController {
             return "Error correction (k=\(kmerSize))"
         case .interleaveReformat(let direction):
             return direction == .interleave ? "Interleave R1/R2" : "Deinterleave to R1/R2"
+        case .demultiplex(let kitID, _, let location, let errorRate, _):
+            return "Demultiplex (\(kitID), \(location), e=\(String(format: "%.2f", errorRate)))"
         }
     }
 

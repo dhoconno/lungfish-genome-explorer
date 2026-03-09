@@ -299,7 +299,7 @@ final class FASTQSparklineStrip: NSView {
 
         let popover = NSPopover()
         popover.behavior = .semitransient
-        popover.contentSize = NSSize(width: 360, height: 280)
+        popover.contentSize = NSSize(width: 560, height: 340)
 
         let chartView: NSView
         switch kind {

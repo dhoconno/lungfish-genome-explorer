@@ -99,6 +99,7 @@ final class OperationPreviewView: NSView {
         case primerRemoval
         case searchText
         case searchMotif
+        case demultiplex
         case none
     }
 
@@ -189,6 +190,8 @@ final class OperationPreviewView: NSView {
             drawPrimerRemovalPreview(ctx: ctx, rect: rect)
         case .searchText, .searchMotif:
             drawSearchPreview(ctx: ctx, rect: rect)
+        case .demultiplex:
+            drawDemultiplexPreview(ctx: ctx, rect: rect)
         case .none:
             drawIdleState(ctx: ctx, rect: rect)
         }
@@ -1425,6 +1428,113 @@ final class OperationPreviewView: NSView {
         ]
         NSAttributedString(string: label, attributes: labelAttrs)
             .draw(at: CGPoint(x: x + 4, y: rect.minY + 20))
+    }
+
+    // MARK: - Demultiplex Preview
+
+    private func drawDemultiplexPreview(ctx: CGContext, rect: CGRect) {
+        // Title
+        let titleAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+            .foregroundColor: FASTQPalette.summaryText,
+        ]
+        let titleStr = NSAttributedString(string: "Split reads by internal Illumina barcode", attributes: titleAttrs)
+        titleStr.draw(at: CGPoint(x: rect.midX - titleStr.size().width / 2, y: rect.minY))
+
+        // Input reads (left side)
+        let inputX = rect.minX + 8
+        let outputX = rect.midX + 40
+        let readY = rect.minY + 28
+        let rowH: CGFloat = 16
+        let readW = rect.midX - 30
+
+        let barcodeColors: [NSColor] = [
+            .systemBlue, .systemGreen, .systemOrange, .systemPurple, .systemRed
+        ]
+        let barcodeLabels = ["D701", "D702", "D703", "D701", "D702", "unassigned", "D703", "D701"]
+
+        // Draw input reads with embedded barcode regions
+        let inputLabel = NSAttributedString(string: "Input FASTQ", attributes: [
+            .font: NSFont.systemFont(ofSize: 9, weight: .semibold),
+            .foregroundColor: FASTQPalette.secondaryText,
+        ])
+        inputLabel.draw(at: CGPoint(x: inputX, y: readY - 14))
+
+        for (i, bc) in barcodeLabels.prefix(6).enumerated() {
+            let y = readY + CGFloat(i) * rowH
+            guard y + readHeight <= rect.maxY - 10 else { break }
+
+            let isUnassigned = bc == "unassigned"
+            let bcIndex = ["D701", "D702", "D703"].firstIndex(of: bc) ?? -1
+            let color = isUnassigned ? FASTQPalette.dimText : barcodeColors[bcIndex]
+
+            // Read body
+            ctx.setFillColor(FASTQPalette.readFill.withAlphaComponent(0.15).cgColor)
+            let readRect = CGRect(x: inputX, y: y, width: readW, height: readHeight)
+            ctx.fill(readRect)
+
+            // Barcode region (small colored segment)
+            let bcWidth: CGFloat = 28
+            let bcX = inputX + readW * 0.15
+            ctx.setFillColor(color.withAlphaComponent(isUnassigned ? 0.2 : 0.5).cgColor)
+            ctx.fill(CGRect(x: bcX, y: y, width: bcWidth, height: readHeight))
+
+            // Barcode label
+            let bcAttrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedSystemFont(ofSize: 7, weight: .medium),
+                .foregroundColor: isUnassigned ? FASTQPalette.dimText : color,
+            ]
+            NSAttributedString(string: bc, attributes: bcAttrs)
+                .draw(at: CGPoint(x: bcX + bcWidth + 2, y: y + 1))
+        }
+
+        // Arrow
+        let arrowY = readY + 2 * rowH
+        ctx.setStrokeColor(FASTQPalette.secondaryText.cgColor)
+        ctx.setLineWidth(1.5)
+        let arrowStartX = inputX + readW + 4
+        let arrowEndX = outputX - 4
+        ctx.move(to: CGPoint(x: arrowStartX, y: arrowY + readHeight / 2))
+        ctx.addLine(to: CGPoint(x: arrowEndX, y: arrowY + readHeight / 2))
+        ctx.addLine(to: CGPoint(x: arrowEndX - 6, y: arrowY + readHeight / 2 - 4))
+        ctx.move(to: CGPoint(x: arrowEndX, y: arrowY + readHeight / 2))
+        ctx.addLine(to: CGPoint(x: arrowEndX - 6, y: arrowY + readHeight / 2 + 4))
+        ctx.strokePath()
+
+        // Output bundles (right side)
+        let outputLabel = NSAttributedString(string: "Per-Barcode Bundles", attributes: [
+            .font: NSFont.systemFont(ofSize: 9, weight: .semibold),
+            .foregroundColor: FASTQPalette.secondaryText,
+        ])
+        outputLabel.draw(at: CGPoint(x: outputX, y: readY - 14))
+
+        let outputBarcodes = ["D701", "D702", "D703"]
+        let bundleW = rect.maxX - outputX - 8
+        for (i, bc) in outputBarcodes.enumerated() {
+            let y = readY + CGFloat(i) * (rowH * 1.6)
+            guard y + readHeight + 4 <= rect.maxY else { break }
+
+            let color = barcodeColors[i]
+
+            // Bundle box
+            ctx.setFillColor(color.withAlphaComponent(0.1).cgColor)
+            let bundleRect = CGRect(x: outputX, y: y, width: bundleW, height: readHeight + 4)
+            let bundlePath = CGPath(roundedRect: bundleRect, cornerWidth: 3, cornerHeight: 3, transform: nil)
+            ctx.addPath(bundlePath)
+            ctx.fillPath()
+            ctx.setStrokeColor(color.withAlphaComponent(0.4).cgColor)
+            ctx.setLineWidth(1)
+            ctx.addPath(bundlePath)
+            ctx.strokePath()
+
+            // Bundle label
+            let bundleAttrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .semibold),
+                .foregroundColor: color,
+            ]
+            NSAttributedString(string: "\(bc).lungfishfastq", attributes: bundleAttrs)
+                .draw(at: CGPoint(x: outputX + 6, y: y + 2))
+        }
     }
 
     private func drawHatch(ctx: CGContext, rect: CGRect) {

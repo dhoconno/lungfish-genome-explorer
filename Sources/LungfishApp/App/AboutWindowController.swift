@@ -250,6 +250,7 @@ final class AboutWindowController: NSWindowController {
             ("UCSC Genome Browser Tools", "v\(versions["ucsc-tools"] ?? "?")", "MIT"),
             ("SeqKit", versions["seqkit"] ?? "?", "MIT"),
             ("fastp", versions["fastp"] ?? "?", "MIT"),
+            ("cutadapt", versions["cutadapt"] ?? "?", "MIT"),
             ("BBTools", versions["bbtools"] ?? "?", "BBMap License"),
             ("VSEARCH", versions["vsearch"] ?? "?", "BSD-2-Clause / GPL-3.0"),
             ("pigz", versions["pigz"] ?? "?", "zlib"),

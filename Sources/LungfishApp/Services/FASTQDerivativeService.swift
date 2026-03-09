@@ -31,6 +31,9 @@ public enum FASTQDerivativeRequest: Sendable {
     case errorCorrection(kmerSize: Int)
     case interleaveReformat(direction: FASTQInterleaveDirection)
 
+    // Demultiplexing (produces per-barcode bundles)
+    case demultiplex(kitID: String, customCSVPath: String?, location: String, errorRate: Double, trimBarcodes: Bool)
+
     /// Whether this request produces a trim derivative (vs subset).
     var isTrimOperation: Bool {
         switch self {
@@ -40,7 +43,7 @@ public enum FASTQDerivativeRequest: Sendable {
              .searchText, .searchMotif, .deduplicate, .contaminantFilter:
             return false
         case .pairedEndMerge, .pairedEndRepair, .primerRemoval,
-             .errorCorrection, .interleaveReformat:
+             .errorCorrection, .interleaveReformat, .demultiplex:
             return false
         }
     }
@@ -49,7 +52,7 @@ public enum FASTQDerivativeRequest: Sendable {
     var isFullOperation: Bool {
         switch self {
         case .pairedEndMerge, .pairedEndRepair, .primerRemoval,
-             .errorCorrection, .interleaveReformat:
+             .errorCorrection, .interleaveReformat, .demultiplex:
             return true
         default:
             return false
@@ -67,7 +70,7 @@ public enum FASTQDerivativeRequest: Sendable {
     /// Whether this operation produces multiple classified output files (mixed read types).
     var isMixedOutputOperation: Bool {
         switch self {
-        case .pairedEndMerge, .pairedEndRepair:
+        case .pairedEndMerge, .pairedEndRepair, .demultiplex:
             return true
         default:
             return false
@@ -777,6 +780,17 @@ public actor FASTQDerivativeService {
                 interleaveDirection: direction,
                 toolUsed: "reformat",
                 toolCommand: result.toolCommand
+            )
+
+        case .demultiplex(let kitID, _, _, let errorRate, let trimBarcodes):
+            // Demultiplexing is handled by DemultiplexingPipeline via the batch processing engine.
+            // This case creates a placeholder operation record; the actual work is done by
+            // the pipeline which produces per-barcode bundles in the output directory.
+            return FASTQDerivativeOperation(
+                kind: .demultiplex,
+                barcodeID: kitID,
+                toolUsed: "cutadapt",
+                toolCommand: "cutadapt demultiplex --kit \(kitID) -e \(errorRate) --trim \(trimBarcodes)"
             )
         }
     }
