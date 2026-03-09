@@ -93,6 +93,7 @@ cat > "$SPEC_FILE" << 'PYSPEC'
 # -*- mode: python ; coding: utf-8 -*-
 import importlib
 import os
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 # Collect cutadapt and its native extensions
 block_cipher = None
@@ -109,33 +110,12 @@ a = Analysis(
     [os.path.join(cutadapt_dir, '__main__.py')],
     pathex=[],
     binaries=[],
-    datas=[],
-    hiddenimports=[
-        'cutadapt',
-        'cutadapt.cli',
-        'cutadapt.adapters',
-        'cutadapt.modifiers',
-        'cutadapt.filters',
-        'cutadapt.report',
-        'cutadapt.steps',
-        'cutadapt.utils',
-        'cutadapt.pipeline',
-        'cutadapt.runners',
-        'cutadapt.files',
-        'cutadapt.info',
-        'cutadapt.json',
-        'cutadapt.log',
-        'cutadapt.qualtrim',
-        'cutadapt.tokenizer',
-        'dnaio',
-        'dnaio.readers',
-        'dnaio.writers',
-        'dnaio._core',
-        'xopen',
-        'isal',
-        'isal.igzip',
-        'isal.isal_zlib',
-    ],
+    datas=collect_data_files('cutadapt'),
+    hiddenimports=(
+        collect_submodules('cutadapt')
+        + collect_submodules('dnaio')
+        + ['xopen', 'isal']
+    ),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

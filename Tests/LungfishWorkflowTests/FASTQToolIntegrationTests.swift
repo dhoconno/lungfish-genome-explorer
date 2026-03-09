@@ -230,6 +230,26 @@ final class FASTQToolIntegrationTests: XCTestCase {
         XCTAssertEqual(count, 2, "Should have 2 unique sequences after dedup")
     }
 
+    func testSeqkitSearchByIdentifier() async throws {
+        let outputURL = tempDir.appendingPathComponent("search_by_id.fastq")
+        let result = try await runner.run(.seqkit, arguments: [
+            "grep", "-r", "-p", "read_00[1-2]", inputFastqURL.path, "-o", outputURL.path,
+        ])
+        XCTAssertTrue(result.isSuccess, "seqkit grep by ID should succeed: \(result.stderr)")
+        let count = try countFastqRecords(at: outputURL)
+        XCTAssertEqual(count, 2, "Expected exactly 2 ID-matched reads")
+    }
+
+    func testSeqkitSearchByMotif() async throws {
+        let outputURL = tempDir.appendingPathComponent("search_by_motif.fastq")
+        let result = try await runner.run(.seqkit, arguments: [
+            "grep", "-s", "-p", "CCAGTGTTACGGATCAACTTAGCGTCA", inputFastqURL.path, "-o", outputURL.path,
+        ])
+        XCTAssertTrue(result.isSuccess, "seqkit grep by motif should succeed: \(result.stderr)")
+        let count = try countFastqRecords(at: outputURL)
+        XCTAssertGreaterThanOrEqual(count, 1, "Motif search should match at least one read")
+    }
+
     // MARK: - Fastp Operations
 
     func testFastpQualityTrim() async throws {

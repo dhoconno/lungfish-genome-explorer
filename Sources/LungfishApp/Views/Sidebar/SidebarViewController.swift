@@ -2599,5 +2599,6 @@ extension SidebarViewController: NSMenuDelegate {
 public extension Notification.Name {
     static let sidebarSelectionChanged = Notification.Name("SidebarSelectionChanged")
     static let sidebarFileDropped = Notification.Name("SidebarFileDropped")
+    static let sidebarFileDropCompleted = Notification.Name("SidebarFileDropCompleted")
     static let sidebarItemsDeleted = Notification.Name("SidebarItemsDeleted")
 }

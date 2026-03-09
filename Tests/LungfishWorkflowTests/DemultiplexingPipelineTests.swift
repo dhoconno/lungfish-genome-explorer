@@ -23,6 +23,20 @@ final class DemultiplexingPipelineTests: XCTestCase {
         XCTAssertTrue(NativeTool.allCases.contains(.cutadapt))
     }
 
+    func testCutadaptExecutableSmokeTest() async throws {
+        let runner = NativeToolRunner.shared
+        let path = try await runner.findTool(.cutadapt)
+        XCTAssertTrue(
+            FileManager.default.isExecutableFile(atPath: path.path),
+            "cutadapt should resolve to an executable: \(path.path)"
+        )
+
+        let result = try await runner.run(.cutadapt, arguments: ["--version"])
+        XCTAssertTrue(result.isSuccess, "cutadapt --version should succeed")
+        let output = result.stdout + result.stderr
+        XCTAssertTrue(output.contains("4."), "Expected cutadapt version output, got: \(output)")
+    }
+
     // MARK: - DemultiplexConfig
 
     func testDemultiplexConfigDefaults() {

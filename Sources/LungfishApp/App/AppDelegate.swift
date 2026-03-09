@@ -71,6 +71,21 @@ private struct SyncFileLoadResult: Sendable {
     }
 }
 
+/// Main-thread import tracking state used by File > Import.
+///
+/// This object is captured by notification handlers that are `@Sendable`.
+/// The handler immediately hops to `MainActor` before mutating state.
+private final class ImportCompletionTracker: @unchecked Sendable {
+    var pendingURLs: Set<URL>
+    var succeeded: Int = 0
+    var failed: Int = 0
+    var observerToken: NSObjectProtocol?
+
+    init(urls: [URL]) {
+        self.pendingURLs = Set(urls)
+    }
+}
+
 /// Loads file data synchronously on a background thread, completely avoiding MainActor.
 ///
 /// This is critical for loading files during modal transitions when MainActor is blocked.
@@ -744,6 +759,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             .init(filenameExtension: "fa")!,
             .init(filenameExtension: "fasta")!,
             .init(filenameExtension: "fna")!,
+            .init(filenameExtension: "fq")!,
+            .init(filenameExtension: "fastq")!,
+            .init(filenameExtension: "gz")!,
+            .init(filenameExtension: FASTQBundle.directoryExtension)!,
             .init(filenameExtension: "gb")!,
             .init(filenameExtension: "gbk")!,
             .init(filenameExtension: "gff")!,
@@ -798,13 +817,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         debugLog("importFiles: Menu action triggered")
 
         // Get current project URL
-        guard let projectURL = workingDirectoryURL else {
+        guard workingDirectoryURL != nil else {
             // No project open - show alert
             let alert = NSAlert()
             alert.messageText = "No Project Open"
             alert.informativeText = "Please open or create a project before importing files."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "OK")
+            alert.applyLungfishBranding()
             alert.runModal()
             return
         }
@@ -847,61 +867,77 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             // even during modal session transitions
             scheduleOnMainRunLoop {
                 guard let self = self else { return }
-                debugLog("importFiles: Starting file copy operation")
+                debugLog("importFiles: Starting import pipeline dispatch")
 
                 // Get references to UI components
                 let activityIndicator = self.mainWindowController?.mainSplitViewController?.activityIndicator
-                let sidebarController = self.mainWindowController?.mainSplitViewController?.sidebarController
 
                 // Show progress indicator
                 let fileCount = selectedURLs.count
+                let requestID = UUID().uuidString
+                let tracker = ImportCompletionTracker(urls: selectedURLs)
                 activityIndicator?.show(
                     message: "Importing \(fileCount) file\(fileCount == 1 ? "" : "s")...",
                     style: .indeterminate
                 )
 
-                var importedURLs: [URL] = []
-                var skippedCount = 0
-                var errorCount = 0
+                tracker.observerToken = NotificationCenter.default.addObserver(
+                    forName: .sidebarFileDropCompleted,
+                    object: nil,
+                    queue: .main
+                ) { completion in
+                    let completionRequestID = completion.userInfo?["requestID"] as? String
+                    let completedURL = completion.userInfo?["url"] as? URL
+                    let wasSuccessful = (completion.userInfo?["success"] as? Bool) == true
+
+                    Task { @MainActor in
+                        guard let completionRequestID,
+                              completionRequestID == requestID,
+                              let completedURL else {
+                            return
+                        }
+                        guard tracker.pendingURLs.contains(completedURL) else { return }
+
+                        tracker.pendingURLs.remove(completedURL)
+                        if wasSuccessful {
+                            tracker.succeeded += 1
+                        } else {
+                            tracker.failed += 1
+                        }
+
+                        if tracker.pendingURLs.isEmpty {
+                            if let observerToken = tracker.observerToken {
+                                NotificationCenter.default.removeObserver(observerToken)
+                                tracker.observerToken = nil
+                            }
+                            activityIndicator?.hide()
+                            debugLog(
+                                "importFiles: Completed request \(requestID). success=\(tracker.succeeded), failed=\(tracker.failed)"
+                            )
+
+                            if tracker.failed > 0 {
+                                let alert = NSAlert()
+                                alert.messageText = "Import Completed with Errors"
+                                alert.informativeText = "\(tracker.succeeded) succeeded, \(tracker.failed) failed."
+                                alert.alertStyle = .warning
+                                alert.addButton(withTitle: "OK")
+                                alert.applyLungfishBranding()
+                                alert.runModal()
+                            }
+                        }
+                    }
+                }
 
                 for (index, sourceURL) in selectedURLs.enumerated() {
-                    let filename = sourceURL.lastPathComponent
-                    let destinationURL = projectURL.appendingPathComponent(filename)
-
-                    // Update progress message
-                    activityIndicator?.updateMessage("Importing \(filename) (\(index + 1)/\(fileCount))...")
-
-                    debugLog("importFiles: Copying \(filename) to project")
-
-                    // Check for duplicate
-                    if FileManager.default.fileExists(atPath: destinationURL.path) {
-                        debugLog("importFiles: File already exists, skipping: \(filename)")
-                        skippedCount += 1
-                        continue
-                    }
-
-                    do {
-                        try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
-                        importedURLs.append(destinationURL)
-                        debugLog("importFiles: Successfully copied \(filename)")
-                    } catch {
-                        debugLog("importFiles: Failed to copy \(filename): \(error.localizedDescription)")
-                        errorCount += 1
-                    }
+                    activityIndicator?.updateMessage("Importing \(sourceURL.lastPathComponent) (\(index + 1)/\(fileCount))...")
+                    NotificationCenter.default.post(
+                        name: .sidebarFileDropped,
+                        object: self,
+                        userInfo: ["url": sourceURL, "destination": NSNull(), "requestID": requestID]
+                    )
                 }
 
-                // Hide progress indicator
-                activityIndicator?.hide()
-
-                // Force sidebar refresh immediately (don't wait for FileSystemWatcher)
-                sidebarController?.reloadFromFilesystem()
-                debugLog("importFiles: Triggered sidebar refresh")
-
-                if importedURLs.isEmpty && skippedCount == 0 && errorCount == 0 {
-                    debugLog("importFiles: No files imported")
-                } else {
-                    debugLog("importFiles: Imported \(importedURLs.count), skipped \(skippedCount), errors \(errorCount)")
-                }
+                debugLog("importFiles: Dispatched \(selectedURLs.count) file(s) to sidebar import pipeline")
             }
         }
     }

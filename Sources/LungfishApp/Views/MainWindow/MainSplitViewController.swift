@@ -462,6 +462,7 @@ public class MainSplitViewController: NSSplitViewController {
             logger.warning("handleSidebarFileDropped: No URL in notification userInfo")
             return
         }
+        let requestID = notification.userInfo?["requestID"] as? String
 
         logger.info("handleSidebarFileDropped: Processing dropped file '\(url.lastPathComponent, privacy: .public)' at path '\(url.path, privacy: .public)'")
 
@@ -485,18 +486,20 @@ public class MainSplitViewController: NSSplitViewController {
 
         // ONT directory detection — route to ONT import pipeline
         if isONTDirectory(url) {
-            importONTDirectoryInBackground(sourceURL: url, projectURL: targetDir)
+            importONTDirectoryInBackground(sourceURL: url, projectURL: targetDir, requestID: requestID)
             return
         }
 
         // FASTQ files: ingest in temp → create bundle in project
         if FASTQBundle.isFASTQFileURL(url) {
-            importFASTQFileInBackground(sourceURL: url, projectDirectory: targetDir)
+            importFASTQFileInBackground(sourceURL: url, projectDirectory: targetDir, requestID: requestID)
             return
         }
 
         // Non-FASTQ files: copy to project as before
-        if let projectURL = projectURL {
+        var importSucceeded = true
+        var importError: String?
+        if projectURL != nil {
             let fileManager = FileManager.default
             if !fileManager.fileExists(atPath: targetDir.path) {
                 try? fileManager.createDirectory(at: targetDir, withIntermediateDirectories: true)
@@ -511,6 +514,8 @@ public class MainSplitViewController: NSSplitViewController {
                     sidebarController.reloadFromFilesystem()
                 } catch {
                     logger.error("handleSidebarFileDropped: Failed to copy file: \(error.localizedDescription, privacy: .public)")
+                    importSucceeded = false
+                    importError = error.localizedDescription
                 }
             } else {
                 let resolution = showDuplicateFileDialog(filename: url.lastPathComponent)
@@ -523,6 +528,8 @@ public class MainSplitViewController: NSSplitViewController {
                         sidebarController.reloadFromFilesystem()
                     } catch {
                         logger.error("handleSidebarFileDropped: Failed to replace file: \(error.localizedDescription, privacy: .public)")
+                        importSucceeded = false
+                        importError = error.localizedDescription
                     }
                 case .keepBoth:
                     let uniqueURL = generateUniqueFilename(for: url, in: targetDir)
@@ -532,6 +539,8 @@ public class MainSplitViewController: NSSplitViewController {
                         sidebarController.reloadFromFilesystem()
                     } catch {
                         logger.error("handleSidebarFileDropped: Failed to copy with unique name: \(error.localizedDescription, privacy: .public)")
+                        importSucceeded = false
+                        importError = error.localizedDescription
                     }
                 case .skip:
                     urlToLoad = destinationURL
@@ -541,6 +550,7 @@ public class MainSplitViewController: NSSplitViewController {
 
         // Standalone VCF files use the auto-ingestion pipeline (handled by displayGenomicsFile)
         loadGenomicsFileInBackground(url: urlToLoad)
+        postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: importSucceeded, error: importError)
     }
 
     // MARK: - Duplicate File Handling
@@ -556,6 +566,7 @@ public class MainSplitViewController: NSSplitViewController {
         alert.addButton(withTitle: "Keep Both")  // Second button = index 1001
         alert.addButton(withTitle: "Skip")       // Third button = index 1002
 
+        alert.applyLungfishBranding()
         let response = alert.runModal()
 
         switch response {
@@ -590,8 +601,16 @@ public class MainSplitViewController: NSSplitViewController {
     ///
     /// Flow: source FASTQ → copy to temp → clumpify + compress → create bundle
     /// in project → move processed file into bundle → display.
-    private func importFASTQFileInBackground(sourceURL: URL, projectDirectory: URL) {
-        guard let viewerController = self.viewerController else { return }
+    private func importFASTQFileInBackground(sourceURL: URL, projectDirectory: URL, requestID: String?) {
+        guard let viewerController = self.viewerController else {
+            postSidebarFileDropCompleted(
+                requestID: requestID,
+                sourceURL: sourceURL,
+                success: false,
+                error: "Viewer unavailable while importing FASTQ."
+            )
+            return
+        }
 
         let baseName = FASTQBundle.deriveBaseName(from: sourceURL)
         var effectiveBundleName = baseName
@@ -608,11 +627,13 @@ public class MainSplitViewController: NSSplitViewController {
                     try FileManager.default.removeItem(at: bundleURL)
                 } catch {
                     logger.error("importFASTQFileInBackground: Failed to remove existing bundle: \(error)")
+                    self.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: error.localizedDescription)
                     let alert = NSAlert()
                     alert.messageText = "Failed to Replace Bundle"
                     alert.informativeText = "\(error)"
                     alert.alertStyle = .warning
                     alert.addButton(withTitle: "OK")
+                    alert.applyLungfishBranding()
                     alert.runModal()
                     return
                 }
@@ -627,6 +648,7 @@ public class MainSplitViewController: NSSplitViewController {
                 bundleURL = projectDirectory.appendingPathComponent("\(effectiveBundleName).\(bundleExt)")
             case .skip:
                 displayGenomicsFile(url: bundleURL)
+                postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
                 return
             }
         }
@@ -643,13 +665,16 @@ public class MainSplitViewController: NSSplitViewController {
             case .success(let bundleURL):
                 self?.sidebarController.reloadFromFilesystem()
                 self?.displayGenomicsFile(url: bundleURL)
+                self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
             case .failure(let error):
                 logger.error("importFASTQFileInBackground: \(error)")
+                self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: error.localizedDescription)
                 let alert = NSAlert()
                 alert.messageText = "Failed to Import FASTQ"
                 alert.informativeText = "\(error)"
                 alert.alertStyle = .warning
                 alert.addButton(withTitle: "OK")
+                alert.applyLungfishBranding()
                 alert.runModal()
             }
         }
@@ -669,8 +694,16 @@ public class MainSplitViewController: NSSplitViewController {
 
     /// Imports an ONT output directory into per-barcode `.lungfishfastq` bundles
     /// via the ONTDirectoryImporter, running in the background.
-    private func importONTDirectoryInBackground(sourceURL: URL, projectURL: URL) {
-        guard let viewerController = self.viewerController else { return }
+    private func importONTDirectoryInBackground(sourceURL: URL, projectURL: URL, requestID: String?) {
+        guard let viewerController = self.viewerController else {
+            postSidebarFileDropCompleted(
+                requestID: requestID,
+                sourceURL: sourceURL,
+                success: false,
+                error: "Viewer unavailable while importing ONT directory."
+            )
+            return
+        }
 
         // Ask whether to include unclassified reads
         let includeUnclassified: Bool = {
@@ -682,6 +715,7 @@ public class MainSplitViewController: NSSplitViewController {
             alert.informativeText = "Found \(layout.barcodeDirectories.count) barcode directories. Include unclassified reads?"
             alert.addButton(withTitle: "Include Unclassified")
             alert.addButton(withTitle: "Barcoded Only")
+            alert.applyLungfishBranding()
             return alert.runModal() == .alertFirstButtonReturn
         }()
 
@@ -718,6 +752,7 @@ public class MainSplitViewController: NSSplitViewController {
                         viewerController?.hideProgress()
                         OperationCenter.shared.complete(id: opID, detail: detail, bundleURLs: result.bundleURLs)
                         self?.sidebarController.reloadFromFilesystem()
+                        self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
 
                         // Display the first bundle
                         if let firstBundle = result.bundleURLs.first {
@@ -727,21 +762,41 @@ public class MainSplitViewController: NSSplitViewController {
                 }
             } catch {
                 logger.error("importONTDirectoryInBackground: \(error)")
-                DispatchQueue.main.async { [weak viewerController] in
+                DispatchQueue.main.async { [weak self, weak viewerController] in
                     MainActor.assumeIsolated {
                         viewerController?.hideProgress()
                         OperationCenter.shared.fail(id: opID, detail: "\(error)")
+                        self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: error.localizedDescription)
 
                         let alert = NSAlert()
                         alert.messageText = "ONT Import Failed"
                         alert.informativeText = "\(error)"
                         alert.alertStyle = .warning
                         alert.addButton(withTitle: "OK")
+                        alert.applyLungfishBranding()
                         alert.runModal()
                     }
                 }
             }
         }
+    }
+
+    private func postSidebarFileDropCompleted(requestID: String?, sourceURL: URL, success: Bool, error: String?) {
+        var userInfo: [String: Any] = [
+            "url": sourceURL,
+            "success": success
+        ]
+        if let requestID {
+            userInfo["requestID"] = requestID
+        }
+        if let error {
+            userInfo["error"] = error
+        }
+        NotificationCenter.default.post(
+            name: .sidebarFileDropCompleted,
+            object: self,
+            userInfo: userInfo
+        )
     }
 
     // MARK: - Panel State
@@ -1720,7 +1775,6 @@ extension MainSplitViewController: SidebarSelectionDelegate {
 
         fastqLoadTask = Task.detached(priority: .userInitiated) { [weak self] in
             do {
-                let reader = FASTQReader()
                 let summary = try await Self.fetchSeqkitSummary(for: fastqURL)
                 let (histogram, processedReads) = try await Self.collectFASTQHistogram(
                     from: fastqURL,

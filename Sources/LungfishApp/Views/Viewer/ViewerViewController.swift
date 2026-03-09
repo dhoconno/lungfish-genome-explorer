@@ -1931,90 +1931,27 @@ public class ViewerViewController: NSViewController {
             return
         }
 
-        // Separate VCF files from other file types
         let vcfURLs = urls.filter { isVCFFile($0) }
         let otherURLs = urls.filter { !isVCFFile($0) }
 
-        // Route VCF files through MainSplitViewController's auto-ingest pipeline
+        guard let appDelegate = NSApp.delegate as? AppDelegate,
+              let mainSplit = appDelegate.mainWindowController?.mainSplitViewController else {
+            logger.error("handleFileDrop: Unable to resolve MainSplitViewController")
+            return
+        }
+
         if !vcfURLs.isEmpty {
-            logger.info("handleFileDrop: Routing \(vcfURLs.count) VCF files to auto-ingest pipeline")
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    if let appDelegate = NSApp.delegate as? AppDelegate,
-                       let mainSplit = appDelegate.mainWindowController?.mainSplitViewController {
-                        mainSplit.loadVCFFilesInBackground(urls: vcfURLs)
-                    }
-                }
-            }
+            logger.info("handleFileDrop: Routing \(vcfURLs.count) VCF file(s) to auto-ingest pipeline")
+            mainSplit.loadVCFFilesInBackground(urls: vcfURLs)
         }
 
-        // Process non-VCF files through the standard path
-        guard let firstURL = otherURLs.first else { return }
-
-        logger.info("handleFileDrop: Processing '\(firstURL.lastPathComponent, privacy: .public)'")
-
-        let projectURL = DocumentManager.shared.activeProject?.url
-        let workingURL = (NSApp.delegate as? AppDelegate)?.getWorkingDirectoryURL()
-
-        let isInternalFile: Bool
-        if let project = projectURL {
-            isInternalFile = firstURL.path.hasPrefix(project.path)
-        } else if let working = workingURL {
-            isInternalFile = firstURL.path.hasPrefix(working.path)
-        } else {
-            isInternalFile = false
-        }
-
-        DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self = self else { return }
-
-                self.showProgress("Loading \(firstURL.lastPathComponent)...")
-
-                Task { @MainActor [weak self] in
-                    guard let self = self else { return }
-
-                do {
-                    let urlToLoad: URL
-
-                    if isInternalFile {
-                        urlToLoad = firstURL
-                        logger.info("handleFileDrop: Loading internal file directly")
-                    } else {
-                        logger.info("handleFileDrop: External file, copying to project")
-                        urlToLoad = try await self.copyExternalFileToProject(firstURL, projectURL: projectURL, workingURL: workingURL)
-                    }
-
-                    let document = try await DocumentManager.shared.loadDocument(at: urlToLoad)
-
-                    self.hideProgress()
-                    self.displayDocument(document)
-
-                    if let appDelegate = NSApp.delegate as? AppDelegate,
-                       let sidebarController = appDelegate.mainWindowController?.mainSplitViewController?.sidebarController {
-                        if let projectURL = sidebarController.currentProjectURL {
-                            let docPath = document.url.standardizedFileURL.path
-                            let projectPath = projectURL.standardizedFileURL.path
-                            if !docPath.hasPrefix(projectPath) {
-                                sidebarController.addLoadedDocument(document)
-                            }
-                        } else {
-                            sidebarController.addLoadedDocument(document)
-                        }
-                    }
-                } catch {
-                    logger.error("handleFileDrop: Load failed: \(error.localizedDescription, privacy: .public)")
-
-                    self.hideProgress()
-                    let alert = NSAlert()
-                    alert.messageText = "Failed to Open File"
-                    alert.informativeText = error.localizedDescription
-                    alert.alertStyle = .warning
-                    alert.addButton(withTitle: "OK")
-                    alert.runModal()
-                }
-                } // end Task
-            } // end MainActor.assumeIsolated
+        for url in otherURLs {
+            logger.info("handleFileDrop: Routing '\(url.lastPathComponent, privacy: .public)' through sidebar import pipeline")
+            NotificationCenter.default.post(
+                name: .sidebarFileDropped,
+                object: self,
+                userInfo: ["url": url, "destination": NSNull()]
+            )
         }
     }
 
@@ -2022,43 +1959,6 @@ public class ViewerViewController: NSViewController {
         MainSplitViewController.isVCFFile(url)
     }
 
-    /// Copies an external file into the project's downloads folder
-    private func copyExternalFileToProject(_ sourceURL: URL, projectURL: URL?, workingURL: URL?) async throws -> URL {
-        let fileManager = FileManager.default
-
-        // Determine destination directory
-        let destinationDirectory: URL
-        if let project = projectURL {
-            destinationDirectory = project.appendingPathComponent("Downloads", isDirectory: true)
-        } else if let working = workingURL {
-            destinationDirectory = working.appendingPathComponent("Downloads", isDirectory: true)
-        } else {
-            // Fallback to user's Downloads folder
-            let downloadsURL = fileManager.urls(for: .downloadsDirectory, in: .userDomainMask).first!
-            destinationDirectory = downloadsURL.appendingPathComponent("Lungfish Downloads", isDirectory: true)
-        }
-
-        // Create directory if needed
-        try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
-
-        // Generate unique filename
-        var destinationURL = destinationDirectory.appendingPathComponent(sourceURL.lastPathComponent)
-        var counter = 1
-        let baseName = sourceURL.deletingPathExtension().lastPathComponent
-        let ext = sourceURL.pathExtension
-
-        while fileManager.fileExists(atPath: destinationURL.path) {
-            let newName = "\(baseName)_\(counter).\(ext)"
-            destinationURL = destinationDirectory.appendingPathComponent(newName)
-            counter += 1
-        }
-
-        // Copy file
-        try fileManager.copyItem(at: sourceURL, to: destinationURL)
-        logger.info("handleFileDrop: Copied to \(destinationURL.path, privacy: .public)")
-
-        return destinationURL
-    }
 }
 
 // MARK: - ProgressOverlayView

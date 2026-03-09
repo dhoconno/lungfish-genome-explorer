@@ -70,7 +70,7 @@ public enum FASTQDerivativeRequest: Sendable {
     /// Whether this operation produces multiple classified output files (mixed read types).
     var isMixedOutputOperation: Bool {
         switch self {
-        case .pairedEndMerge, .pairedEndRepair, .demultiplex:
+        case .pairedEndMerge, .pairedEndRepair:
             return true
         default:
             return false
@@ -190,6 +190,19 @@ public actor FASTQDerivativeService {
 
         // Mixed-output operations (merge/repair) write multiple files directly
         // to the output bundle, bypassing the single-file temp flow.
+        if case .demultiplex(let kitID, let customCSVPath, let location, let errorRate, let trimBarcodes) = request {
+            return try await createDemultiplexDerivative(
+                sourceFASTQ: materializedSourceFASTQ,
+                sourceBundleURL: sourceBundleURL,
+                kitID: kitID,
+                customCSVPath: customCSVPath,
+                location: location,
+                errorRate: errorRate,
+                trimBarcodes: trimBarcodes,
+                progress: progress
+            )
+        }
+
         if request.isMixedOutputOperation {
             return try await createMixedOutputDerivative(
                 request: request,
@@ -337,6 +350,105 @@ public actor FASTQDerivativeService {
 
     // MARK: - Mixed Output Derivatives
 
+    /// Runs cutadapt-based demultiplexing and returns the most representative output bundle.
+    ///
+    /// The demultiplex output directory is created next to the source bundle and contains one
+    /// `.lungfishfastq` bundle per barcode (plus optional `unassigned.lungfishfastq`).
+    /// Returns the largest assigned barcode bundle for immediate selection in the UI.
+    private func createDemultiplexDerivative(
+        sourceFASTQ: URL,
+        sourceBundleURL: URL,
+        kitID: String,
+        customCSVPath: String?,
+        location: String,
+        errorRate: Double,
+        trimBarcodes: Bool,
+        progress: (@Sendable (String) -> Void)?
+    ) async throws -> URL {
+        let barcodeKit: IlluminaBarcodeDefinition
+        if let customCSVPath, !customCSVPath.isEmpty {
+            let csvURL: URL
+            if customCSVPath.hasPrefix("/") {
+                csvURL = URL(fileURLWithPath: customCSVPath)
+            } else {
+                csvURL = sourceBundleURL.appendingPathComponent(customCSVPath)
+            }
+            guard FileManager.default.fileExists(atPath: csvURL.path) else {
+                throw FASTQDerivativeError.invalidOperation("Custom barcode CSV not found: \(csvURL.path)")
+            }
+            barcodeKit = try IlluminaBarcodeKitRegistry.loadCustomKit(from: csvURL, name: "Custom")
+        } else if let builtin = IlluminaBarcodeKitRegistry.kit(byID: kitID) {
+            barcodeKit = builtin
+        } else {
+            throw FASTQDerivativeError.invalidOperation("Unknown barcode kit: \(kitID)")
+        }
+
+        let barcodeLocation: BarcodeLocation
+        switch location.lowercased() {
+        case "fiveprime", "5prime", "five_prime":
+            barcodeLocation = .fivePrime
+        case "threeprime", "3prime", "three_prime":
+            barcodeLocation = .threePrime
+        case "anywhere":
+            barcodeLocation = .anywhere
+        default:
+            throw FASTQDerivativeError.invalidOperation("Unsupported barcode location: \(location)")
+        }
+
+        let sourceBaseName = FASTQBundle.deriveBaseName(from: sourceBundleURL)
+        let parentDir = sourceBundleURL.deletingLastPathComponent()
+        let outputDirBase = parentDir.appendingPathComponent("\(sourceBaseName)-demux", isDirectory: true)
+        let outputDirectory = uniqueDirectoryURL(startingAt: outputDirBase)
+        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+
+        progress?("Demultiplexing reads...")
+        let pipeline = DemultiplexingPipeline()
+        let result = try await pipeline.run(
+            config: DemultiplexConfig(
+                inputURL: sourceFASTQ,
+                barcodeKit: barcodeKit,
+                outputDirectory: outputDirectory,
+                barcodeLocation: barcodeLocation,
+                errorRate: errorRate,
+                trimBarcodes: trimBarcodes
+            ),
+            progress: { fraction, message in
+                let percent = Int((fraction * 100.0).rounded())
+                progress?("Demultiplexing (\(percent)%): \(message)")
+            }
+        )
+
+        // Persist manifest in source bundle so downstream batch workflows can discover demux runs.
+        if FASTQBundle.isBundleURL(sourceBundleURL) {
+            let sourceScopedManifest = DemultiplexManifest(
+                version: result.manifest.version,
+                runID: result.manifest.runID,
+                demultiplexedAt: result.manifest.demultiplexedAt,
+                barcodeKit: result.manifest.barcodeKit,
+                parameters: result.manifest.parameters,
+                barcodes: result.manifest.barcodes,
+                unassigned: result.manifest.unassigned,
+                outputDirectoryRelativePath: relativePath(from: sourceBundleURL, to: outputDirectory),
+                inputReadCount: result.manifest.inputReadCount
+            )
+            try? sourceScopedManifest.save(to: sourceBundleURL)
+        }
+
+        // Prefer selecting the largest assigned barcode bundle; fall back to unassigned.
+        let selectedBundle: URL
+        if let topBarcode = result.manifest.barcodes.max(by: { $0.readCount < $1.readCount }) {
+            selectedBundle = outputDirectory.appendingPathComponent(topBarcode.bundleRelativePath, isDirectory: true)
+        } else if let unassigned = result.unassignedBundleURL {
+            selectedBundle = unassigned
+        } else {
+            throw FASTQDerivativeError.emptyResult
+        }
+
+        progress?("Demultiplex complete: \(result.manifest.barcodes.count) barcode bundle(s)")
+        derivativeLogger.info("Created demultiplex output at \(outputDirectory.path, privacy: .public)")
+        return selectedBundle
+    }
+
     /// Creates a derivative bundle for operations that produce multiple classified files
     /// (e.g. paired-end merge produces R1, R2, and merged files).
     private func createMixedOutputDerivative(
@@ -402,7 +514,9 @@ public actor FASTQDerivativeService {
             )
 
         default:
-            fatalError("createMixedOutputDerivative called with non-mixed operation: \(request)")
+            throw FASTQDerivativeError.invalidOperation(
+                "Mixed-output execution requested for unsupported operation: \(request)"
+            )
         }
 
         guard classification.totalReadCount > 0 else {
@@ -726,8 +840,9 @@ public actor FASTQDerivativeService {
             )
 
         case .pairedEndMerge, .pairedEndRepair:
-            // These are handled by createMixedOutputDerivative and should never reach here
-            fatalError("Mixed-output operations must be handled before runTransformation")
+            throw FASTQDerivativeError.invalidOperation(
+                "Mixed-output operations must be handled via createMixedOutputDerivative"
+            )
 
         case .primerRemoval(let source, let literalSequence, let referenceFasta, let kmerSize, let minKmer, let hammingDistance):
             let result = try await runBBDukPrimerRemoval(
@@ -782,15 +897,9 @@ public actor FASTQDerivativeService {
                 toolCommand: result.toolCommand
             )
 
-        case .demultiplex(let kitID, _, _, let errorRate, let trimBarcodes):
-            // Demultiplexing is handled by DemultiplexingPipeline via the batch processing engine.
-            // This case creates a placeholder operation record; the actual work is done by
-            // the pipeline which produces per-barcode bundles in the output directory.
-            return FASTQDerivativeOperation(
-                kind: .demultiplex,
-                barcodeID: kitID,
-                toolUsed: "cutadapt",
-                toolCommand: "cutadapt demultiplex --kit \(kitID) -e \(errorRate) --trim \(trimBarcodes)"
+        case .demultiplex:
+            throw FASTQDerivativeError.invalidOperation(
+                "Demultiplexing is not implemented in FASTQDerivativeService. Use the demultiplexing pipeline."
             )
         }
     }
@@ -1871,6 +1980,34 @@ public actor FASTQDerivativeService {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(prefix)\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private func uniqueDirectoryURL(startingAt initialURL: URL) -> URL {
+        var candidate = initialURL
+        var suffix = 1
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = initialURL
+                .deletingLastPathComponent()
+                .appendingPathComponent("\(initialURL.lastPathComponent)-\(suffix)", isDirectory: true)
+            suffix += 1
+        }
+        return candidate
+    }
+
+    private func relativePath(from baseURL: URL, to targetURL: URL) -> String {
+        let baseComponents = baseURL.standardizedFileURL.pathComponents
+        let targetComponents = targetURL.standardizedFileURL.pathComponents
+
+        var common = 0
+        while common < min(baseComponents.count, targetComponents.count),
+              baseComponents[common] == targetComponents[common] {
+            common += 1
+        }
+
+        let up = Array(repeating: "..", count: max(0, baseComponents.count - common))
+        let down = Array(targetComponents.dropFirst(common))
+        let parts = up + down
+        return parts.isEmpty ? "." : parts.joined(separator: "/")
     }
 
     private func isInterleavedBundle(_ bundleURL: URL) -> Bool {

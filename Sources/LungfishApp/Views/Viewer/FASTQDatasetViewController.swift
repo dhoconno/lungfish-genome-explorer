@@ -317,7 +317,6 @@ public final class FASTQDatasetViewController: NSViewController {
         operationSidebar.style = .sourceList
         operationSidebar.headerView = nil
         operationSidebar.usesAlternatingRowBackgroundColors = false
-        operationSidebar.selectionHighlightStyle = .sourceList
         operationSidebar.rowHeight = 24
         operationSidebar.target = self
         operationSidebar.action = #selector(operationSidebarClicked(_:))
@@ -360,21 +359,52 @@ public final class FASTQDatasetViewController: NSViewController {
         configureRunBar()
         previewPane.addSubview(runBar)
 
+        let parameterBarHeight = parameterBar.heightAnchor.constraint(equalToConstant: 36)
+        parameterBarHeight.priority = .defaultHigh
+        let runBarHeight = runBar.heightAnchor.constraint(equalToConstant: 36)
+        runBarHeight.priority = .defaultHigh
+
+        // During initial split-view negotiation, previewPane can transiently be 0x0.
+        // Keep these edge constraints non-required to avoid noisy unsatisfiable logs
+        // while AppKit settles pane geometry.
+        let parameterTop = parameterBar.topAnchor.constraint(equalTo: previewPane.topAnchor)
+        parameterTop.priority = .defaultHigh
+        let parameterLeading = parameterBar.leadingAnchor.constraint(equalTo: previewPane.leadingAnchor)
+        parameterLeading.priority = .defaultHigh
+        let parameterTrailing = parameterBar.trailingAnchor.constraint(equalTo: previewPane.trailingAnchor)
+        parameterTrailing.priority = .defaultHigh
+
+        let previewTop = previewCanvas.topAnchor.constraint(equalTo: parameterBar.bottomAnchor, constant: 1)
+        previewTop.priority = .defaultHigh
+        let previewLeading = previewCanvas.leadingAnchor.constraint(equalTo: previewPane.leadingAnchor)
+        previewLeading.priority = .defaultHigh
+        let previewTrailing = previewCanvas.trailingAnchor.constraint(equalTo: previewPane.trailingAnchor)
+        previewTrailing.priority = .defaultHigh
+        let previewBottom = previewCanvas.bottomAnchor.constraint(equalTo: runBar.topAnchor, constant: -1)
+        previewBottom.priority = .defaultHigh
+
+        let runLeading = runBar.leadingAnchor.constraint(equalTo: previewPane.leadingAnchor)
+        runLeading.priority = .defaultHigh
+        let runTrailing = runBar.trailingAnchor.constraint(equalTo: previewPane.trailingAnchor)
+        runTrailing.priority = .defaultHigh
+        let runBottom = runBar.bottomAnchor.constraint(equalTo: previewPane.bottomAnchor)
+        runBottom.priority = .defaultHigh
+
         NSLayoutConstraint.activate([
-            parameterBar.topAnchor.constraint(equalTo: previewPane.topAnchor),
-            parameterBar.leadingAnchor.constraint(equalTo: previewPane.leadingAnchor),
-            parameterBar.trailingAnchor.constraint(equalTo: previewPane.trailingAnchor),
-            parameterBar.heightAnchor.constraint(equalToConstant: 36),
+            parameterTop,
+            parameterLeading,
+            parameterTrailing,
+            parameterBarHeight,
 
-            previewCanvas.topAnchor.constraint(equalTo: parameterBar.bottomAnchor, constant: 1),
-            previewCanvas.leadingAnchor.constraint(equalTo: previewPane.leadingAnchor),
-            previewCanvas.trailingAnchor.constraint(equalTo: previewPane.trailingAnchor),
-            previewCanvas.bottomAnchor.constraint(equalTo: runBar.topAnchor, constant: -1),
+            previewTop,
+            previewLeading,
+            previewTrailing,
+            previewBottom,
 
-            runBar.leadingAnchor.constraint(equalTo: previewPane.leadingAnchor),
-            runBar.trailingAnchor.constraint(equalTo: previewPane.trailingAnchor),
-            runBar.bottomAnchor.constraint(equalTo: previewPane.bottomAnchor),
-            runBar.heightAnchor.constraint(equalToConstant: 36),
+            runLeading,
+            runTrailing,
+            runBottom,
+            runBarHeight,
         ])
     }
 
@@ -464,6 +494,9 @@ public final class FASTQDatasetViewController: NSViewController {
         runButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 64).isActive = true
         runBar.addSubview(runButton)
 
+        let statusToEstimate = statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: outputEstimateLabel.leadingAnchor, constant: -8)
+        statusToEstimate.priority = .defaultLow
+
         NSLayoutConstraint.activate([
             border.topAnchor.constraint(equalTo: runBar.topAnchor),
             border.leadingAnchor.constraint(equalTo: runBar.leadingAnchor),
@@ -472,7 +505,7 @@ public final class FASTQDatasetViewController: NSViewController {
 
             statusLabel.leadingAnchor.constraint(equalTo: runBar.leadingAnchor, constant: 12),
             statusLabel.centerYAnchor.constraint(equalTo: runBar.centerYAnchor),
-            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: outputEstimateLabel.leadingAnchor, constant: -8),
+            statusToEstimate,
 
             outputEstimateLabel.centerXAnchor.constraint(equalTo: runBar.centerXAnchor),
             outputEstimateLabel.centerYAnchor.constraint(equalTo: runBar.centerYAnchor),
@@ -772,6 +805,7 @@ public final class FASTQDatasetViewController: NSViewController {
                     alert.informativeText = error.localizedDescription
                     alert.alertStyle = .warning
                     alert.addButton(withTitle: "OK")
+                    alert.applyLungfishBranding()
                     alert.runModal()
                 }
             }
@@ -832,6 +866,7 @@ public final class FASTQDatasetViewController: NSViewController {
                     alert.informativeText = error.localizedDescription
                     alert.alertStyle = .warning
                     alert.addButton(withTitle: "OK")
+                    alert.applyLungfishBranding()
                     alert.runModal()
                 }
             }

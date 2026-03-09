@@ -156,6 +156,17 @@ final class NativeToolRunnerTests: XCTestCase {
         )
     }
 
+    func testCutadaptVersion() async throws {
+        let runner = NativeToolRunner()
+        let result = try await runner.run(.cutadapt, arguments: ["--version"])
+        XCTAssertTrue(result.isSuccess, "cutadapt --version should succeed")
+        let output = result.stdout + result.stderr
+        XCTAssertTrue(
+            output.contains("4."),
+            "cutadapt --version should print a semantic version; output: \(output)"
+        )
+    }
+
     // MARK: - Pipeline Tests
 
     func testSingleStagePipeline() async throws {
@@ -343,7 +354,7 @@ final class NativeToolRunnerTests: XCTestCase {
     }
 
     func testAllCasesCount() {
-        XCTAssertEqual(NativeTool.allCases.count, 17, "Should have 17 bundled tools")
+        XCTAssertEqual(NativeTool.allCases.count, 18, "Should have 18 bundled tools")
     }
 
     // MARK: - Error Tests
