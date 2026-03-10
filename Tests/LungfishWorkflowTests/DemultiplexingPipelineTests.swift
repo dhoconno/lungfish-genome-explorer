@@ -65,7 +65,7 @@ final class DemultiplexingPipelineTests: XCTestCase {
         )
 
         XCTAssertEqual(config.barcodeLocation, .bothEnds)
-        XCTAssertEqual(config.errorRate, 0.15, accuracy: 0.001)
+        XCTAssertEqual(config.errorRate, 0.10, accuracy: 0.001)
         XCTAssertEqual(config.minimumOverlap, 3)
         XCTAssertTrue(config.trimBarcodes)
         XCTAssertEqual(config.threads, 4)
@@ -80,7 +80,8 @@ final class DemultiplexingPipelineTests: XCTestCase {
             .noBarcodes,
             .combinatorialRequiresSampleAssignments,
             .outputParsingFailed("bad json"),
-            .bundleCreationFailed(barcode: "D701", underlying: NSError(domain: "test", code: 1)),
+            .bundleCreationFailed(barcode: "D701", underlying: "test error"),
+            .noOutputResults,
         ]
 
         for error in errors {

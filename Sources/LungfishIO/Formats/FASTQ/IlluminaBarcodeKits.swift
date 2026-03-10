@@ -17,6 +17,9 @@ public enum BarcodePairingMode: String, Codable, Sendable, CaseIterable {
 }
 
 /// A barcode kit definition for demultiplexing, supporting single- and dual-indexed kits.
+///
+/// Despite the name, this type is used for all platforms (Illumina, ONT, PacBio, etc.).
+/// A future rename to `BarcodeKitDefinition` is planned.
 public struct IlluminaBarcodeDefinition: Codable, Sendable, Equatable, Identifiable {
     /// Unique identifier (e.g., "truseq-single-a").
     public let id: String
@@ -26,6 +29,12 @@ public struct IlluminaBarcodeDefinition: Codable, Sendable, Equatable, Identifia
 
     /// Vendor name.
     public let vendor: String
+
+    /// Sequencing platform this kit belongs to.
+    public let platform: SequencingPlatform
+
+    /// Kit type classification for selecting the correct adapter context.
+    public let kitType: BarcodeKitType
 
     /// Whether this kit uses dual indexing (i5 + i7).
     public let isDualIndexed: Bool
@@ -40,6 +49,8 @@ public struct IlluminaBarcodeDefinition: Codable, Sendable, Equatable, Identifia
         id: String,
         displayName: String,
         vendor: String = "illumina",
+        platform: SequencingPlatform? = nil,
+        kitType: BarcodeKitType = .custom,
         isDualIndexed: Bool = false,
         pairingMode: BarcodePairingMode? = nil,
         barcodes: [IlluminaBarcode]
@@ -47,6 +58,8 @@ public struct IlluminaBarcodeDefinition: Codable, Sendable, Equatable, Identifia
         self.id = id
         self.displayName = displayName
         self.vendor = vendor
+        self.platform = platform ?? SequencingPlatform(vendor: vendor)
+        self.kitType = kitType
         self.isDualIndexed = isDualIndexed
         self.pairingMode = pairingMode ?? (isDualIndexed ? .fixedDual : .singleEnd)
         self.barcodes = barcodes
@@ -56,6 +69,8 @@ public struct IlluminaBarcodeDefinition: Codable, Sendable, Equatable, Identifia
         case id
         case displayName
         case vendor
+        case platform
+        case kitType
         case isDualIndexed
         case pairingMode
         case barcodes
@@ -66,6 +81,9 @@ public struct IlluminaBarcodeDefinition: Codable, Sendable, Equatable, Identifia
         id = try container.decode(String.self, forKey: .id)
         displayName = try container.decode(String.self, forKey: .displayName)
         vendor = try container.decodeIfPresent(String.self, forKey: .vendor) ?? "illumina"
+        platform = try container.decodeIfPresent(SequencingPlatform.self, forKey: .platform)
+            ?? SequencingPlatform(vendor: vendor)
+        kitType = try container.decodeIfPresent(BarcodeKitType.self, forKey: .kitType) ?? .custom
         isDualIndexed = try container.decodeIfPresent(Bool.self, forKey: .isDualIndexed) ?? false
         pairingMode = try container.decodeIfPresent(BarcodePairingMode.self, forKey: .pairingMode)
             ?? (isDualIndexed ? .fixedDual : .singleEnd)
@@ -77,9 +95,16 @@ public struct IlluminaBarcodeDefinition: Codable, Sendable, Equatable, Identifia
         try container.encode(id, forKey: .id)
         try container.encode(displayName, forKey: .displayName)
         try container.encode(vendor, forKey: .vendor)
+        try container.encode(platform, forKey: .platform)
+        try container.encode(kitType, forKey: .kitType)
         try container.encode(isDualIndexed, forKey: .isDualIndexed)
         try container.encode(pairingMode, forKey: .pairingMode)
         try container.encode(barcodes, forKey: .barcodes)
+    }
+
+    /// Returns the platform-specific adapter context for this kit.
+    public var adapterContext: any PlatformAdapterContext {
+        platform.adapterContext(kitType: kitType)
     }
 }
 
@@ -367,6 +392,8 @@ public enum IlluminaBarcodeKitRegistry {
     public static let truseqSingleA = IlluminaBarcodeDefinition(
         id: "truseq-single-a",
         displayName: "TruSeq Single Index Set A (D701-D712)",
+        platform: .illumina,
+        kitType: .truseq,
         barcodes: [
             IlluminaBarcode(id: "D701", i7Sequence: "ATTACTCG"),
             IlluminaBarcode(id: "D702", i7Sequence: "TCCGGAGA"),
@@ -387,6 +414,8 @@ public enum IlluminaBarcodeKitRegistry {
     public static let truseqSingleB = IlluminaBarcodeDefinition(
         id: "truseq-single-b",
         displayName: "TruSeq Single Index Set B (D501-D508)",
+        platform: .illumina,
+        kitType: .truseq,
         barcodes: [
             IlluminaBarcode(id: "D501", i7Sequence: "TATAGCCT"),
             IlluminaBarcode(id: "D502", i7Sequence: "ATAGAGGC"),
@@ -418,6 +447,8 @@ public enum IlluminaBarcodeKitRegistry {
         return IlluminaBarcodeDefinition(
             id: "truseq-ht-dual",
             displayName: "TruSeq HT Dual Index (96 combinations)",
+            platform: .illumina,
+            kitType: .truseq,
             isDualIndexed: true,
             pairingMode: .fixedDual,
             barcodes: barcodes
@@ -428,6 +459,8 @@ public enum IlluminaBarcodeKitRegistry {
     public static let nexteraXTv2 = IlluminaBarcodeDefinition(
         id: "nextera-xt-v2",
         displayName: "Nextera XT Index Kit v2",
+        platform: .illumina,
+        kitType: .nextera,
         isDualIndexed: true,
         pairingMode: .fixedDual,
         barcodes: {
@@ -464,6 +497,8 @@ public enum IlluminaBarcodeKitRegistry {
     public static let idtUDIndexes = IlluminaBarcodeDefinition(
         id: "idt-ud-indexes",
         displayName: "IDT for Illumina UD Indexes (96 pairs)",
+        platform: .illumina,
+        kitType: .truseq,
         isDualIndexed: true,
         pairingMode: .fixedDual,
         barcodes: {
@@ -511,6 +546,8 @@ public enum IlluminaBarcodeKitRegistry {
             id: "pacbio-sequel-16-v3",
             displayName: "PacBio Sequel 16 (v3)",
             vendor: "pacbio",
+            platform: .pacbio,
+            kitType: .pacbioStandard,
             isDualIndexed: true,
             pairingMode: .combinatorialDual,
             barcodes: barcodes
@@ -526,6 +563,8 @@ public enum IlluminaBarcodeKitRegistry {
             id: "pacbio-sequel-96-v2",
             displayName: "PacBio Sequel 96 (v2)",
             vendor: "pacbio",
+            platform: .pacbio,
+            kitType: .pacbioStandard,
             isDualIndexed: true,
             pairingMode: .combinatorialDual,
             barcodes: barcodes
@@ -541,6 +580,8 @@ public enum IlluminaBarcodeKitRegistry {
             id: "pacbio-sequel-384-v1",
             displayName: "PacBio Sequel 384 (v1)",
             vendor: "pacbio",
+            platform: .pacbio,
+            kitType: .pacbioStandard,
             isDualIndexed: true,
             pairingMode: .combinatorialDual,
             barcodes: barcodes
@@ -555,6 +596,8 @@ public enum IlluminaBarcodeKitRegistry {
             id: "ont-nbd104",
             displayName: "ONT Native Barcoding (NBD104, 12)",
             vendor: "oxford-nanopore",
+            platform: .oxfordNanopore,
+            kitType: .nativeBarcoding,
             isDualIndexed: false,
             pairingMode: .singleEnd,
             barcodes: barcodes
@@ -569,6 +612,8 @@ public enum IlluminaBarcodeKitRegistry {
             id: "ont-nbd114",
             displayName: "ONT Native Barcoding (NBD114, 12)",
             vendor: "oxford-nanopore",
+            platform: .oxfordNanopore,
+            kitType: .nativeBarcoding,
             isDualIndexed: false,
             pairingMode: .singleEnd,
             barcodes: barcodes
@@ -582,6 +627,8 @@ public enum IlluminaBarcodeKitRegistry {
             id: "ont-nbd104-114",
             displayName: "ONT Native Barcoding (NBD104/NBD114, 24)",
             vendor: "oxford-nanopore",
+            platform: .oxfordNanopore,
+            kitType: .nativeBarcoding,
             isDualIndexed: false,
             pairingMode: .singleEnd,
             barcodes: barcodes
@@ -595,6 +642,8 @@ public enum IlluminaBarcodeKitRegistry {
             id: "ont-pbc096",
             displayName: "ONT PCR Barcoding (PBC096, 96)",
             vendor: "oxford-nanopore",
+            platform: .oxfordNanopore,
+            kitType: .pcrBarcoding,
             isDualIndexed: false,
             pairingMode: .singleEnd,
             barcodes: barcodes
@@ -608,6 +657,8 @@ public enum IlluminaBarcodeKitRegistry {
             id: "ont-rbk004",
             displayName: "ONT Rapid Barcoding (RBK004, 12)",
             vendor: "oxford-nanopore",
+            platform: .oxfordNanopore,
+            kitType: .rapidBarcoding,
             isDualIndexed: false,
             pairingMode: .singleEnd,
             barcodes: barcodes
@@ -622,6 +673,8 @@ public enum IlluminaBarcodeKitRegistry {
             id: "ont-nbd114-96",
             displayName: "ONT Native Barcoding V14 (SQK-NBD114-96, 96)",
             vendor: "oxford-nanopore",
+            platform: .oxfordNanopore,
+            kitType: .nativeBarcoding,
             isDualIndexed: false,
             pairingMode: .singleEnd,
             barcodes: barcodes
@@ -637,6 +690,8 @@ public enum IlluminaBarcodeKitRegistry {
             id: "ont-rbk114-24",
             displayName: "ONT Rapid Barcoding V14 (SQK-RBK114-24, 24)",
             vendor: "oxford-nanopore",
+            platform: .oxfordNanopore,
+            kitType: .rapidBarcoding,
             isDualIndexed: false,
             pairingMode: .singleEnd,
             barcodes: barcodes
@@ -668,6 +723,8 @@ public enum IlluminaBarcodeKitRegistry {
             id: "ont-rbk114-96",
             displayName: "ONT Rapid Barcoding V14 (SQK-RBK114-96, 96)",
             vendor: "oxford-nanopore",
+            platform: .oxfordNanopore,
+            kitType: .rapidBarcoding,
             isDualIndexed: false,
             pairingMode: .singleEnd,
             barcodes: barcodes
@@ -683,6 +740,8 @@ public enum IlluminaBarcodeKitRegistry {
             id: "ont-16s114-24",
             displayName: "ONT 16S Barcoding V14 (SQK-16S114-24, 24)",
             vendor: "oxford-nanopore",
+            platform: .oxfordNanopore,
+            kitType: .sixteenS,
             isDualIndexed: false,
             pairingMode: .singleEnd,
             barcodes: barcodes
@@ -697,6 +756,8 @@ public enum IlluminaBarcodeKitRegistry {
             id: "ont-rab204-214",
             displayName: "ONT 16S Rapid Amplicon (RAB204/RAB214, 24)",
             vendor: "oxford-nanopore",
+            platform: .oxfordNanopore,
+            kitType: .sixteenS,
             isDualIndexed: false,
             pairingMode: .singleEnd,
             barcodes: barcodes

@@ -432,15 +432,26 @@ public final class FASTQDatasetViewController: NSViewController {
         middleContentContainer.translatesAutoresizingMaskIntoConstraints = false
         middlePane.addSubview(middleContentContainer)
 
-        NSLayoutConstraint.activate([
-            middleTabControl.topAnchor.constraint(equalTo: middlePane.topAnchor, constant: 4),
-            middleTabControl.centerXAnchor.constraint(equalTo: middlePane.centerXAnchor),
-            middleTabControl.heightAnchor.constraint(equalToConstant: 24),
+        // Use high (but not required) priority so constraints yield gracefully
+        // when the split view parent starts at zero size during initial layout.
+        let tabTop = middleTabControl.topAnchor.constraint(equalTo: middlePane.topAnchor, constant: 4)
+        tabTop.priority = .defaultHigh
+        let tabHeight = middleTabControl.heightAnchor.constraint(equalToConstant: 24)
+        tabHeight.priority = .defaultHigh
+        let contentTop = middleContentContainer.topAnchor.constraint(equalTo: middleTabControl.bottomAnchor, constant: 4)
+        contentTop.priority = .defaultHigh
+        let contentBottom = middleContentContainer.bottomAnchor.constraint(equalTo: middlePane.bottomAnchor)
+        contentBottom.priority = .defaultHigh
 
-            middleContentContainer.topAnchor.constraint(equalTo: middleTabControl.bottomAnchor, constant: 4),
+        NSLayoutConstraint.activate([
+            tabTop,
+            middleTabControl.centerXAnchor.constraint(equalTo: middlePane.centerXAnchor),
+            tabHeight,
+
+            contentTop,
             middleContentContainer.leadingAnchor.constraint(equalTo: middlePane.leadingAnchor),
             middleContentContainer.trailingAnchor.constraint(equalTo: middlePane.trailingAnchor),
-            middleContentContainer.bottomAnchor.constraint(equalTo: middlePane.bottomAnchor),
+            contentBottom,
         ])
 
         // Inner horizontal split: sidebar | preview
@@ -1146,7 +1157,11 @@ public final class FASTQDatasetViewController: NSViewController {
 
             readPreviewPlaceholder.centerXAnchor.constraint(equalTo: middleContentContainer.centerXAnchor),
             readPreviewPlaceholder.centerYAnchor.constraint(equalTo: middleContentContainer.centerYAnchor),
-            readPreviewPlaceholder.widthAnchor.constraint(lessThanOrEqualTo: middleContentContainer.widthAnchor, constant: -40),
+            {
+                let c = readPreviewPlaceholder.widthAnchor.constraint(lessThanOrEqualTo: middleContentContainer.widthAnchor, constant: -40)
+                c.priority = .defaultHigh
+                return c
+            }(),
         ])
     }
 

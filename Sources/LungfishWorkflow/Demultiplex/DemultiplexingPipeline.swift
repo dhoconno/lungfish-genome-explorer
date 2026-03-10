@@ -24,10 +24,16 @@ public struct DemultiplexConfig: Sendable {
     /// Where barcodes are located in the reads.
     public let barcodeLocation: BarcodeLocation
 
-    /// Maximum error rate for barcode matching (cutadapt -e). Default 0.15.
+    /// How barcode ends relate (symmetric, asymmetric, single-end).
+    /// Defaults from kit's pairing mode but can be overridden.
+    public let symmetryMode: BarcodeSymmetryMode
+
+    /// Maximum error rate for barcode matching (cutadapt -e).
+    /// Defaults from platform's recommended rate.
     public let errorRate: Double
 
-    /// Minimum overlap between barcode and read (cutadapt --overlap). Default 3.
+    /// Minimum overlap between barcode and read (cutadapt --overlap).
+    /// Defaults from platform's recommended overlap.
     public let minimumOverlap: Int
 
     /// Maximum bases from the 5' terminus where a barcode may begin.
@@ -38,6 +44,10 @@ public struct DemultiplexConfig: Sendable {
 
     /// Whether to trim barcode sequences from output reads.
     public let trimBarcodes: Bool
+
+    /// Whether to search both strand orientations (--revcomp).
+    /// Defaults to true for long-read platforms (ONT, PacBio).
+    public let searchReverseComplement: Bool
 
     /// What to do with reads that don't match any barcode.
     public let unassignedDisposition: UnassignedDisposition
@@ -56,11 +66,13 @@ public struct DemultiplexConfig: Sendable {
         barcodeKit: IlluminaBarcodeDefinition,
         outputDirectory: URL,
         barcodeLocation: BarcodeLocation = .bothEnds,
-        errorRate: Double = 0.15,
-        minimumOverlap: Int = 3,
+        symmetryMode: BarcodeSymmetryMode? = nil,
+        errorRate: Double? = nil,
+        minimumOverlap: Int? = nil,
         maxDistanceFrom5Prime: Int = 0,
         maxDistanceFrom3Prime: Int = 0,
         trimBarcodes: Bool = true,
+        searchReverseComplement: Bool? = nil,
         unassignedDisposition: UnassignedDisposition = .keep,
         threads: Int = 4,
         sampleAssignments: [FASTQSampleBarcodeAssignment] = []
@@ -69,11 +81,25 @@ public struct DemultiplexConfig: Sendable {
         self.barcodeKit = barcodeKit
         self.outputDirectory = outputDirectory
         self.barcodeLocation = barcodeLocation
-        self.errorRate = errorRate
-        self.minimumOverlap = minimumOverlap
+
+        // Default symmetry from kit pairing mode
+        self.symmetryMode = symmetryMode ?? {
+            switch barcodeKit.pairingMode {
+            case .singleEnd: return .singleEnd
+            case .fixedDual: return .symmetric
+            case .combinatorialDual: return .asymmetric
+            }
+        }()
+
+        // Default error rate and overlap from platform
+        self.errorRate = errorRate ?? barcodeKit.platform.recommendedErrorRate
+        self.minimumOverlap = minimumOverlap ?? barcodeKit.platform.recommendedMinimumOverlap
+
         self.maxDistanceFrom5Prime = max(0, maxDistanceFrom5Prime)
         self.maxDistanceFrom3Prime = max(0, maxDistanceFrom3Prime)
         self.trimBarcodes = trimBarcodes
+        self.searchReverseComplement = searchReverseComplement
+            ?? barcodeKit.platform.readsCanBeReverseComplemented
         self.unassignedDisposition = unassignedDisposition
         self.threads = threads
         self.sampleAssignments = sampleAssignments
@@ -99,13 +125,14 @@ public struct DemultiplexResult: Sendable {
 
 // MARK: - Demultiplex Error
 
-public enum DemultiplexError: Error, LocalizedError {
+public enum DemultiplexError: Error, LocalizedError, Sendable {
     case inputFileNotFound(URL)
     case cutadaptFailed(exitCode: Int32, stderr: String)
     case noBarcodes
     case combinatorialRequiresSampleAssignments
     case outputParsingFailed(String)
-    case bundleCreationFailed(barcode: String, underlying: Error)
+    case bundleCreationFailed(barcode: String, underlying: String)
+    case noOutputResults
 
     public var errorDescription: String? {
         switch self {
@@ -121,6 +148,8 @@ public enum DemultiplexError: Error, LocalizedError {
             return "Failed to parse cutadapt output: \(msg)"
         case .bundleCreationFailed(let barcode, let error):
             return "Failed to create bundle for \(barcode): \(error)"
+        case .noOutputResults:
+            return "Multi-step demultiplexing produced no output results."
         }
     }
 }
@@ -415,8 +444,8 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
                 return (
                     name: sanitizedSampleIdentifier(assignment.sampleID),
-                    first: contextualizedSequence(forward, role: .i7, vendor: config.barcodeKit.vendor),
-                    second: contextualizedSequence(reverse, role: .i5, vendor: config.barcodeKit.vendor)
+                    first: contextualizedSequence(forward, role: .i7, kit: config.barcodeKit),
+                    second: contextualizedSequence(reverse, role: .i5, kit: config.barcodeKit)
                 )
             }
 
@@ -436,10 +465,27 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
         switch config.barcodeKit.pairingMode {
         case .singleEnd:
+            // For long-read platforms (ONT, PacBio), use linked adapter specs that match
+            // both 5' and 3' barcode constructs. This provides better discrimination and
+            // prevents false positives (e.g., barcode05 matching ONT flank sequences).
+            if config.barcodeKit.platform.readsCanBeReverseComplemented {
+                let ctx = config.barcodeKit.adapterContext
+                var lines: [String] = []
+                for barcode in config.barcodeKit.barcodes {
+                    let spec = ctx.linkedSpec(barcodeSequence: barcode.i7Sequence)
+                    lines.append(">\(barcode.id)")
+                    lines.append(spec)
+                }
+                let content = lines.joined(separator: "\n") + "\n"
+                try content.write(to: adapterFASTA, atomically: true, encoding: .utf8)
+                return AdapterConfiguration(adapterFASTA: adapterFASTA, adapterFlag: "-g")
+            }
+
+            // For short-read platforms, use single-end adapter specs
             let entries: [(name: String, sequence: String)] = config.barcodeKit.barcodes.map { barcode in
                 (
                     name: barcode.id,
-                    sequence: contextualizedSequence(barcode.i7Sequence, role: .i7, vendor: config.barcodeKit.vendor)
+                    sequence: contextualizedSequence(barcode.i7Sequence, role: .i7, kit: config.barcodeKit)
                 )
             }
             try writeSingleEndAdapterFASTA(
@@ -462,12 +508,12 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     first: contextualizedSequence(
                         barcode.i7Sequence,
                         role: .i7,
-                        vendor: config.barcodeKit.vendor
+                        kit: config.barcodeKit
                     ),
                     second: contextualizedSequence(
                         i5,
                         role: .i5,
-                        vendor: config.barcodeKit.vendor
+                        kit: config.barcodeKit
                     )
                 )
             }
@@ -491,21 +537,19 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         case i5
     }
 
-    private func contextualizedSequence(_ sequence: String, role: BarcodeRole, vendor: String) -> String {
-        guard vendor.lowercased() == "illumina" else { return sequence.uppercased() }
+    /// Wraps a barcode sequence with platform-appropriate adapter context.
+    ///
+    /// For ONT native barcoding, this constructs the full
+    /// Y-adapter + barcode + flank sequence. For Illumina, it adds
+    /// P7/P5 flanking. For PacBio HiFi, returns bare barcode (CCS
+    /// already removed SMRTbell adapters).
+    private func contextualizedSequence(_ sequence: String, role: BarcodeRole, kit: IlluminaBarcodeDefinition) -> String {
+        let ctx = kit.adapterContext
         switch role {
         case .i7:
-            return IlluminaAdapterContext.withContext(
-                sequence: sequence.uppercased(),
-                upstream: IlluminaAdapterContext.i7Upstream,
-                downstream: IlluminaAdapterContext.i7Downstream
-            )
+            return ctx.fivePrimeSpec(barcodeSequence: sequence)
         case .i5:
-            return IlluminaAdapterContext.withContext(
-                sequence: sequence.uppercased(),
-                upstream: IlluminaAdapterContext.i5Upstream,
-                downstream: IlluminaAdapterContext.i5Downstream
-            )
+            return ctx.threePrimeSpec(barcodeSequence: sequence)
         }
     }
 
@@ -758,8 +802,10 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         args += ["-e", String(config.errorRate)]
         args += ["--overlap", String(config.minimumOverlap)]
 
-        // Search both strand orientations (ONT reads can be in either direction)
-        args += ["--revcomp"]
+        // Search both strand orientations for long-read platforms
+        if config.searchReverseComplement {
+            args += ["--revcomp"]
+        }
 
         // Single-end barcode mode can trim both ends from one read via repeated matching.
         if config.barcodeKit.pairingMode == .singleEnd {
@@ -774,6 +820,11 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
         // Unassigned reads
         args += ["--untrimmed-output", unassignedPath]
+
+        // Poly-G trimming for two-color chemistry platforms (NextSeq, Element AVITI)
+        if config.barcodeKit.platform.mayNeedPolyGTrimming {
+            args += ["--nextseq-trim=20"]
+        }
 
         // JSON report
         args += ["--json", jsonReportPath]
@@ -832,5 +883,253 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         }
 
         return 0
+    }
+
+    // MARK: - Barcode Scouting
+
+    /// Scans a subset of reads to detect which barcodes are present.
+    ///
+    /// Runs cutadapt against the first `readLimit` reads with all barcodes
+    /// in the specified kit. Results include per-barcode hit counts and
+    /// automatic disposition thresholds.
+    ///
+    /// - Parameters:
+    ///   - inputURL: Input FASTQ file or bundle URL.
+    ///   - kit: Barcode kit to scout against.
+    ///   - readLimit: Maximum number of reads to scan (default 10,000).
+    ///   - acceptThreshold: Minimum hits to auto-accept a barcode (default 10).
+    ///   - rejectThreshold: Maximum hits to auto-reject a barcode (default 3).
+    ///   - progress: Progress callback.
+    /// - Returns: Scout result with per-barcode detections.
+    public func scout(
+        inputURL: URL,
+        kit: IlluminaBarcodeDefinition,
+        readLimit: Int = 10_000,
+        acceptThreshold: Int = 10,
+        rejectThreshold: Int = 3,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> BarcodeScoutResult {
+        let startTime = Date()
+
+        let inputFASTQ = resolveInputFASTQ(inputURL)
+        guard FileManager.default.fileExists(atPath: inputFASTQ.path) else {
+            throw DemultiplexError.inputFileNotFound(inputFASTQ)
+        }
+
+        let fm = FileManager.default
+        let workDir = fm.temporaryDirectory
+            .appendingPathComponent("lungfish-scout-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: workDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: workDir) }
+
+        // Step 1: Extract first N reads to a temp file
+        progress(0.0, "Extracting first \(readLimit) reads for scouting...")
+        let subsetFile = workDir.appendingPathComponent("scout-subset.fastq.gz")
+        let headResult = try await runner.run(
+            .seqkit,
+            arguments: ["head", "-n", String(readLimit), "-o", subsetFile.path, inputFASTQ.path],
+            workingDirectory: workDir,
+            timeout: 120
+        )
+        guard headResult.isSuccess else {
+            throw DemultiplexError.cutadaptFailed(exitCode: headResult.exitCode, stderr: headResult.stderr)
+        }
+
+        // Step 2: Generate adapter FASTA for all barcodes in kit
+        progress(0.2, "Preparing barcode adapters...")
+        let adapterFASTA = workDir.appendingPathComponent("scout-adapters.fasta")
+
+        // Build single-end adapter specs using platform context
+        let ctx = kit.adapterContext
+        var lines: [String] = []
+        for barcode in kit.barcodes {
+            let spec = ctx.linkedSpec(barcodeSequence: barcode.i7Sequence)
+            lines.append(">\(barcode.id)")
+            lines.append(spec)
+        }
+        let adapterContent = lines.joined(separator: "\n") + "\n"
+        try adapterContent.write(to: adapterFASTA, atomically: true, encoding: .utf8)
+
+        // Step 3: Run cutadapt
+        progress(0.3, "Running cutadapt scout scan...")
+        let demuxOutputDir = workDir.appendingPathComponent("scout-output", isDirectory: true)
+        try fm.createDirectory(at: demuxOutputDir, withIntermediateDirectories: true)
+
+        let outputPattern = demuxOutputDir.appendingPathComponent("{name}.fastq.gz").path
+        let unassignedPath = demuxOutputDir.appendingPathComponent("unassigned.fastq.gz").path
+        let jsonReportPath = workDir.appendingPathComponent("scout-report.json").path
+
+        var args: [String] = []
+        args += ["-g", "file:\(adapterFASTA.path)"]
+        args += ["-e", String(kit.platform.recommendedErrorRate)]
+        args += ["--overlap", String(kit.platform.recommendedMinimumOverlap)]
+        if kit.platform.readsCanBeReverseComplemented {
+            args += ["--revcomp"]
+        }
+        args += ["--action", "trim"]
+        args += ["-o", outputPattern]
+        args += ["--untrimmed-output", unassignedPath]
+        args += ["--json", jsonReportPath]
+        args += ["--cores", "4"]
+        args += [subsetFile.path]
+
+        let cutadaptResult = try await runner.run(
+            .cutadapt,
+            arguments: args,
+            workingDirectory: workDir,
+            timeout: 300
+        )
+
+        guard cutadaptResult.isSuccess else {
+            throw DemultiplexError.cutadaptFailed(
+                exitCode: cutadaptResult.exitCode,
+                stderr: cutadaptResult.stderr
+            )
+        }
+
+        progress(0.8, "Analyzing scout results...")
+
+        // Step 4: Count reads per barcode output file
+        let outputFiles = (try? fm.contentsOfDirectory(
+            at: demuxOutputDir,
+            includingPropertiesForKeys: [.fileSizeKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+
+        var detections: [BarcodeDetection] = []
+        var totalScanned = 0
+        var unassignedCount = 0
+
+        for outputFile in outputFiles {
+            let baseName = outputFile.deletingPathExtension().deletingPathExtension().lastPathComponent
+            let fileBytes = fileSize(outputFile)
+
+            // Skip empty files
+            guard fileBytes > 20 else { continue }
+
+            let count = countReadsInFASTQ(url: outputFile)
+
+            if baseName == "unassigned" {
+                unassignedCount = count
+            } else {
+                detections.append(BarcodeDetection(
+                    barcodeID: baseName,
+                    kitID: kit.id,
+                    hitCount: count,
+                    hitPercentage: 0 // calculated below
+                ))
+            }
+            totalScanned += count
+        }
+
+        // Calculate percentages and set dispositions
+        for i in detections.indices {
+            if totalScanned > 0 {
+                detections[i].hitPercentage = Double(detections[i].hitCount) / Double(totalScanned) * 100
+            }
+            if detections[i].hitCount >= acceptThreshold {
+                detections[i].disposition = .accepted
+            } else if detections[i].hitCount <= rejectThreshold {
+                detections[i].disposition = .rejected
+            }
+        }
+
+        // Sort by hit count descending
+        detections.sort { $0.hitCount > $1.hitCount }
+
+        let elapsed = Date().timeIntervalSince(startTime)
+        progress(1.0, "Scout complete: \(detections.count) barcodes detected")
+
+        return BarcodeScoutResult(
+            readsScanned: totalScanned,
+            detections: detections,
+            unassignedCount: unassignedCount,
+            scoutedKitIDs: [kit.id],
+            elapsedSeconds: elapsed
+        )
+    }
+
+    // MARK: - Multi-Step Demultiplexing
+
+    /// Runs a multi-step demultiplexing pipeline.
+    ///
+    /// Step 0 demultiplexes the raw input into outer bins.
+    /// Subsequent steps demultiplex each output bin from the previous step.
+    ///
+    /// - Parameters:
+    ///   - plan: The multi-step demultiplexing plan.
+    ///   - inputURL: Input FASTQ file or bundle URL.
+    ///   - outputDirectory: Root output directory.
+    ///   - progress: Progress callback.
+    /// - Returns: Combined result with all output bundles.
+    public func runMultiStep(
+        plan: DemultiplexPlan,
+        inputURL: URL,
+        outputDirectory: URL,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> MultiStepDemultiplexResult {
+        try plan.validate()
+        let startTime = Date()
+
+        let sortedSteps = plan.steps.sorted { $0.ordinal < $1.ordinal }
+        var stepResults: [MultiStepDemultiplexResult.StepResult] = []
+        var currentInputURLs = [inputURL]
+        let progressPerStep = 1.0 / Double(sortedSteps.count)
+
+        for (stepIndex, step) in sortedSteps.enumerated() {
+            let stepBaseProgress = Double(stepIndex) * progressPerStep
+
+            guard let kit = IlluminaBarcodeKitRegistry.kit(byID: step.barcodeKitID) else {
+                throw DemultiplexPlanError.missingKit(step: step.label)
+            }
+
+            var perBinResults: [DemultiplexResult] = []
+            let progressPerBin = progressPerStep / Double(max(1, currentInputURLs.count))
+
+            for (binIndex, binInputURL) in currentInputURLs.enumerated() {
+                let binBaseProgress = stepBaseProgress + Double(binIndex) * progressPerBin
+                let binName = binInputURL.deletingPathExtension().lastPathComponent
+                let stepOutputDir = outputDirectory
+                    .appendingPathComponent(binName, isDirectory: true)
+
+                let config = DemultiplexConfig(
+                    inputURL: binInputURL,
+                    barcodeKit: kit,
+                    outputDirectory: stepOutputDir,
+                    barcodeLocation: step.barcodeLocation,
+                    symmetryMode: step.symmetryMode,
+                    errorRate: step.errorRate,
+                    minimumOverlap: step.minimumOverlap,
+                    searchReverseComplement: step.searchReverseComplement,
+                    sampleAssignments: step.sampleAssignments
+                )
+
+                let result = try await run(config: config) { fraction, message in
+                    progress(binBaseProgress + fraction * progressPerBin, "Step \(stepIndex + 1): \(message)")
+                }
+                perBinResults.append(result)
+            }
+
+            stepResults.append(.init(step: step, perBinResults: perBinResults))
+
+            // Next step's inputs are the output bundles from this step
+            currentInputURLs = perBinResults.flatMap(\.outputBundleURLs)
+        }
+
+        let elapsed = Date().timeIntervalSince(startTime)
+        let finalBundles = stepResults.last?.perBinResults.flatMap(\.outputBundleURLs) ?? []
+        guard let finalManifest = stepResults.last?.perBinResults.first?.manifest
+            ?? stepResults.first?.perBinResults.first?.manifest else {
+            throw DemultiplexError.noOutputResults
+        }
+
+        progress(1.0, "Multi-step demultiplexing complete")
+
+        return MultiStepDemultiplexResult(
+            stepResults: stepResults,
+            outputBundleURLs: finalBundles,
+            manifest: finalManifest,
+            wallClockSeconds: elapsed
+        )
     }
 }

@@ -47,6 +47,10 @@ public struct PersistedFASTQMetadata: Codable, Sendable {
     /// Optional FASTQ demultiplex metadata edited in the FASTQ bottom drawer.
     public var demultiplexMetadata: FASTQDemultiplexMetadata?
 
+    /// Sequencing platform that generated this data (ONT, Illumina, PacBio, etc.).
+    /// Used to select appropriate adapter contexts and error rates.
+    public var sequencingPlatform: SequencingPlatform?
+
     public init(
         computedStatistics: FASTQDatasetStatistics? = nil,
         sraRunInfo: SRARunInfo? = nil,
@@ -56,7 +60,8 @@ public struct PersistedFASTQMetadata: Codable, Sendable {
         ingestion: IngestionMetadata? = nil,
         seqkitStats: SeqkitStatsMetadata? = nil,
         readClassification: ReadClassification? = nil,
-        demultiplexMetadata: FASTQDemultiplexMetadata? = nil
+        demultiplexMetadata: FASTQDemultiplexMetadata? = nil,
+        sequencingPlatform: SequencingPlatform? = nil
     ) {
         self.computedStatistics = computedStatistics
         self.sraRunInfo = sraRunInfo
@@ -67,6 +72,7 @@ public struct PersistedFASTQMetadata: Codable, Sendable {
         self.seqkitStats = seqkitStats
         self.readClassification = readClassification
         self.demultiplexMetadata = demultiplexMetadata
+        self.sequencingPlatform = sequencingPlatform
     }
 }
 
