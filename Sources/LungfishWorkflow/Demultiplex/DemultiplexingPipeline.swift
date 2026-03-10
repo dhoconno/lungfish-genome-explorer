@@ -331,7 +331,10 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
         progress(0.80, "cutadapt complete, creating bundles...")
 
-        // Step 4: Create per-barcode .lungfishfastq bundles (15% progress)
+        // Step 4: Create virtual per-barcode .lungfishfastq bundles (15% progress)
+        // Each bundle contains a read ID list and a small preview (first 1000 reads),
+        // NOT a full copy of the barcode's FASTQ. The full cutadapt output stays in
+        // workDir and is cleaned up by the defer block.
         let demuxOutputContents = try fm.contentsOfDirectory(
             at: demuxOutputDir,
             includingPropertiesForKeys: [.fileSizeKey],
@@ -346,65 +349,195 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         var unassignedBaseCount: Int64 = 0
         let progressPerFile = 0.15 / max(1.0, Double(demuxOutputContents.count))
 
-        for (i, outputFile) in demuxOutputContents.enumerated() {
-            try Task.checkCancellation()
-
+        // Collect non-empty output files for parallel processing
+        struct DemuxOutputFile: Sendable {
+            let url: URL
+            let baseName: String
+            let isUnassigned: Bool
+            let fileBytes: Int64
+        }
+        let filesToProcess: [DemuxOutputFile] = demuxOutputContents.compactMap { outputFile in
             let baseName = outputFile.deletingPathExtension().deletingPathExtension().lastPathComponent
-            let isUnassigned = baseName == "unassigned"
             let fileBytes = fileSize(outputFile)
+            guard fileBytes > 20 else { return nil }
+            return DemuxOutputFile(
+                url: outputFile,
+                baseName: baseName,
+                isUnassigned: baseName == "unassigned",
+                fileBytes: fileBytes
+            )
+        }
 
-            // Skip empty output files (0 bytes or just gzip header)
-            if fileBytes <= 20 { continue }
+        // Process files with bounded concurrency (8 at a time for seqkit calls)
+        struct VirtualBundleResult: Sendable {
+            let baseName: String
+            let isUnassigned: Bool
+            let bundleURL: URL
+            let bundleName: String
+            let readCount: Int
+            let baseCount: Int64
+        }
 
-            let bundleName = "\(baseName).\(FASTQBundle.directoryExtension)"
-            let bundleURL = config.outputDirectory
-                .appendingPathComponent(bundleName, isDirectory: true)
-            try fm.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let bundleResults: [VirtualBundleResult] = try await withThrowingTaskGroup(
+            of: VirtualBundleResult?.self,
+            returning: [VirtualBundleResult].self
+        ) { group in
+            var results: [VirtualBundleResult] = []
+            var inFlight = 0
+            var fileIndex = 0
 
-            let destFASTQ = bundleURL.appendingPathComponent("reads.fastq.gz")
-            // Use replaceItemAt for idempotent re-runs
-            if fm.fileExists(atPath: destFASTQ.path) {
-                _ = try fm.replaceItemAt(destFASTQ, withItemAt: outputFile)
-            } else {
-                try fm.moveItem(at: outputFile, to: destFASTQ)
+            for file in filesToProcess {
+                // Throttle to 8 concurrent
+                if inFlight >= 8 {
+                    if let result = try await group.next() {
+                        if let r = result { results.append(r) }
+                        inFlight -= 1
+                    }
+                }
+
+                let bundleName = "\(file.baseName).\(FASTQBundle.directoryExtension)"
+                let bundleURL = config.outputDirectory
+                    .appendingPathComponent(bundleName, isDirectory: true)
+                try fm.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+                let capturedRunner = self.runner
+                group.addTask {
+                    try Task.checkCancellation()
+
+                    // Extract read IDs
+                    let readIDsURL = bundleURL.appendingPathComponent("read-ids.txt")
+                    let readIDResult = try await capturedRunner.run(
+                        .seqkit,
+                        arguments: ["seq", "--name", "--only-id", file.url.path, "-o", readIDsURL.path],
+                        timeout: 300
+                    )
+                    guard readIDResult.isSuccess else {
+                        logger.error("seqkit seq failed for \(file.baseName): \(readIDResult.stderr)")
+                        return nil
+                    }
+
+                    // Extract preview (first 1000 reads)
+                    let previewURL = bundleURL.appendingPathComponent("preview.fastq.gz")
+                    let previewResult = try await capturedRunner.run(
+                        .seqkit,
+                        arguments: ["head", "-n", "1000", file.url.path, "-o", previewURL.path],
+                        timeout: 120
+                    )
+                    guard previewResult.isSuccess else {
+                        logger.error("seqkit head failed for \(file.baseName): \(previewResult.stderr)")
+                        return nil
+                    }
+
+                    // Get accurate read count and base count via seqkit stats
+                    let statsResult = try await capturedRunner.run(
+                        .seqkit,
+                        arguments: ["stats", "-T", file.url.path],
+                        timeout: 300
+                    )
+                    var readCount = 0
+                    var baseCount: Int64 = 0
+                    if statsResult.isSuccess {
+                        // seqkit stats -T output: header line + data line, tab-separated
+                        // Columns: file, format, type, num_seqs, sum_len, min_len, avg_len, max_len
+                        let lines = statsResult.stdout.split(separator: "\n")
+                        if lines.count >= 2 {
+                            let fields = lines[1].split(separator: "\t")
+                            if fields.count >= 5 {
+                                readCount = Int(fields[3].replacingOccurrences(of: ",", with: "")) ?? 0
+                                baseCount = Int64(fields[4].replacingOccurrences(of: ",", with: "")) ?? 0
+                            }
+                        }
+                    }
+
+                    return VirtualBundleResult(
+                        baseName: file.baseName,
+                        isUnassigned: file.isUnassigned,
+                        bundleURL: bundleURL,
+                        bundleName: bundleName,
+                        readCount: readCount,
+                        baseCount: baseCount
+                    )
+                }
+                inFlight += 1
+                fileIndex += 1
             }
 
-            // Count reads
-            let readCount = countReadsInFASTQ(url: destFASTQ)
+            // Collect remaining results
+            for try await result in group {
+                if let r = result { results.append(r) }
+            }
+            return results
+        }
 
-            // Estimate base count (compressed bytes × ~1.5 for FASTQ overhead in decompressed)
-            let baseCount = Int64(Double(fileBytes) * 1.5)
-
-            if isUnassigned {
-                unassignedReadCount = readCount
-                unassignedBaseCount = baseCount
+        // Process results and write derived manifests
+        for (i, result) in bundleResults.enumerated() {
+            if result.isUnassigned {
+                unassignedReadCount = result.readCount
+                unassignedBaseCount = result.baseCount
                 if config.unassignedDisposition == .keep {
-                    unassignedBundleURL = bundleURL
+                    unassignedBundleURL = result.bundleURL
                 } else {
-                    try? fm.removeItem(at: bundleURL)
+                    try? fm.removeItem(at: result.bundleURL)
+                    continue
                 }
             } else {
-                assignedReadCount += readCount
+                assignedReadCount += result.readCount
                 let sequenceInfo = barcodeSequenceInfo(
-                    for: baseName,
+                    for: result.baseName,
                     kit: config.barcodeKit,
                     sampleAssignments: config.sampleAssignments
                 )
                 barcodeResults.append(BarcodeResult(
-                    barcodeID: baseName,
+                    barcodeID: result.baseName,
                     sampleName: sequenceInfo.sampleName,
                     forwardSequence: sequenceInfo.forward,
                     reverseSequence: sequenceInfo.reverse,
-                    readCount: readCount,
-                    baseCount: baseCount,
-                    bundleRelativePath: bundleName
+                    readCount: result.readCount,
+                    baseCount: result.baseCount,
+                    bundleRelativePath: result.bundleName
                 ))
-                bundleURLs.append(bundleURL)
+                bundleURLs.append(result.bundleURL)
+            }
+
+            // Write derived manifest if root bundle info is available
+            if let rootBundleURL = config.rootBundleURL,
+               let rootFASTQFilename = config.rootFASTQFilename {
+                let rootRelativePath = relativePath(from: result.bundleURL, to: rootBundleURL)
+                // Parent is the root bundle for first-generation demux derivatives
+                let parentRelativePath = rootRelativePath
+                let demuxOp = FASTQDerivativeOperation(
+                    kind: .demultiplex,
+                    createdAt: Date()
+                )
+                let stats = FASTQDatasetStatistics.placeholder(
+                    readCount: result.readCount,
+                    baseCount: result.baseCount
+                )
+                let derivedManifest = FASTQDerivedBundleManifest(
+                    name: result.baseName,
+                    parentBundleRelativePath: parentRelativePath,
+                    rootBundleRelativePath: rootRelativePath,
+                    rootFASTQFilename: rootFASTQFilename,
+                    payload: .demuxedVirtual(
+                        barcodeID: result.baseName,
+                        readIDListFilename: "read-ids.txt",
+                        previewFilename: "preview.fastq.gz"
+                    ),
+                    lineage: [demuxOp],
+                    operation: demuxOp,
+                    cachedStatistics: stats,
+                    pairingMode: nil
+                )
+                do {
+                    try FASTQBundle.saveDerivedManifest(derivedManifest, in: result.bundleURL)
+                } catch {
+                    logger.error("Failed to save derived manifest for \(result.baseName): \(error)")
+                }
             }
 
             progress(
                 0.80 + Double(i + 1) * progressPerFile,
-                "Created bundle for \(baseName)"
+                "Created virtual bundle for \(result.baseName)"
             )
         }
 
@@ -1623,5 +1756,24 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             compositeSampleNames: plan.compositeSampleNames,
             totalWallClockSeconds: elapsed
         )
+    }
+
+    // MARK: - Helpers
+
+    /// Compute a relative path from one URL to another (e.g. "../../parent-bundle.fastqbundle").
+    private func relativePath(from baseURL: URL, to targetURL: URL) -> String {
+        let baseComponents = baseURL.standardizedFileURL.pathComponents
+        let targetComponents = targetURL.standardizedFileURL.pathComponents
+
+        var common = 0
+        while common < min(baseComponents.count, targetComponents.count),
+              baseComponents[common] == targetComponents[common] {
+            common += 1
+        }
+
+        let up = Array(repeating: "..", count: max(0, baseComponents.count - common))
+        let down = Array(targetComponents.dropFirst(common))
+        let parts = up + down
+        return parts.isEmpty ? "." : parts.joined(separator: "/")
     }
 }
