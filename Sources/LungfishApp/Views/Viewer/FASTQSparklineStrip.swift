@@ -213,17 +213,37 @@ final class FASTQSparklineStrip: NSView {
                                   bins: [(key: Int, value: Int)],
                                   color: NSColor) {
         guard !bins.isEmpty else { return }
-        let maxValue = bins.map(\.value).max() ?? 1
+
+        // When there are more bins than pixels, aggregate into pixel-width buckets
+        // so the full distribution is visible and Y-max reflects what's drawn.
+        let displayBins: [(key: Int, value: Int)]
+        let maxPixelBins = Int(rect.width)
+        if bins.count > maxPixelBins, maxPixelBins > 0,
+           let minKey = bins.first?.key, let maxKey = bins.last?.key, maxKey > minKey {
+            let keyRange = maxKey - minKey
+            let bucketSize = max(1, (keyRange + maxPixelBins - 1) / maxPixelBins)
+            var aggregated: [Int: Int] = [:]
+            for bin in bins {
+                let bucket = (bin.key - minKey) / bucketSize
+                aggregated[bucket, default: 0] += bin.value
+            }
+            displayBins = aggregated.sorted { $0.key < $1.key }
+                .map { (key: $0.key, value: $0.value) }
+        } else {
+            displayBins = bins
+        }
+
+        let maxValue = displayBins.map(\.value).max() ?? 1
         guard maxValue > 0 else { return }
 
-        let barCount = bins.count
+        let barCount = displayBins.count
         let barWidth = max(1, rect.width / CGFloat(barCount))
 
         // Draw as filled area path
         let path = CGMutablePath()
         path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
 
-        for (i, bin) in bins.enumerated() {
+        for (i, bin) in displayBins.enumerated() {
             let x = rect.minX + CGFloat(i) * barWidth
             let h = CGFloat(bin.value) / CGFloat(maxValue) * rect.height
             let y = rect.maxY - h
@@ -245,7 +265,7 @@ final class FASTQSparklineStrip: NSView {
         // Stroke top edge
         let strokePath = CGMutablePath()
         strokePath.move(to: CGPoint(x: rect.minX, y: rect.maxY))
-        for (i, bin) in bins.enumerated() {
+        for (i, bin) in displayBins.enumerated() {
             let x = rect.minX + CGFloat(i) * barWidth
             let h = CGFloat(bin.value) / CGFloat(maxValue) * rect.height
             let y = rect.maxY - h

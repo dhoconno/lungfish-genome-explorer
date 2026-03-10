@@ -488,7 +488,7 @@ public final class FASTQDatasetViewController: NSViewController {
         operationSidebar.addTableColumn(iconColumn)
 
         let nameColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
-        nameColumn.width = 200
+        nameColumn.width = 140
         nameColumn.resizingMask = .autoresizingMask
         operationSidebar.addTableColumn(nameColumn)
 
@@ -772,8 +772,8 @@ public final class FASTQDatasetViewController: NSViewController {
         let topHeight = min(viewHeight * 0.18, 130)
         mainSplitView.setPosition(topHeight, ofDividerAt: 0)
 
-        // Sidebar default width — wide enough to show full operation names
-        middleSplitView.setPosition(240, ofDividerAt: 0)
+        // Sidebar width — just wide enough for longest operation name ("Demultiplex (Barcodes)")
+        middleSplitView.setPosition(170, ofDividerAt: 0)
     }
 
     // MARK: - Parameter Bar Updates
@@ -1003,7 +1003,7 @@ public final class FASTQDatasetViewController: NSViewController {
 
     private func updateOutputEstimate(for kind: OperationKind) {
         guard let stats = statistics else {
-            outputEstimateLabel.stringValue = "Output depends on data content"
+            outputEstimateLabel.stringValue = ""
             return
         }
 
@@ -1015,12 +1015,8 @@ public final class FASTQDatasetViewController: NSViewController {
         case .subsampleCount:
             let n = Int(fieldOneInput.stringValue) ?? 1000
             outputEstimateLabel.stringValue = "Estimated output: \(formatCount(min(n, stats.readCount))) reads"
-        case .qualityReport:
-            outputEstimateLabel.stringValue = ""
-        case .demultiplex:
-            outputEstimateLabel.stringValue = "Output depends on data content"
         default:
-            outputEstimateLabel.stringValue = "Output depends on data content"
+            outputEstimateLabel.stringValue = ""
         }
     }
 
@@ -1457,6 +1453,11 @@ public final class FASTQDatasetViewController: NSViewController {
 
     @objc private func parameterCheckboxChanged(_ sender: NSButton) {
         updatePreview()
+    }
+
+    /// Programmatically triggers the current operation run. Called after scout "Proceed".
+    public func triggerCurrentOperationRun() {
+        runOperationClicked(self)
     }
 
     @objc private func runOperationClicked(_ sender: Any) {
@@ -2040,7 +2041,7 @@ extension FASTQDatasetViewController: NSSplitViewDelegate {
             return 104 // minimum top pane height (48 + 2 + 52 + 2)
         }
         if splitView === middleSplitView {
-            return 200 // minimum sidebar width
+            return 140 // minimum sidebar width
         }
         return proposedMinimumPosition
     }
@@ -2050,7 +2051,7 @@ extension FASTQDatasetViewController: NSSplitViewDelegate {
             return 160 // maximum top pane height
         }
         if splitView === middleSplitView {
-            return 320 // maximum sidebar width
+            return 220 // maximum sidebar width
         }
         return proposedMaximumPosition
     }

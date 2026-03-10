@@ -131,7 +131,14 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
                         BarcodeScoutSheet.present(
                             on: window,
                             scoutResult: result,
-                            kitDisplayName: kit.displayName
+                            kitDisplayName: kit.displayName,
+                            onProceed: { [weak self] acceptedDetections, scoutResult in
+                                self?.handleScoutProceed(
+                                    acceptedDetections: acceptedDetections,
+                                    scoutResult: scoutResult,
+                                    kit: kit
+                                )
+                            }
                         )
                     }
                 }
@@ -149,6 +156,45 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
                 }
             }
         }
+    }
+
+    /// Handles the user clicking "Proceed" in the BarcodeScoutSheet after reviewing scout results.
+    /// Converts accepted detections into sample assignments, updates the demux config, and
+    /// triggers the full demultiplexing run via the operations panel.
+    private func handleScoutProceed(
+        acceptedDetections: [BarcodeDetection],
+        scoutResult: BarcodeScoutResult,
+        kit: BarcodeKitDefinition
+    ) {
+        // Convert accepted detections to sample assignments
+        let assignments: [FASTQSampleBarcodeAssignment] = acceptedDetections.map { detection in
+            let barcode = kit.barcodes.first { $0.id == detection.barcodeID }
+            return FASTQSampleBarcodeAssignment(
+                sampleID: detection.barcodeID,
+                sampleName: detection.sampleName,
+                forwardBarcodeID: detection.barcodeID,
+                forwardSequence: barcode?.i7Sequence,
+                reverseBarcodeID: detection.barcodeID,
+                reverseSequence: barcode?.i5Sequence ?? barcode?.i7Sequence
+            )
+        }
+
+        // Update the drawer's demux step with sample assignments
+        if let drawer = fastqMetadataDrawerView {
+            drawer.updateSampleAssignments(assignments)
+        }
+
+        // Sync to the operations panel and trigger the run
+        syncDemuxConfigToController()
+        if var config = fastqDatasetController?.currentDemuxConfig {
+            config.sampleAssignments = assignments
+            fastqDatasetController?.currentDemuxConfig = config
+        }
+
+        // Auto-trigger the run
+        fastqDatasetController?.triggerCurrentOperationRun()
+
+        fastqDrawerLogger.info("Scout proceed: \(acceptedDetections.count) barcodes accepted, triggering full demux")
     }
 
     /// Syncs the drawer's first demux step to the operations panel as the current config.

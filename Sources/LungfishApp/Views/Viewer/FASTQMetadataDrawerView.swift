@@ -213,6 +213,13 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         DemultiplexPlan(steps: demuxSteps, compositeSampleNames: compositeSampleNames)
     }
 
+    /// Updates sample assignments from scout results and refreshes the table.
+    public func updateSampleAssignments(_ assignments: [FASTQSampleBarcodeAssignment]) {
+        sampleAssignments = assignments
+        tableView.reloadData()
+        statusLabel.stringValue = "\(assignments.count) sample(s) assigned from barcode scout."
+    }
+
     /// Programmatically selects the Demux Setup tab.
     public func selectDemuxSetupTab() {
         tabControl.selectedSegment = Tab.demuxSetup.rawValue

@@ -484,9 +484,11 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             && config.barcodeKit.pairingMode == .symmetric
             && config.barcodeKit.platform.readsCanBeReverseComplemented {
             // Symmetric long-read kits with sample assignments from scout:
-            // Use linked adapter specs (which correctly handle the symmetric barcode
-            // on both read ends) but with sample-specific names from assignments.
+            // Use 5'-only specs (not linked) when --revcomp is active. Linked adapter
+            // syntax in FASTA files is incompatible with --revcomp, causing ~50% of
+            // reverse-oriented reads to go unassigned.
             let ctx = config.resolvedAdapterContext
+            let useRevcomp = config.searchReverseComplement
             var lines: [String] = []
             for assignment in config.sampleAssignments {
                 guard let sequence = resolveSequence(
@@ -494,7 +496,9 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     barcodeID: assignment.forwardBarcodeID,
                     kit: config.barcodeKit
                 ) else { continue }
-                let spec = ctx.linkedSpec(barcodeSequence: sequence)
+                let spec = useRevcomp
+                    ? ctx.fivePrimeSpec(barcodeSequence: sequence)
+                    : ctx.linkedSpec(barcodeSequence: sequence)
                 let name = sanitizedSampleIdentifier(assignment.sampleID)
                 lines.append(">\(name)")
                 lines.append(spec)
@@ -544,14 +548,19 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
         switch config.barcodeKit.pairingMode {
         case .singleEnd, .symmetric:
-            // For long-read platforms (ONT, PacBio), use linked adapter specs that match
-            // both 5' and 3' barcode constructs. This provides better discrimination and
-            // prevents false positives (e.g., barcode05 matching ONT flank sequences).
+            // For long-read platforms (ONT, PacBio), use 5'-only adapter specs when
+            // --revcomp is active. Linked adapter syntax (5'...3') in FASTA files is
+            // incompatible with --revcomp, causing ~50% of reverse-oriented reads to go
+            // unassigned. The 5' spec (Y-adapter + flank + barcode) is sufficient for
+            // barcode identification; --revcomp handles orientation detection.
             if config.barcodeKit.platform.readsCanBeReverseComplemented {
                 let ctx = config.resolvedAdapterContext
+                let useRevcomp = config.searchReverseComplement
                 var lines: [String] = []
                 for barcode in config.barcodeKit.barcodes {
-                    let spec = ctx.linkedSpec(barcodeSequence: barcode.i7Sequence)
+                    let spec = useRevcomp
+                        ? ctx.fivePrimeSpec(barcodeSequence: barcode.i7Sequence)
+                        : ctx.linkedSpec(barcodeSequence: barcode.i7Sequence)
                     lines.append(">\(barcode.id)")
                     lines.append(spec)
                 }
@@ -1037,11 +1046,19 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         progress(0.2, "Preparing barcode adapters...")
         let adapterFASTA = workDir.appendingPathComponent("scout-adapters.fasta")
 
-        // Build adapter specs using platform context (or override)
+        // Build adapter specs using platform context (or override).
+        // For platforms that use --revcomp (ONT, PacBio), use 5'-only specs instead of
+        // linked specs. Linked adapter syntax (5'...3') in FASTA files is incompatible
+        // with --revcomp: cutadapt fails to match the linked pair after reverse-complementing
+        // the read, causing ~50% of reads (those in reverse orientation) to go unassigned.
+        // The 5' spec alone (Y-adapter + flank + barcode) is sufficient for demux identification.
         let ctx = adapterContext ?? kit.adapterContext
+        let useRevcomp = kit.platform.readsCanBeReverseComplemented
         var lines: [String] = []
         for barcode in kit.barcodes {
-            let spec = ctx.linkedSpec(barcodeSequence: barcode.i7Sequence)
+            let spec = useRevcomp
+                ? ctx.fivePrimeSpec(barcodeSequence: barcode.i7Sequence)
+                : ctx.linkedSpec(barcodeSequence: barcode.i7Sequence)
             lines.append(">\(barcode.id)")
             lines.append(spec)
         }
