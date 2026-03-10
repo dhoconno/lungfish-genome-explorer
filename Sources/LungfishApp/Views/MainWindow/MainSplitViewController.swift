@@ -1041,45 +1041,12 @@ public class MainSplitViewController: NSSplitViewController {
     }
 
     // MARK: - NSSplitViewDelegate
-
-    public override func splitView(
-        _ splitView: NSSplitView,
-        canCollapseSubview subview: NSView
-    ) -> Bool {
-        // Allow collapsing sidebar and inspector
-        if subview == sidebarController.view {
-            return true
-        }
-        if subview == inspectorController.view {
-            return true
-        }
-        return false
-    }
-
-    public override func splitView(
-        _ splitView: NSSplitView,
-        constrainMinCoordinate proposedMinimumPosition: CGFloat,
-        ofSubviewAt dividerIndex: Int
-    ) -> CGFloat {
-        switch dividerIndex {
-        case 0: return max(proposedMinimumPosition, 180)   // Sidebar min width
-        case 1: return max(proposedMinimumPosition, 300)   // Content min width (from left edge)
-        default: return proposedMinimumPosition
-        }
-    }
-
-    public override func splitView(
-        _ splitView: NSSplitView,
-        constrainMaxCoordinate proposedMaximumPosition: CGFloat,
-        ofSubviewAt dividerIndex: Int
-    ) -> CGFloat {
-        let totalWidth = splitView.bounds.width
-        switch dividerIndex {
-        case 0: return min(proposedMaximumPosition, totalWidth * 0.4)  // Sidebar max 40%
-        case 1: return min(proposedMaximumPosition, totalWidth - 180)  // Inspector min 180
-        default: return proposedMaximumPosition
-        }
-    }
+    //
+    // NOTE: Do NOT override canCollapseSubview, constrainMinCoordinate, or
+    // constrainMaxCoordinate on NSSplitViewController — these legacy delegate
+    // methods are incompatible with constraint-based layout and cause an
+    // assertion failure on macOS Tahoe. Use NSSplitViewItem properties instead:
+    //   - canCollapse, minimumThickness, maximumThickness (set in configureChildControllers)
 
     public override func splitViewDidResizeSubviews(_ notification: Notification) {
         guard inspectorTransitionInFlight else { return }

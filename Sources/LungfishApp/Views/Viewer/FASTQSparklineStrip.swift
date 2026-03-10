@@ -136,6 +136,12 @@ final class FASTQSparklineStrip: NSView {
     }
 
     private func drawSparkline(ctx: CGContext, rect: CGRect, kind: SparklineKind) {
+        guard rect.width > 0, rect.height > 0 else { return }
+
+        // Clip all drawing to this sparkline's rect so nothing bleeds into neighbors
+        ctx.saveGState()
+        ctx.clip(to: rect)
+
         // Background
         let isHovered = hoveredIndex == kind.rawValue
         let bgAlpha: CGFloat = isHovered ? 0.55 : 0.4
@@ -167,7 +173,10 @@ final class FASTQSparklineStrip: NSView {
             height: rect.height - 18
         )
 
-        guard chartRect.width > 4, chartRect.height > 4 else { return }
+        guard chartRect.width > 4, chartRect.height > 4 else {
+            ctx.restoreGState()
+            return
+        }
 
         let hasData: Bool
         switch kind {
@@ -196,6 +205,8 @@ final class FASTQSparklineStrip: NSView {
         if !hasData && kind != .length {
             drawDisabledState(ctx: ctx, rect: chartRect)
         }
+
+        ctx.restoreGState()
     }
 
     private func drawBarSparkline(ctx: CGContext, rect: CGRect,

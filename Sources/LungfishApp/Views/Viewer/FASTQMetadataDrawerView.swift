@@ -407,36 +407,58 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         stepRemoveButton.setAccessibilityLabel("Remove demux step")
         kitDetailTable.setAccessibilityLabel("Barcode sequences")
 
-        // Layout within detail panel — flow left-to-right, wrapping
+        // Layout within detail panel — two-column grid that stays within container bounds
+        // Row 1: Kit label + popup
+        // Row 2: Location label + segmented control
+        // Row 3: Symmetry label + popup, Error rate label + field
+        // Row 4: Trim checkbox + Scout button
+
+        // Allow popups to compress below their preferred width when space is tight
+        stepKitPopup.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        stepSymmetryPopup.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+
+        let kitMinWidth = stepKitPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 140)
+        kitMinWidth.priority = .defaultHigh
+        let symMinWidth = stepSymmetryPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 80)
+        symMinWidth.priority = .defaultHigh
+
         NSLayoutConstraint.activate([
+            // Row 1: Kit
             stepKitLabel.topAnchor.constraint(equalTo: stepDetailSeparator.bottomAnchor, constant: 6),
             stepKitLabel.leadingAnchor.constraint(equalTo: stepDetailContainer.leadingAnchor, constant: 8),
             stepKitPopup.centerYAnchor.constraint(equalTo: stepKitLabel.centerYAnchor),
             stepKitPopup.leadingAnchor.constraint(equalTo: stepKitLabel.trailingAnchor, constant: 4),
-            stepKitPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 200),
+            kitMinWidth,
+            stepKitPopup.trailingAnchor.constraint(lessThanOrEqualTo: stepDetailContainer.trailingAnchor, constant: -8),
 
+            // Row 2: Location
             stepLocationLabel.topAnchor.constraint(equalTo: stepKitLabel.bottomAnchor, constant: 8),
             stepLocationLabel.leadingAnchor.constraint(equalTo: stepDetailContainer.leadingAnchor, constant: 8),
             stepLocationControl.centerYAnchor.constraint(equalTo: stepLocationLabel.centerYAnchor),
             stepLocationControl.leadingAnchor.constraint(equalTo: stepLocationLabel.trailingAnchor, constant: 4),
+            stepLocationControl.trailingAnchor.constraint(lessThanOrEqualTo: stepDetailContainer.trailingAnchor, constant: -8),
 
-            stepSymmetryLabel.centerYAnchor.constraint(equalTo: stepLocationLabel.centerYAnchor),
-            stepSymmetryLabel.leadingAnchor.constraint(equalTo: stepLocationControl.trailingAnchor, constant: 16),
+            // Row 3: Symmetry + Error Rate (below Location row)
+            stepSymmetryLabel.topAnchor.constraint(equalTo: stepLocationLabel.bottomAnchor, constant: 8),
+            stepSymmetryLabel.leadingAnchor.constraint(equalTo: stepDetailContainer.leadingAnchor, constant: 8),
             stepSymmetryPopup.centerYAnchor.constraint(equalTo: stepSymmetryLabel.centerYAnchor),
             stepSymmetryPopup.leadingAnchor.constraint(equalTo: stepSymmetryLabel.trailingAnchor, constant: 4),
-            stepSymmetryPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 100),
+            symMinWidth,
 
-            stepErrorLabel.centerYAnchor.constraint(equalTo: stepLocationLabel.centerYAnchor),
+            stepErrorLabel.centerYAnchor.constraint(equalTo: stepSymmetryLabel.centerYAnchor),
             stepErrorLabel.leadingAnchor.constraint(equalTo: stepSymmetryPopup.trailingAnchor, constant: 16),
             stepErrorRateField.centerYAnchor.constraint(equalTo: stepErrorLabel.centerYAnchor),
             stepErrorRateField.leadingAnchor.constraint(equalTo: stepErrorLabel.trailingAnchor, constant: 4),
             stepErrorRateField.widthAnchor.constraint(equalToConstant: 50),
+            stepErrorRateField.trailingAnchor.constraint(lessThanOrEqualTo: stepDetailContainer.trailingAnchor, constant: -8),
 
-            stepTrimCheckbox.topAnchor.constraint(equalTo: stepLocationLabel.bottomAnchor, constant: 8),
+            // Row 4: Trim + Scout
+            stepTrimCheckbox.topAnchor.constraint(equalTo: stepSymmetryLabel.bottomAnchor, constant: 8),
             stepTrimCheckbox.leadingAnchor.constraint(equalTo: stepDetailContainer.leadingAnchor, constant: 8),
 
             stepScoutButton.centerYAnchor.constraint(equalTo: stepTrimCheckbox.centerYAnchor),
             stepScoutButton.leadingAnchor.constraint(equalTo: stepTrimCheckbox.trailingAnchor, constant: 16),
+            stepScoutButton.trailingAnchor.constraint(lessThanOrEqualTo: stepDetailContainer.trailingAnchor, constant: -8),
         ])
     }
 
