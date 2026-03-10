@@ -481,6 +481,47 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         let adapterFASTA = workDirectory.appendingPathComponent("adapters.fasta")
 
         if !config.sampleAssignments.isEmpty
+            && (config.barcodeKit.pairingMode == .combinatorialDual
+                || config.barcodeKit.pairingMode == .fixedDual) {
+            // Asymmetric/combinatorial kits with sample assignments from scout:
+            // Generate linked adapter pairs (5'...3') directly. For long-read platforms,
+            // reads can arrive in either orientation, so we generate BOTH orientations
+            // explicitly (fwd--rev AND rev--fwd) instead of using --revcomp (which is
+            // incompatible with linked adapter syntax).
+            let ctx = config.resolvedAdapterContext
+            var lines: [String] = []
+            for assignment in config.sampleAssignments {
+                guard let fwdSeq = resolveSequence(
+                    explicitSequence: assignment.forwardSequence,
+                    barcodeID: assignment.forwardBarcodeID,
+                    kit: config.barcodeKit
+                ), let revSeq = resolveSequence(
+                    explicitSequence: assignment.reverseSequence,
+                    barcodeID: assignment.reverseBarcodeID,
+                    kit: config.barcodeKit
+                ) else { continue }
+                let name = sanitizedSampleIdentifier(assignment.sampleID)
+                // Forward orientation: fwd barcode at 5', rev barcode (RC) at 3'
+                let fwdSpec = ctx.fivePrimeSpec(barcodeSequence: fwdSeq)
+                let revSpec = ctx.threePrimeSpec(barcodeSequence: revSeq)
+                lines.append(">\(name)")
+                lines.append("\(fwdSpec)...\(revSpec)")
+                // Reverse orientation: rev barcode at 5', fwd barcode (RC) at 3'
+                if fwdSeq != revSeq {
+                    let revFwdSpec = ctx.fivePrimeSpec(barcodeSequence: revSeq)
+                    let revRevSpec = ctx.threePrimeSpec(barcodeSequence: fwdSeq)
+                    lines.append(">\(name)")
+                    lines.append("\(revFwdSpec)...\(revRevSpec)")
+                }
+            }
+            guard !lines.isEmpty else {
+                throw DemultiplexError.combinatorialRequiresSampleAssignments
+            }
+            let content = lines.joined(separator: "\n") + "\n"
+            try content.write(to: adapterFASTA, atomically: true, encoding: .utf8)
+            try validateAdapterFASTA(at: adapterFASTA, kitName: config.barcodeKit.displayName)
+            return AdapterConfiguration(adapterFASTA: adapterFASTA, adapterFlag: "-g")
+        } else if !config.sampleAssignments.isEmpty
             && config.barcodeKit.pairingMode == .symmetric
             && config.barcodeKit.platform.readsCanBeReverseComplemented {
             // Symmetric long-read kits with sample assignments from scout:
@@ -908,8 +949,12 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         args += ["-e", String(config.effectiveErrorRate)]
         args += ["--overlap", String(config.minimumOverlap)]
 
-        // Search both strand orientations for long-read platforms
-        if config.searchReverseComplement {
+        // Search both strand orientations for long-read platforms.
+        // --revcomp is incompatible with linked adapter syntax (5'...3'), so skip it
+        // for combinatorial/fixedDual kits that use linked pair adapters.
+        let isLinkedPairMode = config.barcodeKit.pairingMode == .combinatorialDual
+            || config.barcodeKit.pairingMode == .fixedDual
+        if config.searchReverseComplement && !isLinkedPairMode {
             args += ["--revcomp"]
         }
 
@@ -1046,21 +1091,54 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         progress(0.2, "Preparing barcode adapters...")
         let adapterFASTA = workDir.appendingPathComponent("scout-adapters.fasta")
 
-        // Build adapter specs using platform context (or override).
-        // For platforms that use --revcomp (ONT, PacBio), use 5'-only specs instead of
-        // linked specs. Linked adapter syntax (5'...3') in FASTA files is incompatible
-        // with --revcomp: cutadapt fails to match the linked pair after reverse-complementing
-        // the read, causing ~50% of reads (those in reverse orientation) to go unassigned.
-        // The 5' spec alone (Y-adapter + flank + barcode) is sufficient for demux identification.
         let ctx = adapterContext ?? kit.adapterContext
         let useRevcomp = kit.platform.readsCanBeReverseComplemented
+
+        // For combinatorial kits, use a two-phase scout:
+        //   Phase 1: Individual barcodes (N entries) to find which barcodes are present
+        //   Phase 2: Linked pairs for detected barcodes only (M×M << N×N)
+        // This avoids the N×N explosion (96×96 = 9,216 entries) that overwhelms cutadapt.
+        if kit.pairingMode == .combinatorialDual {
+            return try await scoutCombinatorial(
+                kit: kit,
+                ctx: ctx,
+                subsetFile: subsetFile,
+                workDir: workDir,
+                acceptThreshold: acceptThreshold,
+                rejectThreshold: rejectThreshold,
+                startTime: startTime,
+                progress: progress
+            )
+        }
+
         var lines: [String] = []
-        for barcode in kit.barcodes {
-            let spec = useRevcomp
-                ? ctx.fivePrimeSpec(barcodeSequence: barcode.i7Sequence)
-                : ctx.linkedSpec(barcodeSequence: barcode.i7Sequence)
-            lines.append(">\(barcode.id)")
-            lines.append(spec)
+        if kit.pairingMode == .fixedDual {
+            // fixedDual: use explicit i7/i5 pairs from each barcode entry.
+            // Generate both orientations for long-read platforms.
+            for barcode in kit.barcodes {
+                guard let i5 = barcode.i5Sequence else { continue }
+                let fwdSpec = ctx.fivePrimeSpec(barcodeSequence: barcode.i7Sequence)
+                let revSpec = ctx.threePrimeSpec(barcodeSequence: i5)
+                lines.append(">\(barcode.id)")
+                lines.append("\(fwdSpec)...\(revSpec)")
+                // Reverse orientation for long-read platforms
+                if barcode.i7Sequence != i5 {
+                    let revFwdSpec = ctx.fivePrimeSpec(barcodeSequence: i5)
+                    let revRevSpec = ctx.threePrimeSpec(barcodeSequence: barcode.i7Sequence)
+                    lines.append(">\(barcode.id)")
+                    lines.append("\(revFwdSpec)...\(revRevSpec)")
+                }
+            }
+        } else {
+            // Symmetric/single-end kits: use 5'-only specs with --revcomp for orientation.
+            // Linked adapter syntax is incompatible with --revcomp.
+            for barcode in kit.barcodes {
+                let spec = useRevcomp
+                    ? ctx.fivePrimeSpec(barcodeSequence: barcode.i7Sequence)
+                    : ctx.linkedSpec(barcodeSequence: barcode.i7Sequence)
+                lines.append(">\(barcode.id)")
+                lines.append(spec)
+            }
         }
         let adapterContent = lines.joined(separator: "\n") + "\n"
         try adapterContent.write(to: adapterFASTA, atomically: true, encoding: .utf8)
@@ -1068,25 +1146,184 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
         // Step 3: Run cutadapt
         progress(0.3, "Running cutadapt scout scan...")
-        let demuxOutputDir = workDir.appendingPathComponent("scout-output", isDirectory: true)
+        let isLinkedPairMode = kit.pairingMode == .fixedDual
+        let scoutResult = try await runScoutCutadapt(
+            adapterFASTA: adapterFASTA,
+            subsetFile: subsetFile,
+            workDir: workDir,
+            kit: kit,
+            useRevcomp: useRevcomp && !isLinkedPairMode
+        )
+
+        progress(0.8, "Analyzing scout results...")
+
+        let (detections, totalScanned, unassignedCount) = try collectScoutDetections(
+            outputDir: scoutResult.outputDir,
+            kit: kit,
+            acceptThreshold: acceptThreshold,
+            rejectThreshold: rejectThreshold
+        )
+
+        let elapsed = Date().timeIntervalSince(startTime)
+        progress(1.0, "Scout complete: \(detections.count) barcodes detected")
+
+        return BarcodeScoutResult(
+            readsScanned: totalScanned,
+            detections: detections,
+            unassignedCount: unassignedCount,
+            scoutedKitIDs: [kit.id],
+            elapsedSeconds: elapsed
+        )
+    }
+
+    // MARK: - Combinatorial Scout (Two-Phase)
+
+    /// Two-phase scout for combinatorial kits.
+    /// Phase 1: Scout individual barcodes to find which are present (N entries).
+    /// Phase 2: Generate linked pairs for detected barcodes only (M×M entries, where M << N).
+    private func scoutCombinatorial(
+        kit: BarcodeKitDefinition,
+        ctx: any PlatformAdapterContext,
+        subsetFile: URL,
+        workDir: URL,
+        acceptThreshold: Int,
+        rejectThreshold: Int,
+        startTime: Date,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> BarcodeScoutResult {
+        let fm = FileManager.default
+
+        // Phase 1: Scout individual barcodes with --revcomp (5'-only specs, N entries)
+        progress(0.25, "Phase 1: Detecting individual barcodes...")
+        let phase1FASTA = workDir.appendingPathComponent("scout-phase1-adapters.fasta")
+        var phase1Lines: [String] = []
+        for barcode in kit.barcodes {
+            let spec = ctx.fivePrimeSpec(barcodeSequence: barcode.i7Sequence)
+            phase1Lines.append(">\(barcode.id)")
+            phase1Lines.append(spec)
+        }
+        let phase1Content = phase1Lines.joined(separator: "\n") + "\n"
+        try phase1Content.write(to: phase1FASTA, atomically: true, encoding: .utf8)
+        try validateAdapterFASTA(at: phase1FASTA, kitName: kit.displayName)
+
+        let phase1Result = try await runScoutCutadapt(
+            adapterFASTA: phase1FASTA,
+            subsetFile: subsetFile,
+            workDir: workDir,
+            kit: kit,
+            useRevcomp: kit.platform.readsCanBeReverseComplemented,
+            outputSubdir: "scout-phase1-output"
+        )
+
+        // Identify which barcodes were detected (>= rejectThreshold hits)
+        let (phase1Detections, _, _) = try collectScoutDetections(
+            outputDir: phase1Result.outputDir,
+            kit: kit,
+            acceptThreshold: 1,
+            rejectThreshold: 0
+        )
+        let detectedIDs = Set(phase1Detections.filter { $0.hitCount >= rejectThreshold }.map(\.barcodeID))
+        let detectedBarcodes = kit.barcodes.filter { detectedIDs.contains($0.id) }
+
+        guard !detectedBarcodes.isEmpty else {
+            let elapsed = Date().timeIntervalSince(startTime)
+            progress(1.0, "Scout complete: no barcodes detected")
+            return BarcodeScoutResult(
+                readsScanned: phase1Detections.reduce(0) { $0 + $1.hitCount },
+                detections: [],
+                unassignedCount: phase1Detections.reduce(0) { $0 + $1.hitCount },
+                scoutedKitIDs: [kit.id],
+                elapsedSeconds: elapsed
+            )
+        }
+
+        // Phase 2: Generate linked pairs for detected barcodes only (M×M entries)
+        let pairCount = detectedBarcodes.count * detectedBarcodes.count
+        progress(0.50, "Phase 2: Testing \(detectedBarcodes.count) barcodes (\(pairCount) pairs)...")
+        let phase2FASTA = workDir.appendingPathComponent("scout-phase2-adapters.fasta")
+        var phase2Lines: [String] = []
+        for fwd in detectedBarcodes {
+            for rev in detectedBarcodes {
+                let canonicalName = fwd.id <= rev.id
+                    ? "\(fwd.id)--\(rev.id)"
+                    : "\(rev.id)--\(fwd.id)"
+                let fwdSpec = ctx.fivePrimeSpec(barcodeSequence: fwd.i7Sequence)
+                let revSpec = ctx.threePrimeSpec(barcodeSequence: rev.i7Sequence)
+                phase2Lines.append(">\(canonicalName)")
+                phase2Lines.append("\(fwdSpec)...\(revSpec)")
+            }
+        }
+        let phase2Content = phase2Lines.joined(separator: "\n") + "\n"
+        try phase2Content.write(to: phase2FASTA, atomically: true, encoding: .utf8)
+        try validateAdapterFASTA(at: phase2FASTA, kitName: kit.displayName)
+
+        // Run phase 2 without --revcomp (linked adapters cover both orientations)
+        let phase2Result = try await runScoutCutadapt(
+            adapterFASTA: phase2FASTA,
+            subsetFile: subsetFile,
+            workDir: workDir,
+            kit: kit,
+            useRevcomp: false,
+            outputSubdir: "scout-phase2-output"
+        )
+
+        progress(0.85, "Analyzing barcode pair results...")
+
+        let (detections, totalScanned, unassignedCount) = try collectScoutDetections(
+            outputDir: phase2Result.outputDir,
+            kit: kit,
+            acceptThreshold: acceptThreshold,
+            rejectThreshold: rejectThreshold
+        )
+
+        let elapsed = Date().timeIntervalSince(startTime)
+        progress(1.0, "Scout complete: \(detections.count) barcode pairs detected")
+
+        return BarcodeScoutResult(
+            readsScanned: totalScanned,
+            detections: detections,
+            unassignedCount: unassignedCount,
+            scoutedKitIDs: [kit.id],
+            elapsedSeconds: elapsed
+        )
+    }
+
+    // MARK: - Scout Helpers
+
+    private struct ScoutCutadaptResult {
+        let outputDir: URL
+    }
+
+    /// Runs cutadapt for scouting purposes and returns the output directory.
+    private func runScoutCutadapt(
+        adapterFASTA: URL,
+        subsetFile: URL,
+        workDir: URL,
+        kit: BarcodeKitDefinition,
+        useRevcomp: Bool,
+        outputSubdir: String = "scout-output"
+    ) async throws -> ScoutCutadaptResult {
+        let fm = FileManager.default
+        let demuxOutputDir = workDir.appendingPathComponent(outputSubdir, isDirectory: true)
         try fm.createDirectory(at: demuxOutputDir, withIntermediateDirectories: true)
 
         let outputPattern = demuxOutputDir.appendingPathComponent("{name}.fastq.gz").path
         let unassignedPath = demuxOutputDir.appendingPathComponent("unassigned.fastq.gz").path
-        let jsonReportPath = workDir.appendingPathComponent("scout-report.json").path
+        let jsonReportPath = workDir.appendingPathComponent("\(outputSubdir)-report.json").path
 
         var args: [String] = []
         args += ["-g", "file:\(adapterFASTA.path)"]
         args += ["-e", String(kit.platform.recommendedErrorRate)]
         args += ["--overlap", String(kit.platform.recommendedMinimumOverlap)]
-        if kit.platform.readsCanBeReverseComplemented {
+        if useRevcomp {
             args += ["--revcomp"]
         }
         args += ["--action", "trim"]
         args += ["-o", outputPattern]
         args += ["--untrimmed-output", unassignedPath]
         args += ["--json", jsonReportPath]
-        args += ["--cores", "4"]
+        // Use single core to avoid multiprocessing overhead/issues on scout subset
+        args += ["--cores", "1"]
         args += [subsetFile.path]
 
         let cutadaptResult = try await runner.run(
@@ -1103,11 +1340,19 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             )
         }
 
-        progress(0.8, "Analyzing scout results...")
+        return ScoutCutadaptResult(outputDir: demuxOutputDir)
+    }
 
-        // Step 4: Count reads per barcode output file
+    /// Collects barcode detections from cutadapt scout output files.
+    private func collectScoutDetections(
+        outputDir: URL,
+        kit: BarcodeKitDefinition,
+        acceptThreshold: Int,
+        rejectThreshold: Int
+    ) throws -> (detections: [BarcodeDetection], totalScanned: Int, unassignedCount: Int) {
+        let fm = FileManager.default
         let outputFiles = (try? fm.contentsOfDirectory(
-            at: demuxOutputDir,
+            at: outputDir,
             includingPropertiesForKeys: [.fileSizeKey],
             options: [.skipsHiddenFiles]
         )) ?? []
@@ -1119,10 +1364,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         for outputFile in outputFiles {
             let baseName = outputFile.deletingPathExtension().deletingPathExtension().lastPathComponent
             let fileBytes = fileSize(outputFile)
-
-            // Skip empty files
             guard fileBytes > 20 else { continue }
-
             let count = countReadsInFASTQ(url: outputFile)
 
             if baseName == "unassigned" {
@@ -1132,13 +1374,12 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     barcodeID: baseName,
                     kitID: kit.id,
                     hitCount: count,
-                    hitPercentage: 0 // calculated below
+                    hitPercentage: 0
                 ))
             }
             totalScanned += count
         }
 
-        // Calculate percentages and set dispositions
         for i in detections.indices {
             if totalScanned > 0 {
                 detections[i].hitPercentage = Double(detections[i].hitCount) / Double(totalScanned) * 100
@@ -1150,19 +1391,8 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             }
         }
 
-        // Sort by hit count descending
         detections.sort { $0.hitCount > $1.hitCount }
-
-        let elapsed = Date().timeIntervalSince(startTime)
-        progress(1.0, "Scout complete: \(detections.count) barcodes detected")
-
-        return BarcodeScoutResult(
-            readsScanned: totalScanned,
-            detections: detections,
-            unassignedCount: unassignedCount,
-            scoutedKitIDs: [kit.id],
-            elapsedSeconds: elapsed
-        )
+        return (detections, totalScanned, unassignedCount)
     }
 
     // MARK: - Multi-Step Demultiplexing

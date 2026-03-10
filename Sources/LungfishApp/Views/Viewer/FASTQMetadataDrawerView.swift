@@ -213,6 +213,11 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         DemultiplexPlan(steps: demuxSteps, compositeSampleNames: compositeSampleNames)
     }
 
+    /// Updates the status label with scout progress messages.
+    public func updateScoutStatus(_ message: String) {
+        statusLabel.stringValue = message
+    }
+
     /// Updates sample assignments from scout results and refreshes the table.
     public func updateSampleAssignments(_ assignments: [FASTQSampleBarcodeAssignment]) {
         sampleAssignments = assignments
@@ -1010,27 +1015,59 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
 
         stepErrorRateField.stringValue = String(format: "%.2f", step.errorRate)
         stepTrimCheckbox.state = step.trimBarcodes ? .on : .off
+        updateLocationControlState()
     }
 
     @objc private func stepKitChanged(_ sender: NSPopUpButton) {
         guard selectedStepIndex >= 0, selectedStepIndex < demuxSteps.count else { return }
         let kitIndex = sender.indexOfSelectedItem
         guard kitIndex >= 0, kitIndex < allKits.count else { return }
-        demuxSteps[selectedStepIndex].barcodeKitID = allKits[kitIndex].id
+        let kit = allKits[kitIndex]
+        demuxSteps[selectedStepIndex].barcodeKitID = kit.id
+
+        // Auto-set symmetry and location from kit's pairing mode
+        let symmetry: BarcodeSymmetryMode
+        switch kit.pairingMode {
+        case .singleEnd: symmetry = .singleEnd
+        case .symmetric: symmetry = .symmetric
+        case .fixedDual, .combinatorialDual: symmetry = .asymmetric
+        }
+        demuxSteps[selectedStepIndex].symmetryMode = symmetry
+
+        // Symmetric and asymmetric always search both ends; single-end defaults to 5'
+        switch symmetry {
+        case .symmetric, .asymmetric:
+            demuxSteps[selectedStepIndex].barcodeLocation = .bothEnds
+        case .singleEnd:
+            break // keep current location
+        }
+
+        // Auto-set error rate and revcomp from platform
+        demuxSteps[selectedStepIndex].errorRate = kit.platform.recommendedErrorRate
+        demuxSteps[selectedStepIndex].searchReverseComplement = kit.platform.readsCanBeReverseComplemented
+
+        refreshStepDetail()
+        updateLocationControlState()
         stepTable.reloadData()
-        statusLabel.stringValue = "Step kit changed to '\(allKits[kitIndex].displayName)'."
+        statusLabel.stringValue = "Step kit changed to '\(kit.displayName)'."
+    }
+
+    /// Enables/disables the location control based on symmetry mode.
+    /// For symmetric/asymmetric, location is always "Both" and not user-editable.
+    private func updateLocationControlState() {
+        guard selectedStepIndex >= 0, selectedStepIndex < demuxSteps.count else { return }
+        let symmetry = demuxSteps[selectedStepIndex].symmetryMode
+        switch symmetry {
+        case .symmetric, .asymmetric:
+            stepLocationControl.isEnabled = false
+            stepLocationControl.selectedSegment = 2 // Both
+        case .singleEnd:
+            stepLocationControl.isEnabled = true
+        }
     }
 
     @objc private func stepDetailChanged(_ sender: Any) {
         guard selectedStepIndex >= 0, selectedStepIndex < demuxSteps.count else { return }
-
-        let location: BarcodeLocation
-        switch stepLocationControl.selectedSegment {
-        case 0: location = .fivePrime
-        case 1: location = .threePrime
-        default: location = .bothEnds
-        }
-        demuxSteps[selectedStepIndex].barcodeLocation = location
 
         let symmetry: BarcodeSymmetryMode
         switch stepSymmetryPopup.indexOfSelectedItem {
@@ -1039,6 +1076,22 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         default: symmetry = .symmetric
         }
         demuxSteps[selectedStepIndex].symmetryMode = symmetry
+
+        // Symmetry determines location: symmetric/asymmetric always use both ends
+        switch symmetry {
+        case .symmetric, .asymmetric:
+            demuxSteps[selectedStepIndex].barcodeLocation = .bothEnds
+        case .singleEnd:
+            let location: BarcodeLocation
+            switch stepLocationControl.selectedSegment {
+            case 0: location = .fivePrime
+            case 1: location = .threePrime
+            default: location = .bothEnds
+            }
+            demuxSteps[selectedStepIndex].barcodeLocation = location
+        }
+
+        updateLocationControlState()
 
         if let rate = Double(stepErrorRateField.stringValue) {
             demuxSteps[selectedStepIndex].errorRate = max(0.01, min(0.50, rate))

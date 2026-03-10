@@ -117,13 +117,22 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
         let pipeline = DemultiplexingPipeline()
         fastqDrawerLogger.info("Starting barcode scout for \(fastqURL.lastPathComponent, privacy: .public) with kit \(step.barcodeKitID, privacy: .public)")
 
+        // Update drawer status to show scouting is in progress
+        drawer.updateScoutStatus("Scouting barcodes...")
+
         Task.detached { [weak self] in
             do {
                 let result = try await pipeline.scout(
                     inputURL: fastqURL,
                     kit: kit,
                     readLimit: 10_000,
-                    progress: { _, _ in }
+                    progress: { _, message in
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                self?.fastqMetadataDrawerView?.updateScoutStatus(message)
+                            }
+                        }
+                    }
                 )
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
@@ -166,8 +175,28 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
         scoutResult: BarcodeScoutResult,
         kit: BarcodeKitDefinition
     ) {
-        // Convert accepted detections to sample assignments
+        // Convert accepted detections to sample assignments.
+        // For combinatorial kits, scout detection IDs are in pair format "bc1001--bc1096".
+        // For fixedDual kits, scout detection IDs are single barcode IDs (no "--").
         let assignments: [FASTQSampleBarcodeAssignment] = acceptedDetections.map { detection in
+            if kit.pairingMode == .combinatorialDual {
+                let parts = detection.barcodeID.components(separatedBy: "--")
+                if parts.count == 2 {
+                    let fwdID = parts[0]
+                    let revID = parts[1]
+                    let fwdBarcode = kit.barcodes.first { $0.id == fwdID }
+                    let revBarcode = kit.barcodes.first { $0.id == revID }
+                    return FASTQSampleBarcodeAssignment(
+                        sampleID: detection.barcodeID,
+                        sampleName: detection.sampleName,
+                        forwardBarcodeID: fwdID,
+                        forwardSequence: fwdBarcode?.i7Sequence,
+                        reverseBarcodeID: revID,
+                        reverseSequence: revBarcode?.i7Sequence
+                    )
+                }
+            }
+            // Symmetric/single-end fallback
             let barcode = kit.barcodes.first { $0.id == detection.barcodeID }
             return FASTQSampleBarcodeAssignment(
                 sampleID: detection.barcodeID,
