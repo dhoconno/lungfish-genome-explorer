@@ -265,6 +265,8 @@ public final class FASTQDatasetViewController: NSViewController {
     private let demuxWindow3Label = NSTextField(labelWithString: "3' Window:")
     private let demuxWindow3Input = NSTextField(string: "0")
     private let demuxTrimCheckbox = NSButton(checkboxWithTitle: "Remove barcodes + flanking sequences", target: nil, action: nil)
+    private let demuxScoutButton = NSButton(title: "Scout Barcodes", target: nil, action: nil)
+    private var scoutTask: Task<Void, Never>?
 
     // MARK: - Lifecycle
 
@@ -874,6 +876,11 @@ public final class FASTQDatasetViewController: NSViewController {
             parameterBar.addArrangedSubview(demuxWindow3Label)
             parameterBar.addArrangedSubview(demuxWindow3Input)
             parameterBar.addArrangedSubview(demuxTrimCheckbox)
+            demuxScoutButton.bezelStyle = .rounded
+            demuxScoutButton.font = .systemFont(ofSize: 11)
+            demuxScoutButton.target = self
+            demuxScoutButton.action = #selector(scoutBarcodesClicked(_:))
+            parameterBar.addArrangedSubview(demuxScoutButton)
 
         case .qualityReport:
             if hasQualityData {
@@ -1455,6 +1462,145 @@ public final class FASTQDatasetViewController: NSViewController {
                 alert.applyLungfishBranding()
                 alert.runModal()
             }
+        }
+    }
+
+    // MARK: - Barcode Scouting
+
+    @objc private func scoutBarcodesClicked(_ sender: Any) {
+        guard scoutTask == nil else { return }
+        guard let fastqURL else {
+            setStatus("No FASTQ source selected.")
+            return
+        }
+        guard demuxKitPopup.indexOfSelectedItem >= 0,
+              demuxKitPopup.indexOfSelectedItem < demuxKitOptions.count else {
+            setStatus("Select a barcode kit before scouting.")
+            return
+        }
+
+        let selectedKit = demuxKitOptions[demuxKitPopup.indexOfSelectedItem]
+        demuxScoutButton.isEnabled = false
+        progressIndicator.startAnimation(nil)
+        setStatus("Scouting barcodes...")
+
+        scoutTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let pipeline = DemultiplexingPipeline()
+                let result = try await pipeline.scout(
+                    inputURL: fastqURL,
+                    kit: selectedKit,
+                    readLimit: 10_000,
+                    progress: { [weak self] _, message in
+                        DispatchQueue.main.async { [weak self] in
+                            MainActor.assumeIsolated {
+                                self?.setStatus(message)
+                            }
+                        }
+                    }
+                )
+
+                self.scoutTask = nil
+                self.demuxScoutButton.isEnabled = true
+                self.progressIndicator.stopAnimation(nil)
+
+                // Save scout result to bundle
+                self.saveScoutResult(result, for: fastqURL)
+
+                // Present scout sheet
+                guard let window = self.view.window else { return }
+                BarcodeScoutSheet.present(
+                    on: window,
+                    scoutResult: result,
+                    kitDisplayName: selectedKit.displayName,
+                    onProceed: { [weak self] acceptedDetections, finalResult in
+                        self?.handleScoutProceed(
+                            acceptedDetections: acceptedDetections,
+                            scoutResult: finalResult,
+                            kit: selectedKit
+                        )
+                    }
+                )
+            } catch is CancellationError {
+                self.scoutTask = nil
+                self.demuxScoutButton.isEnabled = true
+                self.progressIndicator.stopAnimation(nil)
+                self.setStatus("Scout cancelled.")
+            } catch {
+                self.scoutTask = nil
+                self.demuxScoutButton.isEnabled = true
+                self.progressIndicator.stopAnimation(nil)
+                self.setStatus("Scout failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func handleScoutProceed(
+        acceptedDetections: [BarcodeDetection],
+        scoutResult: BarcodeScoutResult,
+        kit: BarcodeKitDefinition
+    ) {
+        // Save final (user-edited) scout result
+        if let fastqURL {
+            saveScoutResult(scoutResult, for: fastqURL)
+        }
+
+        // Build pruned kit with only accepted barcodes
+        let acceptedIDs = Set(acceptedDetections.map(\.barcodeID))
+        let prunedBarcodes = kit.barcodes.filter { acceptedIDs.contains($0.id) }
+
+        // Update sample names from scout detections
+        var updatedBarcodes = prunedBarcodes
+        for i in updatedBarcodes.indices {
+            if let detection = acceptedDetections.first(where: { $0.barcodeID == updatedBarcodes[i].id }),
+               let sampleName = detection.sampleName {
+                updatedBarcodes[i] = BarcodeEntry(
+                    id: updatedBarcodes[i].id,
+                    i7Sequence: updatedBarcodes[i].i7Sequence,
+                    i5Sequence: updatedBarcodes[i].i5Sequence,
+                    sampleName: sampleName
+                )
+            }
+        }
+
+        let acceptedCount = acceptedDetections.count
+        setStatus("Scout complete: \(acceptedCount) barcode(s) accepted. Ready to demultiplex.")
+    }
+
+    private func saveScoutResult(_ result: BarcodeScoutResult, for fastqURL: URL) {
+        do {
+            // Save inside .lungfishfastq bundle if it is one, otherwise next to the FASTQ
+            let targetDir: URL
+            if FASTQBundle.isBundleURL(fastqURL) {
+                targetDir = fastqURL
+            } else {
+                targetDir = fastqURL.deletingLastPathComponent()
+            }
+            let scoutURL = targetDir.appendingPathComponent(BarcodeScoutResult.filename)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(result)
+            try data.write(to: scoutURL, options: .atomic)
+        } catch {
+            setStatus("Warning: Could not save scout result: \(error.localizedDescription)")
+        }
+    }
+
+    private func loadScoutResult(for fastqURL: URL) -> BarcodeScoutResult? {
+        let targetDir: URL
+        if FASTQBundle.isBundleURL(fastqURL) {
+            targetDir = fastqURL
+        } else {
+            targetDir = fastqURL.deletingLastPathComponent()
+        }
+        let scoutURL = targetDir.appendingPathComponent(BarcodeScoutResult.filename)
+        guard FileManager.default.fileExists(atPath: scoutURL.path) else { return nil }
+        do {
+            let data = try Data(contentsOf: scoutURL)
+            return try JSONDecoder().decode(BarcodeScoutResult.self, from: data)
+        } catch {
+            return nil
         }
     }
 
