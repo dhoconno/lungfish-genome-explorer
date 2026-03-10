@@ -281,7 +281,7 @@ final class FASTQDashboardTests: XCTestCase {
         )
         XCTAssertEqual(
             controller.splitView(mainSplit, constrainMaxCoordinate: 999, ofSubviewAt: 0),
-            180,
+            132,
             accuracy: 0.001
         )
         XCTAssertEqual(

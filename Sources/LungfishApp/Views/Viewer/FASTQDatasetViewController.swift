@@ -76,8 +76,8 @@ public final class FASTQDatasetViewController: NSViewController {
         static let topPaneBottomPadding: CGFloat = 2
 
         static let minTopPaneHeight: CGFloat = summaryBarHeight + summaryToSparklineSpacing + sparklineHeight + topPaneBottomPadding
-        static let maxTopPaneHeight: CGFloat = 180
-        static let preferredTopPaneFraction: CGFloat = 0.22
+        static let preferredTopPaneHeight: CGFloat = minTopPaneHeight + 6
+        static let maxTopPaneHeight: CGFloat = 132
 
         static let minSidebarWidth: CGFloat = 140
         static let maxSidebarWidth: CGFloat = 260
@@ -156,7 +156,7 @@ public final class FASTQDatasetViewController: NSViewController {
 
         var category: String {
             switch self {
-            case .qualityReport: return "QUALITY"
+            case .qualityReport: return "REPORTS"
             case .subsampleProportion, .subsampleCount: return "SAMPLING"
             case .qualityTrim, .adapterTrim, .fixedTrim, .primerRemoval: return "TRIMMING"
             case .lengthFilter, .contaminantFilter, .deduplicate: return "FILTERING"
@@ -193,7 +193,7 @@ public final class FASTQDatasetViewController: NSViewController {
 
     /// Category headers + operation items for the source list sidebar.
     private static let categories: [(header: String, items: [OperationKind])] = [
-        ("QUALITY", [.qualityReport]),
+        ("REPORTS", [.qualityReport]),
         ("SAMPLING", [.subsampleProportion, .subsampleCount]),
         ("TRIMMING", [.qualityTrim, .adapterTrim, .fixedTrim, .primerRemoval]),
         ("FILTERING", [.lengthFilter, .contaminantFilter, .deduplicate]),
@@ -252,6 +252,8 @@ public final class FASTQDatasetViewController: NSViewController {
     private let previewPane = NSView()
     private let operationSidebar = NSTableView()
     private let operationScrollView = NSScrollView()
+    private let operationSidebarHeader = NSTextField(labelWithString: "FASTQ Operations")
+    private let operationSidebarHeaderSeparator = NSBox()
     private let parameterBar = NSStackView()
     private let parameterBarSeparator = NSBox()
     private let previewCanvas = OperationPreviewView()
@@ -264,6 +266,7 @@ public final class FASTQDatasetViewController: NSViewController {
 
     // Middle Pane: Tab Selector
     private let middleTabControl = NSSegmentedControl()
+    private let middleTabSeparator = NSBox()
     private let middleContentContainer = NSView()
 
     // Read Preview view
@@ -446,6 +449,9 @@ public final class FASTQDatasetViewController: NSViewController {
         middleTabControl.action = #selector(middleTabChanged(_:))
         middleTabControl.translatesAutoresizingMaskIntoConstraints = false
         middlePane.addSubview(middleTabControl)
+        middleTabSeparator.boxType = .separator
+        middleTabSeparator.translatesAutoresizingMaskIntoConstraints = false
+        middlePane.addSubview(middleTabSeparator)
 
         // Content container holds either the operations split or read preview
         middleContentContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -453,11 +459,13 @@ public final class FASTQDatasetViewController: NSViewController {
 
         // Use high (but not required) priority so constraints yield gracefully
         // when the split view parent starts at zero size during initial layout.
-        let tabTop = middleTabControl.topAnchor.constraint(equalTo: middlePane.topAnchor, constant: 4)
+        let tabTop = middleTabControl.topAnchor.constraint(equalTo: middlePane.topAnchor, constant: 2)
         tabTop.priority = .defaultHigh
         let tabHeight = middleTabControl.heightAnchor.constraint(equalToConstant: 24)
         tabHeight.priority = .defaultHigh
-        let contentTop = middleContentContainer.topAnchor.constraint(equalTo: middleTabControl.bottomAnchor, constant: 4)
+        let tabSeparatorTop = middleTabSeparator.topAnchor.constraint(equalTo: middleTabControl.bottomAnchor, constant: 2)
+        tabSeparatorTop.priority = .defaultHigh
+        let contentTop = middleContentContainer.topAnchor.constraint(equalTo: middleTabSeparator.bottomAnchor)
         contentTop.priority = .defaultHigh
         let contentBottom = middleContentContainer.bottomAnchor.constraint(equalTo: middlePane.bottomAnchor)
         contentBottom.priority = .defaultHigh
@@ -466,6 +474,10 @@ public final class FASTQDatasetViewController: NSViewController {
             tabTop,
             middleTabControl.centerXAnchor.constraint(equalTo: middlePane.centerXAnchor),
             tabHeight,
+
+            tabSeparatorTop,
+            middleTabSeparator.leadingAnchor.constraint(equalTo: middlePane.leadingAnchor),
+            middleTabSeparator.trailingAnchor.constraint(equalTo: middlePane.trailingAnchor),
 
             contentTop,
             middleContentContainer.leadingAnchor.constraint(equalTo: middlePane.leadingAnchor),
@@ -522,10 +534,25 @@ public final class FASTQDatasetViewController: NSViewController {
         operationScrollView.autohidesScrollers = true
         operationScrollView.drawsBackground = false
         operationScrollView.translatesAutoresizingMaskIntoConstraints = false
+        operationSidebarHeader.font = .systemFont(ofSize: 11, weight: .semibold)
+        operationSidebarHeader.textColor = .secondaryLabelColor
+        operationSidebarHeader.translatesAutoresizingMaskIntoConstraints = false
+        sidebarPane.addSubview(operationSidebarHeader)
+        operationSidebarHeaderSeparator.boxType = .separator
+        operationSidebarHeaderSeparator.translatesAutoresizingMaskIntoConstraints = false
+        sidebarPane.addSubview(operationSidebarHeaderSeparator)
         sidebarPane.addSubview(operationScrollView)
 
         NSLayoutConstraint.activate([
-            operationScrollView.topAnchor.constraint(equalTo: sidebarPane.topAnchor),
+            operationSidebarHeader.topAnchor.constraint(equalTo: sidebarPane.topAnchor, constant: 6),
+            operationSidebarHeader.leadingAnchor.constraint(equalTo: sidebarPane.leadingAnchor, constant: 10),
+            operationSidebarHeader.trailingAnchor.constraint(lessThanOrEqualTo: sidebarPane.trailingAnchor, constant: -8),
+
+            operationSidebarHeaderSeparator.topAnchor.constraint(equalTo: operationSidebarHeader.bottomAnchor, constant: 4),
+            operationSidebarHeaderSeparator.leadingAnchor.constraint(equalTo: sidebarPane.leadingAnchor),
+            operationSidebarHeaderSeparator.trailingAnchor.constraint(equalTo: sidebarPane.trailingAnchor),
+
+            operationScrollView.topAnchor.constraint(equalTo: operationSidebarHeaderSeparator.bottomAnchor, constant: 2),
             operationScrollView.leadingAnchor.constraint(equalTo: sidebarPane.leadingAnchor),
             operationScrollView.trailingAnchor.constraint(equalTo: sidebarPane.trailingAnchor),
             operationScrollView.bottomAnchor.constraint(equalTo: sidebarPane.bottomAnchor),
@@ -799,7 +826,7 @@ public final class FASTQDatasetViewController: NSViewController {
         // Give sparklines enough vertical budget to show full distributions by default.
         let topHeight = max(
             LayoutDefaults.minTopPaneHeight,
-            min(viewHeight * LayoutDefaults.preferredTopPaneFraction, LayoutDefaults.maxTopPaneHeight)
+            min(LayoutDefaults.preferredTopPaneHeight, LayoutDefaults.maxTopPaneHeight)
         )
         mainSplitView.setPosition(topHeight, ofDividerAt: 0)
 
