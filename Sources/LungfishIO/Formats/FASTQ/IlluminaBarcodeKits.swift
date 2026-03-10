@@ -16,11 +16,11 @@ public enum BarcodePairingMode: String, Codable, Sendable, CaseIterable {
     case combinatorialDual
 }
 
+/// Backward-compatible alias for ``BarcodeKitDefinition``.
+public typealias IlluminaBarcodeDefinition = BarcodeKitDefinition
+
 /// A barcode kit definition for demultiplexing, supporting single- and dual-indexed kits.
-///
-/// Despite the name, this type is used for all platforms (Illumina, ONT, PacBio, etc.).
-/// A future rename to `BarcodeKitDefinition` is planned.
-public struct IlluminaBarcodeDefinition: Codable, Sendable, Equatable, Identifiable {
+public struct BarcodeKitDefinition: Codable, Sendable, Equatable, Identifiable {
     /// Unique identifier (e.g., "truseq-single-a").
     public let id: String
 
@@ -43,7 +43,7 @@ public struct IlluminaBarcodeDefinition: Codable, Sendable, Equatable, Identifia
     public let pairingMode: BarcodePairingMode
 
     /// Individual barcode entries.
-    public let barcodes: [IlluminaBarcode]
+    public let barcodes: [BarcodeEntry]
 
     public init(
         id: String,
@@ -53,7 +53,7 @@ public struct IlluminaBarcodeDefinition: Codable, Sendable, Equatable, Identifia
         kitType: BarcodeKitType = .custom,
         isDualIndexed: Bool = false,
         pairingMode: BarcodePairingMode? = nil,
-        barcodes: [IlluminaBarcode]
+        barcodes: [BarcodeEntry]
     ) {
         self.id = id
         self.displayName = displayName
@@ -87,7 +87,7 @@ public struct IlluminaBarcodeDefinition: Codable, Sendable, Equatable, Identifia
         isDualIndexed = try container.decodeIfPresent(Bool.self, forKey: .isDualIndexed) ?? false
         pairingMode = try container.decodeIfPresent(BarcodePairingMode.self, forKey: .pairingMode)
             ?? (isDualIndexed ? .fixedDual : .singleEnd)
-        barcodes = try container.decode([IlluminaBarcode].self, forKey: .barcodes)
+        barcodes = try container.decode([BarcodeEntry].self, forKey: .barcodes)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -108,15 +108,23 @@ public struct IlluminaBarcodeDefinition: Codable, Sendable, Equatable, Identifia
     }
 }
 
+/// Backward-compatible alias for ``BarcodeEntry``.
+public typealias IlluminaBarcode = BarcodeEntry
+
 /// A single barcode entry with index sequences.
-public struct IlluminaBarcode: Codable, Sendable, Equatable {
-    /// Barcode ID (e.g., "D701", "N501", "A01").
+///
+/// For Illumina kits, `sequence` is the i7 index and `secondarySequence` is the i5 index.
+/// For ONT/PacBio, `sequence` is the barcode and `secondarySequence` is nil (symmetric)
+/// or the 3' barcode (asymmetric).
+public struct BarcodeEntry: Codable, Sendable, Equatable {
+    /// Barcode ID (e.g., "D701", "N501", "BC01").
     public let id: String
 
-    /// i7 index sequence (5'-to-3').
+    /// Primary barcode sequence (Illumina i7, ONT barcode, PacBio barcode).
     public let i7Sequence: String
 
-    /// i5 index sequence (5'-to-3'). Nil for single-indexed kits.
+    /// Secondary barcode sequence (Illumina i5, PacBio asymmetric 3' barcode).
+    /// Nil for single-indexed / symmetric kits.
     public let i5Sequence: String?
 
     /// Optional user-assigned sample name.
@@ -133,6 +141,12 @@ public struct IlluminaBarcode: Codable, Sendable, Equatable {
         self.i5Sequence = i5Sequence
         self.sampleName = sampleName
     }
+
+    /// Platform-neutral alias for the primary barcode sequence.
+    public var sequence: String { i7Sequence }
+
+    /// Platform-neutral alias for the secondary barcode sequence.
+    public var secondarySequence: String? { i5Sequence }
 }
 
 // MARK: - Barcode Location
@@ -205,11 +219,14 @@ public enum IlluminaAdapterContext {
 
 // MARK: - Barcode Kit Registry
 
+/// Backward-compatible alias for ``BarcodeKitRegistry``.
+public typealias IlluminaBarcodeKitRegistry = BarcodeKitRegistry
+
 /// Registry of built-in and custom barcode kits for demultiplexing.
-public enum IlluminaBarcodeKitRegistry {
+public enum BarcodeKitRegistry {
 
     /// Returns all built-in barcode kit definitions.
-    public static func builtinKits() -> [IlluminaBarcodeDefinition] {
+    public static func builtinKits() -> [BarcodeKitDefinition] {
         [
             truseqSingleA,
             truseqSingleB,
@@ -233,7 +250,7 @@ public enum IlluminaBarcodeKitRegistry {
     }
 
     /// Looks up a built-in kit by ID.
-    public static func kit(byID id: String) -> IlluminaBarcodeDefinition? {
+    public static func kit(byID id: String) -> BarcodeKitDefinition? {
         builtinKits().first { $0.id == id }
     }
 
@@ -248,13 +265,13 @@ public enum IlluminaBarcodeKitRegistry {
     public static func loadCustomKit(
         from url: URL,
         name: String
-    ) throws -> IlluminaBarcodeDefinition {
+    ) throws -> BarcodeKitDefinition {
         let content = try String(contentsOf: url, encoding: .utf8)
         let lines = content.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty && !$0.hasPrefix("#") }
 
-        var barcodes: [IlluminaBarcode] = []
+        var barcodes: [BarcodeEntry] = []
         var isDualIndexed = false
 
         for line in lines {
@@ -271,7 +288,7 @@ public enum IlluminaBarcodeKitRegistry {
 
             if i5 != nil { isDualIndexed = true }
 
-            barcodes.append(IlluminaBarcode(
+            barcodes.append(BarcodeEntry(
                 id: id,
                 i7Sequence: i7,
                 i5Sequence: i5,
@@ -283,7 +300,7 @@ public enum IlluminaBarcodeKitRegistry {
             .replacingOccurrences(of: " ", with: "-")
             .filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
 
-        return IlluminaBarcodeDefinition(
+        return BarcodeKitDefinition(
             id: "custom-\(sanitizedID)",
             displayName: name,
             vendor: "custom",
@@ -320,7 +337,7 @@ public enum IlluminaBarcodeKitRegistry {
     /// - Returns: URL of the i5 FASTA file if dual-indexed, otherwise nil.
     @discardableResult
     public static func generateCutadaptFASTA(
-        for kit: IlluminaBarcodeDefinition,
+        for kit: BarcodeKitDefinition,
         to outputURL: URL,
         location: BarcodeLocation = .fivePrime,
         includeAdapterContext: Bool = true
@@ -389,54 +406,54 @@ public enum IlluminaBarcodeKitRegistry {
 
     /// TruSeq Single Index Set A (indices D701-D712).
     /// Sequences from Illumina Adapter Sequences Document (pub. 2024).
-    public static let truseqSingleA = IlluminaBarcodeDefinition(
+    public static let truseqSingleA = BarcodeKitDefinition(
         id: "truseq-single-a",
         displayName: "TruSeq Single Index Set A (D701-D712)",
         platform: .illumina,
         kitType: .truseq,
         barcodes: [
-            IlluminaBarcode(id: "D701", i7Sequence: "ATTACTCG"),
-            IlluminaBarcode(id: "D702", i7Sequence: "TCCGGAGA"),
-            IlluminaBarcode(id: "D703", i7Sequence: "CGCTCATT"),
-            IlluminaBarcode(id: "D704", i7Sequence: "GAGATTCC"),
-            IlluminaBarcode(id: "D705", i7Sequence: "ATTCAGAA"),
-            IlluminaBarcode(id: "D706", i7Sequence: "GAATTCGT"),
-            IlluminaBarcode(id: "D707", i7Sequence: "CTGAAGCT"),
-            IlluminaBarcode(id: "D708", i7Sequence: "TAATGCGC"),
-            IlluminaBarcode(id: "D709", i7Sequence: "CGGCTATG"),
-            IlluminaBarcode(id: "D710", i7Sequence: "TCCGCGAA"),
-            IlluminaBarcode(id: "D711", i7Sequence: "TCTCGCGC"),
-            IlluminaBarcode(id: "D712", i7Sequence: "AGCGATAG"),
+            BarcodeEntry(id: "D701", i7Sequence: "ATTACTCG"),
+            BarcodeEntry(id: "D702", i7Sequence: "TCCGGAGA"),
+            BarcodeEntry(id: "D703", i7Sequence: "CGCTCATT"),
+            BarcodeEntry(id: "D704", i7Sequence: "GAGATTCC"),
+            BarcodeEntry(id: "D705", i7Sequence: "ATTCAGAA"),
+            BarcodeEntry(id: "D706", i7Sequence: "GAATTCGT"),
+            BarcodeEntry(id: "D707", i7Sequence: "CTGAAGCT"),
+            BarcodeEntry(id: "D708", i7Sequence: "TAATGCGC"),
+            BarcodeEntry(id: "D709", i7Sequence: "CGGCTATG"),
+            BarcodeEntry(id: "D710", i7Sequence: "TCCGCGAA"),
+            BarcodeEntry(id: "D711", i7Sequence: "TCTCGCGC"),
+            BarcodeEntry(id: "D712", i7Sequence: "AGCGATAG"),
         ]
     )
 
     /// TruSeq Single Index Set B (indices D501-D508).
-    public static let truseqSingleB = IlluminaBarcodeDefinition(
+    public static let truseqSingleB = BarcodeKitDefinition(
         id: "truseq-single-b",
         displayName: "TruSeq Single Index Set B (D501-D508)",
         platform: .illumina,
         kitType: .truseq,
         barcodes: [
-            IlluminaBarcode(id: "D501", i7Sequence: "TATAGCCT"),
-            IlluminaBarcode(id: "D502", i7Sequence: "ATAGAGGC"),
-            IlluminaBarcode(id: "D503", i7Sequence: "CCTATCCT"),
-            IlluminaBarcode(id: "D504", i7Sequence: "GGCTCTGA"),
-            IlluminaBarcode(id: "D505", i7Sequence: "AGGCGAAG"),
-            IlluminaBarcode(id: "D506", i7Sequence: "TAATCTTA"),
-            IlluminaBarcode(id: "D507", i7Sequence: "CAGGACGT"),
-            IlluminaBarcode(id: "D508", i7Sequence: "GTACTGAC"),
+            BarcodeEntry(id: "D501", i7Sequence: "TATAGCCT"),
+            BarcodeEntry(id: "D502", i7Sequence: "ATAGAGGC"),
+            BarcodeEntry(id: "D503", i7Sequence: "CCTATCCT"),
+            BarcodeEntry(id: "D504", i7Sequence: "GGCTCTGA"),
+            BarcodeEntry(id: "D505", i7Sequence: "AGGCGAAG"),
+            BarcodeEntry(id: "D506", i7Sequence: "TAATCTTA"),
+            BarcodeEntry(id: "D507", i7Sequence: "CAGGACGT"),
+            BarcodeEntry(id: "D508", i7Sequence: "GTACTGAC"),
         ]
     )
 
     /// TruSeq HT Dual Index (i7 D701-D712 × i5 D501-D508 = 96 combinations).
-    public static let truseqHTDual: IlluminaBarcodeDefinition = {
+    public static let truseqHTDual: BarcodeKitDefinition = {
         let i7s = truseqSingleA.barcodes
         let i5s = truseqSingleB.barcodes
 
-        var barcodes: [IlluminaBarcode] = []
+        var barcodes: [BarcodeEntry] = []
         for i7 in i7s {
             for i5 in i5s {
-                barcodes.append(IlluminaBarcode(
+                barcodes.append(BarcodeEntry(
                     id: "\(i7.id)-\(i5.id)",
                     i7Sequence: i7.i7Sequence,
                     i5Sequence: i5.i7Sequence  // i5 sequences stored as i7Sequence in Set B
@@ -444,7 +461,7 @@ public enum IlluminaBarcodeKitRegistry {
             }
         }
 
-        return IlluminaBarcodeDefinition(
+        return BarcodeKitDefinition(
             id: "truseq-ht-dual",
             displayName: "TruSeq HT Dual Index (96 combinations)",
             platform: .illumina,
@@ -456,7 +473,7 @@ public enum IlluminaBarcodeKitRegistry {
     }()
 
     /// Nextera XT Index Kit v2 (indices N701-N712 × S502-S508).
-    public static let nexteraXTv2 = IlluminaBarcodeDefinition(
+    public static let nexteraXTv2 = BarcodeKitDefinition(
         id: "nextera-xt-v2",
         displayName: "Nextera XT Index Kit v2",
         platform: .illumina,
@@ -479,10 +496,10 @@ public enum IlluminaBarcodeKitRegistry {
                 ("S507", "AAGGAGTA"), ("S508", "CTAAGCCT"),
             ]
 
-            var barcodes: [IlluminaBarcode] = []
+            var barcodes: [BarcodeEntry] = []
             for (i7id, i7seq) in i7s {
                 for (i5id, i5seq) in i5s {
-                    barcodes.append(IlluminaBarcode(
+                    barcodes.append(BarcodeEntry(
                         id: "\(i7id)-\(i5id)",
                         i7Sequence: i7seq,
                         i5Sequence: i5seq
@@ -494,7 +511,7 @@ public enum IlluminaBarcodeKitRegistry {
     )
 
     /// IDT for Illumina UD Indexes (96 unique dual pairs).
-    public static let idtUDIndexes = IlluminaBarcodeDefinition(
+    public static let idtUDIndexes = BarcodeKitDefinition(
         id: "idt-ud-indexes",
         displayName: "IDT for Illumina UD Indexes (96 pairs)",
         platform: .illumina,
@@ -532,7 +549,7 @@ public enum IlluminaBarcodeKitRegistry {
             ]
 
             return pairs.map { id, i7, i5 in
-                IlluminaBarcode(id: id, i7Sequence: i7, i5Sequence: i5)
+                BarcodeEntry(id: id, i7Sequence: i7, i5Sequence: i5)
             }
         }()
     )
@@ -540,9 +557,9 @@ public enum IlluminaBarcodeKitRegistry {
     /// PacBio Sequel 16 barcodes (v3) as a combinatorial asymmetric set.
     ///
     /// Source: Pacific Biosciences "Sequel_16_Barcodes_v3.fasta".
-    public static let pacbioSequel16V3: IlluminaBarcodeDefinition = {
+    public static let pacbioSequel16V3: BarcodeKitDefinition = {
         let barcodes = parseFASTARecords(PacBioBarcodeData.sequel16V3FASTA)
-        return IlluminaBarcodeDefinition(
+        return BarcodeKitDefinition(
             id: "pacbio-sequel-16-v3",
             displayName: "PacBio Sequel 16 (v3)",
             vendor: "pacbio",
@@ -557,9 +574,9 @@ public enum IlluminaBarcodeKitRegistry {
     /// PacBio Sequel 96 barcodes (v2) as a combinatorial asymmetric set.
     ///
     /// Source: Pacific Biosciences "Sequel_96_barcodes_v2.fasta".
-    public static let pacbioSequel96V2: IlluminaBarcodeDefinition = {
+    public static let pacbioSequel96V2: BarcodeKitDefinition = {
         let barcodes = parseFASTARecords(PacBioBarcodeData.sequel96V2FASTA)
-        return IlluminaBarcodeDefinition(
+        return BarcodeKitDefinition(
             id: "pacbio-sequel-96-v2",
             displayName: "PacBio Sequel 96 (v2)",
             vendor: "pacbio",
@@ -574,9 +591,9 @@ public enum IlluminaBarcodeKitRegistry {
     /// PacBio Sequel 384 barcodes (`bc1001`-`bc1384`) as a combinatorial asymmetric set.
     ///
     /// Source: Pacific Biosciences "Sequel_384_barcodes_v1.fasta".
-    public static let pacbioSequel384V1: IlluminaBarcodeDefinition = {
+    public static let pacbioSequel384V1: BarcodeKitDefinition = {
         let barcodes = parseFASTARecords(PacBioBarcodeData.sequel384V1FASTA)
-        return IlluminaBarcodeDefinition(
+        return BarcodeKitDefinition(
             id: "pacbio-sequel-384-v1",
             displayName: "PacBio Sequel 384 (v1)",
             vendor: "pacbio",
@@ -589,10 +606,10 @@ public enum IlluminaBarcodeKitRegistry {
     }()
 
     /// ONT Native Barcoding (NBD104, 12 barcodes).
-    public static let ontNativeBarcoding12NBD104: IlluminaBarcodeDefinition = {
+    public static let ontNativeBarcoding12NBD104: BarcodeKitDefinition = {
         let allBarcodes = parseFASTARecords(ONTBarcodeData.nbd104Nbd114FASTA)
         let barcodes = barcodesWithNumericSuffix(in: 1...12, from: allBarcodes)
-        return IlluminaBarcodeDefinition(
+        return BarcodeKitDefinition(
             id: "ont-nbd104",
             displayName: "ONT Native Barcoding (NBD104, 12)",
             vendor: "oxford-nanopore",
@@ -605,10 +622,10 @@ public enum IlluminaBarcodeKitRegistry {
     }()
 
     /// ONT Native Barcoding (NBD114, 12 barcodes).
-    public static let ontNativeBarcoding12NBD114: IlluminaBarcodeDefinition = {
+    public static let ontNativeBarcoding12NBD114: BarcodeKitDefinition = {
         let allBarcodes = parseFASTARecords(ONTBarcodeData.nbd104Nbd114FASTA)
         let barcodes = barcodesWithNumericSuffix(in: 13...24, from: allBarcodes)
-        return IlluminaBarcodeDefinition(
+        return BarcodeKitDefinition(
             id: "ont-nbd114",
             displayName: "ONT Native Barcoding (NBD114, 12)",
             vendor: "oxford-nanopore",
@@ -621,9 +638,9 @@ public enum IlluminaBarcodeKitRegistry {
     }()
 
     /// ONT Native Barcoding Expansion (NBD104/NBD114, 24 barcodes).
-    public static let ontNativeBarcoding24: IlluminaBarcodeDefinition = {
+    public static let ontNativeBarcoding24: BarcodeKitDefinition = {
         let barcodes = parseFASTARecords(ONTBarcodeData.nbd104Nbd114FASTA)
-        return IlluminaBarcodeDefinition(
+        return BarcodeKitDefinition(
             id: "ont-nbd104-114",
             displayName: "ONT Native Barcoding (NBD104/NBD114, 24)",
             vendor: "oxford-nanopore",
@@ -636,9 +653,9 @@ public enum IlluminaBarcodeKitRegistry {
     }()
 
     /// ONT PCR Barcoding Expansion (PBC096, 96 barcodes).
-    public static let ontPCRBarcoding96: IlluminaBarcodeDefinition = {
+    public static let ontPCRBarcoding96: BarcodeKitDefinition = {
         let barcodes = parseFASTARecords(ONTBarcodeData.pbc096FASTA)
-        return IlluminaBarcodeDefinition(
+        return BarcodeKitDefinition(
             id: "ont-pbc096",
             displayName: "ONT PCR Barcoding (PBC096, 96)",
             vendor: "oxford-nanopore",
@@ -651,9 +668,9 @@ public enum IlluminaBarcodeKitRegistry {
     }()
 
     /// ONT Rapid Barcoding Kit (RBK004, 12 barcodes).
-    public static let ontRapidBarcoding12: IlluminaBarcodeDefinition = {
+    public static let ontRapidBarcoding12: BarcodeKitDefinition = {
         let barcodes = parseFASTARecords(ONTBarcodeData.rbk004FASTA)
-        return IlluminaBarcodeDefinition(
+        return BarcodeKitDefinition(
             id: "ont-rbk004",
             displayName: "ONT Rapid Barcoding (RBK004, 12)",
             vendor: "oxford-nanopore",
@@ -667,9 +684,9 @@ public enum IlluminaBarcodeKitRegistry {
 
     /// ONT Native Barcoding 96 (SQK-NBD114-96, V14).
     /// Also compatible with SQK-MLK114-96-XL and SQK-HTB114-96.
-    public static let ontNativeBarcoding96: IlluminaBarcodeDefinition = {
+    public static let ontNativeBarcoding96: BarcodeKitDefinition = {
         let barcodes = parseFASTARecords(ONTBarcodeData.nativeBarcoding96FASTA)
-        return IlluminaBarcodeDefinition(
+        return BarcodeKitDefinition(
             id: "ont-nbd114-96",
             displayName: "ONT Native Barcoding V14 (SQK-NBD114-96, 96)",
             vendor: "oxford-nanopore",
@@ -683,10 +700,10 @@ public enum IlluminaBarcodeKitRegistry {
 
     /// ONT Rapid Barcoding 24 (SQK-RBK114-24, V14).
     /// Uses BC01-BC24 sequences (same as PCR barcoding).
-    public static let ontRapidBarcoding24: IlluminaBarcodeDefinition = {
+    public static let ontRapidBarcoding24: BarcodeKitDefinition = {
         let allBarcodes = parseFASTARecords(ONTBarcodeData.bc96FASTA)
         let barcodes = barcodesWithNumericSuffix(in: 1...24, from: allBarcodes)
-        return IlluminaBarcodeDefinition(
+        return BarcodeKitDefinition(
             id: "ont-rbk114-24",
             displayName: "ONT Rapid Barcoding V14 (SQK-RBK114-24, 24)",
             vendor: "oxford-nanopore",
@@ -700,7 +717,7 @@ public enum IlluminaBarcodeKitRegistry {
 
     /// ONT Rapid Barcoding 96 (SQK-RBK114-96, V14).
     /// Uses BC01-BC96 with 6 variant substitutions at positions 26, 39, 40, 48, 54, 60.
-    public static let ontRapidBarcoding96: IlluminaBarcodeDefinition = {
+    public static let ontRapidBarcoding96: BarcodeKitDefinition = {
         let baseBarcodes = parseFASTARecords(ONTBarcodeData.bc96FASTA)
         let variants = parseFASTARecords(ONTBarcodeData.rbk114_96VariantFASTA)
         let variantMap = Dictionary(uniqueKeysWithValues: variants.map { ($0.id, $0) })
@@ -709,7 +726,7 @@ public enum IlluminaBarcodeKitRegistry {
         let rbkSubstitutions: [Int: String] = [
             26: "RBK26", 39: "RBK39", 40: "RBK40", 48: "RBK48", 54: "RBK54", 60: "RBK60",
         ]
-        var barcodes: [IlluminaBarcode] = []
+        var barcodes: [BarcodeEntry] = []
         for bc in baseBarcodes {
             let digits = bc.id.filter(\.isNumber)
             if let num = Int(digits), let variantID = rbkSubstitutions[num],
@@ -719,7 +736,7 @@ public enum IlluminaBarcodeKitRegistry {
                 barcodes.append(bc)
             }
         }
-        return IlluminaBarcodeDefinition(
+        return BarcodeKitDefinition(
             id: "ont-rbk114-96",
             displayName: "ONT Rapid Barcoding V14 (SQK-RBK114-96, 96)",
             vendor: "oxford-nanopore",
@@ -733,10 +750,10 @@ public enum IlluminaBarcodeKitRegistry {
 
     /// ONT 16S Barcoding 24 (SQK-16S114-24, V14).
     /// Uses BC01-BC24 sequences with 16S-specific flanking regions.
-    public static let ont16SBarcoding24: IlluminaBarcodeDefinition = {
+    public static let ont16SBarcoding24: BarcodeKitDefinition = {
         let allBarcodes = parseFASTARecords(ONTBarcodeData.bc96FASTA)
         let barcodes = barcodesWithNumericSuffix(in: 1...24, from: allBarcodes)
-        return IlluminaBarcodeDefinition(
+        return BarcodeKitDefinition(
             id: "ont-16s114-24",
             displayName: "ONT 16S Barcoding V14 (SQK-16S114-24, 24)",
             vendor: "oxford-nanopore",
@@ -750,9 +767,9 @@ public enum IlluminaBarcodeKitRegistry {
 
     /// ONT 16S Rapid Amplicon Barcoding (RAB204/RAB214, 24 barcodes).
     /// Legacy kit; uses BC01-BC24 sequences.
-    public static let ont16SRapidAmplicon24: IlluminaBarcodeDefinition = {
+    public static let ont16SRapidAmplicon24: BarcodeKitDefinition = {
         let barcodes = parseFASTARecords(ONTBarcodeData.rab204Rab214FASTA)
-        return IlluminaBarcodeDefinition(
+        return BarcodeKitDefinition(
             id: "ont-rab204-214",
             displayName: "ONT 16S Rapid Amplicon (RAB204/RAB214, 24)",
             vendor: "oxford-nanopore",
@@ -764,8 +781,8 @@ public enum IlluminaBarcodeKitRegistry {
         )
     }()
 
-    private static func parseFASTARecords(_ fasta: String) -> [IlluminaBarcode] {
-        var parsed: [IlluminaBarcode] = []
+    private static func parseFASTARecords(_ fasta: String) -> [BarcodeEntry] {
+        var parsed: [BarcodeEntry] = []
         var currentID: String?
         var sequenceLines: [String] = []
 
@@ -773,7 +790,7 @@ public enum IlluminaBarcodeKitRegistry {
             guard let currentID else { return }
             let sequence = sequenceLines.joined().trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
             guard !sequence.isEmpty else { return }
-            parsed.append(IlluminaBarcode(id: currentID, i7Sequence: sequence))
+            parsed.append(BarcodeEntry(id: currentID, i7Sequence: sequence))
         }
 
         for rawLine in fasta.components(separatedBy: .newlines) {
@@ -793,8 +810,8 @@ public enum IlluminaBarcodeKitRegistry {
 
     private static func barcodesWithNumericSuffix(
         in range: ClosedRange<Int>,
-        from barcodes: [IlluminaBarcode]
-    ) -> [IlluminaBarcode] {
+        from barcodes: [BarcodeEntry]
+    ) -> [BarcodeEntry] {
         barcodes.filter { barcode in
             let digits = barcode.id.filter(\.isNumber)
             guard let value = Int(digits) else { return false }

@@ -16,7 +16,7 @@ public struct DemultiplexConfig: Sendable {
     public let inputURL: URL
 
     /// Barcode kit definition (built-in or custom).
-    public let barcodeKit: IlluminaBarcodeDefinition
+    public let barcodeKit: BarcodeKitDefinition
 
     /// Output directory for per-barcode .lungfishfastq bundles.
     public let outputDirectory: URL
@@ -55,15 +55,27 @@ public struct DemultiplexConfig: Sendable {
     /// Number of threads for cutadapt (--cores).
     public let threads: Int
 
+    /// Optional adapter context override.
+    ///
+    /// When nil (the default), the adapter context is derived from the kit's
+    /// platform and kit type. Set this to override the default context for
+    /// custom adapter constructs.
+    public let adapterContext: (any PlatformAdapterContext)?
+
     /// Optional explicit asymmetric sample assignments.
     ///
     /// When present, these are used to build linked 5'/3' adapters directly,
     /// avoiding cartesian expansion for combinatorial kits.
     public let sampleAssignments: [FASTQSampleBarcodeAssignment]
 
+    /// Resolved adapter context (uses override if set, otherwise derives from kit).
+    public var resolvedAdapterContext: any PlatformAdapterContext {
+        adapterContext ?? barcodeKit.adapterContext
+    }
+
     public init(
         inputURL: URL,
-        barcodeKit: IlluminaBarcodeDefinition,
+        barcodeKit: BarcodeKitDefinition,
         outputDirectory: URL,
         barcodeLocation: BarcodeLocation = .bothEnds,
         symmetryMode: BarcodeSymmetryMode? = nil,
@@ -75,6 +87,7 @@ public struct DemultiplexConfig: Sendable {
         searchReverseComplement: Bool? = nil,
         unassignedDisposition: UnassignedDisposition = .keep,
         threads: Int = 4,
+        adapterContext: (any PlatformAdapterContext)? = nil,
         sampleAssignments: [FASTQSampleBarcodeAssignment] = []
     ) {
         self.inputURL = inputURL
@@ -98,6 +111,7 @@ public struct DemultiplexConfig: Sendable {
         self.maxDistanceFrom5Prime = max(0, maxDistanceFrom5Prime)
         self.maxDistanceFrom3Prime = max(0, maxDistanceFrom3Prime)
         self.trimBarcodes = trimBarcodes
+        self.adapterContext = adapterContext
         self.searchReverseComplement = searchReverseComplement
             ?? barcodeKit.platform.readsCanBeReverseComplemented
         self.unassignedDisposition = unassignedDisposition
@@ -469,7 +483,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             // both 5' and 3' barcode constructs. This provides better discrimination and
             // prevents false positives (e.g., barcode05 matching ONT flank sequences).
             if config.barcodeKit.platform.readsCanBeReverseComplemented {
-                let ctx = config.barcodeKit.adapterContext
+                let ctx = config.resolvedAdapterContext
                 var lines: [String] = []
                 for barcode in config.barcodeKit.barcodes {
                     let spec = ctx.linkedSpec(barcodeSequence: barcode.i7Sequence)
@@ -543,7 +557,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
     /// Y-adapter + barcode + flank sequence. For Illumina, it adds
     /// P7/P5 flanking. For PacBio HiFi, returns bare barcode (CCS
     /// already removed SMRTbell adapters).
-    private func contextualizedSequence(_ sequence: String, role: BarcodeRole, kit: IlluminaBarcodeDefinition) -> String {
+    private func contextualizedSequence(_ sequence: String, role: BarcodeRole, kit: BarcodeKitDefinition) -> String {
         let ctx = kit.adapterContext
         switch role {
         case .i7:
@@ -705,7 +719,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
     private func resolveSequence(
         explicitSequence: String?,
         barcodeID: String?,
-        kit: IlluminaBarcodeDefinition
+        kit: BarcodeKitDefinition
     ) -> String? {
         if let explicitSequence, !explicitSequence.isEmpty {
             return explicitSequence.uppercased()
@@ -747,13 +761,13 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         return lookup[canonicalSampleID(outputName)]
     }
 
-    private func assignmentSequence(_ explicit: String?, id: String?, kit: IlluminaBarcodeDefinition) -> String? {
+    private func assignmentSequence(_ explicit: String?, id: String?, kit: BarcodeKitDefinition) -> String? {
         resolveSequence(explicitSequence: explicit, barcodeID: id, kit: kit)
     }
 
     private func barcodeSequenceInfo(
         for outputName: String,
-        kit: IlluminaBarcodeDefinition,
+        kit: BarcodeKitDefinition,
         sampleAssignments: [FASTQSampleBarcodeAssignment]
     ) -> (sampleName: String?, forward: String?, reverse: String?) {
         if let assignment = sampleAssignment(for: outputName, assignments: sampleAssignments) {
@@ -903,7 +917,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
     /// - Returns: Scout result with per-barcode detections.
     public func scout(
         inputURL: URL,
-        kit: IlluminaBarcodeDefinition,
+        kit: BarcodeKitDefinition,
         readLimit: Int = 10_000,
         acceptThreshold: Int = 10,
         rejectThreshold: Int = 3,
@@ -1079,7 +1093,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         for (stepIndex, step) in sortedSteps.enumerated() {
             let stepBaseProgress = Double(stepIndex) * progressPerStep
 
-            guard let kit = IlluminaBarcodeKitRegistry.kit(byID: step.barcodeKitID) else {
+            guard let kit = BarcodeKitRegistry.kit(byID: step.barcodeKitID) else {
                 throw DemultiplexPlanError.missingKit(step: step.label)
             }
 
