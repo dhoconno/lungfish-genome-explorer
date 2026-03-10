@@ -35,6 +35,12 @@ public struct DemultiplexStep: Codable, Sendable, Equatable, Identifiable {
     /// Whether to search reverse complement (default for long-read platforms).
     public var searchReverseComplement: Bool
 
+    /// Whether to trim barcode sequences from output reads.
+    public var trimBarcodes: Bool
+
+    /// What to do with reads that don't match any barcode.
+    public var unassignedDisposition: UnassignedDisposition
+
     /// Per-step sample assignments (for asymmetric kits at this level).
     public var sampleAssignments: [FASTQSampleBarcodeAssignment]
 
@@ -50,6 +56,8 @@ public struct DemultiplexStep: Codable, Sendable, Equatable, Identifiable {
         errorRate: Double = 0.15,
         minimumOverlap: Int = 3,
         searchReverseComplement: Bool = true,
+        trimBarcodes: Bool = true,
+        unassignedDisposition: UnassignedDisposition = .keep,
         sampleAssignments: [FASTQSampleBarcodeAssignment] = [],
         ordinal: Int = 0
     ) {
@@ -61,6 +69,8 @@ public struct DemultiplexStep: Codable, Sendable, Equatable, Identifiable {
         self.errorRate = errorRate
         self.minimumOverlap = minimumOverlap
         self.searchReverseComplement = searchReverseComplement
+        self.trimBarcodes = trimBarcodes
+        self.unassignedDisposition = unassignedDisposition
         self.sampleAssignments = sampleAssignments
         self.ordinal = ordinal
     }
@@ -105,6 +115,12 @@ public struct DemultiplexPlan: Codable, Sendable, Equatable {
                 throw DemultiplexPlanError.missingKit(step: step.label)
             }
         }
+        // Check for duplicate ordinals
+        let ordinals = steps.map(\.ordinal)
+        let uniqueOrdinals = Set(ordinals)
+        if uniqueOrdinals.count != ordinals.count {
+            throw DemultiplexPlanError.duplicateOrdinals
+        }
     }
 }
 
@@ -126,6 +142,14 @@ public struct MultiStepDemultiplexResult: Sendable {
     public struct StepResult: Sendable {
         public let step: DemultiplexStep
         public let perBinResults: [DemultiplexResult]
+        /// Wall clock time for this step in seconds.
+        public let wallClockSeconds: Double
+
+        public init(step: DemultiplexStep, perBinResults: [DemultiplexResult], wallClockSeconds: Double = 0) {
+            self.step = step
+            self.perBinResults = perBinResults
+            self.wallClockSeconds = wallClockSeconds
+        }
     }
 }
 
@@ -133,6 +157,7 @@ public struct MultiStepDemultiplexResult: Sendable {
 public enum DemultiplexPlanError: Error, LocalizedError, Sendable {
     case noSteps
     case missingKit(step: String)
+    case duplicateOrdinals
 
     public var errorDescription: String? {
         switch self {
@@ -140,6 +165,8 @@ public enum DemultiplexPlanError: Error, LocalizedError, Sendable {
             return "Demultiplexing plan has no steps."
         case .missingKit(let step):
             return "Step '\(step)' has no barcode kit selected."
+        case .duplicateOrdinals:
+            return "Demultiplexing plan has steps with duplicate ordinals."
         }
     }
 }

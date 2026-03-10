@@ -1077,6 +1077,9 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
     ///   - outputDirectory: Root output directory.
     ///   - progress: Progress callback.
     /// - Returns: Combined result with all output bundles.
+    /// Maximum number of bins to process concurrently in inner steps.
+    private static let maxConcurrentBins = 4
+
     public func runMultiStep(
         plan: DemultiplexPlan,
         inputURL: URL,
@@ -1092,40 +1095,85 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         let progressPerStep = 1.0 / Double(sortedSteps.count)
 
         for (stepIndex, step) in sortedSteps.enumerated() {
+            let stepStartTime = Date()
             let stepBaseProgress = Double(stepIndex) * progressPerStep
 
             guard let kit = BarcodeKitRegistry.kit(byID: step.barcodeKitID) else {
                 throw DemultiplexPlanError.missingKit(step: step.label)
             }
 
-            var perBinResults: [DemultiplexResult] = []
-            let progressPerBin = progressPerStep / Double(max(1, currentInputURLs.count))
+            let binCount = currentInputURLs.count
+            let progressPerBin = progressPerStep / Double(max(1, binCount))
 
-            for (binIndex, binInputURL) in currentInputURLs.enumerated() {
-                let binBaseProgress = stepBaseProgress + Double(binIndex) * progressPerBin
-                let binName = binInputURL.deletingPathExtension().lastPathComponent
-                let stepOutputDir = outputDirectory
-                    .appendingPathComponent(binName, isDirectory: true)
-
-                let config = DemultiplexConfig(
-                    inputURL: binInputURL,
-                    barcodeKit: kit,
-                    outputDirectory: stepOutputDir,
-                    barcodeLocation: step.barcodeLocation,
-                    symmetryMode: step.symmetryMode,
-                    errorRate: step.errorRate,
-                    minimumOverlap: step.minimumOverlap,
-                    searchReverseComplement: step.searchReverseComplement,
-                    sampleAssignments: step.sampleAssignments
-                )
-
-                let result = try await run(config: config) { fraction, message in
-                    progress(binBaseProgress + fraction * progressPerBin, "Step \(stepIndex + 1): \(message)")
+            // Step 0 (single input) runs sequentially; inner steps run bins concurrently
+            let perBinResults: [DemultiplexResult]
+            if stepIndex == 0 || binCount <= 1 {
+                var results: [DemultiplexResult] = []
+                for (binIndex, binInputURL) in currentInputURLs.enumerated() {
+                    let binBaseProgress = stepBaseProgress + Double(binIndex) * progressPerBin
+                    let config = buildStepConfig(
+                        step: step, kit: kit, binInputURL: binInputURL,
+                        outputDirectory: outputDirectory
+                    )
+                    let result = try await run(config: config) { fraction, message in
+                        progress(binBaseProgress + fraction * progressPerBin, "Step \(stepIndex + 1): \(message)")
+                    }
+                    results.append(result)
                 }
-                perBinResults.append(result)
+                perBinResults = results
+            } else {
+                // Process inner bins concurrently with bounded parallelism
+                perBinResults = try await withThrowingTaskGroup(of: (Int, DemultiplexResult).self) { group in
+                    var results = [DemultiplexResult?](repeating: nil, count: binCount)
+                    var nextBinIndex = 0
+
+                    // Launch initial batch
+                    for _ in 0..<min(Self.maxConcurrentBins, binCount) {
+                        let idx = nextBinIndex
+                        let binInputURL = currentInputURLs[idx]
+                        let binBaseProgress = stepBaseProgress + Double(idx) * progressPerBin
+                        let config = buildStepConfig(
+                            step: step, kit: kit, binInputURL: binInputURL,
+                            outputDirectory: outputDirectory
+                        )
+                        nextBinIndex += 1
+                        group.addTask { [self] in
+                            let result = try await self.run(config: config) { fraction, message in
+                                progress(binBaseProgress + fraction * progressPerBin, "Step \(stepIndex + 1) [\(idx + 1)/\(binCount)]: \(message)")
+                            }
+                            return (idx, result)
+                        }
+                    }
+
+                    // As each completes, launch the next
+                    for try await (idx, result) in group {
+                        results[idx] = result
+                        if nextBinIndex < binCount {
+                            let nextIdx = nextBinIndex
+                            let binInputURL = currentInputURLs[nextIdx]
+                            let binBaseProgress = stepBaseProgress + Double(nextIdx) * progressPerBin
+                            let config = buildStepConfig(
+                                step: step, kit: kit, binInputURL: binInputURL,
+                                outputDirectory: outputDirectory
+                            )
+                            nextBinIndex += 1
+                            group.addTask { [self] in
+                                let result = try await self.run(config: config) { fraction, message in
+                                    progress(binBaseProgress + fraction * progressPerBin, "Step \(stepIndex + 1) [\(nextIdx + 1)/\(binCount)]: \(message)")
+                                }
+                                return (nextIdx, result)
+                            }
+                        }
+                    }
+
+                    let collected = results.compactMap { $0 }
+                    assert(collected.count == binCount, "Expected \(binCount) bin results, got \(collected.count)")
+                    return collected
+                }
             }
 
-            stepResults.append(.init(step: step, perBinResults: perBinResults))
+            let stepElapsed = Date().timeIntervalSince(stepStartTime)
+            stepResults.append(.init(step: step, perBinResults: perBinResults, wallClockSeconds: stepElapsed))
 
             // Next step's inputs are the output bundles from this step
             currentInputURLs = perBinResults.flatMap(\.outputBundleURLs)
@@ -1133,18 +1181,104 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
         let elapsed = Date().timeIntervalSince(startTime)
         let finalBundles = stepResults.last?.perBinResults.flatMap(\.outputBundleURLs) ?? []
-        guard let finalManifest = stepResults.last?.perBinResults.first?.manifest
-            ?? stepResults.first?.perBinResults.first?.manifest else {
+
+        guard !stepResults.isEmpty,
+              stepResults[0].perBinResults.first?.manifest != nil else {
             throw DemultiplexError.noOutputResults
         }
+
+        // Build composite manifest with multi-step provenance
+        let provenance = buildProvenance(
+            plan: plan, sortedSteps: sortedSteps,
+            stepResults: stepResults, elapsed: elapsed
+        )
+
+        // Use last step's kit/parameters for the composite (barcodes array comes from last step)
+        let finalManifests = stepResults.last?.perBinResults.map(\.manifest) ?? []
+        guard let lastStepManifest = finalManifests.first else {
+            throw DemultiplexError.noOutputResults
+        }
+
+        let allBarcodes = finalManifests.flatMap(\.barcodes)
+        let totalUnassignedReads = finalManifests.reduce(0) { $0 + $1.unassigned.readCount }
+        let totalUnassignedBases = finalManifests.reduce(0) { $0 + $1.unassigned.baseCount }
+
+        let compositeManifest = DemultiplexManifest(
+            version: 2,
+            barcodeKit: lastStepManifest.barcodeKit,
+            parameters: lastStepManifest.parameters,
+            barcodes: allBarcodes,
+            unassigned: UnassignedReadsSummary(
+                readCount: totalUnassignedReads,
+                baseCount: totalUnassignedBases,
+                disposition: lastStepManifest.unassigned.disposition
+            ),
+            outputDirectoryRelativePath: lastStepManifest.outputDirectoryRelativePath,
+            inputReadCount: stepResults[0].perBinResults.reduce(0) { $0 + $1.manifest.inputReadCount },
+            multiStepProvenance: provenance
+        )
 
         progress(1.0, "Multi-step demultiplexing complete")
 
         return MultiStepDemultiplexResult(
             stepResults: stepResults,
             outputBundleURLs: finalBundles,
-            manifest: finalManifest,
+            manifest: compositeManifest,
             wallClockSeconds: elapsed
+        )
+    }
+
+    /// Builds a `DemultiplexConfig` from a step definition and a specific input bin.
+    private func buildStepConfig(
+        step: DemultiplexStep,
+        kit: BarcodeKitDefinition,
+        binInputURL: URL,
+        outputDirectory: URL
+    ) -> DemultiplexConfig {
+        let binName = binInputURL.deletingPathExtension().lastPathComponent
+        let stepOutputDir = outputDirectory
+            .appendingPathComponent(binName, isDirectory: true)
+
+        return DemultiplexConfig(
+            inputURL: binInputURL,
+            barcodeKit: kit,
+            outputDirectory: stepOutputDir,
+            barcodeLocation: step.barcodeLocation,
+            symmetryMode: step.symmetryMode,
+            errorRate: step.errorRate,
+            minimumOverlap: step.minimumOverlap,
+            trimBarcodes: step.trimBarcodes,
+            searchReverseComplement: step.searchReverseComplement,
+            unassignedDisposition: step.unassignedDisposition,
+            sampleAssignments: step.sampleAssignments
+        )
+    }
+
+    /// Builds multi-step provenance from completed step results.
+    private func buildProvenance(
+        plan: DemultiplexPlan,
+        sortedSteps: [DemultiplexStep],
+        stepResults: [MultiStepDemultiplexResult.StepResult],
+        elapsed: Double
+    ) -> MultiStepProvenance {
+        let summaries = zip(sortedSteps, stepResults).map { step, result in
+            MultiStepProvenance.StepSummary(
+                label: step.label,
+                barcodeKitID: step.barcodeKitID,
+                symmetryMode: step.symmetryMode,
+                errorRate: step.errorRate,
+                inputBinCount: result.perBinResults.count,
+                outputBundleCount: result.perBinResults.reduce(0) { $0 + $1.outputBundleURLs.count },
+                totalReadsProcessed: result.perBinResults.reduce(0) { $0 + $1.manifest.inputReadCount },
+                wallClockSeconds: result.wallClockSeconds
+            )
+        }
+
+        return MultiStepProvenance(
+            totalSteps: sortedSteps.count,
+            stepSummaries: summaries,
+            compositeSampleNames: plan.compositeSampleNames,
+            totalWallClockSeconds: elapsed
         )
     }
 }

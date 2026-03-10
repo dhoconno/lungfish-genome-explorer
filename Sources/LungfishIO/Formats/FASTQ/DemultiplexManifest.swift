@@ -55,6 +55,9 @@ public struct DemultiplexManifest: Codable, Sendable, Equatable {
     /// Total input read count before demultiplexing.
     public let inputReadCount: Int
 
+    /// Multi-step provenance (nil for single-step demux runs).
+    public let multiStepProvenance: MultiStepProvenance?
+
     /// Total read count across all barcodes plus unassigned.
     public var totalOutputReadCount: Int {
         barcodes.reduce(0) { $0 + $1.readCount } + unassigned.readCount
@@ -85,7 +88,8 @@ public struct DemultiplexManifest: Codable, Sendable, Equatable {
         barcodes: [BarcodeResult],
         unassigned: UnassignedReadsSummary,
         outputDirectoryRelativePath: String,
-        inputReadCount: Int
+        inputReadCount: Int,
+        multiStepProvenance: MultiStepProvenance? = nil
     ) {
         self.version = version
         self.runID = runID
@@ -96,6 +100,7 @@ public struct DemultiplexManifest: Codable, Sendable, Equatable {
         self.unassigned = unassigned
         self.outputDirectoryRelativePath = outputDirectoryRelativePath
         self.inputReadCount = inputReadCount
+        self.multiStepProvenance = multiStepProvenance
     }
 
     // MARK: - Persistence
@@ -322,4 +327,78 @@ public enum UnassignedDisposition: String, Codable, Sendable, CaseIterable {
     case keep
     /// Discard entirely (not written to disk).
     case discard
+}
+
+// MARK: - Multi-Step Provenance
+
+/// Provenance record for multi-step demultiplexing runs.
+///
+/// Captures the full plan, per-step kit/parameter summaries, and composite
+/// sample name mappings. Stored in the composite manifest so the user can
+/// reconstruct exactly what happened at each level.
+public struct MultiStepProvenance: Codable, Sendable, Equatable {
+    /// Total number of steps in the plan.
+    public let totalSteps: Int
+
+    /// Per-step summaries recording kit, symmetry, and error rate.
+    public let stepSummaries: [StepSummary]
+
+    /// Composite barcode path → user-assigned sample name.
+    /// Key: "BC01/bc1003--bc1016", Value: "Patient-042"
+    public let compositeSampleNames: [String: String]
+
+    /// Total wall clock time across all steps in seconds.
+    public let totalWallClockSeconds: Double
+
+    public init(
+        totalSteps: Int,
+        stepSummaries: [StepSummary],
+        compositeSampleNames: [String: String] = [:],
+        totalWallClockSeconds: Double = 0
+    ) {
+        self.totalSteps = totalSteps
+        self.stepSummaries = stepSummaries
+        self.compositeSampleNames = compositeSampleNames
+        self.totalWallClockSeconds = totalWallClockSeconds
+    }
+
+    /// Summary of a single step in the plan.
+    public struct StepSummary: Codable, Sendable, Equatable {
+        /// Step label (e.g., "Outer (ONT)").
+        public let label: String
+        /// Barcode kit ID used at this step.
+        public let barcodeKitID: String
+        /// Symmetry mode used at this step.
+        public let symmetryMode: BarcodeSymmetryMode
+        /// Error rate used at this step.
+        public let errorRate: Double
+        /// Number of input bins processed at this step.
+        public let inputBinCount: Int
+        /// Number of output bundles produced at this step.
+        public let outputBundleCount: Int
+        /// Total reads processed at this step.
+        public let totalReadsProcessed: Int
+        /// Wall clock time for this step in seconds.
+        public let wallClockSeconds: Double
+
+        public init(
+            label: String,
+            barcodeKitID: String,
+            symmetryMode: BarcodeSymmetryMode,
+            errorRate: Double,
+            inputBinCount: Int,
+            outputBundleCount: Int,
+            totalReadsProcessed: Int,
+            wallClockSeconds: Double
+        ) {
+            self.label = label
+            self.barcodeKitID = barcodeKitID
+            self.symmetryMode = symmetryMode
+            self.errorRate = errorRate
+            self.inputBinCount = inputBinCount
+            self.outputBundleCount = outputBundleCount
+            self.totalReadsProcessed = totalReadsProcessed
+            self.wallClockSeconds = wallClockSeconds
+        }
+    }
 }
