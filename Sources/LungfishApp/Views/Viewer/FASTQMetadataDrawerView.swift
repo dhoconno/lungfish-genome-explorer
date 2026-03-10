@@ -68,7 +68,7 @@ final class FASTQDrawerDividerView: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         let currentY = NSEvent.mouseLocation.y
-        let delta = dragStartY - currentY  // dragging up = positive = taller
+        let delta = currentY - dragStartY  // screen Y increases upward; drag up = positive = taller
         dragStartY = currentY
         onDrag?(delta)
     }

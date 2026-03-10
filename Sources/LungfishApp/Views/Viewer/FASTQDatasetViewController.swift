@@ -476,8 +476,8 @@ public final class FASTQDatasetViewController: NSViewController {
         // Read preview table (hidden initially)
         configureReadPreviewTable()
 
-        // Operation sidebar (source list style)
-        operationSidebar.style = .sourceList
+        // Operation sidebar (plain style — no grey source-list background)
+        operationSidebar.style = .plain
         operationSidebar.headerView = nil
         operationSidebar.usesAlternatingRowBackgroundColors = false
         operationSidebar.rowHeight = 24
