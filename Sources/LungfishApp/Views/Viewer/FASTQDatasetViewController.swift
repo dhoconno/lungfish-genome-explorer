@@ -83,6 +83,7 @@ public final class FASTQDatasetViewController: NSViewController {
         static let maxSidebarWidth: CGFloat = 260
         static let preferredSidebarFraction: CGFloat = 0.22
         static let minGeometryForInitialLayout: CGFloat = 300
+        static let operationHeaderBandHeight: CGFloat = 36
     }
 
     // MARK: - Operation Categories
@@ -545,15 +546,21 @@ public final class FASTQDatasetViewController: NSViewController {
         sidebarPane.addSubview(operationScrollView)
 
         NSLayoutConstraint.activate([
-            operationSidebarHeader.topAnchor.constraint(equalTo: sidebarPane.topAnchor, constant: 3),
+            operationSidebarHeader.centerYAnchor.constraint(
+                equalTo: sidebarPane.topAnchor,
+                constant: LayoutDefaults.operationHeaderBandHeight / 2
+            ),
             operationSidebarHeader.leadingAnchor.constraint(equalTo: sidebarPane.leadingAnchor, constant: 8),
             operationSidebarHeader.trailingAnchor.constraint(lessThanOrEqualTo: sidebarPane.trailingAnchor, constant: -8),
 
-            operationSidebarHeaderSeparator.topAnchor.constraint(equalTo: operationSidebarHeader.bottomAnchor, constant: 2),
+            operationSidebarHeaderSeparator.topAnchor.constraint(
+                equalTo: sidebarPane.topAnchor,
+                constant: LayoutDefaults.operationHeaderBandHeight
+            ),
             operationSidebarHeaderSeparator.leadingAnchor.constraint(equalTo: sidebarPane.leadingAnchor),
             operationSidebarHeaderSeparator.trailingAnchor.constraint(equalTo: sidebarPane.trailingAnchor),
 
-            operationScrollView.topAnchor.constraint(equalTo: operationSidebarHeaderSeparator.bottomAnchor, constant: 1),
+            operationScrollView.topAnchor.constraint(equalTo: operationSidebarHeaderSeparator.bottomAnchor),
             operationScrollView.leadingAnchor.constraint(equalTo: sidebarPane.leadingAnchor),
             operationScrollView.trailingAnchor.constraint(equalTo: sidebarPane.trailingAnchor),
             operationScrollView.bottomAnchor.constraint(equalTo: sidebarPane.bottomAnchor),
