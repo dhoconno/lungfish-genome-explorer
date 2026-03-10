@@ -368,14 +368,13 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             )
         }
 
-        // Process files with bounded concurrency (8 at a time for seqkit calls)
+        // Process files with bounded concurrency (8 at a time)
         struct VirtualBundleResult: Sendable {
             let baseName: String
             let isUnassigned: Bool
             let bundleURL: URL
             let bundleName: String
-            let readCount: Int
-            let baseCount: Int64
+            let statistics: FASTQDatasetStatistics
         }
 
         // Virtual mode: extract read IDs + preview (default for single-step and final multi-step)
@@ -438,35 +437,18 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                         try FileManager.default.moveItem(at: file.url, to: destURL)
                     }
 
-                    // Get accurate read count and base count via seqkit stats
+                    // Compute full statistics (histograms, quality, GC) via native Swift scanner.
+                    // The cutadapt output file is still on disk — scan it before cleanup.
                     let statsSource = capturedIsVirtual ? file.url : bundleURL.appendingPathComponent(file.url.lastPathComponent)
-                    let statsResult = try await capturedRunner.run(
-                        .seqkit,
-                        arguments: ["stats", "-T", statsSource.path],
-                        timeout: 300
-                    )
-                    var readCount = 0
-                    var baseCount: Int64 = 0
-                    if statsResult.isSuccess {
-                        // seqkit stats -T output: header line + data line, tab-separated
-                        // Columns: file, format, type, num_seqs, sum_len, min_len, avg_len, max_len
-                        let lines = statsResult.stdout.split(separator: "\n")
-                        if lines.count >= 2 {
-                            let fields = lines[1].split(separator: "\t")
-                            if fields.count >= 5 {
-                                readCount = Int(fields[3].replacingOccurrences(of: ",", with: "")) ?? 0
-                                baseCount = Int64(fields[4].replacingOccurrences(of: ",", with: "")) ?? 0
-                            }
-                        }
-                    }
+                    let reader = FASTQReader(validateSequence: false)
+                    let (statistics, _) = try await reader.computeStatistics(from: statsSource, sampleLimit: 0)
 
                     return VirtualBundleResult(
                         baseName: file.baseName,
                         isUnassigned: file.isUnassigned,
                         bundleURL: bundleURL,
                         bundleName: bundleName,
-                        readCount: readCount,
-                        baseCount: baseCount
+                        statistics: statistics
                     )
                 }
                 inFlight += 1
@@ -481,9 +463,10 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
         // Process results and write derived manifests
         for (i, result) in bundleResults.enumerated() {
+            let stats = result.statistics
             if result.isUnassigned {
-                unassignedReadCount = result.readCount
-                unassignedBaseCount = result.baseCount
+                unassignedReadCount = stats.readCount
+                unassignedBaseCount = stats.baseCount
                 if config.unassignedDisposition == .keep {
                     unassignedBundleURL = result.bundleURL
                 } else {
@@ -491,7 +474,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     continue
                 }
             } else {
-                assignedReadCount += result.readCount
+                assignedReadCount += stats.readCount
                 let sequenceInfo = barcodeSequenceInfo(
                     for: result.baseName,
                     kit: config.barcodeKit,
@@ -502,8 +485,8 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     sampleName: sequenceInfo.sampleName,
                     forwardSequence: sequenceInfo.forward,
                     reverseSequence: sequenceInfo.reverse,
-                    readCount: result.readCount,
-                    baseCount: result.baseCount,
+                    readCount: stats.readCount,
+                    baseCount: stats.baseCount,
                     bundleRelativePath: result.bundleName
                 ))
                 bundleURLs.append(result.bundleURL)
@@ -513,15 +496,10 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             if let rootBundleURL = config.rootBundleURL,
                let rootFASTQFilename = config.rootFASTQFilename {
                 let rootRelativePath = relativePath(from: result.bundleURL, to: rootBundleURL)
-                // Parent is the root bundle for first-generation demux derivatives
                 let parentRelativePath = rootRelativePath
                 let demuxOp = FASTQDerivativeOperation(
                     kind: .demultiplex,
                     createdAt: Date()
-                )
-                let stats = FASTQDatasetStatistics.placeholder(
-                    readCount: result.readCount,
-                    baseCount: result.baseCount
                 )
                 let derivedManifest = FASTQDerivedBundleManifest(
                     name: result.baseName,
