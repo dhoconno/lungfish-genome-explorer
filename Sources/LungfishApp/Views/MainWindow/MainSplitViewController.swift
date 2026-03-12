@@ -1943,9 +1943,10 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     OperationCenter.shared.complete(id: opID, detail: "Done")
-                    self.sidebarController.reloadFromFilesystem()
                     if let last = derivedURLs.last {
-                        self.sidebarController.selectItem(forURL: last)
+                        self.refreshSidebarAndSelectDerivedURL(last)
+                    } else {
+                        self.sidebarController.reloadFromFilesystem()
                     }
                     self.requestInspectorDocumentModeAfterDownload()
                 }
@@ -1980,6 +1981,42 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             deduped.append(url)
         }
         return deduped
+    }
+
+    private func refreshSidebarAndSelectDerivedURL(_ url: URL) {
+        let standardizedURL = url.standardizedFileURL
+        let containingDirectory = standardizedURL.deletingLastPathComponent()
+        let currentProject = sidebarController.currentProjectURL?.standardizedFileURL
+
+        let targetRoot: URL
+        if let currentProject, isURL(standardizedURL, inside: currentProject) {
+            targetRoot = currentProject
+        } else if let activeProject = DocumentManager.shared.activeProject?.url.standardizedFileURL,
+                  isURL(standardizedURL, inside: activeProject) {
+            targetRoot = activeProject
+        } else {
+            targetRoot = containingDirectory
+        }
+
+        logger.info("refreshSidebarAndSelectDerivedURL: derived='\(standardizedURL.path, privacy: .public)' targetRoot='\(targetRoot.path, privacy: .public)'")
+        if currentProject != targetRoot {
+            logger.info("refreshSidebarAndSelectDerivedURL: Rebasing sidebar project root to '\(targetRoot.path, privacy: .public)'")
+            sidebarController.openProject(at: targetRoot)
+        } else {
+            sidebarController.reloadFromFilesystem()
+        }
+
+        let selected = sidebarController.selectItem(forURL: standardizedURL)
+        if !selected {
+            logger.warning("refreshSidebarAndSelectDerivedURL: Could not select derived output '\(standardizedURL.path, privacy: .public)' after reload")
+        }
+    }
+
+    /// Returns true when `url` is inside `directory` using resolved paths.
+    private func isURL(_ url: URL, inside directory: URL) -> Bool {
+        let child = url.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        let parent = directory.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        return child.count >= parent.count && child.starts(with: parent)
     }
 
     private func requestInspectorDocumentModeAfterDownload() {
