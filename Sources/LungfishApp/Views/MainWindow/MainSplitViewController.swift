@@ -1889,17 +1889,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     }
 
     private func runFASTQOperation(_ request: FASTQDerivativeRequest, sourceURL: URL) async throws {
-        let standardizedSourceURL = sourceURL.standardizedFileURL
-        let sourceBundleURL: URL
-        if FASTQBundle.isBundleURL(standardizedSourceURL) {
-            sourceBundleURL = standardizedSourceURL
-        } else if standardizedSourceURL.deletingLastPathComponent().pathExtension.lowercased() == FASTQBundle.directoryExtension {
-            let parent = standardizedSourceURL.deletingLastPathComponent()
-            sourceBundleURL = parent
-        } else {
-            throw FASTQDerivativeError.sourceMustBeBundle
-        }
-
+        let inputURLs = selectedFASTQOperationSources(fallback: sourceURL)
         // Register with OperationCenter for visibility in the Operations panel
         let opTitle = "FASTQ: \(request.operationLabel)"
         let opID: UUID = OperationCenter.shared.start(
@@ -1915,26 +1905,48 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         }
 
         do {
-            let derivedURL = try await FASTQDerivativeService.shared.createDerivative(
-                from: sourceBundleURL,
-                request: request,
-                progress: { [weak self] message in
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            guard let self else { return }
-                            self.viewerController.updateFASTQOperationStatus(message)
-                            OperationCenter.shared.update(id: opID, progress: -1, detail: message)
+            var derivedURLs: [URL] = []
+            for (index, selectedURL) in inputURLs.enumerated() {
+                try Task.checkCancellation()
+                let standardizedSourceURL = selectedURL.standardizedFileURL
+                let sourceBundleURL: URL
+                if FASTQBundle.isBundleURL(standardizedSourceURL) {
+                    sourceBundleURL = standardizedSourceURL
+                } else if standardizedSourceURL.deletingLastPathComponent().pathExtension.lowercased() == FASTQBundle.directoryExtension {
+                    sourceBundleURL = standardizedSourceURL.deletingLastPathComponent()
+                } else {
+                    throw FASTQDerivativeError.sourceMustBeBundle
+                }
+
+                let prefix = inputURLs.count > 1
+                    ? "[\(index + 1)/\(inputURLs.count)] \(sourceBundleURL.lastPathComponent): "
+                    : ""
+
+                let derivedURL = try await FASTQDerivativeService.shared.createDerivative(
+                    from: sourceBundleURL,
+                    request: request,
+                    progress: { [weak self] message in
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                guard let self else { return }
+                                let detail = "\(prefix)\(message)"
+                                self.viewerController.updateFASTQOperationStatus(detail)
+                                OperationCenter.shared.update(id: opID, progress: -1, detail: detail)
+                            }
                         }
                     }
-                }
-            )
+                )
+                derivedURLs.append(derivedURL)
+            }
 
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     OperationCenter.shared.complete(id: opID, detail: "Done")
                     self.sidebarController.reloadFromFilesystem()
-                    self.sidebarController.selectItem(forURL: derivedURL)
+                    if let last = derivedURLs.last {
+                        self.sidebarController.selectItem(forURL: last)
+                    }
                     self.requestInspectorDocumentModeAfterDownload()
                 }
             }
@@ -1947,6 +1959,27 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             }
             throw error
         }
+    }
+
+    private func selectedFASTQOperationSources(fallback sourceURL: URL) -> [URL] {
+        let selected = sidebarController.selectedItems().compactMap { item -> URL? in
+            guard let url = item.url?.standardizedFileURL else { return nil }
+            if FASTQBundle.isBundleURL(url) { return url }
+            if FASTQBundle.resolvePrimaryFASTQURL(for: url) != nil { return url }
+            return nil
+        }
+        if selected.isEmpty {
+            return [sourceURL.standardizedFileURL]
+        }
+
+        var deduped: [URL] = []
+        var seen: Set<String> = []
+        for url in selected {
+            let key = url.path
+            guard seen.insert(key).inserted else { continue }
+            deduped.append(url)
+        }
+        return deduped
     }
 
     private func requestInspectorDocumentModeAfterDownload() {

@@ -128,6 +128,10 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
                     inputURL: fastqURL,
                     kit: kit,
                     sourcePlatform: detectedPlatform,
+                    errorRate: step.errorRate,
+                    minimumOverlap: step.minimumOverlap,
+                    searchReverseComplement: step.searchReverseComplement,
+                    useNoIndels: !step.allowIndels,
                     readLimit: 10_000,
                     progress: { _, message in
                         DispatchQueue.main.async {
@@ -214,14 +218,11 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
         // Update the drawer's demux step with sample assignments
         if let drawer = fastqMetadataDrawerView {
             drawer.updateSampleAssignments(assignments)
+            drawer.applySampleAssignmentsToCurrentStep(assignments)
         }
 
         // Sync to the operations panel and trigger the run
         syncDemuxConfigToController()
-        if var config = fastqDatasetController?.currentDemuxConfig {
-            config.sampleAssignments = assignments
-            fastqDatasetController?.currentDemuxConfig = config
-        }
 
         // Auto-trigger the run
         fastqDatasetController?.triggerCurrentOperationRun()
@@ -233,6 +234,7 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
     func syncDemuxConfigToController() {
         guard let drawer = fastqMetadataDrawerView else { return }
         let plan = drawer.currentDemuxPlan()
+        fastqDatasetController?.currentDemuxPlan = plan
         let firstStep = plan.steps.sorted(by: { $0.ordinal < $1.ordinal }).first
         fastqDatasetController?.currentDemuxConfig = firstStep
     }
