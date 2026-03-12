@@ -484,6 +484,7 @@ public actor NativeToolRunner {
     ) async throws -> NativeToolResult {
         let toolPath = try findTool(tool)
         let actualTimeout = timeout ?? defaultTimeout
+        logger.info("Running \(tool.rawValue): \(arguments.joined(separator: " ")) > \(outputFile.path, privacy: .public)")
 
         return try await withCheckedThrowingContinuation { continuation in
             let process = Process()

@@ -527,6 +527,22 @@ public actor FASTQDerivativeService {
         )
         let stats = parseFASTQStats(statsResult.stdout)
 
+        var orientCommandParts: [String] = [
+            "vsearch",
+            "--orient", sourceFASTQ.path,
+            "--db", referenceURL.path,
+            "--fastqout", result.orientedFASTQ.path,
+            "--tabbedout", result.tabbedOutput.path,
+            "--wordlength", String(wordLength),
+            "--dbmask", dbMask,
+            "--qmask", dbMask,
+            "--threads", "0",
+        ]
+        if saveUnoriented, let unorientedFASTQ = result.unorientedFASTQ {
+            orientCommandParts += ["--notmatched", unorientedFASTQ.path]
+        }
+        let orientCommand = orientCommandParts.joined(separator: " ")
+
         // Build the operation record
         let operation = FASTQDerivativeOperation(
             kind: .orient,
@@ -537,7 +553,7 @@ public actor FASTQDerivativeService {
             orientRCCount: rcCount,
             orientUnmatchedCount: result.unmatchedCount,
             toolUsed: "vsearch",
-            toolCommand: "vsearch --orient \(sourceFASTQ.lastPathComponent) --db \(referenceURL.lastPathComponent) --wordlength \(wordLength) --dbmask \(dbMask)"
+            toolCommand: orientCommand
         )
 
         var lineage = baseLineage
@@ -581,7 +597,8 @@ public actor FASTQDerivativeService {
                 orientReferencePath: referenceURL.lastPathComponent,
                 orientSaveUnoriented: true,
                 orientUnmatchedCount: result.unmatchedCount,
-                toolUsed: "vsearch"
+                toolUsed: "vsearch",
+                toolCommand: orientCommand
             )
 
             var unorientedLineage = baseLineage
@@ -650,6 +667,11 @@ public actor FASTQDerivativeService {
         maxDistanceFrom5Prime: Int,
         maxDistanceFrom3Prime: Int,
         errorRate: Double,
+        minimumOverlap: Int? = nil,
+        symmetryMode: BarcodeSymmetryMode? = nil,
+        searchReverseComplement: Bool? = nil,
+        unassignedDisposition: UnassignedDisposition = .keep,
+        allowIndels: Bool = true,
         trimBarcodes: Bool,
         sampleAssignments: [FASTQSampleBarcodeAssignment],
         kitOverride: BarcodeKitDefinition?,
@@ -702,13 +724,18 @@ public actor FASTQDerivativeService {
                 barcodeKit: barcodeKit,
                 outputDirectory: outputDirectory,
                 barcodeLocation: barcodeLocation,
+                symmetryMode: symmetryMode,
                 errorRate: errorRate,
+                minimumOverlap: minimumOverlap,
                 maxDistanceFrom5Prime: maxDistanceFrom5Prime,
                 maxDistanceFrom3Prime: maxDistanceFrom3Prime,
                 trimBarcodes: trimBarcodes,
+                searchReverseComplement: searchReverseComplement,
+                unassignedDisposition: unassignedDisposition,
                 sampleAssignments: sampleAssignments,
                 rootBundleURL: sourceBundleURL,
-                rootFASTQFilename: rootFASTQFilename
+                rootFASTQFilename: rootFASTQFilename,
+                useNoIndels: !allowIndels
             ),
             progress: { fraction, message in
                 let percent = Int((fraction * 100.0).rounded())
@@ -792,6 +819,11 @@ public actor FASTQDerivativeService {
                 maxDistanceFrom5Prime: 0,
                 maxDistanceFrom3Prime: 0,
                 errorRate: step.errorRate,
+                minimumOverlap: step.minimumOverlap,
+                symmetryMode: step.symmetryMode,
+                searchReverseComplement: step.searchReverseComplement,
+                unassignedDisposition: step.unassignedDisposition,
+                allowIndels: step.allowIndels,
                 trimBarcodes: step.trimBarcodes,
                 sampleAssignments: step.sampleAssignments,
                 kitOverride: resolvedKit,

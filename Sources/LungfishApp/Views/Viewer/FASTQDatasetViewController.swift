@@ -1875,35 +1875,17 @@ public final class FASTQDatasetViewController: NSViewController {
             return .errorCorrection(kmerSize: kmerSize)
 
         case .demultiplex:
-            guard let drawerConfig = currentDemuxConfig else {
+            let effectivePlan: DemultiplexPlan
+            if let plan = currentDemuxPlan, !plan.steps.isEmpty {
+                effectivePlan = plan
+            } else if let step = currentDemuxConfig {
+                effectivePlan = DemultiplexPlan(steps: [step], compositeSampleNames: [:])
+            } else {
                 setStatus("Configure demultiplexing in the Demux Setup drawer first.", isError: true)
                 return nil
             }
-
-            if let plan = currentDemuxPlan, !plan.steps.isEmpty {
-                let sourcePlatform = fastqURL.map { SequencingPlatform.detect(fromFASTQ: $0) } ?? nil
-                return .multiStepDemultiplex(plan: plan, sourcePlatform: sourcePlatform)
-            }
-
-            let drawerLocation: String
-            switch drawerConfig.barcodeLocation {
-            case .fivePrime: drawerLocation = "fivePrime"
-            case .threePrime: drawerLocation = "threePrime"
-            case .bothEnds: drawerLocation = "bothEnds"
-            }
-            let resolvedKit = BarcodeKitRegistry.kit(byID: drawerConfig.barcodeKitID)
-            let assignments = drawerConfig.sampleAssignments
-            return .demultiplex(
-                kitID: drawerConfig.barcodeKitID,
-                customCSVPath: nil,
-                location: drawerLocation,
-                maxDistanceFrom5Prime: 0,
-                maxDistanceFrom3Prime: 0,
-                errorRate: drawerConfig.errorRate,
-                trimBarcodes: drawerConfig.trimBarcodes,
-                sampleAssignments: assignments.isEmpty ? nil : assignments,
-                kitOverride: resolvedKit
-            )
+            let sourcePlatform = fastqURL.map { SequencingPlatform.detect(fromFASTQ: $0) } ?? nil
+            return .multiStepDemultiplex(plan: effectivePlan, sourcePlatform: sourcePlatform)
         }
     }
 

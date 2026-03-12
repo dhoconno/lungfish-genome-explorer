@@ -389,12 +389,9 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         // forward orientation (cutadapt outputs RC'd reads in their matched orientation).
         // For symmetric mode, we filter each per-barcode file to keep only reads that
         // ALSO have the 3' adapter — i.e., both ends present.
-        //
-        // We skip the 5' re-trim step (pass 2a) that the scout uses, because:
-        // - When trimBarcodes is true, pass 1 already removed the 5' adapter
-        // - When trimBarcodes is false, reads are already forward-oriented by --revcomp
-        // Either way, the 3' adapter (if present) is at the 3' end and detectable.
-        // No --revcomp here: avoids false positives where RC of 5' mimics the 3' spec.
+        // Pass 2a trims/normalizes 5' with --revcomp first to avoid false positives
+        // in pass 2b where RC(5') could mimic a 3' adapter hit.
+        // Pass 2b then checks 3' with no --revcomp.
         if isSymmetricLongRead {
             progress(0.78, "Enforcing both-end barcode matching...")
             let ctx = config.resolvedAdapterContext
@@ -1370,14 +1367,17 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         if isGzipped {
             process.executableURL = URL(fileURLWithPath: "/usr/bin/gzcat")
             process.arguments = [url.path]
+            logger.info("Running count helper: /usr/bin/gzcat \(url.path, privacy: .public)")
         } else {
             process.executableURL = URL(fileURLWithPath: "/bin/cat")
             process.arguments = [url.path]
+            logger.info("Running count helper: /bin/cat \(url.path, privacy: .public)")
         }
 
         let countProcess = Process()
         countProcess.executableURL = URL(fileURLWithPath: "/usr/bin/wc")
         countProcess.arguments = ["-l"]
+        logger.info("Running count helper: /usr/bin/wc -l")
 
         let pipe = Pipe()
         process.standardOutput = pipe
@@ -1738,12 +1738,13 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         let detectedBarcodes = kit.barcodes.filter { detectedIDs.contains($0.id) }
 
         guard !detectedBarcodes.isEmpty else {
+            let scanned = countReadsInFASTQ(url: subsetFile)
             let elapsed = Date().timeIntervalSince(startTime)
             progress(1.0, "Scout complete: no barcodes detected")
             return BarcodeScoutResult(
-                readsScanned: phase1Detections.reduce(0) { $0 + $1.hitCount },
+                readsScanned: scanned,
                 detections: [],
-                unassignedCount: phase1Detections.reduce(0) { $0 + $1.hitCount },
+                unassignedCount: scanned,
                 scoutedKitIDs: [kit.id],
                 elapsedSeconds: elapsed
             )

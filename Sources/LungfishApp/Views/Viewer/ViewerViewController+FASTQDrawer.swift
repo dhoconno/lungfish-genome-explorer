@@ -85,6 +85,7 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
         guard let drawer = fastqMetadataDrawerView else { return }
         let metadata = currentFASTQDatasetURL.flatMap { FASTQMetadataStore.load(for: $0)?.demultiplexMetadata }
         drawer.configure(fastqURL: currentFASTQDatasetURL, metadata: metadata)
+        syncDemuxConfigToController()
     }
 
     public func fastqMetadataDrawerViewDidSave(
@@ -161,7 +162,7 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
             } catch {
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
-                        guard let self else { return }
+                        guard self != nil else { return }
                         fastqDrawerLogger.error("Barcode scout failed: \(error)")
                         let alert = NSAlert()
                         alert.messageText = "Barcode Detection Failed"
@@ -172,6 +173,13 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
                 }
             }
         }
+    }
+
+    public func fastqMetadataDrawerViewDidChangeDemuxPlan(
+        _ drawer: FASTQMetadataDrawerView,
+        plan: DemultiplexPlan
+    ) {
+        syncDemuxConfigToController()
     }
 
     /// Handles the user clicking "Proceed" in the BarcodeScoutSheet after reviewing scout results.

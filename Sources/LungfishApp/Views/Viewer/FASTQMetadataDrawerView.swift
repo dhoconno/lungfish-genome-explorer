@@ -17,6 +17,10 @@ public protocol FASTQMetadataDrawerViewDelegate: AnyObject {
         _ drawer: FASTQMetadataDrawerView,
         step: DemultiplexStep
     )
+    func fastqMetadataDrawerViewDidChangeDemuxPlan(
+        _ drawer: FASTQMetadataDrawerView,
+        plan: DemultiplexPlan
+    )
     func fastqMetadataDrawerDidDragDivider(_ drawer: FASTQMetadataDrawerView, deltaY: CGFloat)
     func fastqMetadataDrawerDidFinishDraggingDivider(_ drawer: FASTQMetadataDrawerView)
 }
@@ -26,6 +30,10 @@ public extension FASTQMetadataDrawerViewDelegate {
     func fastqMetadataDrawerViewDidRequestScout(
         _ drawer: FASTQMetadataDrawerView,
         step: DemultiplexStep
+    ) {}
+    func fastqMetadataDrawerViewDidChangeDemuxPlan(
+        _ drawer: FASTQMetadataDrawerView,
+        plan: DemultiplexPlan
     ) {}
     func fastqMetadataDrawerDidDragDivider(_ drawer: FASTQMetadataDrawerView, deltaY: CGFloat) {}
     func fastqMetadataDrawerDidFinishDraggingDivider(_ drawer: FASTQMetadataDrawerView) {}
@@ -211,13 +219,30 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             sampleAssignments = metadata.sampleAssignments
             customBarcodeSets = metadata.customBarcodeSets
             preferredBarcodeSetID = metadata.preferredBarcodeSetID
+            if let planJSON = metadata.demuxPlanJSON {
+                if let plan = decodeDemuxPlan(from: planJSON) {
+                    demuxSteps = plan.steps
+                    compositeSampleNames = plan.compositeSampleNames
+                } else {
+                    demuxSteps = []
+                    compositeSampleNames = [:]
+                }
+            } else {
+                demuxSteps = []
+                compositeSampleNames = [:]
+            }
         } else {
             sampleAssignments = []
             customBarcodeSets = []
             preferredBarcodeSetID = nil
+            demuxSteps = []
+            compositeSampleNames = [:]
         }
         allKits = BarcodeKitRegistry.builtinKits() + customBarcodeSets
+        selectedStepIndex = min(max(0, selectedStepIndex), max(-1, demuxSteps.count - 1))
         rebuildPreferredSetPopup()
+        stepTable.reloadData()
+        refreshStepDetail()
         tableView.reloadData()
         statusLabel.stringValue = sampleAssignments.isEmpty
             ? "No FASTQ sample metadata loaded."
@@ -225,10 +250,12 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
     }
 
     public func currentMetadata() -> FASTQDemultiplexMetadata {
-        FASTQDemultiplexMetadata(
+        let demuxPlanJSON = encodeDemuxPlanToJSON(currentDemuxPlan())
+        return FASTQDemultiplexMetadata(
             sampleAssignments: sampleAssignments,
             customBarcodeSets: customBarcodeSets,
-            preferredBarcodeSetID: preferredBarcodeSetID
+            preferredBarcodeSetID: preferredBarcodeSetID,
+            demuxPlanJSON: demuxPlanJSON
         )
     }
 
@@ -263,6 +290,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         statusLabel.stringValue = "Applied \(assignments.count) assignment(s) to step '\(demuxSteps[targetIndex].label)'."
         stepTable.reloadData()
         refreshStepDetail()
+        notifyDemuxPlanChanged()
     }
 
     /// Programmatically selects the Demux Setup tab.
@@ -1173,6 +1201,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         guard !trimmed.isEmpty else { return }
         demuxSteps[row].label = trimmed
         statusLabel.stringValue = "Renamed step to '\(trimmed)'."
+        notifyDemuxPlanChanged()
     }
 
     public func tableViewSelectionDidChange(_ notification: Notification) {
@@ -1293,6 +1322,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         updateLocationControlState()
         stepTable.reloadData()
         statusLabel.stringValue = "Step kit changed to '\(kit.displayName)'."
+        notifyDemuxPlanChanged()
     }
 
     /// Enables/disables the location control based on symmetry mode.
@@ -1354,6 +1384,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         }
 
         stepTable.reloadData()
+        notifyDemuxPlanChanged()
     }
 
     @objc private func stepScoutClicked(_ sender: NSButton) {
@@ -1407,6 +1438,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         selectedStepIndex = ordinal
         refreshStepDetail()
         statusLabel.stringValue = "Added step '\(label)'."
+        notifyDemuxPlanChanged()
     }
 
     @objc private func removeStepClicked(_ sender: NSButton) {
@@ -1425,6 +1457,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         isSuppressingDelegateCallbacks = false
         refreshStepDetail()
         statusLabel.stringValue = "Removed step '\(removed.label)'."
+        notifyDemuxPlanChanged()
     }
 
     @objc private func removeClicked(_ sender: NSButton) {
@@ -1543,6 +1576,22 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
     @objc private func saveClicked(_ sender: NSButton) {
         delegate?.fastqMetadataDrawerViewDidSave(self, fastqURL: fastqURL, metadata: currentMetadata())
         statusLabel.stringValue = "Saved FASTQ metadata."
+    }
+
+    private func notifyDemuxPlanChanged() {
+        delegate?.fastqMetadataDrawerViewDidChangeDemuxPlan(self, plan: currentDemuxPlan())
+    }
+
+    private func encodeDemuxPlanToJSON(_ plan: DemultiplexPlan) -> String? {
+        let encoder = JSONEncoder()
+        guard let data = try? encoder.encode(plan) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func decodeDemuxPlan(from json: String) -> DemultiplexPlan? {
+        guard let data = json.data(using: .utf8) else { return nil }
+        let decoder = JSONDecoder()
+        return try? decoder.decode(DemultiplexPlan.self, from: data)
     }
 
     // MARK: - Orient Tab
