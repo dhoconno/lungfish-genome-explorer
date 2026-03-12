@@ -487,12 +487,17 @@ public actor FASTQDerivativeService {
 
         progress?("Creating orient derivative bundle...")
 
-        // Create the derivative bundle in the Derivatives folder
-        let derivativesDir = sourceBundleURL.appendingPathComponent("Derivatives", isDirectory: true)
-        try FileManager.default.createDirectory(at: derivativesDir, withIntermediateDirectories: true)
-
-        let bundleName = "oriented.lungfishfastq"
-        let bundleURL = derivativesDir.appendingPathComponent(bundleName, isDirectory: true)
+        // Create the derivative bundle next to the source bundle so it is visible in the project sidebar.
+        let parentDir = sourceBundleURL.deletingLastPathComponent()
+        let sourceName = sourceBundleURL.deletingPathExtension().lastPathComponent
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "")
+            .replacingOccurrences(of: "-", with: "")
+        let initialBundleURL = parentDir.appendingPathComponent(
+            "\(sourceName)-orient-\(timestamp).\(FASTQBundle.directoryExtension)",
+            isDirectory: true
+        )
+        let bundleURL = uniqueDirectoryURL(startingAt: initialBundleURL)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
 
         // Create the orient-map TSV from vsearch tabbed output
@@ -571,17 +576,14 @@ public actor FASTQDerivativeService {
             pairingMode: pairingMode
         )
 
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        let manifestData = try encoder.encode(manifest)
-        try manifestData.write(to: bundleURL.appendingPathComponent("manifest.json"))
+        try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
 
         // Optionally create unoriented reads derivative
         if saveUnoriented, let unorientedFASTQ = result.unorientedFASTQ,
            FileManager.default.fileExists(atPath: unorientedFASTQ.path) {
-            let unorientedBundleName = "unoriented.lungfishfastq"
-            let unorientedBundleURL = derivativesDir.appendingPathComponent(unorientedBundleName, isDirectory: true)
+            let unorientedBaseName = "\(sourceName)-unoriented-\(timestamp).\(FASTQBundle.directoryExtension)"
+            let initialUnorientedBundleURL = parentDir.appendingPathComponent(unorientedBaseName, isDirectory: true)
+            let unorientedBundleURL = uniqueDirectoryURL(startingAt: initialUnorientedBundleURL)
             try FileManager.default.createDirectory(at: unorientedBundleURL, withIntermediateDirectories: true)
 
             // Copy the unoriented FASTQ
@@ -616,8 +618,7 @@ public actor FASTQDerivativeService {
                 pairingMode: pairingMode
             )
 
-            let unorientedManifestData = try encoder.encode(unorientedManifest)
-            try unorientedManifestData.write(to: unorientedBundleURL.appendingPathComponent("manifest.json"))
+            try FASTQBundle.saveDerivedManifest(unorientedManifest, in: unorientedBundleURL)
         }
 
         // Clean up vsearch work directory
