@@ -19,10 +19,10 @@ private let logger = Logger(subsystem: "com.lungfish.io", category: "Demultiplex
 /// multiplexed.lungfishfastq/
 ///   reads.fastq.gz
 ///   demux-manifest.json          <-- this file
-/// multiplexed-demux/
-///   bc01-SampleA.lungfishfastq/
-///   bc02-SampleB.lungfishfastq/
-///   unassigned.lungfishfastq/
+///   demux/                       <-- child directory
+///     bc01-SampleA.lungfishfastq/
+///     bc02-SampleB.lungfishfastq/
+///     unassigned.lungfishfastq/
 /// ```
 public struct DemultiplexManifest: Codable, Sendable, Equatable {
     public static let filename = "demux-manifest.json"
@@ -49,7 +49,7 @@ public struct DemultiplexManifest: Codable, Sendable, Equatable {
     public let unassigned: UnassignedReadsSummary
 
     /// Relative path from the parent bundle to the demux output directory.
-    /// Convention: `"../{parentBaseName}-demux/"`.
+    /// Convention: `"demux/"` (child directory inside the bundle).
     public let outputDirectoryRelativePath: String
 
     /// Total input read count before demultiplexing.

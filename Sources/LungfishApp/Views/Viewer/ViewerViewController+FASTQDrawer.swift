@@ -116,19 +116,108 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
         }
 
         let pipeline = DemultiplexingPipeline()
-        // Detect the sequencing platform from the FASTQ headers for cross-platform parameter adjustment
         let detectedPlatform = SequencingPlatform.detect(fromFASTQ: FASTQBundle.resolvePrimaryFASTQURL(for: fastqURL) ?? fastqURL)
         fastqDrawerLogger.info("Starting barcode scout for \(fastqURL.lastPathComponent, privacy: .public) with kit \(step.barcodeKitID, privacy: .public), detected platform: \(detectedPlatform?.displayName ?? "unknown", privacy: .public)")
 
-        // Update drawer status to show scouting is in progress
         drawer.updateScoutStatus("Scouting barcodes...")
+
+        // For Step 0, scout directly against the raw input.
+        // For Step N > 0, quick-demux the scout subset through prior steps first (cascaded scout).
+        let plan = drawer.currentDemuxPlan()
+        let priorSteps = plan.steps
+            .filter { $0.ordinal < step.ordinal }
+            .sorted { $0.ordinal < $1.ordinal }
 
         Task.detached { [weak self] in
             do {
+                var scoutInputURL = fastqURL
+
+                // Cascaded scout: quick-demux through prior steps on the scout subset
+                if !priorSteps.isEmpty {
+                    let fm = FileManager.default
+                    let cascadeDir = fm.temporaryDirectory
+                        .appendingPathComponent("lungfish-cascade-scout-\(UUID().uuidString)", isDirectory: true)
+                    try fm.createDirectory(at: cascadeDir, withIntermediateDirectories: true)
+                    // Clean up cascade temp dir when done
+                    defer { try? fm.removeItem(at: cascadeDir) }
+
+                    // Extract scout subset (10k reads)
+                    let subsetFile = cascadeDir.appendingPathComponent("scout-subset.fastq.gz")
+                    let runner = NativeToolRunner()
+                    let headResult = try await runner.run(
+                        .seqkit,
+                        arguments: ["head", "-n", "10000", "-o", subsetFile.path,
+                                    FASTQBundle.resolvePrimaryFASTQURL(for: fastqURL)?.path ?? fastqURL.path],
+                        workingDirectory: cascadeDir,
+                        timeout: 120
+                    )
+                    guard headResult.isSuccess else {
+                        throw NSError(domain: "Scout", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to extract scout subset"])
+                    }
+
+                    // Run each prior step sequentially on the subset
+                    var currentInputs = [subsetFile]
+                    for priorStep in priorSteps {
+                        guard let priorKit = BarcodeKitRegistry.kit(byID: priorStep.barcodeKitID) else { continue }
+                        var nextInputs: [URL] = []
+                        for inputFile in currentInputs {
+                            let stepDir = cascadeDir.appendingPathComponent("step-\(priorStep.ordinal)-\(inputFile.deletingPathExtension().lastPathComponent)", isDirectory: true)
+                            try fm.createDirectory(at: stepDir, withIntermediateDirectories: true)
+                            let config = DemultiplexConfig(
+                                inputURL: inputFile,
+                                barcodeKit: priorKit,
+                                outputDirectory: stepDir,
+                                barcodeLocation: priorStep.barcodeLocation,
+                                symmetryMode: priorStep.symmetryMode,
+                                errorRate: priorStep.errorRate,
+                                minimumOverlap: priorStep.minimumOverlap,
+                                trimBarcodes: priorStep.trimBarcodes,
+                                searchReverseComplement: priorStep.searchReverseComplement,
+                                sampleAssignments: priorStep.sampleAssignments,
+                                sourcePlatform: priorStep.sourcePlatform ?? detectedPlatform,
+                                useNoIndels: !priorStep.allowIndels
+                            )
+                            let result = try await pipeline.run(config: config) { _, msg in
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        self?.fastqMetadataDrawerView?.updateScoutStatus("Cascade step \(priorStep.ordinal + 1): \(msg)")
+                                    }
+                                }
+                            }
+                            // Collect output FASTQ files from each bin bundle
+                            for bundleURL in result.outputBundleURLs {
+                                if let resolvedFASTQ = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL) {
+                                    nextInputs.append(resolvedFASTQ)
+                                }
+                            }
+                        }
+                        currentInputs = nextInputs
+                    }
+
+                    // Scout the target step against each bin from the cascade, aggregating results
+                    if currentInputs.isEmpty {
+                        throw NSError(domain: "Scout", code: 2, userInfo: [NSLocalizedDescriptionKey: "No reads survived prior demux steps. Check outer barcode configuration."])
+                    }
+
+                    // Merge all cascade outputs into a single file for unified scouting
+                    let mergedFile = cascadeDir.appendingPathComponent("cascade-merged.fastq.gz")
+                    if currentInputs.count == 1 {
+                        try fm.copyItem(at: currentInputs[0], to: mergedFile)
+                    } else {
+                        // Concatenate all cascade outputs
+                        let catArgs = ["scat", "--out-format", "fastq.gz", "-o", mergedFile.path] + currentInputs.map(\.path)
+                        let catResult = try await runner.run(.seqkit, arguments: catArgs, workingDirectory: cascadeDir, timeout: 120)
+                        guard catResult.isSuccess else {
+                            throw NSError(domain: "Scout", code: 3, userInfo: [NSLocalizedDescriptionKey: "Failed to merge cascade outputs"])
+                        }
+                    }
+                    scoutInputURL = mergedFile
+                }
+
                 let result = try await pipeline.scout(
-                    inputURL: fastqURL,
+                    inputURL: scoutInputURL,
                     kit: kit,
-                    sourcePlatform: detectedPlatform,
+                    sourcePlatform: step.sourcePlatform ?? detectedPlatform,
                     errorRate: step.errorRate,
                     minimumOverlap: step.minimumOverlap,
                     searchReverseComplement: step.searchReverseComplement,
@@ -145,10 +234,11 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
                         guard let self, let window = self.view.window else { return }
+                        let displayName = priorSteps.isEmpty ? kit.displayName : "\(kit.displayName) (cascaded through \(priorSteps.count) prior step\(priorSteps.count == 1 ? "" : "s"))"
                         BarcodeScoutSheet.present(
                             on: window,
                             scoutResult: result,
-                            kitDisplayName: kit.displayName,
+                            kitDisplayName: displayName,
                             onProceed: { [weak self] acceptedDetections, scoutResult in
                                 self?.handleScoutProceed(
                                     acceptedDetections: acceptedDetections,
@@ -227,15 +317,14 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
         if let drawer = fastqMetadataDrawerView {
             drawer.updateSampleAssignments(assignments)
             drawer.applySampleAssignmentsToCurrentStep(assignments)
+            drawer.updateScoutStatus("\(acceptedDetections.count) barcode\(acceptedDetections.count == 1 ? "" : "s") configured. Click Run to start demultiplexing.")
         }
 
-        // Sync to the operations panel and trigger the run
+        // Sync to the operations panel but do NOT auto-trigger the run.
+        // The user should review all steps before committing, especially for multi-step plans.
         syncDemuxConfigToController()
 
-        // Auto-trigger the run
-        fastqDatasetController?.triggerCurrentOperationRun()
-
-        fastqDrawerLogger.info("Scout proceed: \(acceptedDetections.count) barcodes accepted, triggering full demux")
+        fastqDrawerLogger.info("Scout proceed: \(acceptedDetections.count) barcodes accepted, ready for manual run")
     }
 
     /// Syncs the drawer's first demux step to the operations panel as the current config.

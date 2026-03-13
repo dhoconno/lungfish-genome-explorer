@@ -1906,6 +1906,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
 
         do {
             var derivedURLs: [URL] = []
+            var skippedCount = 0
             for (index, selectedURL) in inputURLs.enumerated() {
                 try Task.checkCancellation()
                 let standardizedSourceURL = selectedURL.standardizedFileURL
@@ -1922,27 +1923,42 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                     ? "[\(index + 1)/\(inputURLs.count)] \(sourceBundleURL.lastPathComponent): "
                     : ""
 
-                let derivedURL = try await FASTQDerivativeService.shared.createDerivative(
-                    from: sourceBundleURL,
-                    request: request,
-                    progress: { [weak self] message in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                guard let self else { return }
-                                let detail = "\(prefix)\(message)"
-                                self.viewerController.updateFASTQOperationStatus(detail)
-                                OperationCenter.shared.update(id: opID, progress: -1, detail: detail)
+                do {
+                    let derivedURL = try await FASTQDerivativeService.shared.createDerivative(
+                        from: sourceBundleURL,
+                        request: request,
+                        progress: { [weak self] message in
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    guard let self else { return }
+                                    let detail = "\(prefix)\(message)"
+                                    self.viewerController.updateFASTQOperationStatus(detail)
+                                    OperationCenter.shared.update(id: opID, progress: -1, detail: detail)
+                                }
                             }
                         }
-                    }
-                )
-                derivedURLs.append(derivedURL)
+                    )
+                    derivedURLs.append(derivedURL)
+                } catch FASTQDerivativeError.emptyResult where inputURLs.count > 1 {
+                    // For multi-bundle operations, skip bundles with no matching reads
+                    skippedCount += 1
+                    logger.info("Skipped \(sourceBundleURL.lastPathComponent): no reads matched filter")
+                }
             }
+
+            // If ALL bundles were skipped, surface the error
+            if derivedURLs.isEmpty && skippedCount > 0 {
+                throw FASTQDerivativeError.emptyResult
+            }
+
+            let doneDetail = skippedCount > 0
+                ? "Done (\(derivedURLs.count) produced, \(skippedCount) skipped — no matching reads)"
+                : "Done"
 
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
                     guard let self else { return }
-                    OperationCenter.shared.complete(id: opID, detail: "Done")
+                    OperationCenter.shared.complete(id: opID, detail: doneDetail)
                     if let last = derivedURLs.last {
                         self.refreshSidebarAndSelectDerivedURL(last)
                     } else {

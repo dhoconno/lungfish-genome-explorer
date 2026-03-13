@@ -64,6 +64,11 @@ public struct DemultiplexStep: Codable, Sendable, Equatable, Identifiable {
     /// Zero-indexed ordinal. Step 0 runs first on raw input.
     public var ordinal: Int
 
+    /// The platform that generated the reads being demuxed (may differ from the kit's platform).
+    /// When set and different from the kit's platform, the effective error rate is elevated
+    /// to account for the source platform's error characteristics.
+    public var sourcePlatform: SequencingPlatform?
+
     public init(
         id: UUID = UUID(),
         label: String,
@@ -79,7 +84,8 @@ public struct DemultiplexStep: Codable, Sendable, Equatable, Identifiable {
         maxSearchDistance3Prime: Int = 0,
         unassignedDisposition: UnassignedDisposition = .keep,
         sampleAssignments: [FASTQSampleBarcodeAssignment] = [],
-        ordinal: Int = 0
+        ordinal: Int = 0,
+        sourcePlatform: SequencingPlatform? = nil
     ) {
         self.id = id
         self.label = label
@@ -96,6 +102,7 @@ public struct DemultiplexStep: Codable, Sendable, Equatable, Identifiable {
         self.unassignedDisposition = unassignedDisposition
         self.sampleAssignments = sampleAssignments
         self.ordinal = ordinal
+        self.sourcePlatform = sourcePlatform
     }
 }
 
@@ -165,14 +172,25 @@ public struct MultiStepDemultiplexResult: Sendable {
     public struct StepResult: Sendable {
         public let step: DemultiplexStep
         public let perBinResults: [DemultiplexResult]
+        /// Per-bin failures (bins that failed are excluded from perBinResults).
+        public let binFailures: [BinFailure]
         /// Wall clock time for this step in seconds.
         public let wallClockSeconds: Double
 
-        public init(step: DemultiplexStep, perBinResults: [DemultiplexResult], wallClockSeconds: Double = 0) {
+        public init(step: DemultiplexStep, perBinResults: [DemultiplexResult], binFailures: [BinFailure] = [], wallClockSeconds: Double = 0) {
             self.step = step
             self.perBinResults = perBinResults
+            self.binFailures = binFailures
             self.wallClockSeconds = wallClockSeconds
         }
+    }
+
+    /// Records a bin that failed during a multi-step demux.
+    public struct BinFailure: Sendable {
+        /// Name of the input bin that failed.
+        public let binName: String
+        /// Error description.
+        public let errorDescription: String
     }
 }
 

@@ -127,6 +127,11 @@ public struct DemultiplexConfig: Sendable {
     /// See `docs/research/cutadapt-demux-pipeline-spec.md`.
     public let useNoIndels: Bool
 
+    /// When true, capture per-read trim positions even in full mode so that
+    /// downstream inner steps can chain trim offsets back to the root FASTQ.
+    /// Set by multi-step pipelines for non-final steps.
+    public let captureTrimsForChaining: Bool
+
     public init(
         inputURL: URL,
         barcodeKit: BarcodeKitDefinition,
@@ -147,7 +152,8 @@ public struct DemultiplexConfig: Sendable {
         sourcePlatform: SequencingPlatform? = nil,
         rootBundleURL: URL? = nil,
         rootFASTQFilename: String? = nil,
-        useNoIndels: Bool = false
+        useNoIndels: Bool = false,
+        captureTrimsForChaining: Bool = false
     ) {
         self.inputURL = inputURL
         self.barcodeKit = barcodeKit
@@ -183,6 +189,7 @@ public struct DemultiplexConfig: Sendable {
         self.rootBundleURL = rootBundleURL
         self.rootFASTQFilename = rootFASTQFilename
         self.useNoIndels = useNoIndels
+        self.captureTrimsForChaining = captureTrimsForChaining
     }
 }
 
@@ -214,6 +221,7 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
     case bundleCreationFailed(barcode: String, underlying: String)
     case noOutputResults
     case emptyAdapterSequences(kitName: String)
+    case binCountExceeded(count: Int, limit: Int)
 
     public var errorDescription: String? {
         switch self {
@@ -233,6 +241,8 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
             return "Multi-step demultiplexing produced no output results."
         case .emptyAdapterSequences(let kitName):
             return "Adapter FASTA for kit '\(kitName)' contains no valid sequences. Check barcode definitions."
+        case .binCountExceeded(let count, let limit):
+            return "Bin count (\(count)) exceeds maximum (\(limit)). Reduce the number of barcode combinations or use fewer demux steps."
         }
     }
 }
@@ -297,6 +307,9 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
         try fm.createDirectory(at: config.outputDirectory, withIntermediateDirectories: true)
 
+        // Fetch cutadapt version for provenance recording
+        let cutadaptVersion = await runner.getToolVersion(.cutadapt)
+
         // Step 1: Generate adapter FASTA (5% progress)
         progress(0.0, "Generating adapter sequences...")
         let adapterConfig = try await createAdapterConfiguration(
@@ -325,8 +338,10 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             .appendingPathComponent("cutadapt-report.json").path
 
         // Capture per-read trim info when in virtual mode (for trim position storage)
+        // or when chaining trims for multi-step pipelines (full-mode intermediate steps)
         let isVirtualMode = config.rootBundleURL != nil
-        let infoFilePath = isVirtualMode
+        let needsTrimCapture = isVirtualMode || config.captureTrimsForChaining
+        let infoFilePath = needsTrimCapture
             ? workDir.appendingPathComponent("cutadapt-info.tsv").path
             : nil
 
@@ -378,12 +393,79 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
         // Step 4: Parse per-read trim positions from info file (if captured)
         // Key = barcode name, Value = array of (readID, trim5prime, trim3prime) tuples
-        var trimPositionsByBarcode: [String: [(readID: String, trim5p: Int, trim3p: Int)]] = [:]
+        var trimPositionsByBarcode: [String: [(readID: String, mate: Int, trim5p: Int, trim3p: Int)]] = [:]
         if let infoFilePath, fm.fileExists(atPath: infoFilePath) {
             trimPositionsByBarcode = parseCutadaptInfoFile(URL(fileURLWithPath: infoFilePath))
         }
 
-        // Step 4b: For symmetric long-read kits, enforce both-end matching.
+        // Step 4a: For inner steps of multi-step pipelines, chain trim positions from the
+        // parent bundle. The parent's trim-positions.tsv records how much the outer step
+        // trimmed each read relative to the root FASTQ. The inner step's trims are relative
+        // to the parent's output. Cumulative = parent + inner.
+        // Key: "readID\tmate" → (trim5p, trim3p)
+        var parentTrimMap: [String: (trim5p: Int, trim3p: Int)] = [:]
+        if isVirtualMode && FASTQBundle.isBundleURL(config.inputURL) {
+            let parentTrimURL = config.inputURL.appendingPathComponent(FASTQBundle.trimPositionFilename)
+            if let parentContent = try? String(contentsOf: parentTrimURL, encoding: .utf8) {
+                for line in parentContent.split(separator: "\n") {
+                    // Skip format headers and column headers
+                    if line.hasPrefix("#") || line.hasPrefix("read_id") { continue }
+                    let cols = line.split(separator: "\t")
+                    if cols.count >= 4, let mate = Int(cols[1]),
+                       let t5 = Int(cols[2]), let t3 = Int(cols[3]) {
+                        // 4-column format: read_id, mate, trim_5p, trim_3p
+                        parentTrimMap["\(cols[0])\t\(mate)"] = (t5, t3)
+                    } else if cols.count >= 3, let t5 = Int(cols[1]), let t3 = Int(cols[2]) {
+                        // Legacy 3-column format: read_id, trim_5p, trim_3p (mate=0)
+                        parentTrimMap["\(cols[0])\t0"] = (t5, t3)
+                    }
+                }
+                if !parentTrimMap.isEmpty {
+                    logger.info("Loaded \(parentTrimMap.count) parent trim positions for chaining")
+                    // Add parent trims to inner trims
+                    for (barcode, entries) in trimPositionsByBarcode {
+                        trimPositionsByBarcode[barcode] = entries.map { entry in
+                            let key = "\(entry.readID)\t\(entry.mate)"
+                            if let parentTrim = parentTrimMap[key] {
+                                return (entry.readID, entry.mate, entry.trim5p + parentTrim.trim5p, entry.trim3p + parentTrim.trim3p)
+                            }
+                            return entry
+                        }
+                    }
+                }
+            }
+        }
+
+        // Step 4b: If the input bundle has an orient map (parent was an orient step),
+        // adjust trim positions so they are relative to the ROOT FASTQ orientation.
+        // Cutadapt computed trims on oriented reads, but materialization reads from root.
+        // For RC'd reads: swap trim_5p ↔ trim_3p to correct for the orientation flip.
+        var parentOrientMap: [String: String] = [:]
+        if isVirtualMode && FASTQBundle.isBundleURL(config.inputURL) {
+            let orientMapURL = config.inputURL.appendingPathComponent("orient-map.tsv")
+            if let loaded = try? FASTQOrientMapFile.load(from: orientMapURL) {
+                parentOrientMap = loaded
+                logger.info("Loaded orient map with \(loaded.count) entries for trim adjustment")
+                // Swap 5'/3' trims for reads that were reverse-complemented
+                for (barcode, entries) in trimPositionsByBarcode {
+                    trimPositionsByBarcode[barcode] = entries.map { entry in
+                        if parentOrientMap[entry.readID] == "-" {
+                            // Read was RC'd by orient step — cutadapt saw it flipped,
+                            // so what cutadapt called 5' trim is actually 3' in root orientation
+                            return (entry.readID, entry.mate, entry.trim3p, entry.trim5p)
+                        }
+                        return entry
+                    }
+                }
+            }
+            // Note: If the orient map is not directly in config.inputURL, it means
+            // the orient step is further up the lineage chain. In that case, the
+            // intermediate bundle should have already propagated the orient map
+            // to its per-barcode bundles. Multi-hop orient map resolution is not
+            // yet implemented — the orient map must be in the immediate parent.
+        }
+
+        // Step 4c: For symmetric long-read kits, enforce both-end matching.
         // Pass 1 (above) used 5'-only specs with --revcomp, which assigns reads where
         // the barcode appears on ANY end. Pass 1 also normalizes all output reads to
         // forward orientation (cutadapt outputs RC'd reads in their matched orientation).
@@ -555,6 +637,8 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                 let capturedRunner = self.runner
                 let capturedIsVirtual = isVirtualMode
                 let capturedTrimPositions = trimPositionsByBarcode[file.baseName]
+                let capturedParentTrimMap = parentTrimMap
+                let capturedParentOrientMap = parentOrientMap
                 group.addTask {
                     try Task.checkCancellation()
 
@@ -582,20 +666,121 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                             return nil
                         }
 
-                        // Write trim positions file if available
-                        if let trimPositions = capturedTrimPositions, !trimPositions.isEmpty {
-                            let trimURL = bundleURL.appendingPathComponent("trim-positions.tsv")
-                            var trimContent = "read_id\ttrim_5p\ttrim_3p\n"
-                            for entry in trimPositions {
-                                trimContent += "\(entry.readID)\t\(entry.trim5p)\t\(entry.trim3p)\n"
+                        // Write trim positions file: includes chained (parent + inner) positions
+                        // and parent-only positions for reads not in the cutadapt info file.
+                        let innerTrimKeys = Set((capturedTrimPositions ?? []).map { "\($0.readID)\t\($0.mate)" })
+                        var allTrimEntries = capturedTrimPositions ?? []
+
+                        // Add parent-only trims for reads in this barcode's output
+                        // that weren't trimmed by the inner step's cutadapt
+                        if !capturedParentTrimMap.isEmpty {
+                            if let readIDContent = try? String(contentsOf: readIDsURL, encoding: .utf8) {
+                                for line in readIDContent.split(separator: "\n") where !line.isEmpty {
+                                    let readID = String(line)
+                                    // Try mate=0 (single-end) first, then mate 1 and 2 for PE
+                                    for mate in [0, 1, 2] {
+                                        let key = "\(readID)\t\(mate)"
+                                        if !innerTrimKeys.contains(key),
+                                           let parentTrim = capturedParentTrimMap[key] {
+                                            allTrimEntries.append((readID, mate, parentTrim.trim5p, parentTrim.trim3p))
+                                        }
+                                    }
+                                }
                             }
-                            try? trimContent.write(to: trimURL, atomically: true, encoding: .utf8)
+                        }
+
+                        if !allTrimEntries.isEmpty {
+                            let trimURL = bundleURL.appendingPathComponent("trim-positions.tsv")
+                            // Note: demux trim files use relative offsets (trim_5p/trim_3p) consumed by
+                            // FASTQDerivativeService.extractAndTrimReads, NOT by FASTQTrimPositionFile.load.
+                            var trimContent = "#format lungfish-demux-trim-v1\nread_id\tmate\ttrim_5p\ttrim_3p\n"
+                            for entry in allTrimEntries {
+                                trimContent += "\(entry.readID)\t\(entry.mate)\t\(entry.trim5p)\t\(entry.trim3p)\n"
+                            }
+                            try trimContent.write(to: trimURL, atomically: true, encoding: .utf8)
+                        }
+
+                        // Propagate orient map to barcode bundle for materialization.
+                        // Only include entries for reads in THIS barcode bin.
+                        if !capturedParentOrientMap.isEmpty {
+                            let readIDContent = try String(contentsOf: readIDsURL, encoding: .utf8)
+                            var barcodeOrientRecords: [(readID: String, orientation: String)] = []
+                            for line in readIDContent.split(separator: "\n") where !line.isEmpty {
+                                let readID = String(line)
+                                if let orient = capturedParentOrientMap[readID] {
+                                    barcodeOrientRecords.append((readID, orient))
+                                }
+                            }
+                            if !barcodeOrientRecords.isEmpty {
+                                let orientURL = bundleURL.appendingPathComponent("orient-map.tsv")
+                                try FASTQOrientMapFile.write(barcodeOrientRecords, to: orientURL)
+                            }
+                        }
+
+                        // Generate read-level annotations for barcode matches
+                        var annotations: [ReadAnnotationFile.Annotation] = []
+                        for entry in allTrimEntries {
+                            if entry.trim5p > 0 {
+                                annotations.append(ReadAnnotationFile.Annotation(
+                                    readID: entry.readID,
+                                    mate: entry.mate,
+                                    annotationType: "barcode_5p",
+                                    start: 0,
+                                    end: entry.trim5p,
+                                    label: file.baseName
+                                ))
+                            }
+                            if entry.trim3p > 0 {
+                                // trim3p is relative offset from 3' end — we store as
+                                // a marker annotation with negative-offset semantics
+                                // (resolved to absolute coords at materialization time)
+                                annotations.append(ReadAnnotationFile.Annotation(
+                                    readID: entry.readID,
+                                    mate: entry.mate,
+                                    annotationType: "barcode_3p",
+                                    start: 0,  // placeholder — resolved when read length known
+                                    end: entry.trim3p,  // stores offset from 3' end
+                                    label: file.baseName
+                                ))
+                            }
+                        }
+
+                        // Propagate parent annotations and write combined file
+                        if !annotations.isEmpty || capturedParentOrientMap.isEmpty == false {
+                            let parentAnnotURL: URL? = {
+                                guard FASTQBundle.isBundleURL(config.inputURL) else { return nil }
+                                let url = config.inputURL.appendingPathComponent(ReadAnnotationFile.filename)
+                                return FileManager.default.fileExists(atPath: url.path) ? url : nil
+                            }()
+                            let readIDsForBarcode: Set<String> = Set(allTrimEntries.map(\.readID))
+                            let merged = try ReadAnnotationFile.mergeAndFilter(
+                                parentURL: parentAnnotURL,
+                                newAnnotations: annotations,
+                                readIDs: readIDsForBarcode
+                            )
+                            if !merged.isEmpty {
+                                let annotURL = bundleURL.appendingPathComponent(ReadAnnotationFile.filename)
+                                try ReadAnnotationFile.write(merged, to: annotURL)
+                            }
                         }
                     } else {
                         // Full mode: move cutadapt output file into bundle for downstream steps
                         let destFilename = file.url.lastPathComponent
                         let destURL = bundleURL.appendingPathComponent(destFilename)
                         try FileManager.default.moveItem(at: file.url, to: destURL)
+
+                        // Write trim positions for chaining: inner steps will combine these
+                        // with their own trim positions to compute cumulative trims vs root FASTQ
+                        if let trimPositions = capturedTrimPositions, !trimPositions.isEmpty {
+                            let trimURL = bundleURL.appendingPathComponent("trim-positions.tsv")
+                            // Note: demux trim files use relative offsets (trim_5p/trim_3p) consumed by
+                            // FASTQDerivativeService.extractAndTrimReads, NOT by FASTQTrimPositionFile.load.
+                            var trimContent = "#format lungfish-demux-trim-v1\nread_id\tmate\ttrim_5p\ttrim_3p\n"
+                            for entry in trimPositions {
+                                trimContent += "\(entry.readID)\t\(entry.mate)\t\(entry.trim5p)\t\(entry.trim3p)\n"
+                            }
+                            try trimContent.write(to: trimURL, atomically: true, encoding: .utf8)
+                        }
                     }
 
                     // Compute full statistics (histograms, quality, GC) via native Swift scanner.
@@ -656,11 +841,13 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             // Write derived manifest if root bundle info is available
             if let rootBundleURL = config.rootBundleURL,
                let rootFASTQFilename = config.rootFASTQFilename {
-                let rootRelativePath = relativePath(from: result.bundleURL, to: rootBundleURL)
+                let rootRelativePath = FASTQBundle.projectRelativePath(for: rootBundleURL, from: result.bundleURL)
+                    ?? relativePath(from: result.bundleURL, to: rootBundleURL)
                 let parentRelativePath = rootRelativePath
                 let demuxOp = FASTQDerivativeOperation(
                     kind: .demultiplex,
-                    createdAt: Date()
+                    toolUsed: "cutadapt",
+                    toolVersion: cutadaptVersion
                 )
                 let derivedManifest = FASTQDerivedBundleManifest(
                     name: result.baseName,
@@ -671,7 +858,8 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                         barcodeID: result.baseName,
                         readIDListFilename: "read-ids.txt",
                         previewFilename: "preview.fastq.gz",
-                        trimPositionsFilename: trimPositionsByBarcode[result.baseName] != nil ? "trim-positions.tsv" : nil
+                        trimPositionsFilename: hasTrimPositionsFile(in: result.bundleURL) ? "trim-positions.tsv" : nil,
+                        orientMapFilename: hasOrientMapFile(in: result.bundleURL) ? "orient-map.tsv" : nil
                     ),
                     lineage: [demuxOp],
                     operation: demuxOp,
@@ -707,10 +895,6 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                 ? .asymmetric
                 : (config.barcodeKit.pairingMode == .singleEnd ? .singleEnd : .asymmetric)
         )
-
-        // Build the cutadapt version string
-        let versionResult = try? await runner.run(.cutadapt, arguments: ["--version"])
-        let cutadaptVersion = versionResult?.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let manifest = DemultiplexManifest(
             barcodeKit: kitForManifest,
@@ -1298,10 +1482,15 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
     /// Returns: dictionary keyed by barcode name → array of (readID, trim5p, trim3p).
     /// trim5p = number of bases to trim from 5' end (adapter match end position).
     /// trim3p = number of bases to trim from 3' end (read length - adapter match start).
-    private func parseCutadaptInfoFile(_ url: URL) -> [String: [(readID: String, trim5p: Int, trim3p: Int)]] {
-        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return [:] }
+    ///
+    /// Direction detection uses adapter_start/adapter_end positions (columns 2-3) rather
+    /// than sequence length comparison, which is unreliable for symmetric barcodes or
+    /// adapters near the read midpoint.
+    private func parseCutadaptInfoFile(_ url: URL) -> [String: [(readID: String, mate: Int, trim5p: Int, trim3p: Int)]] {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return [:] }
+        defer { try? handle.close() }
 
-        // Accumulate per-read match info: readID → (barcode, 5p trim end, 3p trim start)
+        // Accumulate per-read match info: (readID, mate) → (barcode, 5p trim end, 3p trim start)
         struct ReadTrimInfo {
             var barcode: String = ""
             var trim5p: Int = 0
@@ -1309,16 +1498,25 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             var readLength: Int = 0
         }
 
+        // Key: "readID\tmate" to distinguish R1/R2 in interleaved PE data
         var readInfos: [String: ReadTrimInfo] = [:]
 
-        for line in content.split(separator: "\n") where !line.isEmpty {
+        // Stream line-by-line using a chunked buffer to avoid loading entire file into memory
+        let chunkSize = 65536
+        var buffer = Data()
+
+        func processLine(_ line: String) {
             let cols = line.split(separator: "\t", omittingEmptySubsequences: false)
-            guard cols.count >= 8 else { continue }
+            guard cols.count >= 8 else { return }
 
-            let readID = String(cols[0])
+            let rawReadName = String(cols[0])
             let errors = Int(cols[1]) ?? -1
-            guard errors >= 0 else { continue }  // -1 means no match
+            guard errors >= 0 else { return }  // -1 means no match
 
+            let (readID, mate) = detectMate(rawReadName: rawReadName)
+
+            let adapterStart = Int(cols[2]) ?? 0
+            let adapterEnd = Int(cols[3]) ?? 0
             let adapterName = String(cols[7])
             let seqBefore = cols[4]
             let matchedSeq = cols[5]
@@ -1326,32 +1524,96 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
 
             let totalLen = seqBefore.count + matchedSeq.count + seqAfter.count
 
-            var info = readInfos[readID] ?? ReadTrimInfo()
+            let compositeKey = "\(readID)\t\(mate)"
+            var info = readInfos[compositeKey] ?? ReadTrimInfo()
             info.barcode = adapterName
             info.readLength = max(info.readLength, totalLen)
 
-            // If sequence_before is short (< 100bp) and sequence_after is long,
-            // this is likely the 5' adapter match → trim from start
-            if seqBefore.count < seqAfter.count {
-                info.trim5p = max(info.trim5p, seqBefore.count + matchedSeq.count)
+            // Use adapter position to determine direction:
+            // 5' adapter: starts near position 0, trim everything up to adapter_end
+            // 3' adapter: starts in the second half, trim from adapter_start onward
+            // For linked adapters, cutadapt reports two info lines per read — one for
+            // each arm. The adapter_start position reliably distinguishes 5' from 3'.
+            let readMidpoint = totalLen / 2
+            if adapterStart < readMidpoint {
+                info.trim5p = max(info.trim5p, adapterEnd)
             } else {
-                // 3' adapter match → trim from this position onward
-                let trim3pStart = seqBefore.count
-                if info.trim3p == 0 || trim3pStart < info.trim3p {
-                    info.trim3p = trim3pStart
+                if info.trim3p == 0 || adapterStart < info.trim3p {
+                    info.trim3p = adapterStart
                 }
             }
-            readInfos[readID] = info
+            readInfos[compositeKey] = info
+        }
+
+        while true {
+            let chunk = handle.readData(ofLength: chunkSize)
+            if chunk.isEmpty {
+                // Process any remaining data in buffer
+                if !buffer.isEmpty, let line = String(data: buffer, encoding: .utf8), !line.isEmpty {
+                    processLine(line)
+                }
+                break
+            }
+            buffer.append(chunk)
+
+            // Process complete lines from buffer
+            while let newlineRange = buffer.range(of: Data([0x0A])) {
+                let lineData = buffer[buffer.startIndex..<newlineRange.lowerBound]
+                if let line = String(data: lineData, encoding: .utf8), !line.isEmpty {
+                    processLine(line)
+                }
+                buffer.removeSubrange(buffer.startIndex...newlineRange.lowerBound)
+            }
         }
 
         // Group by barcode and compute final trim positions
-        var result: [String: [(readID: String, trim5p: Int, trim3p: Int)]] = [:]
-        for (readID, info) in readInfos {
+        var result: [String: [(readID: String, mate: Int, trim5p: Int, trim3p: Int)]] = [:]
+        for (compositeKey, info) in readInfos {
+            let parts = compositeKey.split(separator: "\t")
+            let readID = String(parts[0])
+            let mate = Int(parts[1]) ?? 0
             let finalTrim3p = info.trim3p > 0 ? info.readLength - info.trim3p : 0
-            result[info.barcode, default: []].append((readID: readID, trim5p: info.trim5p, trim3p: finalTrim3p))
+            result[info.barcode, default: []].append((readID: readID, mate: mate, trim5p: info.trim5p, trim3p: finalTrim3p))
         }
 
         return result
+    }
+
+    /// Detects mate number from a read name.
+    /// Returns (baseReadID, mate) where mate is 0 (single), 1 (R1), or 2 (R2).
+    /// Handles both /1 /2 suffix format and Illumina " 1:N:0" " 2:N:0" format.
+    private func detectMate(rawReadName: String) -> (readID: String, mate: Int) {
+        // Check for /1 or /2 suffix
+        if rawReadName.hasSuffix("/1") {
+            return (String(rawReadName.dropLast(2)), 1)
+        }
+        if rawReadName.hasSuffix("/2") {
+            return (String(rawReadName.dropLast(2)), 2)
+        }
+        // Check for Illumina format: "READID 1:N:0:BARCODE" or "READID 2:N:0:BARCODE"
+        if let spaceIdx = rawReadName.firstIndex(of: " ") {
+            let afterSpace = rawReadName[rawReadName.index(after: spaceIdx)...]
+            if afterSpace.hasPrefix("1:") {
+                return (String(rawReadName[..<spaceIdx]), 1)
+            }
+            if afterSpace.hasPrefix("2:") {
+                return (String(rawReadName[..<spaceIdx]), 2)
+            }
+        }
+        return (rawReadName, 0)
+    }
+
+    /// Returns true when a bundle has a trim-positions.tsv file.
+    private func hasTrimPositionsFile(in bundleURL: URL) -> Bool {
+        FileManager.default.fileExists(
+            atPath: bundleURL.appendingPathComponent(FASTQBundle.trimPositionFilename).path
+        )
+    }
+
+    private func hasOrientMapFile(in bundleURL: URL) -> Bool {
+        FileManager.default.fileExists(
+            atPath: bundleURL.appendingPathComponent("orient-map.tsv").path
+        )
     }
 
     /// Returns file size in bytes.
@@ -1594,7 +1856,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                 pass2aArgs += ["--overlap", String(scoutParams.minimumOverlap)]
                 if scoutParams.noIndels { pass2aArgs += ["--no-indels"] }
                 pass2aArgs += ["--revcomp"]
-                pass2aArgs += ["--action", "trim"]
+                pass2aArgs += ["--action", "none"]
                 pass2aArgs += ["--discard-untrimmed"]
                 pass2aArgs += ["-o", trimmedOutput.path]
                 pass2aArgs += ["--cores", "1"]
@@ -1770,10 +2032,12 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                 phase2Lines.append(">\(canonicalName)")
                 phase2Lines.append("\(fwdSpec)...\(revSpec)")
                 // Reverse orientation for long-read platforms: rev at 5', fwd at 3'
+                // Must use a distinct header name so cutadapt treats it as a separate adapter
+                // that maps to the same canonical pair (counts will be summed by canonicalName prefix)
                 if isLongRead && fwd.i7Sequence != rev.i7Sequence {
                     let revFwdSpec = ctx.fivePrimeSpec(barcodeSequence: rev.i7Sequence)
                     let revRevSpec = ctx.threePrimeSpec(barcodeSequence: fwd.i7Sequence)
-                    phase2Lines.append(">\(canonicalName)")
+                    phase2Lines.append(">\(canonicalName)_rev")
                     phase2Lines.append("\(revFwdSpec)...\(revRevSpec)")
                 }
             }
@@ -1845,8 +2109,17 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                 return min(currentMin, min(i7Len, i5Len))
             }
             let barcodeLen = minBarcodeLen == Int.max ? 16 : minBarcodeLen
-            let configuredOverlap = configuredMinimumOverlap ?? kit.platform.recommendedMinimumOverlap
-            let overlap = min(configuredOverlap, max(3, barcodeLen - 4))
+            // For cross-platform scenarios, use the more lenient overlap (smaller value)
+            // to handle the higher error rates at adapter junctions
+            let baseOverlap: Int
+            if let configuredMinimumOverlap {
+                baseOverlap = configuredMinimumOverlap
+            } else if let sourcePlatform, sourcePlatform != kit.platform {
+                baseOverlap = min(kit.platform.recommendedMinimumOverlap, sourcePlatform.recommendedMinimumOverlap)
+            } else {
+                baseOverlap = kit.platform.recommendedMinimumOverlap
+            }
+            let overlap = min(baseOverlap, max(3, barcodeLen - 4))
             let isLongRead = platform.readsCanBeReverseComplemented
             return ScoutEffectiveParameters(
                 errorRate: errorRate,
@@ -1932,23 +2205,31 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         var totalScanned = 0
         var unassignedCount = 0
 
+        // Accumulate counts by canonical barcode name (merge _rev orientation variants)
+        var countsByName: [String: Int] = [:]
         for outputFile in outputFiles {
             let baseName = outputFile.deletingPathExtension().deletingPathExtension().lastPathComponent
             let fileBytes = fileSize(outputFile)
             guard fileBytes > 20 else { continue }
             let count = countReadsInFASTQ(url: outputFile)
 
-            if baseName == "unassigned" {
-                unassignedCount = count
+            // Merge reverse orientation files (e.g., "bc01--bc02_rev") into their canonical name
+            let canonicalName = baseName.hasSuffix("_rev") ? String(baseName.dropLast(4)) : baseName
+
+            if canonicalName == "unassigned" {
+                unassignedCount += count
             } else {
-                detections.append(BarcodeDetection(
-                    barcodeID: baseName,
-                    kitID: kit.id,
-                    hitCount: count,
-                    hitPercentage: 0
-                ))
+                countsByName[canonicalName, default: 0] += count
             }
             totalScanned += count
+        }
+        for (name, count) in countsByName {
+            detections.append(BarcodeDetection(
+                barcodeID: name,
+                kitID: kit.id,
+                hitCount: count,
+                hitPercentage: 0
+            ))
         }
 
         for i in detections.indices {
@@ -1982,6 +2263,10 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
     /// Maximum number of bins to process concurrently in inner steps.
     private static let maxConcurrentBins = 4
 
+    /// Maximum total bin count across all steps to prevent combinatorial explosion.
+    /// 96 outer × 96 inner = 9216 is the largest reasonable scenario.
+    private static let maxBinCount = 10_000
+
     public func runMultiStep(
         plan: DemultiplexPlan,
         inputURL: URL,
@@ -1996,26 +2281,96 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         let sortedSteps = plan.steps.sorted { $0.ordinal < $1.ordinal }
         var stepResults: [MultiStepDemultiplexResult.StepResult] = []
         var currentInputURLs = [inputURL]
-        let progressPerStep = 1.0 / Double(sortedSteps.count)
+        // Progress tracking: Step 0 gets a fixed share, remaining steps share the rest
+        // proportionally. We track cumulative progress explicitly.
+        var cumulativeProgress = 0.0
 
-        for (stepIndex, step) in sortedSteps.enumerated() {
+        for (stepIndex, var step) in sortedSteps.enumerated() {
             let stepStartTime = Date()
-            let stepBaseProgress = Double(stepIndex) * progressPerStep
 
             guard let kit = BarcodeKitRegistry.kit(byID: step.barcodeKitID) else {
                 throw DemultiplexPlanError.missingKit(step: step.label)
             }
 
-            let binCount = currentInputURLs.count
-            let progressPerBin = progressPerStep / Double(max(1, binCount))
+            // Auto-scout combinatorial dual kits that have no sample assignments.
+            // This discovers which barcode pairs actually exist rather than requiring
+            // the user to pre-configure all N×N combinations.
+            if kit.pairingMode == .combinatorialDual && step.sampleAssignments.isEmpty {
+                logger.info("Step \(stepIndex + 1) uses combinatorial kit '\(kit.displayName)' with no assignments — auto-scouting...")
+                let scoutBaseProgress = cumulativeProgress
+                progress(scoutBaseProgress, "Step \(stepIndex + 1): Auto-scouting barcode pairs...")
+                let scoutInput = currentInputURLs.first ?? inputURL
+                let scoutResult = try await scout(
+                    inputURL: scoutInput,
+                    kit: kit,
+                    sourcePlatform: step.sourcePlatform,
+                    errorRate: step.errorRate,
+                    minimumOverlap: step.minimumOverlap,
+                    searchReverseComplement: step.searchReverseComplement,
+                    useNoIndels: !step.allowIndels,
+                    readLimit: 10_000,
+                    acceptThreshold: 3,
+                    rejectThreshold: 1,
+                    progress: { fraction, message in
+                        progress(scoutBaseProgress, "Step \(stepIndex + 1) auto-scout: \(message)")
+                    }
+                )
+                // Convert detected barcode pairs to sample assignments
+                let assignments: [FASTQSampleBarcodeAssignment] = scoutResult.detections
+                    .filter { $0.hitCount > 0 }
+                    .map { detection in
+                        let parts = detection.barcodeID.components(separatedBy: "--")
+                        if parts.count == 2 {
+                            let fwdID = parts[0]
+                            let revID = parts[1]
+                            let fwdBarcode = kit.barcodes.first { $0.id == fwdID }
+                            let revBarcode = kit.barcodes.first { $0.id == revID }
+                            return FASTQSampleBarcodeAssignment(
+                                sampleID: detection.barcodeID,
+                                forwardBarcodeID: fwdID,
+                                forwardSequence: fwdBarcode?.i7Sequence,
+                                reverseBarcodeID: revID,
+                                reverseSequence: revBarcode?.i7Sequence
+                            )
+                        }
+                        let barcode = kit.barcodes.first { $0.id == detection.barcodeID }
+                        return FASTQSampleBarcodeAssignment(
+                            sampleID: detection.barcodeID,
+                            forwardBarcodeID: detection.barcodeID,
+                            forwardSequence: barcode?.i7Sequence,
+                            reverseBarcodeID: detection.barcodeID,
+                            reverseSequence: barcode?.i5Sequence ?? barcode?.i7Sequence
+                        )
+                    }
+                if assignments.isEmpty {
+                    logger.warning("Step \(stepIndex + 1) auto-scout found no barcode pairs in '\(kit.displayName)'")
+                } else {
+                    step.sampleAssignments = assignments
+                    logger.info("Step \(stepIndex + 1) auto-scout discovered \(assignments.count) barcode pair(s)")
+                }
+            }
 
-            // Only the final step creates virtual bundles; intermediate steps keep full FASTQ
+            let binCount = currentInputURLs.count
+            // Weight progress by actual bin count: Step 0 = 1 bin, inner steps = N bins.
+            // Allocate progress proportionally: step's share = binCount / totalEstimatedBins
+            let stepProgressShare: Double = if sortedSteps.count == 1 {
+                1.0
+            } else if stepIndex == 0 {
+                0.3 // Step 0 (1 bin) gets 30%
+            } else {
+                0.7 / Double(max(1, sortedSteps.count - 1)) // Remaining steps share 70% equally
+            }
+            let stepBaseProgress = cumulativeProgress
+            let progressPerBin = stepProgressShare / Double(max(1, binCount))
+
             let isFinalStep = stepIndex == sortedSteps.count - 1
             let stepRootBundleURL = isFinalStep ? rootBundleURL : nil
             let stepRootFASTQFilename = isFinalStep ? rootFASTQFilename : nil
 
-            // Step 0 (single input) runs sequentially; inner steps run bins concurrently
+            // Step 0 (single input) runs sequentially; inner steps run bins concurrently.
+            // Inner steps use partial-success: per-bin errors are collected, not thrown.
             let perBinResults: [DemultiplexResult]
+            var binFailures: [MultiStepDemultiplexResult.BinFailure] = []
             if stepIndex == 0 || binCount <= 1 {
                 var results: [DemultiplexResult] = []
                 for (binIndex, binInputURL) in currentInputURLs.enumerated() {
@@ -2023,75 +2378,157 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
                     let config = buildStepConfig(
                         step: step, kit: kit, binInputURL: binInputURL,
                         outputDirectory: outputDirectory,
+                        isInnerStep: stepIndex > 0,
                         rootBundleURL: stepRootBundleURL,
-                        rootFASTQFilename: stepRootFASTQFilename
+                        rootFASTQFilename: stepRootFASTQFilename,
+                        captureTrimsForChaining: !isFinalStep
                     )
-                    let result = try await run(config: config) { fraction, message in
-                        progress(binBaseProgress + fraction * progressPerBin, "Step \(stepIndex + 1): \(message)")
+                    if stepIndex == 0 {
+                        // Step 0 failure is fatal — no inputs to fall back on
+                        let result = try await run(config: config) { fraction, message in
+                            progress(binBaseProgress + fraction * progressPerBin, "Step \(stepIndex + 1): \(message)")
+                        }
+                        results.append(result)
+                    } else {
+                        do {
+                            let result = try await run(config: config) { fraction, message in
+                                progress(binBaseProgress + fraction * progressPerBin, "Step \(stepIndex + 1): \(message)")
+                            }
+                            results.append(result)
+                        } catch {
+                            let binName = binInputURL.deletingPathExtension().lastPathComponent
+                            binFailures.append(.init(binName: binName, errorDescription: error.localizedDescription))
+                            logger.warning("Step \(stepIndex + 1) bin '\(binName)' failed: \(error)")
+                        }
                     }
-                    results.append(result)
                 }
                 perBinResults = results
             } else {
-                // Process inner bins concurrently with bounded parallelism
-                perBinResults = try await withThrowingTaskGroup(of: (Int, DemultiplexResult).self) { group in
+                // Process inner bins concurrently with bounded parallelism and partial-success
+                let binResults: ([DemultiplexResult], [MultiStepDemultiplexResult.BinFailure]) = await {
                     var results = [DemultiplexResult?](repeating: nil, count: binCount)
+                    var failures: [MultiStepDemultiplexResult.BinFailure] = []
                     var nextBinIndex = 0
 
-                    // Launch initial batch
-                    for _ in 0..<min(Self.maxConcurrentBins, binCount) {
-                        let idx = nextBinIndex
-                        let binInputURL = currentInputURLs[idx]
-                        let binBaseProgress = stepBaseProgress + Double(idx) * progressPerBin
-                        let config = buildStepConfig(
-                            step: step, kit: kit, binInputURL: binInputURL,
-                            outputDirectory: outputDirectory,
-                            rootBundleURL: stepRootBundleURL,
-                            rootFASTQFilename: stepRootFASTQFilename
-                        )
-                        nextBinIndex += 1
-                        group.addTask { [self] in
-                            let result = try await self.run(config: config) { fraction, message in
-                                progress(binBaseProgress + fraction * progressPerBin, "Step \(stepIndex + 1) [\(idx + 1)/\(binCount)]: \(message)")
-                            }
-                            return (idx, result)
-                        }
-                    }
-
-                    // As each completes, launch the next
-                    for try await (idx, result) in group {
-                        results[idx] = result
-                        if nextBinIndex < binCount {
-                            let nextIdx = nextBinIndex
-                            let binInputURL = currentInputURLs[nextIdx]
-                            let binBaseProgress = stepBaseProgress + Double(nextIdx) * progressPerBin
+                    await withTaskGroup(of: (Int, Result<DemultiplexResult, Error>).self) { group in
+                        // Launch initial batch
+                        for _ in 0..<min(Self.maxConcurrentBins, binCount) {
+                            let idx = nextBinIndex
+                            let binInputURL = currentInputURLs[idx]
+                            let binBaseProgress = stepBaseProgress + Double(idx) * progressPerBin
                             let config = buildStepConfig(
                                 step: step, kit: kit, binInputURL: binInputURL,
                                 outputDirectory: outputDirectory,
+                                isInnerStep: stepIndex > 0,
                                 rootBundleURL: stepRootBundleURL,
-                                rootFASTQFilename: stepRootFASTQFilename
+                                rootFASTQFilename: stepRootFASTQFilename,
+                                captureTrimsForChaining: !isFinalStep
                             )
                             nextBinIndex += 1
                             group.addTask { [self] in
-                                let result = try await self.run(config: config) { fraction, message in
-                                    progress(binBaseProgress + fraction * progressPerBin, "Step \(stepIndex + 1) [\(nextIdx + 1)/\(binCount)]: \(message)")
+                                do {
+                                    let result = try await self.run(config: config) { fraction, message in
+                                        progress(binBaseProgress + fraction * progressPerBin, "Step \(stepIndex + 1) [\(idx + 1)/\(binCount)]: \(message)")
+                                    }
+                                    return (idx, .success(result))
+                                } catch {
+                                    return (idx, .failure(error))
                                 }
-                                return (nextIdx, result)
+                            }
+                        }
+
+                        // As each completes, launch the next
+                        for await (idx, outcome) in group {
+                            switch outcome {
+                            case .success(let result):
+                                results[idx] = result
+                            case .failure(let error):
+                                let binName = currentInputURLs[idx].deletingPathExtension().lastPathComponent
+                                failures.append(.init(binName: binName, errorDescription: error.localizedDescription))
+                                logger.warning("Step \(stepIndex + 1) bin '\(binName)' failed: \(error)")
+                            }
+                            if nextBinIndex < binCount {
+                                let nextIdx = nextBinIndex
+                                let binInputURL = currentInputURLs[nextIdx]
+                                let binBaseProgress = stepBaseProgress + Double(nextIdx) * progressPerBin
+                                let config = buildStepConfig(
+                                    step: step, kit: kit, binInputURL: binInputURL,
+                                    outputDirectory: outputDirectory,
+                                    isInnerStep: stepIndex > 0,
+                                    rootBundleURL: stepRootBundleURL,
+                                    rootFASTQFilename: stepRootFASTQFilename,
+                                    captureTrimsForChaining: !isFinalStep
+                                )
+                                nextBinIndex += 1
+                                group.addTask { [self] in
+                                    do {
+                                        let result = try await self.run(config: config) { fraction, message in
+                                            progress(binBaseProgress + fraction * progressPerBin, "Step \(stepIndex + 1) [\(nextIdx + 1)/\(binCount)]: \(message)")
+                                        }
+                                        return (nextIdx, .success(result))
+                                    } catch {
+                                        return (nextIdx, .failure(error))
+                                    }
+                                }
                             }
                         }
                     }
-
-                    let collected = results.compactMap { $0 }
-                    assert(collected.count == binCount, "Expected \(binCount) bin results, got \(collected.count)")
-                    return collected
-                }
+                    return (results.compactMap { $0 }, failures)
+                }()
+                perBinResults = binResults.0
+                binFailures = binResults.1
             }
 
             let stepElapsed = Date().timeIntervalSince(stepStartTime)
-            stepResults.append(.init(step: step, perBinResults: perBinResults, wallClockSeconds: stepElapsed))
+            cumulativeProgress += stepProgressShare
+            stepResults.append(.init(step: step, perBinResults: perBinResults, binFailures: binFailures, wallClockSeconds: stepElapsed))
 
             // Next step's inputs are the output bundles from this step
+            let previousInputURLs = currentInputURLs
             currentInputURLs = perBinResults.flatMap(\.outputBundleURLs)
+
+            // Convert intermediate full-mode bins to virtual bundles and clean up full FASTQ files.
+            // Step 0's inputs are the original user file — never modify those.
+            // For subsequent steps, the inputs are full-mode intermediate bundles that should be
+            // converted to virtual bundles (read-ids + preview) and have their full FASTQ deleted.
+            if stepIndex > 0 {
+                for binURL in previousInputURLs {
+                    await convertToVirtualBundle(
+                        binURL: binURL,
+                        rootBundleURL: rootBundleURL,
+                        rootFASTQFilename: rootFASTQFilename
+                    )
+                }
+                logger.info("Converted \(previousInputURLs.count) intermediate bin(s) to virtual bundles")
+
+                // Clean up empty materialized/ directory if all bins were moved out
+                if let firstBin = previousInputURLs.first {
+                    let parentDir = firstBin.deletingLastPathComponent()
+                    if parentDir.lastPathComponent == "materialized" {
+                        let remaining = (try? FileManager.default.contentsOfDirectory(
+                            at: parentDir, includingPropertiesForKeys: nil,
+                            options: [.skipsHiddenFiles]
+                        )) ?? []
+                        if remaining.isEmpty {
+                            try? FileManager.default.removeItem(at: parentDir)
+                            logger.info("Removed empty materialized/ directory")
+                        }
+                    }
+                }
+            }
+
+            // Guard against combinatorial bin explosion
+            if currentInputURLs.count > Self.maxBinCount {
+                logger.error("Bin count \(currentInputURLs.count) exceeds maximum \(Self.maxBinCount) after step \(stepIndex + 1)")
+                throw DemultiplexError.binCountExceeded(count: currentInputURLs.count, limit: Self.maxBinCount)
+            }
+
+            // Log partial failures for this step
+            if !binFailures.isEmpty {
+                let succeeded = perBinResults.count
+                let failed = binFailures.count
+                progress(stepBaseProgress + stepProgressShare, "Step \(stepIndex + 1): \(succeeded)/\(succeeded + failed) bins succeeded")
+            }
         }
 
         let elapsed = Date().timeIntervalSince(startTime)
@@ -2144,17 +2581,28 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
     }
 
     /// Builds a `DemultiplexConfig` from a step definition and a specific input bin.
+    ///
+    /// For inner steps (non-zero), output goes INSIDE the bin's `.lungfishfastq` bundle
+    /// as a `demux/` subdirectory, creating a proper parent-child hierarchy.
     private func buildStepConfig(
         step: DemultiplexStep,
         kit: BarcodeKitDefinition,
         binInputURL: URL,
         outputDirectory: URL,
+        isInnerStep: Bool = false,
         rootBundleURL: URL? = nil,
-        rootFASTQFilename: String? = nil
+        rootFASTQFilename: String? = nil,
+        captureTrimsForChaining: Bool = false
     ) -> DemultiplexConfig {
-        let binName = binInputURL.deletingPathExtension().lastPathComponent
-        let stepOutputDir = outputDirectory
-            .appendingPathComponent(binName, isDirectory: true)
+        let stepOutputDir: URL
+        if isInnerStep && FASTQBundle.isBundleURL(binInputURL) {
+            // Inner step: nest output inside the bin's bundle as demux/ subdirectory
+            stepOutputDir = binInputURL.appendingPathComponent("demux", isDirectory: true)
+        } else {
+            let binName = binInputURL.deletingPathExtension().lastPathComponent
+            stepOutputDir = outputDirectory
+                .appendingPathComponent(binName, isDirectory: true)
+        }
 
         return DemultiplexConfig(
             inputURL: binInputURL,
@@ -2170,10 +2618,109 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             searchReverseComplement: step.searchReverseComplement,
             unassignedDisposition: step.unassignedDisposition,
             sampleAssignments: step.sampleAssignments,
+            sourcePlatform: step.sourcePlatform,
             rootBundleURL: rootBundleURL,
             rootFASTQFilename: rootFASTQFilename,
-            useNoIndels: !step.allowIndels
+            useNoIndels: !step.allowIndels,
+            captureTrimsForChaining: captureTrimsForChaining
         )
+    }
+
+    /// Converts a full-mode intermediate `.lungfishfastq` bundle into a virtual bundle.
+    ///
+    /// Extracts read IDs and a preview from the full FASTQ, writes a derived manifest,
+    /// then deletes the full FASTQ to reclaim disk space. The bundle remains as a
+    /// navigable node in the sidebar with its inner demux output nested inside.
+    private func convertToVirtualBundle(
+        binURL: URL,
+        rootBundleURL: URL?,
+        rootFASTQFilename: String?
+    ) async {
+        guard FASTQBundle.isBundleURL(binURL) else { return }
+        guard let fullFASTQ = FASTQBundle.resolvePrimaryFASTQURL(for: binURL) else { return }
+        guard FileManager.default.fileExists(atPath: fullFASTQ.path) else { return }
+
+        let binName = binURL.deletingPathExtension().lastPathComponent
+        do {
+            // Extract read IDs
+            let readIDsURL = binURL.appendingPathComponent("read-ids.txt")
+            if !FileManager.default.fileExists(atPath: readIDsURL.path) {
+                let readIDResult = try await runner.run(
+                    .seqkit,
+                    arguments: ["seq", "--name", "--only-id", fullFASTQ.path, "-o", readIDsURL.path],
+                    timeout: 300
+                )
+                guard readIDResult.isSuccess else {
+                    logger.warning("Failed to extract read IDs for \(binName): \(readIDResult.stderr)")
+                    return
+                }
+            }
+
+            // Create preview
+            let previewURL = binURL.appendingPathComponent("preview.fastq.gz")
+            if !FileManager.default.fileExists(atPath: previewURL.path) {
+                let previewResult = try await runner.run(
+                    .seqkit,
+                    arguments: ["head", "-n", "1000", fullFASTQ.path, "-o", previewURL.path],
+                    timeout: 120
+                )
+                guard previewResult.isSuccess else {
+                    logger.warning("Failed to create preview for \(binName): \(previewResult.stderr)")
+                    return
+                }
+            }
+
+            // Compute statistics before deleting the full FASTQ
+            let reader = FASTQReader(validateSequence: false)
+            let (statistics, _) = try await reader.computeStatistics(from: fullFASTQ, sampleLimit: 0)
+
+            // Write derived manifest
+            if let rootBundleURL, let rootFASTQFilename {
+                let rootRelativePath = FASTQBundle.projectRelativePath(for: rootBundleURL, from: binURL)
+                    ?? relativePath(from: binURL, to: rootBundleURL)
+                let demuxOp = FASTQDerivativeOperation(
+                    kind: .demultiplex,
+                    toolUsed: "cutadapt",
+                    toolVersion: await runner.getToolVersion(.cutadapt)
+                )
+                let manifest = FASTQDerivedBundleManifest(
+                    name: binName,
+                    parentBundleRelativePath: rootRelativePath,
+                    rootBundleRelativePath: rootRelativePath,
+                    rootFASTQFilename: rootFASTQFilename,
+                    payload: .demuxedVirtual(
+                        barcodeID: binName,
+                        readIDListFilename: "read-ids.txt",
+                        previewFilename: "preview.fastq.gz",
+                        trimPositionsFilename: hasTrimPositionsFile(in: binURL) ? "trim-positions.tsv" : nil,
+                        orientMapFilename: hasOrientMapFile(in: binURL) ? "orient-map.tsv" : nil
+                    ),
+                    lineage: [demuxOp],
+                    operation: demuxOp,
+                    cachedStatistics: statistics,
+                    pairingMode: nil
+                )
+                try FASTQBundle.saveDerivedManifest(manifest, in: binURL)
+            }
+
+            // Delete the full FASTQ to reclaim disk space
+            try FileManager.default.removeItem(at: fullFASTQ)
+            logger.info("Converted \(binName) to virtual bundle (\(statistics.readCount) reads)")
+
+            // If the bundle is inside materialized/, move it up to the parent demux/ directory
+            // so it becomes visible to the sidebar (which skips materialized/)
+            let parentDir = binURL.deletingLastPathComponent()
+            if parentDir.lastPathComponent == "materialized" {
+                let demuxDir = parentDir.deletingLastPathComponent()
+                let destinationURL = demuxDir.appendingPathComponent(binURL.lastPathComponent)
+                if !FileManager.default.fileExists(atPath: destinationURL.path) {
+                    try FileManager.default.moveItem(at: binURL, to: destinationURL)
+                    logger.info("Moved virtual bundle \(binName) from materialized/ to demux/")
+                }
+            }
+        } catch {
+            logger.warning("Failed to convert \(binName) to virtual bundle: \(error)")
+        }
     }
 
     /// Builds multi-step provenance from completed step results.

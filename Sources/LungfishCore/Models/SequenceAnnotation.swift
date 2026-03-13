@@ -269,6 +269,19 @@ public enum AnnotationType: String, Codable, Sendable, CaseIterable {
     case source
     case custom
 
+    // FASTQ read-level annotations
+    case barcode5p = "barcode_5p"
+    case barcode3p = "barcode_3p"
+    case adapter5p = "adapter_5p"
+    case adapter3p = "adapter_3p"
+    case primer5p = "primer_5p"
+    case primer3p = "primer_3p"
+    case trimQuality = "trim_quality"
+    case trimFixed = "trim_fixed"
+    case orientMarker = "orient_marker"
+    case umiRegion = "umi_region"
+    case contaminantMatch = "contaminant_match"
+
     /// Default color for this annotation type
     public var defaultColor: AnnotationColor {
         switch self {
@@ -306,6 +319,18 @@ public enum AnnotationType: String, Codable, Sendable, CaseIterable {
         case .scaffold: return AnnotationColor(red: 0.5, green: 0.45, blue: 0.4)  // Warm gray
         case .source: return AnnotationColor(red: 0.4, green: 0.4, blue: 0.4)     // Dark gray
         case .custom: return AnnotationColor(red: 0.5, green: 0.5, blue: 0.5)     // Gray
+        // FASTQ read-level annotations — distinct from genomic annotation colors
+        case .barcode5p: return AnnotationColor(red: 0.0, green: 0.75, blue: 0.65)   // Teal
+        case .barcode3p: return AnnotationColor(red: 0.0, green: 0.6, blue: 0.55)    // Dark teal
+        case .adapter5p: return AnnotationColor(red: 0.95, green: 0.45, blue: 0.0)   // Vivid orange
+        case .adapter3p: return AnnotationColor(red: 0.85, green: 0.35, blue: 0.0)   // Dark orange
+        case .primer5p: return AnnotationColor(red: 0.1, green: 0.7, blue: 0.1)      // Green
+        case .primer3p: return AnnotationColor(red: 0.0, green: 0.55, blue: 0.05)    // Dark green
+        case .trimQuality: return AnnotationColor(red: 0.75, green: 0.75, blue: 0.0)  // Yellow
+        case .trimFixed: return AnnotationColor(red: 0.65, green: 0.65, blue: 0.15)   // Olive
+        case .orientMarker: return AnnotationColor(red: 0.6, green: 0.2, blue: 0.8)   // Purple
+        case .umiRegion: return AnnotationColor(red: 0.9, green: 0.1, blue: 0.6)      // Hot pink
+        case .contaminantMatch: return AnnotationColor(red: 0.9, green: 0.1, blue: 0.1) // Bright red
         }
     }
 }
@@ -354,6 +379,18 @@ extension AnnotationType {
         case "ncrna": return .ncRNA
         case "misc_binding": return .misc_binding
         case "protein_bind": return .protein_bind
+        // FASTQ read-level annotation types
+        case "barcode_5p": return .barcode5p
+        case "barcode_3p": return .barcode3p
+        case "adapter_5p": return .adapter5p
+        case "adapter_3p": return .adapter3p
+        case "primer_5p": return .primer5p
+        case "primer_3p": return .primer3p
+        case "trim_quality": return .trimQuality
+        case "trim_fixed": return .trimFixed
+        case "orient_marker": return .orientMarker
+        case "umi_region": return .umiRegion
+        case "contaminant_match": return .contaminantMatch
         default: return nil
         }
     }

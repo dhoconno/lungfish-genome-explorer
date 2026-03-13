@@ -5,6 +5,7 @@
 import AppKit
 import LungfishIO
 import LungfishWorkflow
+import UniformTypeIdentifiers
 
 /// Parsed FASTQ read record for the read preview table.
 private struct FASTQReadPreviewRecord {
@@ -110,6 +111,7 @@ public final class FASTQDatasetViewController: NSViewController {
         case pairedEndRepair
         case primerRemoval
         case errorCorrection
+        case orient
         case demultiplex
 
         var title: String {
@@ -129,6 +131,7 @@ public final class FASTQDatasetViewController: NSViewController {
             case .pairedEndRepair: return "Repair Paired Reads"
             case .primerRemoval: return "Custom Primer Removal"
             case .errorCorrection: return "Error Correction"
+            case .orient: return "Orient Reads"
             case .demultiplex: return "Demultiplex (Barcodes)"
             }
         }
@@ -150,6 +153,7 @@ public final class FASTQDatasetViewController: NSViewController {
             case .pairedEndRepair: return "wrench.and.screwdriver"
             case .primerRemoval: return "xmark.seal"
             case .errorCorrection: return "wand.and.stars"
+            case .orient: return "arrow.left.arrow.right"
             case .demultiplex: return "barcode"
             }
         }
@@ -163,6 +167,7 @@ public final class FASTQDatasetViewController: NSViewController {
             case .errorCorrection: return "CORRECTION"
             case .pairedEndMerge, .pairedEndRepair: return "REFORMATTING"
             case .searchText, .searchMotif: return "SEARCH"
+            case .orient: return "PREPROCESSING"
             case .demultiplex: return "DEMULTIPLEXING"
             }
         }
@@ -184,6 +189,7 @@ public final class FASTQDatasetViewController: NSViewController {
             case .pairedEndRepair: return .pairedEndRepair
             case .primerRemoval: return .primerRemoval
             case .errorCorrection: return .errorCorrection
+            case .orient: return .orient
             case .demultiplex: return .demultiplex
             }
         }
@@ -198,6 +204,7 @@ public final class FASTQDatasetViewController: NSViewController {
         ("TRIMMING", [.qualityTrim, .adapterTrim, .fixedTrim, .primerRemoval]),
         ("FILTERING", [.lengthFilter, .contaminantFilter, .deduplicate]),
         ("CORRECTION", [.errorCorrection]),
+        ("PREPROCESSING", [.orient]),
         ("DEMULTIPLEXING", [.demultiplex]),
         ("REFORMATTING", [.pairedEndMerge, .pairedEndRepair]),
         ("SEARCH", [.searchText, .searchMotif]),
@@ -302,6 +309,14 @@ public final class FASTQDatasetViewController: NSViewController {
     private let primerSourcePopup = NSPopUpButton()
     private let interleaveDirectionPopup = NSPopUpButton()
 
+    // Orient-specific controls
+    private let orientReferencePopup = NSPopUpButton()
+    private let orientBrowseButton = NSButton(title: "Browse\u{2026}", target: nil, action: nil)
+    private let orientMaskPopup = NSPopUpButton()
+    private let orientSaveUnorientedCheckbox = NSButton(checkboxWithTitle: "Save unoriented reads", target: nil, action: nil)
+    private var orientReferenceURL: URL?
+    private var orientProjectReferences: [(url: URL, manifest: ReferenceSequenceManifest)] = []
+
     // Error banner (replaces modal NSAlert for operation failures)
     private lazy var errorBannerView: NSView = {
         let banner = NSView()
@@ -340,12 +355,7 @@ public final class FASTQDatasetViewController: NSViewController {
         configureTopPane()
         configureMiddlePane()
 
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleOrientRequest(_:)),
-            name: .fastqOrientRequested,
-            object: nil
-        )
+        // Orient is dispatched directly through the operations sidebar (no notification needed)
     }
 
     public override func viewDidLayout() {
@@ -995,6 +1005,41 @@ public final class FASTQDatasetViewController: NSViewController {
             parameterBar.addArrangedSubview(fieldOneLabel)
             parameterBar.addArrangedSubview(fieldOneInput)
 
+        case .orient:
+            rebuildOrientReferencePopup()
+            let refLabel = NSTextField(labelWithString: "Reference:")
+            refLabel.font = .systemFont(ofSize: 11)
+            refLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+            orientReferencePopup.controlSize = .small
+            orientReferencePopup.translatesAutoresizingMaskIntoConstraints = false
+            orientReferencePopup.target = self
+            orientReferencePopup.action = #selector(orientReferenceChanged(_:))
+            orientBrowseButton.bezelStyle = .rounded
+            orientBrowseButton.controlSize = .small
+            orientBrowseButton.translatesAutoresizingMaskIntoConstraints = false
+            orientBrowseButton.target = self
+            orientBrowseButton.action = #selector(orientBrowseClicked(_:))
+            fieldOneLabel.stringValue = "Word Length:"
+            fieldOneInput.placeholderString = "12"
+            fieldOneInput.stringValue = "12"
+            let maskLabel = NSTextField(labelWithString: "Mask:")
+            maskLabel.font = .systemFont(ofSize: 11)
+            maskLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+            orientMaskPopup.removeAllItems()
+            orientMaskPopup.addItems(withTitles: ["dust", "none"])
+            orientMaskPopup.controlSize = .small
+            orientMaskPopup.translatesAutoresizingMaskIntoConstraints = false
+            orientSaveUnorientedCheckbox.controlSize = .small
+            orientSaveUnorientedCheckbox.state = .on
+            parameterBar.addArrangedSubview(refLabel)
+            parameterBar.addArrangedSubview(orientReferencePopup)
+            parameterBar.addArrangedSubview(orientBrowseButton)
+            parameterBar.addArrangedSubview(fieldOneLabel)
+            parameterBar.addArrangedSubview(fieldOneInput)
+            parameterBar.addArrangedSubview(maskLabel)
+            parameterBar.addArrangedSubview(orientMaskPopup)
+            parameterBar.addArrangedSubview(orientSaveUnorientedCheckbox)
+
         case .demultiplex:
             if let drawerConfig = currentDemuxConfig {
                 // Show read-only summary of the drawer configuration
@@ -1607,48 +1652,61 @@ public final class FASTQDatasetViewController: NSViewController {
         onOpenDemuxDrawer?()
     }
 
-    @objc private func handleOrientRequest(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-              let referenceURL = userInfo["referenceURL"] as? URL,
-              let wordLength = userInfo["wordLength"] as? Int,
-              let dbMask = userInfo["dbMask"] as? String,
-              let saveUnoriented = userInfo["saveUnoriented"] as? Bool else { return }
+    // MARK: - Orient Reference Management
 
-        guard let onRunOperation else {
-            setStatus("No FASTQ source selected for orient.")
-            return
+    private func rebuildOrientReferencePopup() {
+        orientReferencePopup.removeAllItems()
+        orientProjectReferences = []
+
+        if let projectURL = fastqURL?.deletingLastPathComponent() {
+            orientProjectReferences = ReferenceSequenceFolder.listReferences(in: projectURL)
+            for ref in orientProjectReferences {
+                orientReferencePopup.addItem(withTitle: ref.manifest.name)
+            }
         }
 
-        let request = FASTQDerivativeRequest.orient(
-            referenceURL: referenceURL,
-            wordLength: wordLength,
-            dbMask: dbMask,
-            saveUnoriented: saveUnoriented
-        )
+        if orientProjectReferences.isEmpty {
+            orientReferencePopup.addItem(withTitle: "No project references")
+            orientReferencePopup.isEnabled = false
+        } else {
+            orientReferencePopup.isEnabled = true
+        }
 
-        setStatus("Running: Orient reads against reference...")
-        progressIndicator.startAnimation(nil)
-
-        operationTask = Task { [weak self, onRunOperation] in
-            do {
-                try await onRunOperation(request)
-                guard let self else { return }
-                self.operationTask = nil
-                self.progressIndicator.stopAnimation(nil)
-                self.setStatus("Orient complete.")
-                self.onOrientComplete?("Orient complete.")
-            } catch {
-                guard let self else { return }
-                self.operationTask = nil
-                self.progressIndicator.stopAnimation(nil)
-                self.setStatus("Orient failed: \(error.localizedDescription)", isError: true)
-                self.onOrientComplete?("Orient failed: \(error.localizedDescription)")
-            }
+        // If an external reference was previously selected, add it as an extra item
+        if let orientReferenceURL,
+           !ReferenceSequenceFolder.isProjectReference(orientReferenceURL, in: fastqURL?.deletingLastPathComponent() ?? URL(fileURLWithPath: "/")) {
+            orientReferencePopup.addItem(withTitle: orientReferenceURL.lastPathComponent)
+            orientReferencePopup.selectItem(at: orientReferencePopup.numberOfItems - 1)
+            orientReferencePopup.isEnabled = true
         }
     }
 
-    /// Callback to update the orient drawer when pipeline finishes.
-    public var onOrientComplete: ((String) -> Void)?
+    @objc private func orientReferenceChanged(_ sender: NSPopUpButton) {
+        let index = sender.indexOfSelectedItem
+        if index >= 0, index < orientProjectReferences.count {
+            let ref = orientProjectReferences[index]
+            orientReferenceURL = ReferenceSequenceFolder.fastaURL(in: ref.url)
+        }
+        updateRunButtonState()
+    }
+
+    @objc private func orientBrowseClicked(_ sender: NSButton) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "fasta"), UTType(filenameExtension: "fa"), UTType(filenameExtension: "fna")].compactMap { $0 }
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Select a reference FASTA for read orientation"
+        panel.beginSheetModal(for: self.view.window ?? NSApp.mainWindow!) { [weak self] response in
+            guard let self, response == .OK, let url = panel.url else { return }
+            self.orientReferenceURL = url
+            self.rebuildOrientReferencePopup()
+            if !self.orientProjectReferences.isEmpty || self.orientReferencePopup.numberOfItems > 0 {
+                self.orientReferencePopup.selectItem(at: self.orientReferencePopup.numberOfItems - 1)
+            }
+            self.orientReferencePopup.isEnabled = true
+            self.updateRunButtonState()
+        }
+    }
 
 
     // MARK: - Sidebar Row Mapping
@@ -1874,6 +1932,16 @@ public final class FASTQDatasetViewController: NSViewController {
             }
             return .errorCorrection(kmerSize: kmerSize)
 
+        case .orient:
+            guard let refURL = orientReferenceURL else {
+                setStatus("Select a reference FASTA before running orient.", isError: true)
+                return nil
+            }
+            let wordLength = Int(fieldOneInput.stringValue) ?? 12
+            let dbMask = orientMaskPopup.titleOfSelectedItem ?? "dust"
+            let saveUnoriented = orientSaveUnorientedCheckbox.state == .on
+            return .orient(referenceURL: refURL, wordLength: wordLength, dbMask: dbMask, saveUnoriented: saveUnoriented)
+
         case .demultiplex:
             let effectivePlan: DemultiplexPlan
             if let plan = currentDemuxPlan, !plan.steps.isEmpty {
@@ -1962,6 +2030,9 @@ public final class FASTQDatasetViewController: NSViewController {
             // Disabled when data already exists or report is running
             runButton.isEnabled = !hasQualityData && qualityReportTask == nil
             runButton.title = "Compute"
+        case .orient:
+            runButton.isEnabled = orientReferenceURL != nil
+            runButton.title = "Run"
         case .demultiplex:
             let hasPlan = !(currentDemuxPlan?.steps.isEmpty ?? true)
             runButton.isEnabled = hasPlan || currentDemuxConfig != nil

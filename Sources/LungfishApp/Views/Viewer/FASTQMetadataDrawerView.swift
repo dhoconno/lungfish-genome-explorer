@@ -93,8 +93,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
     private enum Tab: Int {
         case samples = 0
         case demuxSetup = 1
-        case orient = 2
-        case barcodeKits = 3
+        case barcodeKits = 2
     }
 
     // Tag constants for distinguishing table views in data source/delegate
@@ -161,7 +160,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
     private let stepOverlapLabel = NSTextField(labelWithString: "Min Overlap:")
     private let stepOverlapField = NSTextField(string: "3")
     private let stepIndelsCheckbox = NSButton(checkboxWithTitle: "Allow indels", target: nil, action: nil)
-    private let stepTrimCheckbox = NSButton(checkboxWithTitle: "Trim barcodes", target: nil, action: nil)
+    private let stepTrimCheckbox = NSButton(checkboxWithTitle: "Trim barcodes during demux", target: nil, action: nil)
     private let stepDistance5Label = NSTextField(labelWithString: "5' Window:")
     private let stepDistance5Field = NSTextField(string: "0")
     private let stepDistance3Label = NSTextField(labelWithString: "3' Window:")
@@ -171,24 +170,11 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
     private let stepRemoveButton = NSButton(title: "−", target: nil, action: nil)
 
     // Orient tab controls
-    private let orientContainer = NSView()
-    private let orientReferenceLabel = NSTextField(labelWithString: "Reference FASTA:")
-    private let orientReferencePopup = NSPopUpButton()
-    private let orientBrowseButton = NSButton(title: "Browse...", target: nil, action: nil)
-    private let orientWordLengthLabel = NSTextField(labelWithString: "Word Length:")
-    private let orientWordLengthField = NSTextField(string: "12")
-    private let orientMaskLabel = NSTextField(labelWithString: "Masking:")
-    private let orientMaskPopup = NSPopUpButton()
-    private let orientSaveUnorientedCheckbox = NSButton(checkboxWithTitle: "Save unoriented reads as separate derivative", target: nil, action: nil)
-    private let orientInfoLabel = NSTextField(labelWithString: "Results stored as lightweight derivative (orientation map). Oriented FASTQ materialized on demand using seqkit.")
-    private let orientRunButton = NSButton(title: "Orient", target: nil, action: nil)
-    private var orientReferenceURL: URL?
-    private var orientProjectReferences: [(url: URL, manifest: ReferenceSequenceManifest)] = []
+    // Orient tab removed — orient is now a standalone operation in the FASTQ operations sidebar
 
     // Constraint groups toggled per-tab
     private var samplesConstraints: [NSLayoutConstraint] = []
     private var demuxSetupConstraints: [NSLayoutConstraint] = []
-    private var orientConstraints: [NSLayoutConstraint] = []
     private var barcodeKitsConstraints: [NSLayoutConstraint] = []
 
     public init(delegate: FASTQMetadataDrawerViewDelegate? = nil) {
@@ -318,12 +304,11 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         headerBar.translatesAutoresizingMaskIntoConstraints = false
         addSubview(headerBar)
 
-        // 4-segment tab control
-        tabControl.segmentCount = 4
+        // 3-segment tab control (orient moved to operations sidebar)
+        tabControl.segmentCount = 3
         tabControl.setLabel("Samples", forSegment: 0)
         tabControl.setLabel("Demux Setup", forSegment: 1)
-        tabControl.setLabel("Orient", forSegment: 2)
-        tabControl.setLabel("Barcode Kits", forSegment: 3)
+        tabControl.setLabel("Barcode Kits", forSegment: 2)
         tabControl.selectedSegment = 0
         tabControl.segmentStyle = .texturedRounded
         tabControl.controlSize = .small
@@ -437,9 +422,6 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         stepAddButton.action = #selector(addStepClicked(_:))
         stepRemoveButton.target = self
         stepRemoveButton.action = #selector(removeStepClicked(_:))
-
-        // Orient tab container + controls
-        setupOrientTab()
 
         // Status bar
         statusLabel.font = .systemFont(ofSize: 11)
@@ -583,7 +565,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         stepErrorRateField.setAccessibilityLabel("Error rate")
         stepOverlapField.setAccessibilityLabel("Minimum overlap")
         stepIndelsCheckbox.setAccessibilityLabel("Allow indels in barcode matching")
-        stepTrimCheckbox.setAccessibilityLabel("Trim barcodes from reads")
+        stepTrimCheckbox.setAccessibilityLabel("Trim barcodes from reads during demux (off = classify only)")
         stepDistance5Field.setAccessibilityLabel("Maximum search distance from 5-prime end")
         stepDistance3Field.setAccessibilityLabel("Maximum search distance from 3-prime end")
         stepScoutButton.setAccessibilityLabel("Detect barcode matches")
@@ -669,113 +651,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         ])
     }
 
-    private func setupOrientTab() {
-        orientContainer.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(orientContainer)
-
-        let labels: [NSTextField] = [orientReferenceLabel, orientWordLengthLabel, orientMaskLabel]
-        for label in labels {
-            label.font = .systemFont(ofSize: 11, weight: .medium)
-            label.translatesAutoresizingMaskIntoConstraints = false
-            orientContainer.addSubview(label)
-        }
-
-        orientReferencePopup.controlSize = .small
-        orientReferencePopup.translatesAutoresizingMaskIntoConstraints = false
-        orientReferencePopup.target = self
-        orientReferencePopup.action = #selector(orientReferenceChanged(_:))
-        orientContainer.addSubview(orientReferencePopup)
-
-        orientBrowseButton.bezelStyle = .rounded
-        orientBrowseButton.controlSize = .small
-        orientBrowseButton.translatesAutoresizingMaskIntoConstraints = false
-        orientBrowseButton.target = self
-        orientBrowseButton.action = #selector(orientBrowseClicked(_:))
-        orientContainer.addSubview(orientBrowseButton)
-
-        orientWordLengthField.controlSize = .small
-        orientWordLengthField.translatesAutoresizingMaskIntoConstraints = false
-        orientWordLengthField.alignment = .right
-        let wlFormatter = NumberFormatter()
-        wlFormatter.numberStyle = .none
-        wlFormatter.minimum = 3
-        wlFormatter.maximum = 15
-        wlFormatter.allowsFloats = false
-        orientWordLengthField.formatter = wlFormatter
-        orientContainer.addSubview(orientWordLengthField)
-
-        orientMaskPopup.controlSize = .small
-        orientMaskPopup.translatesAutoresizingMaskIntoConstraints = false
-        orientMaskPopup.addItems(withTitles: ["dust", "none"])
-        orientContainer.addSubview(orientMaskPopup)
-
-        orientSaveUnorientedCheckbox.controlSize = .small
-        orientSaveUnorientedCheckbox.translatesAutoresizingMaskIntoConstraints = false
-        orientSaveUnorientedCheckbox.state = .on
-        orientContainer.addSubview(orientSaveUnorientedCheckbox)
-
-        orientInfoLabel.font = .systemFont(ofSize: 10)
-        orientInfoLabel.textColor = .tertiaryLabelColor
-        orientInfoLabel.lineBreakMode = .byWordWrapping
-        orientInfoLabel.maximumNumberOfLines = 2
-        orientInfoLabel.translatesAutoresizingMaskIntoConstraints = false
-        orientContainer.addSubview(orientInfoLabel)
-
-        orientRunButton.bezelStyle = .rounded
-        orientRunButton.controlSize = .regular
-        orientRunButton.translatesAutoresizingMaskIntoConstraints = false
-        orientRunButton.target = self
-        orientRunButton.action = #selector(orientRunClicked(_:))
-        orientContainer.addSubview(orientRunButton)
-
-        // Accessibility
-        orientReferencePopup.setAccessibilityLabel("Reference FASTA file")
-        orientBrowseButton.setAccessibilityLabel("Browse for reference FASTA")
-        orientWordLengthField.setAccessibilityLabel("Word length for k-mer matching")
-        orientMaskPopup.setAccessibilityLabel("Low-complexity masking mode")
-        orientSaveUnorientedCheckbox.setAccessibilityLabel("Save unoriented reads")
-        orientRunButton.setAccessibilityLabel("Run orient pipeline")
-
-        // Layout within orient container
-        NSLayoutConstraint.activate([
-            // Row 1: Reference FASTA
-            orientReferenceLabel.topAnchor.constraint(equalTo: orientContainer.topAnchor, constant: 8),
-            orientReferenceLabel.leadingAnchor.constraint(equalTo: orientContainer.leadingAnchor, constant: 8),
-            orientReferencePopup.centerYAnchor.constraint(equalTo: orientReferenceLabel.centerYAnchor),
-            orientReferencePopup.leadingAnchor.constraint(equalTo: orientReferenceLabel.trailingAnchor, constant: 4),
-            orientReferencePopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 200),
-            orientBrowseButton.centerYAnchor.constraint(equalTo: orientReferenceLabel.centerYAnchor),
-            orientBrowseButton.leadingAnchor.constraint(equalTo: orientReferencePopup.trailingAnchor, constant: 6),
-            orientBrowseButton.trailingAnchor.constraint(lessThanOrEqualTo: orientContainer.trailingAnchor, constant: -8),
-
-            // Row 2: Word Length + Masking
-            orientWordLengthLabel.topAnchor.constraint(equalTo: orientReferenceLabel.bottomAnchor, constant: 8),
-            orientWordLengthLabel.leadingAnchor.constraint(equalTo: orientContainer.leadingAnchor, constant: 8),
-            orientWordLengthField.centerYAnchor.constraint(equalTo: orientWordLengthLabel.centerYAnchor),
-            orientWordLengthField.leadingAnchor.constraint(equalTo: orientWordLengthLabel.trailingAnchor, constant: 4),
-            orientWordLengthField.widthAnchor.constraint(equalToConstant: 40),
-
-            orientMaskLabel.centerYAnchor.constraint(equalTo: orientWordLengthLabel.centerYAnchor),
-            orientMaskLabel.leadingAnchor.constraint(equalTo: orientWordLengthField.trailingAnchor, constant: 16),
-            orientMaskPopup.centerYAnchor.constraint(equalTo: orientMaskLabel.centerYAnchor),
-            orientMaskPopup.leadingAnchor.constraint(equalTo: orientMaskLabel.trailingAnchor, constant: 4),
-
-            // Row 3: Save unoriented checkbox
-            orientSaveUnorientedCheckbox.topAnchor.constraint(equalTo: orientWordLengthLabel.bottomAnchor, constant: 8),
-            orientSaveUnorientedCheckbox.leadingAnchor.constraint(equalTo: orientContainer.leadingAnchor, constant: 8),
-
-            // Row 4: Info label
-            orientInfoLabel.topAnchor.constraint(equalTo: orientSaveUnorientedCheckbox.bottomAnchor, constant: 6),
-            orientInfoLabel.leadingAnchor.constraint(equalTo: orientContainer.leadingAnchor, constant: 8),
-            orientInfoLabel.trailingAnchor.constraint(lessThanOrEqualTo: orientContainer.trailingAnchor, constant: -8),
-
-            // Row 5: Run button
-            orientRunButton.topAnchor.constraint(equalTo: orientInfoLabel.bottomAnchor, constant: 10),
-            orientRunButton.leadingAnchor.constraint(equalTo: orientContainer.leadingAnchor, constant: 8),
-        ])
-
-        rebuildOrientReferencePopup()
-    }
+    // Orient tab removed — orient is now a standalone operation in the FASTQ operations sidebar.
 
     private func setupConstraints() {
         // Common/fixed constraints
@@ -876,14 +752,6 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             stepDetailContainer.bottomAnchor.constraint(equalTo: statusLabel.topAnchor, constant: -6),
         ]
 
-        // Orient tab constraints (orient container fills content area)
-        orientConstraints = [
-            orientContainer.topAnchor.constraint(equalTo: headerBar.bottomAnchor, constant: 6),
-            orientContainer.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            orientContainer.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            orientContainer.bottomAnchor.constraint(equalTo: statusLabel.topAnchor, constant: -6),
-        ]
-
         // Start with samples tab active
         NSLayoutConstraint.activate(samplesConstraints)
     }
@@ -902,15 +770,12 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         NSLayoutConstraint.deactivate(samplesConstraints)
         NSLayoutConstraint.deactivate(barcodeKitsConstraints)
         NSLayoutConstraint.deactivate(demuxSetupConstraints)
-        NSLayoutConstraint.deactivate(orientConstraints)
-
         // Hide everything first
         scrollView.isHidden = true
         kitDetailScrollView.isHidden = true
         kitDetailLabel.isHidden = true
         stepScrollView.isHidden = true
         stepDetailContainer.isHidden = true
-        orientContainer.isHidden = true
 
         // Header bar button visibility
         preferredSetLabel.isHidden = true
@@ -941,11 +806,6 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             NSLayoutConstraint.activate(demuxSetupConstraints)
             stepTable.reloadData()
             refreshStepDetail()
-
-        case .orient:
-            orientContainer.isHidden = false
-            NSLayoutConstraint.activate(orientConstraints)
-            rebuildOrientReferencePopup()
 
         case .barcodeKits:
             scrollView.isHidden = false
@@ -984,9 +844,6 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
 
         case .demuxSetup:
             break // Step table columns are set up once in setupStepTableColumns()
-
-        case .orient:
-            break // Orient controls are static, no table columns needed
 
         case .barcodeKits:
             addColumn(to: tableView, id: "kitDisplayName", title: "Kit", width: 220, editable: false)
@@ -1056,7 +913,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             switch activeTab {
             case .samples: return sampleAssignments.count
             case .barcodeKits: return allKits.count
-            case .demuxSetup, .orient: return 0
+            case .demuxSetup: return 0
             }
         case Self.kitDetailTableTag:
             return selectedKitBarcodes.count
@@ -1107,7 +964,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             case "kitPairing": return kit.pairingMode.rawValue
             default: return nil
             }
-        case .demuxSetup, .orient:
+        case .demuxSetup:
             return nil
         }
     }
@@ -1191,7 +1048,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             )
             statusLabel.stringValue = "Updated sample '\(sampleID)'."
 
-        case .barcodeKits, .demuxSetup, .orient:
+        case .barcodeKits, .demuxSetup:
             break
         }
     }
@@ -1494,7 +1351,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             kitDetailLabel.stringValue = "Select a kit to view its barcodes."
             statusLabel.stringValue = "Removed custom kit '\(removed.displayName)'."
 
-        case .demuxSetup, .orient:
+        case .demuxSetup:
             break
         }
     }
@@ -1538,7 +1395,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
                         self.statusLabel.stringValue = "Import failed: \(error.localizedDescription)"
                     }
 
-                case .demuxSetup, .orient:
+                case .demuxSetup:
                     break
                 }
             }
@@ -1555,7 +1412,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         switch activeTab {
         case .samples:
             panel.nameFieldStringValue = "fastq-sample-metadata.csv"
-        case .barcodeKits, .demuxSetup, .orient:
+        case .barcodeKits, .demuxSetup:
             statusLabel.stringValue = "Export is only available on the Samples tab."
             return
         }
@@ -1595,124 +1452,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         return try? decoder.decode(DemultiplexPlan.self, from: data)
     }
 
-    // MARK: - Orient Tab
-
-    private func rebuildOrientReferencePopup() {
-        orientReferencePopup.removeAllItems()
-        orientProjectReferences = []
-
-        // Populate from project's Reference Sequences folder if a FASTQ URL is available
-        if let fastqURL {
-            let projectURL = fastqURL.deletingLastPathComponent()
-            orientProjectReferences = ReferenceSequenceFolder.listReferences(in: projectURL)
-            for ref in orientProjectReferences {
-                orientReferencePopup.addItem(withTitle: ref.manifest.name)
-            }
-        }
-
-        if orientProjectReferences.isEmpty {
-            orientReferencePopup.addItem(withTitle: "No project references")
-            orientReferencePopup.isEnabled = false
-        } else {
-            orientReferencePopup.isEnabled = true
-        }
-
-        // If an external reference was previously selected, show it
-        if let orientReferenceURL, !ReferenceSequenceFolder.isProjectReference(orientReferenceURL, in: fastqURL?.deletingLastPathComponent() ?? URL(fileURLWithPath: "/")) {
-            orientReferencePopup.addItem(withTitle: orientReferenceURL.lastPathComponent)
-            orientReferencePopup.selectItem(at: orientReferencePopup.numberOfItems - 1)
-            orientReferencePopup.isEnabled = true
-        }
-    }
-
-    @objc private func orientReferenceChanged(_ sender: NSPopUpButton) {
-        let index = sender.indexOfSelectedItem
-        if index >= 0, index < orientProjectReferences.count {
-            let ref = orientProjectReferences[index]
-            orientReferenceURL = ReferenceSequenceFolder.fastaURL(in: ref.url)
-            statusLabel.stringValue = "Selected reference: \(ref.manifest.name)"
-        }
-    }
-
-    @objc private func orientBrowseClicked(_ sender: NSButton) {
-        guard let window else { return }
-        let panel = NSOpenPanel()
-        let fastaExtensions = [
-            "fasta", "fa", "fna", "ffn", "faa", "fas", "fsa", "seq"
-        ]
-        let fastaTypes = fastaExtensions.compactMap { UTType(filenameExtension: $0) }
-        panel.allowedContentTypes = fastaTypes + [.gzip]
-        panel.allowsMultipleSelection = false
-        panel.message = "Select a reference FASTA file (.fasta, .fa, .fna, .ffn, .faa, .fas, .fsa, .seq, or .gz FASTA)"
-        panel.prompt = "Select"
-
-        panel.beginSheetModal(for: window) { [weak self] response in
-            guard let self, response == .OK, let url = panel.url else { return }
-            MainActor.assumeIsolated {
-                self.orientReferenceURL = url
-                self.rebuildOrientReferencePopup()
-                // Select the browsed file (added as last item)
-                if !self.orientProjectReferences.isEmpty || self.orientReferencePopup.numberOfItems > 0 {
-                    self.orientReferencePopup.selectItem(at: self.orientReferencePopup.numberOfItems - 1)
-                }
-                self.orientReferencePopup.isEnabled = true
-                self.statusLabel.stringValue = "Selected external reference: \(url.lastPathComponent)"
-            }
-        }
-    }
-
-    @objc private func orientRunClicked(_ sender: NSButton) {
-        guard let orientReferenceURL else {
-            statusLabel.stringValue = "Select a reference FASTA before running orient."
-            return
-        }
-        guard let fastqURL else {
-            statusLabel.stringValue = "No FASTQ file loaded."
-            return
-        }
-
-        let wordLength = Int(orientWordLengthField.stringValue) ?? 12
-        let dbMask = orientMaskPopup.titleOfSelectedItem ?? "dust"
-        let saveUnoriented = orientSaveUnorientedCheckbox.state == .on
-
-        // Import external reference into project if needed
-        let projectURL = fastqURL.deletingLastPathComponent()
-        var refURL = orientReferenceURL
-        if !ReferenceSequenceFolder.isProjectReference(orientReferenceURL, in: projectURL) {
-            do {
-                let bundle = try ReferenceSequenceFolder.importReference(from: orientReferenceURL, into: projectURL)
-                if let fastaInBundle = ReferenceSequenceFolder.fastaURL(in: bundle) {
-                    refURL = fastaInBundle
-                }
-                statusLabel.stringValue = "Imported reference into project. Starting orient..."
-            } catch {
-                statusLabel.stringValue = "Failed to import reference: \(error.localizedDescription)"
-                return
-            }
-        }
-
-        // Post notification for the dataset view controller to pick up and execute
-        NotificationCenter.default.post(
-            name: .fastqOrientRequested,
-            object: self,
-            userInfo: [
-                "fastqURL": fastqURL,
-                "referenceURL": refURL,
-                "wordLength": wordLength,
-                "dbMask": dbMask,
-                "saveUnoriented": saveUnoriented,
-            ]
-        )
-        statusLabel.stringValue = "Orient pipeline started..."
-        orientRunButton.isEnabled = false
-    }
-
-    /// Re-enables the orient button after pipeline completes.
-    public func orientPipelineDidFinish(message: String) {
-        orientRunButton.isEnabled = true
-        statusLabel.stringValue = message
-        rebuildOrientReferencePopup()
-    }
+    // Orient tab removed — orient is now dispatched from the FASTQ operations sidebar.
 
     // MARK: - Barcode Detail Copy Support
 

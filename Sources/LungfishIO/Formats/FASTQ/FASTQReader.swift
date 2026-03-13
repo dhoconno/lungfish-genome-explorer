@@ -24,7 +24,7 @@ import LungfishCore
 /// +
 /// IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII9IG9ICIIIIIIIIIIIIIIIIIIIIDIIIIIII>IIIIII
 /// ```
-public struct FASTQRecord: Sendable, Equatable, Identifiable {
+public struct FASTQRecord: SequenceRecord, Equatable, Identifiable {
 
     /// Unique identifier for the read
     public var id: String { identifier }
@@ -34,6 +34,9 @@ public struct FASTQRecord: Sendable, Equatable, Identifiable {
 
     /// Optional description (text after first space in header)
     public let description: String?
+
+    /// Protocol conformance: maps to `description`
+    public var recordDescription: String? { description }
 
     /// The DNA/RNA sequence
     public let sequence: String

@@ -222,6 +222,9 @@ public actor NativeToolRunner {
     /// Cache of discovered tool paths.
     private var toolPaths: [NativeTool: URL] = [:]
 
+    /// Cache of runtime-detected tool versions (populated on first query per tool).
+    private var runtimeVersionCache: [NativeTool: String] = [:]
+
     /// The directory containing bundled tools.
     private var toolsDirectory: URL?
 
@@ -303,6 +306,39 @@ public actor NativeToolRunner {
     /// Clears the tool path cache.
     public func clearCache() {
         toolPaths.removeAll()
+        runtimeVersionCache.removeAll()
+    }
+
+    /// Returns the version string of a tool, caching the result.
+    /// First checks the bundled tool-versions.json manifest, then falls back to
+    /// running `tool --version` and parsing the first line of output.
+    public func getToolVersion(_ tool: NativeTool) async -> String? {
+        // Check runtime cache
+        if let cached = runtimeVersionCache[tool] {
+            return cached
+        }
+        // Check bundled manifest
+        if let bundled = Self.bundledVersions[tool.rawValue] {
+            runtimeVersionCache[tool] = bundled
+            return bundled
+        }
+        // Run tool --version and parse output
+        guard let result = try? await run(tool, arguments: ["--version"], timeout: 10) else {
+            return nil
+        }
+        let output = result.isSuccess ? result.stdout : result.stderr
+        guard let firstLine = output.split(separator: "\n").first else { return nil }
+        // Extract version: look for a pattern like "1.2.3" or "v1.2.3" in the first line
+        let versionPattern = /v?(\d+\.\d+(?:\.\d+)?)/
+        if let match = String(firstLine).firstMatch(of: versionPattern) {
+            let version = String(match.1)
+            runtimeVersionCache[tool] = version
+            return version
+        }
+        // Fallback: use the entire first line trimmed
+        let version = String(firstLine).trimmingCharacters(in: .whitespaces)
+        runtimeVersionCache[tool] = version
+        return version
     }
     
     // MARK: - Tool Execution

@@ -162,13 +162,82 @@ public enum FASTQBundle {
         return result
     }
 
+    /// Finds the `.lungfish` project root directory by walking up from a bundle URL.
+    ///
+    /// Returns `nil` if no `.lungfish` directory is found within 10 levels.
+    public static func findProjectRoot(from url: URL) -> URL? {
+        var current = url.standardizedFileURL
+        for _ in 0..<10 {
+            if current.pathExtension == "lungfish" {
+                return current
+            }
+            let parent = current.deletingLastPathComponent()
+            if parent == current { break }
+            current = parent
+        }
+        return nil
+    }
+
+    /// Computes a path relative to the `.lungfish` project root.
+    ///
+    /// Project-relative paths are prefixed with `@/` to distinguish them from
+    /// legacy `../`-style relative paths. For example:
+    /// `@/FBC38282...extraction.lungfishfastq`
+    ///
+    /// Returns `nil` if no project root can be found from either URL.
+    public static func projectRelativePath(for targetURL: URL, from anyBundleURL: URL) -> String? {
+        guard let projectRoot = findProjectRoot(from: anyBundleURL) ?? findProjectRoot(from: targetURL) else {
+            return nil
+        }
+        let rootPath = projectRoot.standardizedFileURL.path
+        let normalizedRoot = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        let targetPath = targetURL.standardizedFileURL.path
+        guard targetPath.hasPrefix(normalizedRoot) else { return nil }
+        return "@/" + String(targetPath.dropFirst(normalizedRoot.count))
+    }
+
     /// Resolves a relative bundle path from an anchor bundle URL.
     ///
-    /// Demux output bundles may be nested several levels deep relative to the
-    /// root bundle (e.g. `../../root.lungfishfastq`), so no parent-directory
-    /// restriction is applied. Callers validate the resolved URL independently.
+    /// Supports two path formats:
+    /// - **Project-relative** (`@/path/to/bundle.lungfishfastq`): resolved from
+    ///   the `.lungfish` project root found by walking up from the anchor URL.
+    /// - **Legacy relative** (`../../bundle.lungfishfastq`): resolved directly
+    ///   relative to the anchor bundle URL.
     public static func resolveBundle(relativePath: String, from anchorBundleURL: URL) -> URL {
-        URL(fileURLWithPath: relativePath, relativeTo: anchorBundleURL).standardizedFileURL
+        if relativePath.hasPrefix("@/") {
+            let innerPath = String(relativePath.dropFirst(2))
+            if let projectRoot = findProjectRoot(from: anchorBundleURL) {
+                return projectRoot.appendingPathComponent(innerPath).standardizedFileURL
+            }
+        }
+        return URL(fileURLWithPath: relativePath, relativeTo: anchorBundleURL).standardizedFileURL
+    }
+
+    /// Searches the project root for a `.lungfishfastq` bundle containing a specific FASTQ file.
+    ///
+    /// Used as a recovery path when legacy `../../` relative paths no longer resolve
+    /// (e.g. after bundles were moved within the project). Searches top-level bundles
+    /// in the project root directory.
+    ///
+    /// - Parameters:
+    ///   - fastqFilename: The FASTQ filename expected inside the root bundle.
+    ///   - anchorURL: Any URL within the project (used to find the project root).
+    /// - Returns: The bundle URL containing the file, or `nil` if not found.
+    public static func findBundleContaining(fastqFilename: String, from anchorURL: URL) -> URL? {
+        guard let projectRoot = findProjectRoot(from: anchorURL) else { return nil }
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: projectRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+
+        for url in contents where url.pathExtension == directoryExtension {
+            let candidateFASTQ = url.appendingPathComponent(fastqFilename)
+            if FileManager.default.fileExists(atPath: candidateFASTQ.path) {
+                return url
+            }
+        }
+        return nil
     }
 
     /// Derives a stable base name by stripping known FASTQ/compression extensions.

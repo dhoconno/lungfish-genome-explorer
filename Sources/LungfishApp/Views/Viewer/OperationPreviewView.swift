@@ -99,6 +99,7 @@ final class OperationPreviewView: NSView {
         case primerRemoval
         case searchText
         case searchMotif
+        case orient
         case demultiplex
         case qualityReport
         case none
@@ -305,6 +306,8 @@ final class OperationPreviewView: NSView {
             drawPrimerRemovalPreview(ctx: ctx, rect: rect)
         case .searchText, .searchMotif:
             drawSearchPreview(ctx: ctx, rect: rect)
+        case .orient:
+            drawDemultiplexPreview(ctx: ctx, rect: rect)
         case .demultiplex:
             drawDemultiplexPreview(ctx: ctx, rect: rect)
         case .qualityReport:

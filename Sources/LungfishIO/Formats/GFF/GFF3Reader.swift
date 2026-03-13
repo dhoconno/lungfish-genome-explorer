@@ -759,6 +759,18 @@ public final class GFF3Writer {
         case .region: return "region"
         case .source: return "source"
         case .custom: return "region"
+        // FASTQ read-level annotations use their rawValue as GFF3 type
+        case .barcode5p: return "barcode_5p"
+        case .barcode3p: return "barcode_3p"
+        case .adapter5p: return "adapter_5p"
+        case .adapter3p: return "adapter_3p"
+        case .primer5p: return "primer_5p"
+        case .primer3p: return "primer_3p"
+        case .trimQuality: return "trim_quality"
+        case .trimFixed: return "trim_fixed"
+        case .orientMarker: return "orient_marker"
+        case .umiRegion: return "umi_region"
+        case .contaminantMatch: return "contaminant_match"
         }
     }
 }

@@ -129,6 +129,94 @@ public enum FASTQDerivativeRequest: Sendable {
             return false
         }
     }
+
+    /// Human-readable label for batch operation records.
+    var batchLabel: String {
+        switch self {
+        case .lengthFilter(let min, let max):
+            let parts = [min.map { "\($0)" } ?? "", max.map { "\($0)" } ?? ""]
+                .filter { !$0.isEmpty }
+            if parts.isEmpty { return "Filter by Length" }
+            return "Filter by Length (\(parts.joined(separator: "-")) bp)"
+        case .subsampleProportion(let p):
+            return "Subsample \(Int(p * 100))%"
+        case .subsampleCount(let n):
+            return "Subsample \(n) reads"
+        default:
+            return operationLabel
+        }
+    }
+
+    /// Machine-readable operation kind string for batch manifests.
+    var operationKindString: String {
+        switch self {
+        case .subsampleProportion: return "subsampleProportion"
+        case .subsampleCount: return "subsampleCount"
+        case .lengthFilter: return "lengthFilter"
+        case .searchText: return "searchText"
+        case .searchMotif: return "searchMotif"
+        case .deduplicate: return "deduplicate"
+        case .qualityTrim: return "qualityTrim"
+        case .adapterTrim: return "adapterTrim"
+        case .fixedTrim: return "fixedTrim"
+        case .contaminantFilter: return "contaminantFilter"
+        case .pairedEndMerge: return "pairedEndMerge"
+        case .pairedEndRepair: return "pairedEndRepair"
+        case .primerRemoval: return "primerRemoval"
+        case .errorCorrection: return "errorCorrection"
+        case .interleaveReformat: return "interleaveReformat"
+        case .demultiplex: return "demultiplex"
+        case .multiStepDemultiplex: return "multiStepDemultiplex"
+        case .orient: return "orient"
+        }
+    }
+
+    /// Key-value parameters for batch manifest display.
+    var batchParameters: [String: String] {
+        switch self {
+        case .subsampleProportion(let p):
+            return ["proportion": String(format: "%.2f", p)]
+        case .subsampleCount(let n):
+            return ["count": "\(n)"]
+        case .lengthFilter(let min, let max):
+            var params: [String: String] = [:]
+            if let min { params["minLength"] = "\(min)" }
+            if let max { params["maxLength"] = "\(max)" }
+            return params
+        case .searchText(let query, let field, let regex):
+            return ["query": query, "field": "\(field)", "regex": "\(regex)"]
+        case .searchMotif(let pattern, let regex):
+            return ["pattern": pattern, "regex": "\(regex)"]
+        case .deduplicate(let mode, let pairedAware):
+            return ["mode": "\(mode)", "pairedAware": "\(pairedAware)"]
+        case .qualityTrim(let threshold, let windowSize, let mode):
+            return ["threshold": "\(threshold)", "windowSize": "\(windowSize)", "mode": "\(mode)"]
+        case .adapterTrim(let mode, let sequence, _, _):
+            var params: [String: String] = ["mode": "\(mode)"]
+            if let seq = sequence { params["sequence"] = seq }
+            return params
+        case .fixedTrim(let from5, let from3):
+            return ["from5Prime": "\(from5)", "from3Prime": "\(from3)"]
+        case .contaminantFilter(let mode, _, let kmerSize, let hammingDistance):
+            return ["mode": "\(mode)", "kmerSize": "\(kmerSize)", "hammingDistance": "\(hammingDistance)"]
+        case .pairedEndMerge(let strictness, let minOverlap):
+            return ["strictness": "\(strictness)", "minOverlap": "\(minOverlap)"]
+        case .pairedEndRepair:
+            return [:]
+        case .primerRemoval(let source, _, _, let kmerSize, let minKmer, let hammingDistance):
+            return ["source": "\(source)", "kmerSize": "\(kmerSize)", "minKmer": "\(minKmer)", "hammingDistance": "\(hammingDistance)"]
+        case .errorCorrection(let kmerSize):
+            return ["kmerSize": "\(kmerSize)"]
+        case .interleaveReformat(let direction):
+            return ["direction": "\(direction)"]
+        case .demultiplex(let kitID, _, let location, _, _, let errorRate, let trimBarcodes, _, _):
+            return ["kitID": kitID, "location": location, "errorRate": "\(errorRate)", "trimBarcodes": "\(trimBarcodes)"]
+        case .multiStepDemultiplex:
+            return ["type": "multiStep"]
+        case .orient(_, let wordLength, _, _):
+            return ["wordLength": "\(wordLength)"]
+        }
+    }
 }
 
 public enum FASTQDerivativeError: Error, LocalizedError {
@@ -223,33 +311,46 @@ public actor FASTQDerivativeService {
 
         // Resolve lineage and root bundle info (needed for all operation types)
         let sourceManifest = FASTQBundle.loadDerivedManifest(in: sourceBundleURL)
-        let parentRelativePath = "../\(sourceBundleURL.lastPathComponent)"
+        let parentRelativePath = FASTQBundle.projectRelativePath(for: sourceBundleURL, from: sourceBundleURL)
+            ?? "../\(sourceBundleURL.lastPathComponent)"
         let rootRelativePath: String
         let rootFASTQFilename: String
+        let resolvedRootBundleURL: URL  // Actual root bundle containing the physical FASTQ
         let pairingMode: IngestionMetadata.PairingMode?
         let baseLineage: [FASTQDerivativeOperation]
 
         if let sourceManifest {
             rootRelativePath = sourceManifest.rootBundleRelativePath
             rootFASTQFilename = sourceManifest.rootFASTQFilename
+            resolvedRootBundleURL = FASTQBundle.resolveBundle(
+                relativePath: sourceManifest.rootBundleRelativePath,
+                from: sourceBundleURL
+            )
             pairingMode = sourceManifest.pairingMode
             baseLineage = sourceManifest.lineage
         } else {
             guard let rootFASTQURL = FASTQBundle.resolvePrimaryFASTQURL(for: sourceBundleURL) else {
                 throw FASTQDerivativeError.sourceFASTQMissing
             }
-            rootRelativePath = "../\(sourceBundleURL.lastPathComponent)"
+            rootRelativePath = FASTQBundle.projectRelativePath(for: sourceBundleURL, from: sourceBundleURL)
+                ?? "../\(sourceBundleURL.lastPathComponent)"
             rootFASTQFilename = rootFASTQURL.lastPathComponent
+            resolvedRootBundleURL = sourceBundleURL
             pairingMode = FASTQMetadataStore.load(for: rootFASTQURL)?.ingestion?.pairingMode
             baseLineage = []
         }
 
         // Multi-step demultiplexing has its own execution path
-        if case .multiStepDemultiplex(let plan, _) = request {
+        if case .multiStepDemultiplex(var plan, let sourcePlatform) = request {
+            // Propagate detected source platform to all steps that don't have one set
+            for i in plan.steps.indices where plan.steps[i].sourcePlatform == nil {
+                plan.steps[i].sourcePlatform = sourcePlatform
+            }
             return try await createMultiStepDemultiplexDerivative(
                 plan: plan,
                 sourceFASTQ: materializedSourceFASTQ,
                 sourceBundleURL: sourceBundleURL,
+                rootBundleURL: resolvedRootBundleURL,
                 rootFASTQFilename: rootFASTQFilename,
                 progress: progress
             )
@@ -289,6 +390,7 @@ public actor FASTQDerivativeService {
             return try await createDemultiplexDerivative(
                 sourceFASTQ: materializedSourceFASTQ,
                 sourceBundleURL: sourceBundleURL,
+                rootBundleURL: resolvedRootBundleURL,
                 rootFASTQFilename: rootFASTQFilename,
                 kitID: kitID,
                 customCSVPath: customCSVPath,
@@ -446,6 +548,116 @@ public actor FASTQDerivativeService {
         progress?("Created derived dataset: \(outputBundle.lastPathComponent)")
         derivativeLogger.info("Created FASTQ derivative bundle at \(outputBundle.path, privacy: .public)")
         return outputBundle
+    }
+
+    // MARK: - Batch Operations
+
+    /// Result of a batch operation on multiple FASTQ bundles.
+    public struct BatchResult: Sendable {
+        /// Bundles that were successfully processed.
+        public let outputBundleURLs: [URL]
+
+        /// Input bundles that failed, with error descriptions.
+        public let failures: [(inputURL: URL, error: String)]
+
+        /// The batch operation record for manifest persistence.
+        public let record: BatchOperationRecord
+
+        /// Total wall clock time in seconds.
+        public let wallClockSeconds: Double
+    }
+
+    /// Applies a derivative operation to multiple FASTQ bundles in sequence.
+    ///
+    /// Each input bundle is processed individually via `createDerivative`. Results are
+    /// stored as children of each input bundle. A `BatchOperationRecord` is written to
+    /// the common parent directory for sidebar virtual group creation.
+    ///
+    /// - Parameters:
+    ///   - inputBundleURLs: The FASTQ bundles to process.
+    ///   - request: The operation to apply to each bundle.
+    ///   - commonParentDirectory: Directory where batch-operations.json is stored.
+    ///   - progress: Callback reporting (fraction, message) across all bundles.
+    /// - Returns: A `BatchResult` with output URLs, failures, and the batch record.
+    public func createBatchDerivative(
+        from inputBundleURLs: [URL],
+        request: FASTQDerivativeRequest,
+        commonParentDirectory: URL?,
+        progress: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws -> BatchResult {
+        let startTime = Date()
+        let totalCount = inputBundleURLs.count
+        var outputURLs: [URL] = []
+        var failures: [(URL, String)] = []
+
+        for (index, inputURL) in inputBundleURLs.enumerated() {
+            let bundleName = inputURL.deletingPathExtension().lastPathComponent
+            let fraction = Double(index) / Double(max(1, totalCount))
+            progress?(fraction, "Processing \(bundleName) (\(index + 1)/\(totalCount))...")
+
+            do {
+                let outputURL = try await createDerivative(
+                    from: inputURL,
+                    request: request,
+                    progress: { message in
+                        let subFraction = fraction + (1.0 / Double(max(1, totalCount))) * 0.9
+                        progress?(subFraction, "[\(bundleName)] \(message)")
+                    }
+                )
+                outputURLs.append(outputURL)
+            } catch {
+                failures.append((inputURL, error.localizedDescription))
+                derivativeLogger.warning("Batch operation failed for \(bundleName): \(error)")
+            }
+        }
+
+        let elapsed = Date().timeIntervalSince(startTime)
+        progress?(1.0, "Batch complete: \(outputURLs.count)/\(totalCount) succeeded")
+
+        // Build the batch record
+        let record = BatchOperationRecord(
+            label: request.batchLabel,
+            operationKind: request.operationKindString,
+            parameters: request.batchParameters,
+            outputBundlePaths: outputURLs.compactMap { url in
+                commonParentDirectory.flatMap { parent in
+                    relativePath(from: parent, to: url)
+                } ?? url.lastPathComponent
+            },
+            inputBundlePaths: inputBundleURLs.compactMap { url in
+                commonParentDirectory.flatMap { parent in
+                    relativePath(from: parent, to: url)
+                } ?? url.lastPathComponent
+            },
+            failureCount: failures.count,
+            wallClockSeconds: elapsed
+        )
+
+        // Persist the batch record to the common parent directory
+        if let parentDir = commonParentDirectory {
+            do {
+                try FASTQBatchManifest.appendOperation(record, to: parentDir)
+                derivativeLogger.info("Saved batch operation record to \(parentDir.path, privacy: .public)")
+            } catch {
+                derivativeLogger.warning("Failed to save batch manifest: \(error)")
+            }
+        }
+
+        return BatchResult(
+            outputBundleURLs: outputURLs,
+            failures: failures,
+            record: record,
+            wallClockSeconds: elapsed
+        )
+    }
+
+    /// Computes a relative path from one URL to another.
+    private func relativePath(from base: URL, to target: URL) -> String? {
+        let basePath = base.standardizedFileURL.path
+        let normalizedBase = basePath.hasSuffix("/") ? basePath : basePath + "/"
+        let targetPath = target.standardizedFileURL.path
+        guard targetPath.hasPrefix(normalizedBase) else { return nil }
+        return String(targetPath.dropFirst(normalizedBase.count))
     }
 
     // MARK: - Mixed Output Derivatives
@@ -661,6 +873,7 @@ public actor FASTQDerivativeService {
     private func createDemultiplexDerivative(
         sourceFASTQ: URL,
         sourceBundleURL: URL,
+        rootBundleURL: URL,
         rootFASTQFilename: String,
         kitID: String,
         customCSVPath: String?,
@@ -711,10 +924,13 @@ public actor FASTQDerivativeService {
             throw FASTQDerivativeError.invalidOperation("Unsupported barcode location: \(location)")
         }
 
-        let sourceBaseName = FASTQBundle.deriveBaseName(from: sourceBundleURL)
-        let parentDir = sourceBundleURL.deletingLastPathComponent()
-        let outputDirBase = parentDir.appendingPathComponent("\(sourceBaseName)-demux", isDirectory: true)
-        let outputDirectory = uniqueDirectoryURL(startingAt: outputDirBase)
+        // Create demux output as a child directory inside the source bundle
+        // This produces a parent-child hierarchy: parent.lungfishfastq/demux/barcode01/...
+        let outputDirectory = sourceBundleURL.appendingPathComponent("demux", isDirectory: true)
+        // Remove prior demux results if re-running
+        if FileManager.default.fileExists(atPath: outputDirectory.path) {
+            try FileManager.default.removeItem(at: outputDirectory)
+        }
         try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
 
         progress?("Demultiplexing reads...")
@@ -734,7 +950,7 @@ public actor FASTQDerivativeService {
                 searchReverseComplement: searchReverseComplement,
                 unassignedDisposition: unassignedDisposition,
                 sampleAssignments: sampleAssignments,
-                rootBundleURL: sourceBundleURL,
+                rootBundleURL: rootBundleURL,
                 rootFASTQFilename: rootFASTQFilename,
                 useNoIndels: !allowIndels
             ),
@@ -796,6 +1012,7 @@ public actor FASTQDerivativeService {
         plan: DemultiplexPlan,
         sourceFASTQ: URL,
         sourceBundleURL: URL,
+        rootBundleURL: URL,
         rootFASTQFilename: String,
         progress: (@Sendable (String) -> Void)?
     ) async throws -> URL {
@@ -813,6 +1030,7 @@ public actor FASTQDerivativeService {
             return try await createDemultiplexDerivative(
                 sourceFASTQ: sourceFASTQ,
                 sourceBundleURL: sourceBundleURL,
+                rootBundleURL: rootBundleURL,
                 rootFASTQFilename: rootFASTQFilename,
                 kitID: step.barcodeKitID,
                 customCSVPath: nil,
@@ -833,10 +1051,11 @@ public actor FASTQDerivativeService {
         }
 
         // Multi-step: use DemultiplexingPipeline.runMultiStep
-        let sourceBaseName = FASTQBundle.deriveBaseName(from: sourceBundleURL)
-        let parentDir = sourceBundleURL.deletingLastPathComponent()
-        let outputDirBase = parentDir.appendingPathComponent("\(sourceBaseName)-demux-multi", isDirectory: true)
-        let outputDirectory = uniqueDirectoryURL(startingAt: outputDirBase)
+        // Output directory is a child inside the source bundle (parent-child hierarchy)
+        let outputDirectory = sourceBundleURL.appendingPathComponent("demux", isDirectory: true)
+        if FileManager.default.fileExists(atPath: outputDirectory.path) {
+            try FileManager.default.removeItem(at: outputDirectory)
+        }
         try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
 
         progress?("Running multi-step demultiplexing (\(plan.steps.count) steps)...")
@@ -845,7 +1064,7 @@ public actor FASTQDerivativeService {
             plan: plan,
             inputURL: sourceFASTQ,
             outputDirectory: outputDirectory,
-            rootBundleURL: sourceBundleURL,
+            rootBundleURL: rootBundleURL,
             rootFASTQFilename: rootFASTQFilename,
             progress: { fraction, message in
                 let percent = Int((fraction * 100.0).rounded())
@@ -1071,6 +1290,7 @@ public actor FASTQDerivativeService {
             guard proportion > 0.0, proportion <= 1.0 else {
                 throw FASTQDerivativeError.invalidOperation("proportion must be in (0, 1]")
             }
+            let seed = UInt64.random(in: 0...UInt64.max)
             if isInterleaved {
                 // Use reformat.sh with samplerate for pair-aware subsampling
                 let env = await bbToolsEnvironment()
@@ -1080,6 +1300,7 @@ public actor FASTQDerivativeService {
                         "in=\(sourceFASTQ.path)",
                         "out=\(outputFASTQ.path)",
                         "samplerate=\(proportion)",
+                        "sampleseed=\(seed)",
                         "interleaved=t",
                     ],
                     environment: env,
@@ -1091,18 +1312,20 @@ public actor FASTQDerivativeService {
             } else {
                 _ = try await runner.run(
                     .seqkit,
-                    arguments: ["sample", "-p", String(proportion), sourceFASTQ.path, "-o", outputFASTQ.path]
+                    arguments: ["sample", "-p", String(proportion), "-s", String(seed), sourceFASTQ.path, "-o", outputFASTQ.path]
                 )
             }
             return FASTQDerivativeOperation(
                 kind: .subsampleProportion,
-                proportion: proportion
+                proportion: proportion,
+                randomSeed: seed
             )
 
         case .subsampleCount(let count):
             guard count > 0 else {
                 throw FASTQDerivativeError.invalidOperation("count must be > 0")
             }
+            let seed = UInt64.random(in: 0...UInt64.max)
             if isInterleaved {
                 // For PE data, sample count/2 pairs to get ~count total reads
                 let pairCount = max(1, count / 2)
@@ -1113,6 +1336,7 @@ public actor FASTQDerivativeService {
                         "in=\(sourceFASTQ.path)",
                         "out=\(outputFASTQ.path)",
                         "samplereadstarget=\(pairCount)",
+                        "sampleseed=\(seed)",
                         "interleaved=t",
                     ],
                     environment: env,
@@ -1124,12 +1348,13 @@ public actor FASTQDerivativeService {
             } else {
                 _ = try await runner.run(
                     .seqkit,
-                    arguments: ["sample", "-n", String(count), sourceFASTQ.path, "-o", outputFASTQ.path]
+                    arguments: ["sample", "-n", String(count), "-s", String(seed), sourceFASTQ.path, "-o", outputFASTQ.path]
                 )
             }
             return FASTQDerivativeOperation(
                 kind: .subsampleCount,
-                count: count
+                count: count,
+                randomSeed: seed
             )
 
         case .lengthFilter(let minLength, let maxLength):
@@ -1409,10 +1634,38 @@ public actor FASTQDerivativeService {
             throw FASTQDerivativeError.derivedManifestMissing
         }
 
-        let rootBundleURL = FASTQBundle.resolveBundle(
+        var rootBundleURL = FASTQBundle.resolveBundle(
             relativePath: manifest.rootBundleRelativePath,
             from: bundleURL
         )
+        // Recovery for legacy broken relative paths: search the project root
+        if !FASTQBundle.isBundleURL(rootBundleURL),
+           let recovered = FASTQBundle.findBundleContaining(
+               fastqFilename: manifest.rootFASTQFilename, from: bundleURL
+           ) {
+            rootBundleURL = recovered
+            // Repair the manifest with a project-relative path for future operations
+            if let projectPath = FASTQBundle.projectRelativePath(for: recovered, from: bundleURL) {
+                var repairedManifest = manifest
+                repairedManifest = FASTQDerivedBundleManifest(
+                    id: manifest.id,
+                    name: manifest.name,
+                    createdAt: manifest.createdAt,
+                    parentBundleRelativePath: projectPath,
+                    rootBundleRelativePath: projectPath,
+                    rootFASTQFilename: manifest.rootFASTQFilename,
+                    payload: manifest.payload,
+                    lineage: manifest.lineage,
+                    operation: manifest.operation,
+                    cachedStatistics: manifest.cachedStatistics,
+                    pairingMode: manifest.pairingMode,
+                    readClassification: manifest.readClassification,
+                    batchOperationID: manifest.batchOperationID,
+                    sequenceFormat: manifest.sequenceFormat
+                )
+                try? FASTQBundle.saveDerivedManifest(repairedManifest, in: bundleURL)
+            }
+        }
         guard FASTQBundle.isBundleURL(rootBundleURL) else {
             throw FASTQDerivativeError.rootBundleMissing(manifest.rootBundleRelativePath)
         }
@@ -1422,7 +1675,8 @@ public actor FASTQDerivativeService {
             throw FASTQDerivativeError.rootFASTQMissing
         }
 
-        let outputURL = tempDirectory.appendingPathComponent("materialized.fastq")
+        let outputExtension = (manifest.sequenceFormat ?? .fastq).fileExtension
+        let outputURL = tempDirectory.appendingPathComponent("materialized.\(outputExtension)")
         progress?("Materializing pointer dataset...")
 
         switch manifest.payload {
@@ -1437,11 +1691,19 @@ public actor FASTQDerivativeService {
         case .trim(let trimFilename):
             let trimURL = bundleURL.appendingPathComponent(trimFilename)
             let positions = try FASTQTrimPositionFile.load(from: trimURL)
-            try await extractTrimmedReads(
-                fromRootFASTQ: rootFASTQURL,
-                positions: positions,
-                outputFASTQ: outputURL
-            )
+            if manifest.sequenceFormat == .fasta {
+                try await extractTrimmedFASTAReads(
+                    fromRootFASTA: rootFASTQURL,
+                    positions: positions,
+                    outputFASTA: outputURL
+                )
+            } else {
+                try await extractTrimmedReads(
+                    fromRootFASTQ: rootFASTQURL,
+                    positions: positions,
+                    outputFASTQ: outputURL
+                )
+            }
 
         case .full(let fastqFilename):
             // Full payload bundles contain the physical FASTQ directly
@@ -1529,24 +1791,67 @@ public actor FASTQDerivativeService {
                 try concatenateFASTQFiles(filesToConcat, to: outputURL)
             }
 
-        case .demuxedVirtual(_, let readIDFilename, _, let trimPositionsFilename):
-            // Virtual demuxed barcode bundle — extract reads from root FASTQ using read ID list
+        case .demuxedVirtual(_, let readIDFilename, _, let trimPositionsFilename, let orientMapFilename):
+            // Virtual demuxed barcode bundle — extract reads from root FASTQ using read ID list.
+            // When an orient map is present (inherited from parent orient step), trims are already
+            // adjusted to root orientation. After extraction+trimming, apply RC to reads marked "-".
             let readIDListURL = bundleURL.appendingPathComponent(readIDFilename)
+            let needsOrientation = orientMapFilename != nil
+
+            // If orientation needed, extract+trim to temp file first, then orient
+            let extractTarget: URL
+            let fm = FileManager.default
+            var orientTempDir: URL?
+            if needsOrientation {
+                let tempDir = fm.temporaryDirectory.appendingPathComponent(
+                    "lungfish-demux-orient-\(UUID().uuidString)", isDirectory: true
+                )
+                try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+                orientTempDir = tempDir
+                extractTarget = tempDir.appendingPathComponent("pre-orient.fastq.gz")
+            } else {
+                extractTarget = outputURL
+            }
+            // Ensure temp dir cleanup on any exit path (including throws)
+            defer {
+                if let tempDir = orientTempDir {
+                    try? fm.removeItem(at: tempDir)
+                }
+            }
+
             if let trimFilename = trimPositionsFilename {
                 let trimURL = bundleURL.appendingPathComponent(trimFilename)
                 try await extractAndTrimReads(
                     fromRootFASTQ: rootFASTQURL,
                     readIDsFile: readIDListURL,
                     trimPositionsFile: trimURL,
-                    outputFASTQ: outputURL
+                    outputFASTQ: extractTarget
                 )
             } else {
                 try await extractReads(
                     fromRootFASTQ: rootFASTQURL,
                     readIDsFile: readIDListURL,
+                    outputFASTQ: extractTarget
+                )
+            }
+
+            // Apply orientation (RC) to reads that were reverse-complemented by the orient step
+            if needsOrientation, let orientFilename = orientMapFilename {
+                let orientURL = bundleURL.appendingPathComponent(orientFilename)
+                let fwdReadIDs = try FASTQOrientMapFile.loadForwardReadIDs(from: orientURL)
+                let rcReadIDs = try FASTQOrientMapFile.loadRCReadIDs(from: orientURL)
+                try await materializeOrientedReads(
+                    fromRootFASTQ: extractTarget,
+                    forwardReadIDs: fwdReadIDs,
+                    rcReadIDs: rcReadIDs,
                     outputFASTQ: outputURL
                 )
             }
+
+        case .fullFASTA(let fastaFilename):
+            // Full FASTA payload — copy directly to output
+            let fullFASTAURL = bundleURL.appendingPathComponent(fastaFilename)
+            try FileManager.default.copyItem(at: fullFASTAURL, to: outputURL)
 
         case .demuxGroup:
             // Demux group is a directory, not a materializable payload
@@ -1690,20 +1995,29 @@ public actor FASTQDerivativeService {
         let extractedURL = tempDir.appendingPathComponent("extracted.fastq.gz")
         try await extractReads(fromRootFASTQ: rootFASTQ, readIDsFile: readIDsFile, outputFASTQ: extractedURL)
 
-        // Step 2: Parse trim positions
+        // Step 2: Parse trim positions (supports both 3-column legacy and 4-column mate-aware formats)
         guard let trimContent = try? String(contentsOf: trimPositionsFile, encoding: .utf8) else {
             // No trim positions — just move extracted reads to output
             try fm.moveItem(at: extractedURL, to: outputFASTQ)
             return
         }
 
+        // Key: "readID\tmate" for PE-safe lookup (mate=0 for single-end/legacy)
         var trimMap: [String: (trim5p: Int, trim3p: Int)] = [:]
-        for line in trimContent.split(separator: "\n").dropFirst() {  // skip header
+        for line in trimContent.split(separator: "\n") {
+            // Skip format headers and column headers
+            if line.hasPrefix("#") || line.hasPrefix("read_id") { continue }
             let cols = line.split(separator: "\t")
-            guard cols.count >= 3,
-                  let t5 = Int(cols[1]),
-                  let t3 = Int(cols[2]) else { continue }
-            trimMap[String(cols[0])] = (t5, t3)
+            if cols.count >= 4, let mate = Int(cols[1]),
+               let t5 = Int(cols[2]), let t3 = Int(cols[3]) {
+                // 4-column format: read_id, mate, trim_5p, trim_3p
+                trimMap["\(cols[0])\t\(mate)"] = (t5, t3)
+            } else if cols.count >= 3,
+                      let t5 = Int(cols[1]),
+                      let t3 = Int(cols[2]) {
+                // Legacy 3-column format: read_id, trim_5p, trim_3p
+                trimMap["\(cols[0])\t0"] = (t5, t3)
+            }
         }
 
         guard !trimMap.isEmpty else {
@@ -1711,32 +2025,45 @@ public actor FASTQDerivativeService {
             return
         }
 
-        // Step 3: Apply trims using native Swift FASTQ reader/writer
+        // Step 3: Apply trims using native Swift FASTQ reader/writer with streaming writes
         let reader = FASTQReader(validateSequence: false)
-        var outputContent = ""
-
-        for try await record in reader.records(from: extractedURL) {
-            let readID = record.identifier
-            let seq = record.sequence
-            let qual = record.quality.toAscii()
-            let header = record.description != nil
-                ? "\(record.identifier) \(record.description!)"
-                : record.identifier
-
-            if let trim = trimMap[readID] {
-                let startIndex = min(trim.trim5p, seq.count)
-                let endIndex = max(startIndex, seq.count - trim.trim3p)
-                let trimmedSeq = String(seq[seq.index(seq.startIndex, offsetBy: startIndex)..<seq.index(seq.startIndex, offsetBy: endIndex)])
-                let trimmedQual = String(qual[qual.index(qual.startIndex, offsetBy: startIndex)..<qual.index(qual.startIndex, offsetBy: endIndex)])
-                outputContent += "@\(header)\n\(trimmedSeq)\n+\n\(trimmedQual)\n"
-            } else {
-                outputContent += "@\(header)\n\(seq)\n+\n\(qual)\n"
-            }
-        }
-
-        // Write trimmed FASTQ, then use seqkit to convert to gzipped output if needed
         let plainURL = tempDir.appendingPathComponent("trimmed.fastq")
-        try outputContent.write(to: plainURL, atomically: true, encoding: .utf8)
+        fm.createFile(atPath: plainURL.path, contents: nil)
+        let writeHandle = try FileHandle(forWritingTo: plainURL)
+
+        do {
+            for try await record in reader.records(from: extractedURL) {
+                let readID = record.identifier
+                let seq = record.sequence
+                let qual = record.quality.toAscii()
+                let header = record.description != nil
+                    ? "\(record.identifier) \(record.description!)"
+                    : record.identifier
+
+                // Detect mate for PE-safe trim lookup (also strips /1 /2 from readID)
+                let (baseReadID, mate) = detectMateFromHeader(identifier: readID, description: record.description)
+                // Try mate-specific key first, then fallback to mate=0 (single-end/legacy)
+                let trim = trimMap["\(baseReadID)\t\(mate)"] ?? trimMap["\(baseReadID)\t0"]
+
+                let line: String
+                if let trim {
+                    let startIndex = min(trim.trim5p, seq.count)
+                    let endIndex = max(startIndex, seq.count - trim.trim3p)
+                    let trimmedSeq = String(seq[seq.index(seq.startIndex, offsetBy: startIndex)..<seq.index(seq.startIndex, offsetBy: endIndex)])
+                    let trimmedQual = String(qual[qual.index(qual.startIndex, offsetBy: startIndex)..<qual.index(qual.startIndex, offsetBy: endIndex)])
+                    line = "@\(header)\n\(trimmedSeq)\n+\n\(trimmedQual)\n"
+                } else {
+                    line = "@\(header)\n\(seq)\n+\n\(qual)\n"
+                }
+                if let data = line.data(using: .utf8) {
+                    writeHandle.write(data)
+                }
+            }
+            try writeHandle.close()
+        } catch {
+            try? writeHandle.close()
+            throw error
+        }
 
         if outputFASTQ.pathExtension == "gz" {
             // Use seqkit seq to copy and gzip the output
@@ -1752,6 +2079,165 @@ public actor FASTQDerivativeService {
         } else {
             try fm.moveItem(at: plainURL, to: outputFASTQ)
         }
+    }
+
+    /// Extracts and trims reads from a FASTA file.
+    /// Analogous to `extractAndTrimReads` but produces FASTA output (no quality scores).
+    private func extractAndTrimFASTAReads(
+        fromRootFASTA rootFASTA: URL,
+        readIDsFile: URL,
+        trimPositionsFile: URL,
+        outputFASTA: URL
+    ) async throws {
+        let fm = FileManager.default
+        let tempDir = fm.temporaryDirectory.appendingPathComponent("lungfish-fasta-trim-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tempDir) }
+
+        // Step 1: Extract reads by ID using seqkit grep (works on FASTA too)
+        let extractedURL = tempDir.appendingPathComponent("extracted.fasta")
+        try await extractReads(fromRootFASTQ: rootFASTA, readIDsFile: readIDsFile, outputFASTQ: extractedURL)
+
+        // Step 2: Parse trim positions
+        guard let trimContent = try? String(contentsOf: trimPositionsFile, encoding: .utf8) else {
+            try fm.moveItem(at: extractedURL, to: outputFASTA)
+            return
+        }
+
+        var trimMap: [String: (trim5p: Int, trim3p: Int)] = [:]
+        for line in trimContent.split(separator: "\n") {
+            if line.hasPrefix("#") || line.hasPrefix("read_id") { continue }
+            let cols = line.split(separator: "\t")
+            if cols.count >= 4, let mate = Int(cols[1]),
+               let t5 = Int(cols[2]), let t3 = Int(cols[3]) {
+                trimMap["\(cols[0])\t\(mate)"] = (t5, t3)
+            } else if cols.count >= 3,
+                      let t5 = Int(cols[1]),
+                      let t3 = Int(cols[2]) {
+                trimMap["\(cols[0])\t0"] = (t5, t3)
+            }
+        }
+
+        guard !trimMap.isEmpty else {
+            try fm.moveItem(at: extractedURL, to: outputFASTA)
+            return
+        }
+
+        // Step 3: Apply trims using FASTAReader streaming
+        let reader = try FASTAReader(url: extractedURL)
+        let plainURL = tempDir.appendingPathComponent("trimmed.fasta")
+        fm.createFile(atPath: plainURL.path, contents: nil)
+        let writeHandle = try FileHandle(forWritingTo: plainURL)
+
+        do {
+            for try await record in reader.sequences() {
+                let readID = record.name
+                let seq = record.asString()
+                let header = record.description != nil
+                    ? "\(record.name) \(record.description!)"
+                    : record.name
+
+                let trim = trimMap["\(readID)\t0"]
+
+                let outputSeq: String
+                if let trim {
+                    let startIndex = min(trim.trim5p, seq.count)
+                    let endIndex = max(startIndex, seq.count - trim.trim3p)
+                    outputSeq = String(seq[seq.index(seq.startIndex, offsetBy: startIndex)..<seq.index(seq.startIndex, offsetBy: endIndex)])
+                } else {
+                    outputSeq = seq
+                }
+
+                // Write FASTA record with 60-char line wrapping
+                var line = ">\(header)\n"
+                for i in stride(from: 0, to: outputSeq.count, by: 60) {
+                    let start = outputSeq.index(outputSeq.startIndex, offsetBy: i)
+                    let end = outputSeq.index(start, offsetBy: min(60, outputSeq.count - i))
+                    line += String(outputSeq[start..<end]) + "\n"
+                }
+                if let data = line.data(using: .utf8) {
+                    writeHandle.write(data)
+                }
+            }
+            try writeHandle.close()
+        } catch {
+            try? writeHandle.close()
+            throw error
+        }
+
+        try fm.moveItem(at: plainURL, to: outputFASTA)
+    }
+
+    /// Extracts and trims FASTA reads using absolute position-based trims.
+    /// Analogous to `extractTrimmedReads` but for FASTA format (no quality scores).
+    private func extractTrimmedFASTAReads(
+        fromRootFASTA rootFASTA: URL,
+        positions: [String: (start: Int, end: Int)],
+        outputFASTA: URL
+    ) async throws {
+        if positions.isEmpty {
+            throw FASTQDerivativeError.emptyResult
+        }
+
+        let reader = try FASTAReader(url: rootFASTA)
+        let fm = FileManager.default
+        let tempDir = fm.temporaryDirectory.appendingPathComponent("lungfish-fasta-postrim-\(UUID().uuidString)")
+        try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tempDir) }
+
+        let plainURL = tempDir.appendingPathComponent("trimmed.fasta")
+        fm.createFile(atPath: plainURL.path, contents: nil)
+        let writeHandle = try FileHandle(forWritingTo: plainURL)
+
+        do {
+            for try await record in reader.sequences() {
+                let key = record.name
+                guard let pos = positions[key] else { continue }
+                let seq = record.asString()
+                let safeStart = min(pos.start, seq.count)
+                let safeEnd = min(max(safeStart, pos.end), seq.count)
+                guard safeEnd > safeStart else { continue }
+
+                let trimmedSeq = String(seq[seq.index(seq.startIndex, offsetBy: safeStart)..<seq.index(seq.startIndex, offsetBy: safeEnd)])
+                let header = record.description.map { "\(record.name) \($0)" } ?? record.name
+
+                var line = ">\(header)\n"
+                for i in stride(from: 0, to: trimmedSeq.count, by: 60) {
+                    let start = trimmedSeq.index(trimmedSeq.startIndex, offsetBy: i)
+                    let end = trimmedSeq.index(start, offsetBy: min(60, trimmedSeq.count - i))
+                    line += String(trimmedSeq[start..<end]) + "\n"
+                }
+                if let data = line.data(using: .utf8) {
+                    writeHandle.write(data)
+                }
+            }
+            try writeHandle.close()
+        } catch {
+            try? writeHandle.close()
+            throw error
+        }
+
+        try fm.moveItem(at: plainURL, to: outputFASTA)
+    }
+
+    /// Detects mate number from FASTQ record header for PE-safe trim lookup.
+    /// Returns (baseReadID, mate) where mate is 0 (single), 1 (R1), or 2 (R2).
+    /// Strips `/1` or `/2` suffix from identifier when present so the returned
+    /// readID matches the pipeline's trim map keys.
+    private func detectMateFromHeader(identifier: String, description: String?) -> (readID: String, mate: Int) {
+        // Check /1 or /2 suffix on identifier (legacy FASTQ format)
+        if identifier.hasSuffix("/1") {
+            return (String(identifier.dropLast(2)), 1)
+        }
+        if identifier.hasSuffix("/2") {
+            return (String(identifier.dropLast(2)), 2)
+        }
+        // Check Illumina description format: "1:N:0:..." or "2:N:0:..."
+        if let desc = description {
+            if desc.hasPrefix("1:") { return (identifier, 1) }
+            if desc.hasPrefix("2:") { return (identifier, 2) }
+        }
+        return (identifier, 0)
     }
 
     // MARK: - Fastp Trim Operations

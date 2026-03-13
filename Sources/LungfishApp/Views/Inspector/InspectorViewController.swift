@@ -1280,6 +1280,7 @@ extension SidebarItemType: CustomStringConvertible {
         case .unknown: return "File"
         case .referenceBundle: return "Reference Bundle"
         case .fastqBundle: return "FASTQ Bundle"
+        case .batchGroup: return "Batch Operation"
         }
     }
 }

@@ -251,6 +251,14 @@ public class SidebarViewController: NSViewController {
                 self.deleteSelectedItems()
                 return nil  // Consume the event
             }
+
+            // Cmd+Shift+A: Select All Siblings
+            if event.modifierFlags.contains([.command, .shift]),
+               event.charactersIgnoringModifiers?.lowercased() == "a" {
+                self.selectAllSiblings()
+                return nil
+            }
+
             return event
         }
     }
@@ -645,6 +653,38 @@ public class SidebarViewController: NSViewController {
             subtitle: subtitle
         )
 
+        // For FASTQ bundles, scan for demultiplexed child bundles inside demux/ subdirectory.
+        // These appear as expandable children so users can navigate demux output hierarchically.
+        if itemType == .fastqBundle {
+            let demuxDir = url.appendingPathComponent("demux", isDirectory: true)
+
+            // Load batch manifest first to build exclusion set (prevents duplicate nodes)
+            let batchManifest = FASTQBatchManifest.load(from: demuxDir)
+            var batchOutputURLs = Set<URL>()
+            if let manifest = batchManifest {
+                for record in manifest.operations {
+                    for relativePath in record.outputBundlePaths {
+                        batchOutputURLs.insert(
+                            demuxDir.appendingPathComponent(relativePath).standardizedFileURL
+                        )
+                    }
+                }
+            }
+
+            // Collect demux child bundles, excluding batch operation outputs
+            let childBundles = collectDemuxChildBundles(in: url, excluding: batchOutputURLs)
+            for childURL in childBundles {
+                let childItem = buildSidebarTree(from: childURL, isRoot: false)
+                item.children.append(childItem)
+            }
+
+            // Create virtual batch group nodes from batch-operations.json
+            if let manifest = batchManifest {
+                let batchGroups = buildBatchGroupNodes(manifest: manifest, baseDirectory: demuxDir)
+                item.children.append(contentsOf: batchGroups)
+            }
+        }
+
         // If it's a directory, scan children (unless it's a bundle)
         // Bundles (.lungfishref) appear as single items and don't show internal structure
         var isDirectory: ObjCBool = false
@@ -718,6 +758,76 @@ public class SidebarViewController: NSViewController {
     /// Returns true for internal sidecar/metadata files that should be hidden from the sidebar.
     private func isInternalSidecarFile(_ url: URL) -> Bool {
         url.lastPathComponent.hasSuffix(".lungfish-meta.json")
+    }
+
+    /// Collects child `.lungfishfastq` bundles from a parent bundle's `demux/` directory.
+    ///
+    /// Scans the `demux/` subdirectory tree for `.lungfishfastq` bundles, skipping
+    /// the `materialized/` directory (intermediate full FASTQs used during processing).
+    /// Returns bundles sorted alphabetically.
+    private func collectDemuxChildBundles(in bundleURL: URL, excluding: Set<URL> = []) -> [URL] {
+        let demuxDir = bundleURL.appendingPathComponent("demux", isDirectory: true)
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: demuxDir.path, isDirectory: &isDir), isDir.boolValue else {
+            return []
+        }
+
+        var results: [URL] = []
+        // Recursively scan demux/ for child .lungfishfastq bundles, skipping materialized/
+        func scan(_ dir: URL) {
+            guard let contents = try? fm.contentsOfDirectory(
+                at: dir,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else { return }
+
+            for childURL in contents {
+                var childIsDir: ObjCBool = false
+                fm.fileExists(atPath: childURL.path, isDirectory: &childIsDir)
+                guard childIsDir.boolValue else { continue }
+
+                // Skip materialized/ directory (temporary full FASTQs during active processing)
+                if childURL.lastPathComponent == "materialized" { continue }
+
+                if FASTQBundle.isBundleURL(childURL) {
+                    // Skip bundles that are batch operation outputs (shown under batch group nodes)
+                    if !excluding.contains(childURL.standardizedFileURL) {
+                        results.append(childURL)
+                    }
+                } else {
+                    // Recurse into non-bundle subdirectories (e.g., barcode13/)
+                    scan(childURL)
+                }
+            }
+        }
+        scan(demuxDir)
+        return results.sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    /// Builds virtual batch group sidebar nodes from a pre-loaded batch manifest.
+    private func buildBatchGroupNodes(manifest: FASTQBatchManifest, baseDirectory: URL) -> [SidebarItem] {
+        return manifest.operations.map { record in
+            let groupItem = SidebarItem(
+                title: record.label,
+                type: .batchGroup,
+                icon: "tray.2",
+                children: [],
+                url: nil,
+                subtitle: "\(record.successCount) processed"
+            )
+
+            // Resolve output bundle paths to sidebar items
+            for relativePath in record.outputBundlePaths {
+                let outputURL = baseDirectory.appendingPathComponent(relativePath)
+                if FileManager.default.fileExists(atPath: outputURL.path) {
+                    let childItem = buildSidebarTree(from: outputURL, isRoot: false)
+                    groupItem.children.append(childItem)
+                }
+            }
+
+            return groupItem
+        }
     }
 
     /// Counts the total number of items in a tree.
@@ -1434,6 +1544,38 @@ extension SidebarViewController: NSOutlineViewDataSource {
         selectedItems().first(where: { $0.url != nil })?.url
     }
 
+    // MARK: - Select All Siblings
+
+    /// Selects all sibling items of the currently selected item in the outline view.
+    /// Triggered by Cmd+Shift+A. Useful for batch-selecting all barcodes at the same level.
+    public func selectAllSiblings() {
+        guard let selectedItem = selectedItems().first else { return }
+
+        // Find the parent — siblings are the parent's children (or rootItems if top-level)
+        let siblings: [SidebarItem]
+        if let parent = findParent(of: selectedItem) {
+            siblings = parent.children
+        } else {
+            // Top-level item — siblings are rootItems
+            siblings = rootItems
+        }
+
+        guard siblings.count > 1 else { return }
+
+        // Build row index set for all siblings
+        var rowIndexes = IndexSet()
+        for sibling in siblings {
+            let row = outlineView.row(forItem: sibling)
+            if row >= 0 {
+                rowIndexes.insert(row)
+            }
+        }
+
+        guard !rowIndexes.isEmpty else { return }
+        outlineView.selectRowIndexes(rowIndexes, byExtendingSelection: false)
+        logger.info("selectAllSiblings: Selected \(rowIndexes.count) sibling(s)")
+    }
+
     // MARK: - Delete Operations
 
     /// Deletes the currently selected items, moving files to Trash
@@ -1446,7 +1588,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
 
         // Filter out items that shouldn't be deleted (groups, projects)
         let deletableItems = items.filter { item in
-            item.type != .group && item.type != .project
+            item.type != .group && item.type != .project && item.type != .batchGroup
         }
 
         guard !deletableItems.isEmpty else {
@@ -1831,6 +1973,7 @@ public enum SidebarItemType {
     case unknown   // Unknown file type - uses QuickLook preview
     case referenceBundle  // .lungfishref reference genome bundle
     case fastqBundle  // .lungfishfastq FASTQ package bundle
+    case batchGroup   // Virtual node representing a batch operation across multiple bundles
 
     var tintColor: NSColor {
         switch self {
@@ -1846,6 +1989,7 @@ public enum SidebarItemType {
         case .unknown: return .tertiaryLabelColor
         case .referenceBundle: return .systemIndigo
         case .fastqBundle: return .systemGreen
+        case .batchGroup: return .systemCyan
         }
     }
 
@@ -1941,10 +2085,10 @@ extension SidebarViewController: NSMenuDelegate {
         guard !items.isEmpty else { return }
 
         // Check what types we have selected
-        let hasFiles = items.contains { $0.type != .group && $0.type != .project && $0.type != .folder && $0.type != .referenceBundle && $0.type != .fastqBundle }
+        let hasFiles = items.contains { $0.type != .group && $0.type != .project && $0.type != .folder && $0.type != .referenceBundle && $0.type != .fastqBundle && $0.type != .batchGroup }
         let hasFolders = items.contains { $0.type == .folder || $0.type == .project }
         let hasGroups = items.contains { $0.type == .group }
-        let hasDeletable = items.contains { $0.type != .group && $0.type != .project }
+        let hasDeletable = items.contains { $0.type != .group && $0.type != .project && $0.type != .batchGroup }
         let hasBundles = items.contains { $0.type == .referenceBundle }
         let hasFASTQBundles = items.contains { $0.type == .fastqBundle }
 
@@ -2079,7 +2223,7 @@ extension SidebarViewController: NSMenuDelegate {
 
     @objc private func contextMenuOpen(_ sender: Any?) {
         let items = selectedItems()
-        guard let item = items.first, item.type != .group && item.type != .project else { return }
+        guard let item = items.first, item.type != .group && item.type != .project && item.type != .batchGroup else { return }
 
         logger.info("contextMenuOpen: Opening '\(item.title, privacy: .public)'")
 
