@@ -1715,7 +1715,7 @@ public final class FASTQDatasetViewController: NSViewController {
 
     @objc private func orientBrowseClicked(_ sender: NSButton) {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "fasta"), UTType(filenameExtension: "fa"), UTType(filenameExtension: "fna")].compactMap { $0 }
+        panel.allowedContentTypes = FASTAFileTypes.readableContentTypes
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.message = "Select a reference FASTA for read orientation"

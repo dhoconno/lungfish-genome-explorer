@@ -756,10 +756,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
-        panel.allowedContentTypes = [
-            .init(filenameExtension: "fa")!,
-            .init(filenameExtension: "fasta")!,
-            .init(filenameExtension: "fna")!,
+        panel.allowedContentTypes = FASTAFileTypes.readableContentTypes + [
             .init(filenameExtension: "fq")!,
             .init(filenameExtension: "fastq")!,
             .init(filenameExtension: "gz")!,
@@ -2039,7 +2036,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // Show save panel
         let panel = NSSavePanel()
         panel.title = "Export FASTA"
-        panel.allowedContentTypes = [UTType(filenameExtension: "fa")!]
+        panel.allowedContentTypes = FASTAFileTypes.readableContentTypes
         panel.nameFieldStringValue = document.name.replacingOccurrences(of: ".\(document.url.pathExtension)", with: "") + ".fa"
 
         panel.begin { [weak self] response in
