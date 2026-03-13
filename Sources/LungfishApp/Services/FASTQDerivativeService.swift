@@ -759,17 +759,14 @@ public actor FASTQDerivativeService {
         // Create a preview FASTQ (first 1000 oriented reads)
         let previewFilename = "preview.fastq"
         let previewURL = bundleURL.appendingPathComponent(previewFilename)
-        let previewResult = try await runner.run(
-            .seqkit,
-            arguments: [
-                "head", "-n", "1000",
-                result.orientedFASTQ.path,
-                "-o", previewURL.path,
-            ],
-            timeout: 60
-        )
-        if !previewResult.isSuccess {
-            derivativeLogger.warning("Failed to create orient preview: \(previewResult.stderr)")
+        do {
+            try await writeOrientedPreviewFASTQ(
+                fromSourceFASTQ: sourceFASTQ,
+                orientMapURL: orientMapURL,
+                outputFASTQ: previewURL
+            )
+        } catch {
+            derivativeLogger.warning("Failed to create orient preview: \(error.localizedDescription)")
         }
 
         // Compute statistics on the oriented output
@@ -1103,7 +1100,8 @@ public actor FASTQDerivativeService {
         let pipeline = DemultiplexingPipeline()
         let result = try await pipeline.runMultiStep(
             plan: plan,
-            inputURL: sourceBundleURL,
+            inputURL: sourceFASTQ,
+            sourceBundleURL: sourceBundleURL,
             outputDirectory: outputDirectory,
             rootBundleURL: rootBundleURL,
             rootFASTQFilename: rootFASTQFilename,
@@ -1729,62 +1727,13 @@ public actor FASTQDerivativeService {
             let trimURL = bundleTrimPositionsURL(bundleURL)
             let orientURL = bundleOrientMapURL(bundleURL)
             if manifest.sequenceFormat == .fasta {
-                if let trimURL {
-                    let materializeTarget: URL
-                    let fm = FileManager.default
-                    var orientTempDir: URL?
-                    if orientURL != nil {
-                        let tempDir = fm.temporaryDirectory.appendingPathComponent(
-                            "lungfish-fasta-orient-\(UUID().uuidString)", isDirectory: true
-                        )
-                        try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
-                        orientTempDir = tempDir
-                        materializeTarget = tempDir.appendingPathComponent("pre-orient.fasta")
-                    } else {
-                        materializeTarget = outputURL
-                    }
-                    defer {
-                        if let tempDir = orientTempDir {
-                            try? fm.removeItem(at: tempDir)
-                        }
-                    }
-
-                    let positions = try filteredTrimPositions(from: trimURL, selectedReadIDsFile: readIDListURL)
-                    try await extractTrimmedFASTAReads(
-                        fromRootFASTA: rootFASTQURL,
-                        positions: positions,
-                        outputFASTA: materializeTarget
-                    )
-
-                    if let orientURL {
-                        let fwdReadIDs = try FASTQOrientMapFile.loadForwardReadIDs(from: orientURL)
-                        let rcReadIDs = try FASTQOrientMapFile.loadRCReadIDs(from: orientURL)
-                        try await materializeOrientedFASTAReads(
-                            fromRootFASTA: materializeTarget,
-                            forwardReadIDs: fwdReadIDs,
-                            rcReadIDs: rcReadIDs,
-                            outputFASTA: outputURL
-                        )
-                    }
-                } else {
-                    if let orientURL {
-                        let fwdReadIDs = try FASTQOrientMapFile.loadForwardReadIDs(from: orientURL)
-                        let rcReadIDs = try FASTQOrientMapFile.loadRCReadIDs(from: orientURL)
-                        let selectedReadIDs = try loadSelectedReadIDLookup(from: readIDListURL)
-                        try await materializeOrientedFASTAReads(
-                            fromRootFASTA: rootFASTQURL,
-                            forwardReadIDs: fwdReadIDs.filter { selectedReadIDs.contains($0) },
-                            rcReadIDs: rcReadIDs.filter { selectedReadIDs.contains($0) },
-                            outputFASTA: outputURL
-                        )
-                    } else {
-                        try await extractReads(
-                            fromRootFASTQ: rootFASTQURL,
-                            readIDsFile: readIDListURL,
-                            outputFASTQ: outputURL
-                        )
-                    }
-                }
+                try await materializeVirtualFASTASubset(
+                    rootFASTAURL: rootFASTQURL,
+                    readIDListURL: readIDListURL,
+                    trimPositionsURL: trimURL,
+                    orientMapURL: orientURL,
+                    outputURL: outputURL
+                )
             } else {
                 try await materializeVirtualFASTQSubset(
                     rootFASTQURL: rootFASTQURL,
@@ -1987,12 +1936,31 @@ public actor FASTQDerivativeService {
         }
 
         if let trimPositionsURL {
-            let positions = try filteredTrimPositions(from: trimPositionsURL, selectedReadIDsFile: readIDListURL)
-            try await extractTrimmedReads(
-                fromRootFASTQ: rootFASTQURL,
-                positions: positions,
-                outputFASTQ: extractTarget
-            )
+            if isAbsoluteTrimPositionsFile(trimPositionsURL) {
+                let positions = try filteredTrimPositions(from: trimPositionsURL, selectedReadIDsFile: readIDListURL)
+                try await extractTrimmedReads(
+                    fromRootFASTQ: rootFASTQURL,
+                    positions: positions,
+                    outputFASTQ: extractTarget
+                )
+            } else if let filteredTrimContent = try filteredRelativeTrimPositionsContent(
+                from: trimPositionsURL,
+                selectedReadIDsFile: readIDListURL
+            ) {
+                let filteredTrimURL = fm.temporaryDirectory.appendingPathComponent(
+                    "lungfish-demux-trim-\(UUID().uuidString).tsv"
+                )
+                try filteredTrimContent.write(to: filteredTrimURL, atomically: true, encoding: .utf8)
+                defer { try? fm.removeItem(at: filteredTrimURL) }
+                try await extractAndTrimReads(
+                    fromRootFASTQ: rootFASTQURL,
+                    readIDsFile: readIDListURL,
+                    trimPositionsFile: filteredTrimURL,
+                    outputFASTQ: extractTarget
+                )
+            } else {
+                throw FASTQDerivativeError.emptyResult
+            }
         } else {
             try await extractReads(
                 fromRootFASTQ: rootFASTQURL,
@@ -2009,6 +1977,92 @@ public actor FASTQDerivativeService {
                 forwardReadIDs: fwdReadIDs,
                 rcReadIDs: rcReadIDs,
                 outputFASTQ: outputURL
+            )
+        }
+    }
+
+    private func materializeVirtualFASTASubset(
+        rootFASTAURL: URL,
+        readIDListURL: URL,
+        trimPositionsURL: URL?,
+        orientMapURL: URL?,
+        outputURL: URL
+    ) async throws {
+        let needsOrientation = orientMapURL != nil
+        let fm = FileManager.default
+
+        let extractTarget: URL
+        var orientTempDir: URL?
+        if needsOrientation {
+            let tempDir = fm.temporaryDirectory.appendingPathComponent(
+                "lungfish-fasta-orient-\(UUID().uuidString)", isDirectory: true
+            )
+            try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            orientTempDir = tempDir
+            extractTarget = tempDir.appendingPathComponent("pre-orient.fasta")
+        } else {
+            extractTarget = outputURL
+        }
+        defer {
+            if let tempDir = orientTempDir {
+                try? fm.removeItem(at: tempDir)
+            }
+        }
+
+        if let trimPositionsURL {
+            if isAbsoluteTrimPositionsFile(trimPositionsURL) {
+                let positions = try filteredTrimPositions(from: trimPositionsURL, selectedReadIDsFile: readIDListURL)
+                try await extractTrimmedFASTAReads(
+                    fromRootFASTA: rootFASTAURL,
+                    positions: positions,
+                    outputFASTA: extractTarget
+                )
+            } else if let filteredTrimContent = try filteredRelativeTrimPositionsContent(
+                from: trimPositionsURL,
+                selectedReadIDsFile: readIDListURL
+            ) {
+                let filteredTrimURL = fm.temporaryDirectory.appendingPathComponent(
+                    "lungfish-fasta-demux-trim-\(UUID().uuidString).tsv"
+                )
+                try filteredTrimContent.write(to: filteredTrimURL, atomically: true, encoding: .utf8)
+                defer { try? fm.removeItem(at: filteredTrimURL) }
+                try await extractAndTrimFASTAReads(
+                    fromRootFASTA: rootFASTAURL,
+                    readIDsFile: readIDListURL,
+                    trimPositionsFile: filteredTrimURL,
+                    outputFASTA: extractTarget
+                )
+            } else {
+                throw FASTQDerivativeError.emptyResult
+            }
+        } else if let orientMapURL {
+            let fwdReadIDs = try FASTQOrientMapFile.loadForwardReadIDs(from: orientMapURL)
+            let rcReadIDs = try FASTQOrientMapFile.loadRCReadIDs(from: orientMapURL)
+            let selectedReadIDs = try loadSelectedReadIDLookup(from: readIDListURL)
+            try await materializeOrientedFASTAReads(
+                fromRootFASTA: rootFASTAURL,
+                forwardReadIDs: fwdReadIDs.filter { selectedReadIDs.contains($0) },
+                rcReadIDs: rcReadIDs.filter { selectedReadIDs.contains($0) },
+                outputFASTA: outputURL
+            )
+            return
+        } else {
+            try await extractReads(
+                fromRootFASTQ: rootFASTAURL,
+                readIDsFile: readIDListURL,
+                outputFASTQ: outputURL
+            )
+            return
+        }
+
+        if let orientMapURL {
+            let fwdReadIDs = try FASTQOrientMapFile.loadForwardReadIDs(from: orientMapURL)
+            let rcReadIDs = try FASTQOrientMapFile.loadRCReadIDs(from: orientMapURL)
+            try await materializeOrientedFASTAReads(
+                fromRootFASTA: extractTarget,
+                forwardReadIDs: fwdReadIDs,
+                rcReadIDs: rcReadIDs,
+                outputFASTA: outputURL
             )
         }
     }
@@ -2039,6 +2093,61 @@ public actor FASTQDerivativeService {
             if rcReadIDs.contains(readID) || rcReadIDs.contains(record.identifier) {
                 try writer.write(record.reverseComplement())
             } else {
+                try writer.write(record)
+            }
+        }
+    }
+
+    private func writeOrientedPreviewFASTQ(
+        fromSourceFASTQ sourceFASTQ: URL,
+        orientMapURL: URL,
+        outputFASTQ: URL,
+        readLimit: Int = 1_000
+    ) async throws {
+        let orientContent = try String(contentsOf: orientMapURL, encoding: .utf8)
+        var orderedReadIDs: [String] = []
+        var rcReadIDs: Set<String> = []
+
+        for line in orientContent.split(separator: "\n", omittingEmptySubsequences: true) {
+            let fields = line.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false)
+            guard fields.count >= 2 else { continue }
+            let readID = String(fields[0])
+            orderedReadIDs.append(readID)
+            if fields[1] == "-" {
+                rcReadIDs.insert(readID)
+            }
+            if orderedReadIDs.count >= max(1, readLimit) {
+                break
+            }
+        }
+
+        guard !orderedReadIDs.isEmpty else { return }
+
+        let selectedReadIDs = Set(orderedReadIDs)
+        var previewRecords: [String: FASTQRecord] = [:]
+        let reader = FASTQReader(validateSequence: false)
+
+        for try await record in reader.records(from: sourceFASTQ) {
+            let readID = normalizedIdentifier(record.identifier)
+            guard selectedReadIDs.contains(readID) else { continue }
+
+            if rcReadIDs.contains(readID) {
+                previewRecords[readID] = record.reverseComplement()
+            } else {
+                previewRecords[readID] = record
+            }
+
+            if previewRecords.count == selectedReadIDs.count {
+                break
+            }
+        }
+
+        let writer = FASTQWriter(url: outputFASTQ)
+        try writer.open()
+        defer { try? writer.close() }
+
+        for readID in orderedReadIDs {
+            if let record = previewRecords[readID] {
                 try writer.write(record)
             }
         }
@@ -2081,12 +2190,14 @@ public actor FASTQDerivativeService {
             if cols.count >= 4, let mate = Int(cols[1]),
                let t5 = Int(cols[2]), let t3 = Int(cols[3]) {
                 // 4-column format: read_id, mate, trim_5p, trim_3p
-                trimMap["\(cols[0])\t\(mate)"] = (t5, t3)
+                let readID = canonicalDemuxTrimReadID(String(cols[0]))
+                trimMap["\(readID)\t\(mate)"] = (t5, t3)
             } else if cols.count >= 3,
                       let t5 = Int(cols[1]),
                       let t3 = Int(cols[2]) {
                 // Legacy 3-column format: read_id, trim_5p, trim_3p
-                trimMap["\(cols[0])\t0"] = (t5, t3)
+                let readID = canonicalDemuxTrimReadID(String(cols[0]))
+                trimMap["\(readID)\t0"] = (t5, t3)
             }
         }
 
@@ -2180,11 +2291,13 @@ public actor FASTQDerivativeService {
             let cols = line.split(separator: "\t")
             if cols.count >= 4, let mate = Int(cols[1]),
                let t5 = Int(cols[2]), let t3 = Int(cols[3]) {
-                trimMap["\(cols[0])\t\(mate)"] = (t5, t3)
+                let readID = canonicalDemuxTrimReadID(String(cols[0]))
+                trimMap["\(readID)\t\(mate)"] = (t5, t3)
             } else if cols.count >= 3,
                       let t5 = Int(cols[1]),
                       let t3 = Int(cols[2]) {
-                trimMap["\(cols[0])\t0"] = (t5, t3)
+                let readID = canonicalDemuxTrimReadID(String(cols[0]))
+                trimMap["\(readID)\t0"] = (t5, t3)
             }
         }
 
@@ -3101,13 +3214,18 @@ public actor FASTQDerivativeService {
         let selectedReadIDs = try loadSelectedReadIDLookup(from: selectedReadIDsFile)
 
         if let sourceTrimURL = bundleTrimPositionsURL(sourceBundleURL) {
-            let records = try FASTQTrimPositionFile.loadRecords(from: sourceTrimURL)
-            let filtered = records.filter { selectedReadIDs.contains($0.readID) }
-            if !filtered.isEmpty {
-                try FASTQTrimPositionFile.write(
-                    filtered,
-                    to: outputBundleURL.appendingPathComponent(FASTQBundle.trimPositionFilename)
-                )
+            let outputTrimURL = outputBundleURL.appendingPathComponent(FASTQBundle.trimPositionFilename)
+            if isAbsoluteTrimPositionsFile(sourceTrimURL) {
+                let records = try FASTQTrimPositionFile.loadRecords(from: sourceTrimURL)
+                let filtered = records.filter { selectedReadIDs.contains($0.readID) }
+                if !filtered.isEmpty {
+                    try FASTQTrimPositionFile.write(filtered, to: outputTrimURL)
+                }
+            } else if let filteredTrimContent = try filteredRelativeTrimPositionsContent(
+                from: sourceTrimURL,
+                selectedReadIDsFile: selectedReadIDsFile
+            ) {
+                try filteredTrimContent.write(to: outputTrimURL, atomically: true, encoding: .utf8)
             }
         }
 
@@ -3148,6 +3266,48 @@ public actor FASTQDerivativeService {
         }
     }
 
+    private func isAbsoluteTrimPositionsFile(_ url: URL) -> Bool {
+        guard let header = try? String(contentsOf: url, encoding: .utf8)
+            .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
+            .first else {
+            return false
+        }
+        return String(header) == FASTQTrimPositionFile.formatHeader
+    }
+
+    private func filteredRelativeTrimPositionsContent(
+        from trimPositionsURL: URL,
+        selectedReadIDsFile: URL
+    ) throws -> String? {
+        let selectedReadIDs = try loadSelectedReadIDLookup(from: selectedReadIDsFile)
+        let content = try String(contentsOf: trimPositionsURL, encoding: .utf8)
+        var headerLines: [String] = []
+        var filteredLines: [String] = []
+
+        for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
+            let lineString = String(line)
+            if lineString.hasPrefix("#") || lineString.hasPrefix("read_id") {
+                headerLines.append(lineString)
+                continue
+            }
+
+            let fields = lineString.split(separator: "\t", omittingEmptySubsequences: false)
+            guard let firstField = fields.first else { continue }
+            let canonicalReadID = canonicalDemuxTrimReadID(String(firstField))
+            if selectedReadIDs.contains(canonicalReadID) {
+                if fields.count >= 2 {
+                    filteredLines.append(([canonicalReadID] + fields.dropFirst().map(String.init)).joined(separator: "\t"))
+                } else {
+                    filteredLines.append(canonicalReadID)
+                }
+            }
+        }
+
+        guard !filteredLines.isEmpty else { return nil }
+        let allLines = headerLines + filteredLines
+        return allLines.joined(separator: "\n").appending("\n")
+    }
+
     private func writePreviewFASTQ(
         from sourceFASTQ: URL,
         to outputURL: URL,
@@ -3185,6 +3345,11 @@ public actor FASTQDerivativeService {
     private func bundleOrientMapURL(_ bundleURL: URL) -> URL? {
         let url = bundleURL.appendingPathComponent("orient-map.tsv")
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    private func canonicalDemuxTrimReadID(_ rawValue: String) -> String {
+        let normalized = normalizedIdentifier(rawValue)
+        return detectMateFromHeader(identifier: normalized, description: nil).readID
     }
 
     // MARK: - Trim Position Extraction

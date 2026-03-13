@@ -107,6 +107,14 @@ final class DemultiplexingPipelineTests: XCTestCase {
         XCTAssertNotNil(pipeline)
     }
 
+    func testCanonicalAdapterNameStripsCutadaptDuplicateSuffixes() {
+        let pipeline = DemultiplexingPipeline()
+        XCTAssertEqual(pipeline.canonicalAdapterName("bc1002--bc1070;1"), "bc1002--bc1070")
+        XCTAssertEqual(pipeline.canonicalAdapterName("bc1002--bc1070;2"), "bc1002--bc1070")
+        XCTAssertEqual(pipeline.canonicalAdapterName("bc1002--bc1070"), "bc1002--bc1070")
+        XCTAssertEqual(pipeline.canonicalAdapterName("sample;rev"), "sample;rev")
+    }
+
     // MARK: - DemultiplexConfig Custom Location
 
     func testDemultiplexConfigBothEndsLocation() {
@@ -293,6 +301,65 @@ final class DemultiplexingPipelineTests: XCTestCase {
         let derivedManifests = result.outputBundleURLs.compactMap(FASTQBundle.loadDerivedManifest(in:))
         XCTAssertEqual(derivedManifests.count, 1)
         XCTAssertEqual(derivedManifests.first?.pairingMode, .interleaved)
+    }
+
+    func testVirtualSymmetricDemuxCachesStatisticsFromCanonicalTrimmedSequence() async throws {
+        let (tempDir, bundleURL, fastqURL) = try makeTempBundle(named: "root")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let kit = BarcodeKitRegistry.ontNativeBarcoding24
+        guard let barcode = kit.barcodes.first(where: { $0.id == "barcode13" }) else {
+            XCTFail("Expected barcode13 in ONT native kit")
+            return
+        }
+
+        let context = ONTNativeAdapterContext()
+        let insert = "GATTACA"
+        let sequence =
+            context.fivePrimeSpec(barcodeSequence: barcode.i7Sequence)
+            + insert
+            + context.threePrimeSpec(barcodeSequence: barcode.i7Sequence)
+
+        try writeFASTQ(sequences: [sequence], to: fastqURL)
+
+        let outputDir = tempDir.appendingPathComponent("demux-out", isDirectory: true)
+        let pipeline = DemultiplexingPipeline()
+        let result = try await pipeline.run(
+            config: DemultiplexConfig(
+                inputURL: bundleURL,
+                barcodeKit: kit,
+                outputDirectory: outputDir,
+                barcodeLocation: .bothEnds,
+                errorRate: 0.0,
+                minimumOverlap: 20,
+                trimBarcodes: true,
+                threads: 1,
+                rootBundleURL: bundleURL,
+                rootFASTQFilename: fastqURL.lastPathComponent
+            ),
+            progress: { _, _ in }
+        )
+
+        guard let barcodeBundle = result.outputBundleURLs.first(where: { $0.lastPathComponent == "barcode13.lungfishfastq" }) else {
+            XCTFail("Expected barcode13 output bundle")
+            return
+        }
+        guard let manifest = FASTQBundle.loadDerivedManifest(in: barcodeBundle) else {
+            XCTFail("Expected derived manifest in barcode13 bundle")
+            return
+        }
+
+        let previewURL = barcodeBundle.appendingPathComponent("preview.fastq.gz")
+        let previewLines = try String(contentsOf: previewURL, encoding: .utf8).split(separator: "\n").map(String.init)
+        XCTAssertGreaterThanOrEqual(previewLines.count, 2)
+
+        let previewLength = previewLines[1].count
+        XCTAssertLessThan(previewLength, sequence.count)
+        XCTAssertEqual(manifest.cachedStatistics.readCount, 1)
+        XCTAssertEqual(manifest.cachedStatistics.meanReadLength, Double(previewLength), accuracy: 0.001)
+        XCTAssertEqual(manifest.cachedStatistics.minReadLength, previewLength)
+        XCTAssertEqual(manifest.cachedStatistics.maxReadLength, previewLength)
+        XCTAssertEqual(manifest.cachedStatistics.readLengthHistogram, [previewLength: 1])
     }
 
     // MARK: - Poly-G Trim Config
