@@ -597,7 +597,12 @@ public actor BatchProcessingEngine {
                 allowIndels: step.primerAllowIndels ?? true,
                 keepUntrimmed: step.primerKeepUntrimmed ?? false,
                 searchReverseComplement: step.primerSearchReverseComplement ?? false,
-                pairFilter: step.primerPairFilter ?? .any
+                pairFilter: step.primerPairFilter ?? .any,
+                tool: step.primerTool ?? .cutadapt,
+                ktrimDirection: step.primerKtrimDirection ?? .left,
+                kmerSize: step.primerKmerSize ?? 15,
+                minKmer: step.primerMinKmer ?? 11,
+                hammingDistance: step.primerHammingDistance ?? 1
             ))
         case .errorCorrection:
             return .errorCorrection(kmerSize: step.errorCorrectionKmerSize ?? 50)
@@ -607,6 +612,16 @@ public actor BatchProcessingEngine {
             // Demultiplexing is not a derivative request — it's handled separately.
             // This case should never be in a recipe's steps array.
             throw BatchProcessingError.unsupportedStepInRecipe(step.kind.rawValue)
+        case .sequencePresenceFilter:
+            return .sequencePresenceFilter(
+                sequence: step.adapterFilterSequence,
+                fastaPath: step.adapterFilterFastaPath,
+                searchEnd: step.adapterFilterSearchEnd ?? .fivePrime,
+                minOverlap: step.adapterFilterMinOverlap ?? 16,
+                errorRate: step.adapterFilterErrorRate ?? 0.15,
+                keepMatched: step.adapterFilterKeepMatched ?? true,
+                searchReverseComplement: step.adapterFilterSearchReverseComplement ?? false
+            )
         case .orient:
             // Orientation is not yet supported in batch recipes.
             throw BatchProcessingError.unsupportedStepInRecipe(step.kind.rawValue)

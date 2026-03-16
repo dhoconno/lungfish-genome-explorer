@@ -191,6 +191,16 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
     private let primerRevcompCheckbox = NSButton(checkboxWithTitle: "Search reverse complement", target: nil, action: nil)
     private let primerPairFilterLabel = NSTextField(labelWithString: "Pair Filter:")
     private let primerPairFilterPopup = NSPopUpButton()
+    private let primerToolLabel = NSTextField(labelWithString: "Tool:")
+    private let primerToolPopup = NSPopUpButton()
+    private let primerKtrimLabel = NSTextField(labelWithString: "Trim Direction:")
+    private let primerKtrimPopup = NSPopUpButton()
+    private let primerKmerLabel = NSTextField(labelWithString: "K-mer Size:")
+    private let primerKmerField = NSTextField(string: "15")
+    private let primerMinKmerLabel = NSTextField(labelWithString: "Min K-mer:")
+    private let primerMinKmerField = NSTextField(string: "11")
+    private let primerHdistLabel = NSTextField(labelWithString: "Hamming Dist:")
+    private let primerHdistField = NSTextField(string: "1")
 
     // Orient tab controls
     // Orient tab removed — orient is now a standalone operation in the FASTQ operations sidebar
@@ -674,6 +684,8 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             primerSourceLabel, primerReadModeLabel, primerModeLabel,
             primerForwardLabel, primerReverseLabel, primerReferenceLabel,
             primerOverlapLabel, primerErrorLabel, primerPairFilterLabel,
+            primerToolLabel, primerKtrimLabel, primerKmerLabel,
+            primerMinKmerLabel, primerHdistLabel,
         ]
         for label in labels {
             label.font = .systemFont(ofSize: 11, weight: .medium)
@@ -681,12 +693,14 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             primerTrimContainer.addSubview(label)
         }
 
+        primerToolPopup.addItems(withTitles: ["cutadapt", "bbduk"])
         primerSourcePopup.addItems(withTitles: ["Literal Sequences", "Reference FASTA"])
         primerReadModePopup.addItems(withTitles: ["Single Reads", "Paired / Interleaved"])
         primerModePopup.addItems(withTitles: ["5' Primer", "3' Primer", "Linked 5'+3'", "Paired R1/R2"])
         primerPairFilterPopup.addItems(withTitles: ["Any", "Both", "First"])
+        primerKtrimPopup.addItems(withTitles: ["5' (left)", "3' (right)"])
 
-        let popups: [NSPopUpButton] = [primerSourcePopup, primerReadModePopup, primerModePopup, primerPairFilterPopup]
+        let popups: [NSPopUpButton] = [primerToolPopup, primerSourcePopup, primerReadModePopup, primerModePopup, primerPairFilterPopup, primerKtrimPopup]
         for popup in popups {
             popup.controlSize = .small
             popup.translatesAutoresizingMaskIntoConstraints = false
@@ -695,7 +709,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             primerTrimContainer.addSubview(popup)
         }
 
-        let fields: [NSTextField] = [primerForwardField, primerReverseField, primerReferenceField, primerOverlapField, primerErrorField]
+        let fields: [NSTextField] = [primerForwardField, primerReverseField, primerReferenceField, primerOverlapField, primerErrorField, primerKmerField, primerMinKmerField, primerHdistField]
         for field in fields {
             field.controlSize = .small
             field.translatesAutoresizingMaskIntoConstraints = false
@@ -721,7 +735,14 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         primerAllowIndelsCheckbox.state = .on
 
         NSLayoutConstraint.activate([
-            primerSourceLabel.topAnchor.constraint(equalTo: primerTrimContainer.topAnchor, constant: 10),
+            // Row 0: Tool selector
+            primerToolLabel.topAnchor.constraint(equalTo: primerTrimContainer.topAnchor, constant: 10),
+            primerToolLabel.leadingAnchor.constraint(equalTo: primerTrimContainer.leadingAnchor, constant: 8),
+            primerToolPopup.centerYAnchor.constraint(equalTo: primerToolLabel.centerYAnchor),
+            primerToolPopup.leadingAnchor.constraint(equalTo: primerToolLabel.trailingAnchor, constant: 6),
+
+            // Row 1: Source + Read Mode (cutadapt) or Ktrim Direction (bbduk)
+            primerSourceLabel.topAnchor.constraint(equalTo: primerToolLabel.bottomAnchor, constant: 10),
             primerSourceLabel.leadingAnchor.constraint(equalTo: primerTrimContainer.leadingAnchor, constant: 8),
             primerSourcePopup.centerYAnchor.constraint(equalTo: primerSourceLabel.centerYAnchor),
             primerSourcePopup.leadingAnchor.constraint(equalTo: primerSourceLabel.trailingAnchor, constant: 6),
@@ -730,6 +751,12 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             primerReadModeLabel.leadingAnchor.constraint(equalTo: primerSourcePopup.trailingAnchor, constant: 18),
             primerReadModePopup.centerYAnchor.constraint(equalTo: primerReadModeLabel.centerYAnchor),
             primerReadModePopup.leadingAnchor.constraint(equalTo: primerReadModeLabel.trailingAnchor, constant: 6),
+
+            // BBDuk: ktrim direction on same row as source
+            primerKtrimLabel.centerYAnchor.constraint(equalTo: primerSourceLabel.centerYAnchor),
+            primerKtrimLabel.leadingAnchor.constraint(equalTo: primerSourcePopup.trailingAnchor, constant: 18),
+            primerKtrimPopup.centerYAnchor.constraint(equalTo: primerKtrimLabel.centerYAnchor),
+            primerKtrimPopup.leadingAnchor.constraint(equalTo: primerKtrimLabel.trailingAnchor, constant: 6),
 
             primerModeLabel.topAnchor.constraint(equalTo: primerSourceLabel.bottomAnchor, constant: 10),
             primerModeLabel.leadingAnchor.constraint(equalTo: primerTrimContainer.leadingAnchor, constant: 8),
@@ -782,6 +809,25 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             primerKeepUntrimmedCheckbox.leadingAnchor.constraint(equalTo: primerTrimContainer.leadingAnchor, constant: 8),
             primerRevcompCheckbox.centerYAnchor.constraint(equalTo: primerKeepUntrimmedCheckbox.centerYAnchor),
             primerRevcompCheckbox.leadingAnchor.constraint(equalTo: primerKeepUntrimmedCheckbox.trailingAnchor, constant: 16),
+
+            // BBDuk k-mer parameters row (below checkboxes, same row as overlap/error for cutadapt)
+            primerKmerLabel.topAnchor.constraint(equalTo: primerKeepUntrimmedCheckbox.bottomAnchor, constant: 10),
+            primerKmerLabel.leadingAnchor.constraint(equalTo: primerTrimContainer.leadingAnchor, constant: 8),
+            primerKmerField.centerYAnchor.constraint(equalTo: primerKmerLabel.centerYAnchor),
+            primerKmerField.leadingAnchor.constraint(equalTo: primerKmerLabel.trailingAnchor, constant: 6),
+            primerKmerField.widthAnchor.constraint(equalToConstant: 44),
+
+            primerMinKmerLabel.centerYAnchor.constraint(equalTo: primerKmerLabel.centerYAnchor),
+            primerMinKmerLabel.leadingAnchor.constraint(equalTo: primerKmerField.trailingAnchor, constant: 16),
+            primerMinKmerField.centerYAnchor.constraint(equalTo: primerMinKmerLabel.centerYAnchor),
+            primerMinKmerField.leadingAnchor.constraint(equalTo: primerMinKmerLabel.trailingAnchor, constant: 6),
+            primerMinKmerField.widthAnchor.constraint(equalToConstant: 44),
+
+            primerHdistLabel.centerYAnchor.constraint(equalTo: primerKmerLabel.centerYAnchor),
+            primerHdistLabel.leadingAnchor.constraint(equalTo: primerMinKmerField.trailingAnchor, constant: 16),
+            primerHdistField.centerYAnchor.constraint(equalTo: primerHdistLabel.centerYAnchor),
+            primerHdistField.leadingAnchor.constraint(equalTo: primerHdistLabel.trailingAnchor, constant: 6),
+            primerHdistField.widthAnchor.constraint(equalToConstant: 44),
         ])
     }
 
@@ -1220,6 +1266,11 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
 
     private func refreshPrimerTrimControls() {
         let configuration = primerTrimConfiguration ?? FASTQPrimerTrimConfiguration(source: .literal)
+
+        // Tool selector
+        primerToolPopup.selectItem(at: configuration.tool == .bbduk ? 1 : 0)
+        let isBBDuk = configuration.tool == .bbduk
+
         primerSourcePopup.selectItem(at: configuration.source == .reference ? 1 : 0)
         primerReadModePopup.selectItem(at: configuration.readMode == .paired ? 1 : 0)
         switch configuration.mode {
@@ -1244,6 +1295,12 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         case .first: primerPairFilterPopup.selectItem(at: 2)
         }
 
+        // BBDuk-specific controls
+        primerKtrimPopup.selectItem(at: configuration.ktrimDirection == .right ? 1 : 0)
+        primerKmerField.stringValue = "\(configuration.kmerSize)"
+        primerMinKmerField.stringValue = "\(configuration.minKmer)"
+        primerHdistField.stringValue = "\(configuration.hammingDistance)"
+
         let isReference = configuration.source == .reference
         primerReferenceLabel.isHidden = !isReference
         primerReferenceField.isHidden = !isReference
@@ -1256,9 +1313,37 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         primerPairFilterLabel.isHidden = !isPaired
         primerPairFilterPopup.isHidden = !isPaired
         primerRevcompCheckbox.isHidden = isPaired
+
+        // Show/hide tool-specific controls
+        // cutadapt-specific: mode, overlap, error, anchored, indels, read mode, pair filter, revcomp
+        primerReadModeLabel.isHidden = isBBDuk
+        primerReadModePopup.isHidden = isBBDuk
+        primerModeLabel.isHidden = isBBDuk
+        primerModePopup.isHidden = isBBDuk
+        primerOverlapLabel.isHidden = isBBDuk
+        primerOverlapField.isHidden = isBBDuk
+        primerErrorLabel.isHidden = isBBDuk
+        primerErrorField.isHidden = isBBDuk
+        primerAnchored5Checkbox.isHidden = isBBDuk
+        primerAnchored3Checkbox.isHidden = isBBDuk
+        primerAllowIndelsCheckbox.isHidden = isBBDuk
+        primerKeepUntrimmedCheckbox.isHidden = isBBDuk
+        if isBBDuk { primerRevcompCheckbox.isHidden = true }
+        if isBBDuk { primerPairFilterLabel.isHidden = true; primerPairFilterPopup.isHidden = true }
+
+        // bbduk-specific: ktrim direction, kmer size, mink, hdist
+        primerKtrimLabel.isHidden = !isBBDuk
+        primerKtrimPopup.isHidden = !isBBDuk
+        primerKmerLabel.isHidden = !isBBDuk
+        primerKmerField.isHidden = !isBBDuk
+        primerMinKmerLabel.isHidden = !isBBDuk
+        primerMinKmerField.isHidden = !isBBDuk
+        primerHdistLabel.isHidden = !isBBDuk
+        primerHdistField.isHidden = !isBBDuk
     }
 
     @objc private func primerTrimControlChanged(_ sender: Any) {
+        let tool: FASTQPrimerTool = primerToolPopup.indexOfSelectedItem == 1 ? .bbduk : .cutadapt
         let source: FASTQPrimerSource = primerSourcePopup.indexOfSelectedItem == 1 ? .reference : .literal
         let readMode: FASTQPrimerReadMode = primerReadModePopup.indexOfSelectedItem == 1 ? .paired : .single
         let mode: FASTQPrimerTrimMode
@@ -1274,6 +1359,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         case 2: pairFilter = .first
         default: pairFilter = .any
         }
+        let ktrimDirection: FASTQKtrimDirection = primerKtrimPopup.indexOfSelectedItem == 1 ? .right : .left
         primerTrimConfiguration = FASTQPrimerTrimConfiguration(
             source: source,
             readMode: readMode,
@@ -1288,7 +1374,12 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             allowIndels: primerAllowIndelsCheckbox.state == .on,
             keepUntrimmed: primerKeepUntrimmedCheckbox.state == .on,
             searchReverseComplement: primerRevcompCheckbox.state == .on,
-            pairFilter: pairFilter
+            pairFilter: pairFilter,
+            tool: tool,
+            ktrimDirection: ktrimDirection,
+            kmerSize: Int(primerKmerField.stringValue) ?? 15,
+            minKmer: Int(primerMinKmerField.stringValue) ?? 11,
+            hammingDistance: Int(primerHdistField.stringValue) ?? 1
         )
         refreshPrimerTrimControls()
         statusLabel.stringValue = "Updated primer trimming configuration."

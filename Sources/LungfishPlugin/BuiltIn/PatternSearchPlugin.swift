@@ -5,6 +5,7 @@
 // Owner: File Format Expert (Role 06)
 
 import Foundation
+import LungfishCore
 
 // MARK: - Pattern Search Plugin
 
@@ -235,12 +236,6 @@ public struct PatternSearchPlugin: AnnotationGeneratorPlugin {
     }
 
     private func reverseComplement(_ sequence: String) -> String {
-        let complementMap: [Character: Character] = [
-            "A": "T", "T": "A", "U": "A", "C": "G", "G": "C",
-            "R": "Y", "Y": "R", "S": "S", "W": "W",
-            "K": "M", "M": "K", "B": "V", "V": "B",
-            "D": "H", "H": "D", "N": "N"
-        ]
-        return String(sequence.reversed().map { complementMap[$0] ?? $0 })
+        TranslationEngine.reverseComplement(sequence)
     }
 }

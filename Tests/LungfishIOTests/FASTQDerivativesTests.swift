@@ -1646,4 +1646,280 @@ final class FASTQDerivativesTests: XCTestCase {
         XCTAssertEqual(r1.mate, 1)
         XCTAssertEqual(r2.mate, 2)
     }
+
+    // MARK: - BBDuk Primer Trimming Enums & Configuration
+
+    func testPrimerToolEnumRoundTrips() {
+        XCTAssertEqual(FASTQPrimerTool.cutadapt.rawValue, "cutadapt")
+        XCTAssertEqual(FASTQPrimerTool.bbduk.rawValue, "bbduk")
+        XCTAssertEqual(FASTQPrimerTool(rawValue: "cutadapt"), .cutadapt)
+        XCTAssertEqual(FASTQPrimerTool(rawValue: "bbduk"), .bbduk)
+    }
+
+    func testKtrimDirectionEnumRoundTrips() {
+        XCTAssertEqual(FASTQKtrimDirection.left.rawValue, "left")
+        XCTAssertEqual(FASTQKtrimDirection.right.rawValue, "right")
+        XCTAssertEqual(FASTQKtrimDirection(rawValue: "left"), .left)
+        XCTAssertEqual(FASTQKtrimDirection(rawValue: "right"), .right)
+    }
+
+    func testAdapterSearchEndEnum() {
+        XCTAssertEqual(FASTQAdapterSearchEnd.fivePrime.rawValue, "fivePrime")
+        XCTAssertEqual(FASTQAdapterSearchEnd.threePrime.rawValue, "threePrime")
+    }
+
+    func testPrimerTrimConfigurationWithBBDukDefaults() {
+        let config = FASTQPrimerTrimConfiguration(
+            source: .reference,
+            referenceFasta: "primers.fasta",
+            tool: .bbduk
+        )
+        XCTAssertEqual(config.tool, .bbduk)
+        XCTAssertEqual(config.ktrimDirection, .left)
+        XCTAssertEqual(config.kmerSize, 15)
+        XCTAssertEqual(config.minKmer, 11)
+        XCTAssertEqual(config.hammingDistance, 1)
+        XCTAssertTrue(config.searchReverseComplement)
+    }
+
+    func testPrimerTrimConfigurationWithBBDukCustom() {
+        let config = FASTQPrimerTrimConfiguration(
+            source: .reference,
+            referenceFasta: "primers.fasta",
+            searchReverseComplement: true,
+            tool: .bbduk,
+            ktrimDirection: .right,
+            kmerSize: 17,
+            minKmer: 13,
+            hammingDistance: 2
+        )
+        XCTAssertEqual(config.tool, .bbduk)
+        XCTAssertEqual(config.ktrimDirection, .right)
+        XCTAssertEqual(config.kmerSize, 17)
+        XCTAssertEqual(config.minKmer, 13)
+        XCTAssertEqual(config.hammingDistance, 2)
+    }
+
+    func testPrimerTrimConfigurationDefaultsToCutadapt() {
+        let config = FASTQPrimerTrimConfiguration(source: .literal, forwardSequence: "ATCG")
+        XCTAssertEqual(config.tool, .cutadapt)
+    }
+
+    func testPrimerTrimConfigurationCodable() throws {
+        let config = FASTQPrimerTrimConfiguration(
+            source: .reference,
+            referenceFasta: "primers.fasta",
+            tool: .bbduk,
+            ktrimDirection: .right,
+            kmerSize: 15,
+            minKmer: 11,
+            hammingDistance: 1
+        )
+
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(config)
+        let decoder = JSONDecoder()
+        let decoded = try decoder.decode(FASTQPrimerTrimConfiguration.self, from: data)
+
+        XCTAssertEqual(decoded.tool, .bbduk)
+        XCTAssertEqual(decoded.ktrimDirection, .right)
+        XCTAssertEqual(decoded.kmerSize, 15)
+        XCTAssertEqual(decoded.minKmer, 11)
+        XCTAssertEqual(decoded.hammingDistance, 1)
+        XCTAssertEqual(decoded.source, .reference)
+        XCTAssertEqual(decoded.referenceFasta, "primers.fasta")
+    }
+
+    // MARK: - BBDuk Primer Removal Operation Labels
+
+    func testBBDukPrimerRemovalLabels() {
+        let op = FASTQDerivativeOperation(
+            kind: .primerRemoval,
+            primerSource: .reference,
+            primerReferenceFasta: "primers.fa",
+            primerKmerSize: 15,
+            primerTrimMode: .fivePrime,
+            primerTool: .bbduk,
+            primerKtrimDirection: .left,
+            toolUsed: "bbduk"
+        )
+        XCTAssertTrue(op.displaySummary.contains("bbduk"), op.displaySummary)
+        XCTAssertTrue(op.displaySummary.contains("5'"), op.displaySummary)
+        XCTAssertTrue(op.displaySummary.contains("k=15"), op.displaySummary)
+    }
+
+    func testBBDukPrimerRemovalThreePrimeLabels() {
+        let op = FASTQDerivativeOperation(
+            kind: .primerRemoval,
+            primerSource: .reference,
+            primerReferenceFasta: "primers.fa",
+            primerKmerSize: 17,
+            primerTrimMode: .threePrime,
+            primerTool: .bbduk,
+            primerKtrimDirection: .right,
+            toolUsed: "bbduk"
+        )
+        XCTAssertTrue(op.displaySummary.contains("3'"), op.displaySummary)
+        XCTAssertTrue(op.displaySummary.contains("k=17"), op.displaySummary)
+    }
+
+    func testCutadaptPrimerRemovalStillWorks() {
+        let op = FASTQDerivativeOperation(
+            kind: .primerRemoval,
+            primerSource: .literal,
+            primerTrimMode: .linked,
+            primerForwardSequence: "ATCGATCGATCGATCG",
+            primerMinimumOverlap: 12,
+            primerTool: .cutadapt,
+            toolUsed: "cutadapt"
+        )
+        XCTAssertTrue(op.displaySummary.contains("cutadapt"), op.displaySummary)
+        XCTAssertTrue(op.displaySummary.contains("linked"), op.displaySummary)
+    }
+
+    // MARK: - Adapter Presence Filter
+
+    func testAdapterPresenceFilterIsSubsetOperation() {
+        XCTAssertTrue(FASTQDerivativeOperationKind.sequencePresenceFilter.isSubsetOperation)
+        XCTAssertFalse(FASTQDerivativeOperationKind.sequencePresenceFilter.isFullOperation)
+        XCTAssertTrue(FASTQDerivativeOperationKind.sequencePresenceFilter.supportsFASTA)
+    }
+
+    func testAdapterPresenceFilterLabels() {
+        let keepOp = FASTQDerivativeOperation(
+            kind: .sequencePresenceFilter,
+            adapterFilterSequence: "AGATCGGAAGAGC",
+            adapterFilterSearchEnd: .fivePrime,
+            adapterFilterMinOverlap: 16,
+            adapterFilterErrorRate: 0.15,
+            adapterFilterKeepMatched: true
+        )
+        XCTAssertTrue(keepOp.displaySummary.contains("Keep"), keepOp.displaySummary)
+        XCTAssertTrue(keepOp.displaySummary.contains("5'"), keepOp.displaySummary)
+        XCTAssertTrue(keepOp.displaySummary.contains("AGATCGGAAGAGC"), keepOp.displaySummary)
+        XCTAssertTrue(keepOp.shortLabel.contains("keep"), keepOp.shortLabel)
+
+        let discardOp = FASTQDerivativeOperation(
+            kind: .sequencePresenceFilter,
+            adapterFilterSequence: "AGATCGGAAGAGC",
+            adapterFilterSearchEnd: .threePrime,
+            adapterFilterKeepMatched: false
+        )
+        XCTAssertTrue(discardOp.displaySummary.contains("Discard"), discardOp.displaySummary)
+        XCTAssertTrue(discardOp.displaySummary.contains("3'"), discardOp.displaySummary)
+        XCTAssertTrue(discardOp.shortLabel.contains("discard"), discardOp.shortLabel)
+    }
+
+    func testAdapterPresenceFilterMethodsSentence() {
+        let op = FASTQDerivativeOperation(
+            kind: .sequencePresenceFilter,
+            adapterFilterSequence: "ATCGATCG",
+            adapterFilterSearchEnd: .fivePrime,
+            adapterFilterMinOverlap: 16,
+            adapterFilterKeepMatched: true,
+            toolUsed: "cutadapt",
+            toolVersion: "4.4"
+        )
+        let sentence = op.methodsSentence
+        XCTAssertTrue(sentence.contains("cutadapt v4.4"), sentence)
+        XCTAssertTrue(sentence.contains("5'"), sentence)
+        XCTAssertTrue(sentence.contains("retained"), sentence)
+        XCTAssertTrue(sentence.contains("16 bp"), sentence)
+    }
+
+    func testAdapterPresenceFilterRoundTrip() throws {
+        let (tempDir, bundleURL) = try makeTempBundle()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let op = FASTQDerivativeOperation(
+            kind: .sequencePresenceFilter,
+            adapterFilterSequence: "AGATCGGAAGAGC",
+            adapterFilterFastaPath: nil,
+            adapterFilterSearchEnd: .fivePrime,
+            adapterFilterMinOverlap: 16,
+            adapterFilterErrorRate: 0.15,
+            adapterFilterKeepMatched: true,
+            toolUsed: "cutadapt",
+            toolCommand: "cutadapt -e 0.15 --overlap 16 --action none --discard-untrimmed -g AGATCGGAAGAGC"
+        )
+        let manifest = FASTQDerivedBundleManifest(
+            name: "adapter-filtered",
+            parentBundleRelativePath: "../root.lungfishfastq",
+            rootBundleRelativePath: "../root.lungfishfastq",
+            rootFASTQFilename: "reads.fastq",
+            payload: .subset(readIDListFilename: "read-ids.txt"),
+            lineage: [op],
+            operation: op,
+            cachedStatistics: .empty,
+            pairingMode: nil
+        )
+
+        try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
+        let loaded = FASTQBundle.loadDerivedManifest(in: bundleURL)
+
+        XCTAssertNotNil(loaded)
+        XCTAssertEqual(loaded?.operation.kind, .sequencePresenceFilter)
+        XCTAssertEqual(loaded?.operation.adapterFilterSequence, "AGATCGGAAGAGC")
+        XCTAssertEqual(loaded?.operation.adapterFilterSearchEnd, .fivePrime)
+        XCTAssertEqual(loaded?.operation.adapterFilterMinOverlap, 16)
+        XCTAssertEqual(loaded?.operation.adapterFilterErrorRate, 0.15)
+        XCTAssertEqual(loaded?.operation.adapterFilterKeepMatched, true)
+        XCTAssertEqual(loaded?.operation.toolUsed, "cutadapt")
+    }
+
+    // MARK: - OperationChain with sequencePresenceFilter
+
+    func testAdapterPresenceFilterOperationContract() {
+        let input = OperationContract.input(for: .sequencePresenceFilter)
+        XCTAssertTrue(input.acceptedFormats.contains(.fastq))
+        XCTAssertTrue(input.acceptedFormats.contains(.fasta))
+        XCTAssertNil(input.requiredPairing)
+    }
+
+    // MARK: - BBDuk primer removal with new fields round-trips
+
+    func testBBDukPrimerRemovalRoundTrip() throws {
+        let (tempDir, bundleURL) = try makeTempBundle()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let op = FASTQDerivativeOperation(
+            kind: .primerRemoval,
+            primerSource: .reference,
+            primerReferenceFasta: "primers.fasta",
+            primerKmerSize: 15,
+            primerMinKmer: 11,
+            primerHammingDistance: 1,
+            primerTrimMode: .fivePrime,
+            primerSearchReverseComplement: true,
+            primerTool: .bbduk,
+            primerKtrimDirection: .left,
+            toolUsed: "bbduk",
+            toolCommand: "bbduk.sh in=reads.fq out=trimmed.fq ref=primers.fasta k=15 mink=11 hdist=1 ktrim=l rcomp=t"
+        )
+
+        let manifest = FASTQDerivedBundleManifest(
+            name: "primer-trimmed",
+            parentBundleRelativePath: "../root.lungfishfastq",
+            rootBundleRelativePath: "../root.lungfishfastq",
+            rootFASTQFilename: "reads.fastq",
+            payload: .trim(trimPositionFilename: "trim-positions.tsv"),
+            lineage: [op],
+            operation: op,
+            cachedStatistics: .empty,
+            pairingMode: nil
+        )
+
+        try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
+        let loaded = FASTQBundle.loadDerivedManifest(in: bundleURL)
+
+        XCTAssertNotNil(loaded)
+        XCTAssertEqual(loaded?.operation.kind, .primerRemoval)
+        XCTAssertEqual(loaded?.operation.primerTool, .bbduk)
+        XCTAssertEqual(loaded?.operation.primerKtrimDirection, .left)
+        XCTAssertEqual(loaded?.operation.primerKmerSize, 15)
+        XCTAssertEqual(loaded?.operation.primerMinKmer, 11)
+        XCTAssertEqual(loaded?.operation.primerHammingDistance, 1)
+        XCTAssertEqual(loaded?.operation.primerSearchReverseComplement, true)
+        XCTAssertEqual(loaded?.operation.toolUsed, "bbduk")
+    }
 }

@@ -226,12 +226,7 @@ public struct ORFFinderPlugin: AnnotationGeneratorPlugin {
     }
 
     private func reverseComplement(_ sequence: String) -> String {
-        let complementMap: [Character: Character] = [
-            "A": "T", "T": "A", "C": "G", "G": "C",
-            "a": "t", "t": "a", "c": "g", "g": "c",
-            "N": "N", "n": "n"
-        ]
-        return String(sequence.reversed().map { complementMap[$0] ?? $0 })
+        TranslationEngine.reverseComplement(sequence)
     }
 }
 

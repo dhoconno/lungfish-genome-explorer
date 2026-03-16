@@ -5,6 +5,7 @@
 // Owner: File Format Expert (Role 06)
 
 import Foundation
+import LungfishCore
 
 /// Writer for FASTQ format files.
 ///
@@ -328,13 +329,7 @@ extension FASTQRecord {
     ///
     /// - Returns: Reverse complemented record
     public func reverseComplement() -> FASTQRecord {
-        let complementMap: [Character: Character] = [
-            "A": "T", "T": "A", "G": "C", "C": "G",
-            "a": "t", "t": "a", "g": "c", "c": "g",
-            "N": "N", "n": "n"
-        ]
-
-        let rcSequence = String(sequence.reversed().map { complementMap[$0] ?? $0 })
+        let rcSequence = TranslationEngine.reverseComplement(sequence)
         let rcQuality = QualityScore(
             values: quality.reversed(),
             encoding: quality.encoding

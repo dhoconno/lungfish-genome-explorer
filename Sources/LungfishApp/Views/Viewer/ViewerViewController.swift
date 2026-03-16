@@ -8174,28 +8174,12 @@ public class SequenceViewerView: NSView {
 
     /// Returns the complement of a DNA string.
     private func complementString(_ s: String) -> String {
-        String(s.map { base -> Character in
-            switch base.uppercased() {
-            case "A": return "T"
-            case "T": return "A"
-            case "G": return "C"
-            case "C": return "G"
-            default: return base
-            }
-        })
+        String(TranslationEngine.reverseComplement(String(s.reversed())))
     }
 
     /// Returns the reverse complement of a DNA string.
     private func reverseComplementString(_ s: String) -> String {
-        String(s.reversed().map { base -> Character in
-            switch base.uppercased() {
-            case "A": return "T"
-            case "T": return "A"
-            case "G": return "C"
-            case "C": return "G"
-            default: return base
-            }
-        })
+        TranslationEngine.reverseComplement(s)
     }
 
     /// Fetches the full sequence bases for an annotation, handling multi-block and bundle-backed sequences.

@@ -41,6 +41,30 @@ public enum FASTQPrimerSource: String, Codable, Sendable, CaseIterable {
     case reference
 }
 
+/// Which tool backend to use for primer removal.
+public enum FASTQPrimerTool: String, Codable, Sendable, CaseIterable {
+    /// cutadapt: semi-global alignment-based trimming (default).
+    case cutadapt
+    /// bbduk: k-mer based trimming (faster, better for known primer FASTA).
+    case bbduk
+}
+
+/// BBDuk k-mer trim direction (ktrim parameter).
+public enum FASTQKtrimDirection: String, Codable, Sendable, CaseIterable {
+    /// Trim everything to the left of the matching k-mer (5' trim).
+    case left
+    /// Trim everything to the right of the matching k-mer (3' trim).
+    case right
+}
+
+/// Which end to search for an adapter sequence (for adapter presence filtering).
+public enum FASTQAdapterSearchEnd: String, Codable, Sendable, CaseIterable {
+    /// Search at the 5' end of reads (-g).
+    case fivePrime
+    /// Search at the 3' end of reads (-a).
+    case threePrime
+}
+
 public enum FASTQPrimerTrimMode: String, Codable, Sendable, CaseIterable {
     case fivePrime
     case threePrime
@@ -75,6 +99,19 @@ public struct FASTQPrimerTrimConfiguration: Codable, Sendable, Equatable {
     public let searchReverseComplement: Bool
     public let pairFilter: FASTQPrimerPairFilter
 
+    /// Which tool backend to use (cutadapt or bbduk). Defaults to .cutadapt.
+    public let tool: FASTQPrimerTool
+
+    // BBDuk-specific parameters (used when tool == .bbduk)
+    /// BBDuk ktrim direction: left = trim 5' end, right = trim 3' end.
+    public let ktrimDirection: FASTQKtrimDirection
+    /// BBDuk k-mer size for matching (default 15).
+    public let kmerSize: Int
+    /// BBDuk minimum k-mer length for end-of-read matches (default 11).
+    public let minKmer: Int
+    /// BBDuk Hamming distance tolerance (default 1).
+    public let hammingDistance: Int
+
     public init(
         source: FASTQPrimerSource,
         readMode: FASTQPrimerReadMode = .single,
@@ -89,7 +126,12 @@ public struct FASTQPrimerTrimConfiguration: Codable, Sendable, Equatable {
         allowIndels: Bool = true,
         keepUntrimmed: Bool = false,
         searchReverseComplement: Bool = true,
-        pairFilter: FASTQPrimerPairFilter = .any
+        pairFilter: FASTQPrimerPairFilter = .any,
+        tool: FASTQPrimerTool = .cutadapt,
+        ktrimDirection: FASTQKtrimDirection = .left,
+        kmerSize: Int = 15,
+        minKmer: Int = 11,
+        hammingDistance: Int = 1
     ) {
         self.source = source
         self.readMode = readMode
@@ -105,6 +147,11 @@ public struct FASTQPrimerTrimConfiguration: Codable, Sendable, Equatable {
         self.keepUntrimmed = keepUntrimmed
         self.searchReverseComplement = searchReverseComplement
         self.pairFilter = pairFilter
+        self.tool = tool
+        self.ktrimDirection = ktrimDirection
+        self.kmerSize = kmerSize
+        self.minKmer = minKmer
+        self.hammingDistance = hammingDistance
     }
 }
 
@@ -221,6 +268,9 @@ public enum FASTQDerivativeOperationKind: String, Codable, Sendable, CaseIterabl
     // Demultiplexing
     case demultiplex
 
+    // Adapter presence filtering (keep/discard reads by adapter match, no trimming)
+    case sequencePresenceFilter
+
     // Orientation
     case orient
 
@@ -228,7 +278,8 @@ public enum FASTQDerivativeOperationKind: String, Codable, Sendable, CaseIterabl
     public var isSubsetOperation: Bool {
         switch self {
         case .subsampleProportion, .subsampleCount, .lengthFilter,
-             .searchText, .searchMotif, .deduplicate, .contaminantFilter:
+             .searchText, .searchMotif, .deduplicate, .contaminantFilter,
+             .sequencePresenceFilter:
             return true
         case .qualityTrim, .adapterTrim, .fixedTrim, .primerRemoval:
             return false
@@ -260,7 +311,7 @@ public enum FASTQDerivativeOperationKind: String, Codable, Sendable, CaseIterabl
         switch self {
         case .subsampleProportion, .subsampleCount, .lengthFilter,
              .searchText, .searchMotif, .deduplicate, .fixedTrim,
-             .orient, .contaminantFilter:
+             .orient, .contaminantFilter, .sequencePresenceFilter:
             return true
         case .qualityTrim, .adapterTrim, .pairedEndMerge,
              .pairedEndRepair, .primerRemoval, .errorCorrection,
@@ -332,6 +383,29 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
     public var primerKeepUntrimmed: Bool?
     public var primerSearchReverseComplement: Bool?
     public var primerPairFilter: FASTQPrimerPairFilter?
+
+    /// Which tool backend was used for primer removal (cutadapt or bbduk).
+    public var primerTool: FASTQPrimerTool?
+
+    /// BBDuk ktrim direction when primerTool == .bbduk.
+    public var primerKtrimDirection: FASTQKtrimDirection?
+
+    // Adapter presence filter parameters
+    /// Adapter/barcode sequence to search for (literal nucleotide string).
+    public var adapterFilterSequence: String?
+    /// FASTA file containing adapter sequences to search for.
+    public var adapterFilterFastaPath: String?
+    /// Which end to search for the adapter.
+    public var adapterFilterSearchEnd: FASTQAdapterSearchEnd?
+    /// Minimum overlap for adapter matching (cutadapt --overlap).
+    public var adapterFilterMinOverlap: Int?
+    /// Maximum error rate for adapter matching (cutadapt -e).
+    public var adapterFilterErrorRate: Double?
+    /// Whether to keep reads that match (true) or discard them (false).
+    /// Default true: keep reads containing the adapter (like ONT barcode filtering).
+    public var adapterFilterKeepMatched: Bool?
+    /// Whether to also search for the reverse complement of the adapter sequence.
+    public var adapterFilterSearchReverseComplement: Bool?
 
     // Error correction parameters
     public var errorCorrectionKmerSize: Int?
@@ -416,6 +490,15 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
         primerKeepUntrimmed: Bool? = nil,
         primerSearchReverseComplement: Bool? = nil,
         primerPairFilter: FASTQPrimerPairFilter? = nil,
+        primerTool: FASTQPrimerTool? = nil,
+        primerKtrimDirection: FASTQKtrimDirection? = nil,
+        adapterFilterSequence: String? = nil,
+        adapterFilterFastaPath: String? = nil,
+        adapterFilterSearchEnd: FASTQAdapterSearchEnd? = nil,
+        adapterFilterMinOverlap: Int? = nil,
+        adapterFilterErrorRate: Double? = nil,
+        adapterFilterKeepMatched: Bool? = nil,
+        adapterFilterSearchReverseComplement: Bool? = nil,
         errorCorrectionKmerSize: Int? = nil,
         interleaveDirection: FASTQInterleaveDirection? = nil,
         barcodeID: String? = nil,
@@ -476,6 +559,15 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
         self.primerKeepUntrimmed = primerKeepUntrimmed
         self.primerSearchReverseComplement = primerSearchReverseComplement
         self.primerPairFilter = primerPairFilter
+        self.primerTool = primerTool
+        self.primerKtrimDirection = primerKtrimDirection
+        self.adapterFilterSequence = adapterFilterSequence
+        self.adapterFilterFastaPath = adapterFilterFastaPath
+        self.adapterFilterSearchEnd = adapterFilterSearchEnd
+        self.adapterFilterMinOverlap = adapterFilterMinOverlap
+        self.adapterFilterErrorRate = adapterFilterErrorRate
+        self.adapterFilterKeepMatched = adapterFilterKeepMatched
+        self.adapterFilterSearchReverseComplement = adapterFilterSearchReverseComplement
         self.errorCorrectionKmerSize = errorCorrectionKmerSize
         self.interleaveDirection = interleaveDirection
         self.barcodeID = barcodeID
@@ -543,6 +635,10 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
         case .interleaveReformat:
             let dir = interleaveDirection ?? .interleave
             return "\(dir.rawValue)"
+        case .sequencePresenceFilter:
+            let end = adapterFilterSearchEnd ?? .fivePrime
+            let keep = adapterFilterKeepMatched ?? true
+            return "adapter-filter-\(end.rawValue)-\(keep ? "keep" : "discard")"
         case .demultiplex:
             if let barcodeID {
                 return "demux-\(barcodeID)"
@@ -619,17 +715,30 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
         case .pairedEndRepair:
             return "PE read repair"
         case .primerRemoval:
+            let tool = primerTool ?? .cutadapt
             let src = primerSource ?? .literal
             let mode = primerTrimMode ?? .fivePrime
-            let overlap = primerMinimumOverlap ?? 12
-            switch src {
-            case .literal:
-                let seq = primerForwardSequence ?? primerLiteralSequence ?? ""
-                let preview = seq.prefix(20)
-                return "Primer trim (\(mode.rawValue), literal: \(preview)\(seq.count > 20 ? "…" : ""), ov=\(overlap))"
-            case .reference:
-                let ref = primerReferenceFasta ?? "reference"
-                return "Primer trim (\(mode.rawValue), ref: \(ref), ov=\(overlap))"
+            let toolLabel = tool == .bbduk ? "bbduk" : "cutadapt"
+            switch tool {
+            case .bbduk:
+                let dir = primerKtrimDirection ?? .left
+                let k = primerKmerSize ?? 15
+                let dirLabel = dir == .left ? "5'" : "3'"
+                if let ref = primerReferenceFasta {
+                    return "Primer trim \(dirLabel) via bbduk (ref: \(ref), k=\(k))"
+                }
+                return "Primer trim \(dirLabel) via bbduk (k=\(k))"
+            case .cutadapt:
+                let overlap = primerMinimumOverlap ?? 12
+                switch src {
+                case .literal:
+                    let seq = primerForwardSequence ?? primerLiteralSequence ?? ""
+                    let preview = seq.prefix(20)
+                    return "Primer trim (\(mode.rawValue), literal: \(preview)\(seq.count > 20 ? "…" : ""), ov=\(overlap)) via \(toolLabel)"
+                case .reference:
+                    let ref = primerReferenceFasta ?? "reference"
+                    return "Primer trim (\(mode.rawValue), ref: \(ref), ov=\(overlap)) via \(toolLabel)"
+                }
             }
         case .errorCorrection:
             let k = errorCorrectionKmerSize ?? 50
@@ -642,6 +751,18 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
             case .deinterleave:
                 return "Deinterleave to R1/R2"
             }
+        case .sequencePresenceFilter:
+            let end = adapterFilterSearchEnd ?? .fivePrime
+            let keep = adapterFilterKeepMatched ?? true
+            let searchRC = adapterFilterSearchReverseComplement ?? false
+            let endLabel = end == .fivePrime ? "5'" : "3'"
+            let action = keep ? "Keep" : "Discard"
+            let rcSuffix = searchRC ? " +RC" : ""
+            if let seq = adapterFilterSequence {
+                let preview = seq.prefix(20)
+                return "\(action) reads matching \(endLabel) sequence (\(preview)\(seq.count > 20 ? "..." : "")\(rcSuffix))"
+            }
+            return "\(action) reads matching \(endLabel) sequence\(rcSuffix)"
         case .demultiplex:
             if let barcodeID {
                 let label = sampleName ?? barcodeID
@@ -1386,6 +1507,16 @@ extension FASTQDerivativeOperation {
         case .interleaveReformat:
             let dir = interleaveDirection ?? .interleave
             return "Reads were reformatted\(tool) (\(dir.rawValue))."
+
+        case .sequencePresenceFilter:
+            let end = adapterFilterSearchEnd ?? .fivePrime
+            let keep = adapterFilterKeepMatched ?? true
+            let searchRC = adapterFilterSearchReverseComplement ?? false
+            let endLabel = end == .fivePrime ? "5'" : "3'"
+            let action = keep ? "retained" : "removed"
+            let overlap = adapterFilterMinOverlap ?? 16
+            let rcNote = searchRC ? ", including reverse complement" : ""
+            return "Reads were filtered\(tool) by \(endLabel) sequence presence (minimum overlap \(overlap) bp\(rcNote), matching reads \(action))."
         }
     }
 }

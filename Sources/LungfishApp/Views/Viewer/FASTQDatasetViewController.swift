@@ -110,6 +110,7 @@ public final class FASTQDatasetViewController: NSViewController {
         case pairedEndMerge
         case pairedEndRepair
         case primerRemoval
+        case sequencePresenceFilter
         case errorCorrection
         case orient
         case demultiplex
@@ -130,6 +131,7 @@ public final class FASTQDatasetViewController: NSViewController {
             case .pairedEndMerge: return "Merge Overlapping Pairs"
             case .pairedEndRepair: return "Repair Paired Reads"
             case .primerRemoval: return "PCR Primer Trimming"
+            case .sequencePresenceFilter: return "Filter by Sequence Presence"
             case .errorCorrection: return "Error Correction"
             case .orient: return "Orient Reads"
             case .demultiplex: return "Demultiplex (Barcodes)"
@@ -152,6 +154,7 @@ public final class FASTQDatasetViewController: NSViewController {
             case .pairedEndMerge: return "arrow.triangle.merge"
             case .pairedEndRepair: return "wrench.and.screwdriver"
             case .primerRemoval: return "xmark.seal"
+            case .sequencePresenceFilter: return "line.3.horizontal.decrease.circle"
             case .errorCorrection: return "wand.and.stars"
             case .orient: return "arrow.left.arrow.right"
             case .demultiplex: return "barcode"
@@ -163,7 +166,7 @@ public final class FASTQDatasetViewController: NSViewController {
             case .qualityReport: return "REPORTS"
             case .subsampleProportion, .subsampleCount: return "SAMPLING"
             case .qualityTrim, .adapterTrim, .fixedTrim, .primerRemoval: return "TRIMMING"
-            case .lengthFilter, .contaminantFilter, .deduplicate: return "FILTERING"
+            case .lengthFilter, .contaminantFilter, .deduplicate, .sequencePresenceFilter: return "FILTERING"
             case .errorCorrection: return "CORRECTION"
             case .pairedEndMerge, .pairedEndRepair: return "REFORMATTING"
             case .searchText, .searchMotif: return "SEARCH"
@@ -188,6 +191,7 @@ public final class FASTQDatasetViewController: NSViewController {
             case .pairedEndMerge: return .pairedEndMerge
             case .pairedEndRepair: return .pairedEndRepair
             case .primerRemoval: return .primerRemoval
+            case .sequencePresenceFilter: return .sequencePresenceFilter
             case .errorCorrection: return .errorCorrection
             case .orient: return .orient
             case .demultiplex: return .demultiplex
@@ -202,7 +206,7 @@ public final class FASTQDatasetViewController: NSViewController {
         ("REPORTS", [.qualityReport]),
         ("SAMPLING", [.subsampleProportion, .subsampleCount]),
         ("TRIMMING", [.qualityTrim, .adapterTrim, .fixedTrim, .primerRemoval]),
-        ("FILTERING", [.lengthFilter, .contaminantFilter, .deduplicate]),
+        ("FILTERING", [.lengthFilter, .contaminantFilter, .deduplicate, .sequencePresenceFilter]),
         ("CORRECTION", [.errorCorrection]),
         ("PREPROCESSING", [.orient]),
         ("DEMULTIPLEXING", [.demultiplex]),
@@ -1002,6 +1006,38 @@ public final class FASTQDatasetViewController: NSViewController {
             status.textColor = .secondaryLabelColor
             parameterBar.addArrangedSubview(status)
             parameterBar.addArrangedSubview(primerTrimDrawerButton)
+
+        case .sequencePresenceFilter:
+            fieldOneLabel.stringValue = "Sequence:"
+            fieldOneInput.placeholderString = "AGATCGGAAGAGC or path to FASTA"
+            fieldOneInput.frame.size.width = 200
+            fieldTwoLabel.stringValue = "Min Overlap:"
+            fieldTwoInput.placeholderString = "16"
+            fieldTwoInput.stringValue = "16"
+            let searchEndPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+            searchEndPopup.controlSize = .small
+            searchEndPopup.translatesAutoresizingMaskIntoConstraints = false
+            searchEndPopup.addItems(withTitles: ["5' end", "3' end"])
+            let keepDiscardPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+            keepDiscardPopup.controlSize = .small
+            keepDiscardPopup.translatesAutoresizingMaskIntoConstraints = false
+            keepDiscardPopup.addItems(withTitles: ["Keep matched", "Discard matched"])
+            keepDiscardPopup.tag = 901
+            searchEndPopup.tag = 902
+            let rcCheckbox = NSButton(checkboxWithTitle: "Also search reverse complement", target: nil, action: nil)
+            rcCheckbox.controlSize = .small
+            rcCheckbox.tag = 903
+            let noteLabel = NSTextField(labelWithString: "Reads are not trimmed")
+            noteLabel.font = .systemFont(ofSize: 10)
+            noteLabel.textColor = .tertiaryLabelColor
+            parameterBar.addArrangedSubview(fieldOneLabel)
+            parameterBar.addArrangedSubview(fieldOneInput)
+            parameterBar.addArrangedSubview(searchEndPopup)
+            parameterBar.addArrangedSubview(keepDiscardPopup)
+            parameterBar.addArrangedSubview(fieldTwoLabel)
+            parameterBar.addArrangedSubview(fieldTwoInput)
+            parameterBar.addArrangedSubview(rcCheckbox)
+            parameterBar.addArrangedSubview(noteLabel)
 
         case .errorCorrection:
             fieldOneLabel.stringValue = "K-mer Size:"
@@ -1937,6 +1973,35 @@ public final class FASTQDatasetViewController: NSViewController {
             }
             return .primerRemoval(configuration: configuration)
 
+        case .sequencePresenceFilter:
+            let seqInput = fieldOneInput.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !seqInput.isEmpty else {
+                setStatus("Enter a sequence or path to a FASTA file.", isError: true)
+                return nil
+            }
+            let minOverlap = Int(fieldTwoInput.stringValue) ?? 16
+            guard minOverlap > 0 else {
+                setStatus("Minimum overlap must be > 0.", isError: true)
+                return nil
+            }
+            // Determine if input is a file path or literal sequence
+            let isFilePath = seqInput.contains("/") || seqInput.hasSuffix(".fasta") || seqInput.hasSuffix(".fa")
+            let searchEndPopup = parameterBar.subviews.first(where: { ($0 as? NSPopUpButton)?.tag == 902 }) as? NSPopUpButton
+            let keepDiscardPopup = parameterBar.subviews.first(where: { ($0 as? NSPopUpButton)?.tag == 901 }) as? NSPopUpButton
+            let rcCheckbox = parameterBar.subviews.first(where: { ($0 as? NSButton)?.tag == 903 }) as? NSButton
+            let searchEnd: FASTQAdapterSearchEnd = searchEndPopup?.indexOfSelectedItem == 1 ? .threePrime : .fivePrime
+            let keepMatched = keepDiscardPopup?.indexOfSelectedItem == 0
+            let searchRC = rcCheckbox?.state == .on
+            return .sequencePresenceFilter(
+                sequence: isFilePath ? nil : seqInput,
+                fastaPath: isFilePath ? seqInput : nil,
+                searchEnd: searchEnd,
+                minOverlap: minOverlap,
+                errorRate: 0.15,
+                keepMatched: keepMatched,
+                searchReverseComplement: searchRC
+            )
+
         case .errorCorrection:
             let kmerSize = Int(fieldOneInput.stringValue) ?? 50
             guard kmerSize > 0, kmerSize <= 62 else {
@@ -2031,6 +2096,12 @@ public final class FASTQDatasetViewController: NSViewController {
             let sampleCount = sampleAssignments?.count ?? 0
             let source = sampleCount > 0 ? ", \(sampleCount) sample-pairs" : ""
             return "Demultiplex (\(kitID), \(location), w5=\(maxDistanceFrom5Prime), w3=\(maxDistanceFrom3Prime), e=\(String(format: "%.2f", errorRate))\(source))"
+        case .sequencePresenceFilter(let sequence, _, let searchEnd, let minOverlap, let errorRate, let keepMatched, let searchRC):
+            let endLabel = searchEnd == .fivePrime ? "5'" : "3'"
+            let action = keepMatched ? "keep" : "discard"
+            let seq = sequence.map { String($0.prefix(20)) } ?? "FASTA"
+            let rcLabel = searchRC ? " +RC" : ""
+            return "Sequence filter (\(endLabel), \(action) matched, \(seq)\(rcLabel), ov=\(minOverlap), e=\(String(format: "%.2f", errorRate)))"
         case .orient(let referenceURL, let wordLength, let dbMask, _):
             return "Orient against \(referenceURL.lastPathComponent) (w=\(wordLength), mask=\(dbMask))"
         }

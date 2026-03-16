@@ -100,6 +100,7 @@ final class OperationPreviewView: NSView {
         case searchText
         case searchMotif
         case orient
+        case sequencePresenceFilter
         case demultiplex
         case qualityReport
         case none
@@ -310,6 +311,8 @@ final class OperationPreviewView: NSView {
             drawDemultiplexPreview(ctx: ctx, rect: rect)
         case .demultiplex:
             drawDemultiplexPreview(ctx: ctx, rect: rect)
+        case .sequencePresenceFilter:
+            drawContaminantFilterPreview(ctx: ctx, rect: rect)
         case .qualityReport:
             drawQualityReportPreview(ctx: ctx, rect: rect)
         case .none:

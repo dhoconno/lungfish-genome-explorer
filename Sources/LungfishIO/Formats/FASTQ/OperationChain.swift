@@ -103,6 +103,11 @@ public enum OperationContract {
                 acceptedFormats: [.fastq, .fasta],
                 requiredPairing: nil
             )
+        case .sequencePresenceFilter:
+            return OperationInput(
+                acceptedFormats: [.fastq, .fasta],
+                requiredPairing: nil
+            )
         }
     }
 

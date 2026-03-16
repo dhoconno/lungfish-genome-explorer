@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 /// Constant adapter sequences for all supported sequencing platforms.
 ///
@@ -160,21 +161,10 @@ public enum PlatformAdapters {
 
     // MARK: - Reverse Complement Helper
 
-    /// Computes the reverse complement of a DNA sequence.
+    /// Computes the reverse complement of a DNA/RNA sequence.
+    /// Delegates to TranslationEngine for full IUPAC ambiguity code support.
     public static func reverseComplement(_ sequence: String) -> String {
-        String(sequence.reversed().map { complement($0) })
-    }
-
-    /// Returns the complement of a single nucleotide.
-    private static func complement(_ base: Character) -> Character {
-        switch base {
-        case "A", "a": return "T"
-        case "T", "t": return "A"
-        case "C", "c": return "G"
-        case "G", "g": return "C"
-        case "N", "n": return "N"
-        default: return base
-        }
+        TranslationEngine.reverseComplement(sequence)
     }
 }
 

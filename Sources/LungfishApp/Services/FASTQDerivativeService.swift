@@ -28,6 +28,15 @@ public enum FASTQDerivativeRequest: Sendable {
     case pairedEndMerge(strictness: FASTQMergeStrictness, minOverlap: Int)
     case pairedEndRepair
     case primerRemoval(configuration: FASTQPrimerTrimConfiguration)
+    case sequencePresenceFilter(
+        sequence: String?,
+        fastaPath: String?,
+        searchEnd: FASTQAdapterSearchEnd,
+        minOverlap: Int,
+        errorRate: Double,
+        keepMatched: Bool,
+        searchReverseComplement: Bool
+    )
     case errorCorrection(kmerSize: Int)
     case interleaveReformat(direction: FASTQInterleaveDirection)
 
@@ -69,6 +78,7 @@ public enum FASTQDerivativeRequest: Sendable {
         case .pairedEndMerge: return "Paired-End Merge"
         case .pairedEndRepair: return "Paired-End Repair"
         case .primerRemoval: return "PCR Primer Trimming"
+        case .sequencePresenceFilter: return "Sequence Presence Filter"
         case .errorCorrection: return "Error Correction"
         case .interleaveReformat: return "Interleave Reformat"
         case .demultiplex: return "Demultiplex"
@@ -82,7 +92,8 @@ public enum FASTQDerivativeRequest: Sendable {
         case .qualityTrim, .adapterTrim, .fixedTrim, .primerRemoval:
             return true
         case .subsampleProportion, .subsampleCount, .lengthFilter,
-             .searchText, .searchMotif, .deduplicate, .contaminantFilter:
+             .searchText, .searchMotif, .deduplicate, .contaminantFilter,
+             .sequencePresenceFilter:
             return false
         case .pairedEndMerge, .pairedEndRepair,
              .errorCorrection, .interleaveReformat, .demultiplex,
@@ -159,6 +170,7 @@ public enum FASTQDerivativeRequest: Sendable {
         case .pairedEndMerge: return "pairedEndMerge"
         case .pairedEndRepair: return "pairedEndRepair"
         case .primerRemoval: return "primerRemoval"
+        case .sequencePresenceFilter: return "sequencePresenceFilter"
         case .errorCorrection: return "errorCorrection"
         case .interleaveReformat: return "interleaveReformat"
         case .demultiplex: return "demultiplex"
@@ -199,13 +211,29 @@ public enum FASTQDerivativeRequest: Sendable {
         case .pairedEndRepair:
             return [:]
         case .primerRemoval(let configuration):
-            return [
+            var params: [String: String] = [
                 "source": configuration.source.rawValue,
                 "readMode": configuration.readMode.rawValue,
                 "mode": configuration.mode.rawValue,
                 "minimumOverlap": "\(configuration.minimumOverlap)",
                 "errorRate": String(format: "%.2f", configuration.errorRate),
                 "keepUntrimmed": "\(configuration.keepUntrimmed)",
+                "tool": configuration.tool.rawValue,
+            ]
+            if configuration.tool == .bbduk {
+                params["ktrimDirection"] = configuration.ktrimDirection.rawValue
+                params["kmerSize"] = "\(configuration.kmerSize)"
+                params["minKmer"] = "\(configuration.minKmer)"
+                params["hammingDistance"] = "\(configuration.hammingDistance)"
+            }
+            return params
+        case .sequencePresenceFilter(_, _, let searchEnd, let minOverlap, let errorRate, let keepMatched, let searchRC):
+            return [
+                "searchEnd": searchEnd.rawValue,
+                "minOverlap": "\(minOverlap)",
+                "errorRate": String(format: "%.2f", errorRate),
+                "keepMatched": "\(keepMatched)",
+                "searchReverseComplement": "\(searchRC)",
             ]
         case .errorCorrection(let kmerSize):
             return ["kmerSize": "\(kmerSize)"]
@@ -1501,18 +1529,33 @@ public actor FASTQDerivativeService {
             )
 
         case .primerRemoval(let configuration):
-            let result = try await runCutadaptPrimerTrim(
-                sourceFASTQ: sourceFASTQ,
-                outputFASTQ: outputFASTQ,
-                configuration: configuration,
-                sourceBundleURL: sourceBundleURL,
-                isInterleaved: isInterleaved
-            )
+            let result: BBToolResult
+            switch configuration.tool {
+            case .cutadapt:
+                result = try await runCutadaptPrimerTrim(
+                    sourceFASTQ: sourceFASTQ,
+                    outputFASTQ: outputFASTQ,
+                    configuration: configuration,
+                    sourceBundleURL: sourceBundleURL,
+                    isInterleaved: isInterleaved
+                )
+            case .bbduk:
+                result = try await runBBDukPrimerTrim(
+                    sourceFASTQ: sourceFASTQ,
+                    outputFASTQ: outputFASTQ,
+                    configuration: configuration,
+                    sourceBundleURL: sourceBundleURL,
+                    isInterleaved: isInterleaved
+                )
+            }
             return FASTQDerivativeOperation(
                 kind: .primerRemoval,
                 primerSource: configuration.source,
                 primerLiteralSequence: configuration.forwardSequence,
                 primerReferenceFasta: configuration.referenceFasta,
+                primerKmerSize: configuration.tool == .bbduk ? configuration.kmerSize : nil,
+                primerMinKmer: configuration.tool == .bbduk ? configuration.minKmer : nil,
+                primerHammingDistance: configuration.tool == .bbduk ? configuration.hammingDistance : nil,
                 primerReadMode: configuration.readMode,
                 primerTrimMode: configuration.mode,
                 primerForwardSequence: configuration.forwardSequence,
@@ -1525,6 +1568,35 @@ public actor FASTQDerivativeService {
                 primerKeepUntrimmed: configuration.keepUntrimmed,
                 primerSearchReverseComplement: configuration.searchReverseComplement,
                 primerPairFilter: configuration.pairFilter,
+                primerTool: configuration.tool,
+                primerKtrimDirection: configuration.tool == .bbduk ? configuration.ktrimDirection : nil,
+                toolUsed: configuration.tool == .bbduk ? "bbduk" : "cutadapt",
+                toolCommand: result.toolCommand
+            )
+
+        case .sequencePresenceFilter(let sequence, let fastaPath, let searchEnd, let minOverlap, let errorRate, let keepMatched, let searchRC):
+            let result = try await runCutadaptAdapterPresenceFilter(
+                sourceFASTQ: sourceFASTQ,
+                outputFASTQ: outputFASTQ,
+                sequence: sequence,
+                fastaPath: fastaPath,
+                searchEnd: searchEnd,
+                minOverlap: minOverlap,
+                errorRate: errorRate,
+                keepMatched: keepMatched,
+                searchReverseComplement: searchRC,
+                sourceBundleURL: sourceBundleURL,
+                isInterleaved: isInterleaved
+            )
+            return FASTQDerivativeOperation(
+                kind: .sequencePresenceFilter,
+                adapterFilterSequence: sequence,
+                adapterFilterFastaPath: fastaPath,
+                adapterFilterSearchEnd: searchEnd,
+                adapterFilterMinOverlap: minOverlap,
+                adapterFilterErrorRate: errorRate,
+                adapterFilterKeepMatched: keepMatched,
+                adapterFilterSearchReverseComplement: searchRC,
                 toolUsed: "cutadapt",
                 toolCommand: result.toolCommand
             )
@@ -2930,6 +3002,150 @@ public actor FASTQDerivativeService {
         let left = cutadaptFivePrimeAdapter(forward, anchored: anchored5Prime)
         let right = cutadaptThreePrimeAdapter(reverse, anchored: anchored3Prime)
         return "\(left)...\(right)"
+    }
+
+    /// Runs bbduk.sh for k-mer-based primer trimming.
+    ///
+    /// BBDuk uses exact k-mer matching (with Hamming distance tolerance) to find
+    /// primer sequences and trim everything to the left (ktrim=l) or right (ktrim=r).
+    /// This matches the Snakemake workflow's approach:
+    ///   bbduk.sh ref=primers k=15 mink=11 hdist=1 ktrim=l rcomp=t  (5' trim)
+    ///   bbduk.sh ref=primers k=15 mink=11 hdist=1 ktrim=r rcomp=t  (3' trim)
+    private func runBBDukPrimerTrim(
+        sourceFASTQ: URL,
+        outputFASTQ: URL,
+        configuration: FASTQPrimerTrimConfiguration,
+        sourceBundleURL: URL,
+        isInterleaved: Bool = false
+    ) async throws -> BBToolResult {
+        // Resolve primer reference
+        let refPath: String
+        switch configuration.source {
+        case .reference:
+            guard let rp = configuration.referenceFasta, !rp.isEmpty else {
+                throw FASTQDerivativeError.invalidOperation("BBDuk primer trim requires a reference FASTA path")
+            }
+            if rp.hasPrefix("/") {
+                refPath = rp
+            } else {
+                refPath = sourceBundleURL.appendingPathComponent(rp).path
+            }
+            guard FileManager.default.fileExists(atPath: refPath) else {
+                throw FASTQDerivativeError.invalidOperation("Primer reference FASTA not found: \(refPath)")
+            }
+        case .literal:
+            // Write literal sequences to a temp FASTA for bbduk
+            let tmpDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("bbduk-primer-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+            let tmpFasta = tmpDir.appendingPathComponent("primers.fasta")
+            var fastaContent = ""
+            if let fwd = configuration.forwardSequence {
+                fastaContent += ">forward_primer\n\(fwd)\n"
+            }
+            if let rev = configuration.reverseSequence {
+                fastaContent += ">reverse_primer\n\(rev)\n"
+            }
+            guard !fastaContent.isEmpty else {
+                throw FASTQDerivativeError.invalidOperation("BBDuk primer trim requires at least one primer sequence")
+            }
+            try fastaContent.write(to: tmpFasta, atomically: true, encoding: .utf8)
+            refPath = tmpFasta.path
+        }
+
+        var args = [
+            "in=\(sourceFASTQ.path)",
+            "out=\(outputFASTQ.path)",
+            "ref=\(refPath)",
+            "k=\(configuration.kmerSize)",
+            "mink=\(configuration.minKmer)",
+            "hdist=\(configuration.hammingDistance)",
+            "ktrim=\(configuration.ktrimDirection == .left ? "l" : "r")",
+            "rcomp=\(configuration.searchReverseComplement ? "t" : "f")",
+        ]
+
+        if isInterleaved {
+            args.append("interleaved=t")
+        }
+
+        let env = await bbToolsEnvironment()
+        let result = try await runner.run(.bbduk, arguments: args, environment: env, timeout: 1800)
+        guard result.isSuccess else {
+            throw FASTQDerivativeError.invalidOperation("bbduk primer trim failed: \(result.stderr)")
+        }
+        return BBToolResult(toolCommand: "bbduk.sh \(args.joined(separator: " "))")
+    }
+
+    /// Runs cutadapt for adapter presence filtering (no trimming).
+    ///
+    /// Uses `--action=none` to pass reads through without modification and
+    /// `--discard-untrimmed` (or `--discard-trimmed`) to filter by adapter presence.
+    /// This matches the Snakemake workflow's ONT barcode filtering:
+    ///   cutadapt -g "BARCODE;min_overlap=16" --action=none --discard-untrimmed -e 0.15
+    private func runCutadaptAdapterPresenceFilter(
+        sourceFASTQ: URL,
+        outputFASTQ: URL,
+        sequence: String?,
+        fastaPath: String?,
+        searchEnd: FASTQAdapterSearchEnd,
+        minOverlap: Int,
+        errorRate: Double,
+        keepMatched: Bool,
+        searchReverseComplement: Bool = false,
+        sourceBundleURL: URL,
+        isInterleaved: Bool = false
+    ) async throws -> BBToolResult {
+        var args: [String] = [
+            "-e", String(errorRate),
+            "--overlap", String(minOverlap),
+            "--action", "none",
+            "--cores", "1",
+        ]
+
+        if isInterleaved {
+            args.append("--interleaved")
+        }
+
+        // Keep matched reads = discard untrimmed; Discard matched = discard trimmed
+        if keepMatched {
+            args.append("--discard-untrimmed")
+        } else {
+            args.append("--discard-trimmed")
+        }
+
+        // Build adapter specification.
+        // When searching reverse complement: if the original adapter is at the 5' end,
+        // reads in the opposite orientation will carry its revcomp at the 3' end, and vice versa.
+        let adapterFlag = searchEnd == .fivePrime ? "-g" : "-a"
+        let oppositeFlag = searchEnd == .fivePrime ? "-a" : "-g"
+
+        if let seq = sequence, !seq.isEmpty {
+            args += [adapterFlag, seq]
+            if searchReverseComplement {
+                args += [oppositeFlag, PlatformAdapters.reverseComplement(seq)]
+            }
+        } else if let fp = fastaPath, !fp.isEmpty {
+            let resolvedPath: String
+            if fp.hasPrefix("/") {
+                resolvedPath = fp
+            } else {
+                resolvedPath = sourceBundleURL.appendingPathComponent(fp).path
+            }
+            guard FileManager.default.fileExists(atPath: resolvedPath) else {
+                throw FASTQDerivativeError.invalidOperation("Adapter FASTA not found: \(resolvedPath)")
+            }
+            args += [adapterFlag, "file:\(resolvedPath)"]
+        } else {
+            throw FASTQDerivativeError.invalidOperation("Adapter presence filter requires a sequence or FASTA file")
+        }
+
+        args += ["-o", outputFASTQ.path, sourceFASTQ.path]
+
+        let result = try await runner.run(.cutadapt, arguments: args, timeout: 1800)
+        guard result.isSuccess else {
+            throw FASTQDerivativeError.invalidOperation("cutadapt adapter presence filter failed: \(result.stderr)")
+        }
+        return BBToolResult(toolCommand: "cutadapt \(args.joined(separator: " "))")
     }
 
     /// Runs tadpole.sh for k-mer-based error correction.
