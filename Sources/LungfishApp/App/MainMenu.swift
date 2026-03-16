@@ -246,6 +246,47 @@ public final class MainMenu {
             keyEquivalent: ""
         )
 
+        exportMenu.addItem(.separator())
+
+        // Export Provenance submenu
+        let provenanceItem = NSMenuItem(title: "Provenance", action: nil, keyEquivalent: "")
+        let provenanceMenu = NSMenu(title: "Provenance")
+
+        provenanceMenu.addItem(
+            withTitle: "Shell Script...",
+            action: #selector(FileMenuActions.exportProvenanceShell(_:)),
+            keyEquivalent: ""
+        )
+        provenanceMenu.addItem(
+            withTitle: "Python Script...",
+            action: #selector(FileMenuActions.exportProvenancePython(_:)),
+            keyEquivalent: ""
+        )
+        provenanceMenu.addItem(
+            withTitle: "Nextflow Pipeline...",
+            action: #selector(FileMenuActions.exportProvenanceNextflow(_:)),
+            keyEquivalent: ""
+        )
+        provenanceMenu.addItem(
+            withTitle: "Snakemake Workflow...",
+            action: #selector(FileMenuActions.exportProvenanceSnakemake(_:)),
+            keyEquivalent: ""
+        )
+        provenanceMenu.addItem(.separator())
+        provenanceMenu.addItem(
+            withTitle: "Methods Section...",
+            action: #selector(FileMenuActions.exportProvenanceMethods(_:)),
+            keyEquivalent: ""
+        )
+        provenanceMenu.addItem(
+            withTitle: "Full Provenance (JSON)...",
+            action: #selector(FileMenuActions.exportProvenanceJSON(_:)),
+            keyEquivalent: ""
+        )
+
+        provenanceItem.submenu = provenanceMenu
+        exportMenu.addItem(provenanceItem)
+
         exportItem.submenu = exportMenu
         fileMenu.addItem(exportItem)
 
@@ -402,31 +443,6 @@ public final class MainMenu {
             action: #selector(ViewMenuActions.zoomReset(_:)),
             keyEquivalent: "1"
         )
-
-        viewMenu.addItem(.separator())
-
-        // Display mode submenu
-        let displayModeItem = NSMenuItem(title: "Display Mode", action: nil, keyEquivalent: "")
-        let displayModeMenu = NSMenu(title: "Display Mode")
-
-        displayModeMenu.addItem(
-            withTitle: "Collapsed",
-            action: #selector(ViewMenuActions.setDisplayModeCollapsed(_:)),
-            keyEquivalent: ""
-        )
-        displayModeMenu.addItem(
-            withTitle: "Squished",
-            action: #selector(ViewMenuActions.setDisplayModeSquished(_:)),
-            keyEquivalent: ""
-        )
-        displayModeMenu.addItem(
-            withTitle: "Expanded",
-            action: #selector(ViewMenuActions.setDisplayModeExpanded(_:)),
-            keyEquivalent: ""
-        )
-
-        displayModeItem.submenu = displayModeMenu
-        viewMenu.addItem(displayModeItem)
 
         viewMenu.addItem(.separator())
 
@@ -604,32 +620,6 @@ public final class MainMenu {
         searchDatabasesItem.submenu = searchDatabasesMenu
         toolsMenu.addItem(searchDatabasesItem)
 
-        toolsMenu.addItem(.separator())
-
-        // Workflows
-        let workflowItem = NSMenuItem(title: "Workflows", action: nil, keyEquivalent: "")
-        let workflowMenu = NSMenu(title: "Workflows")
-
-        workflowMenu.addItem(
-            withTitle: "Run Nextflow Pipeline...",
-            action: #selector(ToolsMenuActions.runNextflow(_:)),
-            keyEquivalent: ""
-        )
-        workflowMenu.addItem(
-            withTitle: "Run Snakemake Workflow...",
-            action: #selector(ToolsMenuActions.runSnakemake(_:)),
-            keyEquivalent: ""
-        )
-        workflowMenu.addItem(.separator())
-        workflowMenu.addItem(
-            withTitle: "Workflow Builder...",
-            action: #selector(ToolsMenuActions.openWorkflowBuilder(_:)),
-            keyEquivalent: ""
-        )
-
-        workflowItem.submenu = workflowMenu
-        toolsMenu.addItem(workflowItem)
-
         toolsMenuItem.submenu = toolsMenu
         return toolsMenuItem
     }
@@ -785,6 +775,12 @@ public final class MainMenu {
     func exportGFF3(_ sender: Any?)
     func exportImage(_ sender: Any?)
     func exportPDF(_ sender: Any?)
+    func exportProvenanceShell(_ sender: Any?)
+    func exportProvenancePython(_ sender: Any?)
+    func exportProvenanceNextflow(_ sender: Any?)
+    func exportProvenanceSnakemake(_ sender: Any?)
+    func exportProvenanceMethods(_ sender: Any?)
+    func exportProvenanceJSON(_ sender: Any?)
 }
 
 /// View menu action handlers.
@@ -796,9 +792,6 @@ public final class MainMenu {
     func zoomOut(_ sender: Any?)
     func zoomToFit(_ sender: Any?)
     func zoomReset(_ sender: Any?)
-    func setDisplayModeCollapsed(_ sender: Any?)
-    func setDisplayModeSquished(_ sender: Any?)
-    func setDisplayModeExpanded(_ sender: Any?)
     func toggleNucleotideMode(_ sender: Any?)
     func resetViewSettingsToDefaults(_ sender: Any?)
     func showAIAssistant(_ sender: Any?)
@@ -828,9 +821,6 @@ public final class MainMenu {
     func searchNCBI(_ sender: Any?)
     func searchSRA(_ sender: Any?)
     func searchPathoplexus(_ sender: Any?)
-    func runNextflow(_ sender: Any?)
-    func runSnakemake(_ sender: Any?)
-    func openWorkflowBuilder(_ sender: Any?)
 }
 
 /// Operations menu action handlers.

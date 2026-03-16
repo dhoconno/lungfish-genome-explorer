@@ -141,7 +141,6 @@ public class WorkflowCanvasView: NSView {
     }
 
     private func commonInit() {
-        wantsLayer = true
         layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
 
         // Register for drag and drop

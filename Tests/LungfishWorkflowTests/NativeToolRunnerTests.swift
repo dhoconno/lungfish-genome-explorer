@@ -135,6 +135,158 @@ final class NativeToolRunnerTests: XCTestCase {
         )
     }
 
+    func testFastpVersion() async throws {
+        let runner = NativeToolRunner()
+        let result = try await runner.run(.fastp, arguments: ["--version"])
+        // fastp --version prints to stderr
+        let output = result.stdout + result.stderr
+        XCTAssertTrue(
+            output.contains("fastp"),
+            "fastp --version should mention fastp"
+        )
+    }
+
+    func testVsearchVersion() async throws {
+        let runner = NativeToolRunner()
+        let result = try await runner.run(.vsearch, arguments: ["--version"])
+        let output = result.stdout + result.stderr
+        XCTAssertTrue(
+            output.contains("vsearch"),
+            "vsearch --version should mention vsearch"
+        )
+    }
+
+    func testCutadaptVersion() async throws {
+        let runner = NativeToolRunner()
+        let result = try await runner.run(.cutadapt, arguments: ["--version"])
+        XCTAssertTrue(result.isSuccess, "cutadapt --version should succeed")
+        let output = result.stdout + result.stderr
+        XCTAssertTrue(
+            output.contains("4."),
+            "cutadapt --version should print a semantic version; output: \(output)"
+        )
+    }
+
+    // MARK: - Pipeline Tests
+
+    func testSingleStagePipeline() async throws {
+        let runner = NativeToolRunner()
+        let result = try await runner.runPipeline(
+            [NativePipelineStage(.seqkit, arguments: ["version"])]
+        )
+        XCTAssertTrue(result.isSuccess)
+        XCTAssertEqual(result.exitCodes.count, 1)
+        XCTAssertTrue(result.stdout.contains("seqkit"))
+    }
+
+    func testTwoStagePipeline() async throws {
+        // seqkit version | seqkit seq --upper-case (seq will read the version text as invalid FASTQ and exit,
+        // but the pipe itself should work)
+        // Better test: use samtools --version | grep samtools via pipeline
+        // Actually, let's test with a simple echo-like pattern using seqkit
+        let runner = NativeToolRunner()
+
+        // Create a temp FASTQ file for the pipeline test
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PipelineTest-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fqContent = """
+        @read1
+        ACGTACGTACGT
+        +
+        FFFFFFFFFFFF
+        @read2
+        NNNNACGTNNNN
+        +
+        FFFFFFFFFFFF
+
+        """
+        let inputURL = tempDir.appendingPathComponent("test.fq")
+        try fqContent.write(to: inputURL, atomically: true, encoding: .utf8)
+
+        // seqkit seq --upper-case test.fq | seqkit stats --tabular
+        let result = try await runner.runPipeline([
+            NativePipelineStage(.seqkit, arguments: ["seq", "--upper-case", inputURL.path]),
+            NativePipelineStage(.seqkit, arguments: ["stats", "--tabular"]),
+        ])
+
+        XCTAssertTrue(result.isSuccess, "Pipeline should succeed; stderr: \(result.combinedStderr)")
+        XCTAssertEqual(result.exitCodes.count, 2)
+        XCTAssertTrue(result.stdout.contains("2"), "Stats should show 2 reads")
+    }
+
+    func testPipelineWithFileOutput() async throws {
+        let runner = NativeToolRunner()
+
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PipelineFileTest-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fqContent = """
+        @read1
+        ACGTACGTACGT
+        +
+        FFFFFFFFFFFF
+        @read2
+        TTTTTTTTTTTTT
+        +
+        FFFFFFFFFFFFF
+
+        """
+        let inputURL = tempDir.appendingPathComponent("test.fq")
+        try fqContent.write(to: inputURL, atomically: true, encoding: .utf8)
+
+        let outputURL = tempDir.appendingPathComponent("output.fq")
+
+        // seqkit seq --upper-case | seqkit seq --reverse > output.fq
+        let result = try await runner.runPipelineWithFileOutput(
+            [
+                NativePipelineStage(.seqkit, arguments: ["seq", "--upper-case", inputURL.path]),
+                NativePipelineStage(.seqkit, arguments: ["seq", "--reverse"]),
+            ],
+            outputFile: outputURL
+        )
+
+        XCTAssertTrue(result.isSuccess, "Pipeline should succeed; stderr: \(result.combinedStderr)")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path))
+        let output = try String(contentsOf: outputURL, encoding: .utf8)
+        XCTAssertFalse(output.isEmpty, "Output file should not be empty")
+    }
+
+    func testEmptyPipelineThrows() async {
+        let runner = NativeToolRunner()
+        do {
+            _ = try await runner.runPipeline([])
+            XCTFail("Empty pipeline should throw")
+        } catch let error as NativeToolError {
+            if case .invalidArguments = error {
+                // expected
+            } else {
+                XCTFail("Expected invalidArguments error")
+            }
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
+
+    func testPipelineResultProperties() {
+        let success = NativePipelineResult(
+            exitCodes: [0, 0], stderrByStage: ["", ""], stdout: "output"
+        )
+        XCTAssertTrue(success.isSuccess)
+        XCTAssertNil(success.firstFailureCode)
+
+        let failure = NativePipelineResult(
+            exitCodes: [0, 1], stderrByStage: ["", "error"], stdout: ""
+        )
+        XCTAssertFalse(failure.isSuccess)
+        XCTAssertEqual(failure.firstFailureCode, 1)
+        XCTAssertEqual(failure.combinedStderr, "error")
+    }
+
     // MARK: - Injected Tools Directory Tests
 
     func testInitWithExplicitToolsDirectory() async {
@@ -164,9 +316,21 @@ final class NativeToolRunnerTests: XCTestCase {
         XCTAssertEqual(NativeTool.bedToBigBed.executableName, "bedToBigBed")
         XCTAssertEqual(NativeTool.bedGraphToBigWig.executableName, "bedGraphToBigWig")
         XCTAssertEqual(NativeTool.seqkit.executableName, "seqkit")
+        XCTAssertEqual(NativeTool.fastp.executableName, "fastp")
+        XCTAssertEqual(NativeTool.vsearch.executableName, "vsearch")
         XCTAssertEqual(NativeTool.clumpify.executableName, "clumpify.sh")
+        XCTAssertEqual(NativeTool.bbduk.executableName, "bbduk.sh")
+        XCTAssertEqual(NativeTool.bbmerge.executableName, "bbmerge.sh")
+        XCTAssertEqual(NativeTool.repair.executableName, "repair.sh")
         XCTAssertEqual(NativeTool.java.executableName, "java")
         XCTAssertEqual(NativeTool.clumpify.relativeExecutablePath, "bbtools/clumpify.sh")
+        XCTAssertEqual(NativeTool.bbduk.relativeExecutablePath, "bbtools/bbduk.sh")
+        XCTAssertEqual(NativeTool.bbmerge.relativeExecutablePath, "bbtools/bbmerge.sh")
+        XCTAssertEqual(NativeTool.repair.relativeExecutablePath, "bbtools/repair.sh")
+        XCTAssertEqual(NativeTool.tadpole.executableName, "tadpole.sh")
+        XCTAssertEqual(NativeTool.tadpole.relativeExecutablePath, "bbtools/tadpole.sh")
+        XCTAssertEqual(NativeTool.reformat.executableName, "reformat.sh")
+        XCTAssertEqual(NativeTool.reformat.relativeExecutablePath, "bbtools/reformat.sh")
         XCTAssertEqual(NativeTool.java.relativeExecutablePath, "jre/bin/java")
     }
 
@@ -175,6 +339,11 @@ final class NativeToolRunnerTests: XCTestCase {
         XCTAssertEqual(NativeTool.bgzip.sourcePackage, "htslib")
         XCTAssertEqual(NativeTool.tabix.sourcePackage, "htslib")
         XCTAssertEqual(NativeTool.bedToBigBed.sourcePackage, "ucsc-tools")
+        XCTAssertEqual(NativeTool.bbduk.sourcePackage, "bbtools")
+        XCTAssertEqual(NativeTool.bbmerge.sourcePackage, "bbtools")
+        XCTAssertEqual(NativeTool.repair.sourcePackage, "bbtools")
+        XCTAssertEqual(NativeTool.tadpole.sourcePackage, "bbtools")
+        XCTAssertEqual(NativeTool.reformat.sourcePackage, "bbtools")
     }
 
     func testNativeToolHtslibFlag() {
@@ -185,7 +354,7 @@ final class NativeToolRunnerTests: XCTestCase {
     }
 
     func testAllCasesCount() {
-        XCTAssertEqual(NativeTool.allCases.count, 12, "Should have 12 bundled tools")
+        XCTAssertEqual(NativeTool.allCases.count, 18, "Should have 18 bundled tools")
     }
 
     // MARK: - Error Tests

@@ -2,6 +2,7 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import AppKit
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
@@ -43,31 +44,43 @@ final class VariantTrackRendererTests: XCTestCase {
         )
     }
 
-    /// Creates a bitmap context for rendering tests.
+    /// Creates a bitmap context for rendering tests with CPU-accessible pixel data.
+    /// Backing rep for the current test bitmap, retained so pixel data stays valid.
+    private var bitmapRep: NSBitmapImageRep?
+
+    /// Creates a bitmap context for rendering tests via NSBitmapImageRep.
+    /// AppKit-managed bitmaps work reliably in XCTest even without a display server.
     private func makeBitmapContext(width: Int = 800, height: Int = 100) -> CGContext {
-        CGContext(
-            data: nil,
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: 0,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+        let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width,
+            pixelsHigh: height,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: width * 4,
+            bitsPerPixel: 32
         )!
+        bitmapRep = rep
+        let ctx = NSGraphicsContext(bitmapImageRep: rep)!.cgContext
+        return ctx
     }
 
-    /// Reads the RGBA pixel at (x, y) from a bitmap context.
-    /// Returns (r, g, b, a) as UInt8 values. Coordinate origin is bottom-left (CG convention).
+    /// Reads the RGBA pixel at (x, y) from a bitmap context backed by NSBitmapImageRep.
+    /// Returns (r, g, b, a) as UInt8 values.
+    /// NSBitmapImageRep uses top-left origin; CG drawing uses bottom-left origin.
     private func pixelColor(at x: Int, y: Int, in ctx: CGContext) -> (r: UInt8, g: UInt8, b: UInt8, a: UInt8) {
-        guard let data = ctx.data else { return (0, 0, 0, 0) }
-        let bytesPerRow = ctx.bytesPerRow
-        // premultipliedFirst = ARGB byte order
-        let offset = y * bytesPerRow + x * 4
-        let ptr = data.assumingMemoryBound(to: UInt8.self)
-        let a = ptr[offset]
-        let r = ptr[offset + 1]
-        let g = ptr[offset + 2]
-        let b = ptr[offset + 3]
+        guard let rep = bitmapRep, let data = rep.bitmapData else { return (0, 0, 0, 0) }
+        // Convert from CG bottom-left y to NSBitmapImageRep top-left y
+        let flippedY = rep.pixelsHigh - 1 - y
+        let bytesPerRow = rep.bytesPerRow
+        let offset = flippedY * bytesPerRow + x * 4
+        let r = data[offset]
+        let g = data[offset + 1]
+        let b = data[offset + 2]
+        let a = data[offset + 3]
         return (r, g, b, a)
     }
 
@@ -156,6 +169,7 @@ final class VariantTrackRendererTests: XCTestCase {
 
         // SNP at position 500 in range 0-1000 with 800px width → pixel ~400
         let snpPx = Int(frame.screenPosition(for: 500))
+
         let (r, g, b, _) = pixelColor(at: snpPx, y: 10, in: ctx)
         // SNP color is green (0, 0.6, 0.2) → green channel should dominate
         XCTAssertGreaterThan(g, r, "SNP pixel should have green > red")
@@ -257,10 +271,9 @@ final class VariantTrackRendererTests: XCTestCase {
         XCTAssertGreaterThan(b2, r2, "Het pixel should have dominant blue channel")
         XCTAssertGreaterThan(b2, 200, "Het pixel should have strong blue")
 
-        // S3 homAlt at site 1 (y=50+5=55 center): homAlt color = cyan (17, 248, 254)
-        let (r3, g3, b3, _) = pixelColor(at: site1Px, y: 55, in: ctx)
-        XCTAssertGreaterThan(g3, r3, "HomAlt pixel should have green > red")
-        XCTAssertGreaterThan(b3, r3, "HomAlt pixel should have blue > red")
+        // S3 homAlt at site 1 (y=50+5=55 center): modern theme homAlt = deep indigo (0x5B4BA8)
+        let (r3, _, b3, _) = pixelColor(at: site1Px, y: 55, in: ctx)
+        XCTAssertGreaterThan(b3, r3, "HomAlt pixel should have blue > red (indigo)")
     }
 
     func testDrawGenotypeRowsHaploidAFColorRamp() {

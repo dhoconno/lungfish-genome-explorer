@@ -275,6 +275,43 @@ final class FASTQReaderTests: XCTestCase {
         XCTAssertEqual(count, 20)
     }
 
+    func testParsesZeroLengthReads() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let tempFile = tempDir.appendingPathComponent("test_zero_length.fastq")
+        let content = "@READ_EMPTY\n\n+\n\n@READ_NORMAL\nATCG\n+\nIIII\n"
+        try content.write(to: tempFile, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tempFile) }
+
+        let reader = FASTQReader(validateSequence: false)
+        let records = try await reader.readAll(from: tempFile)
+
+        XCTAssertEqual(records.count, 2)
+        XCTAssertEqual(records[0].identifier, "READ_EMPTY")
+        XCTAssertEqual(records[0].sequence, "")
+        XCTAssertEqual(records[0].quality.count, 0)
+        XCTAssertEqual(records[1].identifier, "READ_NORMAL")
+        XCTAssertEqual(records[1].sequence, "ATCG")
+        XCTAssertEqual(records[1].quality.count, 4)
+        let recordCount = try await reader.countRecords(in: tempFile)
+        XCTAssertEqual(recordCount, 2)
+    }
+
+    func testParsesWrappedSequenceAndQualityLines() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let tempFile = tempDir.appendingPathComponent("test_wrapped.fastq")
+        let content = "@READ_WRAPPED\nACGT\nTGCA\n+\nIIII\nJJJJ\n"
+        try content.write(to: tempFile, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tempFile) }
+
+        let reader = FASTQReader()
+        let records = try await reader.readAll(from: tempFile)
+
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records[0].identifier, "READ_WRAPPED")
+        XCTAssertEqual(records[0].sequence, "ACGTTGCA")
+        XCTAssertEqual(records[0].quality.toAscii(), "IIIIJJJJ")
+    }
+
     // MARK: - Streaming Tests
 
     func testStreamingRecords() async throws {

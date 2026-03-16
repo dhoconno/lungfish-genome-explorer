@@ -178,7 +178,7 @@ public class ViewerViewController: NSViewController {
     private var quickLookURL: URL?
 
     /// FASTQ dataset dashboard (shown in place of sequence viewer for FASTQ files)
-    private var fastqDatasetController: FASTQDatasetViewController?
+    var fastqDatasetController: FASTQDatasetViewController?
 
     /// VCF dataset dashboard (shown in place of sequence viewer for standalone VCF files)
     private var vcfDatasetController: VCFDatasetViewController?
@@ -231,7 +231,6 @@ public class ViewerViewController: NSViewController {
     public override func loadView() {
         let containerView = NSView()
         containerView.translatesAutoresizingMaskIntoConstraints = false
-        containerView.wantsLayer = true
 
         // Create enhanced ruler view with mini-map and navigation
         enhancedRulerView = EnhancedCoordinateRulerView()
@@ -256,7 +255,6 @@ public class ViewerViewController: NSViewController {
         viewerView.viewController = self
         viewerView.trackY = sequenceTrackY
         viewerView.trackHeight = sequenceTrackHeight
-        viewerView.wantsLayer = true
         viewerView.layer?.masksToBounds = true
         containerView.addSubview(viewerView)
 
@@ -919,6 +917,14 @@ public class ViewerViewController: NSViewController {
         progressOverlay.isHidden = true
     }
 
+    public var isDisplayingFASTQDataset: Bool {
+        fastqDatasetController != nil
+    }
+
+    public func updateFASTQOperationStatus(_ message: String) {
+        fastqDatasetController?.updateOperationStatus(message)
+    }
+
     // MARK: - FASTQ Dataset Display
 
     /// Displays the FASTQ dataset dashboard in place of the normal sequence viewer.
@@ -946,11 +952,13 @@ public class ViewerViewController: NSViewController {
         dashView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(dashView)
 
+        let dashBottomConstraint = dashView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+
         NSLayoutConstraint.activate([
             dashView.topAnchor.constraint(equalTo: view.topAnchor),
             dashView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             dashView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            dashView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            dashBottomConstraint,
         ])
 
         controller.configure(
@@ -961,6 +969,12 @@ public class ViewerViewController: NSViewController {
             derivativeManifest: fastqDerivativeManifest
         )
         controller.onRunOperation = onRunOperation
+        controller.onOpenDemuxDrawer = { [weak self] in
+            self?.openDemuxSetupDrawer()
+        }
+        controller.onOpenPrimerTrimDrawer = { [weak self] in
+            self?.openPrimerTrimDrawer()
+        }
         controller.onStatisticsUpdated = { [weak self] updatedStats in
             guard let self else { return }
             var updatedUserInfo: [String: Any] = ["statistics": updatedStats]
@@ -976,6 +990,11 @@ public class ViewerViewController: NSViewController {
             )
         }
         fastqDatasetController = controller
+        fastqDashboardView = dashView
+        fastqDashboardBottomConstraint = dashBottomConstraint
+        // Sync any existing drawer demux config into the new controller
+        syncDemuxConfigToController()
+        currentFASTQDatasetURL = fastqURL
 
         // Hide normal genomic viewer components
         enhancedRulerView.isHidden = true
@@ -997,15 +1016,23 @@ public class ViewerViewController: NSViewController {
             userInfo: userInfo
         )
 
+        if fastqMetadataDrawerView != nil {
+            refreshFASTQMetadataDrawerContent()
+        }
+
         logger.info("displayFASTQDataset: Showing dashboard with \(statistics.readCount) reads")
     }
 
     /// Removes the FASTQ dataset dashboard and restores normal viewer components.
     public func hideFASTQDatasetView() {
         guard let controller = fastqDatasetController else { return }
+        teardownFASTQMetadataDrawer()
         controller.view.removeFromSuperview()
         controller.removeFromParent()
         fastqDatasetController = nil
+        fastqDashboardView = nil
+        fastqDashboardBottomConstraint = nil
+        currentFASTQDatasetURL = nil
 
         // Restore normal viewer components
         enhancedRulerView.isHidden = false
@@ -1931,90 +1958,27 @@ public class ViewerViewController: NSViewController {
             return
         }
 
-        // Separate VCF files from other file types
         let vcfURLs = urls.filter { isVCFFile($0) }
         let otherURLs = urls.filter { !isVCFFile($0) }
 
-        // Route VCF files through MainSplitViewController's auto-ingest pipeline
+        guard let appDelegate = NSApp.delegate as? AppDelegate,
+              let mainSplit = appDelegate.mainWindowController?.mainSplitViewController else {
+            logger.error("handleFileDrop: Unable to resolve MainSplitViewController")
+            return
+        }
+
         if !vcfURLs.isEmpty {
-            logger.info("handleFileDrop: Routing \(vcfURLs.count) VCF files to auto-ingest pipeline")
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    if let appDelegate = NSApp.delegate as? AppDelegate,
-                       let mainSplit = appDelegate.mainWindowController?.mainSplitViewController {
-                        mainSplit.loadVCFFilesInBackground(urls: vcfURLs)
-                    }
-                }
-            }
+            logger.info("handleFileDrop: Routing \(vcfURLs.count) VCF file(s) to auto-ingest pipeline")
+            mainSplit.loadVCFFilesInBackground(urls: vcfURLs)
         }
 
-        // Process non-VCF files through the standard path
-        guard let firstURL = otherURLs.first else { return }
-
-        logger.info("handleFileDrop: Processing '\(firstURL.lastPathComponent, privacy: .public)'")
-
-        let projectURL = DocumentManager.shared.activeProject?.url
-        let workingURL = (NSApp.delegate as? AppDelegate)?.getWorkingDirectoryURL()
-
-        let isInternalFile: Bool
-        if let project = projectURL {
-            isInternalFile = firstURL.path.hasPrefix(project.path)
-        } else if let working = workingURL {
-            isInternalFile = firstURL.path.hasPrefix(working.path)
-        } else {
-            isInternalFile = false
-        }
-
-        DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self = self else { return }
-
-                self.showProgress("Loading \(firstURL.lastPathComponent)...")
-
-                Task { @MainActor [weak self] in
-                    guard let self = self else { return }
-
-                do {
-                    let urlToLoad: URL
-
-                    if isInternalFile {
-                        urlToLoad = firstURL
-                        logger.info("handleFileDrop: Loading internal file directly")
-                    } else {
-                        logger.info("handleFileDrop: External file, copying to project")
-                        urlToLoad = try await self.copyExternalFileToProject(firstURL, projectURL: projectURL, workingURL: workingURL)
-                    }
-
-                    let document = try await DocumentManager.shared.loadDocument(at: urlToLoad)
-
-                    self.hideProgress()
-                    self.displayDocument(document)
-
-                    if let appDelegate = NSApp.delegate as? AppDelegate,
-                       let sidebarController = appDelegate.mainWindowController?.mainSplitViewController?.sidebarController {
-                        if let projectURL = sidebarController.currentProjectURL {
-                            let docPath = document.url.standardizedFileURL.path
-                            let projectPath = projectURL.standardizedFileURL.path
-                            if !docPath.hasPrefix(projectPath) {
-                                sidebarController.addLoadedDocument(document)
-                            }
-                        } else {
-                            sidebarController.addLoadedDocument(document)
-                        }
-                    }
-                } catch {
-                    logger.error("handleFileDrop: Load failed: \(error.localizedDescription, privacy: .public)")
-
-                    self.hideProgress()
-                    let alert = NSAlert()
-                    alert.messageText = "Failed to Open File"
-                    alert.informativeText = error.localizedDescription
-                    alert.alertStyle = .warning
-                    alert.addButton(withTitle: "OK")
-                    alert.runModal()
-                }
-                } // end Task
-            } // end MainActor.assumeIsolated
+        for url in otherURLs {
+            logger.info("handleFileDrop: Routing '\(url.lastPathComponent, privacy: .public)' through sidebar import pipeline")
+            NotificationCenter.default.post(
+                name: .sidebarFileDropped,
+                object: self,
+                userInfo: ["url": url, "destination": NSNull()]
+            )
         }
     }
 
@@ -2022,43 +1986,6 @@ public class ViewerViewController: NSViewController {
         MainSplitViewController.isVCFFile(url)
     }
 
-    /// Copies an external file into the project's downloads folder
-    private func copyExternalFileToProject(_ sourceURL: URL, projectURL: URL?, workingURL: URL?) async throws -> URL {
-        let fileManager = FileManager.default
-
-        // Determine destination directory
-        let destinationDirectory: URL
-        if let project = projectURL {
-            destinationDirectory = project.appendingPathComponent("Downloads", isDirectory: true)
-        } else if let working = workingURL {
-            destinationDirectory = working.appendingPathComponent("Downloads", isDirectory: true)
-        } else {
-            // Fallback to user's Downloads folder
-            let downloadsURL = fileManager.urls(for: .downloadsDirectory, in: .userDomainMask).first!
-            destinationDirectory = downloadsURL.appendingPathComponent("Lungfish Downloads", isDirectory: true)
-        }
-
-        // Create directory if needed
-        try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
-
-        // Generate unique filename
-        var destinationURL = destinationDirectory.appendingPathComponent(sourceURL.lastPathComponent)
-        var counter = 1
-        let baseName = sourceURL.deletingPathExtension().lastPathComponent
-        let ext = sourceURL.pathExtension
-
-        while fileManager.fileExists(atPath: destinationURL.path) {
-            let newName = "\(baseName)_\(counter).\(ext)"
-            destinationURL = destinationDirectory.appendingPathComponent(newName)
-            counter += 1
-        }
-
-        // Copy file
-        try fileManager.copyItem(at: sourceURL, to: destinationURL)
-        logger.info("handleFileDrop: Copied to \(destinationURL.path, privacy: .public)")
-
-        return destinationURL
-    }
 }
 
 // MARK: - ProgressOverlayView
@@ -2094,7 +2021,6 @@ public class ProgressOverlayView: NSView {
     }
 
     private func setupViews() {
-        wantsLayer = true
         layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.85).cgColor
 
         // Spinner
@@ -6445,11 +6371,12 @@ public class SequenceViewerView: NSView {
             NSGraphicsContext.restoreGraphicsState()
 
             // Draw tinted version
-            let tintedImage = symbolImage.copy() as! NSImage
-            tintedImage.lockFocus()
-            NSColor.tertiaryLabelColor.withAlphaComponent(0.5).set()
-            NSRect(origin: .zero, size: tintedImage.size).fill(using: .sourceAtop)
-            tintedImage.unlockFocus()
+            let tintedImage = NSImage(size: symbolImage.size, flipped: false) { rect in
+                symbolImage.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
+                NSColor.tertiaryLabelColor.withAlphaComponent(0.5).set()
+                rect.fill(using: .sourceAtop)
+                return true
+            }
             tintedImage.draw(in: imageRect, from: .zero, operation: .sourceOver, fraction: 1.0)
         }
 
@@ -8214,6 +8141,24 @@ public class SequenceViewerView: NSView {
         logger.info("Copied \(bases.count) bases from annotation '\(annotation.name)' to clipboard")
     }
 
+    /// Copies the current selection's reverse complement to the clipboard.
+    /// Called by the Sequence > Reverse Complement menu item.
+    func performReverseComplement() {
+        guard let seq = sequence,
+              let range = selectionRange else {
+            NSSound.beep()
+            return
+        }
+        let start = max(0, range.lowerBound)
+        let end = min(seq.length, range.upperBound)
+        let selectedBases = seq[start..<end]
+        let revComp = reverseComplementString(selectedBases)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(revComp, forType: .string)
+        logger.info("Reverse complement: copied \(end - start) bases to clipboard")
+    }
+
     /// Copies the annotation's reverse complement to the clipboard (callable from notification handlers).
     func copyAnnotationReverseComplementImpl(_ annotation: SequenceAnnotation) {
         guard let bases = fetchAnnotationBases(annotation) else {
@@ -8229,28 +8174,12 @@ public class SequenceViewerView: NSView {
 
     /// Returns the complement of a DNA string.
     private func complementString(_ s: String) -> String {
-        String(s.map { base -> Character in
-            switch base.uppercased() {
-            case "A": return "T"
-            case "T": return "A"
-            case "G": return "C"
-            case "C": return "G"
-            default: return base
-            }
-        })
+        String(TranslationEngine.reverseComplement(String(s.reversed())))
     }
 
     /// Returns the reverse complement of a DNA string.
     private func reverseComplementString(_ s: String) -> String {
-        String(s.reversed().map { base -> Character in
-            switch base.uppercased() {
-            case "A": return "T"
-            case "T": return "A"
-            case "G": return "C"
-            case "C": return "G"
-            default: return base
-            }
-        })
+        TranslationEngine.reverseComplement(s)
     }
 
     /// Fetches the full sequence bases for an annotation, handling multi-block and bundle-backed sequences.
@@ -9699,7 +9628,6 @@ public class TrackHeaderView: NSView {
     }
 
     private func setupView() {
-        wantsLayer = true
     }
 
     func setTrackNames(_ names: [String]) {
@@ -10371,7 +10299,6 @@ public class ViewerStatusBar: NSView {
     }
 
     private func setupViews() {
-        wantsLayer = true
 
         positionLabel = createLabel()
         positionLabel.stringValue = "No sequence loaded"
@@ -10663,6 +10590,17 @@ struct AnnotationPopoverView: View {
         case .region: return "Region"
         case .source: return "Source"
         case .custom: return "Custom"
+        case .barcode5p: return "Barcode (5')"
+        case .barcode3p: return "Barcode (3')"
+        case .adapter5p: return "Adapter (5')"
+        case .adapter3p: return "Adapter (3')"
+        case .primer5p: return "Primer (5')"
+        case .primer3p: return "Primer (3')"
+        case .trimQuality: return "Quality Trim"
+        case .trimFixed: return "Fixed Trim"
+        case .orientMarker: return "Orientation"
+        case .umiRegion: return "UMI"
+        case .contaminantMatch: return "Contaminant"
         }
     }
 }

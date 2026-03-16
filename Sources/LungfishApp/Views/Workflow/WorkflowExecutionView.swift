@@ -135,7 +135,6 @@ public class WorkflowExecutionView: NSView {
 
     private func setupView() {
         translatesAutoresizingMaskIntoConstraints = false
-        wantsLayer = true
         layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
 
         // Main stack view

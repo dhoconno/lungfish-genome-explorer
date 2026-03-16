@@ -251,7 +251,8 @@ final class VariantDatabaseExtractionTests: XCTestCase {
 
         let extractedDB = try VariantDatabase(url: outURL)
         let samples = extractedDB.sampleNames()
-        XCTAssertTrue(samples.isEmpty, "No-sample VCF should produce no sample records")
+        // No-sample VCFs now create a synthetic sample for source-file tracking
+        XCTAssertEqual(samples.count, 1, "No-sample VCF should have synthetic sample")
     }
 
     // MARK: - Genotype Preservation

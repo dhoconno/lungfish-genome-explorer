@@ -31,6 +31,7 @@ struct LungfishCLI: AsyncParsableCommand {
         subcommands: [
             ConvertCommand.self,
             AnalyzeCommand.self,
+            FastqCommand.self,
             WorkflowCommand.self,
             FetchCommand.self,
             BundleCommand.self,

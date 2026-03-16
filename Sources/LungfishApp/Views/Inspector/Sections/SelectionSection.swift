@@ -863,6 +863,18 @@ extension AnnotationType {
         case .region: return "Region"
         case .source: return "Source"
         case .custom: return "Custom"
+        // FASTQ read-level annotations
+        case .barcode5p: return "Barcode (5')"
+        case .barcode3p: return "Barcode (3')"
+        case .adapter5p: return "Adapter (5')"
+        case .adapter3p: return "Adapter (3')"
+        case .primer5p: return "Primer (5')"
+        case .primer3p: return "Primer (3')"
+        case .trimQuality: return "Quality Trim"
+        case .trimFixed: return "Fixed Trim"
+        case .orientMarker: return "Orientation"
+        case .umiRegion: return "UMI"
+        case .contaminantMatch: return "Contaminant"
         }
     }
 }

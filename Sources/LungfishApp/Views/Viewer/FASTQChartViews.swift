@@ -21,6 +21,14 @@ final class FASTQSummaryBar: NSView {
     func update(with stats: FASTQDatasetStatistics) {
         self.statistics = stats
         needsDisplay = true
+        updateAccessibility(stats)
+    }
+
+    private func updateAccessibility(_ stats: FASTQDatasetStatistics) {
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("FASTQ Summary Statistics")
+        let desc = "\(stats.readCount) reads, mean length \(Int(stats.meanReadLength)) bp, mean quality \(String(format: "%.1f", stats.meanQuality)), GC \(String(format: "%.1f%%", stats.gcContent * 100))"
+        setAccessibilityValue(desc)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -61,12 +69,21 @@ final class FASTQSummaryBar: NSView {
             ctx.addPath(path)
             ctx.strokePath()
 
-            // Label (top)
+            // Clip text to card bounds
+            ctx.saveGState()
+            ctx.clip(to: cardRect.insetBy(dx: 4, dy: 0))
+
+            // Label (top) — use abbreviated label when card is narrow
             let labelAttrs: [NSAttributedString.Key: Any] = [
                 .font: NSFont.systemFont(ofSize: 9, weight: .medium),
                 .foregroundColor: NSColor.secondaryLabelColor,
             ]
-            let labelStr = NSAttributedString(string: card.0, attributes: labelAttrs)
+            let cardContentWidth = cardRect.width - 8
+            let fullLabelSize = (card.0 as NSString).size(withAttributes: labelAttrs)
+            let displayLabel = fullLabelSize.width > cardContentWidth
+                ? abbreviatedLabel(for: card.0)
+                : card.0
+            let labelStr = NSAttributedString(string: displayLabel, attributes: labelAttrs)
             let labelSize = labelStr.size()
             let labelX = cardRect.midX - labelSize.width / 2
             labelStr.draw(at: CGPoint(x: labelX, y: cardRect.minY + 4))
@@ -80,6 +97,8 @@ final class FASTQSummaryBar: NSView {
             let valueSize = valueStr.size()
             let valueX = cardRect.midX - valueSize.width / 2
             valueStr.draw(at: CGPoint(x: valueX, y: cardRect.minY + 18))
+
+            ctx.restoreGState()
         }
     }
 
@@ -95,6 +114,61 @@ final class FASTQSummaryBar: NSView {
         if count >= 1_000 { return String(format: "%.1f Kb", Double(count) / 1_000) }
         return "\(count) bp"
     }
+
+    private func abbreviatedLabel(for label: String) -> String {
+        switch label {
+        case "Median Length": return "Med. Len"
+        case "Mean Length": return "Mean Len"
+        case "Total Reads": return "Reads"
+        case "Total Bases": return "Bases"
+        case "Mean Quality": return "Mean Q"
+        case "Median Quality": return "Med. Q"
+        case "Min Length": return "Min Len"
+        case "Max Length": return "Max Len"
+        case "GC Content": return "GC%"
+        case "Mean Q": return "Q"
+        default: return String(label.prefix(8))
+        }
+    }
+}
+
+// MARK: - Chart Copy-to-Clipboard Helper
+
+/// Renders an NSView to a PNG image and copies it to the system clipboard.
+@MainActor
+private func copyViewToPasteboard(_ view: NSView) {
+    let scale: CGFloat = 2.0  // Retina resolution
+    let width = Int(view.bounds.width * scale)
+    let height = Int(view.bounds.height * scale)
+    guard width > 0, height > 0 else { return }
+
+    guard let bitmapRep = NSBitmapImageRep(
+        bitmapDataPlanes: nil,
+        pixelsWide: width,
+        pixelsHigh: height,
+        bitsPerSample: 8,
+        samplesPerPixel: 4,
+        hasAlpha: true,
+        isPlanar: false,
+        colorSpaceName: .deviceRGB,
+        bytesPerRow: 0,
+        bitsPerPixel: 0
+    ) else { return }
+
+    bitmapRep.size = view.bounds.size
+
+    guard let ctx = NSGraphicsContext(bitmapImageRep: bitmapRep) else { return }
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = ctx
+    ctx.cgContext.scaleBy(x: scale, y: scale)
+    view.draw(view.bounds)
+    NSGraphicsContext.restoreGraphicsState()
+
+    guard let pngData = bitmapRep.representation(using: .png, properties: [:]) else { return }
+
+    let pasteboard = NSPasteboard.general
+    pasteboard.clearContents()
+    pasteboard.setData(pngData, forType: .png)
 }
 
 // MARK: - FASTQHistogramChartView
@@ -131,6 +205,15 @@ final class FASTQHistogramChartView: NSView {
     func update(with data: HistogramData) {
         self.data = data
         needsDisplay = true
+        updateAccessibility(data)
+    }
+
+    private func updateAccessibility(_ data: HistogramData) {
+        setAccessibilityRole(.image)
+        setAccessibilityLabel(data.title)
+        let total = data.bins.reduce(0) { $0 + $1.value }
+        let desc = "Histogram with \(data.bins.count) bins, \(total) total observations"
+        setAccessibilityValue(desc)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -179,35 +262,39 @@ final class FASTQHistogramChartView: NSView {
             label.draw(at: CGPoint(x: chartRect.minX - labelSize.width - 4, y: y - labelSize.height / 2))
         }
 
-        // Bars
+        // Bars — slot width divides chart evenly so bars never overflow
         let barCount = data.bins.count
-        let barSpacing: CGFloat = max(1, chartRect.width * 0.05 / CGFloat(barCount))
-        let barWidth = max(1, (chartRect.width - barSpacing * CGFloat(barCount + 1)) / CGFloat(barCount))
+        let slotWidth = chartRect.width / CGFloat(barCount)
+        let barGap: CGFloat = slotWidth > 4 ? 1 : 0
+        let barDrawWidth = max(1, slotWidth - barGap)
 
+        ctx.saveGState()
+        ctx.clip(to: chartRect)
         ctx.setFillColor(data.barColor.cgColor)
         for (i, bin) in data.bins.enumerated() {
             let barHeight = maxValue > 0
                 ? CGFloat(bin.value) / CGFloat(maxValue) * chartRect.height
                 : 0
-            let x = chartRect.minX + barSpacing + CGFloat(i) * (barWidth + barSpacing)
+            let x = chartRect.minX + CGFloat(i) * slotWidth + barGap / 2
             let barRect = CGRect(
                 x: x,
                 y: chartRect.maxY - barHeight,
-                width: barWidth,
+                width: barDrawWidth,
                 height: barHeight
             )
             ctx.fill(barRect)
         }
+        ctx.restoreGState()
 
         // X-axis labels (show a subset to avoid crowding)
         let xLabelAttrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .regular),
             .foregroundColor: NSColor.secondaryLabelColor,
         ]
-        let maxXLabels = max(1, Int(chartRect.width / 40))
+        let maxXLabels = max(1, Int(chartRect.width / 50))
         let xLabelStride = max(1, barCount / maxXLabels)
         for i in stride(from: 0, to: barCount, by: xLabelStride) {
-            let x = chartRect.minX + barSpacing + CGFloat(i) * (barWidth + barSpacing) + barWidth / 2
+            let x = chartRect.minX + CGFloat(i) * slotWidth + slotWidth / 2
             let label = NSAttributedString(string: "\(data.bins[i].key)", attributes: xLabelAttrs)
             let labelSize = label.size()
             label.draw(at: CGPoint(x: x - labelSize.width / 2, y: chartRect.maxY + 4))
@@ -239,6 +326,19 @@ final class FASTQHistogramChartView: NSView {
         ctx.rotate(by: -.pi / 2)
         yAxisStr.draw(at: .zero)
         ctx.restoreGState()
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        guard data != nil else { return }
+        let menu = NSMenu()
+        let copyItem = NSMenuItem(title: "Copy Chart as PNG", action: #selector(copyChartToPasteboard(_:)), keyEquivalent: "")
+        copyItem.target = self
+        menu.addItem(copyItem)
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+
+    @objc private func copyChartToPasteboard(_ sender: Any) {
+        copyViewToPasteboard(self)
     }
 
     private func drawEmptyState(_ ctx: CGContext) {
@@ -278,6 +378,19 @@ final class FASTQQualityBoxplotView: NSView {
     func update(with summaries: [PositionQualitySummary]) {
         self.summaries = summaries
         needsDisplay = true
+        updateAccessibility(summaries)
+    }
+
+    private func updateAccessibility(_ summaries: [PositionQualitySummary]) {
+        setAccessibilityRole(.image)
+        setAccessibilityLabel("Per-Position Quality Boxplot")
+        guard !summaries.isEmpty else {
+            setAccessibilityValue("No data")
+            return
+        }
+        let meanQ = summaries.reduce(0.0) { $0 + $1.mean } / Double(summaries.count)
+        let desc = "\(summaries.count) positions, overall mean quality \(String(format: "%.1f", meanQ))"
+        setAccessibilityValue(desc)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -431,6 +544,19 @@ final class FASTQQualityBoxplotView: NSView {
         let xAxisStr = NSAttributedString(string: "Position in Read (bp)", attributes: axisAttrs)
         let xAxisSize = xAxisStr.size()
         xAxisStr.draw(at: CGPoint(x: chartRect.midX - xAxisSize.width / 2, y: chartRect.maxY + 22))
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        guard !summaries.isEmpty else { return }
+        let menu = NSMenu()
+        let copyItem = NSMenuItem(title: "Copy Chart as PNG", action: #selector(copyChartToPasteboard(_:)), keyEquivalent: "")
+        copyItem.target = self
+        menu.addItem(copyItem)
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+
+    @objc private func copyChartToPasteboard(_ sender: Any) {
+        copyViewToPasteboard(self)
     }
 
     private func drawQualityZones(ctx: CGContext, chartRect: CGRect, maxQ: Double) {

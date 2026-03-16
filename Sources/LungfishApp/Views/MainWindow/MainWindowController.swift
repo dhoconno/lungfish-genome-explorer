@@ -176,13 +176,13 @@ public class MainWindowController: NSWindowController {
                 return image
             }
         }
-        let generated = NSImage(size: NSSize(width: 14, height: 14))
-        generated.lockFocus()
-        let path = NSBezierPath(ovalIn: NSRect(x: 1, y: 1, width: 12, height: 12))
-        NSColor.labelColor.setStroke()
-        path.lineWidth = 1.5
-        path.stroke()
-        generated.unlockFocus()
+        let generated = NSImage(size: NSSize(width: 14, height: 14), flipped: false) { _ in
+            let path = NSBezierPath(ovalIn: NSRect(x: 1, y: 1, width: 12, height: 12))
+            NSColor.labelColor.setStroke()
+            path.lineWidth = 1.5
+            path.stroke()
+            return true
+        }
         generated.isTemplate = true
         return generated
     }
@@ -425,13 +425,13 @@ extension MainWindowController: NSToolbarDelegate {
 
         case ToolbarIdentifier.toggleAnnotationDrawer:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Annotations"
-            item.paletteLabel = "Toggle Annotation Drawer"
-            item.toolTip = "Show or hide the annotation table"
+            item.label = "Drawer"
+            item.paletteLabel = "Toggle Bottom Drawer"
+            item.toolTip = "Show or hide the bottom metadata drawer"
             let button = makeToolbarButton(
                 symbolName: "tablecells",
                 fallbacks: ["tablecells.badge.ellipsis", "list.dash"],
-                accessibilityLabel: "Toggle Annotation Drawer"
+                accessibilityLabel: "Toggle Bottom Drawer"
             )
             button.target = self
             button.action = #selector(toggleAnnotationDrawer(_:))

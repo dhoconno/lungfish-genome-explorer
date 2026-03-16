@@ -55,7 +55,6 @@ public final class GeneTabBarView: NSView {
                                  target: nil, action: nil)
         super.init(frame: frameRect)
 
-        wantsLayer = true
 
         // Segmented control styling
         segmentedControl.segmentStyle = .automatic

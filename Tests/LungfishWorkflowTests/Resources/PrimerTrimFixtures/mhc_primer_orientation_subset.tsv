@@ -1,0 +1,15 @@
+fixture_id	primer	primer_role	read_orientation	source_read_id	source_length	slice_range	match_start	match_end	match_from_5p	match_from_3p
+MHC-E_F|forward|src=7fe38d76-77cb-46aa-a531-26bf1495585d	MHC-E_F	forward	forward	7fe38d76-77cb-46aa-a531-26bf1495585d	3627	80:300	80	100	80	3527
+MHC-E_F|revcomp|src=78c74ad9-6699-4199-bf46-4b0a2cac0561	MHC-E_F	forward	revcomp	78c74ad9-6699-4199-bf46-4b0a2cac0561	554	308:528	508	528	508	26
+MHC-E_R|forward|src=bee405c2-8cd3-4a45-b269-d74ee35d5883	MHC-E_R	reverse	forward	bee405c2-8cd3-4a45-b269-d74ee35d5883	617	65:285	65	85	65	532
+MHC-E_R|revcomp|src=2b613649-b740-41ec-91d0-1adac1eca705	MHC-E_R	reverse	revcomp	2b613649-b740-41ec-91d0-1adac1eca705	432	188:408	388	408	388	24
+MHCI_5UTRa|forward|src=703a9b51-abc4-405e-8790-9ba94099fded	MHCI_5UTRa	forward	forward	703a9b51-abc4-405e-8790-9ba94099fded	2767	72:292	72	91	72	2676
+MHCI_5UTRa|revcomp|src=a4225251-3a6e-4132-a0e7-ba7df2855b67	MHCI_5UTRa	forward	revcomp	a4225251-3a6e-4132-a0e7-ba7df2855b67	1475	1204:1424	1405	1424	1405	51
+MHCI_5UTR|forward|src=cb3f5ba3-4b05-4fea-9b48-fc674ca6928c	MHCI_5UTR	forward	forward	cb3f5ba3-4b05-4fea-9b48-fc674ca6928c	3008	47:267	47	68	47	2940
+MHCI_5UTR|revcomp|src=7229af5d-e301-49c2-abbb-db27b412bcf9	MHCI_5UTR	forward	revcomp	7229af5d-e301-49c2-abbb-db27b412bcf9	1099	874:1094	1073	1094	1073	5
+MHCI_3UTRa|forward|src=0a80d582-34e6-43ce-981c-170520326eec	MHCI_3UTRa	reverse	forward	0a80d582-34e6-43ce-981c-170520326eec	3102	76:296	76	95	76	3007
+MHCI_3UTRa|revcomp|src=bc92bb5f-0a18-4531-948e-70a8c80f629e	MHCI_3UTRa	reverse	revcomp	bc92bb5f-0a18-4531-948e-70a8c80f629e	3284	2999:3219	3200	3219	3200	65
+MHCI_3UTRb|forward|src=ced3276a-9b53-4334-837c-3c8f0cf43de6	MHCI_3UTRb	reverse	forward	ced3276a-9b53-4334-837c-3c8f0cf43de6	2994	80:300	80	103	80	2891
+MHCI_3UTRb|revcomp|src=d93bfca4-3c3b-40cb-94dc-3104888522f0	MHCI_3UTRb	reverse	revcomp	d93bfca4-3c3b-40cb-94dc-3104888522f0	3053	2766:2986	2963	2986	2963	67
+MHCI_3UTRc|forward|src=e5889085-6ba8-4b10-ab31-bf08c21bf8f6	MHCI_3UTRc	reverse	forward	e5889085-6ba8-4b10-ab31-bf08c21bf8f6	3100	74:294	74	96	74	3004
+MHCI_3UTRc|revcomp|src=1e40c4ae-0389-47b4-beb7-f1e23376ab87	MHCI_3UTRc	reverse	revcomp	1e40c4ae-0389-47b4-beb7-f1e23376ab87	805	578:798	776	798	776	7

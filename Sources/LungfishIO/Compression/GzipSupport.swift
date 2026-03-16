@@ -71,25 +71,88 @@ public final class GzipInputStream: Sendable {
 
     /// Returns an async sequence of lines from the decompressed file.
     ///
+    /// Streams from a gzip subprocess pipe in 1 MB chunks instead of loading
+    /// the entire decompressed output into RAM. Memory usage is O(chunk size)
+    /// regardless of file size.
+    ///
     /// Handles both Unix (`\n`) and Windows (`\r\n`) line endings.
     ///
     /// - Returns: AsyncThrowingStream of String lines
     public func lines() -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream { continuation in
+        let fileURL = self.url
+        return AsyncThrowingStream { continuation in
             Task {
                 do {
-                    // Use system gzip for robust support of multi-member gzip/BGZF streams.
-                    let decompressedData = try self.decompressWithSystemGzip()
+                    try GzipInputStream.validateGzipHeader(at: fileURL)
 
-                    guard let content = String(data: decompressedData, encoding: .utf8) else {
-                        throw GzipError.decompressionFailed("Invalid UTF-8 encoding")
+                    let process = Process()
+                    process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+                    process.arguments = ["-dc", fileURL.path]
+
+                    let stdoutPipe = Pipe()
+                    let stderrPipe = Pipe()
+                    process.standardOutput = stdoutPipe
+                    process.standardError = stderrPipe
+
+                    try process.run()
+
+                    let handle = stdoutPipe.fileHandleForReading
+                    let chunkSize = 1_048_576 // 1 MB
+                    var partial = Data() // Leftover bytes from previous chunk (incomplete line)
+
+                    while true {
+                        let chunk = handle.readData(ofLength: chunkSize)
+                        if chunk.isEmpty { break }
+
+                        partial.append(chunk)
+
+                        // Find the last newline in the accumulated buffer.
+                        // Everything before it can be split into complete lines.
+                        // Everything after it is a partial line carried forward.
+                        guard let lastNewline = partial.lastIndex(of: UInt8(ascii: "\n")) else {
+                            // No newline yet — accumulate more data
+                            continue
+                        }
+
+                        let completeRange = partial[partial.startIndex...lastNewline]
+                        guard let text = String(data: Data(completeRange), encoding: .utf8) else {
+                            throw GzipError.decompressionFailed("Invalid UTF-8 encoding in chunk")
+                        }
+
+                        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+                        for line in normalized.split(separator: "\n", omittingEmptySubsequences: false) {
+                            continuation.yield(String(line))
+                        }
+
+                        // Keep the remainder after the last newline
+                        let afterNewline = partial.index(after: lastNewline)
+                        if afterNewline < partial.endIndex {
+                            partial = Data(partial[afterNewline...])
+                        } else {
+                            partial = Data()
+                        }
                     }
 
-                    // Normalize CR-LF to LF to handle Windows line endings,
-                    // then split on LF
-                    let normalized = content.replacingOccurrences(of: "\r\n", with: "\n")
-                    for line in normalized.split(separator: "\n", omittingEmptySubsequences: false) {
-                        continuation.yield(String(line))
+                    // Yield any remaining partial line
+                    if !partial.isEmpty {
+                        guard let text = String(data: partial, encoding: .utf8) else {
+                            throw GzipError.decompressionFailed("Invalid UTF-8 encoding in final chunk")
+                        }
+                        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
+                        if !normalized.isEmpty {
+                            continuation.yield(normalized)
+                        }
+                    }
+
+                    process.waitUntilExit()
+
+                    if process.terminationStatus != 0 {
+                        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                        let stderrText = String(data: stderrData, encoding: .utf8)?
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        throw GzipError.decompressionFailed(
+                            stderrText?.isEmpty == false ? stderrText! : "gzip exited with code \(process.terminationStatus)"
+                        )
                     }
 
                     continuation.finish()
@@ -221,19 +284,29 @@ public final class GzipInputStream: Sendable {
         return content
     }
 
+    /// Validates that a file has a valid gzip header (magic bytes).
+    ///
+    /// Reads only the first 2 bytes — does not load the file into RAM.
+    private static func validateGzipHeader(at url: URL) throws {
+        guard let fh = FileHandle(forReadingAtPath: url.path) else {
+            throw GzipError.fileNotFound(url)
+        }
+        defer { try? fh.close() }
+        guard let headerData = try? fh.read(upToCount: 2), headerData.count >= 2 else {
+            throw GzipError.emptyFile
+        }
+        guard headerData[0] == gzipMagic[0], headerData[1] == gzipMagic[1] else {
+            throw GzipError.invalidFormat
+        }
+    }
+
     /// Decompresses gzip/BGZF files using `/usr/bin/gzip -dc`.
     ///
     /// This path handles concatenated gzip members (e.g. BGZF blocks),
     /// which are common in indexed genomics files.
+    /// Used by `readAll()` where the full content is needed in memory.
     private func decompressWithSystemGzip() throws -> Data {
-        let compressedData = try Data(contentsOf: url)
-        guard compressedData.count >= 2 else {
-            throw GzipError.emptyFile
-        }
-        guard compressedData[0] == Self.gzipMagic[0],
-              compressedData[1] == Self.gzipMagic[1] else {
-            throw GzipError.invalidFormat
-        }
+        try Self.validateGzipHeader(at: url)
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")

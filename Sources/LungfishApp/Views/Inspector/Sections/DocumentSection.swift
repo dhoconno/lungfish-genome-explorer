@@ -582,19 +582,152 @@ public struct DocumentSection: View {
 
     private func fastqDerivativeSection(_ manifest: FASTQDerivedBundleManifest) -> some View {
         DisclosureGroup(isExpanded: $isFASTQDerivativeExpanded) {
-            VStack(alignment: .leading, spacing: 4) {
-                metadataRow(label: "Mode", value: "Pointer Dataset")
-                metadataRow(label: "Operation", value: manifest.operation.displaySummary)
-                metadataRow(label: "Lineage Steps", value: "\(manifest.lineage.count)")
-                metadataRow(label: "Parent", value: manifest.parentBundleRelativePath)
-                metadataRow(label: "Root", value: manifest.rootBundleRelativePath)
-                metadataRow(label: "Root FASTQ", value: manifest.rootFASTQFilename)
-                metadataRow(label: "Read IDs", value: manifest.readIDListFilename)
-                metadataRow(label: "Created", value: formatDate(manifest.createdAt))
+            VStack(alignment: .leading, spacing: 6) {
+                // Operation card
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: sfSymbolForOperation(manifest.operation))
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(manifest.operation.displaySummary)
+                            .font(.callout)
+                            .fontWeight(.semibold)
+                        if let tool = manifest.operation.toolUsed {
+                            Text(tool)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(formatDate(manifest.createdAt))
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .cornerRadius(6)
+
+                // Payload type
+                switch manifest.payload {
+                case .subset:
+                    metadataRow(label: "Storage", value: "Pointer (read IDs)")
+                case .trim:
+                    metadataRow(label: "Storage", value: "Pointer (trim positions)")
+                case .full:
+                    metadataRow(label: "Storage", value: "Materialized FASTQ")
+                case .fullPaired:
+                    metadataRow(label: "Storage", value: "Materialized R1/R2")
+                case .fullMixed(let classification):
+                    metadataRow(label: "Storage", value: "Materialized (\(classification.compositionLabel))")
+                case .demuxedVirtual(let barcodeID, _, _, let trimFile, _):
+                    metadataRow(label: "Storage", value: "Virtual demuxed barcode (\(barcodeID))\(trimFile != nil ? " + trim positions" : "")")
+                case .demuxGroup(let count):
+                    metadataRow(label: "Storage", value: "Demux group (\(count) barcodes)")
+                case .fullFASTA:
+                    metadataRow(label: "Storage", value: "Materialized FASTA")
+                case .orientMap:
+                    metadataRow(label: "Storage", value: "Orientation map (materialized on demand)")
+                }
+
+                // Command block (scrollable monospace with copy button)
+                if let cmd = manifest.operation.toolCommand {
+                    Divider()
+                    ZStack(alignment: .topTrailing) {
+                        ScrollView(.vertical, showsIndicators: false) {
+                            Text(cmd)
+                                .font(.system(size: 10, design: .monospaced))
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(8)
+                        }
+                        .frame(maxHeight: 60)
+                        .background(Color(nsColor: .controlBackgroundColor))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                        )
+                        .cornerRadius(6)
+
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(cmd, forType: .string)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                                .font(.caption2)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Copy command to clipboard")
+                        .padding(4)
+                    }
+                }
+
+                // Vertical timeline lineage
+                if manifest.lineage.count > 1 {
+                    Divider()
+                    Text("Lineage")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(manifest.lineage.enumerated()), id: \.offset) { index, op in
+                            let isLast = index == manifest.lineage.count - 1
+                            let isFirst = index == 0
+
+                            HStack(alignment: .top, spacing: 8) {
+                                // Step circle + connecting line
+                                VStack(spacing: 0) {
+                                    ZStack {
+                                        Circle()
+                                            .fill(isLast ? Color.accentColor : Color(nsColor: .quaternarySystemFill))
+                                            .frame(width: 20, height: 20)
+                                        Text("\(index + 1)")
+                                            .font(.caption2)
+                                            .fontWeight(.semibold)
+                                            .foregroundStyle(isLast ? .white : .secondary)
+                                    }
+                                    if !isLast {
+                                        Rectangle()
+                                            .fill(Color(nsColor: .separatorColor))
+                                            .frame(width: 1, height: 16)
+                                    }
+                                }
+                                .frame(width: 20)
+
+                                // Step content
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(isFirst ? "Root FASTQ" : op.displaySummary)
+                                        .font(.caption)
+                                        .foregroundStyle(isLast ? .primary : .secondary)
+                                    if isFirst {
+                                        Text(manifest.rootFASTQFilename)
+                                            .font(.caption2)
+                                            .foregroundStyle(.tertiary)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                    } else if let tool = op.toolUsed {
+                                        Text(tool)
+                                            .font(.caption2)
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                }
+                                .padding(.bottom, isLast ? 0 : 4)
+                            }
+                        }
+                    }
+                } else {
+                    // Simple source reference
+                    Divider()
+                    metadataRow(label: "Root FASTQ", value: manifest.rootFASTQFilename)
+                }
             }
         } label: {
-            Text("Derived FASTQ")
-                .font(.headline)
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.caption)
+                Text("Provenance")
+                    .font(.headline)
+            }
         }
     }
 
@@ -677,6 +810,25 @@ public struct DocumentSection: View {
         formatter.dateStyle = .medium
         formatter.timeStyle = .none
         return formatter.string(from: date)
+    }
+
+    /// Maps a FASTQ derivative operation to an appropriate SF Symbol name.
+    private func sfSymbolForOperation(_ op: FASTQDerivativeOperation) -> String {
+        let summary = op.displaySummary.lowercased()
+        if summary.contains("subsample") { return "dice" }
+        if summary.contains("length filter") { return "ruler" }
+        if summary.contains("search") || summary.contains("find") || summary.contains("motif") { return "magnifyingglass" }
+        if summary.contains("dedup") { return "minus.circle" }
+        if summary.contains("quality trim") || summary.contains("qtrim") { return "scissors" }
+        if summary.contains("adapter") { return "minus.circle" }
+        if summary.contains("fixed trim") { return "crop" }
+        if summary.contains("contaminant") { return "xmark.shield" }
+        if summary.contains("merge") { return "arrow.triangle.merge" }
+        if summary.contains("repair") { return "wrench" }
+        if summary.contains("primer") { return "eraser" }
+        if summary.contains("error corr") { return "checkmark.circle" }
+        if summary.contains("interleave") { return "arrow.left.arrow.right" }
+        return "gearshape"
     }
 }
 

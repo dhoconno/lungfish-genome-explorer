@@ -112,6 +112,14 @@ public class SidebarViewController: NSViewController {
     /// Root items displayed in the sidebar
     private var rootItems: [SidebarItem] = []
 
+    /// Filtered copy of rootItems when search is active; nil when no filter.
+    private var filteredRootItems: [SidebarItem]?
+
+    /// The items the outline view data source should use.
+    private var displayItems: [SidebarItem] {
+        filteredRootItems ?? rootItems
+    }
+
     /// The currently open project URL (filesystem-backed model)
     private var projectURL: URL?
 
@@ -120,6 +128,14 @@ public class SidebarViewController: NSViewController {
 
     /// Suppresses delegate and notification callbacks during programmatic selection changes.
     private var suppressSelectionCallbacks = false
+
+    /// Last width recommendation posted to the split-view controller.
+    private var lastRecommendedSidebarWidth: CGFloat = 0
+
+    /// Local event monitor for Delete key — stored so it can be removed in deinit.
+    /// `nonisolated(unsafe)` because deinit is nonisolated in Swift 6.2, but we only
+    /// mutate this on the main actor (viewDidLoad) and read it in deinit (safe at teardown).
+    nonisolated(unsafe) private var keyEventMonitor: Any?
 
     // MARK: - Delegate
 
@@ -136,7 +152,9 @@ public class SidebarViewController: NSViewController {
         // Create the main container view as a drop target
         // This ensures file drops are accepted even when outline view doesn't handle them
         let containerView = SidebarDropTargetView()
-        containerView.translatesAutoresizingMaskIntoConstraints = false
+        // Do NOT set translatesAutoresizingMaskIntoConstraints = false on the root view.
+        // NSSplitView manages child view frames via autoresizing masks; disabling TARIC
+        // prevents the split view from resizing the sidebar when dividers are dragged.
         containerView.sidebarController = self
 
         // Create search field
@@ -207,17 +225,20 @@ public class SidebarViewController: NSViewController {
         self.view = containerView
     }
 
+    deinit {
+        if let monitor = keyEventMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
+
     public override func viewDidLoad() {
         super.viewDidLoad()
-
-        // Configure visual effect for sidebar vibrancy
-        view.wantsLayer = true
 
         // Load initial data
         loadSampleData()
 
         // Set up key event monitoring for Delete key
-        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self = self,
                   let sidebarWindow = self.view.window,
                   event.window === sidebarWindow,  // Ensure event is for THIS window, not sheets
@@ -230,6 +251,14 @@ public class SidebarViewController: NSViewController {
                 self.deleteSelectedItems()
                 return nil  // Consume the event
             }
+
+            // Cmd+Shift+A: Select All Siblings
+            if event.modifierFlags.contains([.command, .shift]),
+               event.charactersIgnoringModifiers?.lowercased() == "a" {
+                self.selectAllSiblings()
+                return nil
+            }
+
             return event
         }
     }
@@ -240,29 +269,111 @@ public class SidebarViewController: NSViewController {
         // Start with empty sidebar - documents will be added when loaded
         // The "OPEN DOCUMENTS" group is created automatically when first document is loaded
         rootItems = []
-        outlineView.reloadData()
+        reloadOutlineView()
         logger.info("loadSampleData: Sidebar initialized (empty, waiting for documents)")
     }
 
     // MARK: - Actions
 
     @objc private func searchFieldChanged(_ sender: NSSearchField) {
-        // Filter outline view based on search text
-        let searchText = sender.stringValue
+        let searchText = sender.stringValue.trimmingCharacters(in: .whitespaces)
         if searchText.isEmpty {
-            // Reset filter
-            loadSampleData()
+            filteredRootItems = nil
         } else {
-            // Filter items
-            // TODO: Implement filtering
+            filteredRootItems = filterItems(rootItems, matching: searchText.lowercased())
         }
+        outlineView.reloadData()
+        // Expand all groups when filtering so matches are visible
+        if filteredRootItems != nil {
+            outlineView.expandItem(nil, expandChildren: true)
+        }
+    }
+
+    /// Recursively filters the sidebar tree, keeping items whose title or
+    /// subtitle match the query, and any group/folder that has matching descendants.
+    private func filterItems(_ items: [SidebarItem], matching query: String) -> [SidebarItem] {
+        var result: [SidebarItem] = []
+        for item in items {
+            let titleMatch = item.title.lowercased().contains(query)
+            let subtitleMatch = item.subtitle?.lowercased().contains(query) == true
+            let urlMatch = item.url?.lastPathComponent.lowercased().contains(query) == true
+
+            let filteredChildren = filterItems(item.children, matching: query)
+
+            if titleMatch || subtitleMatch || urlMatch || !filteredChildren.isEmpty {
+                let copy = SidebarItem(
+                    title: item.title,
+                    type: item.type,
+                    icon: item.icon,
+                    children: filteredChildren.isEmpty && (titleMatch || subtitleMatch || urlMatch) ? item.children : filteredChildren,
+                    url: item.url,
+                    subtitle: item.subtitle
+                )
+                result.append(copy)
+            }
+        }
+        return result
     }
 
     // MARK: - Public API
 
     /// Reloads the sidebar content
     public func reloadData() {
+        reloadOutlineView()
+    }
+
+    private func reloadOutlineView() {
         outlineView.reloadData()
+        postPreferredSidebarWidthIfNeeded()
+    }
+
+    private func postPreferredSidebarWidthIfNeeded() {
+        let width = recommendedSidebarWidth()
+        guard abs(width - lastRecommendedSidebarWidth) >= 2 else { return }
+        lastRecommendedSidebarWidth = width
+        NotificationCenter.default.post(
+            name: .sidebarPreferredWidthRecommended,
+            object: self,
+            userInfo: ["width": width]
+        )
+    }
+
+    private func recommendedSidebarWidth() -> CGFloat {
+        let contentWidth = maxLabelWidth(in: rootItems, depth: 0)
+        let estimated = contentWidth + 40 // icon + paddings + trailing breathing room
+        return min(max(estimated, 220), 720)
+    }
+
+    private func maxLabelWidth(in items: [SidebarItem], depth: Int) -> CGFloat {
+        var maxWidth: CGFloat = 0
+
+        for item in items {
+            let font: NSFont
+            if item.type == .group {
+                font = .systemFont(ofSize: 11, weight: .semibold)
+            } else {
+                font = .systemFont(ofSize: 13)
+            }
+
+            let titleWidth = (item.title as NSString).size(withAttributes: [.font: font]).width
+            let subtitleWidth: CGFloat
+            if let subtitle = item.subtitle, !subtitle.isEmpty {
+                subtitleWidth = (subtitle as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 10)]).width
+            } else {
+                subtitleWidth = 0
+            }
+
+            let indentWidth = CGFloat(depth) * outlineView.indentationPerLevel
+            let iconWidth: CGFloat = item.type == .group ? 0 : 20
+            let width = indentWidth + iconWidth + max(titleWidth, subtitleWidth)
+            maxWidth = max(maxWidth, width)
+
+            if !item.children.isEmpty {
+                maxWidth = max(maxWidth, maxLabelWidth(in: item.children, depth: depth + 1))
+            }
+        }
+
+        return maxWidth
     }
 
     /// Selects an item in the sidebar
@@ -364,7 +475,7 @@ public class SidebarViewController: NSViewController {
         fileSystemWatcher = nil
         projectURL = nil
         rootItems = []
-        outlineView.reloadData()
+        reloadOutlineView()
     }
 
     /// Reloads the sidebar from the filesystem.
@@ -377,7 +488,7 @@ public class SidebarViewController: NSViewController {
         guard let projectURL = projectURL else {
             logger.debug("reloadFromFilesystem: No project URL set")
             rootItems = []
-            outlineView.reloadData()
+            reloadOutlineView()
             return
         }
 
@@ -395,7 +506,7 @@ public class SidebarViewController: NSViewController {
         rootItems = buildRootItems(from: projectURL)
 
         // Reload the outline view
-        outlineView.reloadData()
+        reloadOutlineView()
 
         // Expand all folders at root level
         for item in rootItems where item.type == .folder {
@@ -521,13 +632,74 @@ public class SidebarViewController: NSViewController {
         let displayName = (itemType == .referenceBundle || itemType == .fastqBundle)
             ? url.deletingPathExtension().lastPathComponent
             : filename
+
+        // Load composition subtitle for FASTQ bundles with mixed read types,
+        // and materialization state badge for virtual derivatives.
+        var subtitle: String?
+        if itemType == .fastqBundle {
+            if let manifest = FASTQBundle.loadDerivedManifest(in: url) {
+                if let classification = manifest.readClassification {
+                    subtitle = classification.compositionLabel
+                }
+                // Show virtual/materialized status for derivative bundles
+                if case .virtual = manifest.resolvedState {
+                    subtitle = (subtitle.map { $0 + " · " } ?? "") + "Virtual"
+                }
+            } else if let readManifest = ReadManifest.load(from: url) {
+                subtitle = readManifest.classification.compositionLabel
+            }
+        }
+
         let item = SidebarItem(
             title: displayName,
             type: itemType,
             icon: icon,
             children: [],
-            url: url
+            url: url,
+            subtitle: subtitle
         )
+
+        // For FASTQ bundles, scan for demultiplexed child bundles inside demux/ subdirectory.
+        // These appear as expandable children so users can navigate demux output hierarchically.
+        if itemType == .fastqBundle {
+            let demuxDir = url.appendingPathComponent("demux", isDirectory: true)
+
+            // Load batch manifest first to build exclusion set (prevents duplicate nodes)
+            let batchManifest = FASTQBatchManifest.load(from: demuxDir)
+            var batchOutputURLs = Set<URL>()
+            if let manifest = batchManifest {
+                for record in manifest.operations {
+                    for relativePath in record.outputBundlePaths {
+                        batchOutputURLs.insert(
+                            demuxDir.appendingPathComponent(relativePath).standardizedFileURL
+                        )
+                    }
+                }
+            }
+
+            // Collect demux child bundles, excluding batch operation outputs
+            let childBundles = collectDemuxChildBundles(in: url, excluding: batchOutputURLs)
+            for childURL in childBundles {
+                let childItem = buildSidebarTree(from: childURL, isRoot: false)
+                item.children.append(childItem)
+            }
+
+            // Create virtual batch group nodes from batch-operations.json
+            if let manifest = batchManifest {
+                let batchGroups = buildBatchGroupNodes(manifest: manifest, baseDirectory: demuxDir)
+                item.children.append(contentsOf: batchGroups)
+            }
+
+            // Scan derivatives/ directory for non-demux child bundles.
+            // These are displayed with operation labels instead of filenames.
+            let derivatives = FASTQBundle.scanDerivatives(in: url)
+            for deriv in derivatives {
+                let childItem = buildSidebarTree(from: deriv.url, isRoot: false)
+                // Use the operation label as the display name instead of the auto-generated filename
+                childItem.title = deriv.manifest.operation.displaySummary
+                item.children.append(childItem)
+            }
+        }
 
         // If it's a directory, scan children (unless it's a bundle)
         // Bundles (.lungfishref) appear as single items and don't show internal structure
@@ -602,6 +774,76 @@ public class SidebarViewController: NSViewController {
     /// Returns true for internal sidecar/metadata files that should be hidden from the sidebar.
     private func isInternalSidecarFile(_ url: URL) -> Bool {
         url.lastPathComponent.hasSuffix(".lungfish-meta.json")
+    }
+
+    /// Collects child `.lungfishfastq` bundles from a parent bundle's `demux/` directory.
+    ///
+    /// Scans the `demux/` subdirectory tree for `.lungfishfastq` bundles, skipping
+    /// the `materialized/` directory (intermediate full FASTQs used during processing).
+    /// Returns bundles sorted alphabetically.
+    private func collectDemuxChildBundles(in bundleURL: URL, excluding: Set<URL> = []) -> [URL] {
+        let demuxDir = bundleURL.appendingPathComponent("demux", isDirectory: true)
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: demuxDir.path, isDirectory: &isDir), isDir.boolValue else {
+            return []
+        }
+
+        var results: [URL] = []
+        // Recursively scan demux/ for child .lungfishfastq bundles, skipping materialized/
+        func scan(_ dir: URL) {
+            guard let contents = try? fm.contentsOfDirectory(
+                at: dir,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else { return }
+
+            for childURL in contents {
+                var childIsDir: ObjCBool = false
+                fm.fileExists(atPath: childURL.path, isDirectory: &childIsDir)
+                guard childIsDir.boolValue else { continue }
+
+                // Skip materialized/ directory (temporary full FASTQs during active processing)
+                if childURL.lastPathComponent == "materialized" { continue }
+
+                if FASTQBundle.isBundleURL(childURL) {
+                    // Skip bundles that are batch operation outputs (shown under batch group nodes)
+                    if !excluding.contains(childURL.standardizedFileURL) {
+                        results.append(childURL)
+                    }
+                } else {
+                    // Recurse into non-bundle subdirectories (e.g., barcode13/)
+                    scan(childURL)
+                }
+            }
+        }
+        scan(demuxDir)
+        return results.sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    /// Builds virtual batch group sidebar nodes from a pre-loaded batch manifest.
+    private func buildBatchGroupNodes(manifest: FASTQBatchManifest, baseDirectory: URL) -> [SidebarItem] {
+        return manifest.operations.map { record in
+            let groupItem = SidebarItem(
+                title: record.label,
+                type: .batchGroup,
+                icon: "tray.2",
+                children: [],
+                url: nil,
+                subtitle: "\(record.successCount) processed"
+            )
+
+            // Resolve output bundle paths to sidebar items
+            for relativePath in record.outputBundlePaths {
+                let outputURL = baseDirectory.appendingPathComponent(relativePath)
+                if FileManager.default.fileExists(atPath: outputURL.path) {
+                    let childItem = buildSidebarTree(from: outputURL, isRoot: false)
+                    groupItem.children.append(childItem)
+                }
+            }
+
+            return groupItem
+        }
     }
 
     /// Counts the total number of items in a tree.
@@ -711,7 +953,7 @@ public class SidebarViewController: NSViewController {
         openDocsGroup!.children.append(item)
         logger.info("addLoadedDocument: Added item to sidebar, reloading")
 
-        outlineView.reloadData()
+        reloadOutlineView()
 
         // Expand the open documents group and select the new item
         outlineView.expandItem(openDocsGroup)
@@ -797,7 +1039,7 @@ public class SidebarViewController: NSViewController {
         downloadsFolder!.children.append(item)
         logger.info("addDownloadedDocument: Added '\(document.name, privacy: .public)' to Downloads folder, reloading")
 
-        outlineView.reloadData()
+        reloadOutlineView()
 
         // Expand the project and downloads folder, then select the new item
         outlineView.expandItem(projectItem)
@@ -902,7 +1144,7 @@ public class SidebarViewController: NSViewController {
         rootItems.append(folderItem)
 
         logger.info("addProjectFolder: Reloading outline view with \(folderItem.children.count) children")
-        outlineView.reloadData()
+        reloadOutlineView()
 
         // Expand the folder to show contents
         outlineView.expandItem(folderItem)
@@ -1016,7 +1258,7 @@ public class SidebarViewController: NSViewController {
         }
 
         // Reload and select the new item
-        outlineView.reloadData()
+        reloadOutlineView()
         outlineView.expandItem(projectItem)
 
         let row = outlineView.row(forItem: docItem)
@@ -1067,7 +1309,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
 
     public func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
         if item == nil {
-            return rootItems.count
+            return displayItems.count
         }
         if let sidebarItem = item as? SidebarItem {
             return sidebarItem.children.count
@@ -1077,7 +1319,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
 
     public func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
         if item == nil {
-            return rootItems[index]
+            return displayItems[index]
         }
         if let sidebarItem = item as? SidebarItem {
             return sidebarItem.children[index]
@@ -1313,6 +1555,43 @@ extension SidebarViewController: NSOutlineViewDataSource {
         return items
     }
 
+    /// Returns the URL of the first selected sidebar item that has a file URL.
+    public var selectedFileURL: URL? {
+        selectedItems().first(where: { $0.url != nil })?.url
+    }
+
+    // MARK: - Select All Siblings
+
+    /// Selects all sibling items of the currently selected item in the outline view.
+    /// Triggered by Cmd+Shift+A. Useful for batch-selecting all barcodes at the same level.
+    public func selectAllSiblings() {
+        guard let selectedItem = selectedItems().first else { return }
+
+        // Find the parent — siblings are the parent's children (or rootItems if top-level)
+        let siblings: [SidebarItem]
+        if let parent = findParent(of: selectedItem) {
+            siblings = parent.children
+        } else {
+            // Top-level item — siblings are rootItems
+            siblings = rootItems
+        }
+
+        guard siblings.count > 1 else { return }
+
+        // Build row index set for all siblings
+        var rowIndexes = IndexSet()
+        for sibling in siblings {
+            let row = outlineView.row(forItem: sibling)
+            if row >= 0 {
+                rowIndexes.insert(row)
+            }
+        }
+
+        guard !rowIndexes.isEmpty else { return }
+        outlineView.selectRowIndexes(rowIndexes, byExtendingSelection: false)
+        logger.info("selectAllSiblings: Selected \(rowIndexes.count) sibling(s)")
+    }
+
     // MARK: - Delete Operations
 
     /// Deletes the currently selected items, moving files to Trash
@@ -1325,7 +1604,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
 
         // Filter out items that shouldn't be deleted (groups, projects)
         let deletableItems = items.filter { item in
-            item.type != .group && item.type != .project
+            item.type != .group && item.type != .project && item.type != .batchGroup
         }
 
         guard !deletableItems.isEmpty else {
@@ -1377,7 +1656,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
             removeItemFromSidebar(item)
         }
 
-        outlineView.reloadData()
+        reloadOutlineView()
 
         // Show error if some items failed
         if !failedItems.isEmpty {
@@ -1510,7 +1789,8 @@ extension SidebarViewController: NSOutlineViewDelegate {
     public func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
         guard let sidebarItem = item as? SidebarItem else { return nil }
 
-        let identifier = NSUserInterfaceItemIdentifier("SidebarCell")
+        let hasSubtitle = sidebarItem.subtitle != nil
+        let identifier = NSUserInterfaceItemIdentifier(hasSubtitle ? "SidebarCellWithSubtitle" : "SidebarCell")
         var cellView = outlineView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView
 
         if cellView == nil {
@@ -1528,25 +1808,58 @@ extension SidebarViewController: NSOutlineViewDelegate {
             cellView?.addSubview(textField)
             cellView?.textField = textField
 
-            NSLayoutConstraint.activate([
-                imageView.leadingAnchor.constraint(equalTo: cellView!.leadingAnchor, constant: 2),
-                imageView.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
-                imageView.widthAnchor.constraint(equalToConstant: 16),
-                imageView.heightAnchor.constraint(equalToConstant: 16),
+            if hasSubtitle {
+                let subtitleField = NSTextField(labelWithString: "")
+                subtitleField.translatesAutoresizingMaskIntoConstraints = false
+                subtitleField.lineBreakMode = .byTruncatingTail
+                subtitleField.font = NSFont.systemFont(ofSize: 10)
+                subtitleField.textColor = .secondaryLabelColor
+                subtitleField.tag = 999
+                cellView?.addSubview(subtitleField)
 
-                textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 4),
-                textField.trailingAnchor.constraint(equalTo: cellView!.trailingAnchor, constant: -2),
-                textField.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
-            ])
+                NSLayoutConstraint.activate([
+                    imageView.leadingAnchor.constraint(equalTo: cellView!.leadingAnchor, constant: 2),
+                    imageView.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
+                    imageView.widthAnchor.constraint(equalToConstant: 16),
+                    imageView.heightAnchor.constraint(equalToConstant: 16),
+
+                    textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 4),
+                    textField.trailingAnchor.constraint(equalTo: cellView!.trailingAnchor, constant: -2),
+                    textField.topAnchor.constraint(equalTo: cellView!.topAnchor, constant: 2),
+
+                    subtitleField.leadingAnchor.constraint(equalTo: textField.leadingAnchor),
+                    subtitleField.trailingAnchor.constraint(equalTo: textField.trailingAnchor),
+                    subtitleField.topAnchor.constraint(equalTo: textField.bottomAnchor, constant: 0),
+                    subtitleField.bottomAnchor.constraint(lessThanOrEqualTo: cellView!.bottomAnchor, constant: -2),
+                ])
+            } else {
+                NSLayoutConstraint.activate([
+                    imageView.leadingAnchor.constraint(equalTo: cellView!.leadingAnchor, constant: 2),
+                    imageView.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
+                    imageView.widthAnchor.constraint(equalToConstant: 16),
+                    imageView.heightAnchor.constraint(equalToConstant: 16),
+
+                    textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 4),
+                    textField.trailingAnchor.constraint(equalTo: cellView!.trailingAnchor, constant: -2),
+                    textField.centerYAnchor.constraint(equalTo: cellView!.centerYAnchor),
+                ])
+            }
         }
 
         // Configure cell
         cellView?.textField?.stringValue = sidebarItem.title
 
+        // Update subtitle field if present
+        if let subtitleField = cellView?.viewWithTag(999) as? NSTextField {
+            subtitleField.stringValue = sidebarItem.subtitle ?? ""
+        }
+
         if sidebarItem.type == .group {
             cellView?.textField?.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
             cellView?.textField?.textColor = .secondaryLabelColor
             cellView?.imageView?.image = nil
+            cellView?.toolTip = nil
+            cellView?.textField?.toolTip = nil
         } else {
             cellView?.textField?.font = NSFont.systemFont(ofSize: 13)
             cellView?.textField?.textColor = .labelColor
@@ -1555,9 +1868,20 @@ extension SidebarViewController: NSOutlineViewDelegate {
                 cellView?.imageView?.image = NSImage(systemSymbolName: iconName, accessibilityDescription: sidebarItem.title)
                 cellView?.imageView?.contentTintColor = sidebarItem.type.tintColor
             }
+
+            let detail = sidebarItem.url?.path ?? sidebarItem.title
+            cellView?.toolTip = detail
+            cellView?.textField?.toolTip = detail
         }
 
         return cellView
+    }
+
+    public func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
+        if let sidebarItem = item as? SidebarItem, sidebarItem.subtitle != nil {
+            return 36
+        }
+        return 24
     }
 
     public func outlineView(_ outlineView: NSOutlineView, isGroupItem item: Any) -> Bool {
@@ -1637,13 +1961,16 @@ public class SidebarItem: NSObject {
     public let icon: String?
     public var children: [SidebarItem]
     public var url: URL?
+    /// Optional subtitle for additional context (e.g. read composition label).
+    public var subtitle: String?
 
-    public init(title: String, type: SidebarItemType, icon: String? = nil, children: [SidebarItem] = [], url: URL? = nil) {
+    public init(title: String, type: SidebarItemType, icon: String? = nil, children: [SidebarItem] = [], url: URL? = nil, subtitle: String? = nil) {
         self.title = title
         self.type = type
         self.icon = icon
         self.children = children
         self.url = url
+        self.subtitle = subtitle
         super.init()
     }
 }
@@ -1662,6 +1989,7 @@ public enum SidebarItemType {
     case unknown   // Unknown file type - uses QuickLook preview
     case referenceBundle  // .lungfishref reference genome bundle
     case fastqBundle  // .lungfishfastq FASTQ package bundle
+    case batchGroup   // Virtual node representing a batch operation across multiple bundles
 
     var tintColor: NSColor {
         switch self {
@@ -1677,6 +2005,7 @@ public enum SidebarItemType {
         case .unknown: return .tertiaryLabelColor
         case .referenceBundle: return .systemIndigo
         case .fastqBundle: return .systemGreen
+        case .batchGroup: return .systemCyan
         }
     }
 
@@ -1772,11 +2101,12 @@ extension SidebarViewController: NSMenuDelegate {
         guard !items.isEmpty else { return }
 
         // Check what types we have selected
-        let hasFiles = items.contains { $0.type != .group && $0.type != .project && $0.type != .folder && $0.type != .referenceBundle }
+        let hasFiles = items.contains { $0.type != .group && $0.type != .project && $0.type != .folder && $0.type != .referenceBundle && $0.type != .fastqBundle && $0.type != .batchGroup }
         let hasFolders = items.contains { $0.type == .folder || $0.type == .project }
         let hasGroups = items.contains { $0.type == .group }
-        let hasDeletable = items.contains { $0.type != .group && $0.type != .project }
+        let hasDeletable = items.contains { $0.type != .group && $0.type != .project && $0.type != .batchGroup }
         let hasBundles = items.contains { $0.type == .referenceBundle }
+        let hasFASTQBundles = items.contains { $0.type == .fastqBundle }
 
         // Single bundle selected - show bundle-specific options
         if items.count == 1 && hasBundles {
@@ -1813,6 +2143,24 @@ extension SidebarViewController: NSMenuDelegate {
 
             menu.addItem(NSMenuItem.separator())
         }
+
+        // Single FASTQ bundle selected - show FASTQ-specific options
+        if items.count == 1 && hasFASTQBundles {
+            let openItem = NSMenuItem(title: "Open Bundle", action: #selector(contextMenuOpen(_:)), keyEquivalent: "")
+            openItem.target = self
+            menu.addItem(openItem)
+
+            let exportItem = NSMenuItem(title: "Export as FASTQ\u{2026}", action: #selector(contextMenuExportFASTQ(_:)), keyEquivalent: "")
+            exportItem.target = self
+            menu.addItem(exportItem)
+
+            let showContentsItem = NSMenuItem(title: "Show Package Contents", action: #selector(contextMenuShowBundleContents(_:)), keyEquivalent: "")
+            showContentsItem.target = self
+            menu.addItem(showContentsItem)
+
+            menu.addItem(NSMenuItem.separator())
+        }
+
 
         // Single item selected - show Open
         if items.count == 1 && hasFiles {
@@ -1891,7 +2239,7 @@ extension SidebarViewController: NSMenuDelegate {
 
     @objc private func contextMenuOpen(_ sender: Any?) {
         let items = selectedItems()
-        guard let item = items.first, item.type != .group && item.type != .project else { return }
+        guard let item = items.first, item.type != .group && item.type != .project && item.type != .batchGroup else { return }
 
         logger.info("contextMenuOpen: Opening '\(item.title, privacy: .public)'")
 
@@ -1906,7 +2254,7 @@ extension SidebarViewController: NSMenuDelegate {
     /// Shows the internal contents of a bundle in Finder (like "Show Package Contents" in macOS).
     @objc private func contextMenuShowBundleContents(_ sender: Any?) {
         let items = selectedItems()
-        guard let item = items.first, item.type == .referenceBundle, let url = item.url else { return }
+        guard let item = items.first, (item.type == .referenceBundle || item.type == .fastqBundle), let url = item.url else { return }
 
         logger.info("contextMenuShowBundleContents: Showing contents of '\(item.title, privacy: .public)'")
 
@@ -2345,7 +2693,7 @@ extension SidebarViewController: NSMenuDelegate {
         guard let url = item.url else {
             // Item has no URL, just update the title (legacy behavior)
             item.title = newName
-            outlineView.reloadData()
+            reloadOutlineView()
             return
         }
 
@@ -2401,6 +2749,114 @@ extension SidebarViewController: NSMenuDelegate {
         // Immediately refresh sidebar for instant feedback
         reloadFromFilesystem()
     }
+    // MARK: - FASTQ Export
+
+    /// Exports a FASTQ bundle to a standalone FASTQ file via NSSavePanel.
+    @objc private func contextMenuExportFASTQ(_ sender: Any?) {
+        let items = selectedItems()
+        guard let item = items.first, item.type == .fastqBundle, let bundleURL = item.url else { return }
+
+        logger.info("contextMenuExportFASTQ: Exporting '\(item.title, privacy: .public)'")
+
+        let isDerived = FASTQBundle.isDerivedBundle(bundleURL)
+        let baseName = FASTQBundle.deriveBaseName(from: bundleURL)
+
+        // Determine suggested filename based on bundle content
+        let suggestedName: String
+        if isDerived {
+            suggestedName = baseName + ".fastq.gz"
+        } else if let primaryURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL) {
+            suggestedName = primaryURL.lastPathComponent
+        } else {
+            suggestedName = baseName + ".fastq"
+        }
+
+        let savePanel = NSSavePanel()
+        savePanel.title = "Export FASTQ"
+        savePanel.nameFieldStringValue = suggestedName
+        savePanel.allowedContentTypes = [.data]
+        savePanel.canCreateDirectories = true
+
+        guard let window = view.window else {
+            logger.warning("contextMenuExportFASTQ: No window available for save panel")
+            return
+        }
+
+        savePanel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let outputURL = savePanel.url else { return }
+            self?.performFASTQExport(bundleURL: bundleURL, outputURL: outputURL, isDerived: isDerived, title: item.title)
+        }
+    }
+
+    /// Performs the actual FASTQ export operation in the background.
+    private func performFASTQExport(bundleURL: URL, outputURL: URL, isDerived: Bool, title: String) {
+        logger.info("performFASTQExport: Writing to '\(outputURL.lastPathComponent, privacy: .public)' (derived: \(isDerived))")
+
+        Task.detached { [weak self] in
+            do {
+                if isDerived {
+                    // Derived bundle: materialize through FASTQDerivativeService
+                    try await FASTQDerivativeService.shared.exportMaterializedFASTQ(
+                        fromDerivedBundle: bundleURL,
+                        to: outputURL,
+                        progress: { message in
+                            logger.info("performFASTQExport progress: \(message, privacy: .public)")
+                        }
+                    )
+                } else {
+                    // Root bundle: copy the primary FASTQ file directly
+                    guard let primaryURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL) else {
+                        throw NSError(domain: "com.lungfish.browser", code: 1,
+                                      userInfo: [NSLocalizedDescriptionKey: "No FASTQ file found inside bundle"])
+                    }
+                    try FileManager.default.copyItem(at: primaryURL, to: outputURL)
+                }
+
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        self.showExportSuccessAlert(outputURL: outputURL, title: title)
+                    }
+                }
+            } catch {
+                logger.error("performFASTQExport: Failed - \(error, privacy: .public)")
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        self.showExportErrorAlert(error: error, title: title)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Shows a success alert after FASTQ export completes.
+    private func showExportSuccessAlert(outputURL: URL, title: String) {
+        guard let window = view.window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Export Complete"
+        alert.informativeText = "\(title) has been exported as \(outputURL.lastPathComponent)."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Show in Finder")
+        alert.beginSheetModal(for: window) { response in
+            if response == .alertSecondButtonReturn {
+                NSWorkspace.shared.activateFileViewerSelecting([outputURL])
+            }
+        }
+    }
+
+    /// Shows an error alert when FASTQ export fails.
+    private func showExportErrorAlert(error: Error, title: String) {
+        guard let window = view.window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Export Failed"
+        alert.informativeText = "Could not export \(title): \(error.localizedDescription)"
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window)
+    }
+
 
     // MARK: - Move To Submenu
 
@@ -2544,5 +3000,7 @@ extension SidebarViewController: NSMenuDelegate {
 public extension Notification.Name {
     static let sidebarSelectionChanged = Notification.Name("SidebarSelectionChanged")
     static let sidebarFileDropped = Notification.Name("SidebarFileDropped")
+    static let sidebarFileDropCompleted = Notification.Name("SidebarFileDropCompleted")
+    static let sidebarPreferredWidthRecommended = Notification.Name("SidebarPreferredWidthRecommended")
     static let sidebarItemsDeleted = Notification.Name("SidebarItemsDeleted")
 }

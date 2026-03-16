@@ -111,6 +111,20 @@ public struct FASTQDatasetStatistics: Sendable, Codable, Equatable {
         self.perPositionQuality = perPositionQuality
     }
 
+    /// Placeholder statistics with known read/base counts but no quality data.
+    /// Used for virtual demux bundles where full statistics aren't yet computed.
+    public static func placeholder(readCount: Int, baseCount: Int64) -> FASTQDatasetStatistics {
+        FASTQDatasetStatistics(
+            readCount: readCount, baseCount: baseCount,
+            meanReadLength: readCount > 0 ? Double(baseCount) / Double(readCount) : 0,
+            minReadLength: 0, maxReadLength: 0,
+            medianReadLength: 0, n50ReadLength: 0,
+            meanQuality: 0, q20Percentage: 0, q30Percentage: 0, gcContent: 0,
+            readLengthHistogram: [:], qualityScoreHistogram: [:],
+            perPositionQuality: []
+        )
+    }
+
     /// Empty statistics for an empty dataset.
     public static let empty = FASTQDatasetStatistics(
         readCount: 0, baseCount: 0,

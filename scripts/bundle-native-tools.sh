@@ -27,14 +27,28 @@
 
 set -e
 
-# Configuration
-SAMTOOLS_VERSION="1.22.1"
-BCFTOOLS_VERSION="1.22"
-HTSLIB_VERSION="1.22.1"
-UCSC_TOOLS_VERSION="469"
-
+# Configuration - read from tool-versions.json (single source of truth)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+MANIFEST="$PROJECT_ROOT/Sources/LungfishWorkflow/Resources/Tools/tool-versions.json"
+
+if ! command -v jq &> /dev/null; then
+    echo "Error: jq is required. Install with: brew install jq" >&2
+    exit 1
+fi
+
+if [ ! -f "$MANIFEST" ]; then
+    echo "Error: tool-versions.json not found at $MANIFEST" >&2
+    exit 1
+fi
+
+# Read versions from the JSON manifest
+get_tool_version() { jq -r ".tools[] | select(.name == \"$1\") | .version" "$MANIFEST"; }
+
+SAMTOOLS_VERSION=$(get_tool_version "samtools")
+BCFTOOLS_VERSION=$(get_tool_version "bcftools")
+HTSLIB_VERSION=$(get_tool_version "htslib")
+UCSC_TOOLS_VERSION=$(get_tool_version "ucsc-tools")
 BUILD_DIR="$PROJECT_ROOT/.build/tools"
 DEFAULT_OUTPUT_DIR="$PROJECT_ROOT/Sources/LungfishWorkflow/Resources/Tools"
 
@@ -352,11 +366,14 @@ copy_tools() {
     log_success "Tools copied to $OUTPUT_DIR"
 }
 
-# Create version info file
+# Create version info file (generated from tool-versions.json)
 create_version_info() {
     log_info "Creating version info..."
 
-    cat > "$OUTPUT_DIR/VERSIONS.txt" << EOF
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+    cat > "$OUTPUT_DIR/VERSIONS.txt" << HEADER
 Lungfish Bundled Bioinformatics Tools
 ======================================
 
@@ -364,24 +381,34 @@ This directory contains pre-built bioinformatics tools bundled with Lungfish.
 All tools are open source and distributed under MIT-compatible licenses.
 
 Versions:
-- samtools: $SAMTOOLS_VERSION (MIT/Expat license)
-- bcftools: $BCFTOOLS_VERSION (MIT/Expat license)
-- htslib (bgzip, tabix): $HTSLIB_VERSION (MIT/Expat license)
-- UCSC tools (bedToBigBed, bedGraphToBigWig): $UCSC_TOOLS_VERSION (MIT license)
+HEADER
 
-Build date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+    jq -r '.tools[] | "- \(.displayName): \(.version) (\(.license) license)"' "$MANIFEST" >> "$OUTPUT_DIR/VERSIONS.txt"
+
+    cat >> "$OUTPUT_DIR/VERSIONS.txt" << MIDDLE
+
+Build date: $timestamp
 Build architecture: $TARGET_ARCH
 
 Source URLs:
-- samtools: https://github.com/samtools/samtools/releases/download/$SAMTOOLS_VERSION/samtools-$SAMTOOLS_VERSION.tar.bz2
-- bcftools: https://github.com/samtools/bcftools/releases/download/$BCFTOOLS_VERSION/bcftools-$BCFTOOLS_VERSION.tar.bz2
-- htslib: https://github.com/samtools/htslib/releases/download/$HTSLIB_VERSION/htslib-$HTSLIB_VERSION.tar.bz2
-- UCSC tools: https://hgdownload.soe.ucsc.edu/admin/exe/macOSX.x86_64/
+MIDDLE
+
+    jq -r '.tools[] | "- \(.name): \(.sourceUrl)"' "$MANIFEST" >> "$OUTPUT_DIR/VERSIONS.txt"
+
+    cat >> "$OUTPUT_DIR/VERSIONS.txt" << FOOTER
 
 Licenses:
-- samtools/bcftools/htslib: https://github.com/samtools/samtools/blob/develop/LICENSE
-- UCSC tools: https://genome-source.gi.ucsc.edu/gitlist/kent.git/blob/master/src/LICENSE
-EOF
+FOOTER
+
+    jq -r '.tools[] | "- \(.name): \(.licenseUrl)"' "$MANIFEST" >> "$OUTPUT_DIR/VERSIONS.txt"
+
+    # Update buildArchitecture in manifest
+    local tmp_manifest
+    tmp_manifest=$(mktemp)
+    jq --arg arch "$TARGET_ARCH" --arg ts "$timestamp" \
+        '.buildArchitecture = $arch | .lastUpdated = $ts' \
+        "$MANIFEST" > "$tmp_manifest"
+    mv "$tmp_manifest" "$MANIFEST"
 
     log_success "Version info created."
 }

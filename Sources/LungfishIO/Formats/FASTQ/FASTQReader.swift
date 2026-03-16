@@ -24,7 +24,7 @@ import LungfishCore
 /// +
 /// IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII9IG9ICIIIIIIIIIIIIIIIIIIIIDIIIIIII>IIIIII
 /// ```
-public struct FASTQRecord: Sendable, Equatable, Identifiable {
+public struct FASTQRecord: SequenceRecord, Equatable, Identifiable {
 
     /// Unique identifier for the read
     public var id: String { identifier }
@@ -34,6 +34,9 @@ public struct FASTQRecord: Sendable, Equatable, Identifiable {
 
     /// Optional description (text after first space in header)
     public let description: String?
+
+    /// Protocol conformance: maps to `description`
+    public var recordDescription: String? { description }
 
     /// The DNA/RNA sequence
     public let sequence: String
@@ -201,8 +204,15 @@ public final class FASTQReader: Sendable {
                     var detectedEncoding = self.encoding
                     var lineNumber = 0
                     var currentHeader: String?
-                    var currentSequence: String?
-                    var nonEmptyLineCount = 0
+                    var currentSequence = ""
+                    var currentQuality = ""
+                    var expectedQualityLength = 0
+                    enum ParseState {
+                        case header
+                        case sequence
+                        case quality
+                    }
+                    var state: ParseState = .header
 
                     // Use auto-decompressing lines for gzip support
                     for try await line in url.linesAutoDecompressing() {
@@ -212,64 +222,104 @@ public final class FASTQReader: Sendable {
                             throw FASTQError.lineTooLong(line: lineNumber, length: line.count)
                         }
 
-                        // Skip empty lines
-                        if line.isEmpty { continue }
-
-                        nonEmptyLineCount += 1
-                        let lineState = (nonEmptyLineCount - 1) % 4
-
-                        switch lineState {
-                        case 0:
-                            // Header line
+                        switch state {
+                        case .header:
+                            // Tolerate blank lines between records, but never inside a record.
+                            if line.isEmpty { continue }
                             guard line.hasPrefix("@") else {
                                 throw FASTQError.invalidHeader(line: lineNumber, content: line)
                             }
                             currentHeader = String(line.dropFirst())
+                            currentSequence = ""
+                            currentQuality = ""
+                            expectedQualityLength = 0
+                            state = .sequence
 
-                        case 1:
-                            // Sequence line
+                        case .sequence:
+                            // FASTQ allows wrapped sequences; consume until separator line.
+                            if line.hasPrefix("+") {
+                                expectedQualityLength = currentSequence.count
+                                currentQuality = ""
+                                state = .quality
+                                continue
+                            }
                             if self.validateSequence {
-                                try self.validateSequenceCharacters(line, lineNumber: lineNumber)
+                                do {
+                                    try self.validateSequenceCharacters(line, lineNumber: lineNumber)
+                                } catch let error as FASTQError {
+                                    // If sequence content has already started, treat a
+                                    // non-sequence line as a likely malformed separator.
+                                    if case .invalidSequenceCharacter = error, !currentSequence.isEmpty {
+                                        throw FASTQError.invalidSeparator(line: lineNumber, content: line)
+                                    }
+                                    throw error
+                                }
                             }
-                            currentSequence = line
+                            currentSequence += line
 
-                        case 2:
-                            // Separator line (+ optionally followed by header)
-                            guard line.hasPrefix("+") else {
-                                throw FASTQError.invalidSeparator(line: lineNumber, content: line)
+                        case .quality:
+                            if expectedQualityLength == 0,
+                               currentQuality.isEmpty,
+                               line.hasPrefix("@"),
+                               let header = currentHeader {
+                                // Some line readers collapse empty lines. If the quality
+                                // line for a zero-length read was empty and omitted,
+                                // accept it and treat this as the next record header.
+                                let (identifier, description) = self.parseHeader(header)
+                                let record = FASTQRecord(
+                                    identifier: identifier,
+                                    description: description,
+                                    sequence: "",
+                                    quality: QualityScore(ascii: "", encoding: detectedEncoding ?? .phred33)
+                                )
+                                continuation.yield(record)
+
+                                currentHeader = String(line.dropFirst())
+                                currentSequence = ""
+                                currentQuality = ""
+                                expectedQualityLength = 0
+                                state = .sequence
+                                continue
                             }
-                            // Separator validated, content not needed
 
-                        case 3:
-                            // Quality line
+                            // Quality may be wrapped. Consume until total quality length
+                            // matches sequence length. Even for empty reads, a quality
+                            // line must be present (it may be empty).
+                            currentQuality += line
+
                             guard let header = currentHeader,
-                                  let sequence = currentSequence else {
+                                  !currentSequence.isEmpty || expectedQualityLength == 0 else {
                                 throw FASTQError.incompleteRecord(line: lineNumber)
                             }
 
-                            guard line.count == sequence.count else {
+                            if currentQuality.count > expectedQualityLength {
                                 throw FASTQError.qualityLengthMismatch(
                                     line: lineNumber,
-                                    sequenceLength: sequence.count,
-                                    qualityLength: line.count
+                                    sequenceLength: expectedQualityLength,
+                                    qualityLength: currentQuality.count
                                 )
+                            }
+
+                            guard currentQuality.count == expectedQualityLength else {
+                                // Continue reading wrapped quality lines.
+                                continue
                             }
 
                             // Auto-detect encoding from first record
                             if detectedEncoding == nil {
-                                detectedEncoding = QualityEncoding.detect(from: line)
+                                detectedEncoding = QualityEncoding.detect(from: currentQuality)
                             }
 
                             let (identifier, description) = self.parseHeader(header)
                             let quality = QualityScore(
-                                ascii: line,
+                                ascii: currentQuality,
                                 encoding: detectedEncoding ?? .phred33
                             )
 
                             let record = FASTQRecord(
                                 identifier: identifier,
                                 description: description,
-                                sequence: sequence,
+                                sequence: currentSequence,
                                 quality: quality
                             )
 
@@ -277,15 +327,22 @@ public final class FASTQReader: Sendable {
 
                             // Reset for next record
                             currentHeader = nil
-                            currentSequence = nil
-
-                        default:
-                            break
+                            currentSequence = ""
+                            currentQuality = ""
+                            expectedQualityLength = 0
+                            state = .header
                         }
                     }
 
                     // Check for incomplete record at end
-                    if currentHeader != nil || currentSequence != nil {
+                    if state == .quality, currentHeader != nil, currentQuality.count < expectedQualityLength {
+                        throw FASTQError.qualityLengthMismatch(
+                            line: lineNumber,
+                            sequenceLength: expectedQualityLength,
+                            qualityLength: currentQuality.count
+                        )
+                    }
+                    if state != .header || currentHeader != nil {
                         throw FASTQError.unexpectedEndOfFile
                     }
 
@@ -319,13 +376,10 @@ public final class FASTQReader: Sendable {
     /// - Returns: Number of records
     public func countRecords(in url: URL) async throws -> Int {
         var count = 0
-        var lineNumber = 0
-        for try await line in url.linesAutoDecompressing() {
-            if !line.isEmpty {
-                lineNumber += 1
-                if lineNumber % 4 == 0 {
-                    count += 1
-                }
+        for try await _ in records(from: url) {
+            count += 1
+            if count % 10_000 == 0 {
+                try Task.checkCancellation()
             }
         }
         return count
@@ -386,7 +440,10 @@ public final class FASTQReader: Sendable {
     }
 
     private func validateSequenceCharacters(_ sequence: String, lineNumber: Int) throws {
-        let validBases = CharacterSet(charactersIn: "ACGTUNacgtun")
+        // Accept all IUPAC nucleotide codes (R, Y, S, W, K, M, B, D, H, V)
+        // in addition to standard bases, since consensus callers and some
+        // instruments emit ambiguity codes.
+        let validBases = CharacterSet(charactersIn: "ACGTUNRYSWKMBDHVacgtunryswkmbdhv")
         for char in sequence.unicodeScalars {
             if !validBases.contains(char) {
                 throw FASTQError.invalidSequenceCharacter(

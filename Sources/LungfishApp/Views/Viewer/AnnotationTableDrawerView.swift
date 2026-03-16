@@ -599,7 +599,6 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     // MARK: - Setup
 
     private func setupView() {
-        wantsLayer = true
         layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
 
         // Drag handle bar at top (resizable divider)
@@ -607,12 +606,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         addSubview(dragHandle)
 
         // Header bar with tab controls (row 1)
-        headerBar.wantsLayer = true
         headerBar.translatesAutoresizingMaskIntoConstraints = false
         addSubview(headerBar)
 
         // Search bar with tab-specific filter + advanced hint (row 2)
-        searchBar.wantsLayer = true
         searchBar.translatesAutoresizingMaskIntoConstraints = false
         addSubview(searchBar)
 
@@ -725,7 +722,6 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         localVariantFilterBadgeLabel.alignment = .center
         localVariantFilterBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
         localVariantFilterBadgeLabel.isHidden = true
-        localVariantFilterBadgeLabel.wantsLayer = true
         localVariantFilterBadgeLabel.layer?.cornerRadius = 7
         localVariantFilterBadgeLabel.layer?.borderWidth = 1
         localVariantFilterBadgeLabel.layer?.borderColor = NSColor.systemBlue.withAlphaComponent(0.35).cgColor
@@ -897,7 +893,6 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         searchBar.addSubview(searchHintLabel)
 
         // Chip bar (row 2) — horizontal scrolling row of type toggle chips
-        chipBar.wantsLayer = true
         chipBar.translatesAutoresizingMaskIntoConstraints = false
         addSubview(chipBar)
 

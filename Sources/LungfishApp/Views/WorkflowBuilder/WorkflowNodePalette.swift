@@ -61,8 +61,6 @@ public class WorkflowNodePalette: NSView {
     }
 
     private func commonInit() {
-        wantsLayer = true
-
         buildDataModel()
         setupSearchField()
         setupOutlineView()

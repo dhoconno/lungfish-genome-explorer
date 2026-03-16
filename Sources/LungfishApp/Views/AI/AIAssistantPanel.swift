@@ -636,7 +636,6 @@ final class AIMessageBubbleView: NSView {
     }
 
     private func setup(text: String, isUser: Bool, isWelcome: Bool) {
-        wantsLayer = true
         layer?.cornerRadius = 12
 
         if isUser {

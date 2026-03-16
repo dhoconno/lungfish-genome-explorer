@@ -92,7 +92,6 @@ public class WorkflowConnectionView: NSView {
     }
 
     private func commonInit() {
-        wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
 
         setupAccessibility()

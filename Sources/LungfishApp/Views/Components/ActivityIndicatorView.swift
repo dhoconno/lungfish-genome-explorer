@@ -37,7 +37,6 @@ public final class ActivityIndicatorView: NSView {
         view.blendingMode = .withinWindow
         view.material = .hudWindow
         view.state = .active
-        view.wantsLayer = true
         view.layer?.cornerRadius = 10
         view.layer?.masksToBounds = true
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -94,7 +93,6 @@ public final class ActivityIndicatorView: NSView {
 
     private func setupView() {
         translatesAutoresizingMaskIntoConstraints = false
-        wantsLayer = true
         // Drop shadow for floating appearance
         shadow = NSShadow()
         layer?.shadowColor = NSColor.black.withAlphaComponent(0.3).cgColor

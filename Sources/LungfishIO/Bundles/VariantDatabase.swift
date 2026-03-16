@@ -2189,6 +2189,7 @@ public final class VariantDatabase: @unchecked Sendable {
     private static func inferInfoType(from values: [String]) -> String {
         let nonEmpty = values.filter { !$0.isEmpty }
         if nonEmpty.isEmpty { return "Flag" }
+        if nonEmpty.allSatisfy({ $0 == "true" }) { return "Flag" }
         let allInteger = nonEmpty.allSatisfy { Int($0) != nil }
         if allInteger { return "Integer" }
         let allNumeric = nonEmpty.allSatisfy { Double($0) != nil }

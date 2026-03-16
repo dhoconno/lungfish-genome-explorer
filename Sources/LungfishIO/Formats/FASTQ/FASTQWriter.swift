@@ -5,6 +5,7 @@
 // Owner: File Format Expert (Role 06)
 
 import Foundation
+import LungfishCore
 
 /// Writer for FASTQ format files.
 ///
@@ -44,6 +45,16 @@ public final class FASTQWriter {
 
     private var fileHandle: FileHandle?
     private var recordsWritten: Int = 0
+
+    /// Internal write buffer to reduce syscalls. Flushed when full or on close.
+    private static let bufferCapacity = 262_144 // 256 KB
+    private var writeBuffer = Data()
+    private var bufferCapacity: Int { Self.bufferCapacity }
+
+    /// Optional statistics collector that piggybacks on the write pass.
+    /// When set, every written record is also fed to the collector.
+    /// Call `finalizeStatistics()` after closing to retrieve results.
+    public var statisticsCollector: FASTQStatisticsCollector?
 
     // MARK: - Initialization
 
@@ -85,10 +96,19 @@ public final class FASTQWriter {
 
         fileHandle = try FileHandle(forWritingTo: url)
         recordsWritten = 0
+        writeBuffer.removeAll(keepingCapacity: true)
     }
 
-    /// Closes the file.
+    /// Flushes the internal write buffer to disk.
+    public func flush() throws {
+        guard let handle = fileHandle, !writeBuffer.isEmpty else { return }
+        try handle.write(contentsOf: writeBuffer)
+        writeBuffer.removeAll(keepingCapacity: true)
+    }
+
+    /// Flushes remaining data and closes the file.
     public func close() throws {
+        try flush()
         try fileHandle?.close()
         fileHandle = nil
     }
@@ -96,19 +116,34 @@ public final class FASTQWriter {
     /// Number of records written so far.
     public var count: Int { recordsWritten }
 
+    /// Finalizes and returns the collected statistics, if a collector was attached.
+    ///
+    /// Call after `close()` to get the complete statistics for all written records.
+    public func finalizeStatistics() -> FASTQDatasetStatistics? {
+        statisticsCollector?.finalize()
+    }
+
     // MARK: - Writing
 
     /// Writes a single FASTQ record.
     ///
+    /// Data is buffered internally and flushed when the buffer reaches 256 KB
+    /// or when `close()` / `flush()` is called.
+    ///
     /// - Parameter record: The record to write
     public func write(_ record: FASTQRecord) throws {
-        guard let handle = fileHandle else {
+        guard fileHandle != nil else {
             throw FASTQWriterError.fileNotOpen
         }
 
         let data = formatRecord(record)
-        try handle.write(contentsOf: data)
+        writeBuffer.append(data)
         recordsWritten += 1
+        statisticsCollector?.process(record)
+
+        if writeBuffer.count >= bufferCapacity {
+            try flush()
+        }
     }
 
     /// Writes multiple FASTQ records.
@@ -294,13 +329,7 @@ extension FASTQRecord {
     ///
     /// - Returns: Reverse complemented record
     public func reverseComplement() -> FASTQRecord {
-        let complementMap: [Character: Character] = [
-            "A": "T", "T": "A", "G": "C", "C": "G",
-            "a": "t", "t": "a", "g": "c", "c": "g",
-            "N": "N", "n": "n"
-        ]
-
-        let rcSequence = String(sequence.reversed().map { complementMap[$0] ?? $0 })
+        let rcSequence = TranslationEngine.reverseComplement(sequence)
         let rcQuality = QualityScore(
             values: quality.reversed(),
             encoding: quality.encoding

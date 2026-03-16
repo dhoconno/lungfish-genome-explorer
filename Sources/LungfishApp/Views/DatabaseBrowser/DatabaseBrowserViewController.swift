@@ -2190,11 +2190,11 @@ public class DatabaseBrowserViewModel: ObservableObject {
             )
         }
 
-        let headers = lines[0].split(separator: "\t").map(String.init)
-        let values = lines[1].split(separator: "\t").map(String.init)
+        let headers = lines[0].split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+        let values = lines[1].split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
         guard headers.count == values.count else {
             throw DatabaseServiceError.parseError(
-                message: "seqkit stats header/value mismatch"
+                message: "seqkit stats header/value mismatch (headers=\(headers.count), values=\(values.count))"
             )
         }
 

@@ -281,7 +281,7 @@ final class VCFRobustnessTests: XCTestCase {
 
         XCTAssertNotNil(summary.inferredReference, "Should infer reference from NC_045512.2")
         XCTAssertEqual(summary.inferredReference?.assembly, "SARS-CoV-2")
-        XCTAssertEqual(summary.inferredReference?.organism, "SARS-CoV-2")
+        XCTAssertEqual(summary.inferredReference?.organism, "Severe acute respiratory syndrome coronavirus 2")
         XCTAssertGreaterThanOrEqual(summary.inferredReference?.confidence ?? .none, .low)
     }
 

@@ -353,6 +353,12 @@ else
     echo -e "${YELLOW}The app will use a generic icon until an icon is provided.${NC}"
 fi
 
+# Copy THIRD-PARTY-NOTICES into Resources
+if [ -f "$PROJECT_ROOT/THIRD-PARTY-NOTICES" ]; then
+    echo -e "${GREEN}Copying third-party notices...${NC}"
+    cp "$PROJECT_ROOT/THIRD-PARTY-NOTICES" "$RESOURCES_DIR/"
+fi
+
 # Copy Help Book resources if available
 HELP_BOOK_SRC="$PROJECT_ROOT/Sources/LungfishApp/Resources/HelpBook/Lungfish.help"
 HELP_BOOK_DEST="$RESOURCES_DIR/Lungfish.help"

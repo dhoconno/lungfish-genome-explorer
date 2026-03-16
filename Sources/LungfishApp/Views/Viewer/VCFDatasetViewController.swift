@@ -49,7 +49,6 @@ public final class VCFDatasetViewController: NSViewController,
 
     public override func loadView() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        container.wantsLayer = true
         view = container
 
         setupSummaryBar()
@@ -501,7 +500,6 @@ final class VCFSummaryBar: NSView {
     }
 
     private func setup() {
-        wantsLayer = true
 
         titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
         titleLabel.textColor = .labelColor

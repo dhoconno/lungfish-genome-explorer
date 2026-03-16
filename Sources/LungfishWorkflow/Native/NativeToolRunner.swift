@@ -77,7 +77,15 @@ public enum NativeTool: String, CaseIterable, Sendable {
     case bedGraphToBigWig
     case pigz
     case seqkit
+    case fastp
+    case vsearch
+    case cutadapt
     case clumpify
+    case bbduk
+    case bbmerge
+    case repair
+    case tadpole
+    case reformat
     case java
 
     /// The executable name for this tool.
@@ -91,7 +99,15 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .bedGraphToBigWig: return "bedGraphToBigWig"
         case .pigz: return "pigz"
         case .seqkit: return "seqkit"
+        case .fastp: return "fastp"
+        case .vsearch: return "vsearch"
+        case .cutadapt: return "cutadapt"
         case .clumpify: return "clumpify.sh"
+        case .bbduk: return "bbduk.sh"
+        case .bbmerge: return "bbmerge.sh"
+        case .repair: return "repair.sh"
+        case .tadpole: return "tadpole.sh"
+        case .reformat: return "reformat.sh"
         case .java: return "java"
         }
     }
@@ -104,6 +120,16 @@ public enum NativeTool: String, CaseIterable, Sendable {
         switch self {
         case .clumpify:
             return "bbtools/clumpify.sh"
+        case .bbduk:
+            return "bbtools/bbduk.sh"
+        case .bbmerge:
+            return "bbtools/bbmerge.sh"
+        case .repair:
+            return "bbtools/repair.sh"
+        case .tadpole:
+            return "bbtools/tadpole.sh"
+        case .reformat:
+            return "bbtools/reformat.sh"
         case .java:
             return "jre/bin/java"
         default:
@@ -120,8 +146,21 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .bedToBigBed, .bedGraphToBigWig: return "ucsc-tools"
         case .pigz: return "pigz"
         case .seqkit: return "seqkit"
-        case .clumpify: return "bbtools"
+        case .fastp: return "fastp"
+        case .vsearch: return "vsearch"
+        case .cutadapt: return "cutadapt"
+        case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat: return "bbtools"
         case .java: return "openjdk"
+        }
+    }
+
+    /// Whether this tool is a BBTools shell script that doesn't properly quote `$@`.
+    /// These scripts require paths without spaces; NativeToolRunner will create
+    /// temporary symlinks for any arguments containing spaces.
+    public var isBBToolsShellScript: Bool {
+        switch self {
+        case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat: return true
+        default: return false
         }
     }
 
@@ -136,7 +175,13 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return "zlib License"
         case .seqkit:
             return "MIT License"
-        case .clumpify:
+        case .fastp:
+            return "MIT License"
+        case .vsearch:
+            return "GPL-3.0 or BSD-2-Clause (dual)"
+        case .cutadapt:
+            return "MIT License"
+        case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat:
             return "BBMap License"
         case .java:
             return "GPL-2.0-with-classpath-exception"
@@ -177,23 +222,33 @@ public actor NativeToolRunner {
     /// Cache of discovered tool paths.
     private var toolPaths: [NativeTool: URL] = [:]
 
+    /// Cache of runtime-detected tool versions (populated on first query per tool).
+    private var runtimeVersionCache: [NativeTool: String] = [:]
+
     /// The directory containing bundled tools.
     private var toolsDirectory: URL?
 
     /// Default timeout for tool execution (5 minutes).
     private let defaultTimeout: TimeInterval = 300
 
-    /// Bundled tool versions (set during build).
-    public static let bundledVersions: [String: String] = [
-        "samtools": "1.21",
-        "bcftools": "1.21",
-        "htslib": "1.21",
-        "ucsc-tools": "469",
-        "pigz": "2.8",
-        "seqkit": "2.9.0",
-        "bbtools": "39.13",
-        "openjdk": "21.0.10"
-    ]
+    /// Bundled tool versions, loaded from tool-versions.json at launch.
+    public static let bundledVersions: [String: String] = {
+        // Try to load from the JSON manifest bundled as a resource
+        if let url = Bundle.module.url(forResource: "tool-versions", withExtension: "json", subdirectory: "Tools"),
+           let data = try? Data(contentsOf: url),
+           let manifest = try? JSONDecoder().decode(ToolVersionsManifest.self, from: data) {
+            return Dictionary(uniqueKeysWithValues: manifest.tools.map { ($0.name, $0.version) })
+        }
+        // Fallback if resource not found (e.g. unit tests without bundle)
+        return [:]
+    }()
+
+    /// Full tool manifest with license and source info, loaded from tool-versions.json.
+    public static let toolManifest: ToolVersionsManifest? = {
+        guard let url = Bundle.module.url(forResource: "tool-versions", withExtension: "json", subdirectory: "Tools"),
+              let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(ToolVersionsManifest.self, from: data)
+    }()
 
     // MARK: - Initialization
 
@@ -251,6 +306,39 @@ public actor NativeToolRunner {
     /// Clears the tool path cache.
     public func clearCache() {
         toolPaths.removeAll()
+        runtimeVersionCache.removeAll()
+    }
+
+    /// Returns the version string of a tool, caching the result.
+    /// First checks the bundled tool-versions.json manifest, then falls back to
+    /// running `tool --version` and parsing the first line of output.
+    public func getToolVersion(_ tool: NativeTool) async -> String? {
+        // Check runtime cache
+        if let cached = runtimeVersionCache[tool] {
+            return cached
+        }
+        // Check bundled manifest
+        if let bundled = Self.bundledVersions[tool.rawValue] {
+            runtimeVersionCache[tool] = bundled
+            return bundled
+        }
+        // Run tool --version and parse output
+        guard let result = try? await run(tool, arguments: ["--version"], timeout: 10) else {
+            return nil
+        }
+        let output = result.isSuccess ? result.stdout : result.stderr
+        guard let firstLine = output.split(separator: "\n").first else { return nil }
+        // Extract version: look for a pattern like "1.2.3" or "v1.2.3" in the first line
+        let versionPattern = /v?(\d+\.\d+(?:\.\d+)?)/
+        if let match = String(firstLine).firstMatch(of: versionPattern) {
+            let version = String(match.1)
+            runtimeVersionCache[tool] = version
+            return version
+        }
+        // Fallback: use the entire first line trimmed
+        let version = String(firstLine).trimmingCharacters(in: .whitespaces)
+        runtimeVersionCache[tool] = version
+        return version
     }
     
     // MARK: - Tool Execution
@@ -272,12 +360,37 @@ public actor NativeToolRunner {
         timeout: TimeInterval? = nil
     ) async throws -> NativeToolResult {
         let toolPath = try findTool(tool)
-        
-        logger.info("Running \(tool.rawValue): \(arguments.joined(separator: " "))")
-        
+
+        // BBTools shell scripts use unquoted $@ which causes word-splitting on spaces.
+        // Create temporary symlinks for any key=value arguments whose paths contain spaces.
+        var resolvedArgs = arguments
+        var symlinks: [URL] = []
+        if tool.isBBToolsShellScript {
+            let fm = FileManager.default
+            for (i, arg) in arguments.enumerated() {
+                guard let eqIdx = arg.firstIndex(of: "=") else { continue }
+                let value = String(arg[arg.index(after: eqIdx)...])
+                guard value.contains(" ") else { continue }
+                let key = String(arg[..<eqIdx])
+                let linkDir = fm.temporaryDirectory.appendingPathComponent("lungfish-bbtools-\(UUID().uuidString)")
+                try fm.createDirectory(at: linkDir, withIntermediateDirectories: true)
+                let linkURL = linkDir.appendingPathComponent(URL(fileURLWithPath: value).lastPathComponent)
+                try fm.createSymbolicLink(at: linkURL, withDestinationURL: URL(fileURLWithPath: value))
+                resolvedArgs[i] = "\(key)=\(linkURL.path)"
+                symlinks.append(linkDir)
+            }
+        }
+        defer {
+            for link in symlinks {
+                try? FileManager.default.removeItem(at: link)
+            }
+        }
+
+        logger.info("Running \(tool.rawValue): \(resolvedArgs.joined(separator: " "))")
+
         return try await runProcess(
             executableURL: toolPath,
-            arguments: arguments,
+            arguments: resolvedArgs,
             workingDirectory: workingDirectory,
             environment: environment,
             timeout: timeout ?? defaultTimeout,
@@ -342,29 +455,44 @@ public actor NativeToolRunner {
             
             do {
                 try process.run()
+
+                // Drain pipes concurrently to avoid deadlock when output exceeds
+                // the ~64 KB kernel pipe buffer.
+                var stdoutData = Data()
+                var stderrData = Data()
+                let drainGroup = DispatchGroup()
+                drainGroup.enter()
+                DispatchQueue.global().async {
+                    stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                    drainGroup.leave()
+                }
+                drainGroup.enter()
+                DispatchQueue.global().async {
+                    stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                    drainGroup.leave()
+                }
+
                 process.waitUntilExit()
+                drainGroup.wait()
                 timeoutWorkItem.cancel()
-                
-                let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                
+
                 let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
                 let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-                
+
                 let result = NativeToolResult(
                     exitCode: process.terminationStatus,
                     stdout: stdout,
                     stderr: stderr
                 )
-                
+
                 if result.isSuccess {
                     self.logger.info("\(name) completed successfully")
                 } else {
                     self.logger.warning("\(name) exited with code \(result.exitCode)")
                 }
-                
+
                 continuation.resume(returning: result)
-                
+
             } catch {
                 timeoutWorkItem.cancel()
                 continuation.resume(throwing: NativeToolError.executionFailed(
@@ -392,6 +520,7 @@ public actor NativeToolRunner {
     ) async throws -> NativeToolResult {
         let toolPath = try findTool(tool)
         let actualTimeout = timeout ?? defaultTimeout
+        logger.info("Running \(tool.rawValue): \(arguments.joined(separator: " ")) > \(outputFile.path, privacy: .public)")
 
         return try await withCheckedThrowingContinuation { continuation in
             let process = Process()
@@ -412,7 +541,12 @@ public actor NativeToolRunner {
 
             // Redirect stdout to file
             FileManager.default.createFile(atPath: outputFile.path, contents: nil)
-            let outputHandle = FileHandle(forWritingAtPath: outputFile.path)!
+            guard let outputHandle = FileHandle(forWritingAtPath: outputFile.path) else {
+                continuation.resume(throwing: NativeToolError.executionFailed(
+                    tool.rawValue, -1, "Cannot open output file for writing: \(outputFile.path)"
+                ))
+                return
+            }
             process.standardOutput = outputHandle
 
             let stderrPipe = Pipe()
@@ -430,11 +564,21 @@ public actor NativeToolRunner {
 
             do {
                 try process.run()
+
+                // Drain stderr concurrently to avoid deadlock on large output.
+                var stderrData = Data()
+                let drainGroup = DispatchGroup()
+                drainGroup.enter()
+                DispatchQueue.global().async {
+                    stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                    drainGroup.leave()
+                }
+
                 process.waitUntilExit()
+                drainGroup.wait()
                 timeoutWorkItem.cancel()
 
                 try? outputHandle.close()
-                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
                 let stderr = String(data: stderrData, encoding: .utf8) ?? ""
 
                 let result = NativeToolResult(
@@ -621,6 +765,354 @@ public actor NativeToolRunner {
         }
 
         return (missingTools.isEmpty, missingTools)
+    }
+}
+
+// MARK: - Pipeline Execution
+
+/// Result of running a multi-process pipeline.
+public struct NativePipelineResult: Sendable {
+    /// Exit codes from each stage (in order).
+    public let exitCodes: [Int32]
+
+    /// Standard error from each stage (in order).
+    public let stderrByStage: [String]
+
+    /// Standard output from the final stage.
+    public let stdout: String
+
+    /// Whether all stages succeeded (exit code 0).
+    public var isSuccess: Bool { exitCodes.allSatisfy { $0 == 0 } }
+
+    /// The first non-zero exit code, if any.
+    public var firstFailureCode: Int32? { exitCodes.first { $0 != 0 } }
+
+    /// Combined stderr from all stages.
+    public var combinedStderr: String {
+        stderrByStage.filter { !$0.isEmpty }.joined(separator: "\n")
+    }
+}
+
+/// A single stage in a tool pipeline.
+public struct NativePipelineStage: Sendable {
+    public let tool: NativeTool
+    public let arguments: [String]
+
+    public init(_ tool: NativeTool, arguments: [String]) {
+        self.tool = tool
+        self.arguments = arguments
+    }
+}
+
+extension NativeToolRunner {
+
+    /// Runs a pipeline of tools connected by pipes (stdout → stdin).
+    ///
+    /// Each stage's stdout is piped to the next stage's stdin.
+    /// The final stage's stdout is captured and returned.
+    ///
+    /// Example: `seqkit grep -f ids.txt input.fq | seqkit subseq -r 10:100`
+    ///
+    /// - Parameters:
+    ///   - stages: Ordered pipeline stages. Must contain at least one stage.
+    ///   - workingDirectory: Working directory for all processes.
+    ///   - environment: Additional environment variables for all processes.
+    ///   - timeout: Maximum execution time for the entire pipeline.
+    /// - Returns: Pipeline result with per-stage exit codes and stderr.
+    public func runPipeline(
+        _ stages: [NativePipelineStage],
+        workingDirectory: URL? = nil,
+        environment: [String: String]? = nil,
+        timeout: TimeInterval? = nil
+    ) async throws -> NativePipelineResult {
+        guard !stages.isEmpty else {
+            throw NativeToolError.invalidArguments("Pipeline must have at least one stage")
+        }
+
+        // Single stage: delegate to regular run
+        if stages.count == 1 {
+            let result = try await run(
+                stages[0].tool,
+                arguments: stages[0].arguments,
+                workingDirectory: workingDirectory,
+                environment: environment,
+                timeout: timeout
+            )
+            return NativePipelineResult(
+                exitCodes: [result.exitCode],
+                stderrByStage: [result.stderr],
+                stdout: result.stdout
+            )
+        }
+
+        // Resolve all tool paths upfront
+        var toolPaths: [URL] = []
+        for stage in stages {
+            toolPaths.append(try findTool(stage.tool))
+        }
+
+        let actualTimeout = timeout ?? defaultTimeout
+        let stageNames = stages.map(\.tool.rawValue).joined(separator: " | ")
+        logger.info("Running pipeline: \(stageNames)")
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var processes: [Process] = []
+            var interStagePipes: [Pipe] = []
+            var stderrPipes: [Pipe] = []
+            let stdoutPipe = Pipe() // Captures final stage stdout
+
+            // Build merged environment
+            var processEnvironment = ProcessInfo.processInfo.environment
+            if let environment {
+                for (key, value) in environment {
+                    processEnvironment[key] = value
+                }
+            }
+
+            // Create processes and wire pipes
+            for (index, stage) in stages.enumerated() {
+                let process = Process()
+                process.executableURL = toolPaths[index]
+                process.arguments = stage.arguments
+                if let workingDirectory {
+                    process.currentDirectoryURL = workingDirectory
+                }
+                process.environment = processEnvironment
+
+                let stderrPipe = Pipe()
+                process.standardError = stderrPipe
+                stderrPipes.append(stderrPipe)
+
+                // Wire stdin from previous stage's pipe
+                if index > 0 {
+                    process.standardInput = interStagePipes[index - 1]
+                }
+
+                // Wire stdout
+                if index < stages.count - 1 {
+                    let pipe = Pipe()
+                    process.standardOutput = pipe
+                    interStagePipes.append(pipe)
+                } else {
+                    process.standardOutput = stdoutPipe
+                }
+
+                processes.append(process)
+            }
+
+            // Timeout for the whole pipeline
+            let timeoutWorkItem = DispatchWorkItem {
+                for process in processes where process.isRunning {
+                    process.terminate()
+                }
+            }
+            DispatchQueue.global().asyncAfter(
+                deadline: .now() + actualTimeout,
+                execute: timeoutWorkItem
+            )
+
+            do {
+                // Launch all processes (first to last)
+                for process in processes {
+                    try process.run()
+                }
+
+                // Drain all stderr pipes and final stdout concurrently to avoid
+                // deadlock when output exceeds the ~64 KB kernel pipe buffer.
+                var stderrDataByStage = Array(repeating: Data(), count: stages.count)
+                var stdoutData = Data()
+                let drainGroup = DispatchGroup()
+
+                for i in 0..<stages.count {
+                    let pipe = stderrPipes[i]
+                    drainGroup.enter()
+                    DispatchQueue.global().async {
+                        stderrDataByStage[i] = pipe.fileHandleForReading.readDataToEndOfFile()
+                        drainGroup.leave()
+                    }
+                }
+                drainGroup.enter()
+                DispatchQueue.global().async {
+                    stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                    drainGroup.leave()
+                }
+
+                // Wait last-to-first for proper pipe back-pressure propagation
+                for process in processes.reversed() {
+                    process.waitUntilExit()
+                }
+                drainGroup.wait()
+                timeoutWorkItem.cancel()
+
+                let exitCodes = processes.map(\.terminationStatus)
+                let stderrStrings = stderrDataByStage.map { String(data: $0, encoding: .utf8) ?? "" }
+                let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+
+                let result = NativePipelineResult(
+                    exitCodes: exitCodes,
+                    stderrByStage: stderrStrings,
+                    stdout: stdout
+                )
+
+                if result.isSuccess {
+                    self.logger.info("Pipeline completed successfully: \(stageNames)")
+                } else {
+                    self.logger.warning("Pipeline failed: \(stageNames), exit codes: \(exitCodes)")
+                }
+
+                continuation.resume(returning: result)
+
+            } catch {
+                timeoutWorkItem.cancel()
+                for process in processes where process.isRunning {
+                    process.terminate()
+                }
+                continuation.resume(throwing: NativeToolError.executionFailed(
+                    stageNames, -1, error.localizedDescription
+                ))
+            }
+        }
+    }
+
+    /// Runs a pipeline of tools and redirects the final output to a file.
+    ///
+    /// Useful for `seqkit grep | seqkit subseq > output.fq` patterns.
+    public func runPipelineWithFileOutput(
+        _ stages: [NativePipelineStage],
+        outputFile: URL,
+        workingDirectory: URL? = nil,
+        environment: [String: String]? = nil,
+        timeout: TimeInterval? = nil
+    ) async throws -> NativePipelineResult {
+        guard !stages.isEmpty else {
+            throw NativeToolError.invalidArguments("Pipeline must have at least one stage")
+        }
+
+        // Resolve all tool paths upfront
+        var toolPaths: [URL] = []
+        for stage in stages {
+            toolPaths.append(try findTool(stage.tool))
+        }
+
+        let actualTimeout = timeout ?? defaultTimeout
+        let stageNames = stages.map(\.tool.rawValue).joined(separator: " | ")
+        logger.info("Running pipeline (file output): \(stageNames) > \(outputFile.lastPathComponent)")
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var processes: [Process] = []
+            var interStagePipes: [Pipe] = []
+            var stderrPipes: [Pipe] = []
+            var outputHandle: FileHandle?
+
+            var processEnvironment = ProcessInfo.processInfo.environment
+            if let environment {
+                for (key, value) in environment {
+                    processEnvironment[key] = value
+                }
+            }
+
+            // Create output file and handle before building processes
+            FileManager.default.createFile(atPath: outputFile.path, contents: nil)
+            guard let handle = FileHandle(forWritingAtPath: outputFile.path) else {
+                continuation.resume(throwing: NativeToolError.executionFailed(
+                    stageNames, -1, "Cannot open output file for writing: \(outputFile.path)"
+                ))
+                return
+            }
+            outputHandle = handle
+
+            for (index, stage) in stages.enumerated() {
+                let process = Process()
+                process.executableURL = toolPaths[index]
+                process.arguments = stage.arguments
+                if let workingDirectory {
+                    process.currentDirectoryURL = workingDirectory
+                }
+                process.environment = processEnvironment
+
+                let stderrPipe = Pipe()
+                process.standardError = stderrPipe
+                stderrPipes.append(stderrPipe)
+
+                if index > 0 {
+                    process.standardInput = interStagePipes[index - 1]
+                }
+
+                if index < stages.count - 1 {
+                    let pipe = Pipe()
+                    process.standardOutput = pipe
+                    interStagePipes.append(pipe)
+                } else {
+                    // Last stage: write directly to file
+                    process.standardOutput = handle
+                }
+
+                processes.append(process)
+            }
+
+            let timeoutWorkItem = DispatchWorkItem {
+                for process in processes where process.isRunning {
+                    process.terminate()
+                }
+            }
+            DispatchQueue.global().asyncAfter(
+                deadline: .now() + actualTimeout,
+                execute: timeoutWorkItem
+            )
+
+            do {
+                for process in processes {
+                    try process.run()
+                }
+
+                // Drain all stderr pipes concurrently to avoid deadlock.
+                var stderrDataByStage = Array(repeating: Data(), count: stages.count)
+                let drainGroup = DispatchGroup()
+                for i in 0..<stages.count {
+                    let pipe = stderrPipes[i]
+                    drainGroup.enter()
+                    DispatchQueue.global().async {
+                        stderrDataByStage[i] = pipe.fileHandleForReading.readDataToEndOfFile()
+                        drainGroup.leave()
+                    }
+                }
+
+                for process in processes.reversed() {
+                    process.waitUntilExit()
+                }
+                drainGroup.wait()
+                timeoutWorkItem.cancel()
+
+                try? outputHandle?.close()
+
+                let exitCodes = processes.map(\.terminationStatus)
+                let stderrStrings = stderrDataByStage.map { String(data: $0, encoding: .utf8) ?? "" }
+
+                let result = NativePipelineResult(
+                    exitCodes: exitCodes,
+                    stderrByStage: stderrStrings,
+                    stdout: ""
+                )
+
+                if result.isSuccess {
+                    self.logger.info("Pipeline completed (file output): \(stageNames)")
+                } else {
+                    self.logger.warning("Pipeline failed (file output): \(stageNames), exit codes: \(exitCodes)")
+                }
+
+                continuation.resume(returning: result)
+
+            } catch {
+                timeoutWorkItem.cancel()
+                try? outputHandle?.close()
+                for process in processes where process.isRunning {
+                    process.terminate()
+                }
+                continuation.resume(throwing: NativeToolError.executionFailed(
+                    stageNames, -1, error.localizedDescription
+                ))
+            }
+        }
     }
 }
 

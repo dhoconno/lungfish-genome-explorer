@@ -133,8 +133,9 @@ final class VariantDatabaseGenotypeTests: XCTestCase {
 
     func testNoSampleVCF() throws {
         let (db, _) = try createDatabase(from: noSampleVCF)
-        XCTAssertEqual(db.sampleCount(), 0)
-        XCTAssertTrue(db.sampleNames().isEmpty)
+        // No-sample VCFs now create a synthetic sample for source-file tracking
+        XCTAssertEqual(db.sampleCount(), 1)
+        XCTAssertEqual(db.sampleNames().first, "test")
     }
 
     func testImportWithLowMemoryProfile() throws {
@@ -317,7 +318,8 @@ final class VariantDatabaseGenotypeTests: XCTestCase {
         let (db, _) = try createDatabase(from: noSampleVCF)
         let variants = db.query(chromosome: "chr1", start: 0, end: 1000)
         for v in variants {
-            XCTAssertEqual(v.sampleCount, 0)
+            // Synthetic sample creates 1 genotype record per variant
+            XCTAssertEqual(v.sampleCount, 1)
         }
     }
 

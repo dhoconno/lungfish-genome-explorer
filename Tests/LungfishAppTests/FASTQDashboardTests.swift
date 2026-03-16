@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import AppKit
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
@@ -257,6 +258,79 @@ final class FASTQDashboardTests: XCTestCase {
         let stats = makeSampleStatistics()
         controller.configure(statistics: stats, records: records)
         XCTAssertNotNil(controller.view)
+    }
+
+    @MainActor
+    func testFASTQDatasetSplitConstraintBounds() {
+        let controller = FASTQDatasetViewController()
+        let rootView = controller.view
+        rootView.layoutSubtreeIfNeeded()
+        controller.viewDidLayout()
+
+        let splitViews = allSplitViews(in: rootView)
+        guard let mainSplit = splitViews.first(where: { !$0.isVertical }),
+              let middleSplit = splitViews.first(where: { $0.isVertical && $0 !== mainSplit }) else {
+            XCTFail("Expected main and middle split views")
+            return
+        }
+
+        // Top pane is fixed-height — min and max are the same.
+        XCTAssertEqual(
+            controller.splitView(mainSplit, constrainMinCoordinate: 0, ofSubviewAt: 0),
+            115,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            controller.splitView(mainSplit, constrainMaxCoordinate: 999, ofSubviewAt: 0),
+            115,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            controller.splitView(middleSplit, constrainMinCoordinate: 0, ofSubviewAt: 0),
+            140,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            controller.splitView(middleSplit, constrainMaxCoordinate: 999, ofSubviewAt: 0),
+            260,
+            accuracy: 0.001
+        )
+    }
+
+    @MainActor
+    func testFASTQDatasetInitialSidebarIsNotNearHalfWidth() {
+        let controller = FASTQDatasetViewController()
+        let rootView = controller.view
+        rootView.frame = NSRect(x: 0, y: 0, width: 1000, height: 700)
+        rootView.layoutSubtreeIfNeeded()
+        controller.viewDidLayout()
+        controller.viewDidAppear()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        rootView.layoutSubtreeIfNeeded()
+
+        let splitViews = allSplitViews(in: rootView)
+        guard let middleSplit = splitViews.first(where: { $0.isVertical && $0.subviews.count >= 2 }) else {
+            XCTFail("Expected middle split view")
+            return
+        }
+
+        middleSplit.layoutSubtreeIfNeeded()
+        let sidebarWidth = middleSplit.subviews[0].frame.width
+        let splitWidth = middleSplit.bounds.width
+        XCTAssertGreaterThan(splitWidth, 0)
+        XCTAssertLessThan(sidebarWidth, splitWidth * 0.4)
+    }
+
+    @MainActor
+    private func allSplitViews(in view: NSView) -> [NSSplitView] {
+        var results: [NSSplitView] = []
+        if let split = view as? NSSplitView {
+            results.append(split)
+        }
+        for subview in view.subviews {
+            results.append(contentsOf: allSplitViews(in: subview))
+        }
+        return results
     }
 
     // MARK: - Notification Names

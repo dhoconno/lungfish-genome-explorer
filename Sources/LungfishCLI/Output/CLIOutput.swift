@@ -199,11 +199,11 @@ struct CLIOutputFactory {
     static func createHandler(for options: GlobalOptions) -> CLIOutputHandler {
         switch options.outputMode {
         case .json:
-            return JSONOutputHandler(outputPath: options.output, pretty: true)
+            return JSONOutputHandler(pretty: true)
         case .tsv:
-            return TSVOutputHandler(outputPath: options.output)
+            return TSVOutputHandler()
         case .text, .debug:
-            return StandardOutputHandler(useColors: options.useColors, outputPath: options.output)
+            return StandardOutputHandler(useColors: options.useColors)
         }
     }
 }

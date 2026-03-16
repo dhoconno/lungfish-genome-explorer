@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishWorkflow
 
 /// A custom About window following macOS HIG conventions.
 ///
@@ -34,7 +35,6 @@ final class AboutWindowController: NSWindowController {
 
     private func setupContent() {
         guard let window, let contentView = window.contentView else { return }
-        contentView.wantsLayer = true
 
         let container = NSView(frame: contentView.bounds)
         container.translatesAutoresizingMaskIntoConstraints = false
@@ -122,6 +122,24 @@ final class AboutWindowController: NSWindowController {
         copyrightLabel.textColor = .tertiaryLabelColor
         container.addSubview(copyrightLabel)
 
+        // Third-Party Licenses button
+        let licensesButton = NSButton(title: "Third-Party Licenses", target: self, action: #selector(showThirdPartyLicenses(_:)))
+        licensesButton.translatesAutoresizingMaskIntoConstraints = false
+        licensesButton.bezelStyle = .inline
+        licensesButton.isBordered = false
+        licensesButton.font = .systemFont(ofSize: 10)
+        licensesButton.contentTintColor = .linkColor
+        let licensesTitle = NSAttributedString(
+            string: "Third-Party Licenses",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 10),
+                .foregroundColor: NSColor.linkColor,
+                .underlineStyle: NSUnderlineStyle.single.rawValue,
+            ]
+        )
+        licensesButton.attributedTitle = licensesTitle
+        container.addSubview(licensesButton)
+
         // Lab website link
         let linkButton = NSButton(title: "dho.pathology.wisc.edu", target: self, action: #selector(openLabWebsite(_:)))
         linkButton.translatesAutoresizingMaskIntoConstraints = false
@@ -129,7 +147,6 @@ final class AboutWindowController: NSWindowController {
         linkButton.isBordered = false
         linkButton.font = .systemFont(ofSize: 10)
         linkButton.contentTintColor = .linkColor
-        // Underline the text
         let linkTitle = NSAttributedString(
             string: "dho.pathology.wisc.edu",
             attributes: [
@@ -169,7 +186,10 @@ final class AboutWindowController: NSWindowController {
             scrollView.bottomAnchor.constraint(equalTo: copyrightLabel.topAnchor, constant: -8),
 
             copyrightLabel.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            copyrightLabel.bottomAnchor.constraint(equalTo: linkButton.topAnchor, constant: -2),
+            copyrightLabel.bottomAnchor.constraint(equalTo: licensesButton.topAnchor, constant: -4),
+
+            licensesButton.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            licensesButton.bottomAnchor.constraint(equalTo: linkButton.topAnchor, constant: -2),
 
             linkButton.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             linkButton.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -12),
@@ -238,28 +258,59 @@ final class AboutWindowController: NSWindowController {
         appendSecondary("Wisconsin National Primate Research Center")
         appendSecondary("Early testing and feedback")
 
-        // Open Source Dependencies
-        appendHeading("Open Source")
-        let tools: [(String, String)] = [
-            ("SAMtools / HTSlib / BCFtools", "MIT"),
-            ("UCSC Genome Browser Tools", "MIT"),
-            ("SeqKit", "MIT"),
-            ("BBTools (including clumpify.sh)", "BBMap License"),
-            ("OpenJDK Runtime (Temurin)", "GPL-2.0 with Classpath Exception"),
-            ("minimap2", "MIT"),
-            ("BWA", "GPL-3.0"),
-            ("SPAdes", "GPL-2.0"),
-            ("FastQC / MultiQC", "GPL / GPL-3.0"),
-            ("Swift Argument Parser", "Apache 2.0"),
-            ("Swift Collections", "Apache 2.0"),
-            ("Swift Algorithms", "Apache 2.0"),
-            ("Swift System", "Apache 2.0"),
-            ("Swift Async Algorithms", "Apache 2.0"),
-            ("Apple Containerization", "Apache 2.0"),
+        // Embedded Bioinformatics Tools (from tool-versions.json manifest)
+        appendHeading("Embedded Tools")
+
+        let versionStyle: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
+            .foregroundColor: NSColor.tertiaryLabelColor,
+            .paragraphStyle: centered,
         ]
-        for (name, license) in tools {
+
+        let linkStyle: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 10),
+            .foregroundColor: NSColor.linkColor,
+            .paragraphStyle: centered,
+            .underlineStyle: NSUnderlineStyle.single.rawValue,
+        ]
+
+        if let manifest = NativeToolRunner.toolManifest {
+            for tool in manifest.tools {
+                credits.append(NSAttributedString(string: "\(tool.displayName) \(tool.version)", attributes: bodyStyle))
+                credits.append(NSAttributedString(string: "  \(tool.license)\n", attributes: versionStyle))
+                if let url = URL(string: tool.sourceUrl) {
+                    var attrs = linkStyle
+                    attrs[.link] = url
+                    credits.append(NSAttributedString(string: "\(tool.sourceUrl)\n", attributes: attrs))
+                }
+            }
+        }
+
+        // Other Open Source Dependencies
+        appendHeading("Other Open Source")
+
+        // (display name, license, GitHub/source URL)
+        let otherDeps: [(String, String, String?)] = [
+            ("minimap2", "MIT", "https://github.com/lh3/minimap2"),
+            ("BWA", "GPL-3.0", "https://github.com/lh3/bwa"),
+            ("SPAdes", "GPL-2.0", "https://github.com/ablab/spades"),
+            ("FastQC", "GPL-2.0", "https://github.com/s-andrews/FastQC"),
+            ("MultiQC", "GPL-3.0", "https://github.com/MultiQC/MultiQC"),
+            ("Swift Argument Parser", "Apache 2.0", "https://github.com/apple/swift-argument-parser"),
+            ("Swift Collections", "Apache 2.0", "https://github.com/apple/swift-collections"),
+            ("Swift Algorithms", "Apache 2.0", "https://github.com/apple/swift-algorithms"),
+            ("Swift System", "Apache 2.0", "https://github.com/apple/swift-system"),
+            ("Swift Async Algorithms", "Apache 2.0", "https://github.com/apple/swift-async-algorithms"),
+            ("Apple Containerization", "Apache 2.0", "https://github.com/apple/containerization"),
+        ]
+        for (name, license, urlString) in otherDeps {
             credits.append(NSAttributedString(string: name, attributes: bodyStyle))
             credits.append(NSAttributedString(string: "  \(license)\n", attributes: secondaryStyle))
+            if let urlString, let url = URL(string: urlString) {
+                var attrs = linkStyle
+                attrs[.link] = url
+                credits.append(NSAttributedString(string: "\(urlString)\n", attributes: attrs))
+            }
         }
 
         // Data Sources
@@ -296,6 +347,15 @@ final class AboutWindowController: NSWindowController {
     }
 
     // MARK: - Actions
+
+    private var licensesWindowController: ThirdPartyLicensesWindowController?
+
+    @objc private func showThirdPartyLicenses(_ sender: Any?) {
+        if licensesWindowController == nil {
+            licensesWindowController = ThirdPartyLicensesWindowController()
+        }
+        licensesWindowController?.showWindow(sender)
+    }
 
     @objc private func openLabWebsite(_ sender: Any?) {
         if let url = URL(string: "https://dho.pathology.wisc.edu") {

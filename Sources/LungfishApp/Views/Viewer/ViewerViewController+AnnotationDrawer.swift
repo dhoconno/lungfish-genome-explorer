@@ -21,6 +21,11 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
 
     /// Toggles the annotation drawer open/closed with animation.
     public func toggleAnnotationDrawer() {
+        if isDisplayingFASTQDataset {
+            toggleFASTQMetadataDrawer()
+            return
+        }
+
         if annotationDrawerView == nil {
             configureAnnotationDrawer()
         }

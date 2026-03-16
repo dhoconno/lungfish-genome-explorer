@@ -220,7 +220,6 @@ public class EnhancedCoordinateRulerView: NSView {
     }
 
     private func setupView() {
-        wantsLayer = true
         setupInfoBarControls()
         setupAccessibility()
     }

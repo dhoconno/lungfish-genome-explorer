@@ -9,29 +9,28 @@ final class LungfishCLITests: XCTestCase {
 
     // MARK: - Global Options Tests
 
-    func testGlobalOptionsDefaults() {
-        let options = GlobalOptions()
-        XCTAssertNil(options.output)
+    func testGlobalOptionsDefaults() throws {
+        let options = try GlobalOptions.parse([])
         XCTAssertEqual(options.outputFormat, .text)
         XCTAssertEqual(options.verbosity, 0)
         XCTAssertFalse(options.quiet)
         XCTAssertFalse(options.debug)
     }
 
-    func testEffectiveVerbosityQuiet() {
-        var options = GlobalOptions()
+    func testEffectiveVerbosityQuiet() throws {
+        var options = try GlobalOptions.parse([])
         options.quiet = true
         XCTAssertEqual(options.effectiveVerbosity, -1)
     }
 
-    func testOutputModeJSON() {
-        var options = GlobalOptions()
+    func testOutputModeJSON() throws {
+        var options = try GlobalOptions.parse([])
         options.outputFormat = .json
         XCTAssertEqual(options.outputMode, .json)
     }
 
-    func testOutputModeDebug() {
-        var options = GlobalOptions()
+    func testOutputModeDebug() throws {
+        var options = try GlobalOptions.parse([])
         options.debug = true
         XCTAssertEqual(options.outputMode, .debug)
     }

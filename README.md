@@ -2,8 +2,8 @@
 
 A next-generation **macOS-native genome browser** built in Swift, combining the visualization strengths of IGV with the rich editing capabilities of Geneious.
 
-[![Swift 5.9+](https://img.shields.io/badge/Swift-5.9+-orange.svg)](https://swift.org)
-[![macOS 14+](https://img.shields.io/badge/macOS-14+-blue.svg)](https://www.apple.com/macos)
+[![Swift 6.2](https://img.shields.io/badge/Swift-6.2-orange.svg)](https://swift.org)
+[![macOS 26+](https://img.shields.io/badge/macOS-26_Tahoe+-blue.svg)](https://www.apple.com/macos)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ## Features
@@ -32,8 +32,8 @@ A next-generation **macOS-native genome browser** built in Swift, combining the 
 
 ## Requirements
 
-- **macOS 14 Sonoma** or later
-- **Apple Silicon** (M1/M2/M3+) - native ARM64
+- **macOS 26 Tahoe** or later
+- **Apple Silicon** (M1/M2/M3/M4+) - native ARM64
 - **8GB RAM** minimum (16GB+ recommended for large genomes)
 - **SSD** required for optimal index performance
 
@@ -77,7 +77,7 @@ let subsequence = try await indexed.fetch(region: region)
 
 ## Architecture
 
-Lungfish is organized into five Swift modules:
+Lungfish is organized into seven Swift modules:
 
 | Module | Purpose |
 |--------|---------|
@@ -85,7 +85,9 @@ Lungfish is organized into five Swift modules:
 | **LungfishIO** | File format parsing and indexing |
 | **LungfishUI** | Rendering, tracks, and visualization |
 | **LungfishPlugin** | Multi-language plugin system |
-| **LungfishWorkflow** | Nextflow/Snakemake integration |
+| **LungfishWorkflow** | Pipeline integration and native tool management |
+| **LungfishApp** | macOS application UI components |
+| **LungfishCLI** | Command-line interface for headless operation |
 
 ## Design Philosophy
 
@@ -128,17 +130,49 @@ LungfishGenomeBrowser/
 
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
+## Embedded Bioinformatics Tools
+
+Lungfish bundles the following open-source tools, invoked as subprocesses:
+
+| Tool | Version | License | Source |
+|------|---------|---------|--------|
+| [SAMtools](https://github.com/samtools/samtools) | 1.22.1 | MIT | Genome Research Ltd. |
+| [BCFtools](https://github.com/samtools/bcftools) | 1.22 | MIT | Genome Research Ltd. |
+| [HTSlib](https://github.com/samtools/htslib) (bgzip, tabix) | 1.22.1 | MIT | Genome Research Ltd. |
+| [UCSC Tools](https://github.com/ucscGenomeBrowser/kent) (bedToBigBed, bedGraphToBigWig) | v469 | MIT | UC Santa Cruz |
+| [SeqKit](https://github.com/shenwei356/seqkit) | 2.9.0 | MIT | Wei Shen |
+| [fastp](https://github.com/OpenGene/fastp) | 1.1.0 | MIT | OpenGene |
+| [cutadapt](https://github.com/marcelm/cutadapt) | 4.9 | MIT | Marcel Martin |
+| [VSEARCH](https://github.com/torognes/vsearch) | 2.29.2 | BSD-2-Clause | Rognes et al. |
+| [pigz](https://github.com/madler/pigz) | 2.8 | zlib | Mark Adler |
+| [BBTools](https://sourceforge.net/projects/bbmap/) (clumpify.sh) | 39.13 | BBMap License | JGI |
+| [OpenJDK](https://github.com/adoptium/temurin-build) (Eclipse Temurin JRE) | 21.0.10 | GPL-2.0 w/ Classpath Exception | Adoptium |
+
+Tool versions are defined in [`tool-versions.json`](Sources/LungfishWorkflow/Resources/Tools/tool-versions.json) and can be updated with:
+
+```bash
+scripts/update-tool-versions.sh --check    # Check for new releases
+scripts/update-tool-versions.sh --update   # Update manifest and rebuild
+```
+
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+
+Embedded third-party tools are distributed under their own licenses. All are compatible with MIT through subprocess invocation (mere aggregation). See [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES) for full license texts.
+
+VSEARCH is dual-licensed BSD-2-Clause/GPL-3.0; Lungfish elects BSD-2-Clause.
 
 ## Acknowledgments
 
-- **IGV** - Inspiration for track-based visualization architecture
-- **Geneious** - Inspiration for sequence editing workflows
-- **htslib** - BAM/CRAM/VCF file format support
-- **Primer3** - Primer design algorithms
-- **PrimalScheme** - Multiplex primer panel design
+- **IGV** — Inspiration for track-based visualization architecture
+- **Geneious** — Inspiration for sequence editing workflows
+- **htslib** — BAM/CRAM/VCF file format support
+
+### Funding
+
+- **Wisconsin National Primate Research Center** (NIH/ORIP P51OD011106)
+- **National Institute of Allergy and Infectious Diseases** (NIH/NIAID Contract 75N93021C00006)
 
 ---
 

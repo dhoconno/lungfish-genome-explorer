@@ -226,7 +226,6 @@ public class ContainerRuntimeSelector: NSView {
         // Status indicator (colored dot)
         statusIndicator = NSView()
         statusIndicator.translatesAutoresizingMaskIntoConstraints = false
-        statusIndicator.wantsLayer = true
         statusIndicator.layer?.cornerRadius = 5
         statusIndicator.layer?.backgroundColor = NSColor.systemGray.cgColor
         mainStackView.addArrangedSubview(statusIndicator)
@@ -436,17 +435,12 @@ public class ContainerRuntimeSelector: NSView {
     }
 
     private func checkAppleContainerization() async -> ContainerRuntimeStatus {
-        // Check macOS version - Apple Containerization requires macOS 15+
-        if #available(macOS 15, *) {
-            // Check if container CLI is available
-            let containerPath = "/usr/bin/container"
-            if FileManager.default.fileExists(atPath: containerPath) {
-                return .available(version: nil)
-            }
-            return .notInstalled
-        } else {
-            return .error("Requires macOS 15+")
+        // Check if container CLI is available
+        let containerPath = "/usr/bin/container"
+        if FileManager.default.fileExists(atPath: containerPath) {
+            return .available(version: nil)
         }
+        return .notInstalled
     }
 
     // MARK: - UI Updates

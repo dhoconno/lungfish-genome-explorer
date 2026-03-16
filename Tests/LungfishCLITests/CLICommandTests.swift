@@ -2,6 +2,7 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import ArgumentParser
 import XCTest
 @testable import LungfishCLI
 @testable import LungfishCore
@@ -1208,8 +1209,8 @@ final class OutputFormatTests: XCTestCase {
     }
 
     /// Verifies that GlobalOptions output mode reflects the output format.
-    func testOutputModeFromFormat() {
-        var options = GlobalOptions()
+    func testOutputModeFromFormat() throws {
+        var options = try GlobalOptions.parse([])
 
         options.outputFormat = .json
         XCTAssertEqual(options.outputMode, .json)
@@ -1223,10 +1224,310 @@ final class OutputFormatTests: XCTestCase {
     }
 
     /// Verifies that debug mode overrides output format in output mode.
-    func testOutputModeDebugOverride() {
-        var options = GlobalOptions()
+    func testOutputModeDebugOverride() throws {
+        var options = try GlobalOptions.parse([])
         options.outputFormat = .json
         options.debug = true
         XCTAssertEqual(options.outputMode, .debug)
+    }
+}
+
+// MARK: - FastqCommand Tests
+
+final class FastqCommandTests: XCTestCase {
+
+    // MARK: - Command Configuration
+
+    /// Verifies that FastqCommand has the correct command name.
+    func testFastqCommandName() {
+        XCTAssertEqual(FastqCommand.configuration.commandName, "fastq")
+    }
+
+    /// Verifies that FastqCommand has all 15 subcommands registered.
+    func testFastqSubcommandCount() {
+        let subcommands = FastqCommand.configuration.subcommands
+        XCTAssertEqual(subcommands.count, 15, "FastqCommand should have 15 subcommands")
+    }
+
+    /// Verifies that all expected subcommand names are registered.
+    func testFastqSubcommandNames() {
+        let names = FastqCommand.configuration.subcommands.compactMap {
+            ($0 as? any ParsableCommand.Type)?.configuration.commandName
+        }
+        let expected = [
+            "subsample", "length-filter", "quality-trim", "adapter-trim", "fixed-trim",
+            "contaminant-filter", "primer-remove", "error-correct",
+            "merge", "repair", "deinterleave", "interleave", "deduplicate",
+            "demultiplex", "import-ont",
+        ]
+        for name in expected {
+            XCTAssertTrue(names.contains(name), "Missing subcommand: \(name)")
+        }
+    }
+
+    // MARK: - Subsample Argument Parsing
+
+    /// Verifies that subsample command parses proportion option correctly.
+    func testSubsampleParsesProportion() throws {
+        let cmd = try FastqSubsampleSubcommand.parse([
+            "input.fastq", "--proportion", "0.5", "-o", "/tmp/out.fastq",
+        ])
+        XCTAssertEqual(cmd.input, "input.fastq")
+        XCTAssertEqual(cmd.proportion, 0.5)
+        XCTAssertNil(cmd.count)
+        XCTAssertEqual(cmd.output.output, "/tmp/out.fastq")
+    }
+
+    /// Verifies that subsample command parses count option correctly.
+    func testSubsampleParsesCount() throws {
+        let cmd = try FastqSubsampleSubcommand.parse([
+            "reads.fq", "--count", "1000", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.count, 1000)
+        XCTAssertNil(cmd.proportion)
+    }
+
+    // MARK: - Length Filter Argument Parsing
+
+    /// Verifies that length-filter parses min and max length options.
+    func testLengthFilterParsesOptions() throws {
+        let cmd = try FastqLengthFilterSubcommand.parse([
+            "input.fq", "--min", "50", "--max", "300", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.input, "input.fq")
+        XCTAssertEqual(cmd.minLength, 50)
+        XCTAssertEqual(cmd.maxLength, 300)
+    }
+
+    /// Verifies that length-filter accepts only min length.
+    func testLengthFilterMinOnly() throws {
+        let cmd = try FastqLengthFilterSubcommand.parse([
+            "input.fq", "--min", "100", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.minLength, 100)
+        XCTAssertNil(cmd.maxLength)
+    }
+
+    // MARK: - Quality Trim Argument Parsing
+
+    /// Verifies that quality-trim parses threshold, window, and mode options.
+    func testQualityTrimParsesOptions() throws {
+        let cmd = try FastqQualityTrimSubcommand.parse([
+            "input.fq", "--threshold", "30", "--window", "5", "--mode", "cut-front",
+            "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.threshold, 30)
+        XCTAssertEqual(cmd.windowSize, 5)
+        XCTAssertEqual(cmd.mode, "cut-front")
+    }
+
+    /// Verifies that quality-trim uses correct defaults.
+    func testQualityTrimDefaults() throws {
+        let cmd = try FastqQualityTrimSubcommand.parse([
+            "input.fq", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.threshold, 20)
+        XCTAssertEqual(cmd.windowSize, 4)
+        XCTAssertEqual(cmd.mode, "cut-right")
+    }
+
+    // MARK: - Adapter Trim Argument Parsing
+
+    /// Verifies that adapter-trim parses adapter sequence option.
+    func testAdapterTrimParsesOptions() throws {
+        let cmd = try FastqAdapterTrimSubcommand.parse([
+            "input.fq", "--adapter", "AGATCGGAAGAG", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.adapterSequence, "AGATCGGAAGAG")
+    }
+
+    /// Verifies that adapter-trim works without adapter (auto-detect mode).
+    func testAdapterTrimAutoDetect() throws {
+        let cmd = try FastqAdapterTrimSubcommand.parse([
+            "input.fq", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertNil(cmd.adapterSequence)
+    }
+
+    // MARK: - Fixed Trim Argument Parsing
+
+    /// Verifies that fixed-trim parses front and tail options.
+    func testFixedTrimParsesOptions() throws {
+        let cmd = try FastqFixedTrimSubcommand.parse([
+            "input.fq", "--front", "10", "--tail", "5", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.front, 10)
+        XCTAssertEqual(cmd.tail, 5)
+    }
+
+    /// Verifies that fixed-trim defaults to zero bases.
+    func testFixedTrimDefaults() throws {
+        let cmd = try FastqFixedTrimSubcommand.parse([
+            "input.fq", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.front, 0)
+        XCTAssertEqual(cmd.tail, 0)
+    }
+
+    // MARK: - Contaminant Filter Argument Parsing
+
+    /// Verifies that contaminant-filter parses mode, kmer, and hdist options.
+    func testContaminantFilterParsesOptions() throws {
+        let cmd = try FastqContaminantFilterSubcommand.parse([
+            "input.fq", "--mode", "custom", "--ref", "/data/contam.fa",
+            "--kmer", "27", "--hdist", "2", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.mode, "custom")
+        XCTAssertEqual(cmd.reference, "/data/contam.fa")
+        XCTAssertEqual(cmd.kmerSize, 27)
+        XCTAssertEqual(cmd.hammingDistance, 2)
+    }
+
+    /// Verifies that contaminant-filter uses correct defaults.
+    func testContaminantFilterDefaults() throws {
+        let cmd = try FastqContaminantFilterSubcommand.parse([
+            "input.fq", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.mode, "phix")
+        XCTAssertNil(cmd.reference)
+        XCTAssertEqual(cmd.kmerSize, 31)
+        XCTAssertEqual(cmd.hammingDistance, 1)
+    }
+
+    // MARK: - Primer Removal Argument Parsing
+
+    /// Verifies that primer-remove parses literal primer sequence.
+    func testPrimerRemovalLiteral() throws {
+        let cmd = try FastqPrimerRemovalSubcommand.parse([
+            "input.fq", "--literal", "ACGTACGTACGT",
+            "--kmer", "20", "--mink", "8", "--hdist", "2",
+            "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.literalSequence, "ACGTACGTACGT")
+        XCTAssertNil(cmd.reference)
+        XCTAssertEqual(cmd.kmerSize, 20)
+        XCTAssertEqual(cmd.minKmer, 8)
+        XCTAssertEqual(cmd.hammingDistance, 2)
+    }
+
+    /// Verifies that primer-remove parses reference file.
+    func testPrimerRemovalReference() throws {
+        let cmd = try FastqPrimerRemovalSubcommand.parse([
+            "input.fq", "--ref", "/data/primers.fa", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertNil(cmd.literalSequence)
+        XCTAssertEqual(cmd.reference, "/data/primers.fa")
+    }
+
+    /// Verifies that primer-remove uses correct defaults.
+    func testPrimerRemovalDefaults() throws {
+        let cmd = try FastqPrimerRemovalSubcommand.parse([
+            "input.fq", "--literal", "ACGT", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.kmerSize, 23)
+        XCTAssertEqual(cmd.minKmer, 11)
+        XCTAssertEqual(cmd.hammingDistance, 1)
+    }
+
+    // MARK: - Error Correction Argument Parsing
+
+    /// Verifies that error-correct parses kmer option.
+    func testErrorCorrectParsesOptions() throws {
+        let cmd = try FastqErrorCorrectSubcommand.parse([
+            "input.fq", "--kmer", "31", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.kmerSize, 31)
+    }
+
+    /// Verifies that error-correct defaults to kmer size 50.
+    func testErrorCorrectDefaults() throws {
+        let cmd = try FastqErrorCorrectSubcommand.parse([
+            "input.fq", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.kmerSize, 50)
+    }
+
+    // MARK: - Merge Argument Parsing
+
+    /// Verifies that merge parses min-overlap and strict options.
+    func testMergeParsesOptions() throws {
+        let cmd = try FastqMergeSubcommand.parse([
+            "interleaved.fq", "--min-overlap", "20", "--strict", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.input, "interleaved.fq")
+        XCTAssertEqual(cmd.minOverlap, 20)
+        XCTAssertTrue(cmd.strict)
+    }
+
+    /// Verifies that merge uses correct defaults.
+    func testMergeDefaults() throws {
+        let cmd = try FastqMergeSubcommand.parse([
+            "interleaved.fq", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.minOverlap, 12)
+        XCTAssertFalse(cmd.strict)
+    }
+
+    // MARK: - Repair Argument Parsing
+
+    /// Verifies that repair parses input argument.
+    func testRepairParsesInput() throws {
+        let cmd = try FastqRepairSubcommand.parse([
+            "broken.fq", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.input, "broken.fq")
+    }
+
+    // MARK: - Deinterleave Argument Parsing
+
+    /// Verifies that deinterleave parses out1 and out2 options.
+    func testDeinterleaveParsesOptions() throws {
+        let cmd = try FastqDeinterleaveSubcommand.parse([
+            "interleaved.fq", "--out1", "/tmp/R1.fq", "--out2", "/tmp/R2.fq",
+        ])
+        XCTAssertEqual(cmd.input, "interleaved.fq")
+        XCTAssertEqual(cmd.out1, "/tmp/R1.fq")
+        XCTAssertEqual(cmd.out2, "/tmp/R2.fq")
+    }
+
+    // MARK: - Interleave Argument Parsing
+
+    /// Verifies that interleave parses in1 and in2 options.
+    func testInterleaveParsesOptions() throws {
+        let cmd = try FastqInterleaveSubcommand.parse([
+            "--in1", "/data/R1.fq", "--in2", "/data/R2.fq", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.in1, "/data/R1.fq")
+        XCTAssertEqual(cmd.in2, "/data/R2.fq")
+        XCTAssertEqual(cmd.output.output, "/tmp/out.fq")
+    }
+
+    // MARK: - Deduplicate Argument Parsing
+
+    /// Verifies that deduplicate parses mode option.
+    func testDeduplicateParsesOptions() throws {
+        let cmd = try FastqDeduplicateSubcommand.parse([
+            "input.fq", "--by", "sequence", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.mode, "sequence")
+    }
+
+    /// Verifies that deduplicate defaults to dedup by id.
+    func testDeduplicateDefaults() throws {
+        let cmd = try FastqDeduplicateSubcommand.parse([
+            "input.fq", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.mode, "id")
+    }
+
+    // MARK: - FastqCommand Registration in LungfishCLI
+
+    /// Verifies that FastqCommand is registered as a subcommand of LungfishCLI.
+    func testFastqCommandRegistered() {
+        let subcommands = LungfishCLI.configuration.subcommands
+        let names = subcommands.compactMap {
+            ($0 as? any ParsableCommand.Type)?.configuration.commandName
+        }
+        XCTAssertTrue(names.contains("fastq"), "LungfishCLI should contain fastq subcommand")
     }
 }

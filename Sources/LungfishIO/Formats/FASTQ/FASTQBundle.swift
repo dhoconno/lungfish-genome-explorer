@@ -15,6 +15,9 @@ public enum FASTQBundle {
     /// Derived dataset manifest filename.
     public static let derivedManifestFilename = "derived.manifest.json"
 
+    /// Trim positions filename for trim derivative bundles.
+    public static let trimPositionFilename = "trim-positions.tsv"
+
     /// Returns `true` when the URL is a `.lungfishfastq` directory.
     public static func isBundleURL(_ url: URL) -> Bool {
         guard url.pathExtension.lowercased() == directoryExtension else { return false }
@@ -99,23 +102,194 @@ public enum FASTQBundle {
         try data.write(to: manifestURL, options: .atomic)
     }
 
-    /// Resolves the read ID list URL for a derived bundle.
+    /// Resolves the read ID list URL for a derived bundle (subset derivatives only).
     public static func readIDListURL(forDerivedBundle bundleURL: URL) -> URL? {
-        guard let manifest = loadDerivedManifest(in: bundleURL) else { return nil }
-        return bundleURL.appendingPathComponent(manifest.readIDListFilename)
+        guard let manifest = loadDerivedManifest(in: bundleURL),
+              case .subset(let filename) = manifest.payload else { return nil }
+        return bundleURL.appendingPathComponent(filename)
+    }
+
+    /// Resolves the trim positions URL for a derived bundle (trim derivatives only).
+    public static func trimPositionsURL(forDerivedBundle bundleURL: URL) -> URL? {
+        guard let manifest = loadDerivedManifest(in: bundleURL),
+              case .trim(let filename) = manifest.payload else { return nil }
+        return bundleURL.appendingPathComponent(filename)
+    }
+
+    /// Resolves paired R1/R2 FASTQ URLs for a fullPaired payload derived bundle.
+    public static func pairedFASTQURLs(forDerivedBundle bundleURL: URL) -> (r1: URL, r2: URL)? {
+        guard let manifest = loadDerivedManifest(in: bundleURL),
+              case .fullPaired(let r1, let r2) = manifest.payload else { return nil }
+        return (bundleURL.appendingPathComponent(r1), bundleURL.appendingPathComponent(r2))
+    }
+
+    /// Resolves the materialized FASTQ URL for a full payload derived bundle.
+    public static func fullPayloadFASTQURL(forDerivedBundle bundleURL: URL) -> URL? {
+        guard let manifest = loadDerivedManifest(in: bundleURL),
+              case .full(let filename) = manifest.payload else { return nil }
+        return bundleURL.appendingPathComponent(filename)
+    }
+
+    /// Resolves role-based FASTQ file URLs for a multi-file bundle.
+    ///
+    /// Checks for a `read-manifest.json` first, then falls back to the derived
+    /// manifest's `.fullMixed` payload. Returns nil for homogeneous bundles.
+    public static func classifiedFileURLs(for bundleURL: URL) -> [ReadClassification.FileRole: URL]? {
+        // Try standalone read manifest first
+        if let readManifest = ReadManifest.load(from: bundleURL) {
+            return buildRoleMap(from: readManifest.classification, in: bundleURL)
+        }
+        // Try derived bundle manifest with fullMixed payload
+        if let manifest = loadDerivedManifest(in: bundleURL),
+           case .fullMixed(let classification) = manifest.payload {
+            return buildRoleMap(from: classification, in: bundleURL)
+        }
+        return nil
+    }
+
+    /// Builds a role → URL map from a ReadClassification, filtering to files that exist.
+    private static func buildRoleMap(
+        from classification: ReadClassification,
+        in bundleURL: URL
+    ) -> [ReadClassification.FileRole: URL] {
+        var result: [ReadClassification.FileRole: URL] = [:]
+        for entry in classification.files {
+            let url = bundleURL.appendingPathComponent(entry.filename)
+            if FileManager.default.fileExists(atPath: url.path) {
+                result[entry.role] = url
+            }
+        }
+        return result
+    }
+
+    /// Finds the `.lungfish` project root directory by walking up from a bundle URL.
+    ///
+    /// Returns `nil` if no `.lungfish` directory is found within 10 levels.
+    public static func findProjectRoot(from url: URL) -> URL? {
+        var current = url.standardizedFileURL
+        for _ in 0..<10 {
+            if current.pathExtension == "lungfish" {
+                return current
+            }
+            let parent = current.deletingLastPathComponent()
+            if parent == current { break }
+            current = parent
+        }
+        return nil
+    }
+
+    /// Computes a path relative to the `.lungfish` project root.
+    ///
+    /// Project-relative paths are prefixed with `@/` to distinguish them from
+    /// legacy `../`-style relative paths. For example:
+    /// `@/FBC38282...extraction.lungfishfastq`
+    ///
+    /// Returns `nil` if no project root can be found from either URL.
+    public static func projectRelativePath(for targetURL: URL, from anyBundleURL: URL) -> String? {
+        guard let projectRoot = findProjectRoot(from: anyBundleURL) ?? findProjectRoot(from: targetURL) else {
+            return nil
+        }
+        let rootPath = projectRoot.standardizedFileURL.path
+        let normalizedRoot = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        let targetPath = targetURL.standardizedFileURL.path
+        guard targetPath.hasPrefix(normalizedRoot) else { return nil }
+        return "@/" + String(targetPath.dropFirst(normalizedRoot.count))
     }
 
     /// Resolves a relative bundle path from an anchor bundle URL.
+    ///
+    /// Supports two path formats:
+    /// - **Project-relative** (`@/path/to/bundle.lungfishfastq`): resolved from
+    ///   the `.lungfish` project root found by walking up from the anchor URL.
+    /// - **Legacy relative** (`../../bundle.lungfishfastq`): resolved directly
+    ///   relative to the anchor bundle URL.
     public static func resolveBundle(relativePath: String, from anchorBundleURL: URL) -> URL {
-        URL(fileURLWithPath: relativePath, relativeTo: anchorBundleURL).standardizedFileURL
+        if relativePath.hasPrefix("@/") {
+            let innerPath = String(relativePath.dropFirst(2))
+            if let projectRoot = findProjectRoot(from: anchorBundleURL) {
+                return projectRoot.appendingPathComponent(innerPath).standardizedFileURL
+            }
+        }
+        return URL(fileURLWithPath: relativePath, relativeTo: anchorBundleURL).standardizedFileURL
     }
 
-    /// Derives a stable base name by stripping all extensions from a FASTQ filename.
-    public static func deriveBaseName(from fastqURL: URL) -> String {
-        var strippedURL = fastqURL
-        while !strippedURL.pathExtension.isEmpty {
-            strippedURL = strippedURL.deletingPathExtension()
+    /// Searches the project root for a `.lungfishfastq` bundle containing a specific FASTQ file.
+    ///
+    /// Used as a recovery path when legacy `../../` relative paths no longer resolve
+    /// (e.g. after bundles were moved within the project). Searches top-level bundles
+    /// in the project root directory.
+    ///
+    /// - Parameters:
+    ///   - fastqFilename: The FASTQ filename expected inside the root bundle.
+    ///   - anchorURL: Any URL within the project (used to find the project root).
+    /// - Returns: The bundle URL containing the file, or `nil` if not found.
+    public static func findBundleContaining(fastqFilename: String, from anchorURL: URL) -> URL? {
+        guard let projectRoot = findProjectRoot(from: anchorURL) else { return nil }
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: projectRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+
+        for url in contents where url.pathExtension == directoryExtension {
+            let candidateFASTQ = url.appendingPathComponent(fastqFilename)
+            if FileManager.default.fileExists(atPath: candidateFASTQ.path) {
+                return url
+            }
         }
-        return strippedURL.lastPathComponent
+        return nil
+    }
+
+    /// Derives a stable base name by stripping known FASTQ/compression extensions.
+    ///
+    /// Only removes `.fastq`, `.fq`, `.gz`, `.bz2`, `.zst`, and `.lungfishfastq`
+    /// extensions rather than stripping all extensions, so filenames like
+    /// `patient.42.sample.fastq.gz` become `patient.42.sample` (not `patient`).
+    public static func deriveBaseName(from fastqURL: URL) -> String {
+        let knownExtensions: Set<String> = ["fastq", "fq", "gz", "bz2", "zst", "lungfishfastq"]
+        var url = fastqURL
+        while knownExtensions.contains(url.pathExtension.lowercased()) {
+            url = url.deletingPathExtension()
+        }
+        return url.lastPathComponent
+    }
+
+    // MARK: - Derivatives Directory
+
+    /// Subdirectory name for non-demux derivative bundles.
+    public static let derivativesDirectoryName = "derivatives"
+
+    /// Returns the URL for the `derivatives/` subdirectory inside a bundle.
+    public static func derivativesDirectoryURL(in bundleURL: URL) -> URL {
+        bundleURL.appendingPathComponent(derivativesDirectoryName, isDirectory: true)
+    }
+
+    /// Ensures the `derivatives/` subdirectory exists inside a bundle.
+    @discardableResult
+    public static func ensureDerivativesDirectory(in bundleURL: URL) throws -> URL {
+        let url = derivativesDirectoryURL(in: bundleURL)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    /// Scans the `derivatives/` subdirectory for child `.lungfishfastq` bundles.
+    ///
+    /// Returns an array of `(bundleURL, manifest)` pairs sorted by creation date,
+    /// skipping bundles with missing or invalid manifests.
+    public static func scanDerivatives(in bundleURL: URL) -> [(url: URL, manifest: FASTQDerivedBundleManifest)] {
+        let derivDir = derivativesDirectoryURL(in: bundleURL)
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: derivDir,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+
+        return contents
+            .filter { $0.pathExtension.lowercased() == directoryExtension }
+            .compactMap { url -> (url: URL, manifest: FASTQDerivedBundleManifest)? in
+                guard let manifest = loadDerivedManifest(in: url) else { return nil }
+                return (url, manifest)
+            }
+            .sorted { $0.manifest.createdAt < $1.manifest.createdAt }
     }
 }

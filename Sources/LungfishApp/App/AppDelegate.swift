@@ -5,6 +5,7 @@
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 import UniformTypeIdentifiers
 import os
 
@@ -68,6 +69,21 @@ private struct SyncFileLoadResult: Sendable {
         self.sequences = sequences
         self.annotations = annotations
         self.error = error
+    }
+}
+
+/// Main-thread import tracking state used by File > Import.
+///
+/// This object is captured by notification handlers that are `@Sendable`.
+/// The handler immediately hops to `MainActor` before mutating state.
+private final class ImportCompletionTracker: @unchecked Sendable {
+    var pendingURLs: Set<URL>
+    var succeeded: Int = 0
+    var failed: Int = 0
+    var observerToken: NSObjectProtocol?
+
+    init(urls: [URL]) {
+        self.pendingURLs = Set(urls)
     }
 }
 
@@ -696,7 +712,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     private func saveApplicationState() {
         // Persist user preferences and window state
-        UserDefaults.standard.synchronize()
+        // UserDefaults auto-saves; no manual synchronize needed
     }
 
     private func openDocument(at url: URL) -> Bool {
@@ -740,10 +756,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
-        panel.allowedContentTypes = [
-            .init(filenameExtension: "fa")!,
-            .init(filenameExtension: "fasta")!,
-            .init(filenameExtension: "fna")!,
+        panel.allowedContentTypes = FASTAFileTypes.readableContentTypes + [
+            .init(filenameExtension: "fq")!,
+            .init(filenameExtension: "fastq")!,
+            .init(filenameExtension: "gz")!,
+            .init(filenameExtension: FASTQBundle.directoryExtension)!,
             .init(filenameExtension: "gb")!,
             .init(filenameExtension: "gbk")!,
             .init(filenameExtension: "gff")!,
@@ -798,13 +815,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         debugLog("importFiles: Menu action triggered")
 
         // Get current project URL
-        guard let projectURL = workingDirectoryURL else {
+        guard workingDirectoryURL != nil else {
             // No project open - show alert
             let alert = NSAlert()
             alert.messageText = "No Project Open"
             alert.informativeText = "Please open or create a project before importing files."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "OK")
+            alert.applyLungfishBranding()
             alert.runModal()
             return
         }
@@ -847,61 +865,77 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             // even during modal session transitions
             scheduleOnMainRunLoop {
                 guard let self = self else { return }
-                debugLog("importFiles: Starting file copy operation")
+                debugLog("importFiles: Starting import pipeline dispatch")
 
                 // Get references to UI components
                 let activityIndicator = self.mainWindowController?.mainSplitViewController?.activityIndicator
-                let sidebarController = self.mainWindowController?.mainSplitViewController?.sidebarController
 
                 // Show progress indicator
                 let fileCount = selectedURLs.count
+                let requestID = UUID().uuidString
+                let tracker = ImportCompletionTracker(urls: selectedURLs)
                 activityIndicator?.show(
                     message: "Importing \(fileCount) file\(fileCount == 1 ? "" : "s")...",
                     style: .indeterminate
                 )
 
-                var importedURLs: [URL] = []
-                var skippedCount = 0
-                var errorCount = 0
+                tracker.observerToken = NotificationCenter.default.addObserver(
+                    forName: .sidebarFileDropCompleted,
+                    object: nil,
+                    queue: .main
+                ) { completion in
+                    let completionRequestID = completion.userInfo?["requestID"] as? String
+                    let completedURL = completion.userInfo?["url"] as? URL
+                    let wasSuccessful = (completion.userInfo?["success"] as? Bool) == true
+
+                    Task { @MainActor in
+                        guard let completionRequestID,
+                              completionRequestID == requestID,
+                              let completedURL else {
+                            return
+                        }
+                        guard tracker.pendingURLs.contains(completedURL) else { return }
+
+                        tracker.pendingURLs.remove(completedURL)
+                        if wasSuccessful {
+                            tracker.succeeded += 1
+                        } else {
+                            tracker.failed += 1
+                        }
+
+                        if tracker.pendingURLs.isEmpty {
+                            if let observerToken = tracker.observerToken {
+                                NotificationCenter.default.removeObserver(observerToken)
+                                tracker.observerToken = nil
+                            }
+                            activityIndicator?.hide()
+                            debugLog(
+                                "importFiles: Completed request \(requestID). success=\(tracker.succeeded), failed=\(tracker.failed)"
+                            )
+
+                            if tracker.failed > 0 {
+                                let alert = NSAlert()
+                                alert.messageText = "Import Completed with Errors"
+                                alert.informativeText = "\(tracker.succeeded) succeeded, \(tracker.failed) failed."
+                                alert.alertStyle = .warning
+                                alert.addButton(withTitle: "OK")
+                                alert.applyLungfishBranding()
+                                alert.runModal()
+                            }
+                        }
+                    }
+                }
 
                 for (index, sourceURL) in selectedURLs.enumerated() {
-                    let filename = sourceURL.lastPathComponent
-                    let destinationURL = projectURL.appendingPathComponent(filename)
-
-                    // Update progress message
-                    activityIndicator?.updateMessage("Importing \(filename) (\(index + 1)/\(fileCount))...")
-
-                    debugLog("importFiles: Copying \(filename) to project")
-
-                    // Check for duplicate
-                    if FileManager.default.fileExists(atPath: destinationURL.path) {
-                        debugLog("importFiles: File already exists, skipping: \(filename)")
-                        skippedCount += 1
-                        continue
-                    }
-
-                    do {
-                        try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
-                        importedURLs.append(destinationURL)
-                        debugLog("importFiles: Successfully copied \(filename)")
-                    } catch {
-                        debugLog("importFiles: Failed to copy \(filename): \(error.localizedDescription)")
-                        errorCount += 1
-                    }
+                    activityIndicator?.updateMessage("Importing \(sourceURL.lastPathComponent) (\(index + 1)/\(fileCount))...")
+                    NotificationCenter.default.post(
+                        name: .sidebarFileDropped,
+                        object: self,
+                        userInfo: ["url": sourceURL, "destination": NSNull(), "requestID": requestID]
+                    )
                 }
 
-                // Hide progress indicator
-                activityIndicator?.hide()
-
-                // Force sidebar refresh immediately (don't wait for FileSystemWatcher)
-                sidebarController?.reloadFromFilesystem()
-                debugLog("importFiles: Triggered sidebar refresh")
-
-                if importedURLs.isEmpty && skippedCount == 0 && errorCount == 0 {
-                    debugLog("importFiles: No files imported")
-                } else {
-                    debugLog("importFiles: Imported \(importedURLs.count), skipped \(skippedCount), errors \(errorCount)")
-                }
+                debugLog("importFiles: Dispatched \(selectedURLs.count) file(s) to sidebar import pipeline")
             }
         }
     }
@@ -2002,7 +2036,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // Show save panel
         let panel = NSSavePanel()
         panel.title = "Export FASTA"
-        panel.allowedContentTypes = [UTType(filenameExtension: "fa")!]
+        panel.allowedContentTypes = FASTAFileTypes.readableContentTypes
         panel.nameFieldStringValue = document.name.replacingOccurrences(of: ".\(document.url.pathExtension)", with: "") + ".fa"
 
         panel.begin { [weak self] response in
@@ -2428,18 +2462,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         mainWindowController?.mainSplitViewController?.viewerController?.zoomReset()
     }
 
-    @objc func setDisplayModeCollapsed(_ sender: Any?) {
-        // TODO: Implement display mode change
-    }
-
-    @objc func setDisplayModeSquished(_ sender: Any?) {
-        // TODO: Implement display mode change
-    }
-
-    @objc func setDisplayModeExpanded(_ sender: Any?) {
-        // TODO: Implement display mode change
-    }
-
     @objc func toggleNucleotideMode(_ sender: Any?) {
         guard let viewerController = mainWindowController?.mainSplitViewController?.viewerController else {
             return
@@ -2818,11 +2840,16 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     // MARK: - SequenceMenuActions
 
     @objc func reverseComplement(_ sender: Any?) {
-        // TODO: Implement reverse complement
+        guard let viewerView = mainWindowController?.mainSplitViewController?.viewerController?.viewerView else {
+            showAlert(title: "No Viewer", message: "Open a sequence to use Reverse Complement.")
+            return
+        }
+        // Delegate to the viewer view's reverse complement copy action
+        viewerView.performReverseComplement()
     }
 
     @objc func translate(_ sender: Any?) {
-        // TODO: Implement translation
+        mainWindowController?.showTranslationTool(sender)
     }
 
 
@@ -3112,11 +3139,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @objc func findORFs(_ sender: Any?) {
-        // TODO: Implement ORF finding
+        showNotImplementedAlert("ORF Finder")
     }
 
     @objc func findRestrictionSites(_ sender: Any?) {
-        // TODO: Implement restriction site finding
+        showNotImplementedAlert("Restriction Site Finder")
     }
 
     // MARK: - ToolsMenuActions
@@ -3474,16 +3501,124 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
-    @objc func runNextflow(_ sender: Any?) {
-        showNotImplementedAlert("Nextflow Runner")
+    // MARK: - Provenance Export
+
+    @objc func exportProvenanceShell(_ sender: Any?) {
+        exportProvenance(format: .shell)
     }
 
-    @objc func runSnakemake(_ sender: Any?) {
-        showNotImplementedAlert("Snakemake Runner")
+    @objc func exportProvenancePython(_ sender: Any?) {
+        exportProvenance(format: .python)
     }
 
-    @objc func openWorkflowBuilder(_ sender: Any?) {
-        showNotImplementedAlert("Workflow Builder")
+    @objc func exportProvenanceNextflow(_ sender: Any?) {
+        exportProvenance(format: .nextflow)
+    }
+
+    @objc func exportProvenanceSnakemake(_ sender: Any?) {
+        exportProvenance(format: .snakemake)
+    }
+
+    @objc func exportProvenanceMethods(_ sender: Any?) {
+        exportProvenance(format: .methods)
+    }
+
+    @objc func exportProvenanceJSON(_ sender: Any?) {
+        exportProvenance(format: .json)
+    }
+
+    private func exportProvenance(format: ProvenanceExportFormat) {
+        // Find provenance for the currently selected/displayed file
+        let run: WorkflowRun?
+
+        // Try the selected sidebar item first
+        if let selectedURL = mainWindowController?.mainSplitViewController?.sidebarController?.selectedFileURL {
+            run = ProvenanceRecorder.findProvenance(forFile: selectedURL)
+        } else {
+            // Fall back to most recent completed run
+            Task {
+                let runs = await ProvenanceRecorder.shared.allRuns()
+                let completedRun = runs.first { $0.status == .completed }
+                if let completedRun {
+                    self.presentProvenanceExportSheet(run: completedRun, format: format)
+                } else {
+                    self.showNoProvenanceAlert()
+                }
+            }
+            return
+        }
+
+        guard let run else {
+            showNoProvenanceAlert()
+            return
+        }
+
+        presentProvenanceExportSheet(run: run, format: format)
+    }
+
+    private func presentProvenanceExportSheet(run: WorkflowRun, format: ProvenanceExportFormat) {
+        let exporter = ProvenanceExporter()
+        let content: String
+        do {
+            content = try exporter.export(run, format: format)
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Export Failed"
+            alert.informativeText = error.localizedDescription
+            alert.alertStyle = .warning
+            alert.runModal()
+            return
+        }
+
+        let savePanel = NSSavePanel()
+        savePanel.nameFieldStringValue = format.defaultFilename
+        savePanel.allowedContentTypes = [.plainText]
+        savePanel.canCreateDirectories = true
+
+        guard let window = mainWindowController?.window else {
+            // Fallback: run as modal
+            if savePanel.runModal() == .OK, let url = savePanel.url {
+                do {
+                    try content.write(to: url, atomically: true, encoding: .utf8)
+                    debugLog("Provenance exported to \(url.path)")
+                } catch {
+                    debugLog("Provenance export write failed: \(error)")
+                }
+            }
+            return
+        }
+
+        savePanel.beginSheetModal(for: window) { response in
+            guard response == .OK, let url = savePanel.url else { return }
+            do {
+                try content.write(to: url, atomically: true, encoding: .utf8)
+                debugLog("Provenance exported to \(url.path)")
+
+                // Make shell/python scripts executable
+                if format == .shell || format == .python {
+                    try FileManager.default.setAttributes(
+                        [.posixPermissions: 0o755],
+                        ofItemAtPath: url.path
+                    )
+                }
+            } catch {
+                debugLog("Provenance export write failed: \(error)")
+                let alert = NSAlert()
+                alert.messageText = "Export Failed"
+                alert.informativeText = "Could not write file: \(error.localizedDescription)"
+                alert.alertStyle = .warning
+                alert.runModal()
+            }
+        }
+    }
+
+    private func showNoProvenanceAlert() {
+        let alert = NSAlert()
+        alert.messageText = "No Provenance Available"
+        alert.informativeText = "No provenance record was found for the selected file. Provenance is recorded when files are created through tool operations (assembly, import, conversion, etc.)."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     private func showNotImplementedAlert(_ feature: String) {

@@ -11,12 +11,6 @@ struct GlobalOptions: ParsableArguments {
     // MARK: - Output Options
 
     @Option(
-        name: [.customLong("output"), .customShort("o")],
-        help: "Output file path (default: stdout)"
-    )
-    var output: String?
-
-    @Option(
         name: .customLong("format"),
         help: "Output format: text, json, tsv (default: text)"
     )

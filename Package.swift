@@ -148,7 +148,10 @@ let package = Package(
         .testTarget(
             name: "LungfishWorkflowTests",
             dependencies: ["LungfishWorkflow"],
-            path: "Tests/LungfishWorkflowTests"
+            path: "Tests/LungfishWorkflowTests",
+            resources: [
+                .copy("Resources")
+            ]
         ),
 
         // MARK: - LungfishApp

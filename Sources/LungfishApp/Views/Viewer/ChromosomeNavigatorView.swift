@@ -139,7 +139,6 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
     // MARK: - Setup
 
     private func setupView() {
-        wantsLayer = true
         layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
 
         // Header label

@@ -94,7 +94,6 @@ public class WorkflowNodeView: NSView {
     }
 
     private func commonInit() {
-        wantsLayer = true
         layer?.cornerRadius = Self.cornerRadius
         layer?.masksToBounds = false
 

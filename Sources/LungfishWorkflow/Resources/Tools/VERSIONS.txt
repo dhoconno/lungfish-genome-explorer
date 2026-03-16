@@ -12,7 +12,8 @@ Versions:
 - pigz: 2.8 (zlib license)
 - seqkit: 2.9.0 (MIT license)
 - fastp: 1.1.0 (MIT license)
-- vsearch: 2.29.2 (BSD-2-Clause / GPL-3.0-or-later)
+- vsearch: 2.29.2 (BSD-2-Clause; dual-licensed, BSD-2-Clause elected)
+- cutadapt: 4.9 (MIT license)
 - bbtools (clumpify.sh): 39.13 (BBMap license)
 - openjdk runtime (temurin jre): 21.0.10 (GPL-2.0 with Classpath Exception)
 
@@ -28,6 +29,7 @@ Source URLs:
 - fastp: https://github.com/OpenGene/fastp
 - vsearch: https://github.com/torognes/vsearch
 - bbtools: https://sourceforge.net/projects/bbmap/
+- cutadapt: https://github.com/marcelm/cutadapt
 - temurin jre: https://adoptium.net/
 
 Licenses:
@@ -37,4 +39,5 @@ Licenses:
 - fastp: https://github.com/OpenGene/fastp/blob/master/LICENSE
 - vsearch: https://github.com/torognes/vsearch/blob/master/LICENSE.txt
 - bbtools: https://sourceforge.net/projects/bbmap/
+- cutadapt: https://github.com/marcelm/cutadapt/blob/main/LICENSE
 - temurin jre: https://openjdk.org/legal/gplv2+ce.html

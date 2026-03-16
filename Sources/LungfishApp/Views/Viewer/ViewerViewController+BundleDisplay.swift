@@ -292,7 +292,9 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
             navigator.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             navigator.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             navigator.widthAnchor.constraint(equalToConstant: navigatorWidth),
-            navigator.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+            // Pin to viewer bottom so navigator automatically stops at drawer top
+            // when the annotation drawer is open (viewer bottom is re-targeted).
+            navigator.bottomAnchor.constraint(equalTo: viewerView.bottomAnchor),
         ]
         NSLayoutConstraint.activate(constraints)
         chromosomeNavigatorConstraints = constraints

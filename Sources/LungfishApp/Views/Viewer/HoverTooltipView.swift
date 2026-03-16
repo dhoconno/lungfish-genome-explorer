@@ -30,7 +30,6 @@ final class HoverTooltipView: NSView {
         v.blendingMode = .withinWindow
         v.material = .toolTip
         v.state = .active
-        v.wantsLayer = true
         v.layer?.cornerRadius = 6
         v.layer?.masksToBounds = true
         v.layer?.borderColor = NSColor.separatorColor.cgColor
@@ -68,7 +67,6 @@ final class HoverTooltipView: NSView {
 
     private func setup() {
         translatesAutoresizingMaskIntoConstraints = false
-        wantsLayer = true
         layer?.shadowColor = NSColor.black.withAlphaComponent(0.2).cgColor
         layer?.shadowOffset = CGSize(width: 0, height: -1)
         layer?.shadowRadius = 4

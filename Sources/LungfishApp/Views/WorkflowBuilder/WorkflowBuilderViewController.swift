@@ -107,6 +107,10 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         // See windowDidBecomeMain notification
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     private func setupNotifications() {
         NotificationCenter.default.addObserver(
             self,
