@@ -167,6 +167,36 @@
       "dependencies": [],
       "provisioningMethod": "downloadBinary",
       "notes": "JRE runtime for BBTools. Classpath Exception permits bundling without GPL propagation."
+    },
+    {
+      "name": "sra-human-scrubber",
+      "displayName": "NCBI SRA Human Scrubber",
+      "version": "2.2.1",
+      "license": "Public Domain",
+      "licenseId": "Unlicense",
+      "sourceUrl": "https://github.com/ncbi/sra-human-scrubber",
+      "releaseUrl": "https://github.com/ncbi/sra-human-scrubber/releases",
+      "licenseUrl": "https://github.com/ncbi/sra-human-scrubber/blob/main/LICENSE",
+      "copyright": "National Center for Biotechnology Information (NCBI), NLM, NIH — Public Domain",
+      "executables": ["aligns_to", "scrub.sh"],
+      "dependencies": ["python3"],
+      "provisioningMethod": "downloadBinary",
+      "notes": "Human read identification and removal using k-mer matching against human RefSeq. Database: human_filter.db v20250916v2."
+    },
+    {
+      "name": "sra-tools",
+      "displayName": "NCBI SRA Tools",
+      "version": "3.4.0",
+      "license": "Public Domain",
+      "licenseId": "Unlicense",
+      "sourceUrl": "https://github.com/ncbi/sra-tools",
+      "releaseUrl": "https://github.com/ncbi/sra-tools/releases",
+      "licenseUrl": "https://github.com/ncbi/sra-tools/blob/master/LICENSE",
+      "copyright": "National Center for Biotechnology Information (NCBI), NLM, NIH — Public Domain",
+      "executables": ["fasterq-dump", "prefetch"],
+      "dependencies": [],
+      "provisioningMethod": "compileFromSource",
+      "notes": "NCBI SRA data download tools. Used for fetching SRA accessions."
     }
   ]
 }

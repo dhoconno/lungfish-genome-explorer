@@ -21,7 +21,7 @@ final class ProcessingRecipeTests: XCTestCase {
             description: "QTrim + Dedup",
             steps: [
                 FASTQDerivativeOperation(kind: .qualityTrim, qualityThreshold: 20, windowSize: 4, qualityTrimMode: .cutRight),
-                FASTQDerivativeOperation(kind: .deduplicate, deduplicateMode: .sequence),
+                FASTQDerivativeOperation(kind: .deduplicate, deduplicatePreset: .exactPCR, deduplicateSubstitutions: 0),
             ],
             tags: ["test"]
         )
@@ -42,7 +42,7 @@ final class ProcessingRecipeTests: XCTestCase {
     // MARK: - Built-in Recipes
 
     func testBuiltinRecipeCount() {
-        XCTAssertEqual(ProcessingRecipe.builtinRecipes.count, 4)
+        XCTAssertEqual(ProcessingRecipe.builtinRecipes.count, 5)
     }
 
     func testIlluminaWGSRecipe() {
@@ -77,6 +77,26 @@ final class ProcessingRecipeTests: XCTestCase {
         XCTAssertEqual(recipe.steps[3].kind, .pairedEndMerge)
     }
 
+    func testIlluminaVSP2TargetEnrichmentRecipe() {
+        let recipe = ProcessingRecipe.illuminaVSP2TargetEnrichment
+        XCTAssertEqual(recipe.name, "Illumina VSP2 Target Enrichment")
+        XCTAssertEqual(recipe.steps.count, 5)
+        // Step order: dedup → adapter trim → quality trim → merge → length filter
+        XCTAssertEqual(recipe.steps[0].kind, .deduplicate)
+        XCTAssertEqual(recipe.steps[0].deduplicatePreset, .exactPCR)
+        XCTAssertEqual(recipe.steps[1].kind, .adapterTrim)
+        XCTAssertEqual(recipe.steps[1].adapterMode, .autoDetect)
+        XCTAssertEqual(recipe.steps[2].kind, .qualityTrim)
+        XCTAssertEqual(recipe.steps[2].qualityThreshold, 20)
+        XCTAssertEqual(recipe.steps[3].kind, .pairedEndMerge)
+        XCTAssertEqual(recipe.steps[3].mergeMinOverlap, 15)
+        XCTAssertEqual(recipe.steps[4].kind, .lengthFilter)
+        XCTAssertEqual(recipe.steps[4].minLength, 50)
+        XCTAssertEqual(recipe.requiredPairingMode, .interleaved)
+        XCTAssertTrue(recipe.tags.contains("vsp2"))
+        XCTAssertTrue(recipe.tags.contains("target-enrichment"))
+    }
+
     // MARK: - Pipeline Summary
 
     func testPipelineSummary() {
@@ -84,7 +104,7 @@ final class ProcessingRecipeTests: XCTestCase {
             name: "Short",
             steps: [
                 FASTQDerivativeOperation(kind: .qualityTrim, qualityThreshold: 20),
-                FASTQDerivativeOperation(kind: .deduplicate, deduplicateMode: .sequence),
+                FASTQDerivativeOperation(kind: .deduplicate, deduplicatePreset: .exactPCR, deduplicateSubstitutions: 0),
             ]
         )
         let summary = recipe.pipelineSummary

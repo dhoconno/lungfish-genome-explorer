@@ -231,6 +231,7 @@ public final class FASTQDatasetViewController: NSViewController {
     /// Callback to open/focus the Demux tab in the metadata drawer.
     public var onOpenDemuxDrawer: (() -> Void)?
     public var onOpenPrimerTrimDrawer: (() -> Void)?
+    public var onOpenDedupDrawer: (() -> Void)?
 
     /// Current demux configuration from the metadata drawer. Set by the drawer view.
     /// When present, the demultiplex operation uses this configuration.
@@ -301,10 +302,13 @@ public final class FASTQDatasetViewController: NSViewController {
     private let fieldOneInput = NSTextField(string: "")
     private let fieldTwoInput = NSTextField(string: "")
     private let searchFieldPopup = NSPopUpButton()
-    private let dedupModePopup = NSPopUpButton()
+    private let dedupDrawerButton = NSButton(title: "Configure Dedup…", target: nil, action: nil)
     private let regexCheckbox = NSButton(checkboxWithTitle: "Regex", target: nil, action: nil)
     private let revCompCheckbox = NSButton(checkboxWithTitle: "Rev. Comp.", target: nil, action: nil)
-    private let pairedAwareCheckbox = NSButton(checkboxWithTitle: "Paired-aware", target: nil, action: nil)
+    private var dedupPreset: FASTQDeduplicatePreset = .exactPCR
+    private var dedupSubstitutions: Int = 0
+    private var dedupOptical: Bool = false
+    private var dedupOpticalDistance: Int = 40
     private let qualityTrimModePopup = NSPopUpButton()
     private let adapterModePopup = NSPopUpButton()
     private let contaminantModePopup = NSPopUpButton()
@@ -699,7 +703,11 @@ public final class FASTQDatasetViewController: NSViewController {
 
         // Initialize popups
         searchFieldPopup.addItems(withTitles: ["ID", "Description"])
-        dedupModePopup.addItems(withTitles: ["Identifier", "Description", "Sequence"])
+        dedupDrawerButton.translatesAutoresizingMaskIntoConstraints = false
+        dedupDrawerButton.bezelStyle = .rounded
+        dedupDrawerButton.controlSize = .small
+        dedupDrawerButton.target = self
+        dedupDrawerButton.action = #selector(openDedupDrawer(_:))
         qualityTrimModePopup.addItems(withTitles: ["Cut Right (3')", "Cut Front (5')", "Cut Tail", "Cut Both"])
         adapterModePopup.addItems(withTitles: ["Auto-Detect", "Specify Sequence"])
         contaminantModePopup.addItems(withTitles: ["PhiX Spike-in", "Custom Reference"])
@@ -720,7 +728,7 @@ public final class FASTQDatasetViewController: NSViewController {
             field.delegate = self
         }
 
-        for popup in [searchFieldPopup, dedupModePopup, qualityTrimModePopup, adapterModePopup,
+        for popup in [searchFieldPopup, qualityTrimModePopup, adapterModePopup,
                        contaminantModePopup, mergeStrictnessPopup, primerSourcePopup,
                        interleaveDirectionPopup] {
             popup.font = .systemFont(ofSize: 12)
@@ -736,10 +744,6 @@ public final class FASTQDatasetViewController: NSViewController {
         revCompCheckbox.translatesAutoresizingMaskIntoConstraints = false
         revCompCheckbox.target = self
         revCompCheckbox.action = #selector(parameterCheckboxChanged(_:))
-        pairedAwareCheckbox.translatesAutoresizingMaskIntoConstraints = false
-        pairedAwareCheckbox.target = self
-        pairedAwareCheckbox.action = #selector(parameterCheckboxChanged(_:))
-
         primerTrimDrawerButton.translatesAutoresizingMaskIntoConstraints = false
         primerTrimDrawerButton.bezelStyle = .rounded
         primerTrimDrawerButton.controlSize = .small
@@ -943,8 +947,7 @@ public final class FASTQDatasetViewController: NSViewController {
             parameterBar.addArrangedSubview(revCompCheckbox)
 
         case .deduplicate:
-            parameterBar.addArrangedSubview(dedupModePopup)
-            parameterBar.addArrangedSubview(pairedAwareCheckbox)
+            parameterBar.addArrangedSubview(dedupDrawerButton)
 
         case .qualityTrim:
             fieldOneLabel.stringValue = "Q Threshold:"
@@ -1157,7 +1160,7 @@ public final class FASTQDatasetViewController: NSViewController {
         params.trimMode = qualityTrimModePopup.titleOfSelectedItem ?? "Cut Right (3')"
         params.trim5Prime = Int(fieldOneInput.stringValue) ?? 0
         params.trim3Prime = Int(fieldTwoInput.stringValue) ?? 0
-        params.dedupMode = dedupModePopup.titleOfSelectedItem ?? "Sequence"
+        params.dedupMode = dedupPreset.rawValue
         params.kmerSize = Int(fieldOneInput.stringValue) ?? 50
         params.searchPattern = fieldOneInput.stringValue
         params.searchField = searchFieldPopup.titleOfSelectedItem ?? "ID"
@@ -1695,6 +1698,19 @@ public final class FASTQDatasetViewController: NSViewController {
         onOpenPrimerTrimDrawer?()
     }
 
+    @objc private func openDedupDrawer(_ sender: Any) {
+        onOpenDedupDrawer?()
+    }
+
+    /// Update deduplication parameters from the drawer preset selector.
+    public func updateDedupConfig(preset: FASTQDeduplicatePreset, substitutions: Int, optical: Bool, opticalDistance: Int) {
+        dedupPreset = preset
+        dedupSubstitutions = substitutions
+        dedupOptical = optical
+        dedupOpticalDistance = opticalDistance
+        updatePreview()
+    }
+
     // MARK: - Orient Reference Management
 
     private func rebuildOrientReferencePopup() {
@@ -1883,13 +1899,12 @@ public final class FASTQDatasetViewController: NSViewController {
             return .searchMotif(pattern: pattern, regex: regexCheckbox.state == .on)
 
         case .deduplicate:
-            let mode: FASTQDeduplicateMode
-            switch dedupModePopup.indexOfSelectedItem {
-            case 1: mode = .description
-            case 2: mode = .sequence
-            default: mode = .identifier
-            }
-            return .deduplicate(mode: mode, pairedAware: pairedAwareCheckbox.state == .on)
+            return .deduplicate(
+                preset: dedupPreset,
+                substitutions: dedupSubstitutions,
+                optical: dedupOptical,
+                opticalDistance: dedupOpticalDistance
+            )
 
         case .qualityTrim:
             let threshold = Int(fieldOneInput.stringValue) ?? 20
@@ -2058,8 +2073,11 @@ public final class FASTQDatasetViewController: NSViewController {
             return "Search \(field.rawValue) = \(query)\(regex ? " (regex)" : "")"
         case .searchMotif(let pattern, let regex):
             return "Motif \(pattern)\(regex ? " (regex)" : "")"
-        case .deduplicate(let mode, let pairedAware):
-            return "Deduplicate \(mode.rawValue)\(pairedAware ? " (paired-aware)" : "")"
+        case .deduplicate(let preset, let substitutions, let optical, let opticalDistance):
+            if optical {
+                return "Deduplicate optical (dist: \(opticalDistance), subs: \(substitutions))"
+            }
+            return "Deduplicate \(preset.rawValue) (subs: \(substitutions))"
         case .qualityTrim(let threshold, let windowSize, let mode):
             return "Quality trim Q\(threshold) w\(windowSize) (\(mode.rawValue))"
         case .adapterTrim(let mode, _, _, _):
@@ -2104,6 +2122,8 @@ public final class FASTQDatasetViewController: NSViewController {
             return "Sequence filter (\(endLabel), \(action) matched, \(seq)\(rcLabel), ov=\(minOverlap), e=\(String(format: "%.2f", errorRate)))"
         case .orient(let referenceURL, let wordLength, let dbMask, _):
             return "Orient against \(referenceURL.lastPathComponent) (w=\(wordLength), mask=\(dbMask))"
+        case .humanReadScrub(let databaseID, let removeReads):
+            return "Human read scrub (db: \(databaseID), \(removeReads ? "remove" : "mask with N"))"
         }
     }
 
@@ -2245,6 +2265,7 @@ extension FASTQDatasetViewController: NSTableViewDataSource, NSTableViewDelegate
         updateParameterBar()
         if selectedOperation == .demultiplex { onOpenDemuxDrawer?() }
         if selectedOperation == .primerRemoval { onOpenPrimerTrimDrawer?() }
+        if selectedOperation == .deduplicate { onOpenDedupDrawer?() }
     }
 
     // MARK: - Read Preview Cell Views

@@ -1,0 +1,11 @@
+{
+  "id": "human-scrubber",
+  "displayName": "Human Read Scrubber Database",
+  "tool": "sra-human-scrubber",
+  "version": "20250916v2",
+  "filename": "human_filter.db.20250916v2",
+  "releaseDate": "2025-09-16",
+  "description": "k-mer database for human read identification and removal, built from human RefSeq. Eukaryota-derived k-mers with non-Eukaryota k-mers subtracted. Conservative on viral and bacterial pathogens.",
+  "sourceUrl": "https://github.com/ncbi/sra-human-scrubber",
+  "releasesUrl": "https://github.com/ncbi/sra-human-scrubber/releases"
+}

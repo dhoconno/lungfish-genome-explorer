@@ -33,7 +33,7 @@ final class FASTQBatchOperationTests: XCTestCase {
     }
 
     func testBatchLabelDefaultsToOperationLabel() {
-        let request = FASTQDerivativeRequest.deduplicate(mode: .sequence, pairedAware: false)
+        let request = FASTQDerivativeRequest.deduplicate(preset: .exactPCR, substitutions: 0, optical: false, opticalDistance: 40)
         XCTAssertEqual(request.batchLabel, "Deduplicate")
     }
 
@@ -46,7 +46,7 @@ final class FASTQBatchOperationTests: XCTestCase {
         XCTAssertEqual(FASTQDerivativeRequest.lengthFilter(min: 100, max: 200).operationKindString, "lengthFilter")
         XCTAssertEqual(FASTQDerivativeRequest.searchText(query: "test", field: .id, regex: false).operationKindString, "searchText")
         XCTAssertEqual(FASTQDerivativeRequest.searchMotif(pattern: "ATG", regex: false).operationKindString, "searchMotif")
-        XCTAssertEqual(FASTQDerivativeRequest.deduplicate(mode: .sequence, pairedAware: false).operationKindString, "deduplicate")
+        XCTAssertEqual(FASTQDerivativeRequest.deduplicate(preset: .exactPCR, substitutions: 0, optical: false, opticalDistance: 40).operationKindString, "deduplicate")
         XCTAssertEqual(FASTQDerivativeRequest.qualityTrim(threshold: 20, windowSize: 4, mode: .cutRight).operationKindString, "qualityTrim")
         XCTAssertEqual(FASTQDerivativeRequest.adapterTrim(mode: .autoDetect, sequence: nil, sequenceR2: nil, fastaFilename: nil).operationKindString, "adapterTrim")
         XCTAssertEqual(FASTQDerivativeRequest.fixedTrim(from5Prime: 10, from3Prime: 5).operationKindString, "fixedTrim")

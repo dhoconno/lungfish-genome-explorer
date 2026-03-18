@@ -478,19 +478,23 @@ public class MainSplitViewController: NSSplitViewController {
 
     @objc private func handleSidebarFileDropped(_ notification: Notification) {
         logger.info("handleSidebarFileDropped: Notification received!")
-        logger.info("handleSidebarFileDropped: userInfo = \(String(describing: notification.userInfo))")
 
-        guard let url = notification.userInfo?["url"] as? URL else {
-            logger.warning("handleSidebarFileDropped: No URL in notification userInfo")
+        // Support both new "urls" array format and legacy single "url" format
+        let allURLs: [URL]
+        if let urls = notification.userInfo?["urls"] as? [URL] {
+            allURLs = urls
+        } else if let url = notification.userInfo?["url"] as? URL {
+            allURLs = [url]
+        } else {
+            logger.warning("handleSidebarFileDropped: No URLs in notification userInfo")
             return
         }
         let requestID = notification.userInfo?["requestID"] as? String
 
-        logger.info("handleSidebarFileDropped: Processing dropped file '\(url.lastPathComponent, privacy: .public)' at path '\(url.path, privacy: .public)'")
+        logger.info("handleSidebarFileDropped: Processing \(allURLs.count) dropped file(s)")
 
         // Determine destination - use the new filesystem-backed project URL
         let destinationItem = notification.userInfo?["destination"] as? SidebarItem
-        var urlToLoad = url
 
         // Get project URL from either the sidebar (new model) or DocumentManager (legacy)
         let projectURL = sidebarController.currentProjectURL ?? DocumentManager.shared.activeProject?.url
@@ -503,25 +507,35 @@ public class MainSplitViewController: NSSplitViewController {
                 }
                 return projectURL
             }
-            return url.deletingLastPathComponent()
+            return allURLs[0].deletingLastPathComponent()
         }()
 
-        // ONT directory detection — route to ONT import pipeline
-        if isONTDirectory(url) {
-            importONTDirectoryInBackground(sourceURL: url, projectURL: targetDir, requestID: requestID)
-            return
+        // Partition URLs into FASTQ files, ONT directories, and other files
+        var fastqURLs: [URL] = []
+        var otherURLs: [URL] = []
+
+        for url in allURLs {
+            if isONTDirectory(url) {
+                importONTDirectoryInBackground(sourceURL: url, projectURL: targetDir, requestID: requestID)
+            } else if FASTQBundle.isFASTQFileURL(url) {
+                fastqURLs.append(url)
+            } else {
+                otherURLs.append(url)
+            }
         }
 
-        // FASTQ files: ingest in temp → create bundle in project
-        if FASTQBundle.isFASTQFileURL(url) {
-            importFASTQFileInBackground(sourceURL: url, projectDirectory: targetDir, requestID: requestID)
-            return
+        // FASTQ files: group into R1/R2 pairs and present import config sheet
+        if !fastqURLs.isEmpty {
+            let pairs = groupFASTQByPairs(fastqURLs)
+            presentFASTQImportSheet(pairs: pairs, projectDirectory: targetDir, requestID: requestID)
         }
 
         // Non-FASTQ files: copy to project as before
-        var importSucceeded = true
-        var importError: String?
-        if projectURL != nil {
+        for url in otherURLs {
+            var urlToLoad = url
+            var importSucceeded = true
+            var importError: String?
+            if projectURL != nil {
             let fileManager = FileManager.default
             if !fileManager.fileExists(atPath: targetDir.path) {
                 try? fileManager.createDirectory(at: targetDir, withIntermediateDirectories: true)
@@ -570,9 +584,295 @@ public class MainSplitViewController: NSSplitViewController {
             }
         }
 
-        // Standalone VCF files use the auto-ingestion pipeline (handled by displayGenomicsFile)
-        loadGenomicsFileInBackground(url: urlToLoad)
-        postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: importSucceeded, error: importError)
+            // Standalone VCF files use the auto-ingestion pipeline (handled by displayGenomicsFile)
+            loadGenomicsFileInBackground(url: urlToLoad)
+            postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: importSucceeded, error: importError)
+        }
+    }
+
+    // MARK: - FASTQ Import Sheet
+
+    /// Presents the FASTQ import configuration sheet for the given file pairs.
+    private func presentFASTQImportSheet(pairs: [FASTQFilePair], projectDirectory: URL, requestID: String?) {
+        guard let window = view.window else {
+            // Fallback: import first pair with defaults if no window for sheet
+            for pair in pairs {
+                importFASTQFileInBackground(sourceURL: pair.r1, projectDirectory: projectDirectory, requestID: requestID)
+            }
+            return
+        }
+
+        // Auto-detect platform from the first R1 file
+        let detectedPlatform = SequencingPlatform.detect(fromFASTQ: pairs[0].r1) ?? .unknown
+
+        FASTQImportConfigSheet.present(
+            on: window,
+            pairs: pairs,
+            detectedPlatform: detectedPlatform,
+            onImport: { [weak self] config in
+                self?.importFASTQBatchWithConfig(
+                    pairs: pairs,
+                    config: config,
+                    projectDirectory: projectDirectory,
+                    requestID: requestID
+                )
+            },
+            onCancel: { [weak self] in
+                for pair in pairs {
+                    self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: pair.r1, success: false, error: "Cancelled by user")
+                }
+            }
+        )
+    }
+
+    /// Imports multiple FASTQ file pairs using the same user-configured settings.
+    private func importFASTQBatchWithConfig(
+        pairs: [FASTQFilePair],
+        config: FASTQImportConfiguration,
+        projectDirectory: URL,
+        requestID: String?
+    ) {
+        guard let viewerController = self.viewerController else { return }
+
+        for (index, pair) in pairs.enumerated() {
+            let baseName = pair.sampleName
+            var effectiveBundleName = baseName
+
+            let bundleExt = FASTQBundle.directoryExtension
+            var bundleURL = projectDirectory.appendingPathComponent("\(effectiveBundleName).\(bundleExt)")
+
+            // Check for existing bundle
+            if FileManager.default.fileExists(atPath: bundleURL.path) {
+                let resolution = showDuplicateFileDialog(filename: "\(effectiveBundleName).\(bundleExt)")
+                switch resolution {
+                case .replace:
+                    do {
+                        try FileManager.default.removeItem(at: bundleURL)
+                    } catch {
+                        logger.error("importFASTQBatch: Failed to remove existing bundle: \(error)")
+                        postSidebarFileDropCompleted(requestID: requestID, sourceURL: pair.r1, success: false, error: error.localizedDescription)
+                        continue
+                    }
+                case .keepBoth:
+                    var counter = 2
+                    var uniqueName = "\(baseName) \(counter)"
+                    while FileManager.default.fileExists(atPath: projectDirectory.appendingPathComponent("\(uniqueName).\(bundleExt)").path) {
+                        counter += 1
+                        uniqueName = "\(baseName) \(counter)"
+                    }
+                    effectiveBundleName = uniqueName
+                    bundleURL = projectDirectory.appendingPathComponent("\(effectiveBundleName).\(bundleExt)")
+                case .skip:
+                    displayGenomicsFile(url: bundleURL)
+                    postSidebarFileDropCompleted(requestID: requestID, sourceURL: pair.r1, success: true, error: nil)
+                    continue
+                }
+            }
+
+            let progressMessage = pairs.count > 1
+                ? "Importing \(index + 1) of \(pairs.count): \(pair.r1.lastPathComponent)\u{2026}"
+                : "Importing \(pair.r1.lastPathComponent)\u{2026}"
+            viewerController.showProgress(progressMessage)
+
+            let sampleName = pair.sampleName
+
+            FASTQIngestionService.ingestAndBundle(
+                pair: pair,
+                projectDirectory: projectDirectory,
+                bundleName: effectiveBundleName,
+                importConfig: config
+            ) { [weak self, weak viewerController] result in
+                switch result {
+                case .success(let bundleURL):
+                    if let recipe = config.postImportRecipe, !recipe.steps.isEmpty {
+                        // Run post-import recipe on the bundle
+                        viewerController?.showProgress("Processing \(sampleName): \(recipe.name)\u{2026}")
+                        self?.runPostImportRecipe(
+                            recipe: recipe,
+                            bundleURL: bundleURL,
+                            sampleName: sampleName,
+                            qualityBinning: config.qualityBinning,
+                            requestID: requestID,
+                            sourceURL: pair.r1
+                        )
+                    } else {
+                        viewerController?.hideProgress()
+                        self?.sidebarController.reloadFromFilesystem()
+                        self?.displayGenomicsFile(url: bundleURL)
+                        self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: pair.r1, success: true, error: nil)
+                    }
+                case .failure(let error):
+                    viewerController?.hideProgress()
+                    logger.error("importFASTQBatch: \(error)")
+                    self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: pair.r1, success: false, error: error.localizedDescription)
+                    let alert = NSAlert()
+                    alert.messageText = "Failed to Import FASTQ"
+                    alert.informativeText = "\(error)"
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: "OK")
+                    alert.applyLungfishBranding()
+                    alert.runModal()
+                }
+            }
+        }
+    }
+
+    /// Runs a processing recipe on an ingested FASTQ bundle using a materialized pipeline.
+    ///
+    /// Each recipe step runs directly on a real FASTQ file in a temp directory, chaining
+    /// outputs. This handles merging correctly (output reads can be longer than inputs),
+    /// and passes properly de-interleaved R1/R2 to fastp for adapter/quality trimming.
+    /// After all steps, the result is clumpified and replaces the bundle's primary FASTQ.
+    private func runPostImportRecipe(
+        recipe: ProcessingRecipe,
+        bundleURL: URL,
+        sampleName: String,
+        qualityBinning: QualityBinningScheme,
+        requestID: String?,
+        sourceURL: URL
+    ) {
+        let opID = OperationCenter.shared.start(
+            title: "Post-Import: \(sampleName)",
+            detail: recipe.name,
+            operationType: .ingestion
+        )
+
+        Task.detached {
+            let result: Result<URL, Error>
+            do {
+                guard let originalFASTQ = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL) else {
+                    throw FASTQIngestionError.clumpifyFailed("Could not resolve primary FASTQ in bundle")
+                }
+
+                let fm = FileManager.default
+                let tempDir = fm.temporaryDirectory.appendingPathComponent(
+                    "fastq-postimport-\(UUID().uuidString)"
+                )
+                try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+                defer { try? fm.removeItem(at: tempDir) }
+
+                // Determine if bundle is interleaved from sidecar metadata
+                let metadata = FASTQMetadataStore.load(for: originalFASTQ)
+                let isInterleaved = metadata?.ingestion?.pairingMode == .interleaved
+
+                // Run recipe steps on materialized files.
+                // fastp, bbmerge, clumpify, and bbduk all handle .fastq.gz natively,
+                // so we pass the compressed bundle FASTQ directly as the starting point.
+                let service = FASTQDerivativeService()
+                let (processedURL, recipeStepResults) = try await service.runMaterializedRecipe(
+                    fastqURL: originalFASTQ,
+                    steps: recipe.steps,
+                    isInterleaved: isInterleaved,
+                    tempDir: tempDir,
+                    progress: { fraction, message in
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                // Recipe steps get 5%–85% of the progress bar
+                                let scaled = 0.05 + fraction * 0.80
+                                OperationCenter.shared.update(id: opID, progress: scaled, detail: "\(sampleName): \(message)")
+                            }
+                        }
+                    }
+                )
+
+                // Clumpify the final output: k-mer sort, quality bin, compress
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.update(id: opID, progress: 0.87, detail: "\(sampleName): Clumpifying for compression…")
+                    }
+                }
+
+                let clumpifyConfig = FASTQIngestionConfig(
+                    inputFiles: [processedURL],
+                    pairingMode: .interleaved,
+                    outputDirectory: tempDir,
+                    threads: min(ProcessInfo.processInfo.processorCount, 8),
+                    deleteOriginals: true,
+                    qualityBinning: qualityBinning,
+                    skipClumpify: false
+                )
+
+                let pipeline = FASTQIngestionPipeline()
+                let clumpifyResult = try await pipeline.run(config: clumpifyConfig) { fraction, message in
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            let scaled = 0.87 + fraction * 0.10
+                            OperationCenter.shared.update(id: opID, progress: scaled, detail: "\(sampleName): \(message)")
+                        }
+                    }
+                }
+
+                // Replace the bundle's FASTQ with the processed + clumpified output
+                try fm.removeItem(at: originalFASTQ)
+                try fm.moveItem(at: clumpifyResult.outputFile, to: originalFASTQ)
+
+                // Clear stale cached stats and record recipe provenance
+                var updatedMetadata = FASTQMetadataStore.load(for: originalFASTQ) ?? PersistedFASTQMetadata()
+                updatedMetadata.computedStatistics = nil
+                updatedMetadata.seqkitStats = nil
+                if updatedMetadata.ingestion == nil {
+                    updatedMetadata.ingestion = IngestionMetadata()
+                }
+                updatedMetadata.ingestion?.recipeApplied = RecipeAppliedInfo(
+                    recipeID: recipe.id.uuidString,
+                    recipeName: recipe.name,
+                    appliedDate: Date(),
+                    stepResults: recipeStepResults
+                )
+                FASTQMetadataStore.save(updatedMetadata, for: originalFASTQ)
+
+                // Record provenance for all recipe steps
+                let runID = await ProvenanceRecorder.shared.beginRun(
+                    name: "Post-Import Processing: \(sampleName)",
+                    parameters: [
+                        "recipe": .string(recipe.name),
+                        "steps": .string(recipe.pipelineSummary),
+                    ]
+                )
+                for step in recipe.steps {
+                    await ProvenanceRecorder.shared.recordStep(
+                        runID: runID,
+                        toolName: step.shortLabel,
+                        toolVersion: "Lungfish",
+                        command: [step.kind.rawValue],
+                        inputs: [FileRecord(path: bundleURL.lastPathComponent, format: .fastq, role: .input)],
+                        outputs: [FileRecord(path: bundleURL.lastPathComponent, format: .fastq, role: .output)],
+                        exitCode: 0,
+                        wallTime: 0
+                    )
+                }
+                await ProvenanceRecorder.shared.completeRun(runID, status: .completed)
+                try? await ProvenanceRecorder.shared.save(runID: runID, to: bundleURL)
+
+                result = .success(bundleURL)
+            } catch {
+                logger.error("runPostImportRecipe: \(error)")
+                result = .failure(error)
+            }
+
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.viewerController?.hideProgress()
+                    switch result {
+                    case .success(let url):
+                        OperationCenter.shared.complete(id: opID, detail: "Done", bundleURLs: [url])
+                        self?.sidebarController.reloadFromFilesystem()
+                        self?.displayGenomicsFile(url: url)
+                        self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
+                    case .failure(let error):
+                        OperationCenter.shared.fail(id: opID, detail: "\(error)")
+                        self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: error.localizedDescription)
+                        let alert = NSAlert()
+                        alert.messageText = "Post-Import Processing Failed"
+                        alert.informativeText = "\(error)"
+                        alert.alertStyle = .warning
+                        alert.addButton(withTitle: "OK")
+                        alert.applyLungfishBranding()
+                        alert.runModal()
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Duplicate File Handling

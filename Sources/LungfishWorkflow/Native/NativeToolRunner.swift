@@ -87,6 +87,12 @@ public enum NativeTool: String, CaseIterable, Sendable {
     case tadpole
     case reformat
     case java
+    // SRA human-read scrubber
+    case alignsTo
+    case scrubSh
+    // SRA toolkit
+    case fasterqDump
+    case prefetch
 
     /// The executable name for this tool.
     public var executableName: String {
@@ -109,6 +115,10 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .tadpole: return "tadpole.sh"
         case .reformat: return "reformat.sh"
         case .java: return "java"
+        case .alignsTo: return "aligns_to"
+        case .scrubSh: return "scrub.sh"
+        case .fasterqDump: return "fasterq-dump"
+        case .prefetch: return "prefetch"
         }
     }
 
@@ -132,6 +142,14 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return "bbtools/reformat.sh"
         case .java:
             return "jre/bin/java"
+        case .alignsTo:
+            return "scrubber/bin/aligns_to"
+        case .scrubSh:
+            return "scrubber/scripts/scrub.sh"
+        case .fasterqDump:
+            return "sra-tools/fasterq-dump"
+        case .prefetch:
+            return "sra-tools/prefetch"
         default:
             return executableName
         }
@@ -151,6 +169,8 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .cutadapt: return "cutadapt"
         case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat: return "bbtools"
         case .java: return "openjdk"
+        case .alignsTo, .scrubSh: return "sra-human-scrubber"
+        case .fasterqDump, .prefetch: return "sra-tools"
         }
     }
 
@@ -185,6 +205,10 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return "BBMap License"
         case .java:
             return "GPL-2.0-with-classpath-exception"
+        case .alignsTo, .scrubSh:
+            return "Public Domain (NCBI)"
+        case .fasterqDump, .prefetch:
+            return "Public Domain (NCBI)"
         }
     }
 

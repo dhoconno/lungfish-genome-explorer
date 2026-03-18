@@ -529,7 +529,7 @@ public actor BatchProcessingEngine {
     // MARK: - Helpers
 
     /// Converts a recipe step (FASTQDerivativeOperation) into a service request.
-    private func convertStepToRequest(_ step: FASTQDerivativeOperation) throws -> FASTQDerivativeRequest {
+    public nonisolated func convertStepToRequest(_ step: FASTQDerivativeOperation) throws -> FASTQDerivativeRequest {
         switch step.kind {
         case .subsampleProportion:
             return .subsampleProportion(step.proportion ?? 0.1)
@@ -546,9 +546,12 @@ public actor BatchProcessingEngine {
         case .searchMotif:
             return .searchMotif(pattern: step.query ?? "", regex: step.useRegex ?? false)
         case .deduplicate:
+            let preset = step.deduplicatePreset ?? .exactPCR
             return .deduplicate(
-                mode: step.deduplicateMode ?? .identifier,
-                pairedAware: step.pairedAware ?? false
+                preset: preset,
+                substitutions: step.deduplicateSubstitutions ?? 0,
+                optical: step.deduplicateOptical ?? false,
+                opticalDistance: step.deduplicateOpticalDistance ?? 40
             )
         case .qualityTrim:
             return .qualityTrim(
@@ -625,6 +628,11 @@ public actor BatchProcessingEngine {
         case .orient:
             // Orientation is not yet supported in batch recipes.
             throw BatchProcessingError.unsupportedStepInRecipe(step.kind.rawValue)
+        case .humanReadScrub:
+            return .humanReadScrub(
+                databaseID: step.humanScrubDatabaseID ?? "human-scrubber",
+                removeReads: step.humanScrubRemoveReads ?? false
+            )
         }
     }
 

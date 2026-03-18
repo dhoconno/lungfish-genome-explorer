@@ -73,14 +73,12 @@ private class SidebarDropTargetView: NSView {
             return false
         }
 
-        // Post notification for each dropped file
-        for url in urls {
-            NotificationCenter.default.post(
-                name: .sidebarFileDropped,
-                object: self.sidebarController,
-                userInfo: ["url": url, "destination": NSNull()]
-            )
-        }
+        // Post a single notification with all dropped URLs
+        NotificationCenter.default.post(
+            name: .sidebarFileDropped,
+            object: self.sidebarController,
+            userInfo: ["urls": urls, "destination": NSNull()]
+        )
 
         return true
     }
@@ -1507,15 +1505,12 @@ extension SidebarViewController: NSOutlineViewDataSource {
                 debugLog("acceptDrop: URL[\(i)] = \(url.path)")
             }
 
-            for url in fileURLs {
-                logger.info("acceptDrop: Posting notification for '\(url.lastPathComponent, privacy: .public)'")
-                // Post notification to load the file
-                NotificationCenter.default.post(
-                    name: .sidebarFileDropped,
-                    object: self,
-                    userInfo: ["url": url, "destination": destinationItem as Any]
-                )
-            }
+            logger.info("acceptDrop: Posting notification for \(fileURLs.count) files")
+            NotificationCenter.default.post(
+                name: .sidebarFileDropped,
+                object: self,
+                userInfo: ["urls": fileURLs, "destination": destinationItem as Any]
+            )
             return true
         }
 
@@ -1525,15 +1520,13 @@ extension SidebarViewController: NSOutlineViewDataSource {
             let fileURLs = urls.filter { $0.isFileURL }
             logger.info("acceptDrop: Fallback - \(fileURLs.count) are file URLs")
 
-            for url in fileURLs {
-                logger.info("acceptDrop: Fallback posting notification for '\(url.lastPathComponent, privacy: .public)'")
+            if !fileURLs.isEmpty {
+                logger.info("acceptDrop: Fallback posting notification for \(fileURLs.count) files")
                 NotificationCenter.default.post(
                     name: .sidebarFileDropped,
                     object: self,
-                    userInfo: ["url": url, "destination": destinationItem as Any]
+                    userInfo: ["urls": fileURLs, "destination": destinationItem as Any]
                 )
-            }
-            if !fileURLs.isEmpty {
                 return true
             }
         }

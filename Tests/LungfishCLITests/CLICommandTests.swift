@@ -1504,20 +1504,24 @@ final class FastqCommandTests: XCTestCase {
 
     // MARK: - Deduplicate Argument Parsing
 
-    /// Verifies that deduplicate parses mode option.
+    /// Verifies that deduplicate parses substitution and optical options.
     func testDeduplicateParsesOptions() throws {
         let cmd = try FastqDeduplicateSubcommand.parse([
-            "input.fq", "--by", "sequence", "-o", "/tmp/out.fq",
+            "input.fq", "--subs", "2", "--optical", "--dupedist", "12000", "-o", "/tmp/out.fq",
         ])
-        XCTAssertEqual(cmd.mode, "sequence")
+        XCTAssertEqual(cmd.substitutions, 2)
+        XCTAssertTrue(cmd.optical)
+        XCTAssertEqual(cmd.opticalDistance, 12000)
     }
 
-    /// Verifies that deduplicate defaults to dedup by id.
+    /// Verifies that deduplicate defaults to exact dedup.
     func testDeduplicateDefaults() throws {
         let cmd = try FastqDeduplicateSubcommand.parse([
             "input.fq", "-o", "/tmp/out.fq",
         ])
-        XCTAssertEqual(cmd.mode, "id")
+        XCTAssertEqual(cmd.substitutions, 0)
+        XCTAssertFalse(cmd.optical)
+        XCTAssertEqual(cmd.opticalDistance, 40)
     }
 
     // MARK: - FastqCommand Registration in LungfishCLI

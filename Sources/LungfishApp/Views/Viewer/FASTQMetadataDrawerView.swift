@@ -94,6 +94,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         case samples = 0
         case demux = 1
         case primerTrim = 2
+        case dedup = 3
     }
 
     // Tag constants for distinguishing table views in data source/delegate
@@ -202,13 +203,25 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
     private let primerHdistLabel = NSTextField(labelWithString: "Hamming Dist:")
     private let primerHdistField = NSTextField(string: "1")
 
-    // Orient tab controls
-    // Orient tab removed — orient is now a standalone operation in the FASTQ operations sidebar
+    // Dedup tab
+    private let dedupContainer = NSView()
+    private let dedupPresetLabel = NSTextField(labelWithString: "Preset:")
+    private let dedupPresetPopup = NSPopUpButton()
+    private let dedupSubsLabel = NSTextField(labelWithString: "Substitution Tolerance:")
+    private let dedupSubsField = NSTextField(string: "0")
+    private let dedupOpticalCheckbox = NSButton(checkboxWithTitle: "Optical duplicates only", target: nil, action: nil)
+    private let dedupDistLabel = NSTextField(labelWithString: "Pixel Distance:")
+    private let dedupDistField = NSTextField(string: "40")
+    private let dedupDescriptionLabel = NSTextField(wrappingLabelWithString: "")
+
+    /// Callback invoked when dedup configuration changes.
+    public var onDedupConfigChanged: ((FASTQDeduplicatePreset, Int, Bool, Int) -> Void)?
 
     // Constraint groups toggled per-tab
     private var samplesConstraints: [NSLayoutConstraint] = []
     private var demuxSetupConstraints: [NSLayoutConstraint] = []
     private var primerTrimConstraints: [NSLayoutConstraint] = []
+    private var dedupConstraints: [NSLayoutConstraint] = []
     private var isDemuxAdvancedEnabled = false
 
     public init(delegate: FASTQMetadataDrawerViewDelegate? = nil) {
@@ -332,6 +345,12 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         rebuildColumns()
     }
 
+    public func selectDedupTab() {
+        tabControl.selectedSegment = Tab.dedup.rawValue
+        activeTab = .dedup
+        rebuildColumns()
+    }
+
     public func currentPrimerTrimConfiguration() -> FASTQPrimerTrimConfiguration? {
         primerTrimConfiguration
     }
@@ -353,11 +372,12 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         headerBar.translatesAutoresizingMaskIntoConstraints = false
         addSubview(headerBar)
 
-        // 3-segment tab control
-        tabControl.segmentCount = 3
+        // 4-segment tab control
+        tabControl.segmentCount = 4
         tabControl.setLabel("Samples", forSegment: 0)
         tabControl.setLabel("Demux", forSegment: 1)
         tabControl.setLabel("Primer Trim", forSegment: 2)
+        tabControl.setLabel("Dedup", forSegment: 3)
         tabControl.selectedSegment = 0
         tabControl.segmentStyle = .texturedRounded
         tabControl.controlSize = .small
@@ -447,6 +467,10 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         primerTrimContainer.translatesAutoresizingMaskIntoConstraints = false
         addSubview(primerTrimContainer)
         setupPrimerTrimPanel()
+
+        dedupContainer.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(dedupContainer)
+        setupDedupPanel()
 
         // Status bar
         statusLabel.font = .systemFont(ofSize: 11)
@@ -919,6 +943,13 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             primerTrimContainer.bottomAnchor.constraint(equalTo: statusLabel.topAnchor, constant: -6),
         ]
 
+        dedupConstraints = [
+            dedupContainer.topAnchor.constraint(equalTo: headerBar.bottomAnchor, constant: 6),
+            dedupContainer.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            dedupContainer.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            dedupContainer.bottomAnchor.constraint(equalTo: statusLabel.topAnchor, constant: -6),
+        ]
+
         // Start with samples tab active
         NSLayoutConstraint.activate(samplesConstraints)
     }
@@ -937,12 +968,14 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         NSLayoutConstraint.deactivate(samplesConstraints)
         NSLayoutConstraint.deactivate(demuxSetupConstraints)
         NSLayoutConstraint.deactivate(primerTrimConstraints)
+        NSLayoutConstraint.deactivate(dedupConstraints)
         // Hide everything first
         scrollView.isHidden = true
         kitDetailScrollView.isHidden = true
         kitDetailLabel.isHidden = true
         stepDetailContainer.isHidden = true
         primerTrimContainer.isHidden = true
+        dedupContainer.isHidden = true
 
         // Header bar button visibility
         preferredSetLabel.isHidden = true
@@ -989,6 +1022,10 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             primerTrimContainer.isHidden = false
             NSLayoutConstraint.activate(primerTrimConstraints)
             refreshPrimerTrimControls()
+        case .dedup:
+            dedupContainer.isHidden = false
+            NSLayoutConstraint.activate(dedupConstraints)
+            refreshDedupControls()
         }
     }
 
@@ -1023,7 +1060,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             addColumn(to: kitDetailTable, id: "bcID", title: "ID", width: 80, editable: false)
             addColumn(to: kitDetailTable, id: "bcSequence", title: "Sequence", width: 260, editable: false)
             addColumn(to: kitDetailTable, id: "bcSecondary", title: "Secondary", width: 260, editable: false)
-        case .primerTrim:
+        case .primerTrim, .dedup:
             break
         }
 
@@ -1082,7 +1119,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         case Self.mainTableTag:
             switch activeTab {
             case .samples, .demux: return sampleAssignments.count
-            case .primerTrim: return 0
+            case .primerTrim, .dedup: return 0
             }
         case Self.kitDetailTableTag:
             return selectedKitBarcodes.count
@@ -1119,7 +1156,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             case "metadataCount": return a.metadata.isEmpty ? "" : "\(a.metadata.count) field(s)"
             default: return nil
             }
-        case .primerTrim:
+        case .primerTrim, .dedup:
             return nil
         }
     }
@@ -1193,7 +1230,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
                 notifyDemuxPlanChanged()
             }
 
-        case .primerTrim:
+        case .primerTrim, .dedup:
             break
         }
     }
@@ -1383,6 +1420,151 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         )
         refreshPrimerTrimControls()
         statusLabel.stringValue = "Updated primer trimming configuration."
+    }
+
+    // MARK: - Dedup Panel
+
+    private func setupDedupPanel() {
+        let labels: [NSTextField] = [dedupPresetLabel, dedupSubsLabel, dedupDistLabel]
+        for label in labels {
+            label.font = .systemFont(ofSize: 11, weight: .medium)
+            label.textColor = .secondaryLabelColor
+            label.translatesAutoresizingMaskIntoConstraints = false
+            dedupContainer.addSubview(label)
+        }
+
+        dedupPresetPopup.addItems(withTitles: [
+            "Exact PCR Duplicates",
+            "Near Duplicates (1 sub)",
+            "Near Duplicates (2 subs)",
+            "Optical (HiSeq 3000/4000/X)",
+            "Optical (NextSeq/NovaSeq)",
+            "Custom"
+        ])
+        dedupPresetPopup.font = .systemFont(ofSize: 12)
+        dedupPresetPopup.translatesAutoresizingMaskIntoConstraints = false
+        dedupPresetPopup.target = self
+        dedupPresetPopup.action = #selector(dedupControlChanged(_:))
+        dedupContainer.addSubview(dedupPresetPopup)
+
+        for field in [dedupSubsField, dedupDistField] {
+            field.font = .systemFont(ofSize: 12)
+            field.translatesAutoresizingMaskIntoConstraints = false
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .none
+            formatter.minimum = 0
+            formatter.maximum = field === dedupSubsField ? 5 : 100000
+            field.formatter = formatter
+            field.target = self
+            field.action = #selector(dedupControlChanged(_:))
+            field.widthAnchor.constraint(equalToConstant: 60).isActive = true
+            dedupContainer.addSubview(field)
+        }
+
+        dedupOpticalCheckbox.translatesAutoresizingMaskIntoConstraints = false
+        dedupOpticalCheckbox.target = self
+        dedupOpticalCheckbox.action = #selector(dedupControlChanged(_:))
+        dedupContainer.addSubview(dedupOpticalCheckbox)
+
+        dedupDescriptionLabel.font = .systemFont(ofSize: 11)
+        dedupDescriptionLabel.textColor = .tertiaryLabelColor
+        dedupDescriptionLabel.translatesAutoresizingMaskIntoConstraints = false
+        dedupDescriptionLabel.maximumNumberOfLines = 3
+        dedupDescriptionLabel.preferredMaxLayoutWidth = 400
+        dedupContainer.addSubview(dedupDescriptionLabel)
+
+        NSLayoutConstraint.activate([
+            dedupPresetLabel.topAnchor.constraint(equalTo: dedupContainer.topAnchor, constant: 8),
+            dedupPresetLabel.leadingAnchor.constraint(equalTo: dedupContainer.leadingAnchor),
+            dedupPresetPopup.centerYAnchor.constraint(equalTo: dedupPresetLabel.centerYAnchor),
+            dedupPresetPopup.leadingAnchor.constraint(equalTo: dedupPresetLabel.trailingAnchor, constant: 6),
+            dedupPresetPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 200),
+
+            dedupDescriptionLabel.topAnchor.constraint(equalTo: dedupPresetPopup.bottomAnchor, constant: 8),
+            dedupDescriptionLabel.leadingAnchor.constraint(equalTo: dedupContainer.leadingAnchor),
+            dedupDescriptionLabel.trailingAnchor.constraint(lessThanOrEqualTo: dedupContainer.trailingAnchor),
+
+            dedupSubsLabel.topAnchor.constraint(equalTo: dedupDescriptionLabel.bottomAnchor, constant: 12),
+            dedupSubsLabel.leadingAnchor.constraint(equalTo: dedupContainer.leadingAnchor),
+            dedupSubsField.centerYAnchor.constraint(equalTo: dedupSubsLabel.centerYAnchor),
+            dedupSubsField.leadingAnchor.constraint(equalTo: dedupSubsLabel.trailingAnchor, constant: 6),
+
+            dedupOpticalCheckbox.topAnchor.constraint(equalTo: dedupSubsLabel.bottomAnchor, constant: 10),
+            dedupOpticalCheckbox.leadingAnchor.constraint(equalTo: dedupContainer.leadingAnchor),
+
+            dedupDistLabel.topAnchor.constraint(equalTo: dedupOpticalCheckbox.bottomAnchor, constant: 8),
+            dedupDistLabel.leadingAnchor.constraint(equalTo: dedupContainer.leadingAnchor, constant: 20),
+            dedupDistField.centerYAnchor.constraint(equalTo: dedupDistLabel.centerYAnchor),
+            dedupDistField.leadingAnchor.constraint(equalTo: dedupDistLabel.trailingAnchor, constant: 6),
+        ])
+    }
+
+    private func refreshDedupControls() {
+        let preset = currentDedupPreset()
+        let isCustom = preset == .custom
+        dedupSubsField.isEnabled = isCustom
+        dedupOpticalCheckbox.isEnabled = isCustom
+        dedupDistField.isEnabled = isCustom && dedupOpticalCheckbox.state == .on
+        dedupDistLabel.textColor = dedupDistField.isEnabled ? .secondaryLabelColor : .quaternaryLabelColor
+
+        let descriptions: [FASTQDeduplicatePreset: String] = [
+            .exactPCR: "Remove identical read pairs (subs=0). Best for amplicon/PCR duplicate removal.",
+            .nearDuplicate1: "Allow 1 substitution between duplicates. Tolerates single sequencing errors.",
+            .nearDuplicate2: "Allow 2 substitutions (BBTools default). Good general-purpose deduplication.",
+            .opticalHiSeq: "Remove optical duplicates from patterned flowcells (HiSeq 3000/4000/X, dupedist=40).",
+            .opticalNovaSeq: "Remove optical duplicates from NextSeq/NovaSeq (dupedist=12000, larger tile spacing).",
+            .custom: "Manually configure substitution tolerance and optical duplicate settings."
+        ]
+        dedupDescriptionLabel.stringValue = descriptions[preset] ?? ""
+    }
+
+    private func currentDedupPreset() -> FASTQDeduplicatePreset {
+        let index = dedupPresetPopup.indexOfSelectedItem
+        let cases = FASTQDeduplicatePreset.allCases
+        guard index >= 0, index < cases.count else { return .exactPCR }
+        return cases[cases.index(cases.startIndex, offsetBy: index)]
+    }
+
+    @objc private func dedupControlChanged(_ sender: Any) {
+        let preset = currentDedupPreset()
+
+        // Apply preset values
+        switch preset {
+        case .exactPCR:
+            dedupSubsField.stringValue = "0"
+            dedupOpticalCheckbox.state = .off
+            dedupDistField.stringValue = "40"
+        case .nearDuplicate1:
+            dedupSubsField.stringValue = "1"
+            dedupOpticalCheckbox.state = .off
+            dedupDistField.stringValue = "40"
+        case .nearDuplicate2:
+            dedupSubsField.stringValue = "2"
+            dedupOpticalCheckbox.state = .off
+            dedupDistField.stringValue = "40"
+        case .opticalHiSeq:
+            dedupSubsField.stringValue = "0"
+            dedupOpticalCheckbox.state = .on
+            dedupDistField.stringValue = "40"
+        case .opticalNovaSeq:
+            dedupSubsField.stringValue = "0"
+            dedupOpticalCheckbox.state = .on
+            dedupDistField.stringValue = "12000"
+        case .custom:
+            break // leave current values
+        }
+
+        refreshDedupControls()
+        notifyDedupChanged()
+        statusLabel.stringValue = "Updated deduplication configuration."
+    }
+
+    private func notifyDedupChanged() {
+        let preset = currentDedupPreset()
+        let subs = Int(dedupSubsField.stringValue) ?? 0
+        let optical = dedupOpticalCheckbox.state == .on
+        let dist = Int(dedupDistField.stringValue) ?? 40
+        onDedupConfigChanged?(preset, subs, optical, dist)
     }
 
     private func ensureSingleDemuxStep() {
@@ -1582,6 +1764,10 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             primerTrimConfiguration = nil
             refreshPrimerTrimControls()
             statusLabel.stringValue = "Cleared primer trim configuration."
+        case .dedup:
+            dedupPresetPopup.selectItem(at: 0)
+            dedupControlChanged(sender)
+            statusLabel.stringValue = "Reset dedup configuration to defaults."
         }
     }
 
@@ -1610,8 +1796,8 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
                     } catch {
                         self.statusLabel.stringValue = "Import failed: \(error.localizedDescription)"
                     }
-                case .primerTrim:
-                    self.statusLabel.stringValue = "Primer trim presets are configured in the drawer."
+                case .primerTrim, .dedup:
+                    self.statusLabel.stringValue = "Import is not available for this tab."
                 }
             }
         }
@@ -1629,7 +1815,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             panel.nameFieldStringValue = "fastq-sample-metadata.csv"
         case .demux:
             panel.nameFieldStringValue = "demux-pattern.csv"
-        case .primerTrim:
+        case .primerTrim, .dedup:
             statusLabel.stringValue = "Export is not available for this tab."
             return
         }

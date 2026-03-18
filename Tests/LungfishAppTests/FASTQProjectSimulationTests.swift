@@ -166,7 +166,7 @@ final class FASTQProjectSimulationTests: XCTestCase {
 
         let dedupBundle = try await service.createDerivative(
             from: source.bundleURL,
-            request: .deduplicate(mode: .sequence, pairedAware: false)
+            request: .deduplicate(preset: .exactPCR, substitutions: 0, optical: false, opticalDistance: 40)
         )
         let dedupRecords = try await exportRecords(
             service: service,

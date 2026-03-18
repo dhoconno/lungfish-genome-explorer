@@ -63,6 +63,12 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
         fastqMetadataDrawerHeightConstraint = heightConstraint
         isFASTQMetadataDrawerOpen = false
 
+        drawer.onDedupConfigChanged = { [weak self] preset, subs, optical, dist in
+            self?.fastqDatasetController?.updateDedupConfig(
+                preset: preset, substitutions: subs, optical: optical, opticalDistance: dist
+            )
+        }
+
         if let dashboardView = fastqDashboardView {
             fastqDashboardBottomConstraint?.isActive = false
             let replacement = dashboardView.bottomAnchor.constraint(equalTo: drawer.topAnchor)
@@ -262,6 +268,16 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
             toggleFASTQMetadataDrawer()
         }
         fastqMetadataDrawerView?.selectPrimerTrimTab()
+    }
+
+    func openDedupDrawer() {
+        if fastqMetadataDrawerView == nil {
+            configureFASTQMetadataDrawer()
+        }
+        if !isFASTQMetadataDrawerOpen {
+            toggleFASTQMetadataDrawer()
+        }
+        fastqMetadataDrawerView?.selectDedupTab()
     }
 
     // MARK: - Drag-to-Resize

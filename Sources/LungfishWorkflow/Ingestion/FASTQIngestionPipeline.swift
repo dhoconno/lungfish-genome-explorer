@@ -308,12 +308,22 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         let safeInput = try Self.bbToolsSafePath(for: inputFile, fm: fm, cleanup: &symlinksToCleanup)
         let safeOutput = Self.bbToolsSafeOutputPath(for: outputFile, in: config.outputDirectory)
 
+        // Allocate ~80% of physical memory to Java heap, capped at 31g (JVM compressed oops limit).
+        // Minimum 4g to handle large FASTQ files (BBTools default is only 2g).
+        let physicalMemoryGB = Int(ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024))
+        let heapGB = max(4, min(31, physicalMemoryGB * 80 / 100))
+
+        // Override any JAVA_TOOL_OPTIONS that might constrain heap below our calculated value.
+        // BBTools reads -Xmx from its own args, but _JAVA_OPTIONS takes highest priority.
+        env["_JAVA_OPTIONS"] = "-Xmx\(heapGB)g"
+
         var args = [
             "in=\(safeInput.path)",
             "out=\(safeOutput.path)",
+            "-Xmx\(heapGB)g",
             "ow=t",
             "reorder",
-            "groups=1",
+            "groups=auto",
             "pigz=t",
             "zl=4",
             "threads=\(max(1, config.threads))"
