@@ -108,6 +108,11 @@ public enum OperationContract {
                 acceptedFormats: [.fastq, .fasta],
                 requiredPairing: nil
             )
+        case .humanReadScrub:
+            return OperationInput(
+                acceptedFormats: [.fastq],
+                requiredPairing: nil
+            )
         }
     }
 

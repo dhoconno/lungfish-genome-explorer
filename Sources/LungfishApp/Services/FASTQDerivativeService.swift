@@ -16,7 +16,7 @@ public enum FASTQDerivativeRequest: Sendable {
     case lengthFilter(min: Int?, max: Int?)
     case searchText(query: String, field: FASTQSearchField, regex: Bool)
     case searchMotif(pattern: String, regex: Bool)
-    case deduplicate(mode: FASTQDeduplicateMode, pairedAware: Bool)
+    case deduplicate(preset: FASTQDeduplicatePreset, substitutions: Int, optical: Bool, opticalDistance: Int)
 
     // Trim operations (produce trim position records)
     case qualityTrim(threshold: Int, windowSize: Int, mode: FASTQQualityTrimMode)
@@ -62,6 +62,9 @@ public enum FASTQDerivativeRequest: Sendable {
         saveUnoriented: Bool
     )
 
+    // Human read removal
+    case humanReadScrub(databaseID: String, removeReads: Bool)
+
     /// Human-readable label for this operation, used in the Operations panel.
     var operationLabel: String {
         switch self {
@@ -83,6 +86,7 @@ public enum FASTQDerivativeRequest: Sendable {
         case .interleaveReformat: return "Interleave Reformat"
         case .demultiplex: return "Demultiplex"
         case .orient: return "Orient Sequences"
+        case .humanReadScrub: return "Human Read Scrub"
         }
     }
 
@@ -97,7 +101,7 @@ public enum FASTQDerivativeRequest: Sendable {
             return false
         case .pairedEndMerge, .pairedEndRepair,
              .errorCorrection, .interleaveReformat, .demultiplex,
-             .orient:
+             .orient, .humanReadScrub:
             return false
         }
     }
@@ -106,7 +110,7 @@ public enum FASTQDerivativeRequest: Sendable {
     var isFullOperation: Bool {
         switch self {
         case .pairedEndMerge, .pairedEndRepair,
-             .errorCorrection, .interleaveReformat, .demultiplex:
+             .errorCorrection, .interleaveReformat, .demultiplex, .humanReadScrub:
             return true
         default:
             return false
@@ -175,6 +179,7 @@ public enum FASTQDerivativeRequest: Sendable {
         case .interleaveReformat: return "interleaveReformat"
         case .demultiplex: return "demultiplex"
         case .orient: return "orient"
+        case .humanReadScrub: return "humanReadScrub"
         }
     }
 
@@ -194,8 +199,10 @@ public enum FASTQDerivativeRequest: Sendable {
             return ["query": query, "field": "\(field)", "regex": "\(regex)"]
         case .searchMotif(let pattern, let regex):
             return ["pattern": pattern, "regex": "\(regex)"]
-        case .deduplicate(let mode, let pairedAware):
-            return ["mode": "\(mode)", "pairedAware": "\(pairedAware)"]
+        case .deduplicate(let preset, let substitutions, let optical, let opticalDistance):
+            var params: [String: String] = ["preset": preset.rawValue, "substitutions": "\(substitutions)"]
+            if optical { params["optical"] = "true"; params["opticalDistance"] = "\(opticalDistance)" }
+            return params
         case .qualityTrim(let threshold, let windowSize, let mode):
             return ["threshold": "\(threshold)", "windowSize": "\(windowSize)", "mode": "\(mode)"]
         case .adapterTrim(let mode, let sequence, _, _):
@@ -243,6 +250,8 @@ public enum FASTQDerivativeRequest: Sendable {
             return ["kitID": kitID, "location": location, "errorRate": "\(errorRate)", "trimBarcodes": "\(trimBarcodes)"]
         case .orient(_, let wordLength, _, _):
             return ["wordLength": "\(wordLength)"]
+        case .humanReadScrub(let databaseID, let removeReads):
+            return ["databaseID": databaseID, "removeReads": "\(removeReads)"]
         }
     }
 }
@@ -1423,28 +1432,35 @@ public actor FASTQDerivativeService {
                 useRegex: regex
             )
 
-        case .deduplicate(let mode, let pairedAware):
-            if pairedAware, isInterleavedBundle(sourceBundleURL) {
-                try await deduplicateInterleavedPairs(
-                    mode: mode,
-                    sourceFASTQ: sourceFASTQ,
-                    outputFASTQ: outputFASTQ
-                )
-            } else {
-                var args = ["rmdup"]
-                switch mode {
-                case .identifier, .description:
-                    args.append("-n")
-                case .sequence:
-                    args.append("-s")
-                }
-                args += [sourceFASTQ.path, "-o", outputFASTQ.path]
-                _ = try await runner.run(.seqkit, arguments: args)
+        case .deduplicate(let preset, let substitutions, let optical, let opticalDistance):
+            let env = await bbToolsEnvironment()
+            // Allocate ~80% of physical memory to Java heap, capped at 31g
+            let physicalMemoryGB = Int(ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024))
+            let heapGB = max(1, min(31, physicalMemoryGB * 80 / 100))
+            var args = [
+                "in=\(sourceFASTQ.path)",
+                "out=\(outputFASTQ.path)",
+                "-Xmx\(heapGB)g",
+                "dedupe=t",
+                "subs=\(substitutions)",
+                "ow=t"
+            ]
+            if optical {
+                args.append("optical=t")
+                args.append("dupedist=\(opticalDistance)")
+            }
+            let result = try await runner.run(.clumpify, arguments: args, environment: env, timeout: 3600)
+            guard result.isSuccess else {
+                throw FASTQDerivativeError.invalidOperation("clumpify deduplication failed: \(result.stderr)")
             }
             return FASTQDerivativeOperation(
                 kind: .deduplicate,
-                deduplicateMode: mode,
-                pairedAware: pairedAware
+                deduplicatePreset: preset,
+                deduplicateSubstitutions: substitutions,
+                deduplicateOptical: optical,
+                deduplicateOpticalDistance: optical ? opticalDistance : nil,
+                toolUsed: "clumpify",
+                toolCommand: "clumpify.sh dedupe=t subs=\(substitutions)\(optical ? " optical=t dupedist=\(opticalDistance)" : "")"
             )
 
         case .qualityTrim(let threshold, let windowSize, let mode):
@@ -1637,6 +1653,22 @@ public actor FASTQDerivativeService {
         case .orient:
             throw FASTQDerivativeError.invalidOperation(
                 "Orient is handled via createOrientDerivative."
+            )
+
+        case .humanReadScrub(let databaseID, let removeReads):
+            let outputURL = outputFASTQ
+            _ = try await runHumanReadScrub(
+                sourceFASTQ: sourceFASTQ,
+                outputFASTQ: outputURL,
+                databaseID: databaseID,
+                isInterleaved: isInterleaved,
+                removeReads: removeReads
+            )
+            return FASTQDerivativeOperation(
+                kind: .humanReadScrub,
+                humanScrubRemoveReads: removeReads,
+                humanScrubDatabaseID: databaseID,
+                toolUsed: "sra-human-scrubber"
             )
         }
     }
@@ -2465,6 +2497,320 @@ public actor FASTQDerivativeService {
             if desc.hasPrefix("2:") { return (identifier, 2) }
         }
         return (identifier, 0)
+    }
+
+    // MARK: - Materialized Recipe Pipeline
+
+    /// Runs recipe steps directly on materialized FASTQ files, chaining tool outputs.
+    ///
+    /// Unlike the virtual derivative chain, this pipeline:
+    /// - Writes real FASTQ files at every step
+    /// - Correctly handles paired-end merge (outputs can be longer than inputs)
+    /// - Passes properly de-interleaved R1/R2 to fastp for adapter/quality trim
+    /// - Returns the URL of the final processed FASTQ in `tempDir`
+    ///
+    /// - Parameters:
+    ///   - fastqURL: Uncompressed FASTQ to process (usually decompressed bundle content).
+    ///   - steps: Ordered recipe steps to apply.
+    ///   - isInterleaved: Whether the input is interleaved paired-end.
+    ///   - tempDir: Scratch directory for intermediate files.
+    ///   - progress: Optional callback (fraction 0–1, message).
+    func runMaterializedRecipe(
+        fastqURL: URL,
+        steps: [FASTQDerivativeOperation],
+        isInterleaved: Bool,
+        tempDir: URL,
+        progress: ((Double, String) -> Void)?
+    ) async throws -> (url: URL, stepResults: [RecipeStepResult]) {
+        var currentURL = fastqURL
+        var currentIsInterleaved = isInterleaved
+        let fm = FileManager.default
+        var stepResults: [RecipeStepResult] = []
+
+        for (index, step) in steps.enumerated() {
+            let fraction = Double(index) / Double(steps.count)
+            let outputURL = tempDir.appendingPathComponent("step_\(index + 1)_\(step.kind.rawValue).fastq")
+            let inputCount = await countFASTQReads(at: currentURL, isInterleaved: currentIsInterleaved)
+            let stepStart = Date()
+
+            switch step.kind {
+            case .qualityTrim:
+                progress?(fraction, "Quality trimming (\(index + 1)/\(steps.count))…")
+                try await runFastpQualityTrim(
+                    sourceFASTQ: currentURL,
+                    outputFASTQ: outputURL,
+                    threshold: step.qualityThreshold ?? 20,
+                    windowSize: step.windowSize ?? 4,
+                    mode: step.qualityTrimMode ?? .cutRight,
+                    isInterleaved: currentIsInterleaved
+                )
+                currentURL = outputURL
+
+            case .adapterTrim:
+                progress?(fraction, "Adapter trimming (\(index + 1)/\(steps.count))…")
+                try await runFastpAdapterTrim(
+                    sourceFASTQ: currentURL,
+                    outputFASTQ: outputURL,
+                    mode: step.adapterMode ?? .autoDetect,
+                    sequence: step.adapterSequence,
+                    sequenceR2: step.adapterSequenceR2,
+                    fastaFilename: step.adapterFastaFilename,
+                    sourceBundleURL: tempDir,
+                    isInterleaved: currentIsInterleaved
+                )
+                currentURL = outputURL
+
+            case .fixedTrim:
+                progress?(fraction, "Fixed trimming (\(index + 1)/\(steps.count))…")
+                try await runFastpFixedTrim(
+                    sourceFASTQ: currentURL,
+                    outputFASTQ: outputURL,
+                    from5Prime: step.trimFrom5Prime ?? 0,
+                    from3Prime: step.trimFrom3Prime ?? 0,
+                    isInterleaved: currentIsInterleaved
+                )
+                currentURL = outputURL
+
+            case .deduplicate:
+                progress?(fraction, "Deduplicating (\(index + 1)/\(steps.count))…")
+                let subs = step.deduplicateSubstitutions ?? 0
+                let optical = step.deduplicateOptical ?? false
+                let opticalDist = step.deduplicateOpticalDistance ?? 2500
+                let env = await bbToolsEnvironment()
+                let physicalMemoryGB = Int(ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024))
+                let heapGB = max(1, min(31, physicalMemoryGB * 80 / 100))
+                var args = [
+                    "in=\(currentURL.path)",
+                    "out=\(outputURL.path)",
+                    "-Xmx\(heapGB)g",
+                    "dedupe=t",
+                    "subs=\(subs)",
+                    "ow=t",
+                ]
+                if currentIsInterleaved { args.append("interleaved=t") }
+                if optical {
+                    args.append("optical=t")
+                    args.append("dupedist=\(opticalDist)")
+                }
+                let dedupeResult = try await runner.run(.clumpify, arguments: args, environment: env, timeout: 3600)
+                guard dedupeResult.isSuccess else {
+                    throw FASTQDerivativeError.invalidOperation("clumpify deduplication failed: \(dedupeResult.stderr)")
+                }
+                currentURL = outputURL
+
+            case .pairedEndMerge:
+                progress?(fraction, "Merging paired-end reads (\(index + 1)/\(steps.count))…")
+                let strictness = step.mergeStrictness ?? .normal
+                let minOverlap = step.mergeMinOverlap ?? 12
+                let mergeDir = tempDir.appendingPathComponent("step_\(index + 1)_merge")
+                try fm.createDirectory(at: mergeDir, withIntermediateDirectories: true)
+
+                // bbmerge writes: merged.fastq, unmerged_R1.fastq, unmerged_R2.fastq
+                let (_, _) = try await runBBMerge(
+                    sourceFASTQ: currentURL,
+                    outputBundleURL: mergeDir,
+                    strictness: strictness,
+                    minOverlap: minOverlap
+                )
+
+                // Build output: merged reads + re-interleaved unmerged pairs
+                let mergedFile = mergeDir.appendingPathComponent("merged.fastq")
+                let unmergedR1 = mergeDir.appendingPathComponent("unmerged_R1.fastq")
+                let unmergedR2 = mergeDir.appendingPathComponent("unmerged_R2.fastq")
+
+                // Re-interleave unmerged pairs using reformat.sh
+                let unmergedInterleaved = mergeDir.appendingPathComponent("unmerged_interleaved.fastq")
+                let hasMerged = fm.fileExists(atPath: mergedFile.path)
+                let hasUnmerged = fm.fileExists(atPath: unmergedR1.path) && fm.fileExists(atPath: unmergedR2.path)
+
+                if hasUnmerged {
+                    try await reinterleaveFastpOutput(r1: unmergedR1, r2: unmergedR2, output: unmergedInterleaved)
+                }
+
+                // Concatenate parts: merged (singles) + unmerged (interleaved pairs)
+                var outputData = Data()
+                if hasMerged { outputData.append(try Data(contentsOf: mergedFile)) }
+                if hasUnmerged { outputData.append(try Data(contentsOf: unmergedInterleaved)) }
+                guard !outputData.isEmpty else {
+                    throw FASTQDerivativeError.emptyResult
+                }
+                try outputData.write(to: outputURL)
+
+                currentURL = outputURL
+                // Post-merge: data is mixed (merged singles + interleaved unmerged pairs).
+                // Downstream pair-aware tools (bbduk length filter) handle this mixed format
+                // correctly with interleaved=t.
+                currentIsInterleaved = true
+
+            case .lengthFilter:
+                progress?(fraction, "Length filtering (\(index + 1)/\(steps.count))…")
+                if currentIsInterleaved {
+                    try await runPairedAwareFilter(
+                        sourceFASTQ: currentURL,
+                        outputFASTQ: outputURL,
+                        minLength: step.minLength,
+                        maxLength: step.maxLength
+                    )
+                } else {
+                    var seqkitArgs = ["seq", currentURL.path, "-o", outputURL.path]
+                    if let min = step.minLength { seqkitArgs += ["-m", String(min)] }
+                    if let max = step.maxLength { seqkitArgs += ["-M", String(max)] }
+                    let seqkitResult = try await runner.run(.seqkit, arguments: seqkitArgs)
+                    guard seqkitResult.isSuccess else {
+                        throw FASTQDerivativeError.invalidOperation("seqkit length filter failed: \(seqkitResult.stderr)")
+                    }
+                }
+                currentURL = outputURL
+
+            case .humanReadScrub:
+                progress?(fraction, "Removing human reads (\(index + 1)/\(steps.count))…")
+                let dbID = step.humanScrubDatabaseID ?? "human-scrubber"
+                let removeReads = step.humanScrubRemoveReads ?? false
+                let maskedSpots = try await runHumanReadScrub(
+                    sourceFASTQ: currentURL,
+                    outputFASTQ: outputURL,
+                    databaseID: dbID,
+                    isInterleaved: currentIsInterleaved,
+                    removeReads: removeReads
+                )
+                currentURL = outputURL
+
+                // For mask mode: reads are still present but as N-strings.
+                // Report outputReadCount = input - masked so the Inspector shows
+                // how many non-human pairs remain. The length filter later removes the N reads.
+                let outputCount = (inputCount != nil && maskedSpots != nil)
+                    ? (inputCount! - maskedSpots!)
+                    : await countFASTQReads(at: currentURL, isInterleaved: currentIsInterleaved)
+                let duration = Date().timeIntervalSince(stepStart)
+                stepResults.append(RecipeStepResult(
+                    stepName: step.displaySummary,
+                    tool: step.toolUsed ?? "sra-human-scrubber",
+                    toolVersion: step.toolVersion,
+                    inputReadCount: inputCount,
+                    outputReadCount: outputCount,
+                    durationSeconds: duration
+                ))
+                continue  // skip the generic result append at the bottom of the loop
+
+            default:
+                derivativeLogger.warning("runMaterializedRecipe: Skipping unsupported step '\(step.kind.rawValue)'")
+            }
+
+            // Record per-step stats
+            let outputCount = await countFASTQReads(at: currentURL, isInterleaved: currentIsInterleaved)
+            let duration = Date().timeIntervalSince(stepStart)
+            stepResults.append(RecipeStepResult(
+                stepName: step.displaySummary,
+                tool: step.toolUsed ?? step.kind.rawValue,
+                toolVersion: step.toolVersion,
+                inputReadCount: inputCount,
+                outputReadCount: outputCount,
+                durationSeconds: duration
+            ))
+        }
+
+        return (currentURL, stepResults)
+    }
+
+    /// Counts reads in a FASTQ file using seqkit stats.
+    /// Returns nil if the file doesn't exist or seqkit fails.
+    /// For interleaved files, returns the read pair count (total reads / 2).
+    private func countFASTQReads(at url: URL, isInterleaved: Bool) async -> Int? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let result = try? await runner.run(.seqkit, arguments: ["stats", "-T", url.path])
+        guard let result, result.isSuccess else { return nil }
+        // seqkit stats -T output: file\tformat\ttype\tnum_seqs\tsum_len\tmin_len\tavg_len\tmax_len
+        let lines = result.stdout.split(separator: "\n", omittingEmptySubsequences: true)
+        guard lines.count >= 2 else { return nil }
+        let fields = lines[1].split(separator: "\t")
+        guard fields.count >= 4, let total = Int(fields[3]) else { return nil }
+        return isInterleaved ? total / 2 : total
+    }
+
+    // MARK: - Human Read Scrub
+
+    /// Runs NCBI sra-human-scrubber on a (possibly interleaved) FASTQ file.
+    ///
+    /// scrub.sh expects the database via `-d`, uses `-s` for interleaved paired-end
+    /// (mask both reads in a pair if either aligns to human), and `-x` to remove
+    /// (rather than mask with N) when removeReads is true.
+    /// Returns the number of spots (read pairs in interleaved mode) that were masked/removed.
+    private func runHumanReadScrub(
+        sourceFASTQ: URL,
+        outputFASTQ: URL,
+        databaseID: String,
+        isInterleaved: Bool,
+        removeReads: Bool
+    ) async throws -> Int? {
+        guard let dbPath = await DatabaseRegistry.shared.effectiveDatabasePath(for: databaseID) else {
+            throw FASTQDerivativeError.invalidOperation(
+                "Human read scrub database '\(databaseID)' not found. " +
+                "Place the database file in ~/Library/Application Support/Lungfish/databases/\(databaseID)/")
+        }
+
+        let scrubSh = try await runner.findTool(.scrubSh)
+        let threads = min(ProcessInfo.processInfo.processorCount, 8)
+        let scriptsDir = scrubSh.deletingLastPathComponent()
+
+        // scrub.sh pipes the input file through fastq_to_fasta.py which reads plain text via
+        // stdin. Decompress gzipped inputs to a temp file first so the script can read them.
+        let inputFASTQ: URL
+        var decompressedTmp: URL? = nil
+        if sourceFASTQ.pathExtension.lowercased() == "gz" {
+            let tmp = outputFASTQ.deletingLastPathComponent()
+                .appendingPathComponent("scrub_input_\(UUID().uuidString).fastq")
+            let pigzResult = try await runner.runWithFileOutput(
+                .pigz,
+                arguments: ["-d", "-c", sourceFASTQ.path],
+                outputFile: tmp
+            )
+            guard pigzResult.isSuccess else {
+                throw FASTQDerivativeError.invalidOperation("Failed to decompress input for scrub.sh: \(pigzResult.stderr)")
+            }
+            inputFASTQ = tmp
+            decompressedTmp = tmp
+        } else {
+            inputFASTQ = sourceFASTQ
+        }
+        defer { if let tmp = decompressedTmp { try? FileManager.default.removeItem(at: tmp) } }
+
+        // scrub.sh usage: scrub.sh -i <input> -o <output> -d <db> [-s] [-x] [-p threads]
+        // Run via bash to ensure the shebang is honoured and PATH is set correctly.
+        var scriptArgs: [String] = [scrubSh.path,
+            "-i", inputFASTQ.path,
+            "-o", outputFASTQ.path,
+            "-d", dbPath.path,
+            "-p", "\(threads)",
+        ]
+        if isInterleaved { scriptArgs.append("-s") }   // paired-end mode: mask both if either is human
+        if removeReads   { scriptArgs.append("-x") }   // remove instead of mask with N
+
+        let scrubResult = try await runner.runProcess(
+            executableURL: URL(fileURLWithPath: "/bin/bash"),
+            arguments: scriptArgs,
+            workingDirectory: scriptsDir,
+            environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+            timeout: 7200,
+            toolName: "scrub.sh"
+        )
+        guard scrubResult.isSuccess else {
+            throw FASTQDerivativeError.invalidOperation("sra-human-scrubber failed: \(scrubResult.stderr)")
+        }
+
+        // Parse "N  spot(s) masked or removed." from cut_spots_fastq.py stderr
+        // (scrubResult.stderr contains combined stderr from both aligns_to and the Python scripts)
+        let maskedSpots: Int? = scrubResult.stderr
+            .components(separatedBy: .newlines)
+            .compactMap { line -> Int? in
+                // Pattern: "8381523  spot(s) masked or removed."
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard trimmed.contains("spot(s) masked or removed"),
+                      let first = trimmed.split(separator: " ").first,
+                      let count = Int(first) else { return nil }
+                return count
+            }
+            .first
+        return maskedSpots
     }
 
     // MARK: - Fastp Trim Operations
@@ -3836,73 +4182,4 @@ public actor FASTQDerivativeService {
         return value
     }
 
-    private func deduplicateInterleavedPairs(
-        mode: FASTQDeduplicateMode,
-        sourceFASTQ: URL,
-        outputFASTQ: URL
-    ) async throws {
-        let reader = FASTQReader(validateSequence: false)
-        let writer = FASTQWriter(url: outputFASTQ)
-        try writer.open()
-        defer { try? writer.close() }
-
-        var buffer: FASTQRecord?
-        var seen: Set<String> = []
-
-        for try await record in reader.records(from: sourceFASTQ) {
-            if let first = buffer {
-                let second = record
-                let key = pairedKey(first: first, second: second, mode: mode)
-                if !seen.contains(key) {
-                    seen.insert(key)
-                    try writer.write(first)
-                    try writer.write(second)
-                }
-                buffer = nil
-            } else {
-                buffer = record
-            }
-        }
-
-        // If an odd trailing record exists, preserve first appearance.
-        if let trailing = buffer {
-            let key = singleKey(record: trailing, mode: mode)
-            if !seen.contains(key) {
-                try writer.write(trailing)
-            }
-        }
-    }
-
-    private func pairedKey(first: FASTQRecord, second: FASTQRecord, mode: FASTQDeduplicateMode) -> String {
-        switch mode {
-        case .identifier:
-            let left = stripPairSuffix(from: normalizedIdentifier(first.identifier))
-            let right = stripPairSuffix(from: normalizedIdentifier(second.identifier))
-            return "id:\(left)|\(right)"
-        case .description:
-            let left = (first.description ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            let right = (second.description ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            return "desc:\(left)|\(right)"
-        case .sequence:
-            return "seq:\(first.sequence)|\(second.sequence)"
-        }
-    }
-
-    private func singleKey(record: FASTQRecord, mode: FASTQDeduplicateMode) -> String {
-        switch mode {
-        case .identifier:
-            return "id:\(normalizedIdentifier(record.identifier))"
-        case .description:
-            return "desc:\((record.description ?? "").trimmingCharacters(in: .whitespacesAndNewlines))"
-        case .sequence:
-            return "seq:\(record.sequence)"
-        }
-    }
-
-    private func stripPairSuffix(from identifier: String) -> String {
-        if identifier.hasSuffix("/1") || identifier.hasSuffix("/2") {
-            return String(identifier.dropLast(2))
-        }
-        return identifier
-    }
 }

@@ -384,6 +384,9 @@ public struct IngestionMetadata: Codable, Sendable {
     /// Size of the file before clumpification/compression (bytes).
     public var originalSizeBytes: Int64?
 
+    /// Post-import recipe applied during ingestion, with per-step stats.
+    public var recipeApplied: RecipeAppliedInfo?
+
     public init(
         isClumpified: Bool = false,
         isCompressed: Bool = false,
@@ -391,7 +394,8 @@ public struct IngestionMetadata: Codable, Sendable {
         qualityBinning: String? = nil,
         originalFilenames: [String] = [],
         ingestionDate: Date? = nil,
-        originalSizeBytes: Int64? = nil
+        originalSizeBytes: Int64? = nil,
+        recipeApplied: RecipeAppliedInfo? = nil
     ) {
         self.isClumpified = isClumpified
         self.isCompressed = isCompressed
@@ -400,5 +404,77 @@ public struct IngestionMetadata: Codable, Sendable {
         self.originalFilenames = originalFilenames
         self.ingestionDate = ingestionDate
         self.originalSizeBytes = originalSizeBytes
+        self.recipeApplied = recipeApplied
+    }
+}
+
+// MARK: - Recipe Applied Info
+
+/// Per-step statistics for a processing recipe applied during ingestion.
+public struct RecipeStepResult: Codable, Sendable {
+    /// Human-readable step name (e.g. "Human read scrub", "Deduplicate").
+    public let stepName: String
+    /// Tool identifier (e.g. "sra-human-scrubber", "clumpify").
+    public let tool: String
+    /// Tool version string at time of execution.
+    public let toolVersion: String?
+    /// Number of reads (or read pairs for interleaved) entering this step.
+    public let inputReadCount: Int?
+    /// Number of reads (or read pairs) after this step.
+    public let outputReadCount: Int?
+    /// Wall-clock seconds this step took.
+    public let durationSeconds: Double
+
+    public init(
+        stepName: String,
+        tool: String,
+        toolVersion: String? = nil,
+        inputReadCount: Int? = nil,
+        outputReadCount: Int? = nil,
+        durationSeconds: Double
+    ) {
+        self.stepName = stepName
+        self.tool = tool
+        self.toolVersion = toolVersion
+        self.inputReadCount = inputReadCount
+        self.outputReadCount = outputReadCount
+        self.durationSeconds = durationSeconds
+    }
+
+    /// Reads removed (positive) or added (negative) by this step.
+    public var readsRemoved: Int? {
+        guard let i = inputReadCount, let o = outputReadCount else { return nil }
+        return i - o
+    }
+}
+
+/// Summary of a post-import recipe run, stored in IngestionMetadata.
+public struct RecipeAppliedInfo: Codable, Sendable {
+    /// Stable identifier of the recipe (e.g. "illuminaVSP2TargetEnrichment").
+    public let recipeID: String
+    /// Human-readable recipe display name.
+    public let recipeName: String
+    /// Date the recipe was applied.
+    public let appliedDate: Date
+    /// Ordered results for each recipe step.
+    public let stepResults: [RecipeStepResult]
+
+    public init(
+        recipeID: String,
+        recipeName: String,
+        appliedDate: Date = Date(),
+        stepResults: [RecipeStepResult]
+    ) {
+        self.recipeID = recipeID
+        self.recipeName = recipeName
+        self.appliedDate = appliedDate
+        self.stepResults = stepResults
+    }
+
+    /// Total reads removed across all steps (input of step 0 minus output of last step).
+    public var totalReadsRemoved: Int? {
+        guard let first = stepResults.first?.inputReadCount,
+              let last = stepResults.last?.outputReadCount else { return nil }
+        return first - last
     }
 }

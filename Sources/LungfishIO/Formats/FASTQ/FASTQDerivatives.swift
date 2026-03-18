@@ -11,11 +11,20 @@ public enum FASTQSearchField: String, Codable, Sendable, CaseIterable {
     case description
 }
 
-/// Deduplication key strategy.
-public enum FASTQDeduplicateMode: String, Codable, Sendable, CaseIterable {
-    case identifier
-    case description
-    case sequence
+/// Deduplication preset for clumpify.sh.
+public enum FASTQDeduplicatePreset: String, Codable, Sendable, CaseIterable {
+    /// Remove exact PCR duplicates (subs=0). Default for amplicon sequencing.
+    case exactPCR
+    /// Allow 1 substitution for sequencing error tolerance.
+    case nearDuplicate1
+    /// Allow 2 substitutions (BBTools default tolerance).
+    case nearDuplicate2
+    /// Optical duplicates only (patterned flowcell, dupedist=40).
+    case opticalHiSeq
+    /// Optical duplicates for NextSeq/NovaSeq (dupedist=12000).
+    case opticalNovaSeq
+    /// User-configured custom parameters.
+    case custom
 }
 
 /// Adapter location for trimming.
@@ -274,18 +283,23 @@ public enum FASTQDerivativeOperationKind: String, Codable, Sendable, CaseIterabl
     // Orientation
     case orient
 
+    // Human read removal using NCBI sra-human-scrubber
+    case humanReadScrub
+
     /// Whether this operation produces a subset (read IDs) or trim (positions).
     public var isSubsetOperation: Bool {
         switch self {
         case .subsampleProportion, .subsampleCount, .lengthFilter,
-             .searchText, .searchMotif, .deduplicate, .contaminantFilter,
+             .searchText, .searchMotif, .contaminantFilter,
              .sequencePresenceFilter:
             return true
+        case .deduplicate:
+            return false  // clumpify writes a full output file
         case .qualityTrim, .adapterTrim, .fixedTrim, .primerRemoval:
             return false
         case .pairedEndMerge, .pairedEndRepair,
              .errorCorrection, .interleaveReformat, .demultiplex,
-             .orient:
+             .orient, .humanReadScrub:
             return false
         }
     }
@@ -294,7 +308,8 @@ public enum FASTQDerivativeOperationKind: String, Codable, Sendable, CaseIterabl
     public var isFullOperation: Bool {
         switch self {
         case .pairedEndMerge, .pairedEndRepair,
-             .errorCorrection, .interleaveReformat, .demultiplex:
+             .errorCorrection, .interleaveReformat, .demultiplex,
+             .deduplicate, .humanReadScrub:
             return true
         default:
             return false
@@ -315,7 +330,7 @@ public enum FASTQDerivativeOperationKind: String, Codable, Sendable, CaseIterabl
             return true
         case .qualityTrim, .adapterTrim, .pairedEndMerge,
              .pairedEndRepair, .primerRemoval, .errorCorrection,
-             .interleaveReformat, .demultiplex:
+             .interleaveReformat, .demultiplex, .humanReadScrub:
             return false
         }
     }
@@ -336,8 +351,10 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
     public var query: String?
     public var searchField: FASTQSearchField?
     public var useRegex: Bool?
-    public var deduplicateMode: FASTQDeduplicateMode?
-    public var pairedAware: Bool?
+    public var deduplicatePreset: FASTQDeduplicatePreset?
+    public var deduplicateSubstitutions: Int?
+    public var deduplicateOptical: Bool?
+    public var deduplicateOpticalDistance: Int?
 
     // Quality trim parameters
     public var qualityThreshold: Int?
@@ -418,6 +435,12 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
     public var sampleName: String?
     public var demuxRunID: UUID?
 
+    // Human read scrub parameters
+    /// Whether to remove (true) or mask with N (false, default) human reads.
+    public var humanScrubRemoveReads: Bool?
+    /// Database ID to use (default "human-scrubber"). Resolves via DatabaseRegistry.
+    public var humanScrubDatabaseID: String?
+
     // Orient parameters
     /// Relative path to the reference FASTA used for orientation (within Reference Sequences/).
     public var orientReferencePath: String?
@@ -455,8 +478,10 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
         query: String? = nil,
         searchField: FASTQSearchField? = nil,
         useRegex: Bool? = nil,
-        deduplicateMode: FASTQDeduplicateMode? = nil,
-        pairedAware: Bool? = nil,
+        deduplicatePreset: FASTQDeduplicatePreset? = nil,
+        deduplicateSubstitutions: Int? = nil,
+        deduplicateOptical: Bool? = nil,
+        deduplicateOpticalDistance: Int? = nil,
         qualityThreshold: Int? = nil,
         windowSize: Int? = nil,
         qualityTrimMode: FASTQQualityTrimMode? = nil,
@@ -504,6 +529,8 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
         barcodeID: String? = nil,
         sampleName: String? = nil,
         demuxRunID: UUID? = nil,
+        humanScrubRemoveReads: Bool? = nil,
+        humanScrubDatabaseID: String? = nil,
         orientReferencePath: String? = nil,
         orientWordLength: Int? = nil,
         orientDbMask: String? = nil,
@@ -524,8 +551,10 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
         self.query = query
         self.searchField = searchField
         self.useRegex = useRegex
-        self.deduplicateMode = deduplicateMode
-        self.pairedAware = pairedAware
+        self.deduplicatePreset = deduplicatePreset
+        self.deduplicateSubstitutions = deduplicateSubstitutions
+        self.deduplicateOptical = deduplicateOptical
+        self.deduplicateOpticalDistance = deduplicateOpticalDistance
         self.qualityThreshold = qualityThreshold
         self.windowSize = windowSize
         self.qualityTrimMode = qualityTrimMode
@@ -573,6 +602,8 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
         self.barcodeID = barcodeID
         self.sampleName = sampleName
         self.demuxRunID = demuxRunID
+        self.humanScrubRemoveReads = humanScrubRemoveReads
+        self.humanScrubDatabaseID = humanScrubDatabaseID
         self.orientReferencePath = orientReferencePath
         self.orientWordLength = orientWordLength
         self.orientDbMask = orientDbMask
@@ -646,6 +677,10 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
             return "demultiplex"
         case .orient:
             return "orient"
+        case .humanReadScrub:
+            let dbID = humanScrubDatabaseID ?? "human-scrubber"
+            let mode = humanScrubRemoveReads == true ? "remove" : "mask"
+            return "human-scrub-\(dbID)-\(mode)"
         }
     }
 
@@ -673,11 +708,13 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
             let queryString = query ?? ""
             return "Motif search: \(queryString)"
         case .deduplicate:
-            let modeString = deduplicateMode?.rawValue ?? FASTQDeduplicateMode.identifier.rawValue
-            if pairedAware == true {
-                return "Deduplicate by \(modeString) (paired-aware)"
+            let subs = deduplicateSubstitutions ?? 0
+            let preset = deduplicatePreset ?? .exactPCR
+            if deduplicateOptical == true {
+                let dist = deduplicateOpticalDistance ?? 40
+                return "Deduplicate optical (dist: \(dist), subs: \(subs))"
             }
-            return "Deduplicate by \(modeString)"
+            return "Deduplicate (\(preset.rawValue), subs: \(subs))"
         case .qualityTrim:
             let q = qualityThreshold ?? 20
             let w = windowSize ?? 4
@@ -776,6 +813,10 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
                 return "Orient against \(refName) (\(rc) RC'd, \(unmatched) unmatched)"
             }
             return "Orient against \(refName)"
+        case .humanReadScrub:
+            let mode = humanScrubRemoveReads == true ? "remove" : "mask with N"
+            let dbID = humanScrubDatabaseID ?? "human-scrubber"
+            return "Human read scrub (\(mode), db: \(dbID))"
         }
     }
 }
@@ -1484,8 +1525,12 @@ extension FASTQDerivativeOperation {
             return "Reads were randomly subsampled\(tool) to \(n) reads."
 
         case .deduplicate:
-            let mode = deduplicateMode ?? .identifier
-            return "Duplicate reads were removed\(tool) based on \(mode.rawValue)."
+            let subs = deduplicateSubstitutions ?? 0
+            if deduplicateOptical == true {
+                let dist = deduplicateOpticalDistance ?? 40
+                return "Optical duplicate reads were removed\(tool) (substitution tolerance: \(subs), pixel distance: \(dist))."
+            }
+            return "Duplicate reads were removed\(tool) by sequence identity (substitution tolerance: \(subs))."
 
         case .errorCorrection:
             let k = errorCorrectionKmerSize ?? 50
@@ -1517,6 +1562,11 @@ extension FASTQDerivativeOperation {
             let overlap = adapterFilterMinOverlap ?? 16
             let rcNote = searchRC ? ", including reverse complement" : ""
             return "Reads were filtered\(tool) by \(endLabel) sequence presence (minimum overlap \(overlap) bp\(rcNote), matching reads \(action))."
+
+        case .humanReadScrub:
+            let dbID = humanScrubDatabaseID ?? "human-scrubber"
+            let mode = humanScrubRemoveReads == true ? "removed" : "masked with N"
+            return "Human reads were identified\(tool) using the '\(dbID)' k-mer database and \(mode)."
         }
     }
 }

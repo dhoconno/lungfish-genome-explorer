@@ -694,14 +694,20 @@ struct FastqInterleaveSubcommand: AsyncParsableCommand {
 struct FastqDeduplicateSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "deduplicate",
-        abstract: "Remove duplicate reads using seqkit"
+        abstract: "Remove duplicate reads using clumpify.sh (BBTools)"
     )
 
     @Argument(help: "Input FASTQ file")
     var input: String
 
-    @Option(name: .customLong("by"), help: "Dedup key: id, sequence (default: id)")
-    var mode: String = "id"
+    @Option(name: .customLong("subs"), help: "Substitution tolerance (0=exact, 2=default)")
+    var substitutions: Int = 0
+
+    @Flag(name: .customLong("optical"), help: "Optical duplicate mode (patterned flowcells)")
+    var optical: Bool = false
+
+    @Option(name: .customLong("dupedist"), help: "Pixel distance for optical duplicates (default: 40)")
+    var opticalDistance: Int = 40
 
     @OptionGroup var output: OutputOptions
 
@@ -710,18 +716,24 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
         try output.validateOutput()
         let runner = NativeToolRunner.shared
 
-        var args = ["rmdup"]
-        switch mode {
-        case "id": args.append("-n")
-        case "sequence": args.append("-s")
-        default:
-            throw ValidationError("Invalid dedup mode: \(mode). Use: id, sequence")
+        let physicalMemoryGB = Int(ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024))
+        let heapGB = max(1, min(31, physicalMemoryGB * 80 / 100))
+        var args = [
+            "in=\(inputURL.path)",
+            "out=\(output.output)",
+            "-Xmx\(heapGB)g",
+            "dedupe=t",
+            "subs=\(substitutions)",
+            "ow=t"
+        ]
+        if optical {
+            args.append("optical=t")
+            args.append("dupedist=\(opticalDistance)")
         }
-        args += [inputURL.path, "-o", output.output]
 
-        let result = try await runner.run(.seqkit, arguments: args)
+        let result = try await runner.run(.clumpify, arguments: args)
         guard result.isSuccess else {
-            throw CLIError.conversionFailed(reason: "seqkit rmdup failed: \(result.stderr)")
+            throw CLIError.conversionFailed(reason: "clumpify deduplication failed: \(result.stderr)")
         }
         FileHandle.standardError.write(Data("Deduplicated reads written to \(output.output)\n".utf8))
     }

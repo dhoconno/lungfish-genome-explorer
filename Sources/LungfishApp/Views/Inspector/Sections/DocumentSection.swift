@@ -572,12 +572,102 @@ public struct DocumentSection: View {
                 if let date = ingestion.ingestionDate {
                     metadataRow(label: "Processed", value: formatDate(date))
                 }
+
+                if let recipe = ingestion.recipeApplied {
+                    Divider()
+                    recipeAppliedSubsection(recipe)
+                }
             }
             .padding(.top, 4)
         } label: {
             Text("Ingestion")
                 .font(.headline)
         }
+    }
+
+    @ViewBuilder
+    private func recipeAppliedSubsection(_ info: RecipeAppliedInfo) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Image(systemName: "wand.and.sparkles")
+                    .foregroundStyle(.secondary)
+                Text(info.recipeName)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                Spacer()
+                Text(formatDate(info.appliedDate))
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+
+            if let totalRemoved = info.totalReadsRemoved, totalRemoved > 0 {
+                let pct = info.stepResults.first?.inputReadCount.map { i in
+                    i > 0 ? String(format: " (%.1f%%)", Double(totalRemoved) / Double(i) * 100) : ""
+                } ?? ""
+                metadataRow(label: "Net reads removed", value: "\(formatCount(totalRemoved))\(pct ?? "")")
+            }
+
+            if !info.stepResults.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(info.stepResults.indices, id: \.self) { idx in
+                        let step = info.stepResults[idx]
+                        HStack(alignment: .top, spacing: 6) {
+                            Text("\(idx + 1).")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                                .frame(width: 16, alignment: .trailing)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(step.stepName)
+                                    .font(.caption)
+                                    .lineLimit(2)
+                                if let inCount = step.inputReadCount, let outCount = step.outputReadCount {
+                                    let delta = inCount - outCount
+                                    let isScrubStep = step.tool.contains("scrubber") || step.tool.contains("scrub")
+                                    if delta > 0 {
+                                        let verb = isScrubStep ? "masked" : "removed"
+                                        let pct = inCount > 0 ? String(format: " (%.1f%%)", Double(delta) / Double(inCount) * 100) : ""
+                                        Text("\(formatCount(inCount)) reads, \(formatCount(delta)) \(verb)\(pct)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    } else if delta < 0 {
+                                        Text("\(formatCount(inCount)) → \(formatCount(outCount)) (+\(formatCount(-delta)))")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    } else {
+                                        Text("\(formatCount(outCount)) reads, none \(isScrubStep ? "masked" : "removed")")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                if let ver = step.toolVersion {
+                                    Text("\(step.tool) \(ver)")
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                } else {
+                                    Text(step.tool)
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                            Spacer()
+                            Text(formatDuration(step.durationSeconds))
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                .padding(8)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .cornerRadius(6)
+            }
+        }
+    }
+
+    private func formatDuration(_ seconds: Double) -> String {
+        if seconds < 60 { return String(format: "%.0fs", seconds) }
+        let m = Int(seconds / 60)
+        let s = Int(seconds) % 60
+        return "\(m)m\(s)s"
     }
 
     private func fastqDerivativeSection(_ manifest: FASTQDerivedBundleManifest) -> some View {

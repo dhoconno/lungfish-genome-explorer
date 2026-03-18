@@ -764,50 +764,61 @@ final class OperationPreviewView: NSView {
     // MARK: - Deduplicate Preview
 
     private func drawDeduplicatePreview(ctx: CGContext, rect: CGRect) {
-        let groups: [(sequence: String, count: Int)] = [
-            ("ATGCCATG...", 3),
-            ("GCTTAAGC...", 2),
-            ("TACCGGTA...", 1),
+        // Paired-end read groups: each pair has R1+R2, shown as a bracket
+        let pairGroups: [(r1: String, r2: String, count: Int)] = [
+            ("R1: ATGCCATG...", "R2: TAGCCGAT...", 3),
+            ("R1: GCTTAAGC...", "R2: CCAATTGG...", 2),
+            ("R1: TACCGGTA...", "R2: AACGTCCA...", 1),
         ]
 
         var y = rect.minY + 24
-        let readWidth = rect.width - 80
+        let readWidth = (rect.width - 90) / 2  // Two reads side by side
 
         // Summary
-        let totalReads = groups.reduce(0) { $0 + $1.count }
-        let unique = groups.count
+        let totalPairs = pairGroups.reduce(0) { $0 + $1.count }
+        let unique = pairGroups.count
         let summaryAttrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 12, weight: .medium),
             .foregroundColor: FASTQPalette.summaryText,
         ]
         let summary = NSAttributedString(
-            string: "Deduplicate: \(unique) unique of \(totalReads) reads",
+            string: "Deduplicate (clumpify): \(unique) unique of \(totalPairs) pairs",
             attributes: summaryAttrs
         )
         summary.draw(at: CGPoint(x: rect.midX - summary.size().width / 2, y: rect.minY))
 
-        for group in groups {
+        for group in pairGroups {
             for j in 0..<group.count {
                 guard y + readHeight <= rect.maxY else { return }
 
                 let isDuplicate = j > 0
-                let readRect = CGRect(x: rect.minX, y: y, width: readWidth, height: readHeight)
-                let readPath = CGPath(roundedRect: readRect, cornerWidth: readCornerRadius, cornerHeight: readCornerRadius, transform: nil)
 
-                ctx.addPath(readPath)
+                // Draw R1
+                let r1Rect = CGRect(x: rect.minX, y: y, width: readWidth, height: readHeight)
+                let r1Path = CGPath(roundedRect: r1Rect, cornerWidth: readCornerRadius, cornerHeight: readCornerRadius, transform: nil)
+                ctx.addPath(r1Path)
                 ctx.setFillColor((isDuplicate ? FASTQPalette.readFillFaded : FASTQPalette.readFill.withAlphaComponent(0.5)).cgColor)
                 ctx.fillPath()
 
-                // Sequence label
+                // Draw R2
+                let r2Rect = CGRect(x: rect.minX + readWidth + 4, y: y, width: readWidth, height: readHeight)
+                let r2Path = CGPath(roundedRect: r2Rect, cornerWidth: readCornerRadius, cornerHeight: readCornerRadius, transform: nil)
+                ctx.addPath(r2Path)
+                ctx.setFillColor((isDuplicate ? FASTQPalette.readFillFaded : FASTQPalette.readFill.withAlphaComponent(0.4)).cgColor)
+                ctx.fillPath()
+
+                // Sequence labels
                 let seqAttrs: [NSAttributedString.Key: Any] = [
                     .font: NSFont.monospacedSystemFont(ofSize: 9, weight: .regular),
                     .foregroundColor: isDuplicate ? FASTQPalette.dimText : FASTQPalette.secondaryText,
                 ]
-                NSAttributedString(string: group.sequence, attributes: seqAttrs)
-                    .draw(at: CGPoint(x: readRect.minX + 4, y: readRect.minY + 4))
+                NSAttributedString(string: group.r1, attributes: seqAttrs)
+                    .draw(at: CGPoint(x: r1Rect.minX + 4, y: r1Rect.minY + 4))
+                NSAttributedString(string: group.r2, attributes: seqAttrs)
+                    .draw(at: CGPoint(x: r2Rect.minX + 4, y: r2Rect.minY + 4))
 
                 // Badge
-                let badgeX = readRect.maxX + 8
+                let badgeX = r2Rect.maxX + 8
                 drawBadge(ctx: ctx, x: badgeX, y: y + 3,
                           text: isDuplicate ? "DUP" : "UNIQUE",
                           color: isDuplicate ? FASTQPalette.adapter : FASTQPalette.kept)

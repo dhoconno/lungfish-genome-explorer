@@ -261,7 +261,8 @@ extension ProcessingRecipe {
             FASTQDerivativeOperation(
                 kind: .deduplicate,
                 createdAt: .distantPast,
-                deduplicateMode: .sequence
+                deduplicatePreset: .exactPCR,
+                deduplicateSubstitutions: 0
             ),
         ],
         tags: ["pacbio", "hifi", "long-read"],
@@ -311,9 +312,75 @@ extension ProcessingRecipe {
         requiredPairingMode: .interleaved
     )
 
+    /// Illumina VSP2 target enrichment preprocessing.
+    ///
+    /// Designed for viral surveillance panel (VSP2) target-enriched paired-end
+    /// libraries. Adapter removal comes first (Nextera/TruSeq read-through is
+    /// common with short inserts), then quality trimming while data is still
+    /// properly interleaved, then merging cleaned pairs. The resulting bundle
+    /// contains a mix of merged reads and unmerged interleaved R1/R2 pairs.
+    public static let illuminaVSP2TargetEnrichment = ProcessingRecipe(
+        name: "Illumina VSP2 Target Enrichment",
+        description: "Human read removal, deduplicate, adapter trim, quality trim, merge pairs, remove short reads",
+        steps: [
+            // 1. Remove human reads before any other processing
+            //    Uses NCBI sra-human-scrubber with -s (interleaved paired-end mode):
+            //    if either read in a pair aligns to human, both are masked with N.
+            //    Masked reads are removed in the length filter at the end.
+            FASTQDerivativeOperation(
+                kind: .humanReadScrub,
+                createdAt: .distantPast,
+                humanScrubRemoveReads: false,   // mask with N; length filter removes them later
+                humanScrubDatabaseID: "human-scrubber"
+            ),
+            // 2. Remove PCR duplicates (exact match, paired-end aware)
+            FASTQDerivativeOperation(
+                kind: .deduplicate,
+                createdAt: .distantPast,
+                deduplicatePreset: .exactPCR,
+                deduplicateSubstitutions: 0
+            ),
+            // 3. Remove Illumina adapters (auto-detect TruSeq/Nextera/transposase)
+            //    Critical for short-insert libraries where reads extend into adapter
+            FASTQDerivativeOperation(
+                kind: .adapterTrim,
+                createdAt: .distantPast,
+                adapterMode: .autoDetect
+            ),
+            // 4. Quality trim 3' tails (Q15 — conservative, preserves more read length
+            //    while still removing poor-quality tail bases common in short-insert libraries)
+            FASTQDerivativeOperation(
+                kind: .qualityTrim,
+                createdAt: .distantPast,
+                qualityThreshold: 15,
+                windowSize: 5,
+                qualityTrimMode: .cutRight
+            ),
+            // 5. Merge overlapping R1/R2 pairs on clean, trimmed reads —
+            //    produces merged reads plus unmerged pairs kept interleaved
+            FASTQDerivativeOperation(
+                kind: .pairedEndMerge,
+                createdAt: .distantPast,
+                mergeStrictness: .normal,
+                mergeMinOverlap: 15
+            ),
+            // 6. Remove reads shorter than 50 bp (catches N-masked human reads)
+            FASTQDerivativeOperation(
+                kind: .lengthFilter,
+                createdAt: .distantPast,
+                minLength: 50,
+                maxLength: nil
+            ),
+        ],
+        tags: ["illumina", "target-enrichment", "vsp2", "paired-end", "viral"],
+        author: "Lungfish Built-in",
+        requiredPairingMode: .interleaved
+    )
+
     /// All built-in recipe templates.
     public static let builtinRecipes: [ProcessingRecipe] = [
         .illuminaWGS,
+        .illuminaVSP2TargetEnrichment,
         .ontAmplicon,
         .pacbioHiFi,
         .targetedAmplicon,

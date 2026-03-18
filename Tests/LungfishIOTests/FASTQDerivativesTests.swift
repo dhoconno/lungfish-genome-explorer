@@ -155,7 +155,7 @@ final class FASTQDerivativesTests: XCTestCase {
         XCTAssertTrue(FASTQDerivativeOperationKind.lengthFilter.isSubsetOperation)
         XCTAssertTrue(FASTQDerivativeOperationKind.searchText.isSubsetOperation)
         XCTAssertTrue(FASTQDerivativeOperationKind.searchMotif.isSubsetOperation)
-        XCTAssertTrue(FASTQDerivativeOperationKind.deduplicate.isSubsetOperation)
+        XCTAssertFalse(FASTQDerivativeOperationKind.deduplicate.isSubsetOperation)
     }
 
     func testTrimOperationKinds() {

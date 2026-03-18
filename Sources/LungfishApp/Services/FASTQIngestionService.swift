@@ -204,6 +204,43 @@ public enum FASTQIngestionService {
         }
     }
 
+    /// Ingests paired FASTQ files using user-configured settings.
+    ///
+    /// - Parameters:
+    ///   - pair: The R1 (and optional R2) file pair.
+    ///   - projectDirectory: Destination project directory.
+    ///   - bundleName: Name for the `.lungfishfastq` bundle.
+    ///   - importConfig: User-configured import settings from the import sheet.
+    ///   - completion: Called on the main actor with the bundle URL or error.
+    public static func ingestAndBundle(
+        pair: FASTQFilePair,
+        projectDirectory: URL,
+        bundleName: String,
+        importConfig: FASTQImportConfiguration,
+        completion: @escaping @MainActor (Result<URL, Error>) -> Void
+    ) {
+        let title = "FASTQ Import: \(bundleName)"
+
+        let opID = OperationCenter.shared.start(
+            title: title,
+            detail: "Copying to temp\u{2026}",
+            operationType: .ingestion
+        )
+
+        let task = Task.detached {
+            await Self.runIngestAndBundle(
+                pair: pair,
+                projectDirectory: projectDirectory,
+                bundleName: bundleName,
+                importConfig: importConfig,
+                operationID: opID,
+                completion: completion
+            )
+        }
+
+        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+    }
+
     /// Ingests in a temp directory, creates the bundle, moves processed file in.
     nonisolated private static func runIngestAndBundle(
         sourceURL: URL,
@@ -212,24 +249,65 @@ public enum FASTQIngestionService {
         operationID opID: UUID,
         completion: @escaping @MainActor (Result<URL, Error>) -> Void
     ) async {
+        // Legacy entry point — wrap in a single-file pair with defaults
+        let pair = FASTQFilePair(r1: sourceURL, r2: nil)
+        let importConfig = FASTQImportConfiguration(
+            inputFiles: [sourceURL],
+            detectedPlatform: .unknown,
+            confirmedPlatform: .unknown,
+            pairingMode: .singleEnd,
+            qualityBinning: .illumina4,
+            skipClumpify: false,
+            deleteOriginals: false,
+            postImportRecipe: nil,
+            resolvedPlaceholders: [:]
+        )
+        await runIngestAndBundle(
+            pair: pair,
+            projectDirectory: projectDirectory,
+            bundleName: bundleName,
+            importConfig: importConfig,
+            operationID: opID,
+            completion: completion
+        )
+    }
+
+    /// Ingests in a temp directory using user-configured settings.
+    nonisolated private static func runIngestAndBundle(
+        pair: FASTQFilePair,
+        projectDirectory: URL,
+        bundleName: String,
+        importConfig: FASTQImportConfiguration,
+        operationID opID: UUID,
+        completion: @escaping @MainActor (Result<URL, Error>) -> Void
+    ) async {
         let fm = FileManager.default
         let tempDir = fm.temporaryDirectory.appendingPathComponent("lungfish-fastq-ingest-\(UUID().uuidString)")
 
         do {
-            // 1. Copy source to temp directory
+            // 1. Copy source file(s) to temp directory
             try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
-            let tempFASTQ = tempDir.appendingPathComponent(sourceURL.lastPathComponent)
-            try fm.copyItem(at: sourceURL, to: tempFASTQ)
+            let tempR1 = tempDir.appendingPathComponent(pair.r1.lastPathComponent)
+            try fm.copyItem(at: pair.r1, to: tempR1)
 
-            logger.info("ingestAndBundle: Copied \(sourceURL.lastPathComponent) to temp dir")
+            var inputFiles = [tempR1]
+            if let r2 = pair.r2 {
+                let tempR2 = tempDir.appendingPathComponent(r2.lastPathComponent)
+                try fm.copyItem(at: r2, to: tempR2)
+                inputFiles.append(tempR2)
+            }
+
+            logger.info("ingestAndBundle: Copied \(inputFiles.count) file(s) to temp dir")
 
             // 2. Run ingestion pipeline in temp
             let config = FASTQIngestionConfig(
-                inputFiles: [tempFASTQ],
-                pairingMode: .singleEnd,
+                inputFiles: inputFiles,
+                pairingMode: importConfig.pairingMode,
                 outputDirectory: tempDir,
                 threads: min(ProcessInfo.processInfo.processorCount, 8),
-                deleteOriginals: true
+                deleteOriginals: true,
+                qualityBinning: importConfig.qualityBinning,
+                skipClumpify: importConfig.skipClumpify
             )
 
             let pipeline = FASTQIngestionPipeline()
@@ -284,14 +362,51 @@ public enum FASTQIngestionService {
             metadata.ingestion = ingestion
             FASTQMetadataStore.save(metadata, for: destFASTQ)
 
-            // 6. Clean up temp directory
+            // 6. Record provenance
+            let runID = await ProvenanceRecorder.shared.beginRun(
+                name: "FASTQ Import: \(bundleName)",
+                parameters: [
+                    "platform": .string(importConfig.confirmedPlatform.rawValue),
+                    "pairingMode": .string(importConfig.pairingMode.rawValue),
+                    "qualityBinning": .string(importConfig.qualityBinning.rawValue),
+                    "skipClumpify": .boolean(importConfig.skipClumpify),
+                ]
+            )
+
+            if result.wasClumpified {
+                let inputRecords = result.originalFilenames.map { name in
+                    FileRecord(path: name, format: .fastq, role: .input)
+                }
+                await ProvenanceRecorder.shared.recordStep(
+                    runID: runID,
+                    toolName: "clumpify.sh",
+                    toolVersion: "BBTools",
+                    command: ["clumpify.sh"],
+                    inputs: inputRecords,
+                    outputs: [FileRecord(
+                        path: destFASTQ.lastPathComponent,
+                        sizeBytes: UInt64(result.finalSizeBytes),
+                        format: .fastq,
+                        role: .output
+                    )],
+                    exitCode: 0,
+                    wallTime: 0
+                )
+            }
+
+            await ProvenanceRecorder.shared.completeRun(runID, status: .completed)
+            try? await ProvenanceRecorder.shared.save(runID: runID, to: bundleURL)
+
+            // 7. Clean up temp directory
             try? fm.removeItem(at: tempDir)
 
             let savedStr = ByteCountFormatter.string(
                 fromByteCount: result.originalSizeBytes - result.finalSizeBytes,
                 countStyle: .file
             )
-            let detail = "Imported and clumpified (saved \(savedStr))"
+            let detail = result.wasClumpified
+                ? "Imported and clumpified (saved \(savedStr))"
+                : "Imported and compressed (saved \(savedStr))"
 
             logger.info("ingestAndBundle: Created bundle \(bundleURL.lastPathComponent)")
 

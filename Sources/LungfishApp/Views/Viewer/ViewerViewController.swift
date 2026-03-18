@@ -908,6 +908,8 @@ public class ViewerViewController: NSViewController {
         progressOverlay.message = message
         progressOverlay.isHidden = false
         progressOverlay.startAnimating()
+        viewerView?.suppressPlaceholder = true
+        viewerView?.needsDisplay = true
     }
 
     /// Hides the progress overlay
@@ -915,6 +917,8 @@ public class ViewerViewController: NSViewController {
         logger.info("hideProgress: Hiding progress overlay")
         progressOverlay.stopAnimating()
         progressOverlay.isHidden = true
+        viewerView?.suppressPlaceholder = false
+        viewerView?.needsDisplay = true
     }
 
     public var isDisplayingFASTQDataset: Bool {
@@ -974,6 +978,9 @@ public class ViewerViewController: NSViewController {
         }
         controller.onOpenPrimerTrimDrawer = { [weak self] in
             self?.openPrimerTrimDrawer()
+        }
+        controller.onOpenDedupDrawer = { [weak self] in
+            self?.openDedupDrawer()
         }
         controller.onStatisticsUpdated = { [weak self] updatedStats in
             guard let self else { return }
@@ -2002,7 +2009,8 @@ public class ProgressOverlayView: NSView {
 
     /// Default timeout in seconds before auto-hiding the progress overlay.
     /// This prevents stuck spinners from indefinite operations.
-    private let defaultTimeout: TimeInterval = 30.0
+    /// 600s (10 min) because FASTQ import with clumpify + recipe can take several minutes.
+    private let defaultTimeout: TimeInterval = 600.0
 
     public var message: String = "Loading..." {
         didSet {
@@ -2089,6 +2097,10 @@ public class SequenceViewerView: NSView {
 
     /// Reference to the parent controller
     weak var viewController: ViewerViewController?
+
+    /// When true, the placeholder text ("Select a file…") is not drawn.
+    /// Set by the progress overlay to avoid text overlap.
+    var suppressPlaceholder = false
 
     /// The sequence being displayed
     private(set) var sequence: Sequence?
@@ -3557,12 +3569,12 @@ public class SequenceViewerView: NSView {
                 // Single sequence mode
                 logger.debug("SequenceViewerView.draw: Drawing single sequence '\(seq.name, privacy: .public)' in bounds \(self.bounds.width)x\(self.bounds.height)")
                 drawSequence(seq, frame: frame, context: context)
-            } else {
+            } else if !suppressPlaceholder {
                 // No sequence loaded
                 logger.debug("SequenceViewerView.draw: No content to draw, showing placeholder")
                 drawPlaceholder(context: context)
             }
-        } else {
+        } else if !suppressPlaceholder {
             // Placeholder message - no reference frame
             logger.debug("SequenceViewerView.draw: No reference frame, showing placeholder")
             drawPlaceholder(context: context)
