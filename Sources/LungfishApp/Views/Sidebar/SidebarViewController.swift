@@ -2101,6 +2101,17 @@ extension SidebarViewController: NSMenuDelegate {
         let hasBundles = items.contains { $0.type == .referenceBundle }
         let hasFASTQBundles = items.contains { $0.type == .fastqBundle }
 
+        // Reference bundle(s) selected — export sequences
+        if hasBundles {
+            let bundleCount = items.filter { $0.type == .referenceBundle }.count
+            let exportTitle = bundleCount > 1
+                ? "Export \(bundleCount) Sequences\u{2026}"
+                : "Export Sequences\u{2026}"
+            let exportSeqItem = NSMenuItem(title: exportTitle, action: #selector(FileMenuActions.exportFASTA(_:)), keyEquivalent: "")
+            menu.addItem(exportSeqItem)
+            menu.addItem(NSMenuItem.separator())
+        }
+
         // Single bundle selected - show bundle-specific options
         if items.count == 1 && hasBundles {
             let openItem = NSMenuItem(title: "Open Bundle", action: #selector(contextMenuOpen(_:)), keyEquivalent: "")

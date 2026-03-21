@@ -1167,8 +1167,13 @@ public struct FASTQDerivedBundleManifest: Codable, Sendable, Equatable {
     /// Relative path from this bundle to the root (physical FASTQ payload) bundle.
     public let rootBundleRelativePath: String
 
-    /// FASTQ filename inside the root bundle.
+    /// FASTQ filename inside the root bundle (first file for multi-file bundles).
     public let rootFASTQFilename: String
+
+    /// Ordered list of FASTQ filenames for multi-file root bundles.
+    /// Nil for single-file roots (backward compatible). When present, materialization
+    /// and read extraction iterate all listed files.
+    public let rootFASTQFilenames: [String]?
 
     /// What this derivative stores on disk (read ID list or trim positions).
     public let payload: FASTQDerivativePayload
@@ -1255,6 +1260,7 @@ public struct FASTQDerivedBundleManifest: Codable, Sendable, Equatable {
         parentBundleRelativePath: String,
         rootBundleRelativePath: String,
         rootFASTQFilename: String,
+        rootFASTQFilenames: [String]? = nil,
         payload: FASTQDerivativePayload = .subset(readIDListFilename: "read-ids.txt"),
         lineage: [FASTQDerivativeOperation],
         operation: FASTQDerivativeOperation,
@@ -1274,6 +1280,7 @@ public struct FASTQDerivedBundleManifest: Codable, Sendable, Equatable {
         self.parentBundleRelativePath = parentBundleRelativePath
         self.rootBundleRelativePath = rootBundleRelativePath
         self.rootFASTQFilename = rootFASTQFilename
+        self.rootFASTQFilenames = rootFASTQFilenames
         self.payload = payload
         self.lineage = lineage
         self.operation = operation
@@ -1297,6 +1304,7 @@ public struct FASTQDerivedBundleManifest: Codable, Sendable, Equatable {
         self.parentBundleRelativePath = try container.decode(String.self, forKey: .parentBundleRelativePath)
         self.rootBundleRelativePath = try container.decode(String.self, forKey: .rootBundleRelativePath)
         self.rootFASTQFilename = try container.decode(String.self, forKey: .rootFASTQFilename)
+        self.rootFASTQFilenames = try container.decodeIfPresent([String].self, forKey: .rootFASTQFilenames)
         self.payload = try container.decode(FASTQDerivativePayload.self, forKey: .payload)
         self.lineage = try container.decode([FASTQDerivativeOperation].self, forKey: .lineage)
         self.operation = try container.decode(FASTQDerivativeOperation.self, forKey: .operation)

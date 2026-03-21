@@ -375,4 +375,28 @@ extension URL {
             }
         }
     }
+
+    /// Returns an async line stream that iterates across multiple FASTQ files sequentially.
+    ///
+    /// Each file is decompressed (if gzipped) and its lines are yielded in order.
+    /// Consumers see a single continuous stream across all files.
+    ///
+    /// - Parameter urls: Ordered list of FASTQ file URLs.
+    /// - Returns: AsyncThrowingStream yielding lines from all files sequentially.
+    public static func multiFileLinesAutoDecompressing(_ urls: [URL]) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    for url in urls {
+                        for try await line in url.linesAutoDecompressing() {
+                            continuation.yield(line)
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
 }

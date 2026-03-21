@@ -533,12 +533,65 @@ public class DatabaseBrowserViewModel: ObservableObject {
     /// Local filter text for filtering displayed results without re-querying the API
     @Published var localFilterText: String = ""
 
+    /// Whether advanced result filters are expanded
+    @Published var isResultFilterExpanded: Bool = false
+
+    // MARK: Advanced Result Filters (client-side)
+
+    /// Collection date range filter (YYYY-MM-DD)
+    @Published var resultCollectionDateFrom: String = ""
+    @Published var resultCollectionDateTo: String = ""
+
+    /// Sequence length range filter
+    @Published var resultMinLength: String = ""
+    @Published var resultMaxLength: String = ""
+
+    /// Host filter (substring match)
+    @Published var resultHostFilter: String = ""
+
+    /// Geographic location filter (substring match)
+    @Published var resultGeoLocationFilter: String = ""
+
+    /// Completeness filter
+    @Published var resultCompletenessFilter: VirusCompletenessFilter = .any
+
+    /// Pangolin classification filter (substring match)
+    @Published var resultPangolinFilter: String = ""
+
+    /// Source database filter (e.g., "RefSeq", "GenBank")
+    @Published var resultSourceDatabaseFilter: String = ""
+
+    /// Whether any advanced result filters are active
+    var hasActiveResultFilters: Bool {
+        !resultCollectionDateFrom.isEmpty || !resultCollectionDateTo.isEmpty ||
+        !resultMinLength.isEmpty || !resultMaxLength.isEmpty ||
+        !resultHostFilter.isEmpty || !resultGeoLocationFilter.isEmpty ||
+        resultCompletenessFilter != .any ||
+        !resultPangolinFilter.isEmpty || !resultSourceDatabaseFilter.isEmpty
+    }
+
+    /// Clears all advanced result filters
+    func clearResultFilters() {
+        resultCollectionDateFrom = ""
+        resultCollectionDateTo = ""
+        resultMinLength = ""
+        resultMaxLength = ""
+        resultHostFilter = ""
+        resultGeoLocationFilter = ""
+        resultCompletenessFilter = .any
+        resultPangolinFilter = ""
+        resultSourceDatabaseFilter = ""
+        localFilterText = ""
+    }
+
     /// Sort order for results
     @Published var resultSortOrder: ResultSortOrder = .accession
 
-    /// Filtered and sorted results based on localFilterText and resultSortOrder
+    /// Filtered and sorted results based on localFilterText, advanced filters, and resultSortOrder
     var filteredResults: [SearchResultRecord] {
         var filtered = results
+
+        // Text search filter (substring across multiple fields)
         if !localFilterText.isEmpty {
             let filter = localFilterText.lowercased()
             filtered = filtered.filter { record in
@@ -551,6 +604,42 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 (record.pangolinClassification?.lowercased().contains(filter) ?? false) ||
                 (record.subtype?.lowercased().contains(filter) ?? false)
             }
+        }
+
+        // Advanced result filters (AND logic)
+        if !resultCollectionDateFrom.isEmpty {
+            let from = resultCollectionDateFrom
+            filtered = filtered.filter { ($0.collectionDate ?? "") >= from }
+        }
+        if !resultCollectionDateTo.isEmpty {
+            let to = resultCollectionDateTo
+            filtered = filtered.filter { ($0.collectionDate ?? "9999") <= to }
+        }
+        if let min = Int(resultMinLength) {
+            filtered = filtered.filter { ($0.length ?? 0) >= min }
+        }
+        if let max = Int(resultMaxLength) {
+            filtered = filtered.filter { ($0.length ?? Int.max) <= max }
+        }
+        if !resultHostFilter.isEmpty {
+            let host = resultHostFilter.lowercased()
+            filtered = filtered.filter { $0.host?.lowercased().contains(host) ?? false }
+        }
+        if !resultGeoLocationFilter.isEmpty {
+            let geo = resultGeoLocationFilter.lowercased()
+            filtered = filtered.filter { $0.geoLocation?.lowercased().contains(geo) ?? false }
+        }
+        if resultCompletenessFilter != .any {
+            let target = resultCompletenessFilter.apiValue?.uppercased()
+            filtered = filtered.filter { $0.completeness?.uppercased() == target }
+        }
+        if !resultPangolinFilter.isEmpty {
+            let pango = resultPangolinFilter.lowercased()
+            filtered = filtered.filter { $0.pangolinClassification?.lowercased().contains(pango) ?? false }
+        }
+        if !resultSourceDatabaseFilter.isEmpty {
+            let src = resultSourceDatabaseFilter.lowercased()
+            filtered = filtered.filter { $0.sourceDatabase?.lowercased().contains(src) ?? false }
         }
         switch resultSortOrder {
         case .accession:
@@ -2667,49 +2756,64 @@ public struct DatabaseBrowserView: View {
 
     private var advancedSearchSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Toggle button with filter count badge
-            HStack {
-                Button {
-                    withAnimation {
-                        viewModel.isAdvancedExpanded.toggle()
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: viewModel.isAdvancedExpanded ? "chevron.down" : "chevron.right")
-                            .font(.caption)
-                            .frame(width: 10)
+            // Toggle bar matching the result filter style
+            HStack(spacing: 8) {
+                Image(systemName: "slider.horizontal.3")
+                    .foregroundColor(viewModel.hasActiveFilters ? .accentColor : .secondary)
 
-                        Text("Advanced Filters")
-                            .font(.callout)
+                Text("Advanced Search Filters")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
 
-                        // Active filter count badge
-                        if viewModel.hasActiveFilters {
-                            Text("\(viewModel.activeFilterCount)")
-                                .font(.caption2.bold())
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.accentColor)
-                                .clipShape(Capsule())
-                        }
-                    }
-                    .foregroundColor(.primary)
+                // Active filter count badge
+                if viewModel.hasActiveFilters {
+                    Text("\(viewModel.activeFilterCount)")
+                        .font(.caption2.bold())
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.accentColor)
+                        .clipShape(Capsule())
                 }
-                .buttonStyle(.plain)
-                .help(viewModel.isAdvancedExpanded ? "Hide advanced filters" : "Show advanced filters")
 
                 Spacer()
 
                 // Clear filters button (only when filters are active)
                 if viewModel.hasActiveFilters {
-                    Button("Clear Filters") {
+                    Button {
                         withAnimation {
                             viewModel.clearFilters()
                         }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.secondary)
                     }
-                    .font(.caption)
                     .buttonStyle(.plain)
-                    .foregroundColor(.secondary)
+                    .help("Clear all search filters")
+                }
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        viewModel.isAdvancedExpanded.toggle()
+                    }
+                } label: {
+                    Image(systemName: viewModel.isAdvancedExpanded ? "chevron.up" : "chevron.down")
+                        .foregroundColor(viewModel.hasActiveFilters ? .accentColor : .secondary)
+                }
+                .buttonStyle(.plain)
+                .help(viewModel.isAdvancedExpanded ? "Hide advanced filters" : "Show advanced filters")
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color(nsColor: .textBackgroundColor))
+            .cornerRadius(6)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+            )
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    viewModel.isAdvancedExpanded.toggle()
                 }
             }
 
@@ -3132,22 +3236,33 @@ public struct DatabaseBrowserView: View {
             // Local filter field for narrowing results without re-querying
             HStack(spacing: 8) {
                 Image(systemName: "line.3.horizontal.decrease.circle")
-                    .foregroundColor(.secondary)
+                    .foregroundColor(viewModel.hasActiveResultFilters ? .accentColor : .secondary)
 
-                TextField("Filter results locally...", text: $viewModel.localFilterText)
+                TextField("Filter results...", text: $viewModel.localFilterText)
                     .textFieldStyle(.plain)
                     .font(.caption)
 
-                if !viewModel.localFilterText.isEmpty {
+                if viewModel.hasActiveResultFilters || !viewModel.localFilterText.isEmpty {
                     Button {
-                        viewModel.localFilterText = ""
+                        viewModel.clearResultFilters()
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .help("Clear filter")
+                    .help("Clear all filters")
                 }
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        viewModel.isResultFilterExpanded.toggle()
+                    }
+                } label: {
+                    Image(systemName: viewModel.isResultFilterExpanded ? "chevron.up" : "slider.horizontal.3")
+                        .foregroundColor(viewModel.hasActiveResultFilters ? .accentColor : .secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Advanced result filters")
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -3157,6 +3272,11 @@ public struct DatabaseBrowserView: View {
                 RoundedRectangle(cornerRadius: 6)
                     .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
             )
+
+            // Advanced result filters (expandable)
+            if viewModel.isResultFilterExpanded {
+                advancedResultFiltersPanel
+            }
 
             HStack(spacing: 8) {
                 // Select all / Deselect all toggle (for filtered results)
@@ -3206,7 +3326,7 @@ public struct DatabaseBrowserView: View {
                 }
 
                 // Show filter status
-                if !viewModel.localFilterText.isEmpty {
+                if !viewModel.localFilterText.isEmpty || viewModel.hasActiveResultFilters {
                     Text("Showing \(viewModel.filteredResults.count) of \(viewModel.results.count)")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -3237,6 +3357,106 @@ public struct DatabaseBrowserView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+    }
+
+    private var advancedResultFiltersPanel: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Row 1: Collection Date range
+            HStack(spacing: 8) {
+                Text("Collection Date:")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(width: 100, alignment: .trailing)
+                TextField("From (YYYY-MM-DD)", text: $viewModel.resultCollectionDateFrom)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+                    .frame(maxWidth: 130)
+                Text("\u{2013}")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("To (YYYY-MM-DD)", text: $viewModel.resultCollectionDateTo)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+                    .frame(maxWidth: 130)
+                Spacer()
+            }
+
+            // Row 2: Length range
+            HStack(spacing: 8) {
+                Text("Length (bp):")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(width: 100, alignment: .trailing)
+                TextField("Min", text: $viewModel.resultMinLength)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+                    .frame(maxWidth: 80)
+                Text("\u{2013}")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("Max", text: $viewModel.resultMaxLength)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+                    .frame(maxWidth: 80)
+                Spacer()
+            }
+
+            // Row 3: Host + Location
+            HStack(spacing: 8) {
+                Text("Host:")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(width: 100, alignment: .trailing)
+                TextField("e.g., Homo sapiens", text: $viewModel.resultHostFilter)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+                    .frame(maxWidth: 150)
+                Text("Location:")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("e.g., USA", text: $viewModel.resultGeoLocationFilter)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+                    .frame(maxWidth: 150)
+                Spacer()
+            }
+
+            // Row 4: Pangolin + Source DB + Completeness
+            HStack(spacing: 8) {
+                Text("Lineage:")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(width: 100, alignment: .trailing)
+                TextField("e.g., XBB.1.5", text: $viewModel.resultPangolinFilter)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+                    .frame(maxWidth: 120)
+                Text("Source:")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                TextField("e.g., RefSeq", text: $viewModel.resultSourceDatabaseFilter)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+                    .frame(maxWidth: 100)
+                Picker("", selection: $viewModel.resultCompletenessFilter) {
+                    ForEach(VirusCompletenessFilter.allCases) { filter in
+                        Text(filter.rawValue).tag(filter)
+                    }
+                }
+                .pickerStyle(.menu)
+                .font(.caption)
+                .frame(maxWidth: 100)
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
+        .cornerRadius(6)
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+        )
     }
 
     private var emptyStateView: some View {

@@ -17,8 +17,10 @@ private let logger = Logger(subsystem: "com.lungfish.workflow", category: "Exact
 /// four orientation patterns per sample to handle reads in any strand orientation,
 /// including ONT reads that sequence through SMRTbell adapters.
 public struct ExactBarcodeDemuxConfig: Sendable {
-    /// Input FASTQ file URL (gzipped or uncompressed).
-    public let inputURL: URL
+    /// Input FASTQ file URLs (gzipped or uncompressed).
+    /// For multi-file bundles (ONT chunks), pass all chunk URLs in order.
+    /// For single-file bundles, pass a single-element array.
+    public let inputURLs: [URL]
 
     /// Per-sample barcode pair definitions.
     public let sampleBarcodes: [SampleBarcodePair]
@@ -45,12 +47,25 @@ public struct ExactBarcodeDemuxConfig: Sendable {
     }
 
     public init(
+        inputURLs: [URL],
+        sampleBarcodes: [SampleBarcodePair],
+        minimumInsert: Int = 2000,
+        previewLimit: Int = 1000
+    ) {
+        self.inputURLs = inputURLs
+        self.sampleBarcodes = sampleBarcodes
+        self.minimumInsert = minimumInsert
+        self.previewLimit = previewLimit
+    }
+
+    /// Convenience initializer for single-file input.
+    public init(
         inputURL: URL,
         sampleBarcodes: [SampleBarcodePair],
         minimumInsert: Int = 2000,
         previewLimit: Int = 1000
     ) {
-        self.inputURL = inputURL
+        self.inputURLs = [inputURL]
         self.sampleBarcodes = sampleBarcodes
         self.minimumInsert = minimumInsert
         self.previewLimit = previewLimit
@@ -216,10 +231,10 @@ public enum ExactBarcodeDemux {
 
         progress(0.0, "Starting exact barcode demultiplexing...")
 
-        // Stream FASTQ records (4 lines at a time).
+        // Stream FASTQ records (4 lines at a time) across all input files.
         // Filter empty lines from GzipInputStream which yields trailing empties
         // from split(separator: "\n", omittingEmptySubsequences: false).
-        let lines = config.inputURL.linesAutoDecompressing()
+        let lines = URL.multiFileLinesAutoDecompressing(config.inputURLs)
         var lineBuffer: [String] = []
         lineBuffer.reserveCapacity(4)
 

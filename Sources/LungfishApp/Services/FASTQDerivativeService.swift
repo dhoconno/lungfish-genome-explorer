@@ -1909,20 +1909,33 @@ public actor FASTQDerivativeService {
         return outputURL
     }
 
-    /// Extracts reads from root FASTQ by ID list using `seqkit grep`.
+    /// Extracts reads from root FASTQ(s) by ID list using `seqkit grep`.
+    ///
+    /// Supports multi-file bundles: when the root bundle has a `source-files.json`,
+    /// all constituent files are passed to seqkit grep (which natively accepts multiple inputs).
     private func extractReads(
         fromRootFASTQ rootFASTQ: URL,
         readIDsFile: URL,
         outputFASTQ: URL
     ) async throws {
+        // Resolve multi-file bundles: check if the root FASTQ's parent bundle
+        // has a source-files.json manifest
+        var inputPaths = [rootFASTQ.path]
+        let parentBundle = rootFASTQ.deletingLastPathComponent()
+        if FASTQBundle.isBundleURL(parentBundle),
+           let allURLs = FASTQBundle.resolveAllFASTQURLs(for: parentBundle), allURLs.count > 1 {
+            inputPaths = allURLs.map(\.path)
+        }
+
+        var args = ["grep", "-f", readIDsFile.path]
+        args.append(contentsOf: inputPaths)
+        args.append(contentsOf: ["-o", outputFASTQ.path])
+
+        let timeout = max(600.0, Double(inputPaths.count) * 120.0)
         let result = try await runner.run(
             .seqkit,
-            arguments: [
-                "grep", "-f", readIDsFile.path,
-                rootFASTQ.path,
-                "-o", outputFASTQ.path,
-            ],
-            timeout: 600
+            arguments: args,
+            timeout: timeout
         )
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("seqkit grep failed: \(result.stderr)")

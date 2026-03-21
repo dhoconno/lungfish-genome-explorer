@@ -51,6 +51,14 @@ public enum FASTQBundle {
         }
         guard isBundleURL(candidateURL) else { return nil }
 
+        // Multi-file bundles: return first chunk from source-files.json
+        if let manifest = try? FASTQSourceFileManifest.load(from: candidateURL) {
+            let urls = manifest.resolveFileURLs(relativeTo: candidateURL)
+            if let first = urls.first, FileManager.default.fileExists(atPath: first.path) {
+                return first
+            }
+        }
+
         do {
             let contents = try FileManager.default.contentsOfDirectory(
                 at: candidateURL,
@@ -64,6 +72,26 @@ public enum FASTQBundle {
         } catch {
             return nil
         }
+    }
+
+    /// Whether a bundle uses virtual concatenation (multiple source files).
+    public static func isMultiFileBundle(_ bundleURL: URL) -> Bool {
+        FASTQSourceFileManifest.exists(in: bundleURL)
+    }
+
+    /// Resolves all constituent FASTQ file URLs for a multi-file bundle.
+    ///
+    /// Returns the ordered list of chunk file URLs from `source-files.json`.
+    /// For single-file bundles (no manifest), returns the primary FASTQ URL in an array.
+    /// Returns `nil` if neither source manifest nor primary FASTQ can be resolved.
+    public static func resolveAllFASTQURLs(for bundleURL: URL) -> [URL]? {
+        if let manifest = try? FASTQSourceFileManifest.load(from: bundleURL) {
+            return manifest.resolveFileURLs(relativeTo: bundleURL)
+        }
+        if let primary = resolvePrimaryFASTQURL(for: bundleURL) {
+            return [primary]
+        }
+        return nil
     }
 
     /// Returns true when a bundle stores a derived pointer manifest.

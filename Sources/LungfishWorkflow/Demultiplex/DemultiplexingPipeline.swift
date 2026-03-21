@@ -1111,9 +1111,18 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             throw DemultiplexError.combinatorialRequiresSampleAssignments
         }
 
+        // Resolve input FASTQ(s) — multi-file bundles have source-files.json
+        let inputURLs: [URL]
+        if let bundleURL = config.sourceBundleURL ?? (FASTQBundle.isBundleURL(config.inputURL) ? config.inputURL : nil),
+           let allURLs = FASTQBundle.resolveAllFASTQURLs(for: bundleURL), allURLs.count > 1 {
+            inputURLs = allURLs
+        } else {
+            inputURLs = [inputFASTQ]
+        }
+
         // Run the exact barcode demux engine
         let demuxConfig = ExactBarcodeDemuxConfig(
-            inputURL: inputFASTQ,
+            inputURLs: inputURLs,
             sampleBarcodes: sampleBarcodes,
             minimumInsert: config.minimumInsert
         )

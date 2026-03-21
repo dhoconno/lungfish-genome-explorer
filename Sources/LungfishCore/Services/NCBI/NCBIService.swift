@@ -336,7 +336,20 @@ public actor NCBIService: DatabaseService {
 
         let data = try await makeRequest(url: url)
         let decoder = JSONDecoder()
-        let report = try decoder.decode(VirusDatasetReport.self, from: data)
+        let report: VirusDatasetReport
+        do {
+            report = try decoder.decode(VirusDatasetReport.self, from: data)
+        } catch let decodingError {
+            let preview = String(data: data.prefix(2000), encoding: .utf8) ?? "(non-UTF8)"
+            logger.error("searchVirusDatasets: Decoding failed: \(decodingError, privacy: .public)\nResponse preview: \(preview, privacy: .public)")
+            throw decodingError
+        }
+
+        // Handle API-level errors (500, etc.)
+        if let apiError = report.error {
+            logger.error("searchVirusDatasets: API error: \(apiError, privacy: .public)")
+            throw DatabaseServiceError.invalidQuery(reason: "NCBI API error: \(apiError)")
+        }
 
         let records = report.reports.compactMap { virusReport -> SearchResultRecord? in
             guard let accession = virusReport.accession else { return nil }
@@ -1730,11 +1743,22 @@ public struct VirusDatasetReport: Codable, Sendable {
     public let reports: [VirusReport]
     public let totalCount: Int?
     public let nextPageToken: String?
+    /// API error message (returned instead of reports when the request fails server-side).
+    public let error: String?
 
     enum CodingKeys: String, CodingKey {
         case reports
         case totalCount = "total_count"
         case nextPageToken = "next_page_token"
+        case error
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.reports = (try? container.decode([VirusReport].self, forKey: .reports)) ?? []
+        self.totalCount = try? container.decode(Int.self, forKey: .totalCount)
+        self.nextPageToken = try? container.decode(String.self, forKey: .nextPageToken)
+        self.error = try? container.decode(String.self, forKey: .error)
     }
 
     /// Fallback date formatter for dates without timezone info.
