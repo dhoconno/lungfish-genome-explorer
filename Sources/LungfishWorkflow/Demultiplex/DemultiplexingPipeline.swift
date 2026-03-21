@@ -130,6 +130,11 @@ public struct DemultiplexConfig: Sendable {
         return min(minimumOverlap, max(3, barcodeLen - 4))
     }
 
+    /// Minimum insert length (bp) between left and right barcode hits.
+    /// Used by the exact barcode demux engine for asymmetric kits.
+    /// Default: 2000.
+    public let minimumInsert: Int
+
     /// Whether to disallow indels in barcode matching (cutadapt --no-indels).
     ///
     /// Defaults to `false` (indels allowed). ONT reads have significant indel
@@ -165,6 +170,7 @@ public struct DemultiplexConfig: Sendable {
         rootBundleURL: URL? = nil,
         rootFASTQFilename: String? = nil,
         inputPairingMode: IngestionMetadata.PairingMode? = nil,
+        minimumInsert: Int = 2000,
         useNoIndels: Bool = false,
         captureTrimsForChaining: Bool = false
     ) {
@@ -209,6 +215,7 @@ public struct DemultiplexConfig: Sendable {
         self.rootBundleURL = rootBundleURL
         self.rootFASTQFilename = rootFASTQFilename
         self.inputPairingMode = inputPairingMode
+        self.minimumInsert = minimumInsert
         self.useNoIndels = useNoIndels
         self.captureTrimsForChaining = captureTrimsForChaining
     }
@@ -327,6 +334,18 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         }
 
         let fm = FileManager.default
+
+        // Asymmetric kits with sample assignments: use Swift-native exact barcode demux
+        // instead of cutadapt. This handles internal barcode search, 4 orientation patterns,
+        // minimum insert distance, and exact matching required for PacBio barcodes on ONT.
+        if config.symmetryMode == .asymmetric && !config.sampleAssignments.isEmpty {
+            return try await runExactBarcodeDemux(
+                config: config,
+                inputFASTQ: inputFASTQ,
+                startTime: startTime,
+                progress: progress
+            )
+        }
 
         // Create working directories
         let workDir = fm.temporaryDirectory
@@ -1042,6 +1061,270 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         progress(1.0, "Demultiplexing complete: \(barcodeResults.count) barcodes, \(String(format: "%.0f%%", manifest.assignmentRate * 100)) assigned")
 
         logger.info("Demux complete: \(barcodeResults.count) barcodes, \(manifest.assignmentRate * 100)% assigned, \(String(format: "%.1f", elapsed))s")
+
+        return DemultiplexResult(
+            manifest: manifest,
+            outputBundleURLs: bundleURLs,
+            unassignedBundleURL: unassignedBundleURL,
+            wallClockSeconds: elapsed
+        )
+    }
+
+    // MARK: - Exact Barcode Demux (Asymmetric)
+
+    /// Runs the Swift-native exact barcode demux engine for asymmetric kits.
+    ///
+    /// Produces virtual bundles directly (read ID lists + previews) without
+    /// writing intermediate FASTQ files. Used for PacBio asymmetric barcodes
+    /// that require exact matching with internal barcode search.
+    private func runExactBarcodeDemux(
+        config: DemultiplexConfig,
+        inputFASTQ: URL,
+        startTime: Date,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> DemultiplexResult {
+        let fm = FileManager.default
+        try fm.createDirectory(at: config.outputDirectory, withIntermediateDirectories: true)
+
+        // Build sample barcode pairs from assignments
+        var sampleBarcodes: [ExactBarcodeDemuxConfig.SampleBarcodePair] = []
+        for assignment in config.sampleAssignments {
+            guard let fwdSeq = resolveSequence(
+                explicitSequence: assignment.forwardSequence,
+                barcodeID: assignment.forwardBarcodeID,
+                kit: config.barcodeKit
+            ), let revSeq = resolveSequence(
+                explicitSequence: assignment.reverseSequence,
+                barcodeID: assignment.reverseBarcodeID,
+                kit: config.barcodeKit
+            ) else { continue }
+
+            let name = sanitizedSampleIdentifier(assignment.sampleID)
+            sampleBarcodes.append(ExactBarcodeDemuxConfig.SampleBarcodePair(
+                sampleName: name,
+                forwardSequence: fwdSeq,
+                reverseSequence: revSeq
+            ))
+        }
+
+        guard !sampleBarcodes.isEmpty else {
+            throw DemultiplexError.combinatorialRequiresSampleAssignments
+        }
+
+        // Run the exact barcode demux engine
+        let demuxConfig = ExactBarcodeDemuxConfig(
+            inputURL: inputFASTQ,
+            sampleBarcodes: sampleBarcodes,
+            minimumInsert: config.minimumInsert
+        )
+
+        let demuxResult = try await ExactBarcodeDemux.run(
+            config: demuxConfig,
+            progress: progress
+        )
+
+        progress(0.80, "Creating virtual bundles...")
+
+        // Create virtual bundles directly from demux results
+        var barcodeResults: [BarcodeResult] = []
+        var bundleURLs: [URL] = []
+        var unassignedBundleURL: URL?
+        var assignedReadCount = 0
+
+        // Process each sample result
+        for (i, sampleResult) in demuxResult.sampleResults.enumerated() {
+            let bundleName = "\(sampleResult.sampleName).\(FASTQBundle.directoryExtension)"
+            let bundleURL = config.outputDirectory
+                .appendingPathComponent(bundleName, isDirectory: true)
+            try fm.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+            // Write read-ids.txt
+            let readIDsURL = bundleURL.appendingPathComponent("read-ids.txt")
+            let readIDContent = sampleResult.readIDs.joined(separator: "\n") + "\n"
+            try readIDContent.write(to: readIDsURL, atomically: true, encoding: .utf8)
+
+            // Write preview.fastq
+            let previewURL = bundleURL.appendingPathComponent("preview.fastq")
+            let previewContent = sampleResult.previewRecords.map(\.fastqString).joined()
+            try previewContent.write(to: previewURL, atomically: true, encoding: .utf8)
+
+            // Write derived manifest if root bundle info is available
+            if let rootBundleURL = config.rootBundleURL,
+               let rootFASTQFilename = config.rootFASTQFilename {
+                let rootRelativePath = FASTQBundle.projectRelativePath(for: rootBundleURL, from: bundleURL)
+                    ?? relativePath(from: bundleURL, to: rootBundleURL)
+                let parentBundleURL = config.sourceBundleURL
+                let parentRelativePath = parentBundleURL.flatMap {
+                    FASTQBundle.projectRelativePath(for: $0, from: bundleURL)
+                        ?? relativePath(from: bundleURL, to: $0)
+                } ?? rootRelativePath
+                let demuxOp = FASTQDerivativeOperation(
+                    kind: .demultiplex,
+                    toolUsed: "exact-barcode-demux",
+                    toolVersion: nil
+                )
+                let stats = ExactBarcodeDemux.computeStatistics(
+                    readCount: sampleResult.readCount,
+                    baseCount: sampleResult.baseCount,
+                    minReadLength: sampleResult.minReadLength,
+                    maxReadLength: sampleResult.maxReadLength,
+                    readLengthHistogram: sampleResult.readLengthHistogram
+                )
+                let derivedManifest = FASTQDerivedBundleManifest(
+                    name: sampleResult.sampleName,
+                    parentBundleRelativePath: parentRelativePath,
+                    rootBundleRelativePath: rootRelativePath,
+                    rootFASTQFilename: rootFASTQFilename,
+                    payload: .demuxedVirtual(
+                        barcodeID: sampleResult.sampleName,
+                        readIDListFilename: "read-ids.txt",
+                        previewFilename: "preview.fastq",
+                        trimPositionsFilename: nil,
+                        orientMapFilename: nil
+                    ),
+                    lineage: [demuxOp],
+                    operation: demuxOp,
+                    cachedStatistics: stats,
+                    pairingMode: config.inputPairingMode ?? inferredPairingMode(from: config.sourceBundleURL ?? config.inputURL)
+                )
+                do {
+                    try FASTQBundle.saveDerivedManifest(derivedManifest, in: bundleURL)
+                } catch {
+                    logger.error("Failed to save derived manifest for \(sampleResult.sampleName): \(error)")
+                }
+            }
+
+            // Look up sample assignment for sequence info
+            let sequenceInfo = barcodeSequenceInfo(
+                for: sampleResult.sampleName,
+                kit: config.barcodeKit,
+                sampleAssignments: config.sampleAssignments
+            )
+            barcodeResults.append(BarcodeResult(
+                barcodeID: sampleResult.sampleName,
+                sampleName: sequenceInfo.sampleName,
+                forwardSequence: sampleResult.forwardBarcodeSeq,
+                reverseSequence: sampleResult.reverseBarcodeSeq,
+                readCount: sampleResult.readCount,
+                baseCount: sampleResult.baseCount,
+                bundleRelativePath: bundleName
+            ))
+            bundleURLs.append(bundleURL)
+            assignedReadCount += sampleResult.readCount
+
+            progress(
+                0.80 + 0.15 * Double(i + 1) / Double(demuxResult.sampleResults.count),
+                "Created virtual bundle for \(sampleResult.sampleName)"
+            )
+        }
+
+        // Handle unassigned reads
+        if config.unassignedDisposition == .keep && demuxResult.unassignedReadCount > 0 {
+            let unassignedBundleName = "unassigned.\(FASTQBundle.directoryExtension)"
+            let bundleURL = config.outputDirectory
+                .appendingPathComponent(unassignedBundleName, isDirectory: true)
+            try fm.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+            let readIDsURL = bundleURL.appendingPathComponent("read-ids.txt")
+            let readIDContent = demuxResult.unassignedReadIDs.joined(separator: "\n") + "\n"
+            try readIDContent.write(to: readIDsURL, atomically: true, encoding: .utf8)
+
+            let previewURL = bundleURL.appendingPathComponent("preview.fastq")
+            let previewContent = demuxResult.unassignedPreview.map(\.fastqString).joined()
+            try previewContent.write(to: previewURL, atomically: true, encoding: .utf8)
+
+            if let rootBundleURL = config.rootBundleURL,
+               let rootFASTQFilename = config.rootFASTQFilename {
+                let rootRelativePath = FASTQBundle.projectRelativePath(for: rootBundleURL, from: bundleURL)
+                    ?? relativePath(from: bundleURL, to: rootBundleURL)
+                let parentRelativePath = config.sourceBundleURL.flatMap {
+                    FASTQBundle.projectRelativePath(for: $0, from: bundleURL)
+                        ?? relativePath(from: bundleURL, to: $0)
+                } ?? rootRelativePath
+                let demuxOp = FASTQDerivativeOperation(
+                    kind: .demultiplex,
+                    toolUsed: "exact-barcode-demux",
+                    toolVersion: nil
+                )
+                let stats = ExactBarcodeDemux.computeStatistics(
+                    readCount: demuxResult.unassignedReadCount,
+                    baseCount: demuxResult.unassignedBaseCount,
+                    minReadLength: demuxResult.unassignedMinReadLength,
+                    maxReadLength: demuxResult.unassignedMaxReadLength,
+                    readLengthHistogram: [:]
+                )
+                let derivedManifest = FASTQDerivedBundleManifest(
+                    name: "unassigned",
+                    parentBundleRelativePath: parentRelativePath,
+                    rootBundleRelativePath: rootRelativePath,
+                    rootFASTQFilename: rootFASTQFilename,
+                    payload: .demuxedVirtual(
+                        barcodeID: "unassigned",
+                        readIDListFilename: "read-ids.txt",
+                        previewFilename: "preview.fastq",
+                        trimPositionsFilename: nil,
+                        orientMapFilename: nil
+                    ),
+                    lineage: [demuxOp],
+                    operation: demuxOp,
+                    cachedStatistics: stats,
+                    pairingMode: config.inputPairingMode ?? inferredPairingMode(from: config.sourceBundleURL ?? config.inputURL)
+                )
+                do {
+                    try FASTQBundle.saveDerivedManifest(derivedManifest, in: bundleURL)
+                } catch {
+                    logger.error("Failed to save derived manifest for unassigned: \(error)")
+                }
+            }
+
+            unassignedBundleURL = bundleURL
+        }
+
+        // Sort barcode results by ID
+        barcodeResults.sort { $0.barcodeID.localizedStandardCompare($1.barcodeID) == .orderedAscending }
+
+        let elapsed = Date().timeIntervalSince(startTime)
+
+        // Build manifest
+        let kitForManifest = BarcodeKit(
+            name: config.barcodeKit.displayName,
+            vendor: config.barcodeKit.vendor,
+            barcodeCount: config.sampleAssignments.count,
+            isDualIndexed: true,
+            barcodeType: .asymmetric
+        )
+
+        let manifest = DemultiplexManifest(
+            barcodeKit: kitForManifest,
+            parameters: DemultiplexParameters(
+                tool: "exact-barcode-demux",
+                toolVersion: nil,
+                maxMismatches: 0,
+                requireBothEnds: true,
+                trimBarcodes: false,
+                commandLine: "exact-barcode-demux --min-insert \(config.minimumInsert)",
+                wallClockSeconds: elapsed
+            ),
+            barcodes: barcodeResults,
+            unassigned: UnassignedReadsSummary(
+                readCount: demuxResult.unassignedReadCount,
+                baseCount: demuxResult.unassignedBaseCount,
+                disposition: config.unassignedDisposition,
+                bundleRelativePath: unassignedBundleURL?.lastPathComponent
+            ),
+            outputDirectoryRelativePath: ".",
+            inputReadCount: demuxResult.totalReads
+        )
+
+        try manifest.save(to: config.outputDirectory)
+
+        if FASTQBundle.isBundleURL(config.inputURL) {
+            try? manifest.save(to: config.inputURL)
+        }
+
+        progress(1.0, "Demultiplexing complete: \(barcodeResults.count) samples, \(String(format: "%.0f%%", manifest.assignmentRate * 100)) assigned")
+
+        logger.info("Exact barcode demux complete: \(barcodeResults.count) samples, \(manifest.assignmentRate * 100)% assigned, \(String(format: "%.1f", elapsed))s")
 
         return DemultiplexResult(
             manifest: manifest,
@@ -3018,6 +3301,7 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             rootBundleURL: rootBundleURL,
             rootFASTQFilename: rootFASTQFilename,
             inputPairingMode: inputPairingMode,
+            minimumInsert: step.minimumInsert,
             useNoIndels: !step.allowIndels,
             captureTrimsForChaining: captureTrimsForChaining
         )

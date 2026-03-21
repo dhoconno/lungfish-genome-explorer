@@ -234,6 +234,11 @@ public final class MainMenu {
             action: #selector(FileMenuActions.exportGFF3(_:)),
             keyEquivalent: ""
         )
+        exportMenu.addItem(
+            withTitle: "FASTQ...",
+            action: #selector(FileMenuActions.exportFASTQ(_:)),
+            keyEquivalent: ""
+        )
         exportMenu.addItem(.separator())
         exportMenu.addItem(
             withTitle: "Image (PNG)...",
@@ -781,6 +786,7 @@ public final class MainMenu {
     func exportProvenanceSnakemake(_ sender: Any?)
     func exportProvenanceMethods(_ sender: Any?)
     func exportProvenanceJSON(_ sender: Any?)
+    func exportFASTQ(_ sender: Any?)
 }
 
 /// View menu action handlers.

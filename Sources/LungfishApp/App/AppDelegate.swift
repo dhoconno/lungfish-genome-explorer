@@ -3630,6 +3630,151 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         alert.runModal()
     }
 
+    // MARK: - Export FASTQ
+
+    @objc func exportFASTQ(_ sender: Any?) {
+        guard let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController else {
+            showExportError(message: "No sidebar available.")
+            return
+        }
+
+        let items = sidebarController.selectedItems().filter { $0.type == .fastqBundle && $0.url != nil }
+        guard !items.isEmpty else {
+            showExportError(message: "No FASTQ datasets selected. Select one or more FASTQ bundles in the sidebar.")
+            return
+        }
+
+        guard let window = mainWindowController?.window else { return }
+
+        if items.count == 1 {
+            // Single selection: use save panel
+            let item = items[0]
+            let bundleURL = item.url!
+            let isDerived = FASTQBundle.isDerivedBundle(bundleURL)
+            let baseName = FASTQBundle.deriveBaseName(from: bundleURL)
+            let suggestedName: String
+            if isDerived {
+                suggestedName = baseName + ".fastq.gz"
+            } else if let primaryURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL) {
+                suggestedName = primaryURL.lastPathComponent
+            } else {
+                suggestedName = baseName + ".fastq"
+            }
+
+            let savePanel = NSSavePanel()
+            savePanel.title = "Export FASTQ"
+            savePanel.nameFieldStringValue = suggestedName
+            savePanel.allowedContentTypes = [.data]
+            savePanel.canCreateDirectories = true
+            savePanel.beginSheetModal(for: window) { [weak self] response in
+                guard response == .OK, let outputURL = savePanel.url else { return }
+                self?.performFASTQExports(
+                    bundles: [(bundleURL, outputURL, isDerived, item.title)],
+                    window: window
+                )
+            }
+        } else {
+            // Multi-selection: use open panel (folder picker)
+            let openPanel = NSOpenPanel()
+            openPanel.title = "Export \(items.count) FASTQ Files — Choose Output Folder"
+            openPanel.canChooseFiles = false
+            openPanel.canChooseDirectories = true
+            openPanel.canCreateDirectories = true
+            openPanel.prompt = "Export Here"
+            openPanel.beginSheetModal(for: window) { [weak self] response in
+                guard response == .OK, let folderURL = openPanel.url else { return }
+                var bundles: [(bundleURL: URL, outputURL: URL, isDerived: Bool, title: String)] = []
+                for item in items {
+                    let bundleURL = item.url!
+                    let isDerived = FASTQBundle.isDerivedBundle(bundleURL)
+                    let baseName = FASTQBundle.deriveBaseName(from: bundleURL)
+                    let filename: String
+                    if isDerived {
+                        filename = baseName + ".fastq.gz"
+                    } else if let primaryURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL) {
+                        filename = primaryURL.lastPathComponent
+                    } else {
+                        filename = baseName + ".fastq"
+                    }
+                    let outputURL = folderURL.appendingPathComponent(filename)
+                    bundles.append((bundleURL, outputURL, isDerived, item.title))
+                }
+                self?.performFASTQExports(bundles: bundles, window: window)
+            }
+        }
+    }
+
+    /// Exports one or more FASTQ bundles in the background.
+    private func performFASTQExports(
+        bundles: [(bundleURL: URL, outputURL: URL, isDerived: Bool, title: String)],
+        window: NSWindow
+    ) {
+        let total = bundles.count
+        Task.detached {
+            var succeeded = 0
+            var failed: [(title: String, error: String)] = []
+
+            for (bundleURL, outputURL, isDerived, title) in bundles {
+                do {
+                    if isDerived {
+                        try await FASTQDerivativeService.shared.exportMaterializedFASTQ(
+                            fromDerivedBundle: bundleURL,
+                            to: outputURL,
+                            progress: { message in
+                                debugLog("Export FASTQ (\(title)): \(message)")
+                            }
+                        )
+                    } else {
+                        guard let primaryURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL) else {
+                            throw NSError(domain: "com.lungfish.browser", code: 1,
+                                          userInfo: [NSLocalizedDescriptionKey: "No FASTQ file found inside bundle"])
+                        }
+                        try FileManager.default.copyItem(at: primaryURL, to: outputURL)
+                    }
+                    succeeded += 1
+                } catch {
+                    debugLog("Export FASTQ failed for \(title): \(error)")
+                    failed.append((title, error.localizedDescription))
+                }
+            }
+
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    let alert = NSAlert()
+                    if failed.isEmpty {
+                        alert.messageText = "Export Complete"
+                        if total == 1 {
+                            alert.informativeText = "\(bundles[0].title) exported as \(bundles[0].outputURL.lastPathComponent)."
+                        } else {
+                            alert.informativeText = "Successfully exported \(succeeded) FASTQ file(s)."
+                        }
+                        alert.alertStyle = .informational
+                        alert.addButton(withTitle: "OK")
+                        if total == 1 {
+                            alert.addButton(withTitle: "Show in Finder")
+                        }
+                    } else if succeeded == 0 {
+                        alert.messageText = "Export Failed"
+                        alert.informativeText = failed.map { "\($0.title): \($0.error)" }.joined(separator: "\n")
+                        alert.alertStyle = .critical
+                        alert.addButton(withTitle: "OK")
+                    } else {
+                        alert.messageText = "Export Partially Complete"
+                        alert.informativeText = "\(succeeded) succeeded, \(failed.count) failed.\n\n"
+                            + failed.map { "\($0.title): \($0.error)" }.joined(separator: "\n")
+                        alert.alertStyle = .warning
+                        alert.addButton(withTitle: "OK")
+                    }
+                    alert.beginSheetModal(for: window) { response in
+                        if total == 1 && failed.isEmpty && response == .alertSecondButtonReturn {
+                            NSWorkspace.shared.activateFileViewerSelecting([bundles[0].outputURL])
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - OperationsMenuActions
 
     private var operationsPanelController: OperationsPanelController?

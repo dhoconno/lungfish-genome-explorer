@@ -160,9 +160,13 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
     private let stepDistance5Field = NSTextField(string: "0")
     private let stepDistance3Label = NSTextField(labelWithString: "3' Window:")
     private let stepDistance3Field = NSTextField(string: "0")
+    private let stepMinInsertLabel = NSTextField(labelWithString: "Min Insert:")
+    private let stepMinInsertField = NSTextField(string: "2000")
     private let stepScoutButton = NSButton(title: "Detect", target: nil, action: nil)
     private let stepImportKitButton = NSButton(title: "Import Project Kit CSV", target: nil, action: nil)
     private let stepRemoveKitButton = NSButton(title: "Remove Custom Kit", target: nil, action: nil)
+    private var patternLabelTopToCutadapt: NSLayoutConstraint!
+    private var patternLabelTopToInsert: NSLayoutConstraint!
     private let demuxAdvancedDisclosure = NSButton(checkboxWithTitle: "Advanced", target: nil, action: nil)
     private let demuxSimpleSummaryLabel = NSTextField(labelWithString: "Outputs will be created per detected barcode.")
     private let demuxPatternLabel = NSTextField(labelWithString: "Pattern:")
@@ -572,6 +576,22 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             stepDetailContainer.addSubview(field)
         }
 
+        stepMinInsertLabel.translatesAutoresizingMaskIntoConstraints = false
+        stepDetailContainer.addSubview(stepMinInsertLabel)
+        stepMinInsertField.controlSize = .small
+        stepMinInsertField.translatesAutoresizingMaskIntoConstraints = false
+        stepMinInsertField.alignment = .right
+        stepMinInsertField.target = self
+        stepMinInsertField.action = #selector(stepDetailChanged(_:))
+        let insertFormatter = NumberFormatter()
+        insertFormatter.numberStyle = .none
+        insertFormatter.minimum = 0
+        insertFormatter.maximum = 50000
+        insertFormatter.allowsFloats = false
+        stepMinInsertField.formatter = insertFormatter
+        stepMinInsertField.setAccessibilityLabel("Minimum insert length between barcode hits")
+        stepDetailContainer.addSubview(stepMinInsertField)
+
         stepScoutButton.bezelStyle = .rounded
         stepScoutButton.controlSize = .small
         stepScoutButton.translatesAutoresizingMaskIntoConstraints = false
@@ -697,10 +717,23 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             stepDistance3Field.widthAnchor.constraint(equalToConstant: 44),
             stepDistance3Field.trailingAnchor.constraint(lessThanOrEqualTo: stepDetailContainer.trailingAnchor, constant: -8),
 
-            demuxPatternLabel.topAnchor.constraint(equalTo: stepDistance5Label.bottomAnchor, constant: 10),
+            // Row 4b: Min Insert (asymmetric mode only, same vertical position as Error Rate row)
+            stepMinInsertLabel.topAnchor.constraint(equalTo: stepLocationLabel.bottomAnchor, constant: 8),
+            stepMinInsertLabel.leadingAnchor.constraint(equalTo: stepDetailContainer.leadingAnchor, constant: 8),
+            stepMinInsertField.centerYAnchor.constraint(equalTo: stepMinInsertLabel.centerYAnchor),
+            stepMinInsertField.leadingAnchor.constraint(equalTo: stepMinInsertLabel.trailingAnchor, constant: 4),
+            stepMinInsertField.widthAnchor.constraint(equalToConstant: 60),
+
             demuxPatternLabel.leadingAnchor.constraint(equalTo: stepDetailContainer.leadingAnchor, constant: 8),
             demuxPatternLabel.bottomAnchor.constraint(equalTo: stepDetailContainer.bottomAnchor, constant: -6),
         ])
+
+        // Switchable top anchor for demuxPatternLabel:
+        // - cutadapt mode: anchored below 5' Window row
+        // - asymmetric mode: anchored below Min Insert row
+        patternLabelTopToCutadapt = demuxPatternLabel.topAnchor.constraint(equalTo: stepDistance5Label.bottomAnchor, constant: 10)
+        patternLabelTopToInsert = demuxPatternLabel.topAnchor.constraint(equalTo: stepMinInsertLabel.bottomAnchor, constant: 10)
+        patternLabelTopToCutadapt.isActive = true
     }
 
     private func setupPrimerTrimPanel() {
@@ -1050,12 +1083,20 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             addColumn(to: tableView, id: "metadataCount", title: "Metadata", width: 80, editable: false)
 
         case .demux:
+            ensureSingleDemuxStep()
+            let isAsymmetric = demuxSteps[0].symmetryMode == .asymmetric
             addColumn(to: tableView, id: "sampleID", title: "Sample", width: 140, editable: true)
             addColumn(to: tableView, id: "sampleName", title: "Name", width: 140, editable: true)
-            addColumn(to: tableView, id: "forwardBarcodeID", title: "5' Barcode ID", width: 120, editable: true)
-            addColumn(to: tableView, id: "forwardSequence", title: "5' Sequence", width: 190, editable: true)
-            addColumn(to: tableView, id: "reverseBarcodeID", title: "3' Barcode ID", width: 120, editable: true)
-            addColumn(to: tableView, id: "reverseSequence", title: "3' Sequence", width: 190, editable: true)
+            if isAsymmetric {
+                // Asymmetric mode: just barcode IDs (no 5'/3' — all orientations are searched)
+                addColumn(to: tableView, id: "forwardBarcodeID", title: "Barcode 1", width: 120, editable: true)
+                addColumn(to: tableView, id: "reverseBarcodeID", title: "Barcode 2", width: 120, editable: true)
+            } else {
+                addColumn(to: tableView, id: "forwardBarcodeID", title: "5' Barcode ID", width: 120, editable: true)
+                addColumn(to: tableView, id: "forwardSequence", title: "5' Sequence", width: 190, editable: true)
+                addColumn(to: tableView, id: "reverseBarcodeID", title: "3' Barcode ID", width: 120, editable: true)
+                addColumn(to: tableView, id: "reverseSequence", title: "3' Sequence", width: 190, editable: true)
+            }
 
             addColumn(to: kitDetailTable, id: "bcID", title: "ID", width: 80, editable: false)
             addColumn(to: kitDetailTable, id: "bcSequence", title: "Sequence", width: 260, editable: false)
@@ -1278,18 +1319,41 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         stepTrimCheckbox.state = step.trimBarcodes ? .on : .off
         stepDistance5Field.stringValue = "\(step.maxSearchDistance5Prime)"
         stepDistance3Field.stringValue = "\(step.maxSearchDistance3Prime)"
+        stepMinInsertField.stringValue = "\(step.minimumInsert)"
         updateLocationControlState()
-        let advancedViews: [NSView] = [
-            stepLocationLabel, stepLocationControl,
-            stepSymmetryLabel, stepSymmetryPopup,
+
+        let isAsymmetric = step.symmetryMode == .asymmetric
+
+        // Cutadapt-specific controls: hidden when asymmetric or when advanced is off
+        let cutadaptViews: [NSView] = [
             stepErrorLabel, stepErrorRateField,
             stepOverlapLabel, stepOverlapField,
             stepIndelsCheckbox, stepTrimCheckbox,
             stepDistance5Label, stepDistance5Field,
             stepDistance3Label, stepDistance3Field,
+        ]
+        for view in cutadaptViews {
+            view.isHidden = !isDemuxAdvancedEnabled || isAsymmetric
+        }
+
+        // Min Insert controls: shown only in asymmetric + advanced mode
+        stepMinInsertLabel.isHidden = !isDemuxAdvancedEnabled || !isAsymmetric
+        stepMinInsertField.isHidden = !isDemuxAdvancedEnabled || !isAsymmetric
+
+        // Detect (scout) button: hidden in asymmetric mode (not applicable)
+        stepScoutButton.isHidden = isAsymmetric
+
+        // Switch demuxPatternLabel anchor based on mode
+        patternLabelTopToCutadapt.isActive = !isAsymmetric
+        patternLabelTopToInsert.isActive = isAsymmetric
+
+        // Always-visible advanced views (location, symmetry, pattern label)
+        let alwaysAdvancedViews: [NSView] = [
+            stepLocationLabel, stepLocationControl,
+            stepSymmetryLabel, stepSymmetryPopup,
             demuxPatternLabel,
         ]
-        for view in advancedViews {
+        for view in alwaysAdvancedViews {
             view.isHidden = !isDemuxAdvancedEnabled
         }
         demuxSimpleSummaryLabel.isHidden = isDemuxAdvancedEnabled
@@ -1607,6 +1671,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         demuxSteps[0].barcodeKitID = kit.id
 
         // Auto-set symmetry and location from kit's pairing mode
+        let previousSymmetry = demuxSteps[0].symmetryMode
         let symmetry: BarcodeSymmetryMode
         switch kit.pairingMode {
         case .singleEnd: symmetry = .singleEnd
@@ -1614,6 +1679,12 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         case .fixedDual, .combinatorialDual: symmetry = .asymmetric
         }
         demuxSteps[0].symmetryMode = symmetry
+
+        // Rebuild columns when switching to/from asymmetric mode
+        let symmetryClassChanged = (previousSymmetry == .asymmetric) != (symmetry == .asymmetric)
+        if symmetryClassChanged {
+            rebuildColumns()
+        }
 
         // Symmetric and asymmetric always search both ends; single-end defaults to 5'
         switch symmetry {
@@ -1651,6 +1722,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
     @objc private func stepDetailChanged(_ sender: Any) {
         ensureSingleDemuxStep()
 
+        let previousSymmetry = demuxSteps[0].symmetryMode
         let symmetry: BarcodeSymmetryMode
         switch stepSymmetryPopup.indexOfSelectedItem {
         case 1: symmetry = .asymmetric
@@ -1658,6 +1730,13 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         default: symmetry = .symmetric
         }
         demuxSteps[0].symmetryMode = symmetry
+
+        // Rebuild columns when switching to/from asymmetric mode
+        // (asymmetric shows simplified Barcode 1/2 columns instead of 5'/3' + sequence)
+        let symmetryClassChanged = (previousSymmetry == .asymmetric) != (symmetry == .asymmetric)
+        if symmetryClassChanged {
+            rebuildColumns()
+        }
 
         // Symmetry determines location: symmetric/asymmetric always use both ends
         switch symmetry {
@@ -1691,7 +1770,11 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         if let dist3 = Int(stepDistance3Field.stringValue) {
             demuxSteps[0].maxSearchDistance3Prime = max(0, dist3)
         }
+        if let minInsert = Int(stepMinInsertField.stringValue) {
+            demuxSteps[0].minimumInsert = max(0, minInsert)
+        }
 
+        refreshStepDetail()
         notifyDemuxPlanChanged()
     }
 
@@ -1785,7 +1868,11 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
                 switch self.activeTab {
                 case .samples, .demux:
                     do {
-                        self.sampleAssignments = try FASTQSampleBarcodeCSV.load(from: url)
+                        let content = try String(contentsOf: url, encoding: .utf8)
+                        NSLog("[FASTQDrawer] Read \(content.count) chars from \(url.lastPathComponent), first 200: \(String(content.prefix(200)))")
+                        let imported = try FASTQSampleBarcodeCSV.load(from: url)
+                        NSLog("[FASTQDrawer] Imported \(imported.count) sample assignment(s) from \(url.lastPathComponent)")
+                        self.sampleAssignments = imported
                         self.ensureSingleDemuxStep()
                         self.demuxSteps[0].sampleAssignments = self.sampleAssignments
                         self.tableView.reloadData()
@@ -1794,6 +1881,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
                             self.notifyDemuxPlanChanged()
                         }
                     } catch {
+                        NSLog("[FASTQDrawer] Import failed: \(error)")
                         self.statusLabel.stringValue = "Import failed: \(error.localizedDescription)"
                     }
                 case .primerTrim, .dedup:
@@ -1824,7 +1912,14 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             MainActor.assumeIsolated {
                 guard let self, response == .OK, let outputURL = panel.url else { return }
                 do {
-                    let content = FASTQSampleBarcodeCSV.exportCSV(self.sampleAssignments)
+                    self.ensureSingleDemuxStep()
+                    let isAsymmetric = self.demuxSteps[0].symmetryMode == .asymmetric
+                    let content: String
+                    if isAsymmetric && self.activeTab == .demux {
+                        content = FASTQSampleBarcodeCSV.exportAsymmetricCSV(self.sampleAssignments)
+                    } else {
+                        content = FASTQSampleBarcodeCSV.exportCSV(self.sampleAssignments)
+                    }
                     try content.write(to: outputURL, atomically: true, encoding: .utf8)
                     self.statusLabel.stringValue = "Exported \(outputURL.lastPathComponent)."
                 } catch {
