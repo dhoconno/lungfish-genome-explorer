@@ -65,6 +65,9 @@ public class ViewerViewController: NSViewController {
     /// FASTA collection browser (shown in place of sequence viewer for multi-sequence FASTA files)
     private var fastaCollectionController: FASTACollectionViewController?
 
+    /// Taxonomy classification browser (shown in place of sequence viewer for kreport results)
+    var taxonomyViewController: TaxonomyViewController?
+
     // MARK: - State
 
     /// Current reference frame for coordinate mapping
@@ -912,6 +915,7 @@ public class ViewerViewController: NSViewController {
     ) {
         hideQuickLookPreview()
         hideFASTQDatasetView()
+        hideTaxonomyView()
 
         let controller = FASTQDatasetViewController()
         addChild(controller)
@@ -1021,6 +1025,7 @@ public class ViewerViewController: NSViewController {
         hideFASTQDatasetView()
         hideVCFDatasetView()
         hideFASTACollectionView()
+        hideTaxonomyView()
 
         let controller = VCFDatasetViewController()
         controller.onDownloadReferenceRequested = onDownloadReference
@@ -1109,6 +1114,7 @@ public class ViewerViewController: NSViewController {
         hideFASTQDatasetView()
         hideVCFDatasetView()
         hideFASTACollectionView()
+        hideTaxonomyView()
 
         let controller = FASTACollectionViewController()
         addChild(controller)
@@ -1411,6 +1417,7 @@ public class ViewerViewController: NSViewController {
         hideFASTQDatasetView()
         hideVCFDatasetView()
         hideFASTACollectionView()
+        hideTaxonomyView()
 
         // Clear any stale reference bundle state so the viewer uses
         // the document's sequences instead of trying to fetch from a bundle
@@ -1520,6 +1527,7 @@ public class ViewerViewController: NSViewController {
         hideFASTQDatasetView()
         hideVCFDatasetView()
         hideFASTACollectionView()
+        hideTaxonomyView()
 
         // Hide the progress overlay first - it may be covering the view area
         hideProgress()
