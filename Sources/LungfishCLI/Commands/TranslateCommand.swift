@@ -37,7 +37,7 @@ struct TranslateCommand: AsyncParsableCommand {
     var frame: Int?
 
     @Option(
-        name: .shortAndLong,
+        name: .customLong("table"),
         help: "Genetic code table ID (1=standard, 2=vertebrate mito, 3=yeast mito, 11=bacterial)"
     )
     var table: Int = 1
