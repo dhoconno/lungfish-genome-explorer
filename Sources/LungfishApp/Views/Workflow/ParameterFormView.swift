@@ -7,10 +7,11 @@
 import AppKit
 import LungfishWorkflow
 import os.log
+import LungfishCore
 import UniformTypeIdentifiers
 
 /// Logger for parameter form operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "ParameterFormView")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "ParameterFormView")
 
 // MARK: - ParameterFormDelegate
 

@@ -7,6 +7,7 @@
 
 import Foundation
 import os.log
+import LungfishCore
 
 // MARK: - NewContainerRuntimeFactory
 
@@ -108,7 +109,7 @@ public enum NewContainerRuntimeFactory {
     // MARK: - Properties
 
     private static let logger = Logger(
-        subsystem: "com.lungfish.workflow",
+        subsystem: LogSubsystem.workflow,
         category: "NewContainerRuntimeFactory"
     )
 

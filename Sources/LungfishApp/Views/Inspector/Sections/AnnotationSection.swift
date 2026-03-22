@@ -4,6 +4,9 @@
 
 import SwiftUI
 import LungfishCore
+import os.log
+
+private let logger = Logger(subsystem: LogSubsystem.app, category: "AnnotationSection")
 
 /// View model for the annotation section.
 ///
@@ -66,13 +69,7 @@ public final class AnnotationSectionViewModel {
     /// Falls back to posting a global notification when the inspector controller
     /// callback is not attached (e.g., during panel lifecycle transitions).
     public func notifySettingsChanged() {
-        NSLog(
-            "AnnotationSectionViewModel.notifySettingsChanged: show=%@ height=%.1f spacing=%.1f callback=%@",
-            showAnnotations ? "true" : "false",
-            annotationHeight,
-            annotationSpacing,
-            onSettingsChanged == nil ? "nil" : "set"
-        )
+        logger.debug("notifySettingsChanged: show=\(self.showAnnotations, privacy: .public) height=\(self.annotationHeight, privacy: .public) spacing=\(self.annotationSpacing, privacy: .public) callback=\(self.onSettingsChanged == nil ? "nil" : "set", privacy: .public)")
         if let onSettingsChanged {
             onSettingsChanged()
             return
@@ -94,12 +91,7 @@ public final class AnnotationSectionViewModel {
     /// Falls back to posting a global notification when the inspector controller
     /// callback is not attached (e.g., during panel lifecycle transitions).
     public func notifyFilterChanged() {
-        NSLog(
-            "AnnotationSectionViewModel.notifyFilterChanged: visibleTypes=%ld filter='%@' callback=%@",
-            visibleTypes.count,
-            filterText,
-            onFilterChanged == nil ? "nil" : "set"
-        )
+        logger.debug("notifyFilterChanged: visibleTypes=\(self.visibleTypes.count, privacy: .public) filter='\(self.filterText, privacy: .public)' callback=\(self.onFilterChanged == nil ? "nil" : "set", privacy: .public)")
         if let onFilterChanged {
             onFilterChanged(visibleTypes, filterText)
             return
@@ -117,7 +109,7 @@ public final class AnnotationSectionViewModel {
 
     /// Toggles visibility of an annotation type
     public func toggleType(_ type: AnnotationType) {
-        NSLog("AnnotationSectionViewModel.toggleType: type=%@", type.rawValue)
+        logger.debug("toggleType: type=\(type.rawValue, privacy: .public)")
         if visibleTypes.contains(type) {
             visibleTypes.remove(type)
         } else {
@@ -128,14 +120,14 @@ public final class AnnotationSectionViewModel {
 
     /// Shows all annotation types
     public func showAllTypes() {
-        NSLog("AnnotationSectionViewModel.showAllTypes")
+        logger.debug("showAllTypes")
         visibleTypes = Set(AnnotationType.allCases)
         notifyFilterChanged()
     }
 
     /// Hides all annotation types
     public func hideAllTypes() {
-        NSLog("AnnotationSectionViewModel.hideAllTypes")
+        logger.debug("hideAllTypes")
         visibleTypes = []
         notifyFilterChanged()
     }

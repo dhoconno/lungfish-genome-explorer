@@ -7,9 +7,10 @@
 import AppKit
 import LungfishWorkflow
 import os.log
+import LungfishCore
 
 /// Logger for workflow configuration panel operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "WorkflowConfigurationPanel")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "WorkflowConfigurationPanel")
 
 // MARK: - WorkflowConfigurationPanelDelegate
 

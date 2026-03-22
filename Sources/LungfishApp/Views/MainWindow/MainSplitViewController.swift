@@ -9,7 +9,7 @@ import LungfishWorkflow
 import os.log
 
 /// Logger for main split view operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "MainSplitViewController")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "MainSplitViewController")
 
 /// Dispatches a @MainActor block on the GCD main queue using assumeIsolated.
 /// Needed in Task.detached contexts where cooperative executor scheduling is unreliable.

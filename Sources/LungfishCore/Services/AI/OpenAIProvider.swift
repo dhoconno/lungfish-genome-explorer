@@ -5,7 +5,7 @@
 import Foundation
 import os
 
-private let logger = Logger(subsystem: "com.lungfish", category: "OpenAIProvider")
+private let logger = Logger(subsystem: LogSubsystem.core, category: "OpenAIProvider")
 
 /// AI provider implementation for the OpenAI Chat Completions API.
 ///

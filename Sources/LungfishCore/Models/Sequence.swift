@@ -146,8 +146,8 @@ public struct Sequence: Identifiable, Hashable, Sendable {
     }
 
     /// Returns a subsequence as a new Sequence object
-    public func subsequence(region: GenomicRegion) -> Sequence {
-        let subStorage = storage.subsequence(startIndex: region.start, length: region.length)
+    public func subsequence(region: GenomicRegion) throws -> Sequence {
+        let subStorage = try storage.subsequence(startIndex: region.start, length: region.length)
         // Extract quality scores for the subsequence region if available
         let subQuality: [UInt8]?
         if let quality = qualityScores {
@@ -313,9 +313,9 @@ internal struct SequenceStorage: Hashable, Sendable {
     }
 
     /// Create a new storage for a subsequence
-    func subsequence(startIndex: Int, length subLength: Int) -> SequenceStorage {
+    func subsequence(startIndex: Int, length subLength: Int) throws -> SequenceStorage {
         let bases = subsequence(range: startIndex..<(startIndex + subLength))
-        return try! SequenceStorage(bases: bases, alphabet: alphabet)
+        return try SequenceStorage(bases: bases, alphabet: alphabet)
     }
 
     /// Returns complemented storage

@@ -6,6 +6,7 @@
 
 import Foundation
 import os.log
+import LungfishCore
 
 // MARK: - SnakemakeRunner
 
@@ -45,7 +46,7 @@ public actor SnakemakeRunner: WorkflowRunner {
     public nonisolated let engineType: WorkflowEngineType = .snakemake
 
     private static let logger = Logger(
-        subsystem: "com.lungfish.workflow",
+        subsystem: LogSubsystem.workflow,
         category: "SnakemakeRunner"
     )
 

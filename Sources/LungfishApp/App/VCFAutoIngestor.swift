@@ -7,7 +7,7 @@ import LungfishCore
 import LungfishIO
 import os.log
 
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "VCFAutoIngestor")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "VCFAutoIngestor")
 
 // MARK: - VCFAutoIngestor
 

@@ -10,7 +10,7 @@ import LungfishCore
 import os.log
 
 /// Logger for multi-sequence viewer operations
-private let viewerLogger = Logger(subsystem: "com.lungfish.browser", category: "ViewerMultiSeq")
+private let viewerLogger = Logger(subsystem: LogSubsystem.app, category: "ViewerMultiSeq")
 
 // MARK: - ViewerViewController Multi-Sequence Extension
 

@@ -6,6 +6,7 @@
 
 import Foundation
 import os.log
+import LungfishCore
 
 // MARK: - SnakemakeConfigParser
 
@@ -40,7 +41,7 @@ import os.log
 public struct SnakemakeConfigParser: Sendable {
 
     private static let logger = Logger(
-        subsystem: "com.lungfish.workflow",
+        subsystem: LogSubsystem.workflow,
         category: "SnakemakeConfigParser"
     )
 

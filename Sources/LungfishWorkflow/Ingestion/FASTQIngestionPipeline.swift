@@ -4,8 +4,9 @@
 
 import Foundation
 import os.log
+import LungfishCore
 
-private let logger = Logger(subsystem: "com.lungfish.workflow", category: "FASTQIngestionPipeline")
+private let logger = Logger(subsystem: LogSubsystem.workflow, category: "FASTQIngestionPipeline")
 
 // MARK: - QualityBinningScheme
 

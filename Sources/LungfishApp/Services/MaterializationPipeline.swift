@@ -6,7 +6,7 @@ import Foundation
 import LungfishIO
 import os.log
 
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "MaterializationPipeline")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "MaterializationPipeline")
 
 // MARK: - Job Types
 

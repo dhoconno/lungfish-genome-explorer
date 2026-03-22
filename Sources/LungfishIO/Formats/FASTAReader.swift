@@ -358,7 +358,10 @@ public final class FASTAWriter: Sendable {
             let handle = try FileHandle(forWritingTo: url)
             defer { try? handle.close() }
             handle.seekToEndOfFile()
-            handle.write(content.data(using: .utf8)!)
+            guard let data = content.data(using: .utf8) else {
+                throw FASTAError.invalidEncoding
+            }
+            handle.write(data)
         } else {
             try content.write(to: url, atomically: true, encoding: .utf8)
         }

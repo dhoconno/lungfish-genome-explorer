@@ -6,7 +6,7 @@ import Foundation
 import LungfishIO
 import os.log
 
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "BatchProcessingEngine")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "BatchProcessingEngine")
 
 // MARK: - Batch Processing Error
 

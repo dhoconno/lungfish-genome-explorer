@@ -5,6 +5,7 @@
 
 import Foundation
 import os
+import LungfishCore
 
 /// Provisions tools by compiling from source.
 public actor SourceCompilationProvisioner: ToolProvisioner {
@@ -13,7 +14,7 @@ public actor SourceCompilationProvisioner: ToolProvisioner {
     private let base: BaseToolProvisioner
 
     private let logger = Logger(
-        subsystem: "com.lungfish.workflow",
+        subsystem: LogSubsystem.workflow,
         category: "SourceCompilationProvisioner"
     )
 

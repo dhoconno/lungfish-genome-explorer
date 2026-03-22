@@ -5,7 +5,7 @@
 import Foundation
 import os
 
-private let logger = Logger(subsystem: "com.lungfish", category: "AnthropicProvider")
+private let logger = Logger(subsystem: LogSubsystem.core, category: "AnthropicProvider")
 
 /// AI provider implementation for the Anthropic Claude API.
 ///

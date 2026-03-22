@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 import os.log
 
 /// Logger for import operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "ImportService")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "ImportService")
 
 /// Type alias for backward compatibility - use UICategory from LungfishIO
 public typealias FileCategory = UICategory

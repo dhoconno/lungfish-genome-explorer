@@ -12,7 +12,7 @@ import ObjectiveC
 import os.log
 
 /// Logger for integration operations
-private let integrationLogger = Logger(subsystem: "com.lungfish.browser", category: "MultiSeqIntegration")
+private let integrationLogger = Logger(subsystem: LogSubsystem.app, category: "MultiSeqIntegration")
 
 // MARK: - Method Swizzling Keys
 

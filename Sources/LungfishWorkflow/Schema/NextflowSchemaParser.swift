@@ -6,6 +6,7 @@
 
 import Foundation
 import os.log
+import LungfishCore
 
 // MARK: - NextflowSchemaParser
 
@@ -37,7 +38,7 @@ import os.log
 public struct NextflowSchemaParser: Sendable {
 
     private static let logger = Logger(
-        subsystem: "com.lungfish.workflow",
+        subsystem: LogSubsystem.workflow,
         category: "NextflowSchemaParser"
     )
 

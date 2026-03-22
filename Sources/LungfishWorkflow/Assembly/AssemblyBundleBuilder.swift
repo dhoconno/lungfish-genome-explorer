@@ -7,7 +7,7 @@ import os.log
 import LungfishCore
 import LungfishIO
 
-private let logger = Logger(subsystem: "com.lungfish.workflow", category: "AssemblyBundleBuilder")
+private let logger = Logger(subsystem: LogSubsystem.workflow, category: "AssemblyBundleBuilder")
 
 // MARK: - AssemblyBundleBuilder
 

@@ -7,6 +7,7 @@
 
 import Foundation
 import os.log
+import LungfishCore
 import Containerization
 import ContainerizationOCI
 import ContainerizationArchive
@@ -50,7 +51,7 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
     public let runtimeType: ContainerRuntimeType = .appleContainerization
 
     private let logger = Logger(
-        subsystem: "com.lungfish.workflow",
+        subsystem: LogSubsystem.workflow,
         category: "AppleContainerRuntime"
     )
 

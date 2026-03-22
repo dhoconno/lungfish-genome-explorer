@@ -8,7 +8,7 @@ import LungfishIO
 import os.log
 
 /// Logger for annotation search operations
-private let searchLogger = Logger(subsystem: "com.lungfish.browser", category: "AnnotationSearch")
+private let searchLogger = Logger(subsystem: LogSubsystem.app, category: "AnnotationSearch")
 
 // MARK: - AnnotationSearchIndex
 

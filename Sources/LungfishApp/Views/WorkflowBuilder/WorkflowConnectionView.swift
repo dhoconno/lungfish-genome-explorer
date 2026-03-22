@@ -5,9 +5,10 @@
 import AppKit
 import LungfishWorkflow
 import os.log
+import LungfishCore
 
 /// Logger for connection view operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "WorkflowConnectionView")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "WorkflowConnectionView")
 
 // MARK: - WorkflowConnectionViewDelegate
 

@@ -7,7 +7,7 @@ import LungfishCore
 import LungfishIO
 import os
 
-private let logger = Logger(subsystem: "com.lungfish", category: "AIToolRegistry")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "AIToolRegistry")
 
 /// Registry of tools available to the AI assistant.
 ///

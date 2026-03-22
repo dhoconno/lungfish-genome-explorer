@@ -9,25 +9,11 @@ import LungfishWorkflow
 import UniformTypeIdentifiers
 import os
 
-/// Debug logging to file for troubleshooting (only writes to disk in DEBUG builds)
+private let appDelegateLogger = Logger(subsystem: LogSubsystem.app, category: "AppDelegate")
+
+/// Debug logging using os.log (replaces file-based debugLog)
 private func debugLog(_ message: String) {
-    #if DEBUG
-    let timestamp = ISO8601DateFormatter().string(from: Date())
-    let threadInfo = Thread.isMainThread ? "main" : "bg"
-    let logMessage = "[\(timestamp)][\(threadInfo)] \(message)\n"
-    print("[\(threadInfo)] \(message)")  // Also print to console
-    if let data = logMessage.data(using: .utf8) {
-        let logURL = FileManager.default.temporaryDirectory.appendingPathComponent("lungfish-debug.log")
-        if !FileManager.default.fileExists(atPath: logURL.path) {
-            FileManager.default.createFile(atPath: logURL.path, contents: nil)
-        }
-        if let fileHandle = try? FileHandle(forWritingTo: logURL) {
-            fileHandle.seekToEndOfFile()
-            fileHandle.write(data)
-            fileHandle.closeFile()
-        }
-    }
-    #endif
+    appDelegateLogger.debug("\(message, privacy: .public)")
 }
 
 /// Schedules a MainActor-isolated block to execute on the main run loop.
@@ -466,7 +452,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         let controller = createAndShowMainWindow()
 
         // Activate the app to ensure menu bar switches properly
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
 
         // Close welcome window if open
         welcomeWindowController?.close()
@@ -479,7 +465,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         _ = createAndShowMainWindow()
 
         // Activate the app to ensure menu bar switches properly
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
 
         // Close welcome window if open
         welcomeWindowController?.close()
@@ -790,7 +776,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             guard let self = self else { return }
 
             let controller = self.createAndShowMainWindow()
-            NSApp.activate(ignoringOtherApps: true)
+            NSApp.activate()
             self.openProject(url, in: controller)
         }
     }

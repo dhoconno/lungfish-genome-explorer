@@ -7,6 +7,7 @@
 
 import Foundation
 import os.log
+import LungfishCore
 
 // MARK: - DockerRuntime
 
@@ -54,7 +55,7 @@ public actor DockerRuntime: ContainerRuntimeProtocol {
     public let runtimeType: ContainerRuntimeType = .docker
 
     private let logger = Logger(
-        subsystem: "com.lungfish.workflow",
+        subsystem: LogSubsystem.workflow,
         category: "DockerRuntime"
     )
 

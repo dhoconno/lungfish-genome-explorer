@@ -9,7 +9,7 @@ import LungfishIO
 import LungfishWorkflow
 import os.log
 
-private let extractionLogger = Logger(subsystem: "com.lungfish.browser", category: "Extraction")
+private let extractionLogger = Logger(subsystem: LogSubsystem.app, category: "Extraction")
 
 private func scheduleExtractionOnMainRunLoop(_ block: @escaping @Sendable () -> Void) {
     CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) {

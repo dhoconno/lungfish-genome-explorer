@@ -328,7 +328,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
     // MARK: - Private Properties
 
     private let logger = Logger(
-        subsystem: "com.lungfish.core",
+        subsystem: LogSubsystem.core,
         category: "ReferenceBundleBuilder"
     )
 

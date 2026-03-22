@@ -6,7 +6,7 @@ import Foundation
 import Security
 import os.log
 
-private let keychainLogger = Logger(subsystem: "com.lungfish.core", category: "KeychainSecretStorage")
+private let keychainLogger = Logger(subsystem: LogSubsystem.core, category: "KeychainSecretStorage")
 
 /// Generic Keychain-based storage for secrets (API keys, tokens, etc.).
 ///

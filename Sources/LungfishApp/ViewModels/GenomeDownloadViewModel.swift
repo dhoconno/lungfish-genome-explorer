@@ -11,7 +11,7 @@ import LungfishWorkflow
 import os.log
 
 /// Logger for genome download operations.
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "GenomeDownload")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "GenomeDownload")
 
 // MARK: - GenomeDownloadViewModel
 

@@ -12,7 +12,7 @@ import LungfishWorkflow
 import os.log
 
 /// Logger for database browser operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "DatabaseBrowser")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "DatabaseBrowser")
 
 /// Executes a MainActor-isolated block on the main thread in a way that works during modal sessions.
 /// Uses Timer with commonModes run loop mode to ensure execution during modal sheet display.

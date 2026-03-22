@@ -4,8 +4,9 @@
 
 import Foundation
 import os.log
+import LungfishCore
 
-private let dbLogger = Logger(subsystem: "com.lungfish.workflow", category: "DatabaseRegistry")
+private let dbLogger = Logger(subsystem: LogSubsystem.workflow, category: "DatabaseRegistry")
 
 // MARK: - BundledDatabase
 

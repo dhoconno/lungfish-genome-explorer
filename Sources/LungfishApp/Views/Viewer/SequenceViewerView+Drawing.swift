@@ -10,7 +10,7 @@ import LungfishCore
 import os.log
 
 /// Logger for multi-sequence drawing operations
-private let drawLogger = Logger(subsystem: "com.lungfish.browser", category: "MultiSeqDraw")
+private let drawLogger = Logger(subsystem: LogSubsystem.app, category: "MultiSeqDraw")
 
 // MARK: - SequenceViewerView Drawing Integration
 

@@ -7,7 +7,7 @@
 import Foundation
 import os.log
 
-private let logger = Logger(subsystem: "com.lungfish.core", category: "SRAService")
+private let logger = Logger(subsystem: LogSubsystem.core, category: "SRAService")
 
 // MARK: - SRA Service
 

@@ -7,7 +7,7 @@ import LungfishIO
 import LungfishWorkflow
 import os.log
 
-private let fastqDrawerLogger = Logger(subsystem: "com.lungfish.browser", category: "ViewerFASTQDrawer")
+private let fastqDrawerLogger = Logger(subsystem: LogSubsystem.app, category: "ViewerFASTQDrawer")
 private let fastqDrawerHeight: CGFloat = 360
 
 extension ViewerViewController: FASTQMetadataDrawerViewDelegate {

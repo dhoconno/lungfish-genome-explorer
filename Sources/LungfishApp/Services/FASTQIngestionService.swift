@@ -8,7 +8,7 @@ import LungfishIO
 import LungfishWorkflow
 import os.log
 
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "FASTQIngestionService")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "FASTQIngestionService")
 
 // MARK: - FASTQIngestionService
 

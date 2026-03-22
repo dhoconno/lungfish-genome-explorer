@@ -8,7 +8,7 @@ import Foundation
 import os.log
 
 /// Logger for view state persistence operations.
-private let logger = Logger(subsystem: "com.lungfish.core", category: "BundleViewState")
+private let logger = Logger(subsystem: LogSubsystem.core, category: "BundleViewState")
 
 /// Persisted visual state for a `.lungfishref` bundle.
 ///

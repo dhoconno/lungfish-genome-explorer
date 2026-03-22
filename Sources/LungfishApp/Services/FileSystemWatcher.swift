@@ -4,9 +4,10 @@
 
 import Foundation
 import os.log
+import LungfishCore
 
 /// Logger for file system watcher operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "FileSystemWatcher")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "FileSystemWatcher")
 
 /// Watches a directory for filesystem changes using periodic content scanning.
 ///

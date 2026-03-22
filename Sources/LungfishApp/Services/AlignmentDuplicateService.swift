@@ -7,7 +7,7 @@ import LungfishCore
 import LungfishWorkflow
 import os.log
 
-private let duplicateLogger = Logger(subsystem: "com.lungfish.browser", category: "AlignmentDuplicateService")
+private let duplicateLogger = Logger(subsystem: LogSubsystem.app, category: "AlignmentDuplicateService")
 
 /// Service for running `samtools markdup` workflows on bundle alignment tracks.
 public final class AlignmentDuplicateService: @unchecked Sendable {

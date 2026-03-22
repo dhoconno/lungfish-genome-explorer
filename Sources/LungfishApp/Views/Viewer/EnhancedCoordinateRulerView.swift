@@ -10,7 +10,7 @@ import LungfishCore
 import os.log
 
 /// Logger for ruler operations
-private let rulerLogger = Logger(subsystem: "com.lungfish.browser", category: "EnhancedRuler")
+private let rulerLogger = Logger(subsystem: LogSubsystem.app, category: "EnhancedRuler")
 
 // MARK: - EnhancedCoordinateRulerView
 

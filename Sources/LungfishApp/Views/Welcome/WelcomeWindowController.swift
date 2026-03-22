@@ -10,7 +10,7 @@ import LungfishCore
 import os.log
 
 /// Logger for welcome window
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "WelcomeWindow")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "WelcomeWindow")
 
 // MARK: - Recent Projects Manager
 
@@ -205,7 +205,7 @@ struct WelcomeView: View {
                 Spacer()
 
                 // Version info
-                Text("Version 1.0.0")
+                Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")")
                     .font(.caption)
                     .foregroundColor(.secondary.opacity(0.6))
             }
@@ -523,6 +523,6 @@ public final class WelcomeWindowController: NSWindowController {
     /// Shows the welcome window
     public func show() {
         window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
     }
 }

@@ -115,7 +115,7 @@ public final class AnnotationConverter: Sendable {
     // MARK: - Properties
 
     private let logger = Logger(
-        subsystem: "com.lungfish.core",
+        subsystem: LogSubsystem.core,
         category: "AnnotationConverter"
     )
 

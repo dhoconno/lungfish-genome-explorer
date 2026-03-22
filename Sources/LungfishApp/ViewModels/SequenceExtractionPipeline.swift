@@ -8,7 +8,7 @@ import LungfishIO
 import LungfishWorkflow
 import os.log
 
-private let extractionLogger = Logger(subsystem: "com.lungfish.browser", category: "SequenceExtraction")
+private let extractionLogger = Logger(subsystem: LogSubsystem.app, category: "SequenceExtraction")
 
 /// Builds a `.lungfishref` bundle from an extracted sequence.
 ///

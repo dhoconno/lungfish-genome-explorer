@@ -7,7 +7,7 @@ import LungfishIO
 import LungfishWorkflow
 import os.log
 
-private let derivativeLogger = Logger(subsystem: "com.lungfish.browser", category: "FASTQDerivativeService")
+private let derivativeLogger = Logger(subsystem: LogSubsystem.app, category: "FASTQDerivativeService")
 
 public enum FASTQDerivativeRequest: Sendable {
     // Subset operations (produce read ID lists)

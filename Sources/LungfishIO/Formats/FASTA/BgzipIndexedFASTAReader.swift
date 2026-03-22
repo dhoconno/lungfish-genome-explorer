@@ -8,7 +8,7 @@ import LungfishCore
 import os.log
 
 /// Logger for bgzip FASTA operations
-private let bgzipLogger = Logger(subsystem: "com.lungfish.browser", category: "BgzipFASTA")
+private let bgzipLogger = Logger(subsystem: LogSubsystem.io, category: "BgzipFASTA")
 
 // MARK: - GZI Index
 

@@ -9,7 +9,7 @@ import LungfishWorkflow
 import os.log
 
 /// Logger for BAM import operations
-private let importLogger = Logger(subsystem: "com.lungfish.browser", category: "BAMImport")
+private let importLogger = Logger(subsystem: LogSubsystem.app, category: "BAMImport")
 
 // MARK: - BAMImportService
 

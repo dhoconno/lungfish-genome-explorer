@@ -4,6 +4,7 @@
 
 import Foundation
 import os.log
+import LungfishCore
 
 // MARK: - ContainerImageRegistry
 
@@ -69,7 +70,7 @@ public actor ContainerImageRegistry {
     // MARK: - Properties
     
     private let logger = Logger(
-        subsystem: "com.lungfish.workflow",
+        subsystem: LogSubsystem.workflow,
         category: "ContainerImageRegistry"
     )
     

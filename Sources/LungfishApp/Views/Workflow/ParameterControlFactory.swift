@@ -7,13 +7,14 @@
 import AppKit
 import UniformTypeIdentifiers
 import os.log
+import LungfishCore
 
 // Use types from LungfishWorkflow Schema module
 // Note: These are re-exported from LungfishWorkflow
 import LungfishWorkflow
 
 /// Logger for parameter control factory operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "ParameterControlFactory")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "ParameterControlFactory")
 
 // MARK: - Type Aliases for Schema Types
 

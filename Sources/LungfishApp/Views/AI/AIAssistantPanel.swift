@@ -6,7 +6,7 @@ import AppKit
 import LungfishCore
 import os
 
-private let logger = Logger(subsystem: "com.lungfish", category: "AIAssistantPanel")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "AIAssistantPanel")
 
 // MARK: - Notification
 

@@ -6,7 +6,7 @@ import Foundation
 import LungfishIO
 import os.log
 
-private let logger = Logger(subsystem: "com.lungfish.workflow", category: "DemultiplexingPipeline")
+private let logger = Logger(subsystem: LogSubsystem.workflow, category: "DemultiplexingPipeline")
 
 // MARK: - Demultiplex Configuration
 

@@ -9,7 +9,7 @@ import LungfishIO
 import os.log
 
 /// Logger for annotation drawer operations
-private let drawerLogger = Logger(subsystem: "com.lungfish.browser", category: "AnnotationDrawer")
+private let drawerLogger = Logger(subsystem: LogSubsystem.app, category: "AnnotationDrawer")
 
 // MARK: - WideColumnDividerHeaderView
 

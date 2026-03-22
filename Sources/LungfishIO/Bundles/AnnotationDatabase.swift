@@ -8,7 +8,7 @@ import SQLite3
 import os.log
 
 /// Logger for annotation database operations
-private let dbLogger = Logger(subsystem: "com.lungfish.browser", category: "AnnotationDatabase")
+private let dbLogger = Logger(subsystem: LogSubsystem.io, category: "AnnotationDatabase")
 
 // MARK: - AnnotationDatabaseRecord
 

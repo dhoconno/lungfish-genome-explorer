@@ -5,6 +5,7 @@
 
 import Foundation
 import os
+import LungfishCore
 
 // MARK: - ToolProvisioningOrchestrator
 
@@ -48,7 +49,7 @@ public actor ToolProvisioningOrchestrator {
     // MARK: - Properties
 
     private let logger = Logger(
-        subsystem: "com.lungfish.workflow",
+        subsystem: LogSubsystem.workflow,
         category: "ToolProvisioningOrchestrator"
     )
 

@@ -11,7 +11,7 @@ import LungfishCore
 import os.log
 
 /// Logger for multi-sequence operations
-private let multiSeqLogger = Logger(subsystem: "com.lungfish.browser", category: "MultiSequence")
+private let multiSeqLogger = Logger(subsystem: LogSubsystem.app, category: "MultiSequence")
 
 // MARK: - StackedSequenceInfo
 

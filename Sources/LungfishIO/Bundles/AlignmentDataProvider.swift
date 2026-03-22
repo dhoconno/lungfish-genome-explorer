@@ -7,7 +7,7 @@ import LungfishCore
 import os.log
 
 /// Logger for alignment data operations
-private let alignmentLogger = Logger(subsystem: "com.lungfish.browser", category: "AlignmentDataProvider")
+private let alignmentLogger = Logger(subsystem: LogSubsystem.io, category: "AlignmentDataProvider")
 
 // MARK: - DepthPoint
 

@@ -38,7 +38,7 @@ final class QuickLookItem: NSObject, QLPreviewItem {
 // MARK: - Logging
 
 /// Logger for viewer operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "ViewerViewController")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "ViewerViewController")
 
 /// Canonicalizes chromosome labels for loose matching (e.g. `chr1` == `1`, `NC_000001.11` == `NC_000001`).
 func canonicalVariantChromosomeLookupKey(_ name: String) -> String {

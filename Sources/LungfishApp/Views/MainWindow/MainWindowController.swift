@@ -7,6 +7,9 @@ import Combine
 import SwiftUI
 import LungfishCore
 import LungfishIO
+import os.log
+
+private let logger = Logger(subsystem: LogSubsystem.app, category: "MainWindowController")
 
 /// Controller for the main application window.
 ///
@@ -236,36 +239,18 @@ public class MainWindowController: NSWindowController {
         let clickCount = event?.clickCount ?? 0
 
         if let eventNumber, lastInspectorToggleEventNumber == eventNumber {
-            NSLog(
-                "toggleInspector[MainWindowController]: duplicate action ignored sender=%@ eventType=%@ eventNumber=%ld clickCount=%ld",
-                senderType,
-                eventType,
-                eventNumber,
-                clickCount
-            )
+            logger.debug("toggleInspector: duplicate action ignored sender=\(senderType, privacy: .public) eventType=\(eventType, privacy: .public) eventNumber=\(eventNumber) clickCount=\(clickCount)")
             return
         }
 
         if now - lastInspectorToggleActionTime < 0.25 {
-            NSLog(
-                "toggleInspector[MainWindowController]: duplicate action ignored sender=%@ eventType=%@ dt=%.3f",
-                senderType,
-                eventType,
-                now - lastInspectorToggleActionTime
-            )
+            logger.debug("toggleInspector: duplicate action ignored sender=\(senderType, privacy: .public) eventType=\(eventType, privacy: .public) dt=\(now - self.lastInspectorToggleActionTime, privacy: .public)")
             return
         }
 
         lastInspectorToggleActionTime = now
         lastInspectorToggleEventNumber = eventNumber
-        NSLog(
-            "toggleInspector[MainWindowController]: sender=%@ eventType=%@ eventNumber=%@ clickCount=%ld keyWindow=%@",
-            senderType,
-            eventType,
-            eventNumber.map(String.init) ?? "nil",
-            clickCount,
-            (window?.isKeyWindow == true) ? "true" : "false"
-        )
+        logger.debug("toggleInspector: sender=\(senderType, privacy: .public) eventType=\(eventType, privacy: .public) eventNumber=\(eventNumber.map(String.init) ?? "nil", privacy: .public) clickCount=\(clickCount) keyWindow=\((self.window?.isKeyWindow == true) ? "true" : "false", privacy: .public)")
         mainSplitViewController.toggleInspector(source: "MainWindowController.toggleInspector")
     }
 

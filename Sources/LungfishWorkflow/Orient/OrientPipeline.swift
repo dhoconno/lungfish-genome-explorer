@@ -6,7 +6,7 @@ import Foundation
 import LungfishIO
 import os.log
 
-private let logger = Logger(subsystem: "com.lungfish.workflow", category: "OrientPipeline")
+private let logger = Logger(subsystem: LogSubsystem.workflow, category: "OrientPipeline")
 
 /// Configuration for the orient pipeline.
 public struct OrientConfig: Sendable {

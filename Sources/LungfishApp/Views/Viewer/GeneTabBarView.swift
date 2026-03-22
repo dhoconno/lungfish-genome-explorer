@@ -4,8 +4,9 @@
 
 import AppKit
 import os.log
+import LungfishCore
 
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "GeneTabBar")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "GeneTabBar")
 
 /// A resolved gene region for tab bar display.
 public struct GeneRegion {

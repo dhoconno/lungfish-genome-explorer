@@ -6,6 +6,7 @@
 
 import Foundation
 import os.log
+import LungfishCore
 
 // MARK: - NFCoreRegistry
 
@@ -39,7 +40,7 @@ public actor NFCoreRegistry {
     // MARK: - Properties
 
     private static let logger = Logger(
-        subsystem: "com.lungfish.workflow",
+        subsystem: LogSubsystem.workflow,
         category: "NFCoreRegistry"
     )
 

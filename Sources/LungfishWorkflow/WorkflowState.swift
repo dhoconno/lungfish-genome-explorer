@@ -6,6 +6,7 @@
 
 import Foundation
 import os.log
+import LungfishCore
 
 // MARK: - WorkflowStatus
 
@@ -188,7 +189,7 @@ public actor WorkflowStateMachine {
 
     /// Logger for state machine events.
     private let logger = Logger(
-        subsystem: "com.lungfish.workflow",
+        subsystem: LogSubsystem.workflow,
         category: "WorkflowStateMachine"
     )
 

@@ -8,7 +8,7 @@ import LungfishCore
 import os.log
 
 /// Logger for variant database operations
-private let variantDBLogger = Logger(subsystem: "com.lungfish.browser", category: "VariantDatabase")
+private let variantDBLogger = Logger(subsystem: LogSubsystem.io, category: "VariantDatabase")
 
 // MARK: - VariantDatabaseRecord
 

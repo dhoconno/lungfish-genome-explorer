@@ -6,7 +6,7 @@ import Foundation
 import os.log
 import LungfishIO
 
-private let logger = Logger(subsystem: "com.lungfish.workflow", category: "SPAdesAssemblyPipeline")
+private let logger = Logger(subsystem: LogSubsystem.workflow, category: "SPAdesAssemblyPipeline")
 
 // MARK: - SPAdesMode
 

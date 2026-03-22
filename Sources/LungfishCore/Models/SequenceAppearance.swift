@@ -9,7 +9,7 @@ import AppKit
 import os.log
 
 /// Logger for appearance settings persistence.
-private let logger = Logger(subsystem: "com.lungfish.core", category: "SequenceAppearance")
+private let logger = Logger(subsystem: LogSubsystem.core, category: "SequenceAppearance")
 
 /// User preferences for sequence visualization appearance.
 ///

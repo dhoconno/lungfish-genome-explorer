@@ -7,9 +7,10 @@
 import AppKit
 import LungfishWorkflow
 import os.log
+import LungfishCore
 
 /// Logger for workflow execution view operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "WorkflowExecutionView")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "WorkflowExecutionView")
 
 // MARK: - WorkflowExecutionState
 

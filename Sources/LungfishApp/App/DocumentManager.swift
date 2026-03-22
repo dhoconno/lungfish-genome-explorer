@@ -11,7 +11,7 @@ import os.log
 // MARK: - Logging
 
 /// Logger for document operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "DocumentManager")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "DocumentManager")
 
 // MARK: - Document State
 

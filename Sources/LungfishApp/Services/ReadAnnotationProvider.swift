@@ -3,7 +3,7 @@ import LungfishCore
 import LungfishIO
 import os.log
 
-private let logger = Logger(subsystem: "com.lungfish.app", category: "ReadAnnotationProvider")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "ReadAnnotationProvider")
 
 /// Provides read-level annotations from FASTQ derivative bundles, converting
 /// `ReadAnnotationFile.Annotation` records into `SequenceAnnotation` objects

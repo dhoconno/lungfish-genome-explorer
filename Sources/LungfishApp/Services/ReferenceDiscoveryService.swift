@@ -6,7 +6,7 @@ import Foundation
 import LungfishIO
 import os.log
 
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "ReferenceDiscoveryService")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "ReferenceDiscoveryService")
 
 /// Discovers and caches reference sequence candidates for a project.
 ///

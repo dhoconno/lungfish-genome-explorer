@@ -5,9 +5,10 @@
 import AppKit
 import LungfishWorkflow
 import os.log
+import LungfishCore
 
 /// Logger for palette operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "WorkflowNodePalette")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "WorkflowNodePalette")
 
 // MARK: - WorkflowNodePalette
 

@@ -5,9 +5,10 @@
 import AppKit
 import LungfishWorkflow
 import os.log
+import LungfishCore
 
 /// Logger for node view operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "WorkflowNodeView")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "WorkflowNodeView")
 
 // MARK: - WorkflowNodeViewDelegate
 

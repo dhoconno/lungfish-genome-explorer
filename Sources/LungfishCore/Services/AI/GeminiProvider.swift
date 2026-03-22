@@ -5,7 +5,7 @@
 import Foundation
 import os
 
-private let logger = Logger(subsystem: "com.lungfish", category: "GeminiProvider")
+private let logger = Logger(subsystem: LogSubsystem.core, category: "GeminiProvider")
 
 /// AI provider implementation for the Google Gemini API.
 ///

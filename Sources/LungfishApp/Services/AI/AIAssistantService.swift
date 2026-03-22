@@ -6,7 +6,7 @@ import Foundation
 import LungfishCore
 import os
 
-private let logger = Logger(subsystem: "com.lungfish", category: "AIAssistantService")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "AIAssistantService")
 
 /// Orchestrates AI conversations by managing the message loop between
 /// the user, the LLM provider, and local tool execution.

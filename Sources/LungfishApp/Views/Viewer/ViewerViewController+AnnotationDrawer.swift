@@ -8,7 +8,7 @@ import LungfishIO
 import os.log
 
 /// Logger for annotation drawer operations
-private let annotDrawerLogger = Logger(subsystem: "com.lungfish.browser", category: "ViewerAnnotationDrawer")
+private let annotDrawerLogger = Logger(subsystem: LogSubsystem.app, category: "ViewerAnnotationDrawer")
 
 /// Height of the annotation drawer when open.
 private let annotationDrawerHeight: CGFloat = 250

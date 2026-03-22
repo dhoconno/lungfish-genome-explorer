@@ -5,6 +5,7 @@
 
 import Foundation
 import os
+import LungfishCore
 
 /// Provisions tools by downloading pre-built binaries.
 public actor BinaryDownloadProvisioner: ToolProvisioner {
@@ -13,7 +14,7 @@ public actor BinaryDownloadProvisioner: ToolProvisioner {
     private let base: BaseToolProvisioner
 
     private let logger = Logger(
-        subsystem: "com.lungfish.workflow",
+        subsystem: LogSubsystem.workflow,
         category: "BinaryDownloadProvisioner"
     )
 

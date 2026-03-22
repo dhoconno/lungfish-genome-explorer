@@ -5,6 +5,7 @@
 
 import Foundation
 import os
+import LungfishCore
 
 // MARK: - ToolProvisioningError
 
@@ -140,7 +141,7 @@ public actor BaseToolProvisioner {
     public let toolSpec: BundledToolSpec
 
     private let logger = Logger(
-        subsystem: "com.lungfish.workflow",
+        subsystem: LogSubsystem.workflow,
         category: "ToolProvisioner"
     )
 

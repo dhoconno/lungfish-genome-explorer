@@ -116,7 +116,7 @@ public final class VariantConverter: Sendable {
     // MARK: - Properties
 
     private let logger = Logger(
-        subsystem: "com.lungfish.core",
+        subsystem: LogSubsystem.core,
         category: "VariantConverter"
     )
 

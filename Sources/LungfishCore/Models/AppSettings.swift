@@ -6,7 +6,7 @@ import Foundation
 import AppKit
 import os.log
 
-private let settingsLogger = Logger(subsystem: "com.lungfish.core", category: "AppSettings")
+private let settingsLogger = Logger(subsystem: LogSubsystem.core, category: "AppSettings")
 
 // MARK: - Settings Section
 

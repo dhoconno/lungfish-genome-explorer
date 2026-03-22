@@ -6,6 +6,7 @@
 
 import Foundation
 import os.log
+import LungfishCore
 
 // MARK: - ProcessHandle
 
@@ -195,7 +196,7 @@ public actor ProcessManager: ProcessManaging {
 
     /// Logger for process management events.
     private let logger = Logger(
-        subsystem: "com.lungfish.workflow",
+        subsystem: LogSubsystem.workflow,
         category: "ProcessManager"
     )
 

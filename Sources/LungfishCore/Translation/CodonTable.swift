@@ -128,5 +128,6 @@ private let yeastMitoTranslations: [String: Character] = {
     table["CTG"] = "T"  // Thr instead of Leu
     table["CTT"] = "T"  // Thr instead of Leu
     table["TGA"] = "W"  // Trp instead of Stop
+    table["ATA"] = "M"  // Met instead of Ile
     return table
 }()

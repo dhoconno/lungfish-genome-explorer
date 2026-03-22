@@ -6,7 +6,7 @@ import AppKit
 import LungfishIO
 import os.log
 
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "VCFDataset")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "VCFDataset")
 
 // MARK: - VCFDatasetViewController
 

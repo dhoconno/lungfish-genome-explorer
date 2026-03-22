@@ -11,7 +11,7 @@ import os.log
 import UniformTypeIdentifiers
 
 /// Logger for inspector operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "InspectorViewController")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "InspectorViewController")
 
 // MARK: - InspectorTab
 

@@ -8,7 +8,7 @@ import LungfishIO
 import LungfishWorkflow
 import os.log
 
-private let genBankDownloadLogger = Logger(subsystem: "com.lungfish.browser", category: "GenBankBundleDownload")
+private let genBankDownloadLogger = Logger(subsystem: LogSubsystem.app, category: "GenBankBundleDownload")
 
 /// Builds NCBI GenBank nucleotide downloads into `.lungfishref` bundles.
 ///

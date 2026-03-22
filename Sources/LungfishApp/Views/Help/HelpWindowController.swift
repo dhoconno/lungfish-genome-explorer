@@ -4,8 +4,9 @@
 
 import AppKit
 import os
+import LungfishCore
 
-private let logger = Logger(subsystem: "com.lungfish", category: "HelpWindow")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "HelpWindow")
 
 // MARK: - Help Topic
 

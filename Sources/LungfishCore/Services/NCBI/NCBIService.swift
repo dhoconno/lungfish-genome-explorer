@@ -8,7 +8,7 @@ import Foundation
 import os.log
 
 /// Logger for NCBI service operations
-private let logger = Logger(subsystem: "com.lungfish.core", category: "NCBIService")
+private let logger = Logger(subsystem: LogSubsystem.core, category: "NCBIService")
 
 // MARK: - NCBI Service
 

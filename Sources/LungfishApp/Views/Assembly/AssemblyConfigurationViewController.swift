@@ -5,9 +5,10 @@
 import AppKit
 import SwiftUI
 import os.log
+import LungfishCore
 
 /// Logger for assembly configuration view controller operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "AssemblyConfigurationViewController")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "AssemblyConfigurationViewController")
 
 // MARK: - AssemblyConfigurationViewController
 

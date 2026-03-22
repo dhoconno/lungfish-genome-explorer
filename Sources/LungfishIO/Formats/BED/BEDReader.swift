@@ -120,6 +120,7 @@ public struct BEDFeature: Sendable, Identifiable {
         return SequenceAnnotation(
             type: .region,
             name: name ?? "\(chrom):\(chromStart)-\(chromEnd)",
+            chromosome: chrom,
             intervals: intervals,
             strand: strand,
             qualifiers: qualifiers,

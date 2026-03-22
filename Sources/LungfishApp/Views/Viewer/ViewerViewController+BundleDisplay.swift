@@ -11,7 +11,7 @@ import LungfishIO
 import os.log
 
 /// Logger for bundle display operations
-private let bundleLogger = Logger(subsystem: "com.lungfish.browser", category: "ViewerBundleDisplay")
+private let bundleLogger = Logger(subsystem: LogSubsystem.app, category: "ViewerBundleDisplay")
 
 /// Width of the chromosome navigator drawer.
 private let navigatorWidth: CGFloat = 240

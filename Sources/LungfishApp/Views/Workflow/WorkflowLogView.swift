@@ -6,9 +6,10 @@
 
 import AppKit
 import os.log
+import LungfishCore
 
 /// Logger for workflow log view operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "WorkflowLogView")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "WorkflowLogView")
 
 // MARK: - WorkflowLogView
 

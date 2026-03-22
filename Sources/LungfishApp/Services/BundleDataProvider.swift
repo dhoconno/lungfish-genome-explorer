@@ -8,7 +8,7 @@ import LungfishIO
 import os.log
 
 /// Logger for bundle data provider operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "BundleDataProvider")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "BundleDataProvider")
 
 // MARK: - BundleDataProvider
 

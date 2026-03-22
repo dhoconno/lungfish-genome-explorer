@@ -55,7 +55,7 @@ public final class NativeBundleBuilder: ObservableObject {
     // MARK: - Private Properties
 
     private let logger = Logger(
-        subsystem: "com.lungfish.workflow",
+        subsystem: LogSubsystem.workflow,
         category: "NativeBundleBuilder"
     )
 

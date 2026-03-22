@@ -11,7 +11,7 @@ import ObjectiveC
 import os.log
 
 /// Logger for multi-sequence property operations
-private let propLogger = Logger(subsystem: "com.lungfish.browser", category: "MultiSeqProps")
+private let propLogger = Logger(subsystem: LogSubsystem.app, category: "MultiSeqProps")
 
 // MARK: - Associated Object Keys
 

@@ -11,7 +11,7 @@ import LungfishCore
 import os.log
 
 /// Logger for multi-sequence rendering
-private let renderLogger = Logger(subsystem: "com.lungfish.browser", category: "MultiSequenceRender")
+private let renderLogger = Logger(subsystem: LogSubsystem.app, category: "MultiSequenceRender")
 
 // MARK: - Zoom Threshold Constants for Multi-Sequence
 

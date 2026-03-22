@@ -11,7 +11,7 @@ import LungfishWorkflow
 import LungfishIO
 
 /// Logger for assembly configuration operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "AssemblyConfiguration")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "AssemblyConfiguration")
 
 // MARK: - Assembly State
 

@@ -9,7 +9,7 @@ import LungfishWorkflow
 import os.log
 
 /// Logger for sidebar operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "SidebarViewController")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "SidebarViewController")
 
 /// Pasteboard type for internal sidebar item dragging
 private let sidebarItemPasteboardType = NSPasteboard.PasteboardType("com.lungfish.browser.sidebaritem")

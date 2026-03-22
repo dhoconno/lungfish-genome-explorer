@@ -6,6 +6,7 @@
 
 import Foundation
 import os.log
+import LungfishCore
 
 // MARK: - NextflowRunner
 
@@ -42,7 +43,7 @@ public actor NextflowRunner: WorkflowRunner {
     public nonisolated let engineType: WorkflowEngineType = .nextflow
 
     private static let logger = Logger(
-        subsystem: "com.lungfish.workflow",
+        subsystem: LogSubsystem.workflow,
         category: "NextflowRunner"
     )
 
@@ -395,7 +396,7 @@ public actor NextflowRunner: WorkflowRunner {
 public enum ContainerRuntimeFactory {
 
     private static let logger = Logger(
-        subsystem: "com.lungfish.workflow",
+        subsystem: LogSubsystem.workflow,
         category: "ContainerRuntimeFactory"
     )
 

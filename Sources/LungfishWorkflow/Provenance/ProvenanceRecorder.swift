@@ -4,9 +4,10 @@
 
 import Foundation
 import os.log
+import LungfishCore
 import CryptoKit
 
-private let logger = Logger(subsystem: "com.lungfish.workflow", category: "ProvenanceRecorder")
+private let logger = Logger(subsystem: LogSubsystem.workflow, category: "ProvenanceRecorder")
 
 // MARK: - ProvenanceRecorder
 

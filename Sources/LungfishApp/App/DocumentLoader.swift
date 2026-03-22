@@ -8,7 +8,7 @@ import LungfishIO
 import os.log
 
 /// Logger for document loading operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "DocumentLoader")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "DocumentLoader")
 
 // MARK: - Scan Result
 

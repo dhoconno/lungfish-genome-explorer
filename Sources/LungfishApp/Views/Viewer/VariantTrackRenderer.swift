@@ -8,7 +8,7 @@ import LungfishIO
 import os.log
 
 /// Logger for variant rendering operations
-private let variantRendererLogger = Logger(subsystem: "com.lungfish.browser", category: "VariantRenderer")
+private let variantRendererLogger = Logger(subsystem: LogSubsystem.app, category: "VariantRenderer")
 
 // MARK: - VariantTrackRenderer
 

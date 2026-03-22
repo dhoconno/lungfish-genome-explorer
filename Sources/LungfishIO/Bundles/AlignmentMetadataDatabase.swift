@@ -8,7 +8,7 @@ import LungfishCore
 import os.log
 
 /// Logger for alignment metadata operations
-private let alignmentDBLogger = Logger(subsystem: "com.lungfish.browser", category: "AlignmentMetadataDB")
+private let alignmentDBLogger = Logger(subsystem: LogSubsystem.io, category: "AlignmentMetadataDB")
 
 // MARK: - AlignmentMetadataDatabase
 

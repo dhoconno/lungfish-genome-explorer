@@ -6,9 +6,10 @@
 
 import AppKit
 import os.log
+import LungfishCore
 
 /// Logger for container runtime selector operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "ContainerRuntimeSelector")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "ContainerRuntimeSelector")
 
 // MARK: - ContainerRuntime
 

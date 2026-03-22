@@ -7,7 +7,7 @@ import LungfishCore
 import os.log
 
 /// Logger for chromosome navigator operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "ChromosomeNavigator")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "ChromosomeNavigator")
 
 // MARK: - Chromosome Sort Utilities
 

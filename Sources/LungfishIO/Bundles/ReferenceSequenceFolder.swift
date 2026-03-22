@@ -5,7 +5,7 @@
 import Foundation
 import os.log
 
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "ReferenceSequenceFolder")
+private let logger = Logger(subsystem: LogSubsystem.io, category: "ReferenceSequenceFolder")
 
 /// Manages the "Reference Sequences" folder within a project directory.
 ///

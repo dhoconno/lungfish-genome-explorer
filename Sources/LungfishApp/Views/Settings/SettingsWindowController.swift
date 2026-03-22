@@ -5,8 +5,9 @@
 import AppKit
 import SwiftUI
 import os.log
+import LungfishCore
 
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "SettingsWindow")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "SettingsWindow")
 
 /// NSWindowController that hosts the SwiftUI Settings view.
 ///

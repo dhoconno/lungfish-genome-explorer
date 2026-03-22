@@ -298,7 +298,7 @@ final class SequenceTests: XCTestCase {
     func testSubsequence() throws {
         let seq = try Sequence(name: "test", alphabet: .dna, bases: "ATCGATCGATCG")
         let region = GenomicRegion(chromosome: "test", start: 4, end: 8)
-        let subseq = seq.subsequence(region: region)
+        let subseq = try seq.subsequence(region: region)
         XCTAssertEqual(subseq.length, 4)
         XCTAssertEqual(subseq.asString(), "ATCG")
     }
@@ -306,28 +306,28 @@ final class SequenceTests: XCTestCase {
     func testSubsequencePreservesAlphabet() throws {
         let seq = try Sequence(name: "test", alphabet: .dna, bases: "ATCGATCGATCG")
         let region = GenomicRegion(chromosome: "test", start: 0, end: 4)
-        let subseq = seq.subsequence(region: region)
+        let subseq = try seq.subsequence(region: region)
         XCTAssertEqual(subseq.alphabet, .dna)
     }
 
     func testSubsequenceNaming() throws {
         let seq = try Sequence(name: "test", alphabet: .dna, bases: "ATCGATCGATCG")
         let region = GenomicRegion(chromosome: "test", start: 4, end: 8)
-        let subseq = seq.subsequence(region: region)
+        let subseq = try seq.subsequence(region: region)
         XCTAssertEqual(subseq.name, "test:4-8")
     }
 
     func testSubsequenceAtStart() throws {
         let seq = try Sequence(name: "test", alphabet: .dna, bases: "ATCGATCG")
         let region = GenomicRegion(chromosome: "test", start: 0, end: 3)
-        let subseq = seq.subsequence(region: region)
+        let subseq = try seq.subsequence(region: region)
         XCTAssertEqual(subseq.asString(), "ATC")
     }
 
     func testSubsequenceAtEnd() throws {
         let seq = try Sequence(name: "test", alphabet: .dna, bases: "ATCGATCG")
         let region = GenomicRegion(chromosome: "test", start: 5, end: 8)
-        let subseq = seq.subsequence(region: region)
+        let subseq = try seq.subsequence(region: region)
         XCTAssertEqual(subseq.asString(), "TCG")
     }
 

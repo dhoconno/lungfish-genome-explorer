@@ -5,9 +5,10 @@
 import AppKit
 import LungfishWorkflow
 import os.log
+import LungfishCore
 
 /// Logger for canvas operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "WorkflowCanvasView")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "WorkflowCanvasView")
 
 // MARK: - WorkflowCanvasViewDelegate
 

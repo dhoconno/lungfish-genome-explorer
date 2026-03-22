@@ -4,10 +4,11 @@
 
 import SwiftUI
 import os.log
+import LungfishCore
 import LungfishWorkflow
 
 /// Logger for assembly configuration view operations
-private let logger = Logger(subsystem: "com.lungfish.browser", category: "AssemblyConfigurationView")
+private let logger = Logger(subsystem: LogSubsystem.app, category: "AssemblyConfigurationView")
 
 // MARK: - AssemblyConfigurationView
 

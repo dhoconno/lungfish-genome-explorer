@@ -6,6 +6,7 @@
 
 import Foundation
 import os.log
+import LungfishCore
 
 // MARK: - WorkflowResult
 
@@ -266,7 +267,7 @@ public actor BaseWorkflowRunner {
         processManager: ProcessManager = .shared
     ) {
         self.logger = Logger(
-            subsystem: "com.lungfish.workflow",
+            subsystem: LogSubsystem.workflow,
             category: category
         )
         self.processManager = processManager
@@ -554,7 +555,7 @@ public actor WorkflowRunnerRegistry {
 
     /// Logger for registry events.
     private let logger = Logger(
-        subsystem: "com.lungfish.workflow",
+        subsystem: LogSubsystem.workflow,
         category: "WorkflowRunnerRegistry"
     )
 

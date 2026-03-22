@@ -4,6 +4,7 @@
 
 import Foundation
 import os.log
+import LungfishCore
 
 // MARK: - NativeToolResult
 
@@ -239,7 +240,7 @@ public actor NativeToolRunner {
     // MARK: - Properties
 
     private let logger = Logger(
-        subsystem: "com.lungfish.workflow",
+        subsystem: LogSubsystem.workflow,
         category: "NativeToolRunner"
     )
 
@@ -661,7 +662,7 @@ public actor NativeToolRunner {
     /// 7. Source directory Resources/Tools (SwiftPM development)
     private static func findToolsDirectory() -> URL? {
         let fileManager = FileManager.default
-        let log = Logger(subsystem: "com.lungfish.workflow", category: "NativeToolRunner")
+        let log = Logger(subsystem: LogSubsystem.workflow, category: "NativeToolRunner")
 
         // 1. Check SwiftPM module bundle resources.
         if let moduleResourceURL = Bundle.module.resourceURL {
