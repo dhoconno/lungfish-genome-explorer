@@ -1102,6 +1102,10 @@ public class ViewerViewController: NSViewController {
         ])
 
         controller.configure(sequences: sequences, annotations: annotations)
+        // Store collection data so we can return to it via the back button
+        let allSequences = sequences
+        let allAnnotations = annotations
+
         controller.onOpenSequence = { [weak self] sequence, sequenceAnnotations in
             guard let self else { return }
             self.hideFASTACollectionView()
@@ -1127,12 +1131,18 @@ public class ViewerViewController: NSViewController {
             self.headerView.setTrackNames(trackNames)
             self.enhancedRulerView.referenceFrame = self.referenceFrame
 
-            // Restore and redraw
+            // Restore viewer components
             self.enhancedRulerView.isHidden = false
             self.viewerView.isHidden = false
             self.headerView.isHidden = false
             self.statusBar.isHidden = false
             self.geneTabBarView.isHidden = true
+
+            // Add "Back to Collection" button above the viewer
+            self.showCollectionBackButton(
+                sequences: allSequences,
+                annotations: allAnnotations
+            )
 
             self.viewerView.needsDisplay = true
             self.enhancedRulerView.needsDisplay = true
@@ -1164,6 +1174,56 @@ public class ViewerViewController: NSViewController {
         enhancedRulerView.isHidden = false
         viewerView.isHidden = false
         statusBar.isHidden = false
+    }
+
+    // MARK: - Collection Back Button
+
+    private var collectionBackButton: NSButton?
+
+    /// Shows a "Back to Collection" button at the top of the viewer.
+    private func showCollectionBackButton(
+        sequences: [LungfishCore.Sequence],
+        annotations: [SequenceAnnotation]
+    ) {
+        hideCollectionBackButton()
+
+        let button = NSButton()
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.bezelStyle = .accessoryBarAction
+        button.image = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: "Back")
+        button.imagePosition = .imageLeading
+        button.title = "All Sequences (\(sequences.count))"
+        button.font = .systemFont(ofSize: 12, weight: .medium)
+        button.target = self
+        button.action = #selector(collectionBackButtonTapped(_:))
+        view.addSubview(button)
+
+        NSLayoutConstraint.activate([
+            button.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
+            button.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 4),
+        ])
+
+        // Store the collection data so we can return to it
+        collectionBackSequences = sequences
+        collectionBackAnnotations = annotations
+        collectionBackButton = button
+    }
+
+    private func hideCollectionBackButton() {
+        collectionBackButton?.removeFromSuperview()
+        collectionBackButton = nil
+        collectionBackSequences = nil
+        collectionBackAnnotations = nil
+    }
+
+    private var collectionBackSequences: [LungfishCore.Sequence]?
+    private var collectionBackAnnotations: [SequenceAnnotation]?
+
+    @objc private func collectionBackButtonTapped(_ sender: Any?) {
+        guard let sequences = collectionBackSequences,
+              let annotations = collectionBackAnnotations else { return }
+        hideCollectionBackButton()
+        displayFASTACollection(sequences: sequences, annotations: annotations)
     }
 
     /// Invalidates the offscreen annotation tile so it will be re-rendered
@@ -1289,6 +1349,9 @@ public class ViewerViewController: NSViewController {
         clearBundleDisplay()
 
         logger.info("displayDocument: Document has \(document.sequences.count) sequences, \(document.annotations.count) annotations")
+
+        // Clear any back button from a previous collection drill-down
+        hideCollectionBackButton()
 
         // Multi-sequence FASTA: show collection view instead of genome browser
         if document.sequences.count > 1 {

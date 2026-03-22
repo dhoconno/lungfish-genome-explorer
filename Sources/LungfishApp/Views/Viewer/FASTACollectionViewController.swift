@@ -248,8 +248,8 @@ public final class FASTACollectionViewController: NSViewController,
 
     private func layoutSubviews() {
         NSLayoutConstraint.activate([
-            // Summary bar (top, fixed height)
-            summaryBar.topAnchor.constraint(equalTo: view.topAnchor),
+            // Summary bar (top, below safe area to avoid overlapping title bar)
+            summaryBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             summaryBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             summaryBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             summaryBar.heightAnchor.constraint(equalToConstant: 48),
