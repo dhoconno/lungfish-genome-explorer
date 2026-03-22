@@ -1,0 +1,13 @@
+##description: GENCODE-style GTF test fixture
+##provider: Lungfish test data
+##format: gtf
+chr1	GENCODE	gene	11869	14409	.	+	.	gene_id "ENSG00000223972"; gene_type "transcribed_unprocessed_pseudogene"; gene_name "DDX11L1"; level 2; hgnc_id "HGNC:37102";
+chr1	GENCODE	transcript	11869	14409	.	+	.	gene_id "ENSG00000223972"; transcript_id "ENST00000456328"; gene_type "transcribed_unprocessed_pseudogene"; gene_name "DDX11L1"; transcript_type "processed_transcript"; transcript_name "DDX11L1-202"; level 2;
+chr1	GENCODE	exon	11869	12227	.	+	.	gene_id "ENSG00000223972"; transcript_id "ENST00000456328"; gene_type "transcribed_unprocessed_pseudogene"; gene_name "DDX11L1"; transcript_type "processed_transcript"; transcript_name "DDX11L1-202"; exon_number 1; exon_id "ENSE00002234944"; level 2;
+chr1	GENCODE	exon	12613	12721	.	+	.	gene_id "ENSG00000223972"; transcript_id "ENST00000456328"; gene_type "transcribed_unprocessed_pseudogene"; gene_name "DDX11L1"; transcript_type "processed_transcript"; transcript_name "DDX11L1-202"; exon_number 2; exon_id "ENSE00003582793"; level 2;
+chr1	GENCODE	exon	13221	14409	.	+	.	gene_id "ENSG00000223972"; transcript_id "ENST00000456328"; gene_type "transcribed_unprocessed_pseudogene"; gene_name "DDX11L1"; transcript_type "processed_transcript"; transcript_name "DDX11L1-202"; exon_number 3; exon_id "ENSE00002312635"; level 2;
+chr1	GENCODE	gene	14404	29570	.	-	.	gene_id "ENSG00000227232"; gene_type "unprocessed_pseudogene"; gene_name "WASH7P"; level 2; hgnc_id "HGNC:38034";
+chr1	GENCODE	transcript	14404	29570	.	-	.	gene_id "ENSG00000227232"; transcript_id "ENST00000488147"; gene_type "unprocessed_pseudogene"; gene_name "WASH7P"; transcript_type "unprocessed_pseudogene"; transcript_name "WASH7P-201"; level 2;
+chr1	GENCODE	exon	14404	14501	.	-	.	gene_id "ENSG00000227232"; transcript_id "ENST00000488147"; gene_type "unprocessed_pseudogene"; gene_name "WASH7P"; transcript_type "unprocessed_pseudogene"; transcript_name "WASH7P-201"; exon_number 1; exon_id "ENSE00001890064"; level 2;
+chr1	GENCODE	CDS	14404	14501	.	-	0	gene_id "ENSG00000227232"; transcript_id "ENST00000488147"; gene_type "unprocessed_pseudogene"; gene_name "WASH7P"; transcript_type "unprocessed_pseudogene"; transcript_name "WASH7P-201"; exon_number 1; level 2;
+chr1	GENCODE	exon	15005	15038	.	-	.	gene_id "ENSG00000227232"; transcript_id "ENST00000488147"; gene_type "unprocessed_pseudogene"; gene_name "WASH7P"; transcript_type "unprocessed_pseudogene"; transcript_name "WASH7P-201"; exon_number 2; exon_id "ENSE00003507205"; level 2;
