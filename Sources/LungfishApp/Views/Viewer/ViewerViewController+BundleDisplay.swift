@@ -503,6 +503,7 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         currentBundleDataProvider = nil
         currentBundleViewState = nil
         currentBundleURL = nil
+        viewerView.clearReferenceBundle()
         removeChromosomeNavigator()
     }
 

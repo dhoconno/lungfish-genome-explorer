@@ -1177,11 +1177,16 @@ public class ViewerViewController: NSViewController {
     /// Displays a loaded document in the viewer.
     public func displayDocument(_ document: LoadedDocument) {
         logger.info("displayDocument: Starting to display '\(document.name, privacy: .public)'")
-        
+
         // Hide any non-document views when showing a genomics document
         hideQuickLookPreview()
         hideFASTQDatasetView()
         hideVCFDatasetView()
+
+        // Clear any stale reference bundle state so the viewer uses
+        // the document's sequences instead of trying to fetch from a bundle
+        clearBundleDisplay()
+
         logger.info("displayDocument: Document has \(document.sequences.count) sequences, \(document.annotations.count) annotations")
 
         currentDocument = document
