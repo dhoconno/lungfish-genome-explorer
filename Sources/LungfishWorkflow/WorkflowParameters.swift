@@ -255,6 +255,11 @@ public enum ParameterValue: Sendable, Codable, Hashable {
 /// ```
 public struct WorkflowParameters: Sendable, Codable, Hashable {
 
+    // MARK: - Execution Options
+
+    /// Whether to use conda/micromamba for dependency management.
+    public var useConda: Bool = false
+
     // MARK: - Storage
 
     /// Internal storage for parameter values.

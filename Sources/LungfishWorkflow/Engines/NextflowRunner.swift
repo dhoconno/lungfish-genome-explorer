@@ -147,9 +147,15 @@ public actor NextflowRunner: WorkflowRunner {
         // Build command arguments
         var arguments = ["run", workflow.path.path]
 
-        // Add container profile based on available runtime
+        // Add container or conda profile based on available runtime
         if let containerArgs = await getContainerArguments() {
             arguments.append(contentsOf: containerArgs)
+        }
+
+        // Add conda profile if conda environments are available
+        if parameters.useConda {
+            arguments.append("-profile")
+            arguments.append("conda")
         }
 
         // Add parameters
@@ -177,6 +183,18 @@ public actor NextflowRunner: WorkflowRunner {
         // Prepare environment
         var environment = ProcessInfo.processInfo.environment
         environment["NXF_ANSI_LOG"] = "false"  // Disable ANSI colors
+
+        // Add conda environment variables if using conda profile
+        if parameters.useConda {
+            let condaConfig = await CondaManager.shared.nextflowCondaConfig()
+            for (key, value) in condaConfig {
+                environment[key] = value
+            }
+            // Ensure micromamba is on PATH
+            let condaRoot = await CondaManager.shared.rootPrefix
+            let existingPath = environment["PATH"] ?? "/usr/bin:/bin"
+            environment["PATH"] = "\(condaRoot.appendingPathComponent("bin").path):\(existingPath)"
+        }
 
         let startTime = Date()
 
