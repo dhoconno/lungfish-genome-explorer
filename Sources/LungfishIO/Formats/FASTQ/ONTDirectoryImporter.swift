@@ -631,7 +631,8 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
         to outputURL: URL,
         maxReads: Int
     ) async throws {
-        var previewContent = ""
+        var previewLines: [String] = []
+        previewLines.reserveCapacity(maxReads * 4)
         var readsCollected = 0
         var lineBuffer: [String] = []
         lineBuffer.reserveCapacity(4)
@@ -642,7 +643,7 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
                 lineBuffer.append(line)
                 guard lineBuffer.count == 4 else { continue }
 
-                previewContent += lineBuffer.joined(separator: "\n") + "\n"
+                previewLines.append(contentsOf: lineBuffer)
                 lineBuffer.removeAll(keepingCapacity: true)
                 readsCollected += 1
                 if readsCollected >= maxReads { break outer }
@@ -650,7 +651,8 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
             lineBuffer.removeAll(keepingCapacity: true)
         }
 
-        try previewContent.write(to: outputURL, atomically: true, encoding: .utf8)
+        let content = previewLines.joined(separator: "\n") + (previewLines.isEmpty ? "" : "\n")
+        try content.write(to: outputURL, atomically: true, encoding: .utf8)
     }
 
     /// Lists .fastq.gz and .fastq files in a directory, sorted by name.

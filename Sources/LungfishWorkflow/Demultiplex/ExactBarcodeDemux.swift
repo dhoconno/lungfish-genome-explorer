@@ -176,7 +176,21 @@ public enum ExactBarcodeDemux {
         config: ExactBarcodeDemuxConfig,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> ExactBarcodeDemuxResult {
+        guard !config.inputURLs.isEmpty else {
+            return ExactBarcodeDemuxResult(
+                totalReads: 0, assignedReads: 0, sampleResults: [],
+                unassignedReadIDs: [], unassignedPreview: [],
+                unassignedReadCount: 0, unassignedBaseCount: 0,
+                unassignedMinReadLength: 0, unassignedMaxReadLength: 0
+            )
+        }
+
         let rc = PlatformAdapters.reverseComplement
+
+        // Estimate total bytes for progress reporting
+        let totalInputBytes = config.inputURLs.reduce(Int64(0)) { total, url in
+            total + ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0)
+        }
 
         // Build lookup table: leftBarcode → [(rightBarcode, sampleIndex)]
         var leftToRight: [String: [(rightBarcode: String, sampleIndex: Int)]] = [:]
@@ -254,7 +268,16 @@ public enum ExactBarcodeDemux {
             totalReads += 1
 
             if totalReads % 100_000 == 0 {
-                progress(0.0, "Processed \(totalReads) reads, \(assignedReads) assigned...")
+                // Estimate progress from average read size × reads processed vs total input bytes
+                let estimatedFraction: Double
+                if totalInputBytes > 0 {
+                    let avgBytesPerRead = Double(record.baseCount + 50) * 1.1 // ~10% overhead for headers/quality/newlines
+                    let estimatedBytesProcessed = avgBytesPerRead * Double(totalReads)
+                    estimatedFraction = min(0.90, estimatedBytesProcessed / Double(totalInputBytes))
+                } else {
+                    estimatedFraction = 0.0
+                }
+                progress(estimatedFraction, "Processed \(totalReads) reads, \(assignedReads) assigned...")
             }
 
             let seq = record.sequence
