@@ -2021,119 +2021,344 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @objc func exportFASTA(_ sender: Any?) {
-        // Get current document
-        guard let document = mainWindowController?.mainSplitViewController?.viewerController?.currentDocument else {
-            showExportError(message: "No document is currently open.")
+        exportSequences(defaultFormat: .fasta)
+    }
+
+    @objc func exportGenBank(_ sender: Any?) {
+        exportSequences(defaultFormat: .genbank)
+    }
+
+    /// Unified sequence export supporting multi-selection, format choice, and compression.
+    private func exportSequences(defaultFormat: SequenceExportFormat) {
+        // Try sidebar multi-selection first
+        let sidebarItems = mainWindowController?.mainSplitViewController?.sidebarController?.selectedItems()
+            .filter { $0.type == .referenceBundle || $0.type == .sequence } ?? []
+
+        // Fall back to current document
+        let documents: [LoadedDocument]
+        if !sidebarItems.isEmpty {
+            // Will load from sidebar items
+            documents = []
+        } else if let doc = mainWindowController?.mainSplitViewController?.viewerController?.currentDocument,
+                  !doc.sequences.isEmpty {
+            documents = [doc]
+        } else {
+            showExportError(message: "No sequences to export. Select files in the sidebar or open a document.")
             return
         }
 
-        // Check if there are sequences to export
-        guard !document.sequences.isEmpty else {
-            showExportError(message: "The current document has no sequences to export.")
-            return
-        }
+        guard let window = mainWindowController?.window else { return }
 
-        // Show save panel
+        // Build save panel with format accessory
         let panel = NSSavePanel()
-        panel.title = "Export FASTA"
-        panel.allowedContentTypes = FASTAFileTypes.readableContentTypes
-        panel.nameFieldStringValue = document.name.replacingOccurrences(of: ".\(document.url.pathExtension)", with: "") + ".fa"
+        panel.title = "Export Sequences"
+        panel.canCreateDirectories = true
+        panel.allowsOtherFileTypes = true
 
-        panel.begin { [weak self] response in
-            guard response == .OK, let url = panel.url else { return }
+        // Accessory view for format + compression
+        let accessory = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 60))
 
-            do {
-                let writer = FASTAWriter(url: url)
-                try writer.write(document.sequences)
+        let formatLabel = NSTextField(labelWithString: "Format:")
+        formatLabel.font = .systemFont(ofSize: 11)
+        formatLabel.frame = NSRect(x: 0, y: 32, width: 60, height: 18)
+        accessory.addSubview(formatLabel)
 
-                debugLog("exportFASTA: Successfully exported \(document.sequences.count) sequences to \(url.path)")
+        let formatPopup = NSPopUpButton(frame: NSRect(x: 64, y: 28, width: 120, height: 24))
+        formatPopup.controlSize = .small
+        formatPopup.addItems(withTitles: ["FASTA", "GenBank"])
+        formatPopup.selectItem(at: defaultFormat == .genbank ? 1 : 0)
+        formatPopup.tag = 1
+        accessory.addSubview(formatPopup)
 
-                self?.showExportSuccess(filename: url.lastPathComponent, count: document.sequences.count, itemType: "sequence")
-            } catch {
-                debugLog("exportFASTA: Export failed - \(error.localizedDescription)")
-                self?.showExportError(message: "Failed to export FASTA: \(error.localizedDescription)")
+        let compLabel = NSTextField(labelWithString: "Compression:")
+        compLabel.font = .systemFont(ofSize: 11)
+        compLabel.frame = NSRect(x: 0, y: 4, width: 80, height: 18)
+        accessory.addSubview(compLabel)
+
+        let compPopup = NSPopUpButton(frame: NSRect(x: 84, y: 0, width: 120, height: 24))
+        compPopup.controlSize = .small
+        compPopup.addItems(withTitles: ["None", "gzip (.gz)", "zstd (.zst)"])
+        compPopup.tag = 2
+        accessory.addSubview(compPopup)
+
+        // Wire popup changes to update the suggested filename
+        let baseName: String
+        if sidebarItems.count == 1 {
+            baseName = sidebarItems[0].title
+        } else if sidebarItems.count > 1 {
+            baseName = "exported_sequences"
+        } else {
+            baseName = documents[0].name.replacingOccurrences(of: ".\(documents[0].url.pathExtension)", with: "")
+        }
+
+        let filenameUpdater = ExportFilenameUpdater(panel: panel, baseName: baseName, formatPopup: formatPopup, compPopup: compPopup)
+        formatPopup.target = filenameUpdater
+        formatPopup.action = #selector(ExportFilenameUpdater.popupChanged(_:))
+        compPopup.target = filenameUpdater
+        compPopup.action = #selector(ExportFilenameUpdater.popupChanged(_:))
+        objc_setAssociatedObject(panel, &ExportFilenameUpdater.associatedKey, filenameUpdater, .OBJC_ASSOCIATION_RETAIN)
+
+        panel.accessoryView = accessory
+        filenameUpdater.popupChanged(formatPopup) // set initial filename
+
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let outputURL = panel.url else { return }
+            guard let self else { return }
+
+            let format: SequenceExportFormat = formatPopup.indexOfSelectedItem == 1 ? .genbank : .fasta
+            let compression: SequenceExportCompression
+            switch compPopup.indexOfSelectedItem {
+            case 1: compression = .gzip
+            case 2: compression = .zstd
+            default: compression = .none
+            }
+
+            let itemURLs = sidebarItems.compactMap(\.url)
+
+            Task.detached { [weak self] in
+                do {
+                    let count = try await self?.performSequenceExport(
+                        sidebarURLs: itemURLs,
+                        documents: documents,
+                        outputURL: outputURL,
+                        format: format,
+                        compression: compression
+                    ) ?? 0
+
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            let alert = NSAlert()
+                            alert.messageText = "Export Complete"
+                            alert.informativeText = "Exported \(count) sequence(s) to \(outputURL.lastPathComponent)."
+                            alert.alertStyle = .informational
+                            alert.addButton(withTitle: "OK")
+                            alert.addButton(withTitle: "Show in Finder")
+                            alert.beginSheetModal(for: window) { response in
+                                if response == .alertSecondButtonReturn {
+                                    NSWorkspace.shared.activateFileViewerSelecting([outputURL])
+                                }
+                            }
+                        }
+                    }
+                } catch {
+                    debugLog("exportSequences: Failed - \(error)")
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            let alert = NSAlert()
+                            alert.messageText = "Export Failed"
+                            alert.informativeText = error.localizedDescription
+                            alert.alertStyle = .critical
+                            alert.addButton(withTitle: "OK")
+                            alert.beginSheetModal(for: window)
+                        }
+                    }
+                }
             }
         }
     }
 
-    @objc func exportGenBank(_ sender: Any?) {
-        // Get current document
-        guard let document = mainWindowController?.mainSplitViewController?.viewerController?.currentDocument else {
-            showExportError(message: "No document is currently open.")
-            return
-        }
+    /// Loads sequences from sidebar URLs or documents, writes to output file, and optionally compresses.
+    private func performSequenceExport(
+        sidebarURLs: [URL],
+        documents: [LoadedDocument],
+        outputURL: URL,
+        format: SequenceExportFormat,
+        compression: SequenceExportCompression
+    ) async throws -> Int {
+        // Collect all sequences and annotations
+        var allSequences: [LungfishCore.Sequence] = []
+        var allAnnotations: [SequenceAnnotation] = []
 
-        // Check if there are sequences to export
-        guard !document.sequences.isEmpty else {
-            showExportError(message: "The current document has no sequences to export.")
-            return
-        }
-
-        // Show save panel
-        let panel = NSSavePanel()
-        panel.title = "Export GenBank"
-        panel.allowedContentTypes = [UTType(filenameExtension: "gb")!]
-        panel.nameFieldStringValue = document.name.replacingOccurrences(of: ".\(document.url.pathExtension)", with: "") + ".gb"
-
-        panel.begin { [weak self] response in
-            guard response == .OK, let url = panel.url else { return }
-
-            do {
-                // Create GenBankRecords from document sequences and annotations
-                var records: [GenBankRecord] = []
-
-                for sequence in document.sequences {
-                    // Filter annotations for this sequence
-                    let sequenceAnnotations = document.annotations.filter { annotation in
-                        // Match by chromosome field if set, otherwise include all
-                        annotation.chromosome == nil || annotation.chromosome == sequence.name
-                    }
-
-                    // Determine molecule type from sequence alphabet
-                    let moleculeType: MoleculeType
-                    switch sequence.alphabet {
-                    case .dna:
-                        moleculeType = .dna
-                    case .rna:
-                        moleculeType = .rna
-                    case .protein:
-                        moleculeType = .protein
-                    }
-
-                    // Create locus info
-                    let locus = LocusInfo(
-                        name: sequence.name,
-                        length: sequence.length,
-                        moleculeType: moleculeType,
-                        topology: .linear,
-                        division: nil,
-                        date: Self.currentDateString()
-                    )
-
-                    // Create the record
-                    let record = GenBankRecord(
-                        sequence: sequence,
-                        annotations: sequenceAnnotations,
-                        locus: locus,
-                        definition: sequence.description,
-                        accession: nil,
-                        version: nil
-                    )
-
-                    records.append(record)
-                }
-
-                let writer = GenBankWriter(url: url)
-                try writer.write(records)
-
-                debugLog("exportGenBank: Successfully exported \(records.count) records to \(url.path)")
-
-                self?.showExportSuccess(filename: url.lastPathComponent, count: records.count, itemType: "record")
-            } catch {
-                debugLog("exportGenBank: Export failed - \(error.localizedDescription)")
-                self?.showExportError(message: "Failed to export GenBank: \(error.localizedDescription)")
+        if !sidebarURLs.isEmpty {
+            for url in sidebarURLs {
+                let (seqs, annots) = try await loadSequencesForExport(from: url)
+                allSequences.append(contentsOf: seqs)
+                allAnnotations.append(contentsOf: annots)
+            }
+        } else {
+            for doc in documents {
+                allSequences.append(contentsOf: doc.sequences)
+                allAnnotations.append(contentsOf: doc.annotations)
             }
         }
+
+        guard !allSequences.isEmpty else {
+            throw NSError(domain: "com.lungfish.browser", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "No sequences found in selected files."])
+        }
+
+        // Determine write target (temp file if compressing, final file if not)
+        let writeURL: URL
+        if compression != .none {
+            writeURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("export-\(UUID().uuidString).\(format == .genbank ? "gb" : "fa")")
+        } else {
+            writeURL = outputURL
+        }
+
+        // Write the file
+        switch format {
+        case .fasta:
+            let writer = FASTAWriter(url: writeURL)
+            try writer.write(allSequences)
+
+        case .genbank:
+            var records: [GenBankRecord] = []
+            for sequence in allSequences {
+                let seqAnnotations = allAnnotations.filter {
+                    $0.chromosome == nil || $0.chromosome == sequence.name
+                }
+                let moleculeType: MoleculeType
+                switch sequence.alphabet {
+                case .dna: moleculeType = .dna
+                case .rna: moleculeType = .rna
+                case .protein: moleculeType = .protein
+                }
+                let locus = LocusInfo(
+                    name: sequence.name,
+                    length: sequence.length,
+                    moleculeType: moleculeType,
+                    topology: .linear,
+                    division: nil,
+                    date: Self.currentDateString()
+                )
+                records.append(GenBankRecord(
+                    sequence: sequence,
+                    annotations: seqAnnotations,
+                    locus: locus,
+                    definition: sequence.description,
+                    accession: nil,
+                    version: nil
+                ))
+            }
+            let writer = GenBankWriter(url: writeURL)
+            try writer.write(records)
+        }
+
+        // Apply compression if needed
+        if compression != .none {
+            defer { try? FileManager.default.removeItem(at: writeURL) }
+            switch compression {
+            case .gzip:
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+                process.arguments = ["-c", writeURL.path]
+                let outputHandle = try FileHandle(forWritingTo: {
+                    FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+                    return outputURL
+                }())
+                process.standardOutput = outputHandle
+                process.standardError = FileHandle.nullDevice
+                try process.run()
+                process.waitUntilExit()
+                try outputHandle.close()
+            case .zstd:
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/zstd")
+                process.arguments = ["-c", writeURL.path]
+                let outputHandle = try FileHandle(forWritingTo: {
+                    FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+                    return outputURL
+                }())
+                process.standardOutput = outputHandle
+                process.standardError = FileHandle.nullDevice
+                try process.run()
+                process.waitUntilExit()
+                try outputHandle.close()
+            case .none:
+                break
+            }
+        }
+
+        return allSequences.count
+    }
+
+    /// Reads sequences and annotations from a file or reference bundle for export.
+    ///
+    /// For reference bundles, reads the FASTA directly and loads annotations from the
+    /// annotation database (BigBed tracks) via the bundle's data provider.
+    /// For GenBank files, reads both sequences and annotations from the file.
+    /// For FASTA files, reads sequences only.
+    private func loadSequencesForExport(from url: URL) async throws -> ([LungfishCore.Sequence], [SequenceAnnotation]) {
+        // Check if this document is already loaded in DocumentManager
+        if let existingDoc = DocumentManager.shared.documents.first(where: {
+            $0.url.standardizedFileURL == url.standardizedFileURL
+        }), !existingDoc.sequences.isEmpty {
+            return (existingDoc.sequences, existingDoc.annotations)
+        }
+
+        // Reference bundle: read FASTA path from manifest
+        if url.pathExtension.lowercased() == "lungfishref" {
+            let manifest = try BundleManifest.load(from: url)
+            guard let genomePath = manifest.genome?.path else {
+                throw NSError(domain: "com.lungfish.browser", code: 1,
+                              userInfo: [NSLocalizedDescriptionKey: "No genome sequence in bundle \(url.lastPathComponent)"])
+            }
+            let sourceURL = url.appendingPathComponent(genomePath)
+            // Decompress to temp file if needed (FASTAReader doesn't handle gzip internally)
+            let readURL: URL
+            var tempDecompressed: URL?
+            if sourceURL.pathExtension.lowercased() == "gz" {
+                let tmpURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("export-decomp-\(UUID().uuidString).fa")
+                let gzStream = try GzipInputStream(url: sourceURL)
+                let content = try await gzStream.readAll()
+                try content.write(to: tmpURL, atomically: true, encoding: .utf8)
+                readURL = tmpURL
+                tempDecompressed = tmpURL
+            } else {
+                readURL = sourceURL
+            }
+            defer { if let tmp = tempDecompressed { try? FileManager.default.removeItem(at: tmp) } }
+
+            let reader = try FASTAReader(url: readURL)
+            let sequences = try await reader.readAll()
+
+            // Load annotations from annotation tracks in the bundle
+            var annotations: [SequenceAnnotation] = []
+            for track in manifest.annotations {
+                // Prefer SQLite database (has rich metadata) over BigBed
+                if let dbPath = track.databasePath {
+                    let dbURL = url.appendingPathComponent(dbPath)
+                    if FileManager.default.fileExists(atPath: dbURL.path) {
+                        let db = try AnnotationDatabase(url: dbURL)
+                        let records = db.query(limit: Int.max)
+                        annotations.append(contentsOf: records.map { $0.toAnnotation() })
+                        continue
+                    }
+                }
+            }
+            return (sequences, annotations)
+        }
+
+        // GenBank file: read sequences and annotations
+        var checkURL = url
+        if checkURL.pathExtension.lowercased() == "gz" { checkURL = checkURL.deletingPathExtension() }
+        let ext = checkURL.pathExtension.lowercased()
+        if ext == "gb" || ext == "gbk" || ext == "genbank" || ext == "gbff" {
+            let reader = try GenBankReader(url: url)
+            let records = try await reader.readAll()
+            var sequences: [LungfishCore.Sequence] = []
+            var annotations: [SequenceAnnotation] = []
+            for record in records {
+                sequences.append(record.sequence)
+                annotations.append(contentsOf: record.annotations)
+            }
+            return (sequences, annotations)
+        }
+
+        // FASTA file
+        let reader = try FASTAReader(url: url)
+        let sequences = try await reader.readAll()
+        return (sequences, [])
+    }
+
+    private enum SequenceExportFormat {
+        case fasta, genbank
+    }
+
+    private enum SequenceExportCompression {
+        case none, gzip, zstd
     }
 
     /// Returns current date in GenBank format (DD-MMM-YYYY)
@@ -3630,6 +3855,182 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         alert.runModal()
     }
 
+    // MARK: - Import ONT Run
+
+    @objc func importONTRun(_ sender: Any?) {
+        guard let projectURL = workingDirectoryURL else {
+            let alert = NSAlert()
+            alert.messageText = "No Project Open"
+            alert.informativeText = "Please open or create a project before importing an ONT run."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+
+        guard let window = mainWindowController?.window else { return }
+
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Select an ONT output directory (fastq_pass, a barcoded folder, or a folder with FASTQ chunks)"
+        panel.prompt = "Import"
+
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            self?.mainWindowController?.mainSplitViewController?.importONTDirectoryInBackground(
+                sourceURL: url,
+                projectURL: projectURL
+            )
+        }
+    }
+
+    // MARK: - Export FASTQ
+
+    @objc func exportFASTQ(_ sender: Any?) {
+        guard let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController else {
+            showExportError(message: "No sidebar available.")
+            return
+        }
+
+        let items = sidebarController.selectedItems().filter { $0.type == .fastqBundle && $0.url != nil }
+        guard !items.isEmpty else {
+            showExportError(message: "No FASTQ datasets selected. Select one or more FASTQ bundles in the sidebar.")
+            return
+        }
+
+        guard let window = mainWindowController?.window else { return }
+
+        if items.count == 1 {
+            // Single selection: use save panel
+            let item = items[0]
+            let bundleURL = item.url!
+            let isDerived = FASTQBundle.isDerivedBundle(bundleURL)
+            let baseName = FASTQBundle.deriveBaseName(from: bundleURL)
+            let suggestedName: String
+            if isDerived {
+                suggestedName = baseName + ".fastq.gz"
+            } else if let primaryURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL) {
+                suggestedName = primaryURL.lastPathComponent
+            } else {
+                suggestedName = baseName + ".fastq"
+            }
+
+            let savePanel = NSSavePanel()
+            savePanel.title = "Export FASTQ"
+            savePanel.nameFieldStringValue = suggestedName
+            savePanel.allowedContentTypes = [.data]
+            savePanel.canCreateDirectories = true
+            savePanel.beginSheetModal(for: window) { [weak self] response in
+                guard response == .OK, let outputURL = savePanel.url else { return }
+                self?.performFASTQExports(
+                    bundles: [(bundleURL, outputURL, isDerived, item.title)],
+                    window: window
+                )
+            }
+        } else {
+            // Multi-selection: use open panel (folder picker)
+            let openPanel = NSOpenPanel()
+            openPanel.title = "Export \(items.count) FASTQ Files — Choose Output Folder"
+            openPanel.canChooseFiles = false
+            openPanel.canChooseDirectories = true
+            openPanel.canCreateDirectories = true
+            openPanel.prompt = "Export Here"
+            openPanel.beginSheetModal(for: window) { [weak self] response in
+                guard response == .OK, let folderURL = openPanel.url else { return }
+                var bundles: [(bundleURL: URL, outputURL: URL, isDerived: Bool, title: String)] = []
+                for item in items {
+                    let bundleURL = item.url!
+                    let isDerived = FASTQBundle.isDerivedBundle(bundleURL)
+                    let baseName = FASTQBundle.deriveBaseName(from: bundleURL)
+                    let filename: String
+                    if isDerived {
+                        filename = baseName + ".fastq.gz"
+                    } else if let primaryURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL) {
+                        filename = primaryURL.lastPathComponent
+                    } else {
+                        filename = baseName + ".fastq"
+                    }
+                    let outputURL = folderURL.appendingPathComponent(filename)
+                    bundles.append((bundleURL, outputURL, isDerived, item.title))
+                }
+                self?.performFASTQExports(bundles: bundles, window: window)
+            }
+        }
+    }
+
+    /// Exports one or more FASTQ bundles in the background.
+    private func performFASTQExports(
+        bundles: [(bundleURL: URL, outputURL: URL, isDerived: Bool, title: String)],
+        window: NSWindow
+    ) {
+        let total = bundles.count
+        Task.detached {
+            var succeeded = 0
+            var failed: [(title: String, error: String)] = []
+
+            for (bundleURL, outputURL, isDerived, title) in bundles {
+                do {
+                    if isDerived {
+                        try await FASTQDerivativeService.shared.exportMaterializedFASTQ(
+                            fromDerivedBundle: bundleURL,
+                            to: outputURL,
+                            progress: { message in
+                                debugLog("Export FASTQ (\(title)): \(message)")
+                            }
+                        )
+                    } else {
+                        guard let primaryURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL) else {
+                            throw NSError(domain: "com.lungfish.browser", code: 1,
+                                          userInfo: [NSLocalizedDescriptionKey: "No FASTQ file found inside bundle"])
+                        }
+                        try FileManager.default.copyItem(at: primaryURL, to: outputURL)
+                    }
+                    succeeded += 1
+                } catch {
+                    debugLog("Export FASTQ failed for \(title): \(error)")
+                    failed.append((title, error.localizedDescription))
+                }
+            }
+
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    let alert = NSAlert()
+                    if failed.isEmpty {
+                        alert.messageText = "Export Complete"
+                        if total == 1 {
+                            alert.informativeText = "\(bundles[0].title) exported as \(bundles[0].outputURL.lastPathComponent)."
+                        } else {
+                            alert.informativeText = "Successfully exported \(succeeded) FASTQ file(s)."
+                        }
+                        alert.alertStyle = .informational
+                        alert.addButton(withTitle: "OK")
+                        if total == 1 {
+                            alert.addButton(withTitle: "Show in Finder")
+                        }
+                    } else if succeeded == 0 {
+                        alert.messageText = "Export Failed"
+                        alert.informativeText = failed.map { "\($0.title): \($0.error)" }.joined(separator: "\n")
+                        alert.alertStyle = .critical
+                        alert.addButton(withTitle: "OK")
+                    } else {
+                        alert.messageText = "Export Partially Complete"
+                        alert.informativeText = "\(succeeded) succeeded, \(failed.count) failed.\n\n"
+                            + failed.map { "\($0.title): \($0.error)" }.joined(separator: "\n")
+                        alert.alertStyle = .warning
+                        alert.addButton(withTitle: "OK")
+                    }
+                    alert.beginSheetModal(for: window) { response in
+                        if total == 1 && failed.isEmpty && response == .alertSecondButtonReturn {
+                            NSWorkspace.shared.activateFileViewerSelecting([bundles[0].outputURL])
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - OperationsMenuActions
 
     private var operationsPanelController: OperationsPanelController?
@@ -4025,5 +4426,34 @@ private class GenBankParser {
         }
 
         return (0, 0, strand)
+    }
+}
+
+// MARK: - Export Filename Updater
+
+/// Helper that updates NSSavePanel filename when format/compression popups change.
+private class ExportFilenameUpdater: NSObject {
+    nonisolated(unsafe) static var associatedKey: UInt8 = 0
+    weak var panel: NSSavePanel?
+    let baseName: String
+    let formatPopup: NSPopUpButton
+    let compPopup: NSPopUpButton
+
+    init(panel: NSSavePanel, baseName: String, formatPopup: NSPopUpButton, compPopup: NSPopUpButton) {
+        self.panel = panel
+        self.baseName = baseName
+        self.formatPopup = formatPopup
+        self.compPopup = compPopup
+    }
+
+    @objc func popupChanged(_ sender: Any?) {
+        let formatExt = formatPopup.indexOfSelectedItem == 1 ? "gbk" : "fa"
+        let compExt: String
+        switch compPopup.indexOfSelectedItem {
+        case 1: compExt = ".gz"
+        case 2: compExt = ".zst"
+        default: compExt = ""
+        }
+        panel?.nameFieldStringValue = "\(baseName).\(formatExt)\(compExt)"
     }
 }

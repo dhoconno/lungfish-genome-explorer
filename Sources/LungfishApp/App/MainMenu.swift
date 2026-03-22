@@ -186,100 +186,114 @@ public final class MainMenu {
 
         fileMenu.addItem(.separator())
 
-        // Import - single unified option with auto-detection
-        let importItem = fileMenu.addItem(
-            withTitle: "Import Files...",
+        // Import submenu
+        let importItem = NSMenuItem(title: "Import", action: nil, keyEquivalent: "")
+        let importMenu = NSMenu(title: "Import")
+
+        let importFilesItem = importMenu.addItem(
+            withTitle: "Files\u{2026}",
             action: #selector(FileMenuActions.importFiles(_:)),
             keyEquivalent: "i"
         )
-        importItem.keyEquivalentModifierMask = [.command, .shift]
+        importFilesItem.keyEquivalentModifierMask = [.command, .shift]
 
-        // Import VCF variants into the current bundle
-        fileMenu.addItem(
-            withTitle: "Import VCF Variants...",
+        let importONTItem = importMenu.addItem(
+            withTitle: "ONT Run\u{2026}",
+            action: #selector(FileMenuActions.importONTRun(_:)),
+            keyEquivalent: "o"
+        )
+        importONTItem.keyEquivalentModifierMask = [.command, .shift]
+
+        importMenu.addItem(.separator())
+
+        importMenu.addItem(
+            withTitle: "VCF Variants\u{2026}",
             action: #selector(FileMenuActions.importVCFToBundle(_:)),
             keyEquivalent: ""
         )
-
-        // Import BAM/CRAM alignments into the current bundle
-        fileMenu.addItem(
-            withTitle: "Import BAM/CRAM Alignments...",
+        importMenu.addItem(
+            withTitle: "BAM/CRAM Alignments\u{2026}",
             action: #selector(FileMenuActions.importBAMToBundle(_:)),
             keyEquivalent: ""
         )
-
-        // Import sample metadata into the current bundle
-        fileMenu.addItem(
-            withTitle: "Import Sample Metadata...",
+        importMenu.addItem(
+            withTitle: "Sample Metadata\u{2026}",
             action: #selector(FileMenuActions.importSampleMetadataToBundle(_:)),
             keyEquivalent: ""
         )
+
+        importItem.submenu = importMenu
+        fileMenu.addItem(importItem)
 
         // Export submenu
         let exportItem = NSMenuItem(title: "Export", action: nil, keyEquivalent: "")
         let exportMenu = NSMenu(title: "Export")
 
+        // Sequence formats
         exportMenu.addItem(
-            withTitle: "FASTA...",
+            withTitle: "Sequences (FASTA/GenBank)\u{2026}",
             action: #selector(FileMenuActions.exportFASTA(_:)),
             keyEquivalent: ""
         )
         exportMenu.addItem(
-            withTitle: "GenBank...",
-            action: #selector(FileMenuActions.exportGenBank(_:)),
-            keyEquivalent: ""
-        )
-        exportMenu.addItem(
-            withTitle: "GFF3...",
+            withTitle: "Annotations (GFF3)\u{2026}",
             action: #selector(FileMenuActions.exportGFF3(_:)),
             keyEquivalent: ""
         )
-        exportMenu.addItem(.separator())
         exportMenu.addItem(
-            withTitle: "Image (PNG)...",
+            withTitle: "FASTQ\u{2026}",
+            action: #selector(FileMenuActions.exportFASTQ(_:)),
+            keyEquivalent: ""
+        )
+
+        exportMenu.addItem(.separator())
+
+        // Images
+        exportMenu.addItem(
+            withTitle: "Image (PNG)\u{2026}",
             action: #selector(FileMenuActions.exportImage(_:)),
             keyEquivalent: ""
         )
         exportMenu.addItem(
-            withTitle: "Image (PDF)...",
+            withTitle: "Image (PDF)\u{2026}",
             action: #selector(FileMenuActions.exportPDF(_:)),
             keyEquivalent: ""
         )
 
         exportMenu.addItem(.separator())
 
-        // Export Provenance submenu
+        // Provenance submenu
         let provenanceItem = NSMenuItem(title: "Provenance", action: nil, keyEquivalent: "")
         let provenanceMenu = NSMenu(title: "Provenance")
 
         provenanceMenu.addItem(
-            withTitle: "Shell Script...",
+            withTitle: "Shell Script\u{2026}",
             action: #selector(FileMenuActions.exportProvenanceShell(_:)),
             keyEquivalent: ""
         )
         provenanceMenu.addItem(
-            withTitle: "Python Script...",
+            withTitle: "Python Script\u{2026}",
             action: #selector(FileMenuActions.exportProvenancePython(_:)),
             keyEquivalent: ""
         )
         provenanceMenu.addItem(
-            withTitle: "Nextflow Pipeline...",
+            withTitle: "Nextflow Pipeline\u{2026}",
             action: #selector(FileMenuActions.exportProvenanceNextflow(_:)),
             keyEquivalent: ""
         )
         provenanceMenu.addItem(
-            withTitle: "Snakemake Workflow...",
+            withTitle: "Snakemake Workflow\u{2026}",
             action: #selector(FileMenuActions.exportProvenanceSnakemake(_:)),
             keyEquivalent: ""
         )
         provenanceMenu.addItem(.separator())
         provenanceMenu.addItem(
-            withTitle: "Methods Section...",
+            withTitle: "Methods Section\u{2026}",
             action: #selector(FileMenuActions.exportProvenanceMethods(_:)),
             keyEquivalent: ""
         )
         provenanceMenu.addItem(
-            withTitle: "Full Provenance (JSON)...",
+            withTitle: "Full Provenance (JSON)\u{2026}",
             action: #selector(FileMenuActions.exportProvenanceJSON(_:)),
             keyEquivalent: ""
         )
@@ -781,6 +795,8 @@ public final class MainMenu {
     func exportProvenanceSnakemake(_ sender: Any?)
     func exportProvenanceMethods(_ sender: Any?)
     func exportProvenanceJSON(_ sender: Any?)
+    func exportFASTQ(_ sender: Any?)
+    func importONTRun(_ sender: Any?)
 }
 
 /// View menu action handlers.

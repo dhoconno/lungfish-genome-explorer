@@ -30,7 +30,7 @@ import LungfishCore
 ///         descriptor.matchesExtension(url)
 ///     }
 ///
-///     public func importDocument(from url: URL) async throws -> LoadedDocument {
+///     public func importDocument(from url: URL) async throws -> ImportResult {
 ///         let reader = try FASTAReader(url: url)
 ///         let sequences = try await reader.readAll()
 ///         // ... create document from sequences
@@ -56,7 +56,7 @@ public protocol FormatImporter: Sendable {
     /// - Parameter url: The file URL to import
     /// - Returns: The loaded document with sequences and annotations
     /// - Throws: ImportError or format-specific errors if import fails
-    func importDocument(from url: URL) async throws -> LoadedDocument
+    func importDocument(from url: URL) async throws -> ImportResult
 
     /// Import a document with progress reporting.
     ///
@@ -68,7 +68,7 @@ public protocol FormatImporter: Sendable {
     func importDocument(
         from url: URL,
         progress: @escaping @Sendable (Double) -> Void
-    ) async throws -> LoadedDocument
+    ) async throws -> ImportResult
 
     /// Quickly scan the file for metadata without full parsing.
     ///
@@ -88,7 +88,7 @@ extension FormatImporter {
     public func importDocument(
         from url: URL,
         progress: @escaping @Sendable (Double) -> Void
-    ) async throws -> LoadedDocument {
+    ) async throws -> ImportResult {
         // Default: no progress reporting
         try await importDocument(from: url)
     }
@@ -114,13 +114,13 @@ extension FormatImporter {
     }
 }
 
-// MARK: - LoadedDocument
+// MARK: - ImportResult
 
 /// Result of importing a file, containing sequences and metadata.
 ///
-/// LoadedDocument is a lightweight container for import results before
+/// ImportResult is a lightweight container for import results before
 /// creating a full GenomicDocument.
-public struct LoadedDocument: Sendable {
+public struct ImportResult: Sendable {
 
     /// Sequences loaded from the file
     public let sequences: [Sequence]

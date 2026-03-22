@@ -129,16 +129,23 @@ public struct ONTImportConfig: Sendable {
     /// Whether to include the "unclassified" directory.
     public let includeUnclassified: Bool
 
+    /// When true, creates symlink-based bundles with `source-files.json` instead of
+    /// byte-concatenating chunks into a single `reads.fastq.gz`. This avoids duplicating
+    /// data and enables virtual concatenation for downstream operations.
+    public let useVirtualConcatenation: Bool
+
     public init(
         sourceDirectory: URL,
         outputDirectory: URL,
         maxConcurrentBarcodes: Int = 4,
-        includeUnclassified: Bool = false
+        includeUnclassified: Bool = false,
+        useVirtualConcatenation: Bool = true
     ) {
         self.sourceDirectory = sourceDirectory
         self.outputDirectory = outputDirectory
         self.maxConcurrentBarcodes = maxConcurrentBarcodes
         self.includeUnclassified = includeUnclassified
+        self.useVirtualConcatenation = useVirtualConcatenation
     }
 }
 
@@ -287,6 +294,25 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
             ))
         }
 
+        // No barcode subdirs found — check for FASTQ chunks directly in this directory
+        if barcodeDirs.isEmpty {
+            let directChunks = try listFASTQChunks(in: url)
+            if !directChunks.isEmpty {
+                let totalSize = directChunks.reduce(Int64(0)) { $0 + fileSize($1) }
+                let dir = ONTBarcodeDirectory(
+                    url: url,
+                    barcodeName: url.lastPathComponent,
+                    chunkFiles: directChunks,
+                    totalSizeBytes: totalSize
+                )
+                return ONTDirectoryLayout(
+                    rootDirectory: url.deletingLastPathComponent(),
+                    barcodeDirectories: [dir],
+                    hasUnclassified: false
+                )
+            }
+        }
+
         guard !barcodeDirs.isEmpty else {
             throw ONTImportError.notONTDirectory(url)
         }
@@ -346,17 +372,32 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
                     barcodeIndex += 1
                     activeTasks += 1
 
+                    let useVirtual = config.useVirtualConcatenation
                     group.addTask {
-                        let (bundleURL, readCount, baseCount) = try await self.importBarcode(
-                            barcodeDir: barcodeDir,
-                            outputDirectory: config.outputDirectory,
-                            progress: { msg in
-                                progress(
-                                    Double(idx) / Double(barcodesToImport.count),
-                                    "\(barcodeDir.barcodeName): \(msg)"
-                                )
-                            }
-                        )
+                        let (bundleURL, readCount, baseCount): (URL, Int, Int64)
+                        if useVirtual {
+                            (bundleURL, readCount, baseCount) = try await self.importBarcodeVirtual(
+                                barcodeDir: barcodeDir,
+                                outputDirectory: config.outputDirectory,
+                                progress: { msg in
+                                    progress(
+                                        Double(idx) / Double(barcodesToImport.count),
+                                        "\(barcodeDir.barcodeName): \(msg)"
+                                    )
+                                }
+                            )
+                        } else {
+                            (bundleURL, readCount, baseCount) = try await self.importBarcode(
+                                barcodeDir: barcodeDir,
+                                outputDirectory: config.outputDirectory,
+                                progress: { msg in
+                                    progress(
+                                        Double(idx) / Double(barcodesToImport.count),
+                                        "\(barcodeDir.barcodeName): \(msg)"
+                                    )
+                                }
+                            )
+                        }
                         return (idx, bundleURL, readCount, baseCount)
                     }
                 }
@@ -483,7 +524,7 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
 
             // Count reads in the concatenated file
             progress("Counting reads...")
-            let readCount = try countReadsInGzip(url: outputFASTQ)
+            let readCount = try countReadsInFASTQ(url: outputFASTQ)
 
             // Estimate base count (compressed bytes × ~1.5 accounts for FASTQ overhead)
             let baseCount = Int64(Double(totalBytesWritten) * 1.5)
@@ -501,7 +542,118 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
         }
     }
 
+    // MARK: - Virtual Per-Barcode Import
+
+    /// Imports a single barcode directory using symlinks (no byte concatenation).
+    ///
+    /// Creates a `.lungfishfastq` bundle with symlinks to the original chunk files
+    /// and a `source-files.json` manifest listing them in order. This avoids
+    /// duplicating data while enabling virtual concatenation for downstream operations.
+    private func importBarcodeVirtual(
+        barcodeDir: ONTBarcodeDirectory,
+        outputDirectory: URL,
+        progress: @escaping @Sendable (String) -> Void
+    ) async throws -> (URL, Int, Int64) {
+        let bundleName = "\(barcodeDir.barcodeName).\(FASTQBundle.directoryExtension)"
+        let bundleURL = outputDirectory.appendingPathComponent(bundleName, isDirectory: true)
+        let fm = FileManager.default
+
+        do {
+            try fm.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+            let chunksDir = bundleURL.appendingPathComponent("chunks", isDirectory: true)
+            try fm.createDirectory(at: chunksDir, withIntermediateDirectories: true)
+
+            progress("Copying \(barcodeDir.chunkFiles.count) chunks...")
+
+            // Copy chunk files and build manifest entries
+            var entries: [FASTQSourceFileManifest.SourceFileEntry] = []
+            for (i, chunk) in barcodeDir.chunkFiles.enumerated() {
+                try Task.checkCancellation()
+                let chunkName = chunk.lastPathComponent
+                let destURL = chunksDir.appendingPathComponent(chunkName)
+                try fm.copyItem(at: chunk, to: destURL)
+
+                entries.append(FASTQSourceFileManifest.SourceFileEntry(
+                    filename: "chunks/\(chunkName)",
+                    originalPath: chunk.path,
+                    sizeBytes: fileSize(chunk),
+                    isSymlink: false
+                ))
+
+                if (i + 1) % 5 == 0 || i == barcodeDir.chunkFiles.count - 1 {
+                    progress("Copied \(i + 1)/\(barcodeDir.chunkFiles.count) chunks")
+                }
+            }
+
+            // Write source file manifest
+            let manifest = FASTQSourceFileManifest(files: entries)
+            try manifest.save(to: bundleURL)
+
+            progress("Counting reads across \(barcodeDir.chunkFiles.count) chunks...")
+
+            // Count reads across all chunks
+            var totalReads = 0
+            var totalBaseEstimate: Int64 = 0
+            for chunk in barcodeDir.chunkFiles {
+                try Task.checkCancellation()
+                let count = try countReadsInFASTQ(url: chunk)
+                totalReads += count
+                totalBaseEstimate += Int64(Double(fileSize(chunk)) * 1.5)
+            }
+
+            // Generate preview.fastq from the first chunk (first 1000 reads)
+            progress("Generating preview...")
+            let previewURL = bundleURL.appendingPathComponent("preview.fastq")
+            try await generatePreview(
+                fromChunks: barcodeDir.chunkFiles,
+                to: previewURL,
+                maxReads: 1000
+            )
+
+            logger.info("Virtual import \(barcodeDir.barcodeName): \(totalReads) reads, \(entries.count) chunks")
+
+            return (bundleURL, totalReads, totalBaseEstimate)
+        } catch {
+            try? fm.removeItem(at: bundleURL)
+            throw ONTImportError.concatenationFailed(
+                barcode: barcodeDir.barcodeName,
+                underlying: error
+            )
+        }
+    }
+
     // MARK: - Helpers
+
+    /// Generates a preview FASTQ from the first N reads across chunk files.
+    private func generatePreview(
+        fromChunks chunks: [URL],
+        to outputURL: URL,
+        maxReads: Int
+    ) async throws {
+        var previewLines: [String] = []
+        previewLines.reserveCapacity(maxReads * 4)
+        var readsCollected = 0
+        var lineBuffer: [String] = []
+        lineBuffer.reserveCapacity(4)
+
+        outer: for chunk in chunks {
+            for try await line in chunk.linesAutoDecompressing() {
+                if line.isEmpty && lineBuffer.isEmpty { continue }
+                lineBuffer.append(line)
+                guard lineBuffer.count == 4 else { continue }
+
+                previewLines.append(contentsOf: lineBuffer)
+                lineBuffer.removeAll(keepingCapacity: true)
+                readsCollected += 1
+                if readsCollected >= maxReads { break outer }
+            }
+            lineBuffer.removeAll(keepingCapacity: true)
+        }
+
+        let content = previewLines.joined(separator: "\n") + (previewLines.isEmpty ? "" : "\n")
+        try content.write(to: outputURL, atomically: true, encoding: .utf8)
+    }
 
     /// Lists .fastq.gz and .fastq files in a directory, sorted by name.
     private func listFASTQChunks(in directory: URL) throws -> [URL] {
@@ -523,7 +675,7 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
 
     /// Returns the file size in bytes, or 0 on failure.
     private func fileSize(_ url: URL) -> Int64 {
-        (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+        url.fileSizeBytes
     }
 
     /// Extracts ONT metadata from the first read of the first chunk in a barcode directory.
@@ -598,40 +750,60 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
         return output.prefix(decompressedSize)
     }
 
-    /// Counts FASTQ reads in a gzip file by counting `@` header lines.
+    /// Counts FASTQ reads by counting lines and dividing by 4.
     ///
-    /// For multi-member gzip files (concatenated ONT chunks), this reads
-    /// member-by-member to handle the boundaries correctly.
-    /// Counts FASTQ reads by piping gzcat into wc -l and dividing by 4.
-    /// Handles multi-member gzip (concatenated ONT chunks) correctly.
-    private func countReadsInGzip(url: URL) throws -> Int {
-        let decompressProcess = Process()
-        decompressProcess.executableURL = URL(fileURLWithPath: "/usr/bin/gzcat")
-        decompressProcess.arguments = [url.path]
+    /// Handles both gzip-compressed and uncompressed FASTQ files.
+    /// For gzip files, uses `gzcat` for decompression. For plain text, uses `wc -l` directly.
+    private func countReadsInFASTQ(url: URL) throws -> Int {
+        let isGzipped = url.pathExtension.lowercased() == "gz"
 
         let wcProcess = Process()
         wcProcess.executableURL = URL(fileURLWithPath: "/usr/bin/wc")
         wcProcess.arguments = ["-l"]
 
-        let interPipe = Pipe()
-        decompressProcess.standardOutput = interPipe
-        decompressProcess.standardError = FileHandle.nullDevice
-        wcProcess.standardInput = interPipe
-
         let outputPipe = Pipe()
         wcProcess.standardOutput = outputPipe
         wcProcess.standardError = FileHandle.nullDevice
 
-        try decompressProcess.run()
+        var decompressProcess: Process?
+
+        if isGzipped {
+            let gzcat = Process()
+            gzcat.executableURL = URL(fileURLWithPath: "/usr/bin/gzcat")
+            gzcat.arguments = [url.path]
+            gzcat.standardError = FileHandle.nullDevice
+
+            let interPipe = Pipe()
+            gzcat.standardOutput = interPipe
+            wcProcess.standardInput = interPipe
+
+            try gzcat.run()
+            decompressProcess = gzcat
+        } else {
+            let inputPipe = Pipe()
+            wcProcess.standardInput = inputPipe
+            // Feed file content to wc via pipe
+            let inputHandle = try FileHandle(forReadingFrom: url)
+            inputPipe.fileHandleForWriting.writeabilityHandler = { handle in
+                let data = inputHandle.readData(ofLength: 4 * 1024 * 1024)
+                if data.isEmpty {
+                    handle.writeabilityHandler = nil
+                    handle.closeFile()
+                    try? inputHandle.close()
+                } else {
+                    handle.write(data)
+                }
+            }
+        }
+
         try wcProcess.run()
 
         let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        decompressProcess.waitUntilExit()
+        decompressProcess?.waitUntilExit()
         wcProcess.waitUntilExit()
 
-        // Check for decompression failure
-        if decompressProcess.terminationStatus != 0 {
-            logger.warning("gzcat failed for \(url.lastPathComponent) with exit code \(decompressProcess.terminationStatus)")
+        if let dp = decompressProcess, dp.terminationStatus != 0 {
+            logger.warning("gzcat failed for \(url.lastPathComponent) with exit code \(dp.terminationStatus)")
             return 0
         }
 

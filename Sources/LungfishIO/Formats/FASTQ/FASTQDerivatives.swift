@@ -1167,7 +1167,7 @@ public struct FASTQDerivedBundleManifest: Codable, Sendable, Equatable {
     /// Relative path from this bundle to the root (physical FASTQ payload) bundle.
     public let rootBundleRelativePath: String
 
-    /// FASTQ filename inside the root bundle.
+    /// FASTQ filename inside the root bundle (first file for multi-file bundles).
     public let rootFASTQFilename: String
 
     /// What this derivative stores on disk (read ID list or trim positions).

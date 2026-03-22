@@ -28,11 +28,11 @@ import LungfishCore
 ///
 ///     public var requiredCapabilities: DocumentCapability { .nucleotideSequence }
 ///
-///     public func canExport(document: LoadedDocument) -> Bool {
+///     public func canExport(document: ImportResult) -> Bool {
 ///         !document.sequences.isEmpty
 ///     }
 ///
-///     public func export(document: LoadedDocument, to url: URL) async throws {
+///     public func export(document: ImportResult, to url: URL) async throws {
 ///         let writer = FASTAWriter(url: url)
 ///         try writer.write(document.sequences)
 ///     }
@@ -50,7 +50,7 @@ public protocol FormatExporter: Sendable {
     ///
     /// - Parameter document: The document to check
     /// - Returns: true if this exporter can export the document
-    func canExport(document: LoadedDocument) -> Bool
+    func canExport(document: ImportResult) -> Bool
 
     /// Export the document to the URL.
     ///
@@ -58,7 +58,7 @@ public protocol FormatExporter: Sendable {
     ///   - document: The document to export
     ///   - url: The destination file URL
     /// - Throws: ExportError or format-specific errors if export fails
-    func export(document: LoadedDocument, to url: URL) async throws
+    func export(document: ImportResult, to url: URL) async throws
 
     /// Export the document with progress reporting.
     ///
@@ -68,7 +68,7 @@ public protocol FormatExporter: Sendable {
     ///   - progress: Callback for progress updates (0.0 to 1.0)
     /// - Throws: ExportError or format-specific errors if export fails
     func export(
-        document: LoadedDocument,
+        document: ImportResult,
         to url: URL,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws
@@ -77,7 +77,7 @@ public protocol FormatExporter: Sendable {
     ///
     /// - Parameter document: The document to check
     /// - Returns: Array of warnings about data loss
-    func dataLossWarnings(for document: LoadedDocument) -> [DataLossWarning]
+    func dataLossWarnings(for document: ImportResult) -> [DataLossWarning]
 }
 
 // MARK: - Default Implementations
@@ -86,7 +86,7 @@ extension FormatExporter {
 
     /// Default implementation without progress reporting
     public func export(
-        document: LoadedDocument,
+        document: ImportResult,
         to url: URL,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws {
@@ -95,12 +95,12 @@ extension FormatExporter {
     }
 
     /// Default implementation returns no warnings
-    public func dataLossWarnings(for document: LoadedDocument) -> [DataLossWarning] {
+    public func dataLossWarnings(for document: ImportResult) -> [DataLossWarning] {
         []
     }
 
     /// Default canExport checks if document has required capabilities
-    public func canExport(document: LoadedDocument) -> Bool {
+    public func canExport(document: ImportResult) -> Bool {
         // Check that document has sequences if nucleotide/protein sequences are required
         if requiredCapabilities.contains(.nucleotideSequence) ||
            requiredCapabilities.contains(.aminoAcidSequence) {
@@ -149,48 +149,6 @@ public struct DataLossWarning: Sendable, Equatable {
     }
 }
 
-// MARK: - ExportOptions
-
-/// Options for export operations
-public struct ExportOptions: Sendable {
-
-    /// Whether to compress the output
-    public var compress: Bool
-
-    /// Compression type if compressing
-    public var compressionType: CompressionType
-
-    /// Line width for text formats (e.g., 60 for FASTA)
-    public var lineWidth: Int
-
-    /// Whether to include annotations in export
-    public var includeAnnotations: Bool
-
-    /// Quality encoding for FASTQ output
-    public var qualityEncoding: QualityEncoding
-
-    /// Custom options dictionary for format-specific settings
-    public var customOptions: [String: String]
-
-    public init(
-        compress: Bool = false,
-        compressionType: CompressionType = .gzip,
-        lineWidth: Int = 60,
-        includeAnnotations: Bool = true,
-        qualityEncoding: QualityEncoding = .phred33,
-        customOptions: [String: String] = [:]
-    ) {
-        self.compress = compress
-        self.compressionType = compressionType
-        self.lineWidth = lineWidth
-        self.includeAnnotations = includeAnnotations
-        self.qualityEncoding = qualityEncoding
-        self.customOptions = customOptions
-    }
-
-    /// Default export options
-    public static let `default` = ExportOptions()
-}
 
 // MARK: - ExportError
 

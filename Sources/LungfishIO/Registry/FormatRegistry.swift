@@ -82,6 +82,26 @@ public actor FormatRegistry {
 
         self.extensionMap = extMap
         self.mimeTypeMap = mimeMap
+
+        // Register built-in importers
+        let builtInImporters: [any FormatImporter] = [
+            FASTAFormatImporter(),
+            GenBankFormatImporter(),
+            GFF3FormatImporter(),
+        ]
+        for importer in builtInImporters {
+            self.importers[importer.descriptor.identifier] = importer
+        }
+
+        // Register built-in exporters
+        let builtInExporters: [any FormatExporter] = [
+            FASTAFormatExporter(),
+            GenBankFormatExporter(),
+            GFF3FormatExporter(),
+        ]
+        for exporter in builtInExporters {
+            self.exporters[exporter.descriptor.identifier] = exporter
+        }
     }
 
     // MARK: - Registration
@@ -168,7 +188,7 @@ public actor FormatRegistry {
     ///
     /// - Parameter document: The document to export
     /// - Returns: Array of compatible exporters
-    public func exporters(for document: LoadedDocument) -> [any FormatExporter] {
+    public func exporters(for document: ImportResult) -> [any FormatExporter] {
         exporters.values.filter { $0.canExport(document: document) }
     }
 
@@ -267,7 +287,7 @@ public actor FormatRegistry {
     /// - Parameter url: The file URL to import
     /// - Returns: The loaded document
     /// - Throws: ImportError if format unknown or import fails
-    public func importDocument(from url: URL) async throws -> LoadedDocument {
+    public func importDocument(from url: URL) async throws -> ImportResult {
         guard let format = await detectFormat(url: url) else {
             throw ImportError.unknownFormat(url)
         }
@@ -289,7 +309,7 @@ public actor FormatRegistry {
     public func importDocument(
         from url: URL,
         progress: @escaping @Sendable (Double) -> Void
-    ) async throws -> LoadedDocument {
+    ) async throws -> ImportResult {
         guard let format = await detectFormat(url: url) else {
             throw ImportError.unknownFormat(url)
         }
@@ -309,7 +329,7 @@ public actor FormatRegistry {
     ///   - format: The target format
     /// - Throws: ExportError if format not available or export fails
     public func exportDocument(
-        _ document: LoadedDocument,
+        _ document: ImportResult,
         to url: URL,
         format: FormatIdentifier
     ) async throws {

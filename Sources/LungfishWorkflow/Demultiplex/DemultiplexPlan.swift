@@ -55,6 +55,11 @@ public struct DemultiplexStep: Codable, Sendable, Equatable, Identifiable {
     /// 0 means no constraint. Same rationale as `maxSearchDistance5Prime`.
     public var maxSearchDistance3Prime: Int
 
+    /// Minimum insert length (bp) between left and right barcode hits.
+    /// Used by the exact barcode demux engine for asymmetric kits.
+    /// Default: 2000.
+    public var minimumInsert: Int
+
     /// What to do with reads that don't match any barcode.
     public var unassignedDisposition: UnassignedDisposition
 
@@ -82,6 +87,7 @@ public struct DemultiplexStep: Codable, Sendable, Equatable, Identifiable {
         allowIndels: Bool = true,
         maxSearchDistance5Prime: Int = 0,
         maxSearchDistance3Prime: Int = 0,
+        minimumInsert: Int = 2000,
         unassignedDisposition: UnassignedDisposition = .keep,
         sampleAssignments: [FASTQSampleBarcodeAssignment] = [],
         ordinal: Int = 0,
@@ -99,6 +105,7 @@ public struct DemultiplexStep: Codable, Sendable, Equatable, Identifiable {
         self.allowIndels = allowIndels
         self.maxSearchDistance5Prime = maxSearchDistance5Prime
         self.maxSearchDistance3Prime = maxSearchDistance3Prime
+        self.minimumInsert = minimumInsert
         self.unassignedDisposition = unassignedDisposition
         self.sampleAssignments = sampleAssignments
         self.ordinal = ordinal

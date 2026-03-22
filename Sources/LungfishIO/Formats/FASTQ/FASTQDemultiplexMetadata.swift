@@ -116,8 +116,8 @@ public enum FASTQSampleBarcodeCSV {
 
         let sampleIDColumnAliases: Set<String> = ["sample_id", "sample", "sampleid"]
         let sampleNameColumnAliases: Set<String> = ["sample_name", "display_name", "name"]
-        let forwardIDAliases: Set<String> = ["barcode_5p", "forward_barcode_id", "barcode5_id", "i7_id"]
-        let reverseIDAliases: Set<String> = ["barcode_3p", "reverse_barcode_id", "barcode3_id", "i5_id"]
+        let forwardIDAliases: Set<String> = ["barcode_5p", "forward_barcode_id", "barcode5_id", "i7_id", "barcode_1"]
+        let reverseIDAliases: Set<String> = ["barcode_3p", "reverse_barcode_id", "barcode3_id", "i5_id", "barcode_2"]
         let forwardSequenceAliases: Set<String> = ["forward_sequence", "sequence_5p", "barcode_5p_sequence", "i7_sequence"]
         let reverseSequenceAliases: Set<String> = ["reverse_sequence", "sequence_3p", "barcode_3p_sequence", "i5_sequence"]
 
@@ -220,6 +220,24 @@ public enum FASTQSampleBarcodeCSV {
         return lines.joined(separator: "\n") + "\n"
     }
 
+    /// Exports assignments for asymmetric demux (barcode IDs only, no sequences).
+    public static func exportAsymmetricCSV(_ assignments: [FASTQSampleBarcodeAssignment]) -> String {
+        let columns = ["sample_id", "barcode_1", "barcode_2"]
+        var lines: [String] = [columns.joined(separator: ",")]
+        lines.reserveCapacity(assignments.count + 1)
+
+        for assignment in assignments {
+            let values: [String] = [
+                assignment.sampleID,
+                assignment.forwardBarcodeID ?? "",
+                assignment.reverseBarcodeID ?? "",
+            ]
+            lines.append(values.map(escapeCSV).joined(separator: ","))
+        }
+
+        return lines.joined(separator: "\n") + "\n"
+    }
+
     private static func value(at index: Int, in row: [String]) -> String {
         guard index >= 0, index < row.count else { return "" }
         return row[index]
@@ -286,10 +304,7 @@ public enum FASTQSampleBarcodeCSV {
             return
         }
 
-        if char == "\n" || char == "\r" {
-            if char == "\r" {
-                return
-            }
+        if char == "\n" || char == "\r" || char == "\r\n" {
             row.append(field)
             field.removeAll(keepingCapacity: true)
             if !row.allSatisfy({ $0.isEmpty }) {

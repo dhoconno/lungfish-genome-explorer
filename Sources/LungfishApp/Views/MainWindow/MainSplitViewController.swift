@@ -1016,7 +1016,7 @@ public class MainSplitViewController: NSSplitViewController {
 
     /// Imports an ONT output directory into per-barcode `.lungfishfastq` bundles
     /// via the ONTDirectoryImporter, running in the background.
-    private func importONTDirectoryInBackground(sourceURL: URL, projectURL: URL, requestID: String?) {
+    func importONTDirectoryInBackground(sourceURL: URL, projectURL: URL, requestID: String? = nil) {
         guard let viewerController = self.viewerController else {
             postSidebarFileDropCompleted(
                 requestID: requestID,

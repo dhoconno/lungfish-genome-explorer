@@ -163,113 +163,6 @@ public final class GzipInputStream: Sendable {
         }
     }
 
-    /// Decompresses gzip data using the Compression framework.
-    ///
-    /// - Parameter data: Compressed gzip data
-    /// - Returns: Decompressed data
-    /// - Throws: `GzipError` if decompression fails
-    private func decompress(_ data: Data) throws -> Data {
-        // Skip gzip header (minimum 10 bytes for basic header)
-        // Gzip format: magic(2) + method(1) + flags(1) + mtime(4) + xfl(1) + os(1)
-        guard data.count >= 10 else {
-            throw GzipError.decompressionFailed("Gzip header too short")
-        }
-
-        let flags = data[3]
-        var headerSize = 10
-
-        // FEXTRA flag (bit 2)
-        if flags & 0x04 != 0 {
-            guard data.count >= headerSize + 2 else {
-                throw GzipError.decompressionFailed("Invalid FEXTRA field")
-            }
-            let xlen = Int(data[headerSize]) | (Int(data[headerSize + 1]) << 8)
-            headerSize += 2 + xlen
-        }
-
-        // FNAME flag (bit 3) - null-terminated string
-        if flags & 0x08 != 0 {
-            while headerSize < data.count && data[headerSize] != 0 {
-                headerSize += 1
-            }
-            headerSize += 1 // Skip null terminator
-        }
-
-        // FCOMMENT flag (bit 4) - null-terminated string
-        if flags & 0x10 != 0 {
-            while headerSize < data.count && data[headerSize] != 0 {
-                headerSize += 1
-            }
-            headerSize += 1 // Skip null terminator
-        }
-
-        // FHCRC flag (bit 1)
-        if flags & 0x02 != 0 {
-            headerSize += 2
-        }
-
-        guard headerSize < data.count - 8 else {
-            throw GzipError.decompressionFailed("Gzip data too short after header")
-        }
-
-        // Remove 8-byte trailer (CRC32 + original size)
-        let compressedBytes = data.subdata(in: headerSize..<(data.count - 8))
-
-        // Use Compression framework to decompress
-        return try decompressDeflate(compressedBytes)
-    }
-
-    /// Decompresses raw DEFLATE data.
-    ///
-    /// - Parameter data: DEFLATE compressed data
-    /// - Returns: Decompressed data
-    private func decompressDeflate(_ data: Data) throws -> Data {
-        // Allocate output buffer (start with 4x input size, grow if needed)
-        var outputData = Data(count: data.count * 4)
-        var decompressedSize = 0
-
-        try data.withUnsafeBytes { compressedBuffer in
-            guard let compressedPointer = compressedBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
-                throw GzipError.decompressionFailed("Failed to access compressed data")
-            }
-
-            var success = false
-            var bufferMultiplier = 4
-
-            while !success && bufferMultiplier <= 256 {
-                outputData = Data(count: data.count * bufferMultiplier)
-
-                try outputData.withUnsafeMutableBytes { outputBuffer in
-                    guard let outputPointer = outputBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
-                        throw GzipError.decompressionFailed("Failed to allocate output buffer")
-                    }
-
-                    decompressedSize = compression_decode_buffer(
-                        outputPointer,
-                        outputBuffer.count,
-                        compressedPointer,
-                        compressedBuffer.count,
-                        nil,
-                        COMPRESSION_ZLIB
-                    )
-
-                    if decompressedSize == 0 || decompressedSize == outputBuffer.count {
-                        // Buffer might be too small or decompression failed
-                        bufferMultiplier *= 2
-                    } else {
-                        success = true
-                    }
-                }
-            }
-
-            if !success {
-                throw GzipError.decompressionFailed("Decompression produced no output or buffer overflow")
-            }
-        }
-
-        return outputData.prefix(decompressedSize)
-    }
-
     /// Decompresses the entire file and returns the content as a string.
     ///
     /// - Returns: Decompressed file content
@@ -341,6 +234,11 @@ public final class GzipInputStream: Sendable {
 // MARK: - URL Extension for Gzip Detection
 
 extension URL {
+    /// File size in bytes, or 0 if the file doesn't exist or can't be read.
+    public var fileSizeBytes: Int64 {
+        (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int64) ?? 0
+    }
+
     /// Whether this URL points to a gzip-compressed file (based on extension).
     public var isGzipCompressed: Bool {
         pathExtension.lowercased() == "gz"
@@ -371,6 +269,30 @@ extension URL {
                     } catch {
                         continuation.finish(throwing: error)
                     }
+                }
+            }
+        }
+    }
+
+    /// Returns an async line stream that iterates across multiple FASTQ files sequentially.
+    ///
+    /// Each file is decompressed (if gzipped) and its lines are yielded in order.
+    /// Consumers see a single continuous stream across all files.
+    ///
+    /// - Parameter urls: Ordered list of FASTQ file URLs.
+    /// - Returns: AsyncThrowingStream yielding lines from all files sequentially.
+    public static func multiFileLinesAutoDecompressing(_ urls: [URL]) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    for url in urls {
+                        for try await line in url.linesAutoDecompressing() {
+                            continuation.yield(line)
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
                 }
             }
         }
