@@ -2,60 +2,20 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Adds multi-sequence storage properties to SequenceViewerView using
-// associated objects pattern for extension-safe property storage.
+// Adds multi-sequence computed properties and management methods to SequenceViewerView.
+// The stored properties (multiSequenceState, isMultiSequenceMode) are declared in the
+// SequenceViewerView class body in ViewerViewController.swift.
 
 import AppKit
 import LungfishCore
-import ObjectiveC
 import os.log
 
 /// Logger for multi-sequence property operations
 private let propLogger = Logger(subsystem: LogSubsystem.app, category: "MultiSeqProps")
 
-// MARK: - Associated Object Keys
-
-private nonisolated(unsafe) var multiSequenceStateKey: UInt8 = 0
-private nonisolated(unsafe) var isMultiSequenceModeKey: UInt8 = 1
-
 // MARK: - SequenceViewerView Multi-Sequence Properties
 
 extension SequenceViewerView {
-
-    // MARK: - Multi-Sequence State Property
-
-    /// State manager for multi-sequence display.
-    ///
-    /// When set, enables multi-sequence stacking mode. When nil, the viewer
-    /// operates in single-sequence mode (default behavior).
-    internal var multiSequenceState: MultiSequenceState? {
-        get {
-            objc_getAssociatedObject(self, &multiSequenceStateKey) as? MultiSequenceState
-        }
-        set {
-            objc_setAssociatedObject(
-                self,
-                &multiSequenceStateKey,
-                newValue,
-                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
-            )
-        }
-    }
-
-    /// Whether multi-sequence mode is active.
-    public var isMultiSequenceMode: Bool {
-        get {
-            (objc_getAssociatedObject(self, &isMultiSequenceModeKey) as? Bool) ?? false
-        }
-        set {
-            objc_setAssociatedObject(
-                self,
-                &isMultiSequenceModeKey,
-                newValue,
-                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
-            )
-        }
-    }
 
     // MARK: - Computed Properties
 

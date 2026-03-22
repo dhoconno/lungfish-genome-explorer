@@ -172,7 +172,9 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
                         alert.messageText = "Barcode Detection Failed"
                         alert.informativeText = error.localizedDescription
                         alert.alertStyle = .warning
-                        alert.runModal()
+                        if let window = self?.view.window {
+                            alert.beginSheetModal(for: window, completionHandler: nil)
+                        }
                     }
                 }
             }
@@ -309,56 +311,5 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
         if let height = fastqMetadataDrawerHeightConstraint?.constant {
             UserDefaults.standard.set(Double(height), forKey: "fastqMetadataDrawerHeight")
         }
-    }
-}
-
-extension ViewerViewController {
-    private static var fastqMetadataDrawerViewKey: UInt8 = 0
-    private static var fastqMetadataDrawerBottomKey: UInt8 = 0
-    private static var fastqMetadataDrawerHeightKey: UInt8 = 0
-    private static var fastqMetadataDrawerOpenKey: UInt8 = 0
-    private static var fastqDashboardViewKey: UInt8 = 0
-    private static var fastqDashboardBottomKey: UInt8 = 0
-    private static var currentFASTQDatasetURLKey: UInt8 = 0
-    private static var fastqDrawerHeightSaveWorkItemKey: UInt8 = 0
-
-    var fastqMetadataDrawerView: FASTQMetadataDrawerView? {
-        get { objc_getAssociatedObject(self, &Self.fastqMetadataDrawerViewKey) as? FASTQMetadataDrawerView }
-        set { objc_setAssociatedObject(self, &Self.fastqMetadataDrawerViewKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
-    }
-
-    var fastqMetadataDrawerBottomConstraint: NSLayoutConstraint? {
-        get { objc_getAssociatedObject(self, &Self.fastqMetadataDrawerBottomKey) as? NSLayoutConstraint }
-        set { objc_setAssociatedObject(self, &Self.fastqMetadataDrawerBottomKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
-    }
-
-    var fastqMetadataDrawerHeightConstraint: NSLayoutConstraint? {
-        get { objc_getAssociatedObject(self, &Self.fastqMetadataDrawerHeightKey) as? NSLayoutConstraint }
-        set { objc_setAssociatedObject(self, &Self.fastqMetadataDrawerHeightKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
-    }
-
-    var isFASTQMetadataDrawerOpen: Bool {
-        get { (objc_getAssociatedObject(self, &Self.fastqMetadataDrawerOpenKey) as? NSNumber)?.boolValue ?? false }
-        set { objc_setAssociatedObject(self, &Self.fastqMetadataDrawerOpenKey, NSNumber(value: newValue), .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
-    }
-
-    var fastqDashboardView: NSView? {
-        get { objc_getAssociatedObject(self, &Self.fastqDashboardViewKey) as? NSView }
-        set { objc_setAssociatedObject(self, &Self.fastqDashboardViewKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
-    }
-
-    var fastqDashboardBottomConstraint: NSLayoutConstraint? {
-        get { objc_getAssociatedObject(self, &Self.fastqDashboardBottomKey) as? NSLayoutConstraint }
-        set { objc_setAssociatedObject(self, &Self.fastqDashboardBottomKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
-    }
-
-    var currentFASTQDatasetURL: URL? {
-        get { objc_getAssociatedObject(self, &Self.currentFASTQDatasetURLKey) as? URL }
-        set { objc_setAssociatedObject(self, &Self.currentFASTQDatasetURLKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
-    }
-
-    var _fastqDrawerHeightSaveWorkItem: DispatchWorkItem? {
-        get { objc_getAssociatedObject(self, &Self.fastqDrawerHeightSaveWorkItemKey) as? DispatchWorkItem }
-        set { objc_setAssociatedObject(self, &Self.fastqDrawerHeightSaveWorkItemKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 }

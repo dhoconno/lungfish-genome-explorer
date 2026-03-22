@@ -425,7 +425,7 @@ private enum LargeResultAction {
 }
 
 @MainActor
-private func confirmLargeResultActionDialog(totalCount: Int, sourceLabel: String) -> LargeResultAction {
+private func confirmLargeResultActionDialog(totalCount: Int, sourceLabel: String) async -> LargeResultAction {
     let alert = NSAlert()
     alert.messageText = "Large Result Set (\(totalCount.formatted()) records)"
     alert.informativeText =
@@ -436,7 +436,10 @@ private func confirmLargeResultActionDialog(totalCount: Int, sourceLabel: String
     alert.addButton(withTitle: "Load All \(totalCount.formatted())")
     alert.addButton(withTitle: "Cancel")
 
-    let response = alert.runModal()
+    guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
+        return .cancel
+    }
+    let response = await alert.beginSheetModal(for: window)
     switch response {
     case .alertFirstButtonReturn:
         return .firstThousand
@@ -1100,12 +1103,10 @@ public class DatabaseBrowserViewModel: ObservableObject {
                                 logger.info("performSearch: Nucleotide total count = \(page.totalCount)")
 
                                 if page.totalCount > largeResultThreshold {
-                                    let action = await MainActor.run {
-                                        confirmLargeResultActionDialog(
+                                    let action = await confirmLargeResultActionDialog(
                                             totalCount: page.totalCount,
                                             sourceLabel: "NCBI GenBank"
                                         )
-                                    }
                                     switch action {
                                     case .cancel:
                                         throw CancellationError()
@@ -1219,12 +1220,10 @@ public class DatabaseBrowserViewModel: ObservableObject {
                                 logger.info("performSearch: Genome total count = \(page.totalCount)")
 
                                 if page.totalCount > largeResultThreshold {
-                                    let action = await MainActor.run {
-                                        confirmLargeResultActionDialog(
+                                    let action = await confirmLargeResultActionDialog(
                                             totalCount: page.totalCount,
                                             sourceLabel: "NCBI Assembly"
                                         )
-                                    }
                                     switch action {
                                     case .cancel:
                                         throw CancellationError()
@@ -1365,12 +1364,10 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
                     let targetCount: Int
                     if totalCount > largeResultThreshold {
-                        let action = await MainActor.run {
-                            confirmLargeResultActionDialog(
+                        let action = await confirmLargeResultActionDialog(
                                 totalCount: totalCount,
                                 sourceLabel: "Pathoplexus"
                             )
-                        }
                         switch action {
                         case .cancel:
                             throw CancellationError()

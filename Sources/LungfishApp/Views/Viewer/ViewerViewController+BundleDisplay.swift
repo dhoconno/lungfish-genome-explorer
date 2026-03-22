@@ -526,55 +526,9 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
     }
 }
 
-// MARK: - ViewerViewController Stored Properties for Bundle Display
+// MARK: - ViewerViewController View State Persistence
 
 extension ViewerViewController {
-
-    private static var chromosomeNavigatorKey: UInt8 = 0
-    private static var chromosomeNavigatorConstraintsKey: UInt8 = 0
-    private static var bundleDataProviderKey: UInt8 = 0
-    private static var drawerOpenKey: UInt8 = 0
-    private static var bundleViewStateKey: UInt8 = 0
-    private static var bundleURLKey: UInt8 = 0
-    private static var viewStateSaveWorkItemKey: UInt8 = 0
-
-    var chromosomeNavigatorView: ChromosomeNavigatorView? {
-        get { objc_getAssociatedObject(self, &Self.chromosomeNavigatorKey) as? ChromosomeNavigatorView }
-        set { objc_setAssociatedObject(self, &Self.chromosomeNavigatorKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
-    }
-
-    var chromosomeNavigatorConstraints: [NSLayoutConstraint]? {
-        get { objc_getAssociatedObject(self, &Self.chromosomeNavigatorConstraintsKey) as? [NSLayoutConstraint] }
-        set { objc_setAssociatedObject(self, &Self.chromosomeNavigatorConstraintsKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
-    }
-
-    public var currentBundleDataProvider: BundleDataProvider? {
-        get { objc_getAssociatedObject(self, &Self.bundleDataProviderKey) as? BundleDataProvider }
-        set { objc_setAssociatedObject(self, &Self.bundleDataProviderKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
-    }
-
-    var isChromosomeDrawerOpen: Bool {
-        get { (objc_getAssociatedObject(self, &Self.drawerOpenKey) as? NSNumber)?.boolValue ?? false }
-        set { objc_setAssociatedObject(self, &Self.drawerOpenKey, NSNumber(value: newValue), .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
-    }
-
-    /// The current bundle's persisted view state.
-    public var currentBundleViewState: BundleViewState? {
-        get { objc_getAssociatedObject(self, &Self.bundleViewStateKey) as? BundleViewState }
-        set { objc_setAssociatedObject(self, &Self.bundleViewStateKey, newValue as Any, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
-    }
-
-    /// URL of the currently displayed bundle (needed for save-back).
-    public var currentBundleURL: URL? {
-        get { objc_getAssociatedObject(self, &Self.bundleURLKey) as? URL }
-        set { objc_setAssociatedObject(self, &Self.bundleURLKey, newValue as Any, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
-    }
-
-    /// Debounce work item for saving view state.
-    private var viewStateSaveWorkItem: DispatchWorkItem? {
-        get { objc_getAssociatedObject(self, &Self.viewStateSaveWorkItemKey) as? DispatchWorkItem }
-        set { objc_setAssociatedObject(self, &Self.viewStateSaveWorkItemKey, newValue as Any, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
-    }
 
     // MARK: - View State Persistence
 

@@ -312,12 +312,10 @@ public final class ImportService {
         alert.addButton(withTitle: "Keep Both")
         alert.addButton(withTitle: "Skip")
         
-        let response: NSApplication.ModalResponse
-        if let window = window {
-            response = await alert.beginSheetModal(for: window)
-        } else {
-            response = alert.runModal()
+        guard let sheetWindow = window ?? NSApp.keyWindow ?? NSApp.mainWindow else {
+            return .skip
         }
+        let response = await alert.beginSheetModal(for: sheetWindow)
         
         switch response {
         case .alertFirstButtonReturn: return .replace

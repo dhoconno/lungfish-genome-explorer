@@ -1588,7 +1588,9 @@ public final class FASTQDatasetViewController: NSViewController {
                         alert.alertStyle = .warning
                         alert.addButton(withTitle: "OK")
                         alert.applyLungfishBranding()
-                        alert.runModal()
+                        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+                            alert.beginSheetModal(for: window)
+                        }
                     }
                 }
             }

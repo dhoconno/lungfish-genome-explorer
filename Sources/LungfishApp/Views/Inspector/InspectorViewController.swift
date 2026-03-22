@@ -898,12 +898,17 @@ public class InspectorViewController: NSViewController {
         confirm.alertStyle = .warning
         confirm.addButton(withTitle: "Mark Duplicates")
         confirm.addButton(withTitle: "Cancel")
-        guard confirm.runModal() == .alertFirstButtonReturn else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let window = self.view.window ?? NSApp.keyWindow else { return }
+            let confirmResponse = await confirm.beginSheetModal(for: window)
+            guard confirmResponse == .alertFirstButtonReturn else { return }
+            guard let split = self.parent as? MainSplitViewController else { return }
 
-        viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = true
-        split.activityIndicator.show(message: "Marking duplicates...", style: .indeterminate)
+            self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = true
+            split.activityIndicator.show(message: "Marking duplicates...", style: .indeterminate)
 
-        Task(priority: .userInitiated) { [weak self] in
+            Task(priority: .userInitiated) { [weak self] in
             do {
                 let result = try await AlignmentDuplicateService.markDuplicatesInBundle(bundleURL: bundleURL)
 
@@ -944,6 +949,7 @@ public class InspectorViewController: NSViewController {
                 }
             }
         }
+        }
     }
 
     /// Creates a sibling deduplicated bundle by running `samtools markdup -r` on alignment tracks.
@@ -964,12 +970,17 @@ public class InspectorViewController: NSViewController {
         confirm.alertStyle = .informational
         confirm.addButton(withTitle: "Create Bundle")
         confirm.addButton(withTitle: "Cancel")
-        guard confirm.runModal() == .alertFirstButtonReturn else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let window = self.view.window ?? NSApp.keyWindow else { return }
+            let confirmResponse = await confirm.beginSheetModal(for: window)
+            guard confirmResponse == .alertFirstButtonReturn else { return }
+            guard let split = self.parent as? MainSplitViewController else { return }
 
-        viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = true
-        split.activityIndicator.show(message: "Creating deduplicated bundle...", style: .indeterminate)
+            self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = true
+            split.activityIndicator.show(message: "Creating deduplicated bundle...", style: .indeterminate)
 
-        Task(priority: .userInitiated) { [weak self] in
+            Task(priority: .userInitiated) { [weak self] in
             do {
                 let result = try await AlignmentDuplicateService.createDeduplicatedBundle(from: sourceBundleURL)
 
@@ -1008,6 +1019,7 @@ public class InspectorViewController: NSViewController {
                 }
             }
         }
+        }
     }
 
     private func presentSimpleAlert(title: String, message: String) {
@@ -1016,10 +1028,8 @@ public class InspectorViewController: NSViewController {
         alert.informativeText = message
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
-        if let window = view.window {
+        if let window = view.window ?? NSApp.keyWindow {
             alert.beginSheetModal(for: window)
-        } else {
-            alert.runModal()
         }
     }
 

@@ -16,7 +16,7 @@ import Foundation
 /// document.addAnnotation(myAnnotation, to: mySequence.id)
 /// ```
 @MainActor
-public final class GenomicDocument: ObservableObject, Identifiable, Sendable {
+public final class GenomicDocument: ObservableObject, Identifiable {
     /// Unique identifier
     public let id: UUID
 

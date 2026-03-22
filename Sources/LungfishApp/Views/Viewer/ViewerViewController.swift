@@ -226,6 +226,88 @@ public class ViewerViewController: NSViewController {
         }
     }
 
+    // MARK: - Bundle Display State (moved from associated objects)
+
+    /// The chromosome navigator panel shown in the left drawer.
+    var chromosomeNavigatorView: ChromosomeNavigatorView?
+
+    /// Layout constraints for the chromosome navigator panel.
+    var chromosomeNavigatorConstraints: [NSLayoutConstraint]?
+
+    /// Data provider for the currently displayed reference bundle.
+    public var currentBundleDataProvider: BundleDataProvider?
+
+    /// Whether the chromosome drawer is currently open.
+    var isChromosomeDrawerOpen: Bool = false
+
+    /// The current bundle's persisted view state.
+    public var currentBundleViewState: BundleViewState?
+
+    /// URL of the currently displayed bundle (needed for save-back).
+    public var currentBundleURL: URL?
+
+    /// Debounce work item for saving view state.
+    var viewStateSaveWorkItem: DispatchWorkItem?
+
+    // MARK: - FASTQ Drawer State (moved from associated objects)
+
+    /// FASTQ metadata drawer view.
+    var fastqMetadataDrawerView: FASTQMetadataDrawerView?
+
+    /// Bottom constraint for the FASTQ metadata drawer (animated on toggle).
+    var fastqMetadataDrawerBottomConstraint: NSLayoutConstraint?
+
+    /// Height constraint for the FASTQ metadata drawer (resizable via drag).
+    var fastqMetadataDrawerHeightConstraint: NSLayoutConstraint?
+
+    /// Whether the FASTQ metadata drawer is currently open.
+    var isFASTQMetadataDrawerOpen: Bool = false
+
+    /// FASTQ dashboard view (shown in place of sequence viewer for FASTQ files).
+    var fastqDashboardView: NSView?
+
+    /// Bottom constraint for the FASTQ dashboard view.
+    var fastqDashboardBottomConstraint: NSLayoutConstraint?
+
+    /// URL of the currently displayed FASTQ dataset.
+    var currentFASTQDatasetURL: URL?
+
+    /// Debounce work item for saving FASTQ drawer height.
+    var _fastqDrawerHeightSaveWorkItem: DispatchWorkItem?
+
+    // MARK: - Annotation Drawer State (moved from associated objects)
+
+    /// The annotation table drawer view.
+    var annotationDrawerView: AnnotationTableDrawerView?
+
+    /// Bottom constraint for the annotation drawer (animated on toggle).
+    var annotationDrawerBottomConstraint: NSLayoutConstraint?
+
+    /// Height constraint for the annotation drawer (resizable via drag).
+    var annotationDrawerHeightConstraint: NSLayoutConstraint?
+
+    /// Whether the annotation drawer is currently open.
+    var isAnnotationDrawerOpen: Bool = false
+
+    /// Search index for annotations and variants.
+    public var annotationSearchIndex: AnnotationSearchIndex? {
+        didSet {
+            if let index = annotationSearchIndex {
+                // Apply haploid AF shading immediately on index attach so first render
+                // after import uses the correct AF color ramp without requiring redraw.
+                viewerView?.sampleDisplayState.useHaploidAFShading = index.isLikelyHaploidOrganism
+            }
+            // If the drawer exists and index is ready, populate it
+            if let index = annotationSearchIndex, !index.isBuilding, let drawer = annotationDrawerView {
+                drawer.setSearchIndex(index)
+            }
+        }
+    }
+
+    /// Last selected gene tab navigation state (name, chromosome, start, end).
+    var lastSelectedGeneTabSelection: (name: String, chromosome: String, start: Int, end: Int)?
+
+
     // MARK: - Lifecycle
 
     public override func loadView() {
@@ -2823,6 +2905,18 @@ public class SequenceViewerView: NSView {
     func invalidateAnnotationTile() {
         annotationTile = nil
     }
+
+    // MARK: - Multi-Sequence State (moved from associated objects)
+
+    /// State manager for multi-sequence display.
+    ///
+    /// When set, enables multi-sequence stacking mode. When nil, the viewer
+    /// operates in single-sequence mode (default behavior).
+    internal var multiSequenceState: MultiSequenceState?
+
+    /// Whether multi-sequence mode is active.
+    public var isMultiSequenceMode: Bool = false
+
 
     // MARK: - Scroll Coalescing
 

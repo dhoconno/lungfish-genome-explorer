@@ -266,15 +266,19 @@ struct WelcomeView: View {
     private func performAction(_ action: WelcomeAction) {
         switch action {
         case .createProject:
-            showCreateProjectPanel()
+            Task { @MainActor in
+                await showCreateProjectPanel()
+            }
         case .openProject:
-            showOpenProjectPanel()
+            Task { @MainActor in
+                await showOpenProjectPanel()
+            }
         case .openFiles:
             viewModel.onOpenFiles?()
         }
     }
 
-    private func showCreateProjectPanel() {
+    private func showCreateProjectPanel() async {
         let savePanel = NSSavePanel()
         savePanel.title = "Create New Project"
         savePanel.message = "Choose a location for your new Lungfish project"
@@ -284,14 +288,16 @@ struct WelcomeView: View {
         savePanel.allowedContentTypes = [.folder]
         savePanel.isExtensionHidden = false
 
-        if savePanel.runModal() == .OK, let url = savePanel.url {
+        guard let window = NSApp.keyWindow else { return }
+        let response = await savePanel.beginSheetModal(for: window)
+        if response == .OK, let url = savePanel.url {
             // Create the project directory with .lungfish extension
             let projectURL = url.deletingPathExtension().appendingPathExtension("lungfish")
             viewModel.onCreateProject?(projectURL)
         }
     }
 
-    private func showOpenProjectPanel() {
+    private func showOpenProjectPanel() async {
         let openPanel = NSOpenPanel()
         openPanel.title = "Open Project"
         openPanel.message = "Select a Lungfish project folder"
@@ -300,7 +306,9 @@ struct WelcomeView: View {
         openPanel.allowsMultipleSelection = false
         openPanel.canCreateDirectories = false
 
-        if openPanel.runModal() == .OK, let url = openPanel.url {
+        guard let window = NSApp.keyWindow else { return }
+        let response = await openPanel.beginSheetModal(for: window)
+        if response == .OK, let url = openPanel.url {
             viewModel.onOpenProject?(url)
         }
     }
@@ -473,7 +481,9 @@ public final class WelcomeWindowController: NSWindowController {
             alert.informativeText = error.localizedDescription
             alert.alertStyle = .critical
             alert.addButton(withTitle: "OK")
-            alert.runModal()
+            if let window = self.window {
+                alert.beginSheetModal(for: window)
+            }
         }
     }
 
@@ -501,9 +511,14 @@ public final class WelcomeWindowController: NSWindowController {
             alert.addButton(withTitle: "Use as Working Directory")
             alert.addButton(withTitle: "Cancel")
 
-            if alert.runModal() == .alertFirstButtonReturn {
-                // Set as working directory without creating a full project
-                setWorkingDirectory(url)
+            if let window = self.window {
+                Task { @MainActor [weak self] in
+                    let response = await alert.beginSheetModal(for: window)
+                    if response == .alertFirstButtonReturn {
+                        // Set as working directory without creating a full project
+                        self?.setWorkingDirectory(url)
+                    }
+                }
             }
         }
     }

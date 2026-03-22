@@ -25,6 +25,50 @@ public typealias SchemaParameterType = LungfishWorkflow.UnifiedParameterType
 /// Use the Schema module's unified value
 public typealias SchemaParameterValue = LungfishWorkflow.UnifiedParameterValue
 
+// MARK: - Typed Container Views
+
+/// Stack view container for integer parameter controls (text field + stepper).
+/// Replaces associated-object pattern with direct stored properties.
+@MainActor
+final class ParameterIntegerContainer: NSStackView {
+    /// The text field displaying the integer value.
+    var textField: NSTextField?
+    /// The stepper control for incrementing/decrementing.
+    var stepper: NSStepper?
+
+    @objc func stepperValueChanged(_ sender: NSStepper) {
+        textField?.integerValue = sender.integerValue
+    }
+}
+
+/// Stack view container for path parameter controls (path control + browse button).
+/// Replaces associated-object pattern with direct stored properties.
+@MainActor
+final class ParameterPathContainer: NSStackView {
+    /// The path control displaying the selected file/directory.
+    var pathControl: NSPathControl?
+}
+
+/// Button subclass for file/directory browse actions.
+/// Replaces associated-object metadata with direct stored properties.
+@MainActor
+final class ParameterBrowseButton: NSButton {
+    /// Whether this browse button targets a directory (vs. a file).
+    var isDirectoryMode: Bool = false
+    /// The path control to update when a file/directory is selected.
+    weak var pathControl: NSPathControl?
+    /// File extension patterns for the open panel filter.
+    var filePatterns: [String] = []
+}
+
+/// Button subclass for help buttons that link to documentation URLs.
+/// Replaces associated-object pattern with a direct stored property.
+@MainActor
+final class ParameterHelpButton: NSButton {
+    /// The help documentation URL to open when clicked.
+    var helpURL: URL?
+}
+
 // MARK: - ParameterControlFactory
 
 /// Factory for creating AppKit controls from workflow parameter definitions.
@@ -139,7 +183,7 @@ public enum ParameterControlFactory {
     // MARK: - Integer Control
 
     private static func createIntegerControl(for parameter: SchemaWorkflowParameter) -> NSView {
-        let container = NSStackView()
+        let container = ParameterIntegerContainer()
         container.translatesAutoresizingMaskIntoConstraints = false
         container.orientation = .horizontal
         container.spacing = 4
@@ -186,9 +230,9 @@ public enum ParameterControlFactory {
         stepper.maxValue = parameter.validation?.maximum ?? Double(Int.max)
         stepper.integerValue = textField.integerValue
 
-        // Bind stepper to text field
+        // Bind stepper to text field via typed container
         stepper.target = container
-        stepper.action = #selector(NSStackView.stepperValueChanged(_:))
+        stepper.action = #selector(ParameterIntegerContainer.stepperValueChanged(_:))
 
         NSLayoutConstraint.activate([
             textField.widthAnchor.constraint(equalToConstant: 80),
@@ -197,9 +241,9 @@ public enum ParameterControlFactory {
         container.addArrangedSubview(textField)
         container.addArrangedSubview(stepper)
 
-        // Store references for value extraction
-        container.setAssociatedObject(textField, forKey: &AssociatedKeys.textField)
-        container.setAssociatedObject(stepper, forKey: &AssociatedKeys.stepper)
+        // Store references in typed container
+        container.textField = textField
+        container.stepper = stepper
 
         return container
     }
@@ -260,8 +304,8 @@ public enum ParameterControlFactory {
 
     // MARK: - Path Control
 
-    private static func createPathControl(for parameter: SchemaWorkflowParameter, isDirectory: Bool) -> NSStackView {
-        let container = NSStackView()
+    private static func createPathControl(for parameter: SchemaWorkflowParameter, isDirectory: Bool) -> NSView {
+        let container = ParameterPathContainer()
         container.translatesAutoresizingMaskIntoConstraints = false
         container.orientation = .horizontal
         container.spacing = 8
@@ -289,17 +333,15 @@ public enum ParameterControlFactory {
             }
         }
 
-        // Browse button
-        let browseButton = NSButton(title: "Browse...", target: nil, action: nil)
+        // Browse button with typed metadata
+        let browseButton = ParameterBrowseButton(title: "Browse...", target: nil, action: nil)
         browseButton.translatesAutoresizingMaskIntoConstraints = false
         browseButton.bezelStyle = .rounded
         browseButton.controlSize = .regular
         browseButton.setAccessibilityLabel("Browse for \(parameter.title)")
-
-        // Store metadata for browse action
-        browseButton.setAssociatedButtonObject(isDirectory, forKey: &AssociatedKeys.isDirectory)
-        browseButton.setAssociatedButtonObject(pathControl, forKey: &AssociatedKeys.pathControl)
-        browseButton.setAssociatedButtonObject(parameter.validation?.fileExtensions ?? [], forKey: &AssociatedKeys.filePatterns)
+        browseButton.isDirectoryMode = isDirectory
+        browseButton.pathControl = pathControl
+        browseButton.filePatterns = parameter.validation?.fileExtensions ?? []
 
         NSLayoutConstraint.activate([
             pathControl.widthAnchor.constraint(greaterThanOrEqualToConstant: 200),
@@ -308,8 +350,8 @@ public enum ParameterControlFactory {
         container.addArrangedSubview(pathControl)
         container.addArrangedSubview(browseButton)
 
-        // Store reference for value extraction
-        container.setAssociatedObject(pathControl, forKey: &AssociatedKeys.pathControl)
+        // Store reference in typed container
+        container.pathControl = pathControl
 
         return container
     }
@@ -395,8 +437,8 @@ public enum ParameterControlFactory {
         case .integer:
             if let textField = control as? NSTextField {
                 return .integer(textField.integerValue)
-            } else if let container = control as? NSStackView,
-                      let textField = container.getAssociatedObject(forKey: &AssociatedKeys.textField) as? NSTextField {
+            } else if let container = control as? ParameterIntegerContainer,
+                      let textField = container.textField {
                 return .integer(textField.integerValue)
             }
             logger.warning("extractValue: Could not extract integer value")
@@ -420,8 +462,8 @@ public enum ParameterControlFactory {
             if let pathControl = control as? NSPathControl {
                 guard let url = pathControl.url else { return nil }
                 return .string(url.path)
-            } else if let container = control as? NSStackView,
-                      let pathControl = container.getAssociatedObject(forKey: &AssociatedKeys.pathControl) as? NSPathControl {
+            } else if let container = control as? ParameterPathContainer,
+                      let pathControl = container.pathControl {
                 guard let url = pathControl.url else { return nil }
                 return .string(url.path)
             }
@@ -531,52 +573,5 @@ public enum ParameterControlFactory {
         }
 
         return nil
-    }
-}
-
-// MARK: - Associated Object Keys
-
-private enum AssociatedKeys {
-    nonisolated(unsafe) static var textField: UInt8 = 0
-    nonisolated(unsafe) static var stepper: UInt8 = 0
-    nonisolated(unsafe) static var pathControl: UInt8 = 0
-    nonisolated(unsafe) static var isDirectory: UInt8 = 0
-    nonisolated(unsafe) static var filePatterns: UInt8 = 0
-}
-
-// MARK: - NSView Associated Object Extension
-
-extension NSView {
-
-    func setAssociatedObject(_ object: Any?, forKey key: UnsafeRawPointer) {
-        objc_setAssociatedObject(self, key, object, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-    }
-
-    func getAssociatedObject(forKey key: UnsafeRawPointer) -> Any? {
-        return objc_getAssociatedObject(self, key)
-    }
-}
-
-// MARK: - NSButton Associated Object Extension (Renamed to avoid conflict)
-
-extension NSButton {
-
-    func setAssociatedButtonObject(_ object: Any?, forKey key: UnsafeRawPointer) {
-        objc_setAssociatedObject(self, key, object, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-    }
-
-    func getAssociatedButtonObject(forKey key: UnsafeRawPointer) -> Any? {
-        return objc_getAssociatedObject(self, key)
-    }
-}
-
-// MARK: - NSStackView Stepper Binding
-
-extension NSStackView {
-
-    @objc func stepperValueChanged(_ sender: NSStepper) {
-        if let textField = getAssociatedObject(forKey: &AssociatedKeys.textField) as? NSTextField {
-            textField.integerValue = sender.integerValue
-        }
     }
 }

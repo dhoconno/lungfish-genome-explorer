@@ -350,7 +350,7 @@ public class ParameterFormView: NSView {
     }
 
     private func createHelpButton(description: String, helpURL: URL?) -> NSButton {
-        let helpButton = NSButton()
+        let helpButton = ParameterHelpButton()
         helpButton.translatesAutoresizingMaskIntoConstraints = false
         helpButton.bezelStyle = .helpButton
         helpButton.title = ""
@@ -361,7 +361,7 @@ public class ParameterFormView: NSView {
         if let url = helpURL {
             helpButton.target = self
             helpButton.action = #selector(openHelpURL(_:))
-            helpButton.setAssociatedObject(url, forKey: &AssociatedKeys.helpURL)
+            helpButton.helpURL = url
         }
 
         NSLayoutConstraint.activate([
@@ -373,7 +373,7 @@ public class ParameterFormView: NSView {
     }
 
     @objc private func openHelpURL(_ sender: NSButton) {
-        guard let url = sender.getAssociatedObject(forKey: &AssociatedKeys.helpURL) as? URL else {
+        guard let url = (sender as? ParameterHelpButton)?.helpURL else {
             return
         }
         logger.info("openHelpURL: Opening '\(url.absoluteString, privacy: .public)'")
@@ -423,8 +423,8 @@ public class ParameterFormView: NSView {
         logger.debug("stepperValueChanged: '\(paramName, privacy: .public)' = \(sender.integerValue)")
 
         // Update the associated text field
-        if let control = parameterControls[paramName] as? NSStackView,
-           let textField = control.getAssociatedObject(forKey: &AssociatedKeys.textField) as? NSTextField {
+        if let control = parameterControls[paramName] as? ParameterIntegerContainer,
+           let textField = control.textField {
             textField.integerValue = sender.integerValue
         }
 
@@ -445,13 +445,14 @@ public class ParameterFormView: NSView {
 
     @objc private func browseButtonClicked(_ sender: NSButton) {
         guard let paramName = sender.identifier?.rawValue,
-              let control = parameterControls[paramName] as? NSStackView,
-              let pathControl = control.getAssociatedObject(forKey: &AssociatedKeys.pathControl) as? NSPathControl else {
+              let control = parameterControls[paramName] as? ParameterPathContainer,
+              let pathControl = control.pathControl else {
             return
         }
 
-        let isDirectory = sender.getAssociatedObject(forKey: &AssociatedKeys.isDirectory) as? Bool ?? false
-        let filePatterns = sender.getAssociatedObject(forKey: &AssociatedKeys.filePatterns) as? [String] ?? []
+        let browseButton = sender as? ParameterBrowseButton
+        let isDirectory = browseButton?.isDirectoryMode ?? false
+        let filePatterns = browseButton?.filePatterns ?? []
 
         logger.debug("browseButtonClicked: '\(paramName, privacy: .public)' isDirectory=\(isDirectory)")
 
@@ -590,9 +591,9 @@ public class ParameterFormView: NSView {
                 textField.stringValue = str
             }
         case .integer:
-            if let stackView = control as? NSStackView,
-               let textField = stackView.getAssociatedObject(forKey: &AssociatedKeys.textField) as? NSTextField,
-               let stepper = stackView.getAssociatedObject(forKey: &AssociatedKeys.stepper) as? NSStepper,
+            if let container = control as? ParameterIntegerContainer,
+               let textField = container.textField,
+               let stepper = container.stepper,
                let intValue = value.intValue {
                 textField.integerValue = intValue
                 stepper.integerValue = intValue
@@ -606,8 +607,8 @@ public class ParameterFormView: NSView {
                 checkbox.state = boolValue ? .on : .off
             }
         case .file, .directory:
-            if let stackView = control as? NSStackView,
-               let pathControl = stackView.getAssociatedObject(forKey: &AssociatedKeys.pathControl) as? NSPathControl,
+            if let container = control as? ParameterPathContainer,
+               let pathControl = container.pathControl,
                let path = value.stringValue {
                 pathControl.url = URL(fileURLWithPath: path)
             }
@@ -686,18 +687,8 @@ extension ParameterFormView: NSTokenFieldDelegate {
     }
 }
 
-// MARK: - Associated Object Keys
-
-private enum AssociatedKeys {
-    nonisolated(unsafe) static var textField: UInt8 = 0
-    nonisolated(unsafe) static var stepper: UInt8 = 0
-    nonisolated(unsafe) static var pathControl: UInt8 = 0
-    nonisolated(unsafe) static var isDirectory: UInt8 = 0
-    nonisolated(unsafe) static var filePatterns: UInt8 = 0
-    nonisolated(unsafe) static var helpURL: UInt8 = 0
-}
-
-// Note: NSView Associated Object Extension is defined in ParameterControlFactory.swift
+// Note: Typed container classes (ParameterIntegerContainer, ParameterPathContainer,
+// ParameterBrowseButton, ParameterHelpButton) are defined in ParameterControlFactory.swift
 
 // MARK: - UnifiedParameterValue Extensions
 

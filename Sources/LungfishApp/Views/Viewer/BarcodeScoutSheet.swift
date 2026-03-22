@@ -369,10 +369,8 @@ public final class BarcodeScoutSheet: NSViewController, NSTableViewDataSource, N
             alert.informativeText = "Accept at least one barcode before proceeding."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "OK")
-            if let window = view.window {
+            if let window = view.window ?? NSApp.keyWindow {
                 alert.beginSheetModal(for: window)
-            } else {
-                alert.runModal()
             }
             return
         }

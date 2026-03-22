@@ -139,31 +139,35 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
     /// Creates a new empty workflow.
     public func newWorkflow() {
-        if hasUnsavedChanges {
-            let alert = NSAlert()
-            alert.messageText = "Save changes to current workflow?"
-            alert.informativeText = "Your changes will be lost if you don't save them."
-            alert.addButton(withTitle: "Save")
-            alert.addButton(withTitle: "Don't Save")
-            alert.addButton(withTitle: "Cancel")
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if self.hasUnsavedChanges {
+                guard let window = self.view.window ?? NSApp.keyWindow else { return }
+                let alert = NSAlert()
+                alert.messageText = "Save changes to current workflow?"
+                alert.informativeText = "Your changes will be lost if you don\'t save them."
+                alert.addButton(withTitle: "Save")
+                alert.addButton(withTitle: "Don\'t Save")
+                alert.addButton(withTitle: "Cancel")
 
-            let response = alert.runModal()
-            switch response {
-            case .alertFirstButtonReturn:
-                saveWorkflow()
-            case .alertSecondButtonReturn:
-                break
-            default:
-                return
+                let response = await alert.beginSheetModal(for: window)
+                switch response {
+                case .alertFirstButtonReturn:
+                    self.saveWorkflow()
+                case .alertSecondButtonReturn:
+                    break
+                default:
+                    return
+                }
             }
+
+            self.graph = WorkflowGraph(name: "New Workflow")
+            self.workflowURL = nil
+            self.hasUnsavedChanges = false
+            self.updateWindowTitle()
+
+            logger.info("Created new workflow")
         }
-
-        graph = WorkflowGraph(name: "New Workflow")
-        workflowURL = nil
-        hasUnsavedChanges = false
-        updateWindowTitle()
-
-        logger.info("Created new workflow")
     }
 
     /// Opens a workflow from a file.
@@ -200,7 +204,9 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
             alert.messageText = "Failed to Open Workflow"
             alert.informativeText = error.localizedDescription
             alert.alertStyle = .warning
-            alert.runModal()
+            if let window = view.window ?? NSApp.keyWindow {
+                alert.beginSheetModal(for: window)
+            }
         }
     }
 
@@ -245,7 +251,9 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
             alert.messageText = "Failed to Save Workflow"
             alert.informativeText = error.localizedDescription
             alert.alertStyle = .warning
-            alert.runModal()
+            if let window = view.window ?? NSApp.keyWindow {
+                alert.beginSheetModal(for: window)
+            }
         }
     }
 
@@ -273,7 +281,9 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
                 alert.messageText = "Export Successful"
                 alert.informativeText = "Nextflow pipeline saved to \(url.lastPathComponent)"
                 alert.alertStyle = .informational
-                alert.runModal()
+                if let window = self.view.window ?? NSApp.keyWindow {
+                    alert.beginSheetModal(for: window)
+                }
             } catch {
                 logger.error("Failed to export Nextflow: \(error.localizedDescription)")
 
@@ -281,7 +291,9 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
                 alert.messageText = "Export Failed"
                 alert.informativeText = error.localizedDescription
                 alert.alertStyle = .warning
-                alert.runModal()
+                if let window = self.view.window ?? NSApp.keyWindow {
+                    alert.beginSheetModal(for: window)
+                }
             }
         }
     }
@@ -308,7 +320,9 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
                 alert.messageText = "Export Successful"
                 alert.informativeText = "Snakemake workflow saved to \(url.lastPathComponent)"
                 alert.alertStyle = .informational
-                alert.runModal()
+                if let window = self.view.window ?? NSApp.keyWindow {
+                    alert.beginSheetModal(for: window)
+                }
             } catch {
                 logger.error("Failed to export Snakemake: \(error.localizedDescription)")
 
@@ -316,7 +330,9 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
                 alert.messageText = "Export Failed"
                 alert.informativeText = error.localizedDescription
                 alert.alertStyle = .warning
-                alert.runModal()
+                if let window = self.view.window ?? NSApp.keyWindow {
+                    alert.beginSheetModal(for: window)
+                }
             }
         }
     }

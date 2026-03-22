@@ -461,7 +461,9 @@ extension SequenceViewerView {
                         alert.informativeText = errorDesc
                         alert.alertStyle = .warning
                         alert.addButton(withTitle: "OK")
-                        alert.runModal()
+                        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+                            alert.beginSheetModal(for: window)
+                        }
                     }
                 }
             }

@@ -686,7 +686,9 @@ public class AssemblyConfigurationViewModel: ObservableObject {
             Please ensure your system meets these requirements and try again.
             """
         alert.addButton(withTitle: "OK")
-        alert.runModal()
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            alert.beginSheetModal(for: window)
+        }
         logger.warning("Assembly blocked: no container runtime available")
     }
 
@@ -704,7 +706,9 @@ public class AssemblyConfigurationViewModel: ObservableObject {
             Please free up disk space or choose a different output directory.
             """
         alert.addButton(withTitle: "OK")
-        alert.runModal()
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            alert.beginSheetModal(for: window)
+        }
         logger.warning("Assembly blocked: insufficient disk space (required=\(required), available=\(available))")
     }
 

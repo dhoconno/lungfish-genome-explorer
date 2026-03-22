@@ -531,11 +531,24 @@ public class MainSplitViewController: NSSplitViewController {
         }
 
         // Non-FASTQ files: copy to project as before
-        for url in otherURLs {
-            var urlToLoad = url
-            var importSucceeded = true
-            var importError: String?
-            if projectURL != nil {
+        if !otherURLs.isEmpty {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                for url in otherURLs {
+                    await self.importNonFASTQFile(
+                        url: url, projectURL: projectURL, targetDir: targetDir, requestID: requestID
+                    )
+                }
+            }
+        }
+    }
+
+    /// Imports a single non-FASTQ file, handling duplicate resolution via sheet.
+    private func importNonFASTQFile(url: URL, projectURL: URL?, targetDir: URL, requestID: String?) async {
+        var urlToLoad = url
+        var importSucceeded = true
+        var importError: String?
+        if projectURL != nil {
             let fileManager = FileManager.default
             if !fileManager.fileExists(atPath: targetDir.path) {
                 try? fileManager.createDirectory(at: targetDir, withIntermediateDirectories: true)
@@ -554,7 +567,7 @@ public class MainSplitViewController: NSSplitViewController {
                     importError = error.localizedDescription
                 }
             } else {
-                let resolution = showDuplicateFileDialog(filename: url.lastPathComponent)
+                let resolution = await showDuplicateFileDialog(filename: url.lastPathComponent)
                 switch resolution {
                 case .replace:
                     do {
@@ -584,10 +597,9 @@ public class MainSplitViewController: NSSplitViewController {
             }
         }
 
-            // Standalone VCF files use the auto-ingestion pipeline (handled by displayGenomicsFile)
-            loadGenomicsFileInBackground(url: urlToLoad)
-            postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: importSucceeded, error: importError)
-        }
+        // Standalone VCF files use the auto-ingestion pipeline (handled by displayGenomicsFile)
+        loadGenomicsFileInBackground(url: urlToLoad)
+        postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: importSucceeded, error: importError)
     }
 
     // MARK: - FASTQ Import Sheet
@@ -634,84 +646,102 @@ public class MainSplitViewController: NSSplitViewController {
     ) {
         guard let viewerController = self.viewerController else { return }
 
-        for (index, pair) in pairs.enumerated() {
-            let baseName = pair.sampleName
-            var effectiveBundleName = baseName
-
-            let bundleExt = FASTQBundle.directoryExtension
-            var bundleURL = projectDirectory.appendingPathComponent("\(effectiveBundleName).\(bundleExt)")
-
-            // Check for existing bundle
-            if FileManager.default.fileExists(atPath: bundleURL.path) {
-                let resolution = showDuplicateFileDialog(filename: "\(effectiveBundleName).\(bundleExt)")
-                switch resolution {
-                case .replace:
-                    do {
-                        try FileManager.default.removeItem(at: bundleURL)
-                    } catch {
-                        logger.error("importFASTQBatch: Failed to remove existing bundle: \(error)")
-                        postSidebarFileDropCompleted(requestID: requestID, sourceURL: pair.r1, success: false, error: error.localizedDescription)
-                        continue
-                    }
-                case .keepBoth:
-                    var counter = 2
-                    var uniqueName = "\(baseName) \(counter)"
-                    while FileManager.default.fileExists(atPath: projectDirectory.appendingPathComponent("\(uniqueName).\(bundleExt)").path) {
-                        counter += 1
-                        uniqueName = "\(baseName) \(counter)"
-                    }
-                    effectiveBundleName = uniqueName
-                    bundleURL = projectDirectory.appendingPathComponent("\(effectiveBundleName).\(bundleExt)")
-                case .skip:
-                    displayGenomicsFile(url: bundleURL)
-                    postSidebarFileDropCompleted(requestID: requestID, sourceURL: pair.r1, success: true, error: nil)
-                    continue
-                }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            for (index, pair) in pairs.enumerated() {
+                await self.importFASTQPair(
+                    pair: pair, index: index, totalPairs: pairs.count,
+                    config: config, projectDirectory: projectDirectory,
+                    viewerController: viewerController, requestID: requestID
+                )
             }
+        }
+    }
 
-            let progressMessage = pairs.count > 1
-                ? "Importing \(index + 1) of \(pairs.count): \(pair.r1.lastPathComponent)\u{2026}"
-                : "Importing \(pair.r1.lastPathComponent)\u{2026}"
-            viewerController.showProgress(progressMessage)
+    /// Imports a single FASTQ pair, resolving duplicates via sheet if needed.
+    private func importFASTQPair(
+        pair: FASTQFilePair, index: Int, totalPairs: Int,
+        config: FASTQImportConfiguration, projectDirectory: URL,
+        viewerController: ViewerViewController, requestID: String?
+    ) async {
+        let baseName = pair.sampleName
+        var effectiveBundleName = baseName
 
-            let sampleName = pair.sampleName
+        let bundleExt = FASTQBundle.directoryExtension
+        var bundleURL = projectDirectory.appendingPathComponent("\(effectiveBundleName).\(bundleExt)")
 
-            FASTQIngestionService.ingestAndBundle(
-                pair: pair,
-                projectDirectory: projectDirectory,
-                bundleName: effectiveBundleName,
-                importConfig: config
-            ) { [weak self, weak viewerController] result in
-                switch result {
-                case .success(let bundleURL):
-                    if let recipe = config.postImportRecipe, !recipe.steps.isEmpty {
-                        // Run post-import recipe on the bundle
-                        viewerController?.showProgress("Processing \(sampleName): \(recipe.name)\u{2026}")
-                        self?.runPostImportRecipe(
-                            recipe: recipe,
-                            bundleURL: bundleURL,
-                            sampleName: sampleName,
-                            qualityBinning: config.qualityBinning,
-                            requestID: requestID,
-                            sourceURL: pair.r1
-                        )
-                    } else {
-                        viewerController?.hideProgress()
-                        self?.sidebarController.reloadFromFilesystem()
-                        self?.displayGenomicsFile(url: bundleURL)
-                        self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: pair.r1, success: true, error: nil)
-                    }
-                case .failure(let error):
+        // Check for existing bundle
+        if FileManager.default.fileExists(atPath: bundleURL.path) {
+            let resolution = await showDuplicateFileDialog(filename: "\(effectiveBundleName).\(bundleExt)")
+            switch resolution {
+            case .replace:
+                do {
+                    try FileManager.default.removeItem(at: bundleURL)
+                } catch {
+                    logger.error("importFASTQBatch: Failed to remove existing bundle: \(error)")
+                    postSidebarFileDropCompleted(requestID: requestID, sourceURL: pair.r1, success: false, error: error.localizedDescription)
+                    return
+                }
+            case .keepBoth:
+                var counter = 2
+                var uniqueName = "\(baseName) \(counter)"
+                while FileManager.default.fileExists(atPath: projectDirectory.appendingPathComponent("\(uniqueName).\(bundleExt)").path) {
+                    counter += 1
+                    uniqueName = "\(baseName) \(counter)"
+                }
+                effectiveBundleName = uniqueName
+                bundleURL = projectDirectory.appendingPathComponent("\(effectiveBundleName).\(bundleExt)")
+            case .skip:
+                displayGenomicsFile(url: bundleURL)
+                postSidebarFileDropCompleted(requestID: requestID, sourceURL: pair.r1, success: true, error: nil)
+                return
+            }
+        }
+
+        let progressMessage = totalPairs > 1
+            ? "Importing \(index + 1) of \(totalPairs): \(pair.r1.lastPathComponent)\u{2026}"
+            : "Importing \(pair.r1.lastPathComponent)\u{2026}"
+        viewerController.showProgress(progressMessage)
+
+        let sampleName = pair.sampleName
+
+        FASTQIngestionService.ingestAndBundle(
+            pair: pair,
+            projectDirectory: projectDirectory,
+            bundleName: effectiveBundleName,
+            importConfig: config
+        ) { [weak self, weak viewerController] result in
+            switch result {
+            case .success(let bundleURL):
+                if let recipe = config.postImportRecipe, !recipe.steps.isEmpty {
+                    // Run post-import recipe on the bundle
+                    viewerController?.showProgress("Processing \(sampleName): \(recipe.name)\u{2026}")
+                    self?.runPostImportRecipe(
+                        recipe: recipe,
+                        bundleURL: bundleURL,
+                        sampleName: sampleName,
+                        qualityBinning: config.qualityBinning,
+                        requestID: requestID,
+                        sourceURL: pair.r1
+                    )
+                } else {
                     viewerController?.hideProgress()
-                    logger.error("importFASTQBatch: \(error)")
-                    self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: pair.r1, success: false, error: error.localizedDescription)
-                    let alert = NSAlert()
-                    alert.messageText = "Failed to Import FASTQ"
-                    alert.informativeText = "\(error)"
-                    alert.alertStyle = .warning
-                    alert.addButton(withTitle: "OK")
-                    alert.applyLungfishBranding()
-                    alert.runModal()
+                    self?.sidebarController.reloadFromFilesystem()
+                    self?.displayGenomicsFile(url: bundleURL)
+                    self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: pair.r1, success: true, error: nil)
+                }
+            case .failure(let error):
+                viewerController?.hideProgress()
+                logger.error("importFASTQBatch: \(error)")
+                self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: pair.r1, success: false, error: error.localizedDescription)
+                let alert = NSAlert()
+                alert.messageText = "Failed to Import FASTQ"
+                alert.informativeText = "\(error)"
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "OK")
+                alert.applyLungfishBranding()
+                if let window = self?.view.window ?? NSApp.keyWindow {
+                    alert.beginSheetModal(for: window)
                 }
             }
         }
@@ -868,7 +898,9 @@ public class MainSplitViewController: NSSplitViewController {
                         alert.alertStyle = .warning
                         alert.addButton(withTitle: "OK")
                         alert.applyLungfishBranding()
-                        alert.runModal()
+                        if let window = self?.view.window ?? NSApp.keyWindow {
+                            alert.beginSheetModal(for: window)
+                        }
                     }
                 }
             }
@@ -878,7 +910,8 @@ public class MainSplitViewController: NSSplitViewController {
     // MARK: - Duplicate File Handling
 
     /// Shows a dialog asking the user how to handle a duplicate file
-    private func showDuplicateFileDialog(filename: String) -> DuplicateResolution {
+    /// Shows a dialog asking the user how to handle a duplicate file
+    private func showDuplicateFileDialog(filename: String) async -> DuplicateResolution {
         let alert = NSAlert()
         alert.messageText = "File Already Exists"
         alert.informativeText = "A file named \"\(filename)\" already exists in this location. What would you like to do?"
@@ -889,7 +922,9 @@ public class MainSplitViewController: NSSplitViewController {
         alert.addButton(withTitle: "Skip")       // Third button = index 1002
 
         alert.applyLungfishBranding()
-        let response = alert.runModal()
+
+        guard let window = self.view.window ?? NSApp.keyWindow else { return .skip }
+        let response = await alert.beginSheetModal(for: window)
 
         switch response {
         case .alertFirstButtonReturn:  // Replace
@@ -935,46 +970,82 @@ public class MainSplitViewController: NSSplitViewController {
         }
 
         let baseName = FASTQBundle.deriveBaseName(from: sourceURL)
-        var effectiveBundleName = baseName
-
         let bundleExt = FASTQBundle.directoryExtension
-        var bundleURL = projectDirectory.appendingPathComponent("\(effectiveBundleName).\(bundleExt)")
+        let bundleURL = projectDirectory.appendingPathComponent("\(baseName).\(bundleExt)")
 
         // Check for existing bundle
         if FileManager.default.fileExists(atPath: bundleURL.path) {
-            let resolution = showDuplicateFileDialog(filename: "\(effectiveBundleName).\(bundleExt)")
-            switch resolution {
-            case .replace:
-                do {
-                    try FileManager.default.removeItem(at: bundleURL)
-                } catch {
-                    logger.error("importFASTQFileInBackground: Failed to remove existing bundle: \(error)")
-                    self.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: error.localizedDescription)
-                    let alert = NSAlert()
-                    alert.messageText = "Failed to Replace Bundle"
-                    alert.informativeText = "\(error)"
-                    alert.alertStyle = .warning
-                    alert.addButton(withTitle: "OK")
-                    alert.applyLungfishBranding()
-                    alert.runModal()
-                    return
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let resolution = await self.showDuplicateFileDialog(filename: "\(baseName).\(bundleExt)")
+                self.completeFASTQImport(
+                    resolution: resolution, baseName: baseName, bundleExt: bundleExt,
+                    bundleURL: bundleURL, sourceURL: sourceURL,
+                    projectDirectory: projectDirectory, viewerController: viewerController,
+                    requestID: requestID
+                )
+            }
+        } else {
+            performFASTQIngest(
+                effectiveBundleName: baseName, sourceURL: sourceURL,
+                projectDirectory: projectDirectory, viewerController: viewerController,
+                requestID: requestID
+            )
+        }
+    }
+
+    /// Handles the duplicate resolution result and proceeds with FASTQ import.
+    private func completeFASTQImport(
+        resolution: DuplicateResolution, baseName: String, bundleExt: String,
+        bundleURL: URL, sourceURL: URL,
+        projectDirectory: URL, viewerController: ViewerViewController,
+        requestID: String?
+    ) {
+        var effectiveBundleName = baseName
+        switch resolution {
+        case .replace:
+            do {
+                try FileManager.default.removeItem(at: bundleURL)
+            } catch {
+                logger.error("importFASTQFileInBackground: Failed to remove existing bundle: \(error)")
+                self.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: error.localizedDescription)
+                let alert = NSAlert()
+                alert.messageText = "Failed to Replace Bundle"
+                alert.informativeText = "\(error)"
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "OK")
+                alert.applyLungfishBranding()
+                if let window = self.view.window ?? NSApp.keyWindow {
+                    alert.beginSheetModal(for: window)
                 }
-            case .keepBoth:
-                var counter = 2
-                var uniqueName = "\(baseName) \(counter)"
-                while FileManager.default.fileExists(atPath: projectDirectory.appendingPathComponent("\(uniqueName).\(bundleExt)").path) {
-                    counter += 1
-                    uniqueName = "\(baseName) \(counter)"
-                }
-                effectiveBundleName = uniqueName
-                bundleURL = projectDirectory.appendingPathComponent("\(effectiveBundleName).\(bundleExt)")
-            case .skip:
-                displayGenomicsFile(url: bundleURL)
-                postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
                 return
             }
+        case .keepBoth:
+            var counter = 2
+            var uniqueName = "\(baseName) \(counter)"
+            while FileManager.default.fileExists(atPath: projectDirectory.appendingPathComponent("\(uniqueName).\(bundleExt)").path) {
+                counter += 1
+                uniqueName = "\(baseName) \(counter)"
+            }
+            effectiveBundleName = uniqueName
+        case .skip:
+            displayGenomicsFile(url: bundleURL)
+            postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
+            return
         }
+        performFASTQIngest(
+            effectiveBundleName: effectiveBundleName, sourceURL: sourceURL,
+            projectDirectory: projectDirectory, viewerController: viewerController,
+            requestID: requestID
+        )
+    }
 
+    /// Performs the actual FASTQ ingestion after duplicate resolution.
+    private func performFASTQIngest(
+        effectiveBundleName: String, sourceURL: URL,
+        projectDirectory: URL, viewerController: ViewerViewController,
+        requestID: String?
+    ) {
         viewerController.showProgress("Importing \(sourceURL.lastPathComponent)\u{2026}")
 
         FASTQIngestionService.ingestAndBundle(
@@ -997,7 +1068,9 @@ public class MainSplitViewController: NSSplitViewController {
                 alert.alertStyle = .warning
                 alert.addButton(withTitle: "OK")
                 alert.applyLungfishBranding()
-                alert.runModal()
+                if let window = self?.view.window ?? NSApp.keyWindow {
+                    alert.beginSheetModal(for: window)
+                }
             }
         }
     }
@@ -1027,20 +1100,42 @@ public class MainSplitViewController: NSSplitViewController {
             return
         }
 
-        // Ask whether to include unclassified reads
-        let includeUnclassified: Bool = {
-            let importer = ONTDirectoryImporter()
-            guard let layout = try? importer.detectLayout(at: sourceURL),
-                  layout.hasUnclassified else { return false }
+        // Ask whether to include unclassified reads, then proceed
+        let importer = ONTDirectoryImporter()
+        let layout = try? importer.detectLayout(at: sourceURL)
+        let hasUnclassified = layout?.hasUnclassified ?? false
+
+        if hasUnclassified, let window = self.view.window ?? NSApp.keyWindow {
             let alert = NSAlert()
             alert.messageText = "ONT Directory Import"
-            alert.informativeText = "Found \(layout.barcodeDirectories.count) barcode directories. Include unclassified reads?"
+            alert.informativeText = "Found \(layout!.barcodeDirectories.count) barcode directories. Include unclassified reads?"
             alert.addButton(withTitle: "Include Unclassified")
             alert.addButton(withTitle: "Barcoded Only")
             alert.applyLungfishBranding()
-            return alert.runModal() == .alertFirstButtonReturn
-        }()
+            Task { @MainActor [weak self] in
+                let response = await alert.beginSheetModal(for: window)
+                let includeUnclassified = response == .alertFirstButtonReturn
+                self?.performONTImport(
+                    sourceURL: sourceURL, projectURL: projectURL,
+                    includeUnclassified: includeUnclassified,
+                    viewerController: viewerController, requestID: requestID
+                )
+            }
+        } else {
+            performONTImport(
+                sourceURL: sourceURL, projectURL: projectURL,
+                includeUnclassified: false,
+                viewerController: viewerController, requestID: requestID
+            )
+        }
+    }
 
+    /// Performs the actual ONT directory import after the user has chosen whether to include unclassified reads.
+    private func performONTImport(
+        sourceURL: URL, projectURL: URL,
+        includeUnclassified: Bool,
+        viewerController: ViewerViewController, requestID: String?
+    ) {
         let config = ONTImportConfig(
             sourceDirectory: sourceURL,
             outputDirectory: projectURL,
@@ -1096,7 +1191,9 @@ public class MainSplitViewController: NSSplitViewController {
                         alert.alertStyle = .warning
                         alert.addButton(withTitle: "OK")
                         alert.applyLungfishBranding()
-                        alert.runModal()
+                        if let window = self?.view.window ?? NSApp.keyWindow {
+                            alert.beginSheetModal(for: window)
+                        }
                     }
                 }
             }
@@ -1505,7 +1602,9 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                     alert.informativeText = error.localizedDescription
                     alert.alertStyle = .warning
                     alert.addButton(withTitle: "OK")
-                    alert.runModal()
+                    if let window = self.view.window ?? NSApp.keyWindow {
+                        alert.beginSheetModal(for: window)
+                    }
                 }
             }
         }
@@ -1617,7 +1716,9 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             alert.informativeText = "Open or create a project first. VCF imports are saved as .lungfishref bundles inside the active project."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "OK")
-            alert.runModal()
+            if let window = self.view.window ?? NSApp.keyWindow {
+                alert.beginSheetModal(for: window)
+            }
             return
         }
         try? FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
@@ -1627,72 +1728,77 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             let normalized = base.trimmingCharacters(in: .whitespacesAndNewlines)
             return normalized.isEmpty ? "VCF Variants" : normalized
         }()
-        guard let bundleSelection = promptForVCFBundleName(
-            defaultName: defaultBundleName,
-            projectDirectory: projectURL
-        ) else {
-            logger.info("loadVCFFilesInBackground: User cancelled VCF import bundle naming")
-            return
-        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let bundleSelection = await self.promptForVCFBundleName(
+                defaultName: defaultBundleName,
+                projectDirectory: projectURL
+            ) else {
+                logger.info("loadVCFFilesInBackground: User cancelled VCF import bundle naming")
+                return
+            }
 
-        let label = fileCount == 1
-            ? "Importing VCF file\u{2026}"
-            : "Importing \(fileCount) VCF files\u{2026}"
-        viewerController.showProgress(label)
+            let label = fileCount == 1
+                ? "Importing VCF file\u{2026}"
+                : "Importing \(fileCount) VCF files\u{2026}"
+            viewerController.showProgress(label)
 
-        Task.detached(priority: .userInitiated) { [weak self] in
-            do {
-                let result = try await VCFAutoIngestor.ingest(
-                    vcfURLs: urls,
-                    outputDirectory: projectURL,
-                    preferredBundleName: bundleSelection.bundleName,
-                    replaceExistingBundle: bundleSelection.replaceExisting,
-                    progressHandler: { progress, message in
-                        DispatchQueue.main.async { [weak viewerController] in
+            Task.detached(priority: .userInitiated) { [weak self] in
+                do {
+                    let result = try await VCFAutoIngestor.ingest(
+                        vcfURLs: urls,
+                        outputDirectory: projectURL,
+                        preferredBundleName: bundleSelection.bundleName,
+                        replaceExistingBundle: bundleSelection.replaceExisting,
+                        progressHandler: { progress, message in
+                            DispatchQueue.main.async { [weak viewerController] in
+                                MainActor.assumeIsolated {
+                                    viewerController?.showProgress(message)
+                                }
+                            }
+                        }
+                    )
+
+                    logger.info("loadVCFFilesInBackground: Bundle created at \(result.bundleURL.lastPathComponent, privacy: .public) with \(result.variantCount) variants from \(fileCount) file(s)")
+
+                    let bundleURL = result.bundleURL
+                    DispatchQueue.main.async { [weak self, weak viewerController] in
+                        MainActor.assumeIsolated {
+                            viewerController?.hideProgress()
+                            self?.displayReferenceBundle(at: bundleURL)
+                        }
+                    }
+
+                    if !result.ncbiAccessions.isEmpty || result.inferredReference.accession != nil {
+                        let assemblyName = result.inferredReference.assembly ?? "reference"
+                        logger.info("loadVCFFilesInBackground: Starting background reference download for \(assemblyName, privacy: .public)")
+                        DispatchQueue.main.async { [weak self] in
                             MainActor.assumeIsolated {
-                                viewerController?.showProgress(message)
+                                self?.downloadReferenceForNakedBundle(
+                                    inferredRef: result.inferredReference,
+                                    ncbiAccessions: result.ncbiAccessions,
+                                    bundleURL: result.bundleURL
+                                )
                             }
                         }
                     }
-                )
 
-                logger.info("loadVCFFilesInBackground: Bundle created at \(result.bundleURL.lastPathComponent, privacy: .public) with \(result.variantCount) variants from \(fileCount) file(s)")
-
-                let bundleURL = result.bundleURL
-                DispatchQueue.main.async { [weak self, weak viewerController] in
-                    MainActor.assumeIsolated {
-                        viewerController?.hideProgress()
-                        self?.displayReferenceBundle(at: bundleURL)
-                    }
-                }
-
-                if !result.ncbiAccessions.isEmpty || result.inferredReference.accession != nil {
-                    let assemblyName = result.inferredReference.assembly ?? "reference"
-                    logger.info("loadVCFFilesInBackground: Starting background reference download for \(assemblyName, privacy: .public)")
-                    DispatchQueue.main.async { [weak self] in
+                } catch {
+                    let errorMessage = "\(error)"
+                    DispatchQueue.main.async { [weak viewerController] in
                         MainActor.assumeIsolated {
-                            self?.downloadReferenceForNakedBundle(
-                                inferredRef: result.inferredReference,
-                                ncbiAccessions: result.ncbiAccessions,
-                                bundleURL: result.bundleURL
-                            )
+                            viewerController?.hideProgress()
+                            logger.error("loadVCFFilesInBackground: Failed - \(errorMessage)")
+
+                            let alert = NSAlert()
+                            alert.messageText = "Failed to Import VCF Files"
+                            alert.informativeText = errorMessage
+                            alert.alertStyle = .warning
+                            alert.addButton(withTitle: "OK")
+                            if let window = viewerController?.view.window ?? NSApp.keyWindow {
+                                alert.beginSheetModal(for: window)
+                            }
                         }
-                    }
-                }
-
-            } catch {
-                let errorMessage = "\(error)"
-                DispatchQueue.main.async { [weak viewerController] in
-                    MainActor.assumeIsolated {
-                        viewerController?.hideProgress()
-                        logger.error("loadVCFFilesInBackground: Failed - \(errorMessage)")
-
-                        let alert = NSAlert()
-                        alert.messageText = "Failed to Import VCF Files"
-                        alert.informativeText = errorMessage
-                        alert.alertStyle = .warning
-                        alert.addButton(withTitle: "OK")
-                        alert.runModal()
                     }
                 }
             }
@@ -1704,7 +1810,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         let replaceExisting: Bool
     }
 
-    private func promptForVCFBundleName(defaultName: String, projectDirectory: URL) -> VCFBundleSelection? {
+    private func promptForVCFBundleName(defaultName: String, projectDirectory: URL) async -> VCFBundleSelection? {
         let alert = NSAlert()
         alert.messageText = "Name Imported Variant Bundle"
         alert.informativeText = "This bundle will be saved inside the active project:\n\(projectDirectory.path)"
@@ -1717,7 +1823,9 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         textField.frame = NSRect(x: 0, y: 0, width: 320, height: 24)
         alert.accessoryView = textField
 
-        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        guard let window = self.view.window ?? NSApp.keyWindow else { return nil }
+        let response = await alert.beginSheetModal(for: window)
+        guard response == .alertFirstButtonReturn else { return nil }
         let trimmed = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let bundleName = trimmed.isEmpty ? defaultName : trimmed
         let targetURL = projectDirectory.appendingPathComponent("\(bundleName).lungfishref", isDirectory: true)
@@ -1932,8 +2040,16 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         alert.addButton(withTitle: "Cancel")
         alert.alertStyle = .informational
 
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard let window = self.view.window ?? NSApp.keyWindow else { return }
+        Task { @MainActor [weak self] in
+            let response = await alert.beginSheetModal(for: window)
+            guard response == .alertFirstButtonReturn else { return }
+            self?.performDownloadReferenceForVCF(inferredRef, assembly: assembly)
+        }
+    }
 
+    /// Continuation of downloadReferenceForVCF after user confirms the download.
+    private func performDownloadReferenceForVCF(_ inferredRef: ReferenceInference.Result, assembly: String) {
         // Search term: use accession if available, otherwise assembly name
         let searchTerm: String
         if let accession = inferredRef.accession {
@@ -2015,11 +2131,6 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             }
         }
     }
-
-    /// Loads FASTQ file using the streaming statistics collector, then displays the dashboard.
-    ///
-    /// Checks for cached statistics in the sidecar metadata file first. If found,
-    /// uses them directly (still loads sample records for the table). Otherwise,
     /// computes statistics in a single streaming pass and caches them.
     private func loadFASTQDatasetInBackground(sourceURL: URL) {
         let standardizedSourceURL = sourceURL.standardizedFileURL
@@ -2181,7 +2292,9 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                         alert.alertStyle = .warning
                         alert.addButton(withTitle: "OK")
                         alert.applyLungfishBranding()
-                        alert.runModal()
+                        if let window = self.view.window ?? NSApp.keyWindow {
+                            alert.beginSheetModal(for: window)
+                        }
                     }
                 }
             }
@@ -2558,7 +2671,9 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                         alert.informativeText = errorMessage
                         alert.alertStyle = .warning
                         alert.addButton(withTitle: "OK")
-                        alert.runModal()
+                        if let window = viewerController.view.window ?? NSApp.keyWindow {
+                            alert.beginSheetModal(for: window)
+                        }
                     }
                 }
             }
