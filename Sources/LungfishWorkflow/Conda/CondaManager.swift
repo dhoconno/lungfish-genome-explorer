@@ -620,32 +620,48 @@ public actor CondaManager {
 
     /// Lists installed packages in an environment.
     public func listInstalled(in environment: String) async throws -> [CondaPackageInfo] {
-        try await ensureMicromamba()
+        // Scan conda-meta/*.json directly instead of running `micromamba list --json`
+        // which hangs on large environments (198+ packages in freyja-env).
+        let condaMetaDir = rootPrefix
+            .appendingPathComponent("envs/\(environment)/conda-meta")
 
-        let output = try await runMicromamba(["list", "-n", environment, "--json"])
+        guard FileManager.default.fileExists(atPath: condaMetaDir.path) else {
+            throw CondaError.environmentNotFound(environment)
+        }
 
-        guard let data = output.data(using: .utf8) else { return [] }
+        let metaFiles = try FileManager.default.contentsOfDirectory(
+            at: condaMetaDir,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ).filter { $0.pathExtension == "json" && $0.lastPathComponent != "history" }
 
-        // micromamba list --json returns an array of package objects
-        struct MambaPackage: Codable {
+        struct CondaMetaRecord: Codable {
             let name: String?
             let version: String?
             let channel: String?
-            let build_string: String?
+            let build: String?
             let subdir: String?
         }
 
-        let decoded = try? JSONDecoder().decode([MambaPackage].self, from: data)
-        return (decoded ?? []).compactMap { pkg in
-            guard let name = pkg.name, let version = pkg.version else { return nil }
-            return CondaPackageInfo(
+        var packages: [CondaPackageInfo] = []
+        packages.reserveCapacity(metaFiles.count)
+
+        for file in metaFiles {
+            guard let data = try? Data(contentsOf: file),
+                  let record = try? JSONDecoder().decode(CondaMetaRecord.self, from: data),
+                  let name = record.name,
+                  let version = record.version else { continue }
+
+            packages.append(CondaPackageInfo(
                 name: name,
                 version: version,
-                channel: pkg.channel ?? "unknown",
-                buildString: pkg.build_string ?? "",
-                subdir: pkg.subdir ?? ""
-            )
+                channel: record.channel ?? "unknown",
+                buildString: record.build ?? "",
+                subdir: record.subdir ?? ""
+            ))
         }
+
+        return packages
     }
 
     /// Searches for packages across channels.

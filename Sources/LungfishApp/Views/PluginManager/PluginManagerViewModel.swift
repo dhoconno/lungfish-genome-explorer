@@ -263,8 +263,10 @@ final class PluginManagerViewModel {
                         packages: [packageName],
                         environment: packageName,
                         progress: { [weak self] progress, message in
-                            Task { @MainActor [weak self] in
-                                self?.packProgressMessage[pack.id] = progressMessage
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    self?.packProgressMessage[pack.id] = progressMessage
+                                }
                             }
                         }
                     )
