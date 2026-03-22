@@ -281,45 +281,10 @@ public final class VCFReader: Sendable {
 
     // MARK: - Reading
 
-    /// Returns a line-by-line async stream from a VCF file, handling both
-    /// plain text (.vcf) and bgzipped (.vcf.gz) transparently.
-    private func lineStream(from url: URL) -> AsyncThrowingStream<String, Error> {
-        let ext = url.pathExtension.lowercased()
-        if ext == "gz" {
-            // Use GzipInputStream for compressed VCF
-            return AsyncThrowingStream { continuation in
-                Task {
-                    do {
-                        let gzip = try GzipInputStream(url: url)
-                        for try await line in gzip.lines() {
-                            continuation.yield(line)
-                        }
-                        continuation.finish()
-                    } catch {
-                        continuation.finish(throwing: error)
-                    }
-                }
-            }
-        } else {
-            // Plain text — use URL.lines
-            return AsyncThrowingStream { continuation in
-                Task {
-                    do {
-                        for try await line in url.lines {
-                            continuation.yield(line)
-                        }
-                        continuation.finish()
-                    } catch {
-                        continuation.finish(throwing: error)
-                    }
-                }
-            }
-        }
-    }
-
     /// Returns an async stream of VCF variants.
     ///
-    /// Supports both plain text (.vcf) and bgzipped (.vcf.gz) files.
+    /// Supports both plain text (.vcf) and bgzipped (.vcf.gz) files transparently
+    /// via `url.linesAutoDecompressing()`.
     ///
     /// - Parameter url: URL of the VCF file
     /// - Returns: AsyncThrowingStream of variants
@@ -331,7 +296,7 @@ public final class VCFReader: Sendable {
                     var sampleNames: [String] = []
                     var lineNumber = 0
 
-                    for try await line in self.lineStream(from: url) {
+                    for try await line in url.linesAutoDecompressing() {
                         lineNumber += 1
 
                         // Skip empty lines
@@ -396,7 +361,7 @@ public final class VCFReader: Sendable {
         var sampleNames: [String] = []
         var otherHeaders: [String: String] = [:]
 
-        for try await line in lineStream(from: url) {
+        for try await line in url.linesAutoDecompressing() {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
 
             if trimmed.hasPrefix("##fileformat=") {
