@@ -142,7 +142,7 @@ public final class MainMenu {
             keyEquivalent: "o"
         )
 
-        // Open Project Folder
+        // Open Project Folder (Cmd-Shift-O)
         let openFolderItem = fileMenu.addItem(
             withTitle: "Open Project Folder...",
             action: #selector(AppDelegate.openProjectFolder(_:)),
@@ -197,12 +197,12 @@ public final class MainMenu {
         )
         importFilesItem.keyEquivalentModifierMask = [.command, .shift]
 
-        let importONTItem = importMenu.addItem(
+        // ONT Run import (no shortcut -- Cmd-Shift-O is used by Open Project Folder)
+        importMenu.addItem(
             withTitle: "ONT Run\u{2026}",
             action: #selector(FileMenuActions.importONTRun(_:)),
-            keyEquivalent: "o"
+            keyEquivalent: ""
         )
-        importONTItem.keyEquivalentModifierMask = [.command, .shift]
 
         importMenu.addItem(.separator())
 
@@ -379,12 +379,12 @@ public final class MainMenu {
             keyEquivalent: "g"
         ).tag = NSTextFinder.Action.nextMatch.rawValue
 
+        // Find Previous (no shortcut -- Cmd-Shift-G is used by Go to Gene in Sequence menu)
         let findPrevItem = findMenu.addItem(
             withTitle: "Find Previous",
             action: #selector(NSTextView.performFindPanelAction(_:)),
-            keyEquivalent: "g"
+            keyEquivalent: ""
         )
-        findPrevItem.keyEquivalentModifierMask = [.command, .shift]
         findPrevItem.tag = NSTextFinder.Action.previousMatch.rawValue
 
         findItem.submenu = findMenu
@@ -400,7 +400,7 @@ public final class MainMenu {
         let viewMenuItem = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
         let viewMenu = NSMenu(title: "View")
 
-        // Sidebar toggle (Option-Command-S per HIG)
+        // Sidebar toggle (Control-Command-S per macOS standard)
         // Apple HIG: Title should dynamically update to "Show Sidebar" / "Hide Sidebar"
         // Tag 1000 enables dynamic title updates in validateMenuItem
         let sidebarItem = viewMenu.addItem(
@@ -408,7 +408,7 @@ public final class MainMenu {
             action: #selector(ViewMenuActions.toggleSidebar(_:)),
             keyEquivalent: "s"
         )
-        sidebarItem.keyEquivalentModifierMask = [.command, .option]
+        sidebarItem.keyEquivalentModifierMask = [.command, .control]
         sidebarItem.tag = 1000  // Tag for dynamic title validation
 
         // Inspector toggle
@@ -519,6 +519,14 @@ public final class MainMenu {
             action: #selector(SequenceMenuActions.goToPosition(_:)),
             keyEquivalent: "l"
         )
+
+        // Go to Gene (Cmd-Shift-G) - search annotations by gene name
+        let goToGeneItem = seqMenu.addItem(
+            withTitle: "Go to Gene...",
+            action: #selector(SequenceMenuActions.goToGene(_:)),
+            keyEquivalent: "g"
+        )
+        goToGeneItem.keyEquivalentModifierMask = [.command, .shift]
 
         seqMenu.addItem(.separator())
 
@@ -656,13 +664,13 @@ public final class MainMenu {
 
         opsMenu.addItem(.separator())
 
-        // Show Operations Panel
+        // Show Operations Panel (Cmd-Shift-P for "Panel")
         let panelItem = opsMenu.addItem(
             withTitle: "Show Operations Panel",
             action: #selector(OperationsMenuActions.showOperationsPanel(_:)),
-            keyEquivalent: "o"
+            keyEquivalent: "p"
         )
-        panelItem.keyEquivalentModifierMask = [.command, .shift, .option]
+        panelItem.keyEquivalentModifierMask = [.command, .shift]
 
         opsMenu.addItem(.separator())
 
@@ -819,6 +827,8 @@ public final class MainMenu {
     func reverseComplement(_ sender: Any?)
     func translate(_ sender: Any?)
     func goToPosition(_ sender: Any?)
+    /// Navigate to a gene by searching the annotation index.
+    func goToGene(_ sender: Any?)
     func copySelectionFASTA(_ sender: Any?)
     func extractSelection(_ sender: Any?)
     func addAnnotation(_ sender: Any?)
@@ -885,21 +895,25 @@ final class OperationsMenuDelegate: NSObject, NSMenuDelegate {
 
         // Insert dynamic items at the top of the menu
         for (index, op) in items.prefix(20).enumerated() {
-            let statusIcon: String
+            let statusSymbol: String
+            let statusAccessibility: String
             let progressText: String
             switch op.state {
             case .running:
-                statusIcon = "\u{25B6}\u{FE0E}"  // play triangle (text presentation)
+                statusSymbol = "play.circle"
+                statusAccessibility = "Running"
                 progressText = " (\(Int(op.progress * 100))%)"
             case .completed:
-                statusIcon = "\u{2713}"  // checkmark
+                statusSymbol = "checkmark.circle"
+                statusAccessibility = "Completed"
                 progressText = ""
             case .failed:
-                statusIcon = "\u{2717}"  // cross
+                statusSymbol = "xmark.circle"
+                statusAccessibility = "Failed"
                 progressText = ""
             }
 
-            let title = "\(statusIcon) \(op.title)\(progressText)"
+            let title = "\(op.title)\(progressText)"
             let menuItem = NSMenuItem(
                 title: title,
                 action: op.state == .running
@@ -907,6 +921,7 @@ final class OperationsMenuDelegate: NSObject, NSMenuDelegate {
                     : nil,
                 keyEquivalent: ""
             )
+            menuItem.image = NSImage(systemSymbolName: statusSymbol, accessibilityDescription: statusAccessibility)
             menuItem.tag = Self.dynamicTagBase + index + 1
             menuItem.representedObject = op.id
             if op.state != .running {
