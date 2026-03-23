@@ -504,6 +504,53 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         zoomOutItem.isEnabled = sunburstView.centerNode != nil
         menu.addItem(zoomOutItem)
 
+        menu.addItem(.separator())
+
+        // NCBI links submenu
+        let ncbiSubmenu = NSMenu()
+
+        let taxonomyItem = NSMenuItem(
+            title: "NCBI Taxonomy",
+            action: #selector(contextOpenNCBITaxonomy(_:)),
+            keyEquivalent: ""
+        )
+        taxonomyItem.target = self
+        taxonomyItem.representedObject = node
+        taxonomyItem.image = NSImage(systemSymbolName: "globe", accessibilityDescription: "Web")
+        ncbiSubmenu.addItem(taxonomyItem)
+
+        let genBankItem = NSMenuItem(
+            title: "GenBank Sequences",
+            action: #selector(contextOpenNCBIGenBank(_:)),
+            keyEquivalent: ""
+        )
+        genBankItem.target = self
+        genBankItem.representedObject = node
+        ncbiSubmenu.addItem(genBankItem)
+
+        let pubmedItem = NSMenuItem(
+            title: "PubMed Literature",
+            action: #selector(contextOpenNCBIPubMed(_:)),
+            keyEquivalent: ""
+        )
+        pubmedItem.target = self
+        pubmedItem.representedObject = node
+        ncbiSubmenu.addItem(pubmedItem)
+
+        let genomeItem = NSMenuItem(
+            title: "Genome Assemblies",
+            action: #selector(contextOpenNCBIGenome(_:)),
+            keyEquivalent: ""
+        )
+        genomeItem.target = self
+        genomeItem.representedObject = node
+        ncbiSubmenu.addItem(genomeItem)
+
+        let ncbiItem = NSMenuItem(title: "Look Up on NCBI", action: nil, keyEquivalent: "")
+        ncbiItem.submenu = ncbiSubmenu
+        ncbiItem.image = NSImage(systemSymbolName: "globe", accessibilityDescription: "NCBI")
+        menu.addItem(ncbiItem)
+
         // Convert window point to view coordinates and show
         let viewPoint = view.convert(windowPoint, from: nil)
         menu.popUp(positioning: nil, at: viewPoint, in: view)
@@ -653,6 +700,33 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     @objc private func contextZoomToRoot(_ sender: NSMenuItem) {
         sunburstView.centerNode = nil
         breadcrumbBar.update(zoomNode: nil)
+    }
+
+    // MARK: - NCBI Links
+
+    @objc private func contextOpenNCBITaxonomy(_ sender: NSMenuItem) {
+        guard let node = sender.representedObject as? TaxonNode else { return }
+        let url = URL(string: "https://www.ncbi.nlm.nih.gov/datasets/taxonomy/\(node.taxId)/")!
+        NSWorkspace.shared.open(url)
+    }
+
+    @objc private func contextOpenNCBIGenBank(_ sender: NSMenuItem) {
+        guard let node = sender.representedObject as? TaxonNode else { return }
+        let url = URL(string: "https://www.ncbi.nlm.nih.gov/nuccore/?term=txid\(node.taxId)[Organism:exp]")!
+        NSWorkspace.shared.open(url)
+    }
+
+    @objc private func contextOpenNCBIPubMed(_ sender: NSMenuItem) {
+        guard let node = sender.representedObject as? TaxonNode else { return }
+        let encodedName = node.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? node.name
+        let url = URL(string: "https://pubmed.ncbi.nlm.nih.gov/?term=\(encodedName)")!
+        NSWorkspace.shared.open(url)
+    }
+
+    @objc private func contextOpenNCBIGenome(_ sender: NSMenuItem) {
+        guard let node = sender.representedObject as? TaxonNode else { return }
+        let url = URL(string: "https://www.ncbi.nlm.nih.gov/datasets/genome/?taxon=\(node.taxId)")!
+        NSWorkspace.shared.open(url)
     }
 
     // MARK: - Export
