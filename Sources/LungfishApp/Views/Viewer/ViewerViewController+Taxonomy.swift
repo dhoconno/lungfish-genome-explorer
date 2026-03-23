@@ -249,6 +249,97 @@ extension ViewerViewController {
 
             OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
         }
+
+        // Wire BLAST verification callback.
+        // When user clicks "Run BLAST" in the config popover, submit to NCBI BLAST.
+        let capturedInputFiles = result.config.inputFiles
+        let capturedOutputURL = result.outputURL
+        let capturedTree = result.tree
+
+        controller.onBlastVerification = { [weak controller] node, readCount in
+            nonisolated(unsafe) let weakController = controller
+            let opID = OperationCenter.shared.start(
+                title: "BLAST \(node.name)",
+                detail: "Preparing BLAST verification\u{2026}",
+                operationType: .blastVerification
+            )
+
+            let taxId = node.taxId
+            let taxonName = node.name
+            nonisolated(unsafe) let inputFiles = capturedInputFiles
+            nonisolated(unsafe) let classificationOutput = capturedOutputURL
+            nonisolated(unsafe) let tree = capturedTree
+
+            let task = Task.detached {
+                do {
+                    // Build read ID set for this taxon
+                    let pipeline = TaxonomyExtractionPipeline()
+                    let targetTaxIds = await pipeline.collectDescendantTaxIds(Set([taxId]), tree: tree)
+
+                    // Subsample reads
+                    let blastService = BlastService.shared
+                    let request = try await blastService.buildVerificationRequest(
+                        taxonName: taxonName,
+                        taxId: taxId,
+                        targetTaxIds: targetTaxIds,
+                        classificationOutputURL: classificationOutput,
+                        sourceURL: inputFiles.first ?? URL(fileURLWithPath: "/dev/null"),
+                        readCount: readCount
+                    )
+
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.update(
+                                id: opID,
+                                progress: 0.1,
+                                detail: "Submitting \(request.sequences.count) reads to NCBI BLAST\u{2026}"
+                            )
+                        }
+                    }
+
+                    // Submit and wait for results
+                    let blastResult = try await blastService.verify(
+                        request: request,
+                        progress: { fraction, message in
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    OperationCenter.shared.update(
+                                        id: opID,
+                                        progress: fraction,
+                                        detail: message
+                                    )
+                                }
+                            }
+                        }
+                    )
+
+                    nonisolated(unsafe) let capturedResult = blastResult
+                    scheduleTaxonomyOnMainRunLoop {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.complete(
+                                id: opID,
+                                detail: "\(capturedResult.verifiedCount)/\(capturedResult.readResults.count) reads verified"
+                            )
+                            weakController?.showBlastResults(capturedResult)
+                        }
+                    }
+                } catch {
+                    let errorDesc = error.localizedDescription
+                    scheduleTaxonomyOnMainRunLoop {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.fail(
+                                id: opID,
+                                detail: errorDesc
+                            )
+                            showTaxonomyExtractionErrorAlert(errorDesc)
+                        }
+                    }
+                }
+            }
+
+            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+        }
+
         taxonomyViewController = controller
 
         // Hide normal genomic viewer components

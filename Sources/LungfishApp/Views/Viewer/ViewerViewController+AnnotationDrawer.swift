@@ -26,6 +26,13 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             return
         }
 
+        // When the taxonomy classification view is active, toggle its
+        // collections/BLAST drawer instead of the annotation drawer.
+        if taxonomyViewController != nil {
+            taxonomyViewController?.toggleTaxaCollectionsDrawer()
+            return
+        }
+
         if annotationDrawerView == nil {
             configureAnnotationDrawer()
         }

@@ -88,6 +88,103 @@ public actor BlastService {
         self.httpClient = httpClient
     }
 
+    // MARK: - Request Building
+
+    /// Builds a BLAST verification request by subsampling reads from classification output.
+    ///
+    /// This is a convenience method that handles:
+    /// 1. Scanning the Kraken2 per-read output for matching read IDs
+    /// 2. Extracting sequences from the source FASTQ
+    /// 3. Subsampling to the requested count
+    /// 4. Building the BlastVerificationRequest
+    ///
+    /// - Parameters:
+    ///   - taxonName: Display name of the taxon
+    ///   - taxId: NCBI taxonomy ID
+    ///   - targetTaxIds: All tax IDs to match (including descendants)
+    ///   - classificationOutputURL: Path to Kraken2 per-read output
+    ///   - sourceURL: Path to source FASTQ file
+    ///   - readCount: Number of reads to subsample (default 20)
+    /// - Returns: A ready-to-submit BlastVerificationRequest
+    public func buildVerificationRequest(
+        taxonName: String,
+        taxId: Int,
+        targetTaxIds: Set<Int>,
+        classificationOutputURL: URL,
+        sourceURL: URL,
+        readCount: Int = 20
+    ) async throws -> BlastVerificationRequest {
+        // Scan Kraken2 output for matching read IDs
+        var matchingReadIds = Set<String>()
+        if let data = try? Data(contentsOf: classificationOutputURL),
+           let text = String(data: data, encoding: .utf8) {
+            for line in text.split(separator: "\n") {
+                let cols = line.split(separator: "\t", maxSplits: 3)
+                guard cols.count >= 3, cols[0] == "C" else { continue }
+                if let tid = Int(cols[2].trimmingCharacters(in: .whitespaces)),
+                   targetTaxIds.contains(tid) {
+                    var readId = String(cols[1].trimmingCharacters(in: .whitespaces))
+                    if readId.hasSuffix("/1") || readId.hasSuffix("/2") {
+                        readId = String(readId.dropLast(2))
+                    }
+                    matchingReadIds.insert(readId)
+                }
+            }
+        }
+
+        guard !matchingReadIds.isEmpty else {
+            throw BlastServiceError.noSequences
+        }
+
+        // Extract sequences from FASTQ
+        var allSequences: [(id: String, sequence: String)] = []
+        if let handle = FileHandle(forReadingAtPath: sourceURL.path) {
+            defer { handle.closeFile() }
+            var lineBuffer: [String] = []
+            var residual = ""
+            let bufferSize = 4_194_304
+
+            while true {
+                let chunk = handle.readData(ofLength: bufferSize)
+                if chunk.isEmpty { break }
+                guard let text = String(data: chunk, encoding: .utf8) else { continue }
+                let combined = residual + text
+                residual = ""
+                var lines = combined.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+                if !combined.hasSuffix("\n") && !lines.isEmpty {
+                    residual = lines.removeLast()
+                }
+                for line in lines {
+                    lineBuffer.append(line)
+                    if lineBuffer.count == 4 {
+                        if lineBuffer[0].hasPrefix("@") {
+                            var readId = String(lineBuffer[0].dropFirst())
+                                .split(separator: " ", maxSplits: 1).first.map(String.init) ?? ""
+                            if readId.hasSuffix("/1") || readId.hasSuffix("/2") {
+                                readId = String(readId.dropLast(2))
+                            }
+                            if matchingReadIds.contains(readId) {
+                                allSequences.append((id: readId, sequence: lineBuffer[1]))
+                            }
+                        }
+                        lineBuffer.removeAll(keepingCapacity: true)
+                    }
+                }
+            }
+        }
+
+        // Subsample
+        let strategy = SubsampleStrategy.mixed(longest: min(5, readCount / 4), random: readCount - min(5, readCount / 4))
+        let subsampled = subsampleReads(from: allSequences, strategy: strategy)
+
+        return BlastVerificationRequest(
+            taxonName: taxonName,
+            taxId: taxId,
+            sequences: subsampled,
+            entrezQuery: "txid\(taxId)[Organism:exp]"
+        )
+    }
+
     // MARK: - High-Level API
 
     /// Submits reads for BLAST verification against a specific taxon.
