@@ -198,7 +198,7 @@ struct ClassificationWizardSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             // Title
             HStack {
-                Text("Classify Reads")
+                Text("Classify & Profile Reads")
                     .font(.headline)
                 Spacer()
                 if inputFiles.count == 1 {
@@ -221,8 +221,11 @@ struct ClassificationWizardSheet: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    // Goal selector
-                    goalSelector
+                    // Brief description of what will happen
+                    Text("Classify reads using Kraken2 and estimate organism abundances with Bracken. Results will be shown as an interactive taxonomy browser.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     Divider()
 
@@ -521,7 +524,7 @@ struct ClassificationWizardSheet: View {
                 .appendingPathComponent("classification-\(UUID().uuidString.prefix(8))")
 
         let config = ClassificationConfig(
-            goal: selectedGoal.configGoal,
+            goal: .profile,  // Always run classify + Bracken profiling
             inputFiles: inputFiles,
             isPairedEnd: inputFiles.count == 2,
             databaseName: db.name,

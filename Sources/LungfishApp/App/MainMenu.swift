@@ -578,7 +578,7 @@ public final class MainMenu {
 
         // Metagenomics Classification
         let classifyItem = toolsMenu.addItem(
-            withTitle: "Classify Reads\u{2026}",
+            withTitle: "Classify \u{0026} Profile Reads\u{2026}",
             action: #selector(ToolsMenuActions.classifyReads(_:)),
             keyEquivalent: "k"
         )
