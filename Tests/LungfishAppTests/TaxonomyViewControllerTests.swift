@@ -506,6 +506,91 @@ final class TaxonomyViewControllerTests: XCTestCase {
         XCTAssertEqual(vc.testSplitView.arrangedSubviews.count, 2)
     }
 
+    // MARK: - Split View: Sunburst Visibility
+
+    func testSunburstViewIsInSplitViewLeftPane() throws {
+        let vc = TaxonomyViewController()
+        _ = vc.view
+
+        let splitView = vc.testSplitView
+
+        // The split view should have two arranged subviews (containers)
+        XCTAssertEqual(splitView.arrangedSubviews.count, 2)
+
+        // The left container should contain the sunburst view
+        let leftContainer = splitView.arrangedSubviews[0]
+        XCTAssertTrue(
+            leftContainer.subviews.contains(vc.testSunburstView),
+            "Sunburst view should be a subview of the left split pane container"
+        )
+
+        // The right container should contain the table view
+        let rightContainer = splitView.arrangedSubviews[1]
+        XCTAssertTrue(
+            rightContainer.subviews.contains(vc.testTableView),
+            "Table view should be a subview of the right split pane container"
+        )
+    }
+
+    func testSplitViewContainersUseFrameBasedLayout() throws {
+        let vc = TaxonomyViewController()
+        _ = vc.view
+
+        let splitView = vc.testSplitView
+
+        // The container views should NOT have translatesAutoresizingMaskIntoConstraints
+        // set to false -- NSSplitView manages them with frame-based layout.
+        for container in splitView.arrangedSubviews {
+            XCTAssertTrue(
+                container.translatesAutoresizingMaskIntoConstraints,
+                "Split view container should use frame-based layout (translatesAutoresizingMaskIntoConstraints = true)"
+            )
+        }
+    }
+
+    func testSunburstViewUsesAutoresizingMask() throws {
+        let vc = TaxonomyViewController()
+        _ = vc.view
+
+        // The sunburst view should use autoresizing mask to fill its container
+        let sunburst = vc.testSunburstView
+        XCTAssertTrue(
+            sunburst.autoresizingMask.contains(.width),
+            "Sunburst view should have flexible width autoresizing"
+        )
+        XCTAssertTrue(
+            sunburst.autoresizingMask.contains(.height),
+            "Sunburst view should have flexible height autoresizing"
+        )
+
+        // The table view should use autoresizing mask to fill its container
+        let table = vc.testTableView
+        XCTAssertTrue(
+            table.autoresizingMask.contains(.width),
+            "Table view should have flexible width autoresizing"
+        )
+        XCTAssertTrue(
+            table.autoresizingMask.contains(.height),
+            "Table view should have flexible height autoresizing"
+        )
+    }
+
+    func testSunburstTreeIsSetOnConfigure() throws {
+        let vc = TaxonomyViewController()
+        _ = vc.view
+
+        // Before configuration, sunburst tree should be nil
+        XCTAssertNil(vc.testSunburstView.tree)
+
+        let result = makeTestResult()
+        vc.configure(result: result)
+
+        // After configuration, sunburst tree should be set
+        XCTAssertNotNil(vc.testSunburstView.tree)
+        XCTAssertEqual(vc.testSunburstView.tree?.totalReads, 10000)
+        XCTAssertEqual(vc.testSunburstView.tree?.root.readsClade, 10000)
+    }
+
     // MARK: - Extract Callback
 
     func testExtractSequencesCallback() throws {
@@ -551,6 +636,267 @@ final class TaxonomyViewControllerTests: XCTestCase {
 
         XCTAssertFalse(vc.testBreadcrumbBar.isAtRoot)
         XCTAssertTrue(vc.testBreadcrumbBar.displayPath.contains("Proteobacteria"))
+    }
+}
+
+// MARK: - TaxonomyTableView Keyboard Shortcut Tests
+
+@MainActor
+final class TaxonomyTableKeyboardTests: XCTestCase {
+
+    // MARK: - Outline View Type
+
+    func testOutlineViewIsCustomSubclass() throws {
+        let table = TaxonomyTableView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
+        XCTAssertTrue(
+            table.outlineView is TaxonomyOutlineView,
+            "Outline view should be TaxonomyOutlineView subclass"
+        )
+    }
+
+    func testOutlineViewHasBackReference() throws {
+        let table = TaxonomyTableView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
+        let outline = table.outlineView as! TaxonomyOutlineView
+        XCTAssertTrue(
+            outline.taxonomyTableView === table,
+            "TaxonomyOutlineView should have back-reference to TaxonomyTableView"
+        )
+    }
+
+    // MARK: - Expand All
+
+    func testExpandAllExpandsEntireTree() throws {
+        let table = TaxonomyTableView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
+        let tree = makeTestTree()
+        table.tree = tree
+
+        // Collapse everything first
+        table.collapseAll()
+
+        // Now expand all
+        table.expandAll()
+
+        // After expandAll, deeply nested items like E. coli should be visible
+        // (i.e., its row should be >= 0)
+        let ecoli = tree.node(taxId: 562)!
+        let row = table.outlineView.row(forItem: ecoli)
+        XCTAssertGreaterThanOrEqual(
+            row, 0,
+            "E. coli should be visible (row >= 0) after expandAll"
+        )
+    }
+
+    // MARK: - Collapse All
+
+    func testCollapseAllCollapsesTree() throws {
+        let table = TaxonomyTableView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
+        let tree = makeTestTree()
+        table.tree = tree
+
+        // First expand all
+        table.expandAll()
+
+        // Then collapse all
+        table.collapseAll()
+
+        // After collapseAll, deeply nested items should not be visible
+        // Root is still expanded (collapseAll re-expands root so top-level items are visible)
+        let ecoli = tree.node(taxId: 562)!
+        let row = table.outlineView.row(forItem: ecoli)
+        XCTAssertEqual(
+            row, -1,
+            "E. coli should not be visible (row == -1) after collapseAll"
+        )
+
+        // But root's children (Bacteria, Archaea) should still be visible
+        let bacteria = tree.node(taxId: 2)!
+        let bacteriaRow = table.outlineView.row(forItem: bacteria)
+        XCTAssertGreaterThanOrEqual(
+            bacteriaRow, 0,
+            "Bacteria should still be visible after collapseAll (root stays expanded)"
+        )
+    }
+
+    // MARK: - Expand Selected Recursively
+
+    func testExpandSelectedRecursively() throws {
+        let table = TaxonomyTableView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
+        let tree = makeTestTree()
+        table.tree = tree
+
+        // Collapse everything first, then expand root's top level only
+        table.collapseAll()
+
+        // Select Bacteria
+        let bacteria = tree.node(taxId: 2)!
+        let bacteriaRow = table.outlineView.row(forItem: bacteria)
+        XCTAssertGreaterThanOrEqual(bacteriaRow, 0, "Bacteria should be visible")
+        table.outlineView.selectRowIndexes(IndexSet(integer: bacteriaRow), byExtendingSelection: false)
+
+        // Expand selected recursively
+        table.expandSelectedRecursively()
+
+        // E. coli (deeply nested under Bacteria) should now be visible
+        let ecoli = tree.node(taxId: 562)!
+        let ecoliRow = table.outlineView.row(forItem: ecoli)
+        XCTAssertGreaterThanOrEqual(
+            ecoliRow, 0,
+            "E. coli should be visible after expanding Bacteria recursively"
+        )
+
+        // But Archaea (sibling of Bacteria) should still be collapsed
+        let archaea = tree.node(taxId: 2157)!
+        let archaeaRow = table.outlineView.row(forItem: archaea)
+        XCTAssertGreaterThanOrEqual(
+            archaeaRow, 0,
+            "Archaea should still be visible (it is a root child)"
+        )
+        // Archaea has no children, so this is fine -- verify it wasn't expanded
+        // by checking that Archaea itself is present but didn't grow the row count
+    }
+
+    // MARK: - Expand/Collapse with Nil Tree
+
+    func testExpandAllWithNilTreeDoesNotCrash() throws {
+        let table = TaxonomyTableView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
+        table.tree = nil
+
+        // Should not crash
+        table.expandAll()
+        table.collapseAll()
+        table.expandSelectedRecursively()
+    }
+
+    // MARK: - Keyboard Event Routing
+
+    func testTaxonomyOutlineViewKeyDownDispatchesCmdShiftRight() throws {
+        let table = TaxonomyTableView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
+        let tree = makeTestTree()
+        table.tree = tree
+
+        // Collapse everything first
+        table.collapseAll()
+
+        // Verify E. coli is not visible
+        let ecoli = tree.node(taxId: 562)!
+        XCTAssertEqual(
+            table.outlineView.row(forItem: ecoli), -1,
+            "E. coli should be hidden before keyboard shortcut"
+        )
+
+        // Simulate Cmd+Shift+Right Arrow keyDown on the outline view.
+        // keyCode 124 = Right Arrow
+        let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .shift],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: String(Character(UnicodeScalar(NSRightArrowFunctionKey)!)),
+            charactersIgnoringModifiers: String(Character(UnicodeScalar(NSRightArrowFunctionKey)!)),
+            isARepeat: false,
+            keyCode: 124
+        )!
+
+        let outline = table.outlineView as! TaxonomyOutlineView
+        outline.keyDown(with: event)
+
+        // After Cmd+Shift+Right, all items should be expanded
+        XCTAssertGreaterThanOrEqual(
+            table.outlineView.row(forItem: ecoli), 0,
+            "E. coli should be visible after Cmd+Shift+Right (Expand All)"
+        )
+    }
+
+    func testTaxonomyOutlineViewKeyDownDispatchesCmdShiftLeft() throws {
+        let table = TaxonomyTableView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
+        let tree = makeTestTree()
+        table.tree = tree
+
+        // Expand all first
+        table.expandAll()
+
+        let ecoli = tree.node(taxId: 562)!
+        XCTAssertGreaterThanOrEqual(
+            table.outlineView.row(forItem: ecoli), 0,
+            "E. coli should be visible before collapse"
+        )
+
+        // Simulate Cmd+Shift+Left Arrow keyDown
+        // keyCode 123 = Left Arrow
+        let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .shift],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: String(Character(UnicodeScalar(NSLeftArrowFunctionKey)!)),
+            charactersIgnoringModifiers: String(Character(UnicodeScalar(NSLeftArrowFunctionKey)!)),
+            isARepeat: false,
+            keyCode: 123
+        )!
+
+        let outline = table.outlineView as! TaxonomyOutlineView
+        outline.keyDown(with: event)
+
+        // After Cmd+Shift+Left, deeply nested items should be collapsed
+        XCTAssertEqual(
+            table.outlineView.row(forItem: ecoli), -1,
+            "E. coli should be hidden after Cmd+Shift+Left (Collapse All)"
+        )
+
+        // Root children should still be visible
+        let bacteria = tree.node(taxId: 2)!
+        XCTAssertGreaterThanOrEqual(
+            table.outlineView.row(forItem: bacteria), 0,
+            "Bacteria should still be visible after Collapse All"
+        )
+    }
+
+    func testTaxonomyOutlineViewKeyDownDispatchesOptionRight() throws {
+        let table = TaxonomyTableView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
+        let tree = makeTestTree()
+        table.tree = tree
+
+        // Collapse everything, then just show root children
+        table.collapseAll()
+
+        // Select Bacteria
+        let bacteria = tree.node(taxId: 2)!
+        let bacteriaRow = table.outlineView.row(forItem: bacteria)
+        table.outlineView.selectRowIndexes(IndexSet(integer: bacteriaRow), byExtendingSelection: false)
+
+        // Verify E. coli is not visible
+        let ecoli = tree.node(taxId: 562)!
+        XCTAssertEqual(
+            table.outlineView.row(forItem: ecoli), -1,
+            "E. coli should be hidden before Option+Right"
+        )
+
+        // Simulate Option+Right Arrow keyDown
+        let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.option],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: String(Character(UnicodeScalar(NSRightArrowFunctionKey)!)),
+            charactersIgnoringModifiers: String(Character(UnicodeScalar(NSRightArrowFunctionKey)!)),
+            isARepeat: false,
+            keyCode: 124
+        )!
+
+        let outline = table.outlineView as! TaxonomyOutlineView
+        outline.keyDown(with: event)
+
+        // After Option+Right on Bacteria, E. coli should be visible
+        XCTAssertGreaterThanOrEqual(
+            table.outlineView.row(forItem: ecoli), 0,
+            "E. coli should be visible after Option+Right on Bacteria"
+        )
     }
 }
 

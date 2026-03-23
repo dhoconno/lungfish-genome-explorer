@@ -83,33 +83,18 @@ scope of commercial multiplex respiratory panels (e.g., BioFire FilmArray RP).
 | **id** | `enteric-viruses` |
 | **name** | Enteric Viruses |
 | **description** | Viral pathogens causing acute gastroenteritis. |
-| **sfSymbol** | `stomach` |
+| **sfSymbol** | `testtube.2` |
 
 ### Taxa
 
 | Scientific Name | Tax ID | Children | Common Name | Rank | Notes |
 |---|---|---|---|---|---|
 | Norovirus | 142786 | yes | Norovirus | genus | GI and GII genogroups; leading cause of gastroenteritis outbreaks |
-| Rotavirus A | 28875 | yes | Rotavirus A | species | Primary human pathogen; children |
-| Rotavirus B | 36427 | yes | Rotavirus B | species | Less common, adult outbreaks in Asia |
-| Rotavirus C | 36427 | yes | Rotavirus C | species | Sporadic pediatric cases |
+| Rotavirus | 10912 | yes | Rotavirus | genus | Genus-level captures all species (A, B, C); Rotavirus A (28875) is the primary human pathogen |
 | Mamastrovirus 1 | 1239565 | yes | Human astrovirus | species | Classical human astrovirus serotypes 1-8 |
-| Sapovirus | 95341 | yes | Sapovirus | genus | GI, GII, GIV, GV infect humans |
-| Human mastadenovirus F | 130309 | yes | Enteric adenovirus | species | Types 40 and 41 |
-| Hepatovirus A | 12092 | yes | Hepatitis A virus | species | Fecal-oral transmission |
-
-**Correction note**: Rotavirus C has tax ID 36427 which is the same entry.
-Confirm and update: Rotavirus B = 36427, Rotavirus C = 36427 is incorrect.
-Corrected values below:
-
-| Scientific Name | Tax ID | Children | Common Name | Rank | Notes |
-|---|---|---|---|---|---|
-| Norovirus | 142786 | yes | Norovirus | genus | GI and GII genogroups |
-| Rotavirus | 10912 | yes | Rotavirus | genus | Captures all species (A, B, C) |
-| Mamastrovirus 1 | 1239565 | yes | Human astrovirus | species | Serotypes 1-8 |
-| Sapovirus | 95341 | yes | Sapovirus | genus | GI, GII, GIV, GV infect humans |
-| Human mastadenovirus F | 130309 | yes | Enteric adenovirus | species | Types 40 and 41 only |
-| Hepatovirus A | 12092 | yes | Hepatitis A virus | species | Fecal-oral; waterborne outbreaks |
+| Sapovirus | 95341 | yes | Sapovirus | genus | GI, GII, GIV, GV genogroups infect humans |
+| Human mastadenovirus F | 130309 | yes | Enteric adenovirus | species | Types 40 and 41 only; causes pediatric gastroenteritis |
+| Hepatovirus A | 12092 | yes | Hepatitis A virus | species | Fecal-oral transmission; waterborne outbreaks |
 
 **Use case**: Gastroenteritis outbreak investigation. Researchers sequencing
 stool samples or wastewater during diarrheal disease outbreaks. Matches the
@@ -297,7 +282,7 @@ create a custom collection with just Borrelia sensu lato if needed.
 | Coccidioides | 5500 | yes | Valley fever | genus | C. immitis and C. posadasii; endemic dimorphic |
 | Histoplasma | 5036 | yes | Histoplasmosis | genus | H. capsulatum complex; endemic dimorphic |
 | Candida albicans | 5476 | yes | C. albicans | species | Most common Candida species |
-| Candida glabrata | 5478 | yes | C. glabrata | species | Echinocandin resistance; now Nakaseomyces glabratus |
+| Nakaseomyces glabratus | 5478 | yes | C. glabrata | species | Formerly Candida glabrata; echinocandin resistance emerging |
 | Aspergillus niger | 5061 | yes | A. niger | species | Otomycosis, pulmonary aspergilloma |
 | Mucor | 4830 | yes | Mucormycosis | genus | Rhizopus/Mucor group; genus-level for broad capture |
 | Talaromyces marneffei | 37727 | yes | Penicilliosis | species | Endemic in Southeast Asia; HIV-associated |
@@ -350,7 +335,7 @@ Tax IDs are stable even when names change. The app should:
 | Collection | Symbol | Rationale |
 |---|---|---|
 | Respiratory Viruses | `lungs` | Respiratory tropism |
-| Enteric Viruses | `stomach` | GI tropism |
+| Enteric Viruses | `testtube.2` | GI / enteric pathogens |
 | Respiratory Bacteria | `microbe` | Bacterial pathogens |
 | ESKAPE Pathogens | `shield.lefthalf.filled.badge.checkmark` | Drug resistance / infection control |
 | Wastewater Surveillance | `drop.triangle` | Water/environmental |
