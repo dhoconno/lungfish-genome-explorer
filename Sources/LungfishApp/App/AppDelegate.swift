@@ -3642,7 +3642,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             operationType: .classification
         )
 
-        Task.detached {
+        let task = Task.detached {
             do {
                 let progressCallback: @Sendable (Double, String) -> Void = { progress, message in
                     DispatchQueue.main.async {
@@ -3714,6 +3714,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 }
             }
         }
+
+        // Wire cancellation so the Operations Panel cancel button works
+        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
     }
 
 
