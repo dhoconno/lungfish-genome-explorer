@@ -298,7 +298,10 @@ struct TaxonomyExtractionSheet: View {
     /// Builds the extraction config and calls the onExtract callback.
     private func performExtract() {
         let taxIds = Set(selectedNodes.map(\.taxId))
-        let outputDir = sourceURLs.first!.deletingLastPathComponent()
+        // Place extracted reads in the parent bundle's directory so the sidebar
+        // can discover them. The bundle creation step wraps them in a .lungfishfastq.
+        let parentDir = sourceURLs.first!.deletingLastPathComponent()
+        let outputDir = parentDir
         let cleanName = outputName.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if isPairedEnd {

@@ -702,6 +702,21 @@ public class SidebarViewController: NSViewController {
             // These contain Kraken2 kreport/kraken output from metagenomics classification.
             let classificationChildren = collectClassificationResults(in: url)
             item.children.append(contentsOf: classificationChildren)
+
+            // Scan for extracted read bundles (.lungfishfastq) at the top level.
+            // These are created by taxonomy extraction and don't live in derivatives/.
+            if let topLevelContents = try? fileManager.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) {
+                for childURL in topLevelContents {
+                    if childURL.pathExtension == FASTQBundle.directoryExtension {
+                        let childItem = buildSidebarTree(from: childURL, isRoot: false)
+                        item.children.append(childItem)
+                    }
+                }
+            }
         }
 
         // If it's a directory, scan children (unless it's a bundle)
