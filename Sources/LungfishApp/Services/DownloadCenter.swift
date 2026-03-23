@@ -20,6 +20,21 @@ public enum OperationType: String, Sendable {
     case taxonomyExtraction = "Taxonomy Extraction"
     case classification = "Classification"
     case blastVerification = "BLAST Verification"
+
+    /// Whether this operation type should appear in the Downloads popover.
+    ///
+    /// Download/import operations show in the Downloads toolbar popover.
+    /// Pipeline operations (BLAST, classification, extraction) only appear
+    /// in the full Operations Panel (Cmd+Shift+P).
+    public var isDownloadCategory: Bool {
+        switch self {
+        case .download, .bamImport, .vcfImport, .bundleBuild, .ingestion:
+            return true
+        case .export, .assembly, .fastqOperation, .qualityReport,
+             .taxonomyExtraction, .classification, .blastVerification:
+            return false
+        }
+    }
 }
 
 @MainActor
@@ -87,6 +102,16 @@ public final class OperationCenter: ObservableObject {
 
     public var activeCount: Int {
         items.filter { $0.state == .running }.count
+    }
+
+    /// Items that belong in the Downloads popover (download/import only).
+    public var downloadItems: [Item] {
+        items.filter { $0.operationType.isDownloadCategory }
+    }
+
+    /// Number of active download/import operations (for toolbar badge).
+    public var activeDownloadCount: Int {
+        items.filter { $0.state == .running && $0.operationType.isDownloadCategory }.count
     }
 
     // MARK: - Bundle Locking
@@ -231,6 +256,16 @@ public final class OperationCenter: ObservableObject {
 
     public func clearCompleted() {
         items.removeAll { $0.state != .running }
+    }
+
+    /// Clears only completed download/import items (not pipeline operations).
+    ///
+    /// Called from the Downloads popover, which only shows download-category
+    /// items. Using this instead of ``clearCompleted()`` prevents silently
+    /// removing pipeline operations (BLAST, classification, extraction) that
+    /// are visible in the Operations Panel but not in the popover.
+    public func clearCompletedDownloads() {
+        items.removeAll { $0.state != .running && $0.operationType.isDownloadCategory }
     }
 
     private func trimCompletedItemsIfNeeded() {

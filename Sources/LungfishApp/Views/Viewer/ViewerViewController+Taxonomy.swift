@@ -272,20 +272,50 @@ extension ViewerViewController {
 
             let task = Task.detached {
                 do {
-                    // Build read ID set for this taxon
+                    // Guard: source FASTQ must exist for BLAST read extraction
+                    guard let sourceURL = inputFiles.first else {
+                        throw BlastServiceError.noSequences
+                    }
+                    guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+                        taxonomyLogger.error("BLAST: source FASTQ not found at \(sourceURL.path, privacy: .public)")
+                        throw BlastServiceError.noSequences
+                    }
+
+                    // Build read ID set for this taxon using the indexed
+                    // sidecar when available (O(k) vs O(n) linear scan).
                     let pipeline = TaxonomyExtractionPipeline()
                     let targetTaxIds = await pipeline.collectDescendantTaxIds(Set([taxId]), tree: tree)
 
-                    // Subsample reads
                     let blastService = BlastService.shared
-                    let request = try await blastService.buildVerificationRequest(
-                        taxonName: taxonName,
-                        taxId: taxId,
-                        targetTaxIds: targetTaxIds,
-                        classificationOutputURL: classificationOutput,
-                        sourceURL: inputFiles.first ?? URL(fileURLWithPath: "/dev/null"),
-                        readCount: readCount
-                    )
+                    let request: BlastVerificationRequest
+
+                    let indexURL = KrakenIndexDatabase.indexURL(for: classificationOutput)
+                    if KrakenIndexDatabase.isValid(at: indexURL, for: classificationOutput) {
+                        // Fast path: use indexed lookup
+                        let db = try KrakenIndexDatabase(url: indexURL)
+                        let matchingReadIds = try db.readIds(forTaxIds: targetTaxIds)
+                        db.close()
+                        taxonomyLogger.info("BLAST: indexed lookup found \(matchingReadIds.count, privacy: .public) reads for \(targetTaxIds.count, privacy: .public) taxIds")
+
+                        request = try await blastService.buildVerificationRequestFromReadIds(
+                            taxonName: taxonName,
+                            taxId: taxId,
+                            matchingReadIds: matchingReadIds,
+                            sourceURL: sourceURL,
+                            readCount: readCount
+                        )
+                    } else {
+                        // Slow path: linear scan (index will be built on next classification)
+                        taxonomyLogger.info("BLAST: no index available, using linear scan")
+                        request = try await blastService.buildVerificationRequest(
+                            taxonName: taxonName,
+                            taxId: taxId,
+                            targetTaxIds: targetTaxIds,
+                            classificationOutputURL: classificationOutput,
+                            sourceURL: sourceURL,
+                            readCount: readCount
+                        )
+                    }
 
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {

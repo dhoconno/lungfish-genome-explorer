@@ -25,6 +25,7 @@ final class AboutWindowController: NSWindowController {
         )
         window.title = "About Lungfish Genome Explorer"
         window.isReleasedWhenClosed = false
+        window.isRestorable = false
         window.center()
         window.isMovableByWindowBackground = true
         self.init(window: window)

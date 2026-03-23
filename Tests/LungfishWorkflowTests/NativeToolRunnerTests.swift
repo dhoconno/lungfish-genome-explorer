@@ -354,7 +354,7 @@ final class NativeToolRunnerTests: XCTestCase {
     }
 
     func testAllCasesCount() {
-        XCTAssertEqual(NativeTool.allCases.count, 18, "Should have 18 bundled tools")
+        XCTAssertEqual(NativeTool.allCases.count, 22, "Should have 22 bundled tools")
     }
 
     // MARK: - Error Tests

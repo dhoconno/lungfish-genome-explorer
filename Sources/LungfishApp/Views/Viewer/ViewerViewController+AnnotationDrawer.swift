@@ -66,6 +66,10 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
     /// Opens the annotation drawer by default when the selected bundle has table data.
     /// Data criteria: at least one annotation or variant track in the manifest.
     public func openAnnotationDrawerIfBundleHasData(manifest: BundleManifest? = nil) {
+        // Don't create the annotation drawer while the taxonomy view is active —
+        // it uses its own collections/BLAST drawer.
+        if taxonomyViewController != nil { return }
+
         let effectiveManifest = manifest ?? currentReferenceBundle?.manifest
         guard let effectiveManifest else { return }
 

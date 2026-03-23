@@ -84,6 +84,11 @@ public class MainWindowController: NSWindowController {
         window.title = "Lungfish Genome Explorer"
         window.minSize = NSSize(width: 800, height: 500)
         window.setFrameAutosaveName("MainWindow")
+        // Disable window restoration — the app does not implement
+        // NSWindowRestoration, so leaving this true causes a console
+        // error: "Unable to find className=(null)" on every launch.
+        // Frame autosave still works independently of restoration.
+        window.isRestorable = false
         window.titlebarAppearsTransparent = false
         window.titleVisibility = .visible
         window.toolbarStyle = .unified
@@ -216,14 +221,14 @@ public class MainWindowController: NSWindowController {
 
     private func refreshDownloadsToolbarIcon() {
         guard let button = downloadsToolbarButton else { return }
-        let hasActive = DownloadCenter.shared.activeCount > 0
+        let hasActive = DownloadCenter.shared.activeDownloadCount > 0
         button.image = makeToolbarImage(
             symbolName: hasActive ? "arrow.down.circle.fill" : "arrow.down.circle",
             fallbacks: ["tray.and.arrow.down", "arrow.down.circle"],
             accessibilityLabel: "Downloads"
         )
         button.toolTip = hasActive
-            ? "\(DownloadCenter.shared.activeCount) download(s) in progress"
+            ? "\(DownloadCenter.shared.activeDownloadCount) download(s) in progress"
             : "Show recent downloads"
     }
 
@@ -508,22 +513,28 @@ extension MainWindowController: NSToolbarDelegate {
 private struct DownloadsPopoverView: View {
     @ObservedObject var center: DownloadCenter
 
+    /// Only show download/import operations — pipeline operations (BLAST,
+    /// classification, extraction) appear in the Operations Panel instead.
+    private var visibleItems: [DownloadCenter.Item] {
+        center.downloadItems
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Downloads")
                     .font(.headline)
                 Spacer()
-                if center.items.contains(where: { $0.state != .running }) {
+                if visibleItems.contains(where: { $0.state != .running }) {
                     Button("Clear Finished") {
-                        center.clearCompleted()
+                        center.clearCompletedDownloads()
                     }
                     .buttonStyle(.link)
                     .font(.caption)
                 }
             }
 
-            if center.items.isEmpty {
+            if visibleItems.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "arrow.down.circle")
                         .font(.title2)
@@ -536,7 +547,7 @@ private struct DownloadsPopoverView: View {
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
-                        ForEach(center.items) { item in
+                        ForEach(visibleItems) { item in
                             VStack(alignment: .leading, spacing: 4) {
                                 HStack {
                                     Text(item.title)

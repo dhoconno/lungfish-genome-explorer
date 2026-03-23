@@ -83,6 +83,7 @@ public final class PluginManagerWindowController: NSWindowController, NSToolbarD
         window.title = "Plugin Manager"
         window.minSize = NSSize(width: 640, height: 400)
         window.setFrameAutosaveName("PluginManagerWindow")
+        window.isRestorable = false
         window.isReleasedWhenClosed = false
 
         super.init(window: window)

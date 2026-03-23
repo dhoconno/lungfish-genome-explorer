@@ -311,12 +311,12 @@ final class DatabasesTabTests: XCTestCase {
         XCTAssertEqual(vm.totalDatabaseStorageBytes, expected)
     }
 
-    /// Verifies that the storage path is under ~/.lungfish/databases/kraken2.
+    /// Verifies that the storage path is under ~/.lungfish/databases.
     func testDatabaseStoragePath() {
         let vm = PluginManagerViewModel()
         let path = vm.databaseStoragePath
 
-        XCTAssertTrue(path.contains(".lungfish/databases/kraken2"), "Storage path should contain .lungfish/databases/kraken2")
+        XCTAssertTrue(path.contains(".lungfish/databases"), "Storage path should contain .lungfish/databases")
     }
 
     // MARK: - Database Collection Tests

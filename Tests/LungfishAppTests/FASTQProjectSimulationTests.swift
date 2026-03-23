@@ -116,8 +116,8 @@ final class FASTQProjectSimulationTests: XCTestCase {
         } else {
             XCTFail("Expected trim payload")
         }
-        XCTAssertEqual(trimManifest.parentBundleRelativePath, "../\(source.bundleURL.lastPathComponent)")
-        XCTAssertEqual(trimManifest.rootBundleRelativePath, "../\(source.bundleURL.lastPathComponent)")
+        XCTAssertEqual(trimManifest.parentBundleRelativePath, "../..")
+        XCTAssertEqual(trimManifest.rootBundleRelativePath, "../..")
 
         let filteredBundle = try await service.createDerivative(
             from: trimBundle,

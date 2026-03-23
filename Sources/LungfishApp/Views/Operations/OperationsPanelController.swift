@@ -22,6 +22,7 @@ final class OperationsPanelController: NSWindowController {
         panel.title = "Operations"
         panel.isFloatingPanel = true
         panel.isReleasedWhenClosed = false
+        panel.isRestorable = false
         panel.minSize = NSSize(width: 460, height: 250)
         panel.center()
 

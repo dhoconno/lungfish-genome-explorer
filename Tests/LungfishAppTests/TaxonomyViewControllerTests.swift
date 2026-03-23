@@ -598,6 +598,10 @@ final class TaxonomyViewControllerTests: XCTestCase {
         _ = vc.view
         let result = makeTestResult()
         vc.configure(result: result)
+        // Clear classificationResult so the action bar uses the direct
+        // onExtractSequences path instead of the sheet-based flow
+        // (which requires a window that tests do not provide).
+        vc.classificationResult = nil
 
         var extractedNode: TaxonNode?
         var extractedIncludeChildren: Bool?

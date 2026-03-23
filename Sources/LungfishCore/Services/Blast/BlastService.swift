@@ -106,6 +106,43 @@ public actor BlastService {
     ///   - sourceURL: Path to source FASTQ file
     ///   - readCount: Number of reads to subsample (default 20)
     /// - Returns: A ready-to-submit BlastVerificationRequest
+    /// Builds a BLAST verification request using pre-fetched read IDs.
+    ///
+    /// Use this overload when read IDs have already been looked up via
+    /// ``KrakenIndexDatabase`` for O(k) indexed access instead of O(n)
+    /// linear scanning.
+    ///
+    /// - Parameters:
+    ///   - taxonName: Display name of the taxon
+    ///   - taxId: NCBI taxonomy ID
+    ///   - matchingReadIds: Pre-fetched read IDs for the target taxon(s)
+    ///   - sourceURL: Path to source FASTQ file
+    ///   - readCount: Number of reads to subsample (default 20)
+    /// - Returns: A ready-to-submit BlastVerificationRequest
+    public func buildVerificationRequestFromReadIds(
+        taxonName: String,
+        taxId: Int,
+        matchingReadIds: Set<String>,
+        sourceURL: URL,
+        readCount: Int = 20
+    ) async throws -> BlastVerificationRequest {
+        logger.info("buildVerificationRequestFromReadIds: taxon=\(taxonName, privacy: .public) taxId=\(taxId, privacy: .public) matchingReadIds=\(matchingReadIds.count, privacy: .public) readCount=\(readCount, privacy: .public)")
+        logger.info("buildVerificationRequestFromReadIds: sourceURL=\(sourceURL.path, privacy: .public)")
+
+        guard !matchingReadIds.isEmpty else {
+            logger.error("buildVerificationRequestFromReadIds: no matching read IDs provided")
+            throw BlastServiceError.noSequences
+        }
+
+        return try await extractSequencesAndBuild(
+            taxonName: taxonName,
+            taxId: taxId,
+            matchingReadIds: matchingReadIds,
+            sourceURL: sourceURL,
+            readCount: readCount
+        )
+    }
+
     public func buildVerificationRequest(
         taxonName: String,
         taxId: Int,
@@ -114,13 +151,23 @@ public actor BlastService {
         sourceURL: URL,
         readCount: Int = 20
     ) async throws -> BlastVerificationRequest {
+        logger.info("buildVerificationRequest: taxon=\(taxonName, privacy: .public) taxId=\(taxId, privacy: .public) targetTaxIds=\(targetTaxIds.count, privacy: .public) readCount=\(readCount, privacy: .public)")
+        logger.info("buildVerificationRequest: classificationOutput=\(classificationOutputURL.path, privacy: .public)")
+        logger.info("buildVerificationRequest: sourceURL=\(sourceURL.path, privacy: .public)")
+
         // Scan Kraken2 output for matching read IDs
         var matchingReadIds = Set<String>()
-        if let data = try? Data(contentsOf: classificationOutputURL),
+        let classificationExists = FileManager.default.fileExists(atPath: classificationOutputURL.path)
+        logger.info("buildVerificationRequest: classification file exists=\(classificationExists, privacy: .public)")
+
+        if classificationExists,
+           let data = try? Data(contentsOf: classificationOutputURL),
            let text = String(data: data, encoding: .utf8) {
+            var totalClassified = 0
             for line in text.split(separator: "\n") {
                 let cols = line.split(separator: "\t", maxSplits: 3)
                 guard cols.count >= 3, cols[0] == "C" else { continue }
+                totalClassified += 1
                 if let tid = Int(cols[2].trimmingCharacters(in: .whitespaces)),
                    targetTaxIds.contains(tid) {
                     var readId = String(cols[1].trimmingCharacters(in: .whitespaces))
@@ -130,16 +177,71 @@ public actor BlastService {
                     matchingReadIds.insert(readId)
                 }
             }
+            logger.info("buildVerificationRequest: scanned \(totalClassified, privacy: .public) classified reads, \(matchingReadIds.count, privacy: .public) match target taxIds")
+        } else if !classificationExists {
+            logger.error("buildVerificationRequest: classification output file not found at \(classificationOutputURL.path, privacy: .public)")
+        } else {
+            logger.error("buildVerificationRequest: failed to read classification output file")
         }
 
         guard !matchingReadIds.isEmpty else {
+            logger.error("buildVerificationRequest: no matching read IDs found — cannot proceed with BLAST")
             throw BlastServiceError.noSequences
         }
 
-        // Extract sequences from FASTQ
+        return try await extractSequencesAndBuild(
+            taxonName: taxonName,
+            taxId: taxId,
+            matchingReadIds: matchingReadIds,
+            sourceURL: sourceURL,
+            readCount: readCount
+        )
+    }
+
+    /// Shared implementation: extracts sequences from FASTQ, subsamples, and builds the request.
+    private func extractSequencesAndBuild(
+        taxonName: String,
+        taxId: Int,
+        matchingReadIds: Set<String>,
+        sourceURL: URL,
+        readCount: Int
+    ) async throws -> BlastVerificationRequest {
+
+        // Extract sequences from FASTQ (handles both raw and gzip-compressed files)
+        let sourceExists = FileManager.default.fileExists(atPath: sourceURL.path)
+        let isGzip = sourceURL.pathExtension.lowercased() == "gz"
+        logger.info("buildVerificationRequest: source FASTQ exists=\(sourceExists, privacy: .public) gzip=\(isGzip, privacy: .public)")
+
         var allSequences: [(id: String, sequence: String)] = []
-        if let handle = FileHandle(forReadingAtPath: sourceURL.path) {
-            defer { handle.closeFile() }
+        let handle: FileHandle?
+        var gzipProcess: Process?
+
+        if isGzip {
+            // Pipe through gzip -dc for transparent decompression
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+            proc.arguments = ["-dc", sourceURL.path]
+            let pipe = Pipe()
+            proc.standardOutput = pipe
+            proc.standardError = FileHandle.nullDevice
+            do {
+                try proc.run()
+            } catch {
+                logger.error("buildVerificationRequest: failed to launch gzip: \(error.localizedDescription, privacy: .public)")
+                throw BlastServiceError.noSequences
+            }
+            handle = pipe.fileHandleForReading
+            gzipProcess = proc
+        } else {
+            handle = FileHandle(forReadingAtPath: sourceURL.path)
+            gzipProcess = nil
+        }
+
+        if let handle {
+            defer {
+                handle.closeFile()
+                gzipProcess?.waitUntilExit()
+            }
             var lineBuffer: [String] = []
             var residual = ""
             let bufferSize = 4_194_304
@@ -173,9 +275,18 @@ public actor BlastService {
             }
         }
 
+        logger.info("buildVerificationRequest: extracted \(allSequences.count, privacy: .public) sequences from FASTQ (matched \(matchingReadIds.count, privacy: .public) read IDs)")
+
+        guard !allSequences.isEmpty else {
+            logger.error("buildVerificationRequest: found \(matchingReadIds.count, privacy: .public) matching read IDs in classification output but 0 sequences in FASTQ — source file may be missing or read IDs may not match")
+            throw BlastServiceError.noSequences
+        }
+
         // Subsample
         let strategy = SubsampleStrategy.mixed(longest: min(5, readCount / 4), random: readCount - min(5, readCount / 4))
         let subsampled = subsampleReads(from: allSequences, strategy: strategy)
+
+        logger.info("buildVerificationRequest: subsampled to \(subsampled.count, privacy: .public) reads")
 
         return BlastVerificationRequest(
             taxonName: taxonName,
@@ -403,7 +514,33 @@ public actor BlastService {
             throw BlastServiceError.httpError(statusCode: statusCode, body: body)
         }
 
-        return try parseJSON2Results(data)
+        let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? "unknown"
+        logger.info("getResults: received \(data.count, privacy: .public) bytes, Content-Type=\(contentType, privacy: .public)")
+
+        // Save raw BLAST response for debugging. Written to the same temp
+        // directory the OS cleans up automatically.
+        let debugDir = FileManager.default.temporaryDirectory.appendingPathComponent("lungfish-blast-debug")
+        try? FileManager.default.createDirectory(at: debugDir, withIntermediateDirectories: true)
+        let rawFile = debugDir.appendingPathComponent("\(rid)-raw-response")
+        try? data.write(to: rawFile)
+        logger.info("getResults: saved raw response to \(rawFile.path, privacy: .public)")
+
+        // NCBI sometimes returns BLAST JSON2 results as a ZIP archive.
+        // Detect ZIP magic bytes (PK\x03\x04) and decompress before parsing.
+        let resultData: Data
+        if data.count >= 4, data[0] == 0x50, data[1] == 0x4B, data[2] == 0x03, data[3] == 0x04 {
+            logger.info("getResults: response is a ZIP archive, decompressing")
+            resultData = try decompressZIPResponse(data)
+        } else {
+            resultData = data
+        }
+
+        // Save extracted/decompressed content for debugging
+        let jsonFile = debugDir.appendingPathComponent("\(rid)-extracted.json")
+        try? resultData.write(to: jsonFile)
+        logger.info("getResults: saved extracted content to \(jsonFile.path, privacy: .public)")
+
+        return try parseJSON2Results(resultData)
     }
 
     // MARK: - Poll Loop
@@ -609,12 +746,26 @@ public actor BlastService {
         // the JSON portion if the data starts with HTML.
         let jsonData = try extractJSONFromResponse(data)
 
-        guard let json = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+        // Try parsing directly first, then log the specific error
+        let jsonObject: Any
+        do {
+            jsonObject = try JSONSerialization.jsonObject(with: jsonData)
+        } catch {
+            let preview = String(data: jsonData.prefix(300), encoding: .utf8) ?? "(non-UTF8)"
+            logger.error("parseJSON2Results: JSONSerialization failed: \(error.localizedDescription, privacy: .public)")
+            logger.error("parseJSON2Results: first 300 chars: \(preview, privacy: .public)")
+            throw BlastServiceError.resultParsingFailed(message: "\(error.localizedDescription)")
+        }
+
+        guard let json = jsonObject as? [String: Any] else {
             throw BlastServiceError.resultParsingFailed(message: "Response is not a JSON object")
         }
 
         guard let blastOutput2 = json["BlastOutput2"] as? [[String: Any]] else {
-            throw BlastServiceError.resultParsingFailed(message: "Missing BlastOutput2 array")
+            // Log available keys for debugging
+            let keys = json.keys.sorted().joined(separator: ", ")
+            logger.error("parseJSON2Results: Missing BlastOutput2 array. Available keys: \(keys, privacy: .public)")
+            throw BlastServiceError.resultParsingFailed(message: "Missing BlastOutput2 array (keys: \(keys))")
         }
 
         return try blastOutput2.compactMap { entry in
@@ -681,6 +832,105 @@ public actor BlastService {
         )
     }
 
+    // MARK: - ZIP Decompression
+
+    /// Decompresses a ZIP archive response from NCBI BLAST.
+    ///
+    /// NCBI returns multi-query BLAST JSON2 results as a ZIP archive containing:
+    /// - A manifest JSON with `{"BlastJSON": [{"File": "RID_1.json"}, ...]}` listing per-query files
+    /// - Individual JSON files per query, each containing a `BlastOutput2` array with one entry
+    ///
+    /// This method extracts the ZIP to a temp directory, reads the manifest,
+    /// parses each per-query JSON file, and reassembles them into a single
+    /// `{"BlastOutput2": [...]}` JSON object matching the non-ZIP format.
+    ///
+    /// - Parameter zipData: Raw ZIP archive data
+    /// - Returns: Combined JSON data with all query results
+    /// - Throws: ``BlastServiceError/resultParsingFailed`` if extraction fails
+    private func decompressZIPResponse(_ zipData: Data) throws -> Data {
+        let tempBase = FileManager.default.temporaryDirectory
+        let extractDir = tempBase.appendingPathComponent("blast-zip-\(UUID().uuidString)")
+        let tempZIP = tempBase.appendingPathComponent("blast-\(UUID().uuidString).zip")
+
+        defer {
+            try? FileManager.default.removeItem(at: tempZIP)
+            try? FileManager.default.removeItem(at: extractDir)
+        }
+
+        try zipData.write(to: tempZIP, options: .atomic)
+        try FileManager.default.createDirectory(at: extractDir, withIntermediateDirectories: true)
+
+        // Extract ZIP to a temp directory (not -p which concatenates)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        process.arguments = ["-o", "-q", tempZIP.path, "-d", extractDir.path]
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            throw BlastServiceError.resultParsingFailed(
+                message: "Failed to launch unzip: \(error.localizedDescription)"
+            )
+        }
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            throw BlastServiceError.resultParsingFailed(
+                message: "ZIP extraction failed (exit \(process.terminationStatus))"
+            )
+        }
+
+        // List extracted files
+        let extractedFiles = (try? FileManager.default.contentsOfDirectory(
+            at: extractDir, includingPropertiesForKeys: nil
+        )) ?? []
+        logger.info("decompressZIPResponse: extracted \(extractedFiles.count, privacy: .public) files from ZIP")
+
+        // Find per-query JSON files (named RID_N.json, contain BlastOutput2)
+        // Skip the manifest file (which contains BlastJSON, not BlastOutput2)
+        var combinedEntries: [[String: Any]] = []
+
+        for file in extractedFiles.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+            guard file.pathExtension == "json" else { continue }
+            guard let fileData = try? Data(contentsOf: file) else { continue }
+
+            // Try to parse as JSON
+            guard let json = try? JSONSerialization.jsonObject(with: fileData) as? [String: Any] else {
+                continue
+            }
+
+            // Skip the manifest (has "BlastJSON" key, not "BlastOutput2")
+            if json["BlastJSON"] != nil {
+                logger.debug("decompressZIPResponse: skipping manifest \(file.lastPathComponent, privacy: .public)")
+                continue
+            }
+
+            // Per-query files have "BlastOutput2" — either as an array
+            // (standard JSON2 format) or as a single object (split ZIP format).
+            if let entries = json["BlastOutput2"] as? [[String: Any]] {
+                combinedEntries.append(contentsOf: entries)
+                logger.debug("decompressZIPResponse: parsed \(file.lastPathComponent, privacy: .public) with \(entries.count, privacy: .public) entries (array)")
+            } else if let entry = json["BlastOutput2"] as? [String: Any] {
+                combinedEntries.append(entry)
+                logger.debug("decompressZIPResponse: parsed \(file.lastPathComponent, privacy: .public) with 1 entry (object)")
+            }
+        }
+
+        guard !combinedEntries.isEmpty else {
+            throw BlastServiceError.resultParsingFailed(
+                message: "No BlastOutput2 entries found in \(extractedFiles.count) extracted files"
+            )
+        }
+
+        // Reassemble into the standard format: {"BlastOutput2": [...all entries...]}
+        let combined: [String: Any] = ["BlastOutput2": combinedEntries]
+        let combinedData = try JSONSerialization.data(withJSONObject: combined)
+
+        logger.info("decompressZIPResponse: combined \(combinedEntries.count, privacy: .public) query results from ZIP archive")
+        return combinedData
+    }
+
     // MARK: - Helpers
 
     /// Extracts a value from the QBlastInfo block in an NCBI HTML response.
@@ -721,61 +971,95 @@ public actor BlastService {
     /// - Parameter data: Raw response data
     /// - Returns: JSON data suitable for parsing
     private nonisolated func extractJSONFromResponse(_ data: Data) throws -> Data {
-        // Try trimming whitespace first -- the data may just have leading spaces/newlines
-        guard let body = String(data: data, encoding: .utf8) else {
-            throw BlastServiceError.resultParsingFailed(message: "Non-UTF8 response")
+        // NCBI responses sometimes contain Latin-1 characters (accented organism
+        // names, non-ASCII descriptions). Try UTF-8 first, fall back to Latin-1.
+        guard var body = String(data: data, encoding: .utf8)
+                ?? String(data: data, encoding: .isoLatin1) else {
+            throw BlastServiceError.resultParsingFailed(message: "Non-UTF8 response (\(data.count) bytes)")
         }
 
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // If it starts with '{' or '[', it's already JSON (possibly with whitespace removed)
+        // If it starts with '{' or '[', it's already JSON
         if trimmed.hasPrefix("{") || trimmed.hasPrefix("[") {
             if let result = trimmed.data(using: .utf8) {
                 return result
             }
         }
 
-        // Look for "BlastOutput2" and walk backwards to find the opening brace.
-        // This handles both compact ({"BlastOutput2") and pretty-printed
-        // ({\n  "BlastOutput2") JSON embedded in HTML.
-        if let markerRange = body.range(of: "\"BlastOutput2\"") {
-            // Walk backwards from the marker to find the opening '{'
-            var openBraceIndex = markerRange.lowerBound
-            var found = false
-            while openBraceIndex > body.startIndex {
-                openBraceIndex = body.index(before: openBraceIndex)
-                if body[openBraceIndex] == "{" {
-                    found = true
-                    break
-                }
-            }
-
-            if found {
-                // Walk forward from the opening brace to find the balanced closing brace
-                let substring = body[openBraceIndex...]
-                var depth = 0
-                var endIndex = substring.startIndex
-                for idx in substring.indices {
-                    let ch = substring[idx]
-                    if ch == "{" { depth += 1 }
-                    else if ch == "}" {
-                        depth -= 1
-                        if depth == 0 {
-                            endIndex = substring.index(after: idx)
-                            break
-                        }
-                    }
-                }
-                let jsonString = String(substring[substring.startIndex..<endIndex])
-                if let result = jsonString.data(using: .utf8) {
-                    return result
-                }
+        // NCBI sometimes returns HTML with JSON inside <PRE> tags.
+        // Extract content between <PRE>...</PRE> (case-insensitive).
+        if let preRange = body.range(of: "<PRE>", options: .caseInsensitive),
+           let preEndRange = body.range(of: "</PRE>", options: .caseInsensitive, range: preRange.upperBound..<body.endIndex) {
+            let preContent = String(body[preRange.upperBound..<preEndRange.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if preContent.hasPrefix("{"), let result = preContent.data(using: .utf8) {
+                // Recurse to handle any additional unwrapping
+                return try extractJSONFromResponse(result)
             }
         }
 
+        // NCBI sometimes HTML-entity-encodes quotes in the response.
+        // Decode common entities before searching for JSON markers.
+        if body.contains("&quot;") || body.contains("&amp;") {
+            body = body
+                .replacingOccurrences(of: "&quot;", with: "\"")
+                .replacingOccurrences(of: "&amp;", with: "&")
+                .replacingOccurrences(of: "&lt;", with: "<")
+                .replacingOccurrences(of: "&gt;", with: ">")
+        }
+
+        // Look for "BlastOutput2" and walk backwards to find the opening brace.
+        // This handles both compact ({"BlastOutput2") and pretty-printed
+        // ({\n  "BlastOutput2") JSON embedded in HTML.
+        if let jsonData = extractBalancedJSON(from: body, marker: "\"BlastOutput2\"") {
+            return jsonData
+        }
+
+        // Last resort: try to find any top-level JSON object with "report" key
+        // (some NCBI responses use a slightly different wrapper)
+        if let jsonData = extractBalancedJSON(from: body, marker: "\"report\"") {
+            return jsonData
+        }
+
         throw BlastServiceError.resultParsingFailed(
-            message: "Could not find JSON in response (\(data.count) bytes)"
+            message: "Could not find JSON in response (\(data.count) bytes, first 200: \(String(trimmed.prefix(200))))"
         )
+    }
+
+    /// Extracts a balanced JSON object from a string, searching backwards from a marker.
+    private nonisolated func extractBalancedJSON(from body: String, marker: String) -> Data? {
+        guard let markerRange = body.range(of: marker) else { return nil }
+
+        // Walk backwards from the marker to find the opening '{'
+        var openBraceIndex = markerRange.lowerBound
+        var found = false
+        while openBraceIndex > body.startIndex {
+            openBraceIndex = body.index(before: openBraceIndex)
+            if body[openBraceIndex] == "{" {
+                found = true
+                break
+            }
+        }
+        guard found else { return nil }
+
+        // Walk forward from the opening brace to find the balanced closing brace
+        let substring = body[openBraceIndex...]
+        var depth = 0
+        var endIndex = substring.startIndex
+        for idx in substring.indices {
+            let ch = substring[idx]
+            if ch == "{" { depth += 1 }
+            else if ch == "}" {
+                depth -= 1
+                if depth == 0 {
+                    endIndex = substring.index(after: idx)
+                    break
+                }
+            }
+        }
+        let jsonString = String(substring[substring.startIndex..<endIndex])
+        return jsonString.data(using: .utf8)
     }
 
     /// Form-encodes a list of key-value pairs.

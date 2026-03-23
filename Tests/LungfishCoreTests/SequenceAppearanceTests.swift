@@ -64,43 +64,43 @@ final class SequenceAppearanceTests: XCTestCase {
     func testDefaultAdenineColor() {
         let appearance = SequenceAppearance.default
 
-        // A (Adenine): Green (#00A000)
-        XCTAssertEqual(appearance.baseColors["A"], "#00A000")
+        // A (Adenine): Green (#00CC00) -- IGV standard mid-saturation
+        XCTAssertEqual(appearance.baseColors["A"], "#00CC00")
     }
 
     func testDefaultThymineColor() {
         let appearance = SequenceAppearance.default
 
-        // T (Thymine): Red (#FF0000)
-        XCTAssertEqual(appearance.baseColors["T"], "#FF0000")
+        // T (Thymine): Red (#CC0000) -- IGV standard mid-saturation
+        XCTAssertEqual(appearance.baseColors["T"], "#CC0000")
     }
 
     func testDefaultGuanineColor() {
         let appearance = SequenceAppearance.default
 
-        // G (Guanine): Yellow/Gold (#FFD700)
-        XCTAssertEqual(appearance.baseColors["G"], "#FFD700")
+        // G (Guanine): Orange/Gold (#FFB300) -- IGV standard mid-saturation
+        XCTAssertEqual(appearance.baseColors["G"], "#FFB300")
     }
 
     func testDefaultCytosineColor() {
         let appearance = SequenceAppearance.default
 
-        // C (Cytosine): Blue (#0000FF)
-        XCTAssertEqual(appearance.baseColors["C"], "#0000FF")
+        // C (Cytosine): Blue (#0000CC) -- IGV standard mid-saturation
+        XCTAssertEqual(appearance.baseColors["C"], "#0000CC")
     }
 
     func testDefaultUnknownBaseColor() {
         let appearance = SequenceAppearance.default
 
-        // N (Unknown): Gray (#808080)
-        XCTAssertEqual(appearance.baseColors["N"], "#808080")
+        // N (Unknown): Gray (#888888) -- IGV standard
+        XCTAssertEqual(appearance.baseColors["N"], "#888888")
     }
 
     func testDefaultUracilColor() {
         let appearance = SequenceAppearance.default
 
-        // U (Uracil): Same as T (#FF0000)
-        XCTAssertEqual(appearance.baseColors["U"], "#FF0000")
+        // U (Uracil): Same as T (#CC0000) -- IGV standard mid-saturation
+        XCTAssertEqual(appearance.baseColors["U"], "#CC0000")
     }
 
     // MARK: - Color For Base Tests
@@ -110,13 +110,13 @@ final class SequenceAppearanceTests: XCTestCase {
 
         let color = appearance.color(forBase: "A")
 
-        // Verify color is approximately green (RGB: 0, 160, 0)
+        // Verify color is green (RGB: 0, 204, 0) -- IGV standard #00CC00
         guard let rgb = color.usingColorSpace(.sRGB) else {
             XCTFail("Could not convert color to sRGB")
             return
         }
         XCTAssertEqual(Int(round(rgb.redComponent * 255)), 0)
-        XCTAssertEqual(Int(round(rgb.greenComponent * 255)), 160)
+        XCTAssertEqual(Int(round(rgb.greenComponent * 255)), 204)
         XCTAssertEqual(Int(round(rgb.blueComponent * 255)), 0)
     }
 
@@ -129,7 +129,7 @@ final class SequenceAppearanceTests: XCTestCase {
             XCTFail("Could not convert color to sRGB")
             return
         }
-        XCTAssertEqual(Int(round(rgb.redComponent * 255)), 255)
+        XCTAssertEqual(Int(round(rgb.redComponent * 255)), 204)
         XCTAssertEqual(Int(round(rgb.greenComponent * 255)), 0)
         XCTAssertEqual(Int(round(rgb.blueComponent * 255)), 0)
     }
@@ -144,7 +144,7 @@ final class SequenceAppearanceTests: XCTestCase {
             return
         }
         XCTAssertEqual(Int(round(rgb.redComponent * 255)), 255)
-        XCTAssertEqual(Int(round(rgb.greenComponent * 255)), 215)
+        XCTAssertEqual(Int(round(rgb.greenComponent * 255)), 179)
         XCTAssertEqual(Int(round(rgb.blueComponent * 255)), 0)
     }
 
@@ -159,7 +159,7 @@ final class SequenceAppearanceTests: XCTestCase {
         }
         XCTAssertEqual(Int(round(rgb.redComponent * 255)), 0)
         XCTAssertEqual(Int(round(rgb.greenComponent * 255)), 0)
-        XCTAssertEqual(Int(round(rgb.blueComponent * 255)), 255)
+        XCTAssertEqual(Int(round(rgb.blueComponent * 255)), 204)
     }
 
     func testColorForBaseUnknown() {
@@ -171,9 +171,9 @@ final class SequenceAppearanceTests: XCTestCase {
             XCTFail("Could not convert color to sRGB")
             return
         }
-        XCTAssertEqual(Int(round(rgb.redComponent * 255)), 128)
-        XCTAssertEqual(Int(round(rgb.greenComponent * 255)), 128)
-        XCTAssertEqual(Int(round(rgb.blueComponent * 255)), 128)
+        XCTAssertEqual(Int(round(rgb.redComponent * 255)), 136)
+        XCTAssertEqual(Int(round(rgb.greenComponent * 255)), 136)
+        XCTAssertEqual(Int(round(rgb.blueComponent * 255)), 136)
     }
 
     func testColorForBaseLowercase() {

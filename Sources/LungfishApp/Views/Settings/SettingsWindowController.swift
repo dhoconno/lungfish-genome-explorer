@@ -26,6 +26,7 @@ public final class SettingsWindowController: NSWindowController {
         window.title = "Settings"
         window.minSize = NSSize(width: 550, height: 460)
         window.setFrameAutosaveName("SettingsWindow")
+        window.isRestorable = false
 
         super.init(window: window)
 

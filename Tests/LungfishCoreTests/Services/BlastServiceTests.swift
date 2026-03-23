@@ -1217,3 +1217,189 @@ final class SeededRandomNumberGeneratorTests: XCTestCase {
         XCTAssertGreaterThan(values.count, 50)
     }
 }
+
+// MARK: - buildVerificationRequest Tests
+
+final class BlastBuildRequestTests: XCTestCase {
+
+    private var service: BlastService!
+    private var tempDir: URL!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        service = BlastService()
+        tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BlastBuildRequestTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() async throws {
+        try? FileManager.default.removeItem(at: tempDir)
+        service = nil
+        try await super.tearDown()
+    }
+
+    func testNoClassificationFileThrowsNoSequences() async {
+        let classURL = tempDir.appendingPathComponent("missing.kraken")
+        let sourceURL = tempDir.appendingPathComponent("reads.fastq")
+
+        do {
+            _ = try await service.buildVerificationRequest(
+                taxonName: "E. coli", taxId: 562,
+                targetTaxIds: [562],
+                classificationOutputURL: classURL,
+                sourceURL: sourceURL
+            )
+            XCTFail("Expected noSequences error for missing classification file")
+        } catch {
+            XCTAssertTrue(error is BlastServiceError, "Expected BlastServiceError, got \(error)")
+        }
+    }
+
+    func testMatchingIdsButMissingFASTQThrowsNoSequences() async throws {
+        // Classification output has a matching read but FASTQ file is missing
+        let classURL = tempDir.appendingPathComponent("output.kraken")
+        try "C\tread_001\t562\t150\t562:150\n"
+            .write(to: classURL, atomically: true, encoding: .utf8)
+
+        let sourceURL = tempDir.appendingPathComponent("missing.fastq")
+
+        do {
+            _ = try await service.buildVerificationRequest(
+                taxonName: "E. coli", taxId: 562,
+                targetTaxIds: [562],
+                classificationOutputURL: classURL,
+                sourceURL: sourceURL
+            )
+            XCTFail("Expected noSequences when FASTQ is missing")
+        } catch {
+            XCTAssertTrue(error is BlastServiceError, "Expected BlastServiceError, got \(error)")
+        }
+    }
+
+    func testMatchingIdsButNonMatchingFASTQThrowsNoSequences() async throws {
+        // Classification output has matching read IDs but FASTQ has different reads
+        let classURL = tempDir.appendingPathComponent("output.kraken")
+        try "C\tread_001\t562\t150\t562:150\n"
+            .write(to: classURL, atomically: true, encoding: .utf8)
+
+        let sourceURL = tempDir.appendingPathComponent("reads.fastq")
+        try "@other_read\nATGC\n+\nIIII\n"
+            .write(to: sourceURL, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await service.buildVerificationRequest(
+                taxonName: "E. coli", taxId: 562,
+                targetTaxIds: [562],
+                classificationOutputURL: classURL,
+                sourceURL: sourceURL
+            )
+            XCTFail("Expected noSequences when FASTQ reads don't match")
+        } catch {
+            XCTAssertTrue(error is BlastServiceError, "Expected BlastServiceError, got \(error)")
+        }
+    }
+
+    func testSuccessfulBuildVerificationRequest() async throws {
+        // Classification output with matching reads
+        let classURL = tempDir.appendingPathComponent("output.kraken")
+        var classLines = ""
+        for i in 0..<25 {
+            classLines += "C\tread_\(i)\t562\t150\t562:150\n"
+        }
+        try classLines.write(to: classURL, atomically: true, encoding: .utf8)
+
+        // FASTQ with matching reads
+        let sourceURL = tempDir.appendingPathComponent("reads.fastq")
+        var fastqContent = ""
+        for i in 0..<25 {
+            let seq = String(repeating: "ATGC", count: 10 + i)
+            let qual = String(repeating: "I", count: seq.count)
+            fastqContent += "@read_\(i)\n\(seq)\n+\n\(qual)\n"
+        }
+        try fastqContent.write(to: sourceURL, atomically: true, encoding: .utf8)
+
+        let request = try await service.buildVerificationRequest(
+            taxonName: "E. coli", taxId: 562,
+            targetTaxIds: [562],
+            classificationOutputURL: classURL,
+            sourceURL: sourceURL,
+            readCount: 20
+        )
+
+        XCTAssertEqual(request.taxonName, "E. coli")
+        XCTAssertEqual(request.taxId, 562)
+        XCTAssertEqual(request.sequences.count, 20, "Should subsample to 20 reads")
+    }
+
+    func testPairedEndSuffixStripping() async throws {
+        // Kraken2 output uses /1 suffix, FASTQ uses /1 suffix — both should be stripped
+        let classURL = tempDir.appendingPathComponent("output.kraken")
+        try "C\tread_001/1\t562\t150\t562:150\nC\tread_002/2\t562\t150\t562:150\n"
+            .write(to: classURL, atomically: true, encoding: .utf8)
+
+        let sourceURL = tempDir.appendingPathComponent("reads.fastq")
+        try """
+            @read_001/1 length=150
+            ATGCATGCATGCATGCATGC
+            +
+            IIIIIIIIIIIIIIIIIIII
+            @read_002/2 length=150
+            GCTAGCTAGCTAGCTAGCTA
+            +
+            IIIIIIIIIIIIIIIIIIII
+
+            """.write(to: sourceURL, atomically: true, encoding: .utf8)
+
+        let request = try await service.buildVerificationRequest(
+            taxonName: "E. coli", taxId: 562,
+            targetTaxIds: [562],
+            classificationOutputURL: classURL,
+            sourceURL: sourceURL,
+            readCount: 20
+        )
+
+        XCTAssertEqual(request.sequences.count, 2)
+    }
+
+    func testGzipCompressedFASTQExtraction() async throws {
+        // Classification output with matching reads
+        let classURL = tempDir.appendingPathComponent("output.kraken")
+        var classLines = ""
+        for i in 0..<5 {
+            classLines += "C\tread_\(i)\t562\t150\t562:150\n"
+        }
+        try classLines.write(to: classURL, atomically: true, encoding: .utf8)
+
+        // Create uncompressed FASTQ, then gzip it
+        let rawURL = tempDir.appendingPathComponent("reads.fastq")
+        var fastqContent = ""
+        for i in 0..<5 {
+            let seq = String(repeating: "ATGC", count: 10)
+            let qual = String(repeating: "I", count: seq.count)
+            fastqContent += "@read_\(i)\n\(seq)\n+\n\(qual)\n"
+        }
+        try fastqContent.write(to: rawURL, atomically: true, encoding: .utf8)
+
+        let gzURL = tempDir.appendingPathComponent("reads.fastq.gz")
+        let gzipProc = Process()
+        gzipProc.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        gzipProc.arguments = ["-c", rawURL.path]
+        let outPipe = Pipe()
+        gzipProc.standardOutput = outPipe
+        try gzipProc.run()
+        let compressed = outPipe.fileHandleForReading.readDataToEndOfFile()
+        gzipProc.waitUntilExit()
+        try compressed.write(to: gzURL)
+
+        let request = try await service.buildVerificationRequest(
+            taxonName: "E. coli", taxId: 562,
+            targetTaxIds: [562],
+            classificationOutputURL: classURL,
+            sourceURL: gzURL,
+            readCount: 20
+        )
+
+        XCTAssertEqual(request.sequences.count, 5, "Should extract all 5 reads from gzipped FASTQ")
+    }
+}

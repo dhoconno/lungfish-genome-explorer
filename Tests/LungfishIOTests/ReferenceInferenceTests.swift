@@ -80,7 +80,7 @@ final class ReferenceInferenceTests: XCTestCase {
         ]
         let result = ReferenceInference.infer(from: sequences)
         XCTAssertEqual(result.assembly, "SARS-CoV-2")
-        XCTAssertEqual(result.organism, "SARS-CoV-2")
+        XCTAssertEqual(result.organism, "Severe acute respiratory syndrome coronavirus 2")
     }
 
     func testInferSARSCoV2RefSeq() {

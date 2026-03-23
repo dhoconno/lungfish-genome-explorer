@@ -79,6 +79,7 @@ final class PlatformAdapterContextTests: XCTestCase {
         let expected = PlatformAdapters.ontYAdapterTop
             + PlatformAdapters.ontNativeOuterFlank5
             + barcode
+            + PlatformAdapters.ontNativeBarcodeFlank5
         XCTAssertEqual(result, expected)
     }
 
@@ -86,7 +87,8 @@ final class PlatformAdapterContextTests: XCTestCase {
         let ctx = ONTNativeAdapterContext()
         let barcode = "AAGAAAGTTGTCGGTGTCTTTGTG"
         let result = ctx.threePrimeSpec(barcodeSequence: barcode)
-        let expected = PlatformAdapters.reverseComplement(barcode)
+        let expected = PlatformAdapters.ontNativeBarcodeFlank3
+            + PlatformAdapters.reverseComplement(barcode)
             + PlatformAdapters.ontNativeOuterFlank3
             + PlatformAdapters.ontYAdapterBottom
         XCTAssertEqual(result, expected)

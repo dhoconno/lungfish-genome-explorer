@@ -447,4 +447,91 @@ final class DownloadCenterTests: XCTestCase {
         let dc: DownloadCenter = center
         XCTAssertEqual(dc.activeCount, 0)
     }
+
+    // MARK: - isDownloadCategory
+
+    func testDownloadCategoryTypes() {
+        let downloadTypes: [OperationType] = [.download, .bamImport, .vcfImport, .bundleBuild, .ingestion]
+        for type in downloadTypes {
+            XCTAssertTrue(type.isDownloadCategory, "\(type.rawValue) should be download category")
+        }
+    }
+
+    func testNonDownloadCategoryTypes() {
+        let pipelineTypes: [OperationType] = [
+            .export, .assembly, .fastqOperation, .qualityReport,
+            .taxonomyExtraction, .classification, .blastVerification,
+        ]
+        for type in pipelineTypes {
+            XCTAssertFalse(type.isDownloadCategory, "\(type.rawValue) should NOT be download category")
+        }
+    }
+
+    func testAllOperationTypesAreCategorized() {
+        // If a new OperationType is added, update this count and the
+        // isDownloadCategory switch.
+        let allTypes: [OperationType] = [
+            .download, .bamImport, .vcfImport, .bundleBuild, .export,
+            .assembly, .ingestion, .fastqOperation, .qualityReport,
+            .taxonomyExtraction, .classification, .blastVerification,
+        ]
+        XCTAssertEqual(allTypes.count, 12, "Update this test when new OperationType cases are added")
+        for type in allTypes {
+            _ = type.isDownloadCategory
+        }
+    }
+
+    // MARK: - downloadItems / activeDownloadCount
+
+    func testDownloadItemsFiltersCorrectly() {
+        _ = center.start(title: "Genome DL", detail: "", operationType: .download)
+        _ = center.start(title: "BLAST Job", detail: "", operationType: .blastVerification)
+        _ = center.start(title: "BAM Import", detail: "", operationType: .bamImport)
+
+        XCTAssertEqual(center.downloadItems.count, 2, "Should only include download-category items")
+        XCTAssertTrue(center.downloadItems.allSatisfy { $0.operationType.isDownloadCategory })
+    }
+
+    func testActiveDownloadCountExcludesPipelineOps() {
+        _ = center.start(title: "Genome DL", detail: "", operationType: .download)
+        _ = center.start(title: "Classification", detail: "", operationType: .classification)
+        _ = center.start(title: "BAM Import", detail: "", operationType: .bamImport)
+
+        XCTAssertEqual(center.activeDownloadCount, 2)
+        XCTAssertEqual(center.activeCount, 3, "activeCount should still count all running items")
+    }
+
+    func testActiveDownloadCountExcludesCompletedDownloads() {
+        let id = center.start(title: "Genome DL", detail: "", operationType: .download)
+        _ = center.start(title: "BAM Import", detail: "", operationType: .bamImport)
+        center.complete(id: id, detail: "Done")
+
+        XCTAssertEqual(center.activeDownloadCount, 1, "Completed downloads should not count as active")
+    }
+
+    // MARK: - clearCompletedDownloads
+
+    func testClearCompletedDownloadsOnlyRemovesDownloadCategory() {
+        let dlId = center.start(title: "Genome DL", detail: "", operationType: .download)
+        let blastId = center.start(title: "BLAST", detail: "", operationType: .blastVerification)
+        center.complete(id: dlId, detail: "Done")
+        center.complete(id: blastId, detail: "Done")
+
+        center.clearCompletedDownloads()
+
+        // BLAST item should still be present (non-download category)
+        XCTAssertEqual(center.items.count, 1)
+        XCTAssertEqual(center.items.first?.operationType, .blastVerification)
+    }
+
+    func testClearCompletedDownloadsPreservesRunningDownloads() {
+        _ = center.start(title: "Running DL", detail: "", operationType: .download)
+        let completedId = center.start(title: "Done DL", detail: "", operationType: .download)
+        center.complete(id: completedId, detail: "Done")
+
+        center.clearCompletedDownloads()
+
+        XCTAssertEqual(center.items.count, 1)
+        XCTAssertEqual(center.items.first?.state, .running)
+    }
 }

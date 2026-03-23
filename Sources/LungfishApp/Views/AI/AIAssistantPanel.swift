@@ -41,6 +41,7 @@ public final class AIAssistantWindowController: NSWindowController {
         panel.isReleasedWhenClosed = false
         panel.minSize = NSSize(width: 360, height: 400)
         panel.setFrameAutosaveName("AIAssistantPanel")
+        panel.isRestorable = false
 
         // Set delegate to prevent close from releasing
         let vc = AIAssistantViewController(service: service)

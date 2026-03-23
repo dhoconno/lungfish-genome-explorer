@@ -13,7 +13,7 @@ final class VCFReferenceInferenceTests: XCTestCase {
         let result = ReferenceInference.lookupByChromosomeName("NC_045512.2")
         XCTAssertNotNil(result)
         XCTAssertEqual(result?.assembly, "SARS-CoV-2")
-        XCTAssertEqual(result?.organism, "SARS-CoV-2")
+        XCTAssertEqual(result?.organism, "Severe acute respiratory syndrome coronavirus 2")
     }
 
     func testLookupSARSCoV2ByGenBankAccession() {
@@ -111,7 +111,7 @@ final class VCFReferenceInferenceTests: XCTestCase {
     func testInferSARSCoV2FromName() {
         let result = VCFReferenceInference.infer(fromChromosomeNames: ["NC_045512.2"])
         XCTAssertEqual(result.assembly, "SARS-CoV-2")
-        XCTAssertEqual(result.organism, "SARS-CoV-2")
+        XCTAssertEqual(result.organism, "Severe acute respiratory syndrome coronavirus 2")
         XCTAssertGreaterThanOrEqual(result.confidence, .medium)
         XCTAssertEqual(result.namingConvention, "RefSeq")
     }

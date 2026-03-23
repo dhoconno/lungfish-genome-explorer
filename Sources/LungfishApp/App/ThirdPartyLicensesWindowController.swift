@@ -22,6 +22,7 @@ final class ThirdPartyLicensesWindowController: NSWindowController {
         )
         window.title = "Third-Party Licenses"
         window.isReleasedWhenClosed = false
+        window.isRestorable = false
         window.center()
         window.minSize = NSSize(width: 400, height: 300)
         self.init(window: window)

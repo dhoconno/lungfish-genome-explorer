@@ -422,6 +422,7 @@ public final class WelcomeWindowController: NSWindowController {
         window.title = "Welcome to Lungfish Genome Explorer"
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
+        window.isRestorable = false
         window.center()
 
         super.init(window: window)

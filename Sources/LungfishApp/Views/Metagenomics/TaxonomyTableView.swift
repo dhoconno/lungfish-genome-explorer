@@ -98,7 +98,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     // MARK: - Sort State
 
     /// Current sort descriptor (nil = default: clade descending).
-    private var currentSortKey: String = ColumnID.clade
+    private var currentSortKey: String = ColumnID.reads
     private var currentSortAscending: Bool = false
 
     // MARK: - Suppression Flag
@@ -226,22 +226,37 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     }
 
     private func setupLayout() {
+        // Use .defaultHigh priority for padding/spacing constraints so they
+        // don't conflict with NSAutoresizingMaskLayoutConstraint (required
+        // priority) when the NSSplitView container starts at zero size during
+        // initial layout. Once the container has real bounds the constraints
+        // are always satisfiable.
+        let searchTop = searchField.topAnchor.constraint(equalTo: topAnchor, constant: 4)
+        let searchLeading = searchField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8)
+        let searchHeight = searchField.heightAnchor.constraint(equalToConstant: 24)
+        let labelGap = countLabel.leadingAnchor.constraint(equalTo: searchField.trailingAnchor, constant: 8)
+        let labelTrailing = countLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
+        let scrollBottom = scrollView.bottomAnchor.constraint(equalTo: bottomAnchor)
+
+        for c in [searchTop, searchLeading, searchHeight, labelGap, labelTrailing, scrollBottom] {
+            c.priority = .defaultHigh
+        }
+
         NSLayoutConstraint.activate([
-            // Search field at top
-            searchField.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-            searchField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            searchField.heightAnchor.constraint(equalToConstant: 24),
+            searchTop,
+            searchLeading,
+            searchHeight,
 
             // Count label to the right of search
             countLabel.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
-            countLabel.leadingAnchor.constraint(equalTo: searchField.trailingAnchor, constant: 8),
-            countLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            labelGap,
+            labelTrailing,
 
             // Scroll view fills remaining space
             scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 4),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scrollBottom,
         ])
     }
 

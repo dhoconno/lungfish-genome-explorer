@@ -184,15 +184,17 @@ final class ONTDirectoryImporterTests: XCTestCase {
         XCTAssertEqual(result.manifest.barcodes.count, 1)
         XCTAssertTrue(result.bundleURLs[0].lastPathComponent.hasSuffix(".lungfishfastq"))
 
-        // Verify bundle contains reads.fastq.gz
-        let fastqURL = result.bundleURLs[0].appendingPathComponent("reads.fastq.gz")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: fastqURL.path))
+        // Virtual import creates source-files.json and preview.fastq (not reads.fastq.gz)
+        let sourceFilesURL = result.bundleURLs[0].appendingPathComponent("source-files.json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sourceFilesURL.path))
+        let previewURL = result.bundleURLs[0].appendingPathComponent("preview.fastq")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: previewURL.path))
 
         // Verify manifest was saved
         let loadedManifest = DemultiplexManifest.load(from: outputDir)
         XCTAssertNotNil(loadedManifest)
         XCTAssertEqual(loadedManifest?.barcodes.count, 1)
-        XCTAssertEqual(loadedManifest?.parameters.tool, "dorado")
+        XCTAssertEqual(loadedManifest?.parameters.tool, "ont-directory-import")
     }
 
     func testImportExcludesUnclassifiedByDefault() async throws {

@@ -434,6 +434,17 @@ public actor ClassificationPipeline {
             provenanceId: runID
         )
 
+        // Build the Kraken index sidecar for fast taxon-specific lookups
+        // (BLAST verification, sequence extraction). Non-fatal if it fails.
+        do {
+            let krakenURL = effectiveConfig.outputURL
+            let indexURL = KrakenIndexDatabase.indexURL(for: krakenURL)
+            try KrakenIndexDatabase.build(from: krakenURL, to: indexURL)
+            logger.info("Built classification index at \(indexURL.lastPathComponent, privacy: .public)")
+        } catch {
+            logger.warning("Failed to build classification index: \(error.localizedDescription, privacy: .public)")
+        }
+
         progress?(1.0, "Classification complete")
 
         let runtimeStr = String(format: "%.1f", totalRuntime)

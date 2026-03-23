@@ -326,8 +326,8 @@ final class SearchCommandTests: XCTestCase {
     /// Verifies IUPAC pattern search.
     func testSearchCommandIUPAC() async throws {
         let fastaURL = tempDir.appendingPathComponent("iupac_test.fasta")
-        // TATAAAT and TATACAT should both match TATAWAT (W = A or T)
-        let seq = try Sequence(name: "seq1", alphabet: .dna, bases: "TATAAATGGGGTATACAT")
+        // TATAAAT and TATATAT should both match TATAWAT (W = A or T)
+        let seq = try Sequence(name: "seq1", alphabet: .dna, bases: "TATAAATGGGGTATATAT")
         let writer = FASTAWriter(url: fastaURL)
         try writer.write([seq])
 
@@ -682,8 +682,8 @@ final class SubcommandRegistrationTests: XCTestCase {
     /// Verifies total subcommand count after additions.
     func testTotalSubcommandCount() throws {
         let config = LungfishCLI.configuration
-        // Original 8 + 3 new (translate, search, extract) = 11
-        XCTAssertEqual(config.subcommands.count, 11)
+        // Original 8 + 3 new (translate, search, extract) + conda + blast = 13
+        XCTAssertEqual(config.subcommands.count, 13)
     }
 
     /// Verifies analyze subcommand count.

@@ -72,6 +72,7 @@ public final class HelpWindowController: NSWindowController {
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 520, height: 380)
         window.setFrameAutosaveName("LungfishHelpWindow")
+        window.isRestorable = false
 
         let vc = HelpViewController()
         super.init(window: window)
