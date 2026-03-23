@@ -231,20 +231,44 @@ public enum KreportParser {
             return nil
         }
 
-        // Column 4: rank code
-        let rankCode = columns[3].trimmingCharacters(in: .whitespaces)
-        let rank = TaxonomicRank(code: rankCode)
+        // Detect extended format with k-mer statistics (8 columns):
+        //   pct  clade  direct  kmercount  kmerdistinct  rank  taxid  name
+        // vs standard format (6 columns):
+        //   pct  clade  direct  rank  taxid  name
+        //
+        // Heuristic: if column 3 parses as an integer, it's a k-mer count
+        // (extended format) and the rank code is at column 5 instead of 3.
+        let rankOffset: Int
+        if columns.count >= 8,
+           Int(columns[3].trimmingCharacters(in: .whitespaces)) != nil {
+            // Extended format: skip 2 k-mer columns
+            rankOffset = 5
+        } else {
+            // Standard 6-column format
+            rankOffset = 3
+        }
 
-        // Column 5: taxonomy ID
-        guard let taxId = Int(columns[4].trimmingCharacters(in: .whitespaces)) else {
+        guard columns.count > rankOffset + 2 else {
             logger.warning(
-                "Skipping line \(lineNumber, privacy: .public): invalid taxonomy ID '\(String(columns[4]), privacy: .public)'"
+                "Skipping line \(lineNumber, privacy: .public): not enough columns for rank/taxid/name"
             )
             return nil
         }
 
-        // Column 6: scientific name (with indentation)
-        let rawName = String(columns[5...].joined(separator: "\t"))
+        // Rank code
+        let rankCode = columns[rankOffset].trimmingCharacters(in: .whitespaces)
+        let rank = TaxonomicRank(code: rankCode)
+
+        // Taxonomy ID
+        guard let taxId = Int(columns[rankOffset + 1].trimmingCharacters(in: .whitespaces)) else {
+            logger.warning(
+                "Skipping line \(lineNumber, privacy: .public): invalid taxonomy ID '\(String(columns[rankOffset + 1]), privacy: .public)'"
+            )
+            return nil
+        }
+
+        // Scientific name (with indentation) — everything from rankOffset+2 onward
+        let rawName = String(columns[(rankOffset + 2)...].joined(separator: "\t"))
         let depth = countIndentationDepth(rawName)
         let name = rawName.trimmingCharacters(in: .whitespaces)
 
