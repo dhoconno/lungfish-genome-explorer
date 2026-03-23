@@ -324,7 +324,11 @@ struct TaxonomyExtractionSheet: View {
             )
             onExtract?(config)
         } else {
-            let outputURL = outputDir.appendingPathComponent(cleanName)
+            // Ensure output has .fastq extension so FASTQBundle can resolve it
+            let fileName = cleanName.hasSuffix(".fastq") || cleanName.hasSuffix(".fastq.gz")
+                ? cleanName
+                : "\(cleanName).fastq"
+            let outputURL = outputDir.appendingPathComponent(fileName)
             let config = TaxonomyExtractionConfig(
                 taxIds: taxIds,
                 includeChildren: includeChildren,
