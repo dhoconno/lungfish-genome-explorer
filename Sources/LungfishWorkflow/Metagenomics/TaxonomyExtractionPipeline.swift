@@ -212,6 +212,113 @@ public actor TaxonomyExtractionPipeline {
     }
 
 
+    // MARK: - Batch Extraction
+
+    /// Extracts reads for every taxon target in a collection, producing one output per target.
+    ///
+    /// For each ``TaxonTarget`` in the collection:
+    /// 1. The target tax ID set is built (expanding to descendants if ``TaxonTarget/includeChildren`` is `true`).
+    /// 2. A read ID set is constructed from the classification output.
+    /// 3. Matching reads are extracted via seqkit grep into a separate output file.
+    /// 4. A `.lungfishfastq` bundle is created for the extracted reads.
+    ///
+    /// Targets with zero matching reads are skipped (logged but not fatal).
+    /// Each target is processed sequentially to avoid I/O contention.
+    ///
+    /// ## Progress
+    ///
+    /// The progress callback reports overall batch progress from 0.0 to 1.0,
+    /// with per-taxon sub-progress messages.
+    ///
+    /// - Parameters:
+    ///   - collection: The taxa collection defining targets to extract.
+    ///   - classificationResult: The classification result containing the tree and output files.
+    ///   - tree: The taxonomy tree for descendant lookup.
+    ///   - outputDirectory: The directory to write output files into.
+    ///   - progress: Optional progress callback.
+    /// - Returns: URLs of the output FASTQ files that were created (one per successful target).
+    /// - Throws: ``TaxonomyExtractionError`` if the classification output or source files are missing.
+    public func extractBatch(
+        collection: TaxaCollection,
+        classificationResult: ClassificationResult,
+        tree: TaxonTree,
+        outputDirectory: URL,
+        progress: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws -> [URL] {
+        let targets = collection.taxa
+        let totalTargets = targets.count
+        guard totalTargets > 0 else { return [] }
+
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: outputDirectory.path) {
+            try fm.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        }
+
+        progress?(0.0, "Starting batch extraction: \(collection.name) (\(totalTargets) taxa)")
+
+        var outputURLs: [URL] = []
+        var skippedCount = 0
+
+        for (index, target) in targets.enumerated() {
+            try Task.checkCancellation()
+
+            let overallBase = Double(index) / Double(totalTargets)
+            let overallStep = 1.0 / Double(totalTargets)
+
+            // Check if this taxon has any reads in the result
+            let node = tree.node(taxId: target.taxId)
+            let cladeReads = node?.readsClade ?? 0
+            if cladeReads == 0 {
+                logger.info("Skipping \(target.displayName, privacy: .public): 0 reads in result")
+                skippedCount += 1
+                progress?(overallBase + overallStep, "Skipped \(target.displayName) (0 reads)")
+                continue
+            }
+
+            progress?(
+                overallBase,
+                "Extracting \(target.displayName) (\(index + 1) of \(totalTargets))..."
+            )
+
+            // Build a safe filename from the target name
+            let safeName = target.displayName
+                .replacingOccurrences(of: " ", with: "_")
+                .replacingOccurrences(of: "/", with: "-")
+            let outputFile = outputDirectory.appendingPathComponent("\(safeName)_taxid\(target.taxId).fastq")
+
+            // Build config for this single target
+            let config = TaxonomyExtractionConfig(
+                taxIds: Set([target.taxId]),
+                includeChildren: target.includeChildren,
+                sourceFile: classificationResult.config.inputFiles.first ?? URL(fileURLWithPath: "/dev/null"),
+                outputFile: outputFile,
+                classificationOutput: classificationResult.outputURL
+            )
+
+            do {
+                let urls = try await extract(
+                    config: config,
+                    tree: tree,
+                    progress: { fraction, message in
+                        let mappedFraction = overallBase + overallStep * fraction
+                        progress?(min(mappedFraction, overallBase + overallStep), message)
+                    }
+                )
+                outputURLs.append(contentsOf: urls)
+            } catch TaxonomyExtractionError.noMatchingReads {
+                logger.info("No matching reads for \(target.displayName, privacy: .public), skipping")
+                skippedCount += 1
+                progress?(overallBase + overallStep, "Skipped \(target.displayName) (no matching reads)")
+            }
+        }
+
+        let extractedCount = outputURLs.count
+        progress?(1.0, "Batch complete: \(extractedCount) of \(totalTargets) taxa extracted (\(skippedCount) skipped)")
+        logger.info("Batch extraction complete: \(extractedCount) extracted, \(skippedCount) skipped from \(collection.name, privacy: .public)")
+
+        return outputURLs
+    }
+
 
     // MARK: - Descendant Collection
 

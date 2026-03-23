@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import SwiftUI
@@ -69,19 +70,19 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     // MARK: - Data
 
     /// The classification result driving this view.
-    private var classificationResult: ClassificationResult?
+    var classificationResult: ClassificationResult?
 
     /// The taxonomy tree extracted from the result.
-    private var tree: TaxonTree?
+    var tree: TaxonTree?
 
     // MARK: - Child Views
 
     private let summaryBar = TaxonomySummaryBar()
     private let breadcrumbBar = TaxonomyBreadcrumbBar()
-    private let splitView = NSSplitView()
+    let splitView = NSSplitView()
     private let sunburstView = TaxonomySunburstView()
     private let taxonomyTableView = TaxonomyTableView()
-    private let actionBar = TaxonomyActionBar()
+    let actionBar = TaxonomyActionBar()
 
     // MARK: - Split View State
 
@@ -109,6 +110,30 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     ///
     /// - Parameter config: The fully configured extraction config.
     public var onExtractConfirmed: ((TaxonomyExtractionConfig) -> Void)?
+
+    /// Called when the user requests batch extraction from a taxa collection.
+    ///
+    /// - Parameters:
+    ///   - collection: The taxa collection to extract.
+    ///   - result: The current classification result.
+    public var onBatchExtract: ((TaxaCollection, ClassificationResult) -> Void)?
+
+    // MARK: - Taxa Collections Drawer
+
+    /// The taxa collections drawer view, created lazily on first toggle.
+    var taxaCollectionsDrawerView: TaxaCollectionsDrawerView?
+
+    /// Constraint controlling the drawer's vertical offset from the action bar.
+    var taxaCollectionsDrawerBottomConstraint: NSLayoutConstraint?
+
+    /// Constraint controlling the drawer's height.
+    var taxaCollectionsDrawerHeightConstraint: NSLayoutConstraint?
+
+    /// Whether the taxa collections drawer is currently visible.
+    var isTaxaCollectionsDrawerOpen: Bool = false
+
+    /// Debounce work item for persisting drawer height changes.
+    var _taxaDrawerHeightSaveWorkItem: DispatchWorkItem?
 
     // MARK: - Lifecycle
 
@@ -367,6 +392,12 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             } else {
                 self.onExtractSequences?(node, includeChildren)
             }
+        }
+
+        // Action bar collections toggle -> show/hide drawer
+        actionBar.onToggleCollections = { [weak self] in
+            guard let self else { return }
+            self.toggleTaxaCollectionsDrawer()
         }
     }
 
@@ -903,4 +934,10 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
 
     /// Returns the current classification result for testing.
     var testClassificationResult: ClassificationResult? { classificationResult }
+
+    /// Returns the taxa collections drawer for testing.
+    var testCollectionsDrawer: TaxaCollectionsDrawerView? { taxaCollectionsDrawerView }
+
+    /// Returns whether the taxa collections drawer is open for testing.
+    var testIsCollectionsDrawerOpen: Bool { isTaxaCollectionsDrawerOpen }
 }

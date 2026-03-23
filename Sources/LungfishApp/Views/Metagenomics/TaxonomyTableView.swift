@@ -245,9 +245,11 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         outlineView.reloadData()
         updateCountLabel()
 
-        // Expand root children by default
+        // Expand root children by default.
+        // The data source maps nil item -> root's children, so the top-level items
+        // are root's children. We expand each top-level item so the first two
+        // levels of the tree are visible on load.
         if let root = tree?.root {
-            outlineView.expandItem(root)
             for child in sortedChildren(of: root) {
                 outlineView.expandItem(child)
             }
@@ -359,20 +361,24 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     ///
     /// Accessible from View > Expand All (Cmd+Shift+Right) and Cmd+Shift+Right
     /// keyboard shortcut when the outline view has focus.
+    ///
+    /// Uses `expandItem(nil, expandChildren: true)` which tells NSOutlineView
+    /// to expand the invisible root and all descendants recursively.
     public func expandAll() {
-        guard let tree else { return }
-        outlineView.expandItem(tree.root, expandChildren: true)
+        guard tree != nil else { return }
+        outlineView.expandItem(nil, expandChildren: true)
     }
 
     /// Collapses all items in the outline view.
     ///
     /// Accessible from View > Collapse All (Cmd+Shift+Left) and Cmd+Shift+Left
     /// keyboard shortcut when the outline view has focus.
+    ///
+    /// After collapsing, the top-level items (root's children) remain visible
+    /// since they are always shown by the outline view.
     public func collapseAll() {
-        guard let tree else { return }
-        outlineView.collapseItem(tree.root, collapseChildren: true)
-        // Re-expand root so top-level items remain visible
-        outlineView.expandItem(tree.root)
+        guard tree != nil else { return }
+        outlineView.collapseItem(nil, collapseChildren: true)
     }
 
     /// Recursively expands the selected item and all its descendants.

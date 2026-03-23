@@ -7,26 +7,30 @@ import LungfishIO
 
 // MARK: - TaxonomyActionBar
 
-/// A 36pt bottom bar showing selected taxon info and an Extract Sequences button.
+/// A 36pt bottom bar showing a collections toggle, selected taxon info, and an Extract button.
 ///
 /// ## Layout
 ///
 /// ```
-/// [  Escherichia coli -- 1,234 reads (12.3%)     |  [Extract Sequences]  ]
+/// [Collections] |  Escherichia coli -- 1,234 reads (12.3%)  | [Extract Sequences]
 /// ```
 ///
-/// The left side shows the currently selected taxon's name, read count, and
-/// clade percentage. The right side has the Extract Sequences button, which
-/// is disabled until a node is selected.
+/// The left side has a "Collections" button that toggles the taxa collections drawer.
+/// The center shows the currently selected taxon's name, read count, and clade
+/// percentage. The right side has the Extract Sequences button, which is disabled
+/// until a node is selected.
 @MainActor
 final class TaxonomyActionBar: NSView {
 
-    // MARK: - Callback
+    // MARK: - Callbacks
 
     /// Called when the user clicks the Extract Sequences button.
     ///
     /// The boolean indicates whether child taxa should be included.
     var onExtractSequences: ((TaxonNode, Bool) -> Void)?
+
+    /// Called when the user clicks the Collections toggle button.
+    var onToggleCollections: (() -> Void)?
 
     // MARK: - State
 
@@ -38,6 +42,11 @@ final class TaxonomyActionBar: NSView {
 
     // MARK: - Subviews
 
+    private let collectionsButton = NSButton(
+        title: "Collections",
+        target: nil,
+        action: nil
+    )
     private let infoLabel = NSTextField(labelWithString: "")
     private let extractButton = NSButton(
         title: "Extract Sequences",
@@ -64,7 +73,19 @@ final class TaxonomyActionBar: NSView {
         separator.translatesAutoresizingMaskIntoConstraints = false
         addSubview(separator)
 
-        // Info label (left side)
+        // Collections toggle button (left side)
+        collectionsButton.translatesAutoresizingMaskIntoConstraints = false
+        collectionsButton.bezelStyle = .accessoryBarAction
+        collectionsButton.setButtonType(.pushOnPushOff)
+        collectionsButton.image = NSImage(systemSymbolName: "rectangle.stack", accessibilityDescription: "Collections")
+        collectionsButton.imagePosition = .imageLeading
+        collectionsButton.target = self
+        collectionsButton.action = #selector(collectionsToggleTapped(_:))
+        collectionsButton.setContentHuggingPriority(.required, for: .horizontal)
+        collectionsButton.setAccessibilityLabel("Toggle Taxa Collections Drawer")
+        addSubview(collectionsButton)
+
+        // Info label (center)
         infoLabel.translatesAutoresizingMaskIntoConstraints = false
         infoLabel.font = .systemFont(ofSize: 11, weight: .regular)
         infoLabel.textColor = .secondaryLabelColor
@@ -86,7 +107,10 @@ final class TaxonomyActionBar: NSView {
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: trailingAnchor),
 
-            infoLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            collectionsButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            collectionsButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            infoLabel.leadingAnchor.constraint(equalTo: collectionsButton.trailingAnchor, constant: 12),
             infoLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             infoLabel.trailingAnchor.constraint(
                 lessThanOrEqualTo: extractButton.leadingAnchor, constant: -12
@@ -136,6 +160,15 @@ final class TaxonomyActionBar: NSView {
         }
     }
 
+    /// Updates the collections button visual state to reflect drawer open/closed.
+    ///
+    /// When the drawer is open the button appears pressed (`.on` state).
+    ///
+    /// - Parameter isOpen: Whether the drawer is currently open.
+    func setCollectionsDrawerOpen(_ isOpen: Bool) {
+        collectionsButton.state = isOpen ? .on : .off
+    }
+
     /// Returns the current info label text (for testing).
     var infoText: String {
         infoLabel.stringValue
@@ -146,10 +179,19 @@ final class TaxonomyActionBar: NSView {
         extractButton.isEnabled
     }
 
+    /// Returns the collections button state (for testing).
+    var isCollectionsToggleOn: Bool {
+        collectionsButton.state == .on
+    }
+
     // MARK: - Actions
 
     @objc private func extractTapped(_ sender: NSButton) {
         guard let node = selectedNode else { return }
         onExtractSequences?(node, true)
+    }
+
+    @objc private func collectionsToggleTapped(_ sender: NSButton) {
+        onToggleCollections?()
     }
 }

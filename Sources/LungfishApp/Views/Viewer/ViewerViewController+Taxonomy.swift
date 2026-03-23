@@ -6,6 +6,7 @@
 // following the same child-VC pattern as displayFASTACollection / displayFASTQDataset.
 
 import AppKit
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import os.log
@@ -176,6 +177,76 @@ extension ViewerViewController {
             OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
         }
 
+
+        // Wire batch extraction callback for the taxa collections drawer.
+        // When the user clicks "Extract" on a collection, run the batch pipeline
+        // using the same Task.detached + OperationCenter pattern.
+        controller.onBatchExtract = { collection, classResult in
+            let opID = OperationCenter.shared.start(
+                title: "Extract \(collection.name)",
+                detail: "Preparing batch extraction\u{2026}",
+                operationType: .taxonomyExtraction
+            )
+
+            let tree = classResult.tree
+            let outputDir = classResult.config.outputDirectory
+                .appendingPathComponent("extracted-\(collection.id)")
+
+            let task = Task.detached {
+                do {
+                    let pipeline = TaxonomyExtractionPipeline()
+                    let outputURLs = try await pipeline.extractBatch(
+                        collection: collection,
+                        classificationResult: classResult,
+                        tree: tree,
+                        outputDirectory: outputDir,
+                        progress: { fraction, message in
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    OperationCenter.shared.update(
+                                        id: opID,
+                                        progress: fraction,
+                                        detail: message
+                                    )
+                                }
+                            }
+                        }
+                    )
+
+                    nonisolated(unsafe) let capturedURLs = outputURLs
+                    scheduleTaxonomyOnMainRunLoop {
+                        MainActor.assumeIsolated {
+                            let count = capturedURLs.count
+                            OperationCenter.shared.complete(
+                                id: opID,
+                                detail: "Extracted \(count) taxa from \(collection.name)",
+                                bundleURLs: capturedURLs
+                            )
+
+                            // Refresh sidebar to pick up new extracted files
+                            if let appDelegate = NSApp.delegate as? AppDelegate {
+                                if let sidebar = appDelegate.mainWindowController?.mainSplitViewController?.sidebarController {
+                                    sidebar.reloadFromFilesystem()
+                                }
+                            }
+                        }
+                    }
+                } catch {
+                    let errorDesc = error.localizedDescription
+                    scheduleTaxonomyOnMainRunLoop {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.fail(
+                                id: opID,
+                                detail: errorDesc
+                            )
+                            showTaxonomyExtractionErrorAlert(errorDesc)
+                        }
+                    }
+                }
+            }
+
+            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+        }
         taxonomyViewController = controller
 
         // Hide normal genomic viewer components
