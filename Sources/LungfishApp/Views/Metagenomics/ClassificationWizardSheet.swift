@@ -269,9 +269,9 @@ struct ClassificationWizardSheet: View {
                     .font(.system(size: 9))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, minHeight: 80)
             .padding(.vertical, 10)
             .padding(.horizontal, 8)
             .background(
@@ -302,10 +302,18 @@ struct ClassificationWizardSheet: View {
                 .foregroundStyle(.secondary)
 
             if readyDatabases.isEmpty {
-                Text("No databases installed. Download a database first.")
+                HStack {
+                    Text("No databases installed.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+
+                    Button("Download Database\u{2026}") {
+                        // Open Plugin Manager to the database management section
+                        PluginManagerWindowController.show()
+                    }
                     .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 4)
+                }
+                .padding(.vertical, 4)
             } else {
                 Picker("", selection: $selectedDatabaseName) {
                     ForEach(readyDatabases) { db in

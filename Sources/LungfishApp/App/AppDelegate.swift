@@ -3578,18 +3578,24 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             let databases = (try? await registry.availableDatabases().filter(\.isDownloaded)) ?? []
 
             // Present the classification wizard
+            let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+            wizardPanel.title = "Classify Reads"
+
             let wizardView = ClassificationWizardSheet(
                 inputFiles: inputFiles,
                 installedDatabases: databases,
                 onRun: { [weak self] config in
+                    window.endSheet(wizardPanel)
                     guard let self else { return }
                     self.runClassification(config: config, viewerController: viewerController)
+                },
+                onCancel: {
+                    window.endSheet(wizardPanel)
                 }
             )
 
             let hostingController = NSHostingController(rootView: wizardView)
-            let wizardPanel = NSPanel(contentViewController: hostingController)
-            wizardPanel.title = "Classify Reads"
+            wizardPanel.contentViewController = hostingController
             wizardPanel.setContentSize(NSSize(width: 520, height: 580))
             await window.beginSheet(wizardPanel)
         }
