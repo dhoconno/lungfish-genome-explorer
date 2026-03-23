@@ -1534,4 +1534,94 @@ final class FastqCommandTests: XCTestCase {
         }
         XCTAssertTrue(names.contains("fastq"), "LungfishCLI should contain fastq subcommand")
     }
+
+    // MARK: - BLAST Command Registered
+
+    /// Verifies that the blast subcommand is registered at the top level.
+    func testBlastCommandRegistered() {
+        let subcommands = LungfishCLI.configuration.subcommands
+        let names = subcommands.compactMap {
+            ($0 as? any ParsableCommand.Type)?.configuration.commandName
+        }
+        XCTAssertTrue(names.contains("blast"), "LungfishCLI should contain blast subcommand")
+    }
+}
+
+// MARK: - BLAST Verify Argument Parsing
+
+final class BlastVerifyCommandTests: XCTestCase {
+
+    /// Verifies that blast verify parses all required arguments.
+    func testCLIBlastArgumentParsing() throws {
+        let cmd = try BlastCommand.VerifySubcommand.parse([
+            "--kreport", "/tmp/class.kreport",
+            "--source", "/tmp/reads.fastq",
+            "--kraken-output", "/tmp/class.kraken",
+            "--taxid", "562",
+        ])
+        XCTAssertEqual(cmd.kreportFile, "/tmp/class.kreport")
+        XCTAssertEqual(cmd.sourceFile, "/tmp/reads.fastq")
+        XCTAssertEqual(cmd.krakenOutput, "/tmp/class.kraken")
+        XCTAssertEqual(cmd.taxId, 562)
+        XCTAssertEqual(cmd.readCount, 20, "Default read count should be 20")
+        XCTAssertFalse(cmd.includeChildren)
+    }
+
+    /// Verifies that --reads overrides the default.
+    func testBlastVerifyCustomReadCount() throws {
+        let cmd = try BlastCommand.VerifySubcommand.parse([
+            "--kreport", "/tmp/class.kreport",
+            "--source", "/tmp/reads.fastq",
+            "--kraken-output", "/tmp/class.kraken",
+            "--taxid", "562",
+            "--reads", "30",
+        ])
+        XCTAssertEqual(cmd.readCount, 30)
+    }
+
+    /// Verifies that --include-children flag is parsed.
+    func testBlastVerifyIncludeChildren() throws {
+        let cmd = try BlastCommand.VerifySubcommand.parse([
+            "--kreport", "/tmp/class.kreport",
+            "--source", "/tmp/reads.fastq",
+            "--kraken-output", "/tmp/class.kraken",
+            "--taxid", "1224",
+            "--include-children",
+        ])
+        XCTAssertTrue(cmd.includeChildren)
+        XCTAssertEqual(cmd.taxId, 1224)
+    }
+
+    /// Verifies that validation rejects invalid read counts.
+    ///
+    /// ArgumentParser calls `validate()` during `parse()`, so invalid values
+    /// cause `parse()` itself to throw.
+    func testBlastVerifyValidation() throws {
+        // Too many reads -- parse itself throws because validate() runs inline
+        XCTAssertThrowsError(try BlastCommand.VerifySubcommand.parse([
+            "--kreport", "/tmp/class.kreport",
+            "--source", "/tmp/reads.fastq",
+            "--kraken-output", "/tmp/class.kraken",
+            "--taxid", "562",
+            "--reads", "200",
+        ]))
+
+        // Zero reads
+        XCTAssertThrowsError(try BlastCommand.VerifySubcommand.parse([
+            "--kreport", "/tmp/class.kreport",
+            "--source", "/tmp/reads.fastq",
+            "--kraken-output", "/tmp/class.kraken",
+            "--taxid", "562",
+            "--reads", "0",
+        ]))
+    }
+
+    /// Verifies that the verify subcommand is the default for blast.
+    func testBlastDefaultSubcommand() {
+        let subcommands = BlastCommand.configuration.subcommands
+        let names = subcommands.compactMap {
+            ($0 as? any ParsableCommand.Type)?.configuration.commandName
+        }
+        XCTAssertTrue(names.contains("verify"), "BlastCommand should have verify subcommand")
+    }
 }

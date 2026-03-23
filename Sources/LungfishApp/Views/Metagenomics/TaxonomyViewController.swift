@@ -118,6 +118,13 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     ///   - result: The current classification result.
     public var onBatchExtract: ((TaxaCollection, ClassificationResult) -> Void)?
 
+    /// Called when the user confirms BLAST verification for a taxon via the popover.
+    ///
+    /// - Parameters:
+    ///   - node: The taxon to verify.
+    ///   - readCount: The number of reads to submit to BLAST.
+    public var onBlastVerification: ((TaxonNode, Int) -> Void)?
+
     // MARK: - Taxa Collections Drawer
 
     /// The taxa collections drawer view, created lazily on first toggle.
@@ -551,6 +558,18 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         ncbiItem.image = NSImage(systemSymbolName: "globe", accessibilityDescription: "NCBI")
         menu.addItem(ncbiItem)
 
+        menu.addItem(.separator())
+
+        let blastItem = NSMenuItem(
+            title: "BLAST Matching Reads\u{2026}",
+            action: #selector(contextBlastReads(_:)),
+            keyEquivalent: ""
+        )
+        blastItem.target = self
+        blastItem.representedObject = node
+        blastItem.image = NSImage(systemSymbolName: "bolt.circle", accessibilityDescription: "BLAST")
+        menu.addItem(blastItem)
+
         // Convert window point to view coordinates and show
         let viewPoint = view.convert(windowPoint, from: nil)
         menu.popUp(positioning: nil, at: viewPoint, in: view)
@@ -651,6 +670,18 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         zoomOutItem.target = self
         zoomOutItem.isEnabled = sunburstView.centerNode != nil
         menu.addItem(zoomOutItem)
+
+        menu.addItem(.separator())
+
+        let blastItem = NSMenuItem(
+            title: "BLAST Matching Reads\u{2026}",
+            action: #selector(contextBlastReads(_:)),
+            keyEquivalent: ""
+        )
+        blastItem.target = self
+        blastItem.representedObject = node
+        blastItem.image = NSImage(systemSymbolName: "bolt.circle", accessibilityDescription: "BLAST")
+        menu.addItem(blastItem)
     }
 
     // MARK: - Context Menu Actions
@@ -700,6 +731,42 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     @objc private func contextZoomToRoot(_ sender: NSMenuItem) {
         sunburstView.centerNode = nil
         breadcrumbBar.update(zoomNode: nil)
+    }
+
+    @objc private func contextBlastReads(_ sender: NSMenuItem) {
+        guard let node = sender.representedObject as? TaxonNode else { return }
+        showBlastConfigPopover(for: node, relativeTo: sender)
+    }
+
+    /// Shows a popover with BLAST configuration (read count slider and Run button).
+    ///
+    /// - Parameters:
+    ///   - node: The taxon to verify.
+    ///   - sender: The menu item or view to anchor the popover to.
+    private func showBlastConfigPopover(for node: TaxonNode, relativeTo sender: Any) {
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentSize = NSSize(width: 280, height: 160)
+
+        let configView = BlastConfigPopoverView(
+            taxonName: node.name,
+            readsClade: node.readsClade
+        ) { [weak self, weak popover] readCount in
+            popover?.performClose(nil)
+            self?.onBlastVerification?(node, readCount)
+        }
+
+        popover.contentViewController = NSHostingController(rootView: configView)
+
+        // Anchor to the sunburst view center (the context menu has no rect).
+        let anchorView = sunburstView
+        let anchorRect = NSRect(
+            x: anchorView.bounds.midX - 1,
+            y: anchorView.bounds.midY - 1,
+            width: 2,
+            height: 2
+        )
+        popover.show(relativeTo: anchorRect, of: anchorView, preferredEdge: .maxY)
     }
 
     // MARK: - NCBI Links

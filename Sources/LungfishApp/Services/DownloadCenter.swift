@@ -19,6 +19,7 @@ public enum OperationType: String, Sendable {
     case qualityReport = "Quality Report"
     case taxonomyExtraction = "Taxonomy Extraction"
     case classification = "Classification"
+    case blastVerification = "BLAST Verification"
 }
 
 @MainActor

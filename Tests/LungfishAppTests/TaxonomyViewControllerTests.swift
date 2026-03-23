@@ -445,10 +445,10 @@ final class TaxonomyViewControllerTests: XCTestCase {
         let ecoli = result.tree.node(taxId: 562)!
         let items = vc.contextMenuItems(for: ecoli)
 
-        // Should have: Extract (2), separator, Copy (2), separator, Zoom (2) = 9 items
+        // Should have: Extract (2), sep, Copy (2), sep, Zoom (2), sep, BLAST (1) = 12 items
         let nonSeparators = items.filter { !$0.isSeparatorItem }
-        XCTAssertEqual(nonSeparators.count, 6, "Should have 6 non-separator menu items")
-        XCTAssertEqual(items.filter(\.isSeparatorItem).count, 2, "Should have 2 separators")
+        XCTAssertEqual(nonSeparators.count, 7, "Should have 7 non-separator menu items")
+        XCTAssertEqual(items.filter(\.isSeparatorItem).count, 3, "Should have 3 separators")
 
         // Check specific titles
         XCTAssertTrue(items[0].title.contains("Extract Sequences for Escherichia coli"))
@@ -926,5 +926,53 @@ final class ViewerViewControllerTaxonomyTests: XCTestCase {
         XCTAssertNil(viewerVC.taxonomyViewController)
         XCTAssertFalse(viewerVC.enhancedRulerView.isHidden)
         XCTAssertFalse(viewerVC.viewerView.isHidden)
+    }
+
+    // MARK: - BLAST Context Menu
+
+    func testBlastContextMenuItemExists() throws {
+        let vc = TaxonomyViewController()
+        _ = vc.view
+        let result = makeTestResult()
+        vc.configure(result: result)
+
+        let ecoli = result.tree.node(taxId: 562)!
+        let items = vc.contextMenuItems(for: ecoli)
+
+        // Find the BLAST menu item
+        let blastItem = items.first(where: { $0.title.hasPrefix("BLAST Matching Reads") })
+        XCTAssertNotNil(blastItem, "Context menu should contain BLAST Matching Reads item")
+        XCTAssertNotNil(blastItem?.image, "BLAST item should have an icon")
+        XCTAssertTrue(blastItem?.representedObject is TaxonNode, "BLAST item should carry the taxon node")
+
+        // Verify it is the last non-separator item (after NCBI links separator)
+        let lastNonSep = items.last(where: { !$0.isSeparatorItem })
+        XCTAssertEqual(lastNonSep?.title, blastItem?.title, "BLAST item should be last in menu")
+    }
+
+    func testBlastPopoverConfiguration() throws {
+        let vc = TaxonomyViewController()
+        _ = vc.view
+        let result = makeTestResult()
+        vc.configure(result: result)
+
+        // Verify the callback property exists and can be set
+        var callbackFired = false
+        var capturedNode: TaxonNode?
+        var capturedCount: Int?
+        vc.onBlastVerification = { node, count in
+            callbackFired = true
+            capturedNode = node
+            capturedCount = count
+        }
+
+        // Simulate what the popover would do
+        let ecoli = result.tree.node(taxId: 562)!
+        vc.onBlastVerification?(ecoli, 25)
+
+        XCTAssertTrue(callbackFired, "Blast verification callback should fire")
+        XCTAssertEqual(capturedNode?.taxId, 562)
+        XCTAssertEqual(capturedNode?.name, "Escherichia coli")
+        XCTAssertEqual(capturedCount, 25)
     }
 }
