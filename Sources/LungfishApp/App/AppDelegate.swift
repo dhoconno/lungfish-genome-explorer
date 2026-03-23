@@ -3541,9 +3541,16 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             for url in selectedURLs {
                 let ext = url.pathExtension.lowercased()
                 let baseExt = url.deletingPathExtension().pathExtension.lowercased()
-                if ext == "fastq" || ext == "fq" || ext == "lungfishfastq" ||
+                if ext == "fastq" || ext == "fq" ||
                    (ext == "gz" && (baseExt == "fastq" || baseExt == "fq")) {
                     inputFiles.append(url)
+                } else if ext == FASTQBundle.directoryExtension {
+                    // Resolve .lungfishfastq bundle to the actual FASTQ file inside
+                    if let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: url) {
+                        inputFiles.append(fastqURL)
+                    } else {
+                        debugLog("classifyReads: Could not resolve FASTQ inside bundle: \(url.path)")
+                    }
                 }
             }
         }
@@ -3554,9 +3561,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 let url = doc.url
                 let ext = url.pathExtension.lowercased()
                 let baseExt = url.deletingPathExtension().pathExtension.lowercased()
-                if ext == "fastq" || ext == "fq" || ext == "lungfishfastq" ||
+                if ext == "fastq" || ext == "fq" ||
                    (ext == "gz" && (baseExt == "fastq" || baseExt == "fq")) {
                     inputFiles.append(url)
+                } else if ext == FASTQBundle.directoryExtension {
+                    // Resolve .lungfishfastq bundle to the actual FASTQ file inside
+                    if let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: url) {
+                        inputFiles.append(fastqURL)
+                    }
                 }
             }
         }
@@ -3601,12 +3613,18 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
+    /// Runs the classification pipeline, dispatching based on the config's goal.
+    ///
+    /// - `.classify`: Runs Kraken2 only, displays taxonomy browser.
+    /// - `.profile`: Runs Kraken2 + Bracken, displays taxonomy browser with abundances.
+    /// - `.extract`: Runs Kraken2, displays taxonomy browser, then auto-presents
+    ///   the extraction sheet so the user can select taxa to extract.
     private func runClassification(config: ClassificationConfig, viewerController: ViewerViewController) {
         let pipeline = ClassificationPipeline()
 
         Task.detached {
             do {
-                let result = try await pipeline.classify(config: config) { fraction, message in
+                let progressCallback: @Sendable (Double, String) -> Void = { _, message in
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
                             viewerController.showProgress(message)
@@ -3614,10 +3632,28 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     }
                 }
 
+                let result: ClassificationResult
+                switch config.goal {
+                case .classify, .extract:
+                    result = try await pipeline.classify(config: config, progress: progressCallback)
+                case .profile:
+                    result = try await pipeline.profile(config: config, progress: progressCallback)
+                }
+
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
                         viewerController.displayTaxonomyResult(result)
+
+                        // For the extract goal, auto-present the extraction sheet
+                        // after showing the taxonomy browser so the user can pick taxa.
+                        if config.goal == .extract,
+                           let taxonomyVC = viewerController.taxonomyViewController {
+                            // Select the top species node and present the extraction sheet
+                            if let topSpecies = result.tree.dominantSpecies {
+                                taxonomyVC.presentExtractionSheet(for: topSpecies, includeChildren: true)
+                            }
+                        }
                     }
                 }
             } catch {
@@ -3637,6 +3673,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             }
         }
     }
+
 
     /// Shows the database browser for the specified source.
     private func showDatabaseBrowser(source: DatabaseSource) {

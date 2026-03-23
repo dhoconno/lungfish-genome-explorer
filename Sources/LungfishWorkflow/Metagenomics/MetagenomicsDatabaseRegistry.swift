@@ -756,24 +756,64 @@ public actor MetagenomicsDatabaseRegistry {
     }
 
     /// Extracts a .tar.gz file to a destination directory.
+    ///
+    /// Uses `CheckedContinuation` with `terminationHandler` and concurrent
+    /// pipe reading via `readabilityHandler` to avoid blocking the actor
+    /// thread and to prevent pipe deadlocks when tar produces large stderr
+    /// output.
     private func extractTarball(_ tarball: URL, to destination: URL) async throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-        process.arguments = ["xzf", tarball.path, "-C", destination.path, "--strip-components=1"]
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+            process.arguments = ["xzf", tarball.path, "-C", destination.path, "--strip-components=1"]
 
-        let pipe = Pipe()
-        process.standardError = pipe
+            let stderrPipe = Pipe()
+            process.standardError = stderrPipe
 
-        try process.run()
-        process.waitUntilExit()
+            nonisolated(unsafe) let stderrBuffer = NSMutableData()
+            nonisolated(unsafe) var continuationResumed = false
 
-        if process.terminationStatus != 0 {
-            let errorData = pipe.fileHandleForReading.readDataToEndOfFile()
-            let errorString = String(data: errorData, encoding: .utf8) ?? "Unknown error"
-            throw MetagenomicsDatabaseRegistryError.downloadFailed(
-                name: tarball.lastPathComponent,
-                reason: "tar extraction failed: \(errorString)"
-            )
+            stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if data.isEmpty {
+                    stderrPipe.fileHandleForReading.readabilityHandler = nil
+                } else {
+                    stderrBuffer.append(data)
+                }
+            }
+
+            process.terminationHandler = { terminatedProcess in
+                // Small delay to let any remaining readabilityHandler
+                // callbacks drain before we read the final buffer contents.
+                DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) {
+                    stderrPipe.fileHandleForReading.readabilityHandler = nil
+
+                    guard !continuationResumed else { return }
+                    continuationResumed = true
+
+                    if terminatedProcess.terminationStatus != 0 {
+                        let errorString = String(data: stderrBuffer as Data, encoding: .utf8)
+                            ?? "Unknown error"
+                        continuation.resume(
+                            throwing: MetagenomicsDatabaseRegistryError.downloadFailed(
+                                name: tarball.lastPathComponent,
+                                reason: "tar extraction failed: \(errorString)"
+                            )
+                        )
+                    } else {
+                        continuation.resume()
+                    }
+                }
+            }
+
+            do {
+                try process.run()
+            } catch {
+                stderrPipe.fileHandleForReading.readabilityHandler = nil
+                guard !continuationResumed else { return }
+                continuationResumed = true
+                continuation.resume(throwing: error)
+            }
         }
     }
 }
@@ -797,9 +837,19 @@ struct DatabaseManifest: Codable, Sendable {
 ///
 /// Uses the traditional delegate-based API instead of `session.download(for:)`
 /// because the async API does not reliably call `didWriteData`.
-private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate, Sendable {
+///
+/// The `hasFired` guard prevents double-resuming the continuation, which can
+/// happen when `didFinishDownloadingTo` fires successfully but
+/// `didCompleteWithError` is also called with a non-nil error (e.g., due to
+/// session invalidation). Without this guard, the second resume crashes.
+private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     private let progressCallback: @Sendable (Double, Int64, Int64) -> Void
     private let completionCallback: @Sendable (Result<URL, Error>) -> Void
+
+    /// Guards against double-firing the completion callback. Accessed from
+    /// the URLSession delegate queue which is serial, so no additional
+    /// synchronization is needed beyond the atomic flag pattern.
+    private let hasFired = LockedFlag()
 
     init(
         progress: @Sendable @escaping (Double, Int64, Int64) -> Void,
@@ -826,6 +876,8 @@ private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelega
         downloadTask: URLSessionDownloadTask,
         didFinishDownloadingTo location: URL
     ) {
+        guard hasFired.testAndSet() else { return }
+
         // URLSession deletes the temp file after this callback returns,
         // so copy it to a stable location.
         let tempDir = FileManager.default.temporaryDirectory
@@ -845,8 +897,31 @@ private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelega
         didCompleteWithError error: Error?
     ) {
         if let error {
+            guard hasFired.testAndSet() else { return }
             completionCallback(.failure(error))
             session.invalidateAndCancel()
         }
+    }
+}
+
+// MARK: - LockedFlag
+
+/// A thread-safe boolean flag that can be atomically tested and set.
+///
+/// Used to prevent double-firing of completion handlers in delegate callbacks.
+private final class LockedFlag: @unchecked Sendable {
+    private var _value = false
+    private let lock = NSLock()
+
+    /// Atomically tests the flag and sets it to `true`.
+    ///
+    /// - Returns: `true` if the flag was previously `false` (i.e., this is
+    ///   the first caller to set it). `false` if it was already set.
+    func testAndSet() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if _value { return false }
+        _value = true
+        return true
     }
 }

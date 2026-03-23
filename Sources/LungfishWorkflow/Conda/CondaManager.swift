@@ -2,7 +2,7 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
-import Foundation
+@preconcurrency import Foundation
 import LungfishCore
 import os.log
 
@@ -23,6 +23,7 @@ public enum CondaError: Error, LocalizedError, Sendable {
     case linuxOnlyPackage(String)
     case networkError(String)
     case diskSpaceError(String)
+    case timeout(tool: String, seconds: TimeInterval)
 
     public var errorDescription: String? {
         switch self {
@@ -48,6 +49,8 @@ public enum CondaError: Error, LocalizedError, Sendable {
             return "Network error during conda operation: \(msg)"
         case .diskSpaceError(let msg):
             return "Insufficient disk space: \(msg)"
+        case .timeout(let tool, let seconds):
+            return "Tool '\(tool)' timed out after \(Int(seconds)) seconds"
         }
     }
 }
@@ -397,10 +400,10 @@ public struct PluginPack: Sendable, Codable, Identifiable {
 ///
 /// ## Storage
 ///
-/// All conda data is stored in `~/Library/Application Support/Lungfish/conda/`:
-/// - `bin/micromamba` — the micromamba binary
-/// - `envs/<name>/` — per-tool environments
-/// - `pkgs/` — package cache (shared across environments)
+/// All conda data is stored in `~/.lungfish/conda/`:
+/// - `bin/micromamba` -- the micromamba binary
+/// - `envs/<name>/` -- per-tool environments
+/// - `pkgs/` -- package cache (shared across environments)
 ///
 /// ## Usage
 ///
@@ -738,6 +741,12 @@ public actor CondaManager {
     ///
     /// Uses `micromamba run -n <env> <tool> [args...]` to ensure the correct
     /// environment is activated, including library paths and Python venvs.
+    ///
+    /// Pipe reading is performed concurrently with the subprocess using
+    /// `readabilityHandler` to avoid deadlocks when the process produces
+    /// more than 64 KB of output. The actor thread is never blocked --
+    /// the method suspends via `CheckedContinuation` until the process
+    /// terminates or the timeout expires.
     public func runTool(
         name: String,
         arguments: [String] = [],
@@ -747,35 +756,115 @@ public actor CondaManager {
     ) async throws -> (stdout: String, stderr: String, exitCode: Int32) {
         try await ensureMicromamba()
 
-        var args = ["run", "-n", environment, name] + arguments
+        let args = ["run", "-n", environment, name] + arguments
         logger.info("Running conda tool: micromamba \(args.joined(separator: " "), privacy: .public)")
 
-        let process = Process()
-        process.executableURL = micromambaPath
-        process.arguments = args
-        process.environment = [
-            "MAMBA_ROOT_PREFIX": rootPrefix.path,
-            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-        ]
-        if let wd = workingDirectory {
-            process.currentDirectoryURL = wd
+        let executablePath = micromambaPath
+        let rootPath = rootPrefix.path
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let process = Process()
+            process.executableURL = executablePath
+            process.arguments = args
+            process.environment = [
+                "MAMBA_ROOT_PREFIX": rootPath,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            ]
+            if let wd = workingDirectory {
+                process.currentDirectoryURL = wd
+            }
+
+            let stdoutPipe = Pipe()
+            let stderrPipe = Pipe()
+            process.standardOutput = stdoutPipe
+            process.standardError = stderrPipe
+
+            // Use nonisolated(unsafe) for mutable buffers accessed from
+            // readabilityHandler callbacks and the termination handler.
+            // These closures are serialized by Process: readabilityHandler
+            // fires on the pipe's dispatch source queue, and the termination
+            // handler fires after the process exits (after all pipe data has
+            // been written). The asyncAfter delay ensures all pending
+            // readabilityHandler calls have drained before we read the buffers.
+            nonisolated(unsafe) let stdoutBuffer = NSMutableData()
+            nonisolated(unsafe) let stderrBuffer = NSMutableData()
+            nonisolated(unsafe) var continuationResumed = false
+
+            stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if data.isEmpty {
+                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                } else {
+                    stdoutBuffer.append(data)
+                }
+            }
+
+            stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if data.isEmpty {
+                    stderrPipe.fileHandleForReading.readabilityHandler = nil
+                } else {
+                    stderrBuffer.append(data)
+                }
+            }
+
+            // Timeout timer: terminates the process if it runs too long.
+            // nonisolated(unsafe) because DispatchWorkItem is not Sendable,
+            // but we only cancel it from the terminationHandler or catch
+            // block, never concurrently with its execution.
+            nonisolated(unsafe) let timeoutItem = DispatchWorkItem { [weak process] in
+                guard let process, process.isRunning else { return }
+                logger.warning("Tool '\(name, privacy: .public)' timed out after \(Int(timeout))s, terminating")
+                process.terminate()
+            }
+            DispatchQueue.global().asyncAfter(
+                deadline: .now() + timeout,
+                execute: timeoutItem
+            )
+
+            process.terminationHandler = { terminatedProcess in
+                // Cancel the timeout timer since the process finished.
+                timeoutItem.cancel()
+
+                // Small delay to let any remaining readabilityHandler
+                // callbacks drain before we read the final buffer contents.
+                DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) {
+                    // Nil out handlers to break retain cycles.
+                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                    stderrPipe.fileHandleForReading.readabilityHandler = nil
+
+                    guard !continuationResumed else { return }
+                    continuationResumed = true
+
+                    let stdout = String(data: stdoutBuffer as Data, encoding: .utf8) ?? ""
+                    let stderr = String(data: stderrBuffer as Data, encoding: .utf8) ?? ""
+
+                    // Check if this was a timeout (SIGTERM = exit 15 or 143).
+                    if terminatedProcess.terminationReason == .uncaughtSignal
+                        && (terminatedProcess.terminationStatus == 15
+                            || terminatedProcess.terminationStatus == 143) {
+                        continuation.resume(
+                            throwing: CondaError.timeout(tool: name, seconds: timeout)
+                        )
+                    } else {
+                        continuation.resume(
+                            returning: (stdout, stderr, terminatedProcess.terminationStatus)
+                        )
+                    }
+                }
+            }
+
+            do {
+                try process.run()
+            } catch {
+                timeoutItem.cancel()
+                stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                stderrPipe.fileHandleForReading.readabilityHandler = nil
+                guard !continuationResumed else { return }
+                continuationResumed = true
+                continuation.resume(throwing: error)
+            }
         }
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        try process.run()
-        process.waitUntilExit()
-
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-
-        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-
-        return (stdout, stderr, process.terminationStatus)
     }
 
     // MARK: - Nextflow Integration
@@ -808,39 +897,89 @@ public actor CondaManager {
     // MARK: - Private Helpers
 
     /// Runs micromamba with the given arguments and returns stdout.
+    ///
+    /// Pipe reading is performed concurrently with the subprocess using
+    /// `readabilityHandler` to avoid deadlocks when micromamba produces
+    /// more than 64 KB of output (e.g. environment creation with many
+    /// packages). The actor thread is never blocked.
     private func runMicromamba(_ arguments: [String]) async throws -> String {
         guard FileManager.default.fileExists(atPath: micromambaPath.path) else {
             throw CondaError.micromambaNotFound
         }
 
-        let process = Process()
-        process.executableURL = micromambaPath
-        process.arguments = arguments
-        process.environment = [
-            "MAMBA_ROOT_PREFIX": rootPrefix.path,
-            "MAMBA_NO_BANNER": "1",
-            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-        ]
+        let executablePath = micromambaPath
+        let rootPath = rootPrefix.path
 
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+        return try await withCheckedThrowingContinuation { continuation in
+            let process = Process()
+            process.executableURL = executablePath
+            process.arguments = arguments
+            process.environment = [
+                "MAMBA_ROOT_PREFIX": rootPath,
+                "MAMBA_NO_BANNER": "1",
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            ]
 
-        try process.run()
-        process.waitUntilExit()
+            let stdoutPipe = Pipe()
+            let stderrPipe = Pipe()
+            process.standardOutput = stdoutPipe
+            process.standardError = stderrPipe
 
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            nonisolated(unsafe) let stdoutBuffer = NSMutableData()
+            nonisolated(unsafe) let stderrBuffer = NSMutableData()
+            nonisolated(unsafe) var continuationResumed = false
 
-        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+            stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if data.isEmpty {
+                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                } else {
+                    stdoutBuffer.append(data)
+                }
+            }
 
-        if process.terminationStatus != 0 {
-            logger.error("micromamba failed (exit \(process.terminationStatus)): \(stderr, privacy: .public)")
-            throw CondaError.packageInstallFailed(stderr.isEmpty ? stdout : stderr)
+            stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if data.isEmpty {
+                    stderrPipe.fileHandleForReading.readabilityHandler = nil
+                } else {
+                    stderrBuffer.append(data)
+                }
+            }
+
+            process.terminationHandler = { terminatedProcess in
+                // Small delay to let any remaining readabilityHandler
+                // callbacks drain before we read the final buffer contents.
+                DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) {
+                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                    stderrPipe.fileHandleForReading.readabilityHandler = nil
+
+                    guard !continuationResumed else { return }
+                    continuationResumed = true
+
+                    let stdout = String(data: stdoutBuffer as Data, encoding: .utf8) ?? ""
+                    let stderr = String(data: stderrBuffer as Data, encoding: .utf8) ?? ""
+
+                    if terminatedProcess.terminationStatus != 0 {
+                        logger.error("micromamba failed (exit \(terminatedProcess.terminationStatus)): \(stderr, privacy: .public)")
+                        continuation.resume(
+                            throwing: CondaError.packageInstallFailed(stderr.isEmpty ? stdout : stderr)
+                        )
+                    } else {
+                        continuation.resume(returning: stdout)
+                    }
+                }
+            }
+
+            do {
+                try process.run()
+            } catch {
+                stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                stderrPipe.fileHandleForReading.readabilityHandler = nil
+                guard !continuationResumed else { return }
+                continuationResumed = true
+                continuation.resume(throwing: error)
+            }
         }
-
-        return stdout
     }
 }

@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishWorkflow
 @testable import LungfishApp
+@testable import LungfishIO
 
 // MARK: - ClassificationWizardTests
 
@@ -12,7 +13,7 @@ import XCTest
 ///
 /// These tests verify the data-layer behavior of the wizard without rendering
 /// SwiftUI views. They test goal options, preset mappings, database selection,
-/// and configuration generation.
+/// configuration generation, and FASTQ bundle URL resolution.
 final class ClassificationWizardTests: XCTestCase {
 
     // MARK: - Test Fixtures
@@ -81,6 +82,152 @@ final class ClassificationWizardTests: XCTestCase {
             XCTAssertFalse(goal.goalDescription.isEmpty, "\(goal) should have a description")
             XCTAssertFalse(goal.rawValue.isEmpty, "\(goal) should have a display name")
         }
+    }
+
+    // MARK: - testGoalMappingToConfig
+
+    /// Verifies that wizard goals map correctly to ClassificationConfig.Goal values.
+    func testGoalMappingToConfigGoal() {
+        XCTAssertEqual(
+            ClassificationWizardSheet.ClassificationGoal.classify.configGoal,
+            .classify
+        )
+        XCTAssertEqual(
+            ClassificationWizardSheet.ClassificationGoal.profile.configGoal,
+            .profile
+        )
+        XCTAssertEqual(
+            ClassificationWizardSheet.ClassificationGoal.extract.configGoal,
+            .extract
+        )
+    }
+
+    /// Verifies that all ClassificationConfig.Goal cases are reachable from wizard goals.
+    func testAllConfigGoalsCoveredByWizard() {
+        let wizardGoals = ClassificationWizardSheet.ClassificationGoal.allCases
+        let configGoals = Set(wizardGoals.map(\.configGoal))
+
+        for goal in ClassificationConfig.Goal.allCases {
+            XCTAssertTrue(
+                configGoals.contains(goal),
+                "Config goal .\(goal) should be reachable from wizard"
+            )
+        }
+    }
+
+    // MARK: - testConfigGoal
+
+    /// Verifies that ClassificationConfig.Goal has exactly three cases.
+    func testConfigGoalCaseIterable() {
+        let goals = ClassificationConfig.Goal.allCases
+        XCTAssertEqual(goals.count, 3)
+        XCTAssertTrue(goals.contains(.classify))
+        XCTAssertTrue(goals.contains(.profile))
+        XCTAssertTrue(goals.contains(.extract))
+    }
+
+    /// Verifies that the default goal is .classify when not specified.
+    func testConfigDefaultGoalIsClassify() {
+        let dbPath = tempDir.appendingPathComponent("test-db")
+        let inputFile = tempDir.appendingPathComponent("input.fastq")
+        let outputDir = tempDir.appendingPathComponent("output")
+
+        let config = ClassificationConfig(
+            inputFiles: [inputFile],
+            isPairedEnd: false,
+            databaseName: "Standard-8",
+            databasePath: dbPath,
+            outputDirectory: outputDir
+        )
+
+        XCTAssertEqual(config.goal, .classify, "Default goal should be .classify")
+    }
+
+    /// Verifies that an explicit goal is stored in the config.
+    func testConfigExplicitGoal() {
+        let dbPath = tempDir.appendingPathComponent("test-db")
+        let inputFile = tempDir.appendingPathComponent("input.fastq")
+        let outputDir = tempDir.appendingPathComponent("output")
+
+        let profileConfig = ClassificationConfig(
+            goal: .profile,
+            inputFiles: [inputFile],
+            isPairedEnd: false,
+            databaseName: "Standard-8",
+            databasePath: dbPath,
+            outputDirectory: outputDir
+        )
+        XCTAssertEqual(profileConfig.goal, .profile)
+
+        let extractConfig = ClassificationConfig(
+            goal: .extract,
+            inputFiles: [inputFile],
+            isPairedEnd: false,
+            databaseName: "Standard-8",
+            databasePath: dbPath,
+            outputDirectory: outputDir
+        )
+        XCTAssertEqual(extractConfig.goal, .extract)
+    }
+
+    /// Verifies that fromPreset respects the goal parameter.
+    func testFromPresetWithGoal() {
+        let dbPath = tempDir.appendingPathComponent("test-db")
+        let inputFile = tempDir.appendingPathComponent("input.fastq")
+        let outputDir = tempDir.appendingPathComponent("output")
+
+        let config = ClassificationConfig.fromPreset(
+            .balanced,
+            goal: .profile,
+            inputFiles: [inputFile],
+            isPairedEnd: false,
+            databaseName: "Viral",
+            databasePath: dbPath,
+            outputDirectory: outputDir
+        )
+
+        XCTAssertEqual(config.goal, .profile)
+        XCTAssertEqual(config.confidence, 0.2)
+    }
+
+    /// Verifies that fromPreset defaults to .classify when goal is omitted.
+    func testFromPresetDefaultGoal() {
+        let dbPath = tempDir.appendingPathComponent("test-db")
+        let inputFile = tempDir.appendingPathComponent("input.fastq")
+        let outputDir = tempDir.appendingPathComponent("output")
+
+        let config = ClassificationConfig.fromPreset(
+            .sensitive,
+            inputFiles: [inputFile],
+            isPairedEnd: false,
+            databaseName: "Viral",
+            databasePath: dbPath,
+            outputDirectory: outputDir
+        )
+
+        XCTAssertEqual(config.goal, .classify)
+    }
+
+    /// Verifies that the goal field round-trips through Codable.
+    func testConfigGoalCodable() throws {
+        let dbPath = tempDir.appendingPathComponent("test-db")
+        let inputFile = tempDir.appendingPathComponent("input.fastq")
+        let outputDir = tempDir.appendingPathComponent("output")
+
+        let original = ClassificationConfig(
+            goal: .extract,
+            inputFiles: [inputFile],
+            isPairedEnd: false,
+            databaseName: "Viral",
+            databasePath: dbPath,
+            outputDirectory: outputDir
+        )
+
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(ClassificationConfig.self, from: data)
+
+        XCTAssertEqual(decoded.goal, .extract)
+        XCTAssertEqual(decoded, original)
     }
 
     // MARK: - testPresetMapping
@@ -178,6 +325,7 @@ final class ClassificationWizardTests: XCTestCase {
         XCTAssertEqual(config.minimumHitGroups, 2)
         XCTAssertEqual(config.threads, 4)
         XCTAssertFalse(config.memoryMapping)
+        XCTAssertEqual(config.goal, .classify, "Default goal should be .classify")
     }
 
     /// Verifies that fromPreset creates a config with correct parameters.
@@ -271,5 +419,104 @@ final class ClassificationWizardTests: XCTestCase {
 
         XCTAssertFalse(db.isDownloaded)
         XCTAssertEqual(db.status, .missing)
+    }
+
+    // MARK: - FASTQ Bundle URL Resolution (Bug 1)
+
+    /// Verifies that a .lungfishfastq bundle with a FASTQ file resolves to the contained file.
+    func testBundleURLResolvesToFASTQFile() throws {
+        let bundleURL = tempDir.appendingPathComponent("sample.lungfishfastq")
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let fastqFile = bundleURL.appendingPathComponent("reads.fastq.gz")
+        try "fake-fastq-content".write(to: fastqFile, atomically: true, encoding: .utf8)
+
+        let resolved = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL)
+
+        XCTAssertNotNil(resolved, "Bundle should resolve to contained FASTQ file")
+        XCTAssertEqual(resolved?.lastPathComponent, "reads.fastq.gz")
+        XCTAssertTrue(FASTQBundle.isFASTQFileURL(resolved!), "Resolved URL should be a FASTQ file")
+    }
+
+    /// Verifies that a .lungfishfastq bundle with a .fastq file (not gzipped) resolves correctly.
+    func testBundleURLResolvesToUncompressedFASTQ() throws {
+        let bundleURL = tempDir.appendingPathComponent("sample2.lungfishfastq")
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let fastqFile = bundleURL.appendingPathComponent("data.fastq")
+        try "@SEQ\nACGT\n+\nIIII\n".write(to: fastqFile, atomically: true, encoding: .utf8)
+
+        let resolved = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL)
+
+        XCTAssertNotNil(resolved)
+        XCTAssertEqual(resolved?.lastPathComponent, "data.fastq")
+    }
+
+    /// Verifies that a .lungfishfastq bundle with .fq extension resolves correctly.
+    func testBundleURLResolvesToFQFile() throws {
+        let bundleURL = tempDir.appendingPathComponent("sample3.lungfishfastq")
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let fqFile = bundleURL.appendingPathComponent("reads.fq.gz")
+        try "fake-fq-content".write(to: fqFile, atomically: true, encoding: .utf8)
+
+        let resolved = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL)
+
+        XCTAssertNotNil(resolved)
+        XCTAssertEqual(resolved?.lastPathComponent, "reads.fq.gz")
+    }
+
+    /// Verifies that an empty .lungfishfastq bundle returns nil.
+    func testEmptyBundleReturnsNil() throws {
+        let bundleURL = tempDir.appendingPathComponent("empty.lungfishfastq")
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let resolved = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL)
+
+        XCTAssertNil(resolved, "Empty bundle should resolve to nil")
+    }
+
+    /// Verifies that a plain FASTQ file URL passes through resolvePrimaryFASTQURL unchanged.
+    func testPlainFASTQURLPassesThrough() throws {
+        let fastqURL = tempDir.appendingPathComponent("plain.fastq")
+        try "@SEQ\nACGT\n+\nIIII\n".write(to: fastqURL, atomically: true, encoding: .utf8)
+
+        let resolved = FASTQBundle.resolvePrimaryFASTQURL(for: fastqURL)
+
+        XCTAssertEqual(resolved, fastqURL, "Plain FASTQ URL should pass through unchanged")
+    }
+
+    /// Verifies that bundle resolution does not return non-FASTQ files inside the bundle.
+    func testBundleIgnoresNonFASTQFiles() throws {
+        let bundleURL = tempDir.appendingPathComponent("mixed.lungfishfastq")
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        // Only metadata files inside, no FASTQ
+        try "{}".write(
+            to: bundleURL.appendingPathComponent("manifest.json"),
+            atomically: true, encoding: .utf8
+        )
+        try "index".write(
+            to: bundleURL.appendingPathComponent("reads.fai"),
+            atomically: true, encoding: .utf8
+        )
+
+        let resolved = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL)
+
+        XCTAssertNil(resolved, "Bundle with only metadata files should resolve to nil")
+    }
+
+    /// Verifies that the bundle extension constant matches expectations.
+    func testBundleDirectoryExtension() {
+        XCTAssertEqual(FASTQBundle.directoryExtension, "lungfishfastq")
+    }
+
+    /// Verifies that isBundleURL correctly identifies bundles.
+    func testIsBundleURL() throws {
+        let bundleURL = tempDir.appendingPathComponent("test.lungfishfastq")
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        XCTAssertTrue(FASTQBundle.isBundleURL(bundleURL))
+        XCTAssertFalse(FASTQBundle.isBundleURL(tempDir.appendingPathComponent("test.fastq")))
     }
 }

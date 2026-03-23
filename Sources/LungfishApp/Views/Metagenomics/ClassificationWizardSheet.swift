@@ -76,6 +76,9 @@ struct ClassificationWizardSheet: View {
     // MARK: - Classification Goal
 
     /// The user's high-level intent for the classification.
+    ///
+    /// This is the UI-layer representation. The ``performRun()`` method maps it
+    /// to ``ClassificationConfig.Goal`` when building the config.
     enum ClassificationGoal: String, CaseIterable, Identifiable {
         case classify = "Classify Reads"
         case profile = "Profile Community"
@@ -98,6 +101,15 @@ struct ClassificationWizardSheet: View {
             case .classify: return "Assign each read to a taxon"
             case .profile:  return "Estimate abundance of each organism"
             case .extract:  return "Pull out reads matching specific taxa"
+            }
+        }
+
+        /// Maps to the workflow-level ``ClassificationConfig.Goal``.
+        var configGoal: ClassificationConfig.Goal {
+            switch self {
+            case .classify: return .classify
+            case .profile:  return .profile
+            case .extract:  return .extract
             }
         }
     }
@@ -444,6 +456,7 @@ struct ClassificationWizardSheet: View {
                 .appendingPathComponent("classification-\(UUID().uuidString.prefix(8))")
 
         let config = ClassificationConfig(
+            goal: selectedGoal.configGoal,
             inputFiles: inputFiles,
             isPairedEnd: inputFiles.count == 2,
             databaseName: db.name,

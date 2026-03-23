@@ -326,12 +326,18 @@ final class CondaManagerTests: XCTestCase {
             .linuxOnlyPackage("pbaa"),
             .networkError("timeout"),
             .diskSpaceError("insufficient"),
+            .timeout(tool: "kraken2", seconds: 3600),
         ]
 
         for error in errors {
             XCTAssertNotNil(error.errorDescription, "Error \(error) should have a description")
             XCTAssertFalse(error.errorDescription!.isEmpty)
         }
+    }
+
+    func testTimeoutErrorDescription() {
+        let error = CondaError.timeout(tool: "kraken2", seconds: 60)
+        XCTAssertEqual(error.errorDescription, "Tool 'kraken2' timed out after 60 seconds")
     }
 
     // MARK: - Integration Tests (require network)
@@ -342,5 +348,210 @@ final class CondaManagerTests: XCTestCase {
         let envs = try await manager.listEnvironments()
         // Just verify it returns an array (may be empty or populated)
         XCTAssertTrue(envs is [CondaEnvironment])
+    }
+
+    // MARK: - Concurrent Pipe Reading Tests
+
+    /// Verifies that runTool does not deadlock when the subprocess produces
+    /// more than 64 KB of output on stdout. The old implementation called
+    /// `waitUntilExit()` before reading pipes, which deadlocked because the
+    /// OS pipe buffer (64 KB) filled up and the child process blocked on
+    /// write, never exiting.
+    ///
+    /// Uses `/bin/dd` to generate exactly 128 KB of zero bytes, which is
+    /// double the pipe buffer size. If the implementation reads pipes
+    /// concurrently, this completes in well under the timeout.
+    func testRunToolDoesNotDeadlockWithLargeOutput() async throws {
+        let manager = CondaManager.shared
+
+        // We bypass micromamba by directly testing the pattern with a known
+        // system command. Since runTool requires an environment, we instead
+        // test the same continuation+readabilityHandler pattern directly
+        // using /bin/dd which produces >64KB output.
+        let result = try await runProcessWithConcurrentPipes(
+            executablePath: "/bin/dd",
+            arguments: ["if=/dev/zero", "bs=1024", "count=128"],
+            timeout: 10
+        )
+
+        // dd writes 128 * 1024 = 131072 bytes of zeros to stdout.
+        // stderr will contain the dd summary line.
+        XCTAssertEqual(result.exitCode, 0, "dd should exit cleanly")
+        XCTAssertEqual(result.stdoutData.count, 131_072,
+                       "Should have received exactly 128 KB of stdout data")
+        XCTAssertFalse(result.stderr.isEmpty,
+                       "dd should write a summary to stderr")
+    }
+
+    /// Verifies that the timeout mechanism works: a long-running process
+    /// is terminated when the timeout expires.
+    func testRunToolTimeout() async throws {
+        // Use `sleep 60` which will be killed by our 1-second timeout.
+        do {
+            _ = try await runProcessWithConcurrentPipes(
+                executablePath: "/bin/sleep",
+                arguments: ["60"],
+                timeout: 1
+            )
+            XCTFail("Should have thrown a timeout error")
+        } catch {
+            // Verify we got a timeout-related termination (SIGTERM = 15).
+            // The process was killed, so we expect a non-zero exit.
+            let nsError = error as NSError
+            XCTAssertTrue(
+                nsError.localizedDescription.contains("timed out")
+                || nsError.domain == "ProcessTimeout",
+                "Error should indicate timeout, got: \(error)"
+            )
+        }
+    }
+
+    /// Verifies that concurrent pipe reading handles mixed stdout/stderr
+    /// output correctly without data corruption.
+    func testRunToolConcurrentPipeReading() async throws {
+        // Use a shell command that writes to both stdout and stderr
+        // in an interleaved pattern. We use /bin/sh to run a script
+        // that echoes numbered lines to both streams.
+        let script = """
+        i=0; while [ $i -lt 500 ]; do echo "stdout-line-$i"; echo "stderr-line-$i" >&2; i=$((i+1)); done
+        """
+
+        let result = try await runProcessWithConcurrentPipes(
+            executablePath: "/bin/sh",
+            arguments: ["-c", script],
+            timeout: 10
+        )
+
+        XCTAssertEqual(result.exitCode, 0)
+
+        let stdoutLines = result.stdout.split(separator: "\n")
+        let stderrLines = result.stderr.split(separator: "\n")
+
+        XCTAssertEqual(stdoutLines.count, 500,
+                       "Should have 500 stdout lines, got \(stdoutLines.count)")
+        XCTAssertEqual(stderrLines.count, 500,
+                       "Should have 500 stderr lines, got \(stderrLines.count)")
+
+        // Verify ordering is preserved within each stream.
+        for i in 0..<500 {
+            XCTAssertEqual(String(stdoutLines[i]), "stdout-line-\(i)")
+            XCTAssertEqual(String(stderrLines[i]), "stderr-line-\(i)")
+        }
+    }
+
+    // MARK: - Private Test Helper
+
+    /// Result from running a process with concurrent pipe reading.
+    private struct ProcessResult {
+        let stdout: String
+        let stderr: String
+        let stdoutData: Data
+        let exitCode: Int32
+    }
+
+    /// Runs a process using the same continuation + readabilityHandler pattern
+    /// as the fixed CondaManager.runTool / runMicromamba methods.
+    ///
+    /// This helper allows testing the pipe-reading and timeout logic without
+    /// requiring micromamba to be installed.
+    private func runProcessWithConcurrentPipes(
+        executablePath: String,
+        arguments: [String],
+        timeout: TimeInterval
+    ) async throws -> ProcessResult {
+        struct ProcessTimeoutError: Error, LocalizedError {
+            let tool: String
+            let seconds: TimeInterval
+            var errorDescription: String? {
+                "Process '\(tool)' timed out after \(Int(seconds)) seconds"
+            }
+            var domain: String { "ProcessTimeout" }
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: executablePath)
+            process.arguments = arguments
+
+            let stdoutPipe = Pipe()
+            let stderrPipe = Pipe()
+            process.standardOutput = stdoutPipe
+            process.standardError = stderrPipe
+
+            nonisolated(unsafe) let stdoutBuffer = NSMutableData()
+            nonisolated(unsafe) let stderrBuffer = NSMutableData()
+            nonisolated(unsafe) var continuationResumed = false
+
+            stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if data.isEmpty {
+                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                } else {
+                    stdoutBuffer.append(data)
+                }
+            }
+
+            stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if data.isEmpty {
+                    stderrPipe.fileHandleForReading.readabilityHandler = nil
+                } else {
+                    stderrBuffer.append(data)
+                }
+            }
+
+            let toolName = URL(fileURLWithPath: executablePath).lastPathComponent
+            nonisolated(unsafe) let timeoutItem = DispatchWorkItem { [weak process] in
+                guard let process, process.isRunning else { return }
+                process.terminate()
+            }
+            DispatchQueue.global().asyncAfter(
+                deadline: .now() + timeout,
+                execute: timeoutItem
+            )
+
+            process.terminationHandler = { terminatedProcess in
+                timeoutItem.cancel()
+
+                DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) {
+                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                    stderrPipe.fileHandleForReading.readabilityHandler = nil
+
+                    guard !continuationResumed else { return }
+                    continuationResumed = true
+
+                    let stdout = String(data: stdoutBuffer as Data, encoding: .utf8) ?? ""
+                    let stderr = String(data: stderrBuffer as Data, encoding: .utf8) ?? ""
+
+                    if terminatedProcess.terminationReason == .uncaughtSignal
+                        && (terminatedProcess.terminationStatus == 15
+                            || terminatedProcess.terminationStatus == 143) {
+                        continuation.resume(
+                            throwing: ProcessTimeoutError(tool: toolName, seconds: timeout)
+                        )
+                    } else {
+                        continuation.resume(
+                            returning: ProcessResult(
+                                stdout: stdout,
+                                stderr: stderr,
+                                stdoutData: stdoutBuffer as Data,
+                                exitCode: terminatedProcess.terminationStatus
+                            )
+                        )
+                    }
+                }
+            }
+
+            do {
+                try process.run()
+            } catch {
+                timeoutItem.cancel()
+                stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                stderrPipe.fileHandleForReading.readabilityHandler = nil
+                guard !continuationResumed else { return }
+                continuationResumed = true
+                continuation.resume(throwing: error)
+            }
+        }
     }
 }

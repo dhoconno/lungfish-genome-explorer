@@ -11,6 +11,16 @@ import Foundation
 /// Captures all parameters needed to execute `kraken2` and optionally `bracken`:
 /// input files, database selection, tool-level flags, and output location.
 ///
+/// ## Goals
+///
+/// The ``goal`` property determines post-classification behavior:
+///
+/// | Goal       | Pipeline |
+/// |-----------|---------|
+/// | `.classify` | Kraken2 only |
+/// | `.profile`  | Kraken2 + Bracken abundance estimation |
+/// | `.extract`  | Kraken2, then present taxonomy extraction sheet |
+///
 /// ## Presets
 ///
 /// Three sensitivity presets map to recommended parameter combinations:
@@ -26,6 +36,33 @@ import Foundation
 /// `ClassificationConfig` is a value type conforming to `Sendable` and `Codable`,
 /// safe to pass across isolation boundaries.
 public struct ClassificationConfig: Sendable, Codable, Equatable {
+
+    // MARK: - Goal
+
+    /// The user's high-level intent for the classification run.
+    ///
+    /// Determines which pipeline steps execute after Kraken2 completes:
+    ///
+    /// | Goal       | Pipeline |
+    /// |-----------|---------|
+    /// | `.classify` | Kraken2 only |
+    /// | `.profile`  | Kraken2 + Bracken abundance estimation |
+    /// | `.extract`  | Kraken2, then present taxonomy extraction sheet |
+    public enum Goal: String, Sendable, Codable, CaseIterable {
+        /// Assign each read to a taxon using Kraken2 only.
+        case classify
+
+        /// Estimate community abundance using Kraken2 + Bracken.
+        case profile
+
+        /// Classify reads, then immediately present extraction UI.
+        case extract
+    }
+
+    /// The user-selected goal for this run.
+    ///
+    /// Defaults to `.classify` for backward compatibility.
+    public let goal: Goal
 
     // MARK: - Input
 
@@ -94,6 +131,7 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
     /// Creates a classification configuration with explicit parameters.
     ///
     /// - Parameters:
+    ///   - goal: The classification goal (default: `.classify`).
     ///   - inputFiles: FASTQ input file(s).
     ///   - isPairedEnd: Whether the input is paired-end.
     ///   - databaseName: Name of the database in the registry.
@@ -105,6 +143,7 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
     ///   - quickMode: Use quick mode (default: false).
     ///   - outputDirectory: Output directory for results.
     public init(
+        goal: Goal = .classify,
         inputFiles: [URL],
         isPairedEnd: Bool,
         databaseName: String,
@@ -116,6 +155,7 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
         quickMode: Bool = false,
         outputDirectory: URL
     ) {
+        self.goal = goal
         self.inputFiles = inputFiles
         self.isPairedEnd = isPairedEnd
         self.databaseName = databaseName
@@ -149,6 +189,7 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
     ///
     /// - Parameters:
     ///   - preset: The sensitivity preset to apply.
+    ///   - goal: The classification goal (default: `.classify`).
     ///   - inputFiles: FASTQ input file(s).
     ///   - isPairedEnd: Whether the input is paired-end.
     ///   - databaseName: Name of the database.
@@ -160,6 +201,7 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
     /// - Returns: A fully configured ``ClassificationConfig``.
     public static func fromPreset(
         _ preset: Preset,
+        goal: Goal = .classify,
         inputFiles: [URL],
         isPairedEnd: Bool,
         databaseName: String,
@@ -171,6 +213,7 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
     ) -> ClassificationConfig {
         let (confidence, minHitGroups) = preset.parameters
         return ClassificationConfig(
+            goal: goal,
             inputFiles: inputFiles,
             isPairedEnd: isPairedEnd,
             databaseName: databaseName,
