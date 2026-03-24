@@ -182,7 +182,15 @@ private extension NSUserInterfaceItemIdentifier {
     static let blastIdentity = NSUserInterfaceItemIdentifier("blastIdentity")
     static let blastEValue = NSUserInterfaceItemIdentifier("blastEValue")
     static let blastBitScore = NSUserInterfaceItemIdentifier("blastBitScore")
+    static let blastAccession = NSUserInterfaceItemIdentifier("blastAccession")
+    static let blastCoverage = NSUserInterfaceItemIdentifier("blastCoverage")
+    static let blastAlignLength = NSUserInterfaceItemIdentifier("blastAlignLength")
+    static let blastTaxId = NSUserInterfaceItemIdentifier("blastTaxId")
+    static let blastVerdict = NSUserInterfaceItemIdentifier("blastVerdict")
 }
+
+/// UserDefaults key for persisting hidden column identifiers.
+private let hiddenColumnsDefaultsKey = "blastResultsHiddenColumns"
 
 // MARK: - BlastResultsDrawerTab
 
@@ -205,6 +213,12 @@ private extension NSUserInterfaceItemIdentifier {
 /// | [Open in NCBI BLAST]                              [Re-run BLAST]      |
 /// +----------------------------------------------------------------------+
 /// ```
+///
+/// ## Optional Columns
+///
+/// Right-click the column header to show or hide optional columns:
+/// Coverage, Align Length, Tax ID, and Verdict. Visibility is persisted
+/// to UserDefaults under the key `"blastResultsHiddenColumns"`.
 ///
 /// ## States
 ///
@@ -283,6 +297,17 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
     private let actionBar = NSView()
     let openInBlastButton = NSButton()
     let rerunBlastButton = NSButton()
+
+    // MARK: - Number Formatter
+
+    /// Shared number formatter for comma-separated integer display.
+    private static let commaFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.groupingSeparator = ","
+        formatter.usesGroupingSeparator = true
+        return formatter
+    }()
 
     // MARK: - Initialization
 
@@ -402,6 +427,9 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
         outlineItems = result.readResults.map { ReadResultItem($0) }
         applySortDescriptors()
         resultsOutlineView.reloadData()
+
+        // Refresh header menu checkmarks
+        refreshHeaderMenuCheckmarks()
 
         showState(.results(result))
 
@@ -746,6 +774,61 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
         bitScoreColumn.sortDescriptorPrototype = NSSortDescriptor(key: "bitScore", ascending: false)
         resultsOutlineView.addTableColumn(bitScoreColumn)
 
+        // --- Optional columns (hidden by default, right-click header to show) ---
+
+        // Accession column (100pt)
+        let accessionColumn = NSTableColumn(identifier: .blastAccession)
+        accessionColumn.title = "Accession"
+        accessionColumn.width = 100
+        accessionColumn.minWidth = 70
+        accessionColumn.resizingMask = .userResizingMask
+        accessionColumn.sortDescriptorPrototype = NSSortDescriptor(key: "accession", ascending: true)
+        accessionColumn.isHidden = true
+        resultsOutlineView.addTableColumn(accessionColumn)
+
+        // Coverage column (70pt, right-aligned monospaced)
+        let coverageColumn = NSTableColumn(identifier: .blastCoverage)
+        coverageColumn.title = "Coverage"
+        coverageColumn.width = 70
+        coverageColumn.minWidth = 55
+        coverageColumn.resizingMask = .userResizingMask
+        coverageColumn.sortDescriptorPrototype = NSSortDescriptor(key: "coverage", ascending: false)
+        coverageColumn.isHidden = true
+        resultsOutlineView.addTableColumn(coverageColumn)
+
+        // Alignment Length column (75pt, right-aligned monospaced)
+        let alignLengthColumn = NSTableColumn(identifier: .blastAlignLength)
+        alignLengthColumn.title = "Align Length"
+        alignLengthColumn.width = 75
+        alignLengthColumn.minWidth = 60
+        alignLengthColumn.resizingMask = .userResizingMask
+        alignLengthColumn.sortDescriptorPrototype = NSSortDescriptor(key: "alignLength", ascending: false)
+        alignLengthColumn.isHidden = true
+        resultsOutlineView.addTableColumn(alignLengthColumn)
+
+        // Tax ID column (65pt, right-aligned monospaced)
+        let taxIdColumn = NSTableColumn(identifier: .blastTaxId)
+        taxIdColumn.title = "Tax ID"
+        taxIdColumn.width = 65
+        taxIdColumn.minWidth = 50
+        taxIdColumn.resizingMask = .userResizingMask
+        taxIdColumn.sortDescriptorPrototype = NSSortDescriptor(key: "taxId", ascending: true)
+        taxIdColumn.isHidden = true
+        resultsOutlineView.addTableColumn(taxIdColumn)
+
+        // Verdict column (80pt, left-aligned)
+        let verdictColumn = NSTableColumn(identifier: .blastVerdict)
+        verdictColumn.title = "Verdict"
+        verdictColumn.width = 80
+        verdictColumn.minWidth = 60
+        verdictColumn.resizingMask = .userResizingMask
+        verdictColumn.sortDescriptorPrototype = NSSortDescriptor(key: "verdict", ascending: true)
+        verdictColumn.isHidden = true
+        resultsOutlineView.addTableColumn(verdictColumn)
+
+        // Restore persisted column visibility from UserDefaults
+        restoreColumnVisibility()
+
         // The outline column is Read/Accession (shows disclosure triangles)
         resultsOutlineView.outlineTableColumn = readIdColumn
 
@@ -753,9 +836,84 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
         resultsOutlineView.delegate = self
         resultsOutlineView.menu = buildContextMenu()
 
+        // Build the column header context menu for toggling optional columns
+        buildHeaderContextMenu()
+
         resultsScrollView.documentView = resultsOutlineView
 
         resultsOutlineView.setAccessibilityLabel("BLAST Results Table")
+    }
+
+    // MARK: - Column Header Context Menu
+
+    /// Builds the context menu attached to the header view for toggling
+    /// optional column visibility.
+    ///
+    /// The Status and Read/Accession columns are excluded from the menu
+    /// because they must always be visible.
+    private func buildHeaderContextMenu() {
+        let headerMenu = NSMenu()
+        for column in resultsOutlineView.tableColumns {
+            // Skip Status (always visible, no title) and Read/Accession (outline column)
+            guard column.identifier != .blastStatus,
+                  column.identifier != .blastReadId else { continue }
+            let item = NSMenuItem(
+                title: column.title,
+                action: #selector(toggleColumnVisibility(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = column
+            item.state = column.isHidden ? .off : .on
+            headerMenu.addItem(item)
+        }
+        resultsOutlineView.headerView?.menu = headerMenu
+    }
+
+    /// Toggles the visibility of a column when its header context menu item
+    /// is clicked, and persists the new state to UserDefaults.
+    @objc private func toggleColumnVisibility(_ sender: NSMenuItem) {
+        guard let column = sender.representedObject as? NSTableColumn else { return }
+        column.isHidden.toggle()
+        sender.state = column.isHidden ? .off : .on
+        saveColumnVisibility()
+    }
+
+    /// Refreshes the checkmark state of all items in the header context menu
+    /// to match current column visibility.
+    private func refreshHeaderMenuCheckmarks() {
+        guard let headerMenu = resultsOutlineView.headerView?.menu else { return }
+        for item in headerMenu.items {
+            guard let column = item.representedObject as? NSTableColumn else { continue }
+            item.state = column.isHidden ? .off : .on
+        }
+    }
+
+    // MARK: - Column Visibility Persistence
+
+    /// Saves the set of hidden column identifiers to UserDefaults.
+    private func saveColumnVisibility() {
+        let hiddenIds = resultsOutlineView.tableColumns
+            .filter(\.isHidden)
+            .map(\.identifier.rawValue)
+        UserDefaults.standard.set(hiddenIds, forKey: hiddenColumnsDefaultsKey)
+    }
+
+    /// Restores column visibility from UserDefaults.
+    ///
+    /// If no saved state exists the columns keep their programmatic defaults
+    /// (optional columns hidden).
+    private func restoreColumnVisibility() {
+        guard let savedIds = UserDefaults.standard.stringArray(forKey: hiddenColumnsDefaultsKey) else {
+            return
+        }
+        let hiddenSet = Set(savedIds)
+        for column in resultsOutlineView.tableColumns {
+            // Never hide the status or outline column regardless of saved state
+            guard column.identifier != .blastStatus,
+                  column.identifier != .blastReadId else { continue }
+            column.isHidden = hiddenSet.contains(column.identifier.rawValue)
+        }
     }
 
     // MARK: - Setup: Action Bar
@@ -914,6 +1072,10 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
                 return false
             }
 
+        case #selector(toggleColumnVisibility(_:)):
+            // Always allow toggling column visibility
+            return true
+
         default:
             return true
         }
@@ -1020,6 +1182,20 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
                 result = (lhs.result.eValue ?? Double.infinity) < (rhs.result.eValue ?? Double.infinity)
             case .blastBitScore:
                 result = (lhs.result.bitScore ?? -1) < (rhs.result.bitScore ?? -1)
+            case .blastAccession:
+                let lhsAcc = lhs.result.topHitAccession ?? ""
+                let rhsAcc = rhs.result.topHitAccession ?? ""
+                result = lhsAcc.localizedStandardCompare(rhsAcc) == .orderedAscending
+            case .blastCoverage:
+                result = (lhs.result.queryCoverage ?? -1) < (rhs.result.queryCoverage ?? -1)
+            case .blastAlignLength:
+                result = (lhs.result.alignmentLength ?? -1) < (rhs.result.alignmentLength ?? -1)
+            case .blastTaxId:
+                let lhsTax = lhs.result.topHits.first?.taxId ?? -1
+                let rhsTax = rhs.result.topHits.first?.taxId ?? -1
+                result = lhsTax < rhsTax
+            case .blastVerdict:
+                result = lhs.result.verdict.rawValue < rhs.result.verdict.rawValue
             default:
                 result = false
             }
@@ -1060,6 +1236,33 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
             return String(format: "%.0f", bitScore)
         }
         return String(format: "%.1f", bitScore)
+    }
+
+    /// Formats a coverage percentage for display in the table.
+    ///
+    /// - Parameter coverage: The query coverage percentage (0-100), or `nil`.
+    /// - Returns: A formatted string like "95.3%", or "--" if `nil`.
+    static func formatCoverage(_ coverage: Double?) -> String {
+        guard let coverage else { return "--" }
+        return String(format: "%.1f%%", coverage)
+    }
+
+    /// Formats an alignment length with comma separators for display.
+    ///
+    /// - Parameter length: The alignment length in base pairs, or `nil`.
+    /// - Returns: A formatted string like "1,234", or "--" if `nil`.
+    static func formatAlignmentLength(_ length: Int?) -> String {
+        guard let length else { return "--" }
+        return commaFormatter.string(from: NSNumber(value: length)) ?? "\(length)"
+    }
+
+    /// Formats a taxonomy ID for display in the table.
+    ///
+    /// - Parameter taxId: The NCBI taxonomy ID, or `nil`.
+    /// - Returns: A formatted string, or "--" if `nil`.
+    static func formatTaxId(_ taxId: Int?) -> String {
+        guard let taxId else { return "--" }
+        return "\(taxId)"
     }
 
     // MARK: - Export
@@ -1263,12 +1466,17 @@ extension BlastResultsDrawerTab: NSOutlineViewDataSource {
         // Map sort descriptor keys to column identifiers
         let columnId: NSUserInterfaceItemIdentifier
         switch key {
-        case "status":   columnId = .blastStatus
-        case "readId":   columnId = .blastReadId
-        case "organism": columnId = .blastOrganism
-        case "identity": columnId = .blastIdentity
-        case "eValue":   columnId = .blastEValue
-        case "bitScore": columnId = .blastBitScore
+        case "status":      columnId = .blastStatus
+        case "readId":      columnId = .blastReadId
+        case "organism":    columnId = .blastOrganism
+        case "identity":    columnId = .blastIdentity
+        case "eValue":      columnId = .blastEValue
+        case "bitScore":    columnId = .blastBitScore
+        case "accession":   columnId = .blastAccession
+        case "coverage":    columnId = .blastCoverage
+        case "alignLength": columnId = .blastAlignLength
+        case "taxId":       columnId = .blastTaxId
+        case "verdict":     columnId = .blastVerdict
         default: return
         }
 
@@ -1345,6 +1553,36 @@ extension BlastResultsDrawerTab: NSOutlineViewDelegate {
                 font: .monospacedDigitSystemFont(ofSize: 11, weight: .regular),
                 alignment: .right
             )
+        case .blastAccession:
+            return makeTextCell(
+                readResult.topHitAccession ?? "--",
+                font: .systemFont(ofSize: 11),
+                alignment: .left
+            )
+        case .blastCoverage:
+            return makeTextCell(
+                Self.formatCoverage(readResult.queryCoverage),
+                font: .monospacedDigitSystemFont(ofSize: 11, weight: .regular),
+                alignment: .right
+            )
+        case .blastAlignLength:
+            return makeTextCell(
+                Self.formatAlignmentLength(readResult.alignmentLength),
+                font: .monospacedDigitSystemFont(ofSize: 11, weight: .regular),
+                alignment: .right
+            )
+        case .blastTaxId:
+            let taxId = readResult.topHits.first?.taxId
+            return makeTextCell(
+                Self.formatTaxId(taxId),
+                font: .monospacedDigitSystemFont(ofSize: 11, weight: .regular),
+                alignment: .right
+            )
+        case .blastVerdict:
+            return makeTextCell(
+                readResult.verdict.rawValue.capitalized,
+                font: .systemFont(ofSize: 11)
+            )
         default:
             return nil
         }
@@ -1391,6 +1629,40 @@ extension BlastResultsDrawerTab: NSOutlineViewDelegate {
                 font: .monospacedDigitSystemFont(ofSize: 11, weight: .regular),
                 alignment: .right,
                 textColor: .secondaryLabelColor
+            )
+        case .blastAccession:
+            return makeTextCell(
+                hit.accession,
+                font: .systemFont(ofSize: 11),
+                alignment: .left,
+                textColor: .secondaryLabelColor
+            )
+        case .blastCoverage:
+            return makeTextCell(
+                Self.formatCoverage(hit.queryCoverage),
+                font: .monospacedDigitSystemFont(ofSize: 11, weight: .regular),
+                alignment: .right,
+                textColor: .secondaryLabelColor
+            )
+        case .blastAlignLength:
+            return makeTextCell(
+                Self.formatAlignmentLength(hit.alignmentLength),
+                font: .monospacedDigitSystemFont(ofSize: 11, weight: .regular),
+                alignment: .right,
+                textColor: .secondaryLabelColor
+            )
+        case .blastTaxId:
+            return makeTextCell(
+                Self.formatTaxId(hit.taxId),
+                font: .monospacedDigitSystemFont(ofSize: 11, weight: .regular),
+                alignment: .right,
+                textColor: .secondaryLabelColor
+            )
+        case .blastVerdict:
+            return makeTextCell(
+                "\u{2014}",
+                font: .systemFont(ofSize: 11),
+                textColor: .tertiaryLabelColor
             )
         default:
             return nil
