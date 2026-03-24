@@ -3583,32 +3583,40 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
-        // Get installed databases
+        // Present the unified metagenomics wizard (Kraken2, EsViritu, TaxTriage)
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let registry = MetagenomicsDatabaseRegistry.shared
-            let databases = (try? await registry.availableDatabases().filter(\.isDownloaded)) ?? []
 
-            // Present the classification wizard
             let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
-            wizardPanel.title = "Classify Reads"
+            wizardPanel.title = "Metagenomics Analysis"
 
-            let wizardView = ClassificationWizardSheet(
-                inputFiles: inputFiles,
-                installedDatabases: databases,
-                onRun: { [weak self] config in
-                    window.endSheet(wizardPanel)
-                    guard let self else { return }
-                    self.runClassification(config: config, viewerController: viewerController)
-                },
-                onCancel: {
-                    window.endSheet(wizardPanel)
-                }
-            )
+            var wizardView = UnifiedMetagenomicsWizard(inputFiles: inputFiles)
+
+            wizardView.onRunClassification = { [weak self] config in
+                window.endSheet(wizardPanel)
+                guard let self else { return }
+                self.runClassification(config: config, viewerController: viewerController)
+            }
+
+            wizardView.onRunEsViritu = { [weak self] config in
+                window.endSheet(wizardPanel)
+                guard let self else { return }
+                self.runEsViritu(config: config, viewerController: viewerController)
+            }
+
+            wizardView.onRunTaxTriage = { [weak self] config in
+                window.endSheet(wizardPanel)
+                guard let self else { return }
+                self.runTaxTriage(config: config, viewerController: viewerController)
+            }
+
+            wizardView.onCancel = {
+                window.endSheet(wizardPanel)
+            }
 
             let hostingController = NSHostingController(rootView: wizardView)
             wizardPanel.contentViewController = hostingController
-            wizardPanel.setContentSize(NSSize(width: 520, height: 580))
+            wizardPanel.setContentSize(NSSize(width: 560, height: 520))
             await window.beginSheet(wizardPanel)
         }
     }
@@ -3719,6 +3727,166 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
     }
 
+
+    /// Runs the EsViritu viral detection pipeline.
+    ///
+    /// Registers the operation with ``OperationCenter`` and displays the
+    /// ``EsVirituResultViewController`` when complete.
+    private func runEsViritu(config: EsVirituConfig, viewerController: ViewerViewController) {
+        let opID = OperationCenter.shared.start(
+            title: "EsViritu \(config.sampleName)",
+            detail: "Starting EsViritu viral detection\u{2026}",
+            operationType: .classification
+        )
+
+        let task = Task.detached {
+            do {
+                let pipeline = EsVirituPipeline()
+                let result = try await pipeline.detect(
+                    config: config,
+                    progress: { progress, message in
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                viewerController.showProgress(message)
+                                OperationCenter.shared.update(
+                                    id: opID,
+                                    progress: max(0, min(1, progress)),
+                                    detail: message
+                                )
+                            }
+                        }
+                    }
+                )
+
+                // Parse EsViritu output files into the LungfishIO display model.
+                let detections = (try? EsVirituDetectionParser.parse(url: result.detectionURL)) ?? []
+                let assemblies = EsVirituDetectionParser.groupByAssembly(detections)
+                let taxProfile: [ViralTaxProfile]
+                if let tpURL = result.taxProfileURL {
+                    taxProfile = (try? EsVirituTaxProfileParser.parse(url: tpURL)) ?? []
+                } else {
+                    taxProfile = []
+                }
+                let coverageWindows: [ViralCoverageWindow]
+                if let cvURL = result.coverageURL {
+                    coverageWindows = (try? EsVirituCoverageParser.parse(url: cvURL)) ?? []
+                } else {
+                    coverageWindows = []
+                }
+
+                let ioResult = LungfishIO.EsVirituResult(
+                    sampleId: config.sampleName,
+                    detections: detections,
+                    assemblies: assemblies,
+                    taxProfile: taxProfile,
+                    coverageWindows: coverageWindows,
+                    totalFilteredReads: detections.first?.filteredReadsInSample ?? 0,
+                    detectedFamilyCount: Set(detections.compactMap(\.family)).count,
+                    detectedSpeciesCount: Set(detections.compactMap(\.species)).count,
+                    runtime: result.runtime,
+                    toolVersion: result.toolVersion
+                )
+
+                nonisolated(unsafe) let capturedResult = ioResult
+                nonisolated(unsafe) let capturedConfig = config
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        viewerController.hideProgress()
+                        OperationCenter.shared.complete(
+                            id: opID,
+                            detail: "\(capturedResult.detections.count) viruses detected in \(capturedResult.detectedFamilyCount) families"
+                        )
+                        viewerController.displayEsVirituResult(capturedResult, config: capturedConfig)
+                    }
+                }
+            } catch {
+                let errorDesc = error.localizedDescription
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        viewerController.hideProgress()
+                        OperationCenter.shared.fail(id: opID, detail: errorDesc)
+
+                        let alert = NSAlert()
+                        alert.messageText = "EsViritu Failed"
+                        alert.informativeText = errorDesc
+                        alert.alertStyle = .warning
+                        alert.addButton(withTitle: "OK")
+                        if let window = viewerController.view.window {
+                            alert.beginSheetModal(for: window)
+                        }
+                    }
+                }
+            }
+        }
+
+        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+    }
+
+    /// Runs the TaxTriage Nextflow pipeline.
+    ///
+    /// Registers the operation with ``OperationCenter`` and displays the
+    /// ``TaxTriageResultViewController`` when complete.
+    private func runTaxTriage(config: TaxTriageConfig, viewerController: ViewerViewController) {
+        let sampleCount = config.samples.count
+        let opID = OperationCenter.shared.start(
+            title: "TaxTriage (\(sampleCount) sample\(sampleCount == 1 ? "" : "s"))",
+            detail: "Starting TaxTriage pipeline\u{2026}",
+            operationType: .classification
+        )
+
+        let task = Task.detached {
+            do {
+                let pipeline = TaxTriagePipeline()
+                let result = try await pipeline.run(
+                    config: config,
+                    progress: { progress, message in
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                viewerController.showProgress(message)
+                                OperationCenter.shared.update(
+                                    id: opID,
+                                    progress: max(0, min(1, progress)),
+                                    detail: message
+                                )
+                            }
+                        }
+                    }
+                )
+
+                nonisolated(unsafe) let capturedResult = result
+                nonisolated(unsafe) let capturedConfig = config
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        viewerController.hideProgress()
+                        OperationCenter.shared.complete(
+                            id: opID,
+                            detail: capturedResult.summary
+                        )
+                        viewerController.displayTaxTriageResult(capturedResult, config: capturedConfig)
+                    }
+                }
+            } catch {
+                let errorDesc = error.localizedDescription
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        viewerController.hideProgress()
+                        OperationCenter.shared.fail(id: opID, detail: errorDesc)
+
+                        let alert = NSAlert()
+                        alert.messageText = "TaxTriage Failed"
+                        alert.informativeText = errorDesc
+                        alert.alertStyle = .warning
+                        alert.addButton(withTitle: "OK")
+                        if let window = viewerController.view.window {
+                            alert.beginSheetModal(for: window)
+                        }
+                    }
+                }
+            }
+        }
+
+        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+    }
 
     /// Shows the database browser for the specified source.
     private func showDatabaseBrowser(source: DatabaseSource) {
