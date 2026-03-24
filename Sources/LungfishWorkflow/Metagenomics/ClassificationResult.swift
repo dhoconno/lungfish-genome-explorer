@@ -227,6 +227,67 @@ extension ClassificationResult {
             atPath: directory.appendingPathComponent(classificationResultFilename).path
         )
     }
+
+    /// Builds a copyable shell command string for a classification result directory.
+    ///
+    /// Attempts to load the provenance sidecar (`.lungfish-provenance.json`) first,
+    /// which contains the exact `argv` arrays for both kraken2 and bracken as they
+    /// were executed. If provenance is unavailable, reconstructs the kraken2 command
+    /// from the saved ``ClassificationConfig``.
+    ///
+    /// The returned string contains one or two commands separated by a blank line:
+    /// 1. The `kraken2` command (always present)
+    /// 2. The `bracken` command (only if Bracken profiling was performed)
+    ///
+    /// - Parameter directory: The classification result directory containing
+    ///   `classification-result.json` and optionally `.lungfish-provenance.json`.
+    /// - Returns: A shell-ready command string, or `nil` if the sidecar cannot be read.
+    public static func copyableCommandString(from directory: URL) -> String? {
+        // Try provenance first -- it has exact commands as executed.
+        if let provenance = ProvenanceRecorder.load(from: directory) {
+            let commands = provenance.steps.map { step in
+                step.command.map { classificationShellEscape($0) }.joined(separator: " \\\n  ")
+            }
+            if !commands.isEmpty {
+                return commands.joined(separator: "\n\n")
+            }
+        }
+
+        // Fall back to reconstructing from the classification config sidecar.
+        let sidecarURL = directory.appendingPathComponent(classificationResultFilename)
+        guard let data = try? Data(contentsOf: sidecarURL) else { return nil }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let sidecar = try? decoder.decode(PersistedClassificationResult.self, from: data) else {
+            return nil
+        }
+
+        var result = sidecar.config.kraken2CommandString()
+
+        // If Bracken was run, reconstruct a bracken command from what we know.
+        // The config stores database path and output paths; Bracken-specific
+        // parameters (read length, level, threshold) use pipeline defaults
+        // since they are not persisted in the sidecar.
+        if sidecar.brackenPath != nil {
+            let reportPath = classificationShellEscape(
+                directory.appendingPathComponent(sidecar.reportPath).path
+            )
+            let brackenPath = classificationShellEscape(
+                directory.appendingPathComponent(sidecar.brackenPath!).path
+            )
+            let dbPath = classificationShellEscape(sidecar.config.databasePath.path)
+
+            result += "\n\nbracken \\\n"
+            result += "  -d \(dbPath) \\\n"
+            result += "  -i \(reportPath) \\\n"
+            result += "  -o \(brackenPath) \\\n"
+            result += "  -r 150 \\\n"
+            result += "  -l S"
+        }
+
+        return result
+    }
 }
 
 // MARK: - PersistedClassificationResult

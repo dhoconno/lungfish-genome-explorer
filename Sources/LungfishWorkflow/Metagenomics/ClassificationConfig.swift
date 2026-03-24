@@ -304,6 +304,43 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
 
         return args
     }
+
+    /// Formats the kraken2 command as a shell-ready string.
+    ///
+    /// Produces a multi-line command with backslash continuations for
+    /// readability. Each argument pair appears on its own line.
+    ///
+    /// - Returns: A complete `kraken2 ...` command string.
+    public func kraken2CommandString() -> String {
+        let args = kraken2Arguments()
+        let escaped = args.map { classificationShellEscape($0) }
+        return "kraken2 " + escaped.joined(separator: " \\\n  ")
+    }
+}
+
+// MARK: - Shell Escaping
+
+/// Escapes a string for safe use in a POSIX shell command.
+///
+/// Wraps the value in single quotes if it contains characters that
+/// require escaping (spaces, parentheses, dollar signs, etc.).
+/// Single quotes within the value are escaped as `'\''`.
+///
+/// This is a module-level free function to avoid `@MainActor` isolation
+/// issues when called from `@Sendable` contexts.
+///
+/// - Parameter value: The raw string to escape.
+/// - Returns: A shell-safe representation of the string.
+func classificationShellEscape(_ value: String) -> String {
+    // Characters that are safe unquoted in POSIX shells
+    let safeCharacters = CharacterSet.alphanumerics
+        .union(CharacterSet(charactersIn: "-_./:=@+,"))
+    if !value.isEmpty && value.unicodeScalars.allSatisfy({ safeCharacters.contains($0) }) {
+        return value
+    }
+    // Wrap in single quotes, escaping any embedded single quotes
+    let escaped = value.replacingOccurrences(of: "'", with: "'\\''")
+    return "'\(escaped)'"
 }
 
 // MARK: - Preset Parameters

@@ -361,7 +361,8 @@ public actor BlastService {
         let readResults = assignVerdicts(
             searchResults: searchResults,
             eValueThreshold: request.eValueThreshold,
-            sequenceMap: sequenceMap
+            sequenceMap: sequenceMap,
+            queriedTaxonName: request.taxonName
         )
 
         let completedAt = Date()
@@ -631,18 +632,29 @@ public actor BlastService {
     nonisolated func assignVerdicts(
         searchResults: [BlastSearchResult],
         eValueThreshold: Double,
-        sequenceMap: [String: String] = [:]
+        sequenceMap: [String: String] = [:],
+        queriedTaxonName: String = ""
     ) -> [BlastReadResult] {
         searchResults.map { result in
-            assignVerdict(for: result, eValueThreshold: eValueThreshold, sequenceMap: sequenceMap)
+            assignVerdict(
+                for: result,
+                eValueThreshold: eValueThreshold,
+                sequenceMap: sequenceMap,
+                queriedTaxonName: queriedTaxonName
+            )
         }
     }
 
     /// Assigns a verdict for a single query result.
+    ///
+    /// In addition to alignment-quality thresholds, this now computes whether
+    /// the top hit organism matches the queried (Kraken2-classified) taxon at
+    /// the genus level or by name containment.
     private nonisolated func assignVerdict(
         for result: BlastSearchResult,
         eValueThreshold: Double,
-        sequenceMap: [String: String]
+        sequenceMap: [String: String],
+        queriedTaxonName: String
     ) -> BlastReadResult {
         // Find the best HSP across all hits
         guard let topHit = result.hits.first,
@@ -659,7 +671,7 @@ public actor BlastService {
         let coverage = bestHSP.queryCoverage(queryLength: result.queryLength)
         let eValue = bestHSP.evalue
 
-        // Determine verdict
+        // Determine verdict based on alignment quality
         let verdict: BlastVerdict
         if eValue <= eValueThreshold
             && pctIdentity >= verifiedIdentityThreshold
@@ -681,10 +693,17 @@ public actor BlastService {
         // Compute LCA genus disagreement across the top hits
         let hasLCADisagreement = computeGenusDisagreement(hits: topHits)
 
+        // Determine whether the top hit matches the queried taxon
+        let hitOrganism = topHit.organism ?? topHit.title
+        let matchesQueriedTaxon = Self.organismMatchesTaxon(
+            hitOrganism: hitOrganism,
+            queriedTaxonName: queriedTaxonName
+        )
+
         return BlastReadResult(
             id: result.queryId,
             verdict: verdict,
-            topHitOrganism: topHit.organism ?? topHit.title,
+            topHitOrganism: hitOrganism,
             topHitAccession: topHit.accession,
             percentIdentity: pctIdentity,
             queryCoverage: coverage,
@@ -693,7 +712,8 @@ public actor BlastService {
             bitScore: bestHSP.bitScore,
             topHits: topHits,
             querySequence: sequenceMap[result.queryId],
-            hasLCADisagreement: hasLCADisagreement
+            hasLCADisagreement: hasLCADisagreement,
+            matchesQueriedTaxon: matchesQueriedTaxon
         )
     }
 
@@ -739,6 +759,45 @@ public actor BlastService {
     nonisolated func computeGenusDisagreement(hits: [BlastHitSummary]) -> Bool {
         let genera = Set(hits.compactMap { $0.organism?.split(separator: " ").first.map(String.init) })
         return genera.count > 1
+    }
+
+    /// Determines whether a BLAST hit organism matches the queried taxon.
+    ///
+    /// Uses a two-tier matching strategy:
+    /// 1. **Genus match** (for binomial names): the first word of the hit organism
+    ///    matches the first word of the queried taxon (case-insensitive).
+    ///    Example: "Escherichia coli K-12" matches queried "Escherichia coli".
+    /// 2. **Containment match** (for virus names that are not binomial): the hit
+    ///    organism contains the queried taxon name or vice versa (case-insensitive).
+    ///    Example: "Oxbow virus isolate ABC" matches queried "Oxbow virus".
+    ///
+    /// - Parameters:
+    ///   - hitOrganism: The organism name from the BLAST hit.
+    ///   - queriedTaxonName: The taxon name from the Kraken2 classification.
+    /// - Returns: `true` if the organisms are considered a match.
+    static nonisolated func organismMatchesTaxon(
+        hitOrganism: String,
+        queriedTaxonName: String
+    ) -> Bool {
+        guard !hitOrganism.isEmpty, !queriedTaxonName.isEmpty else { return false }
+
+        let hitLower = hitOrganism.lowercased()
+        let queriedLower = queriedTaxonName.lowercased()
+
+        // Strategy 1: Genus-level match (first word of binomial name)
+        let hitGenus = hitLower.split(separator: " ").first.map(String.init) ?? hitLower
+        let queriedGenus = queriedLower.split(separator: " ").first.map(String.init) ?? queriedLower
+
+        if hitGenus == queriedGenus && !hitGenus.isEmpty {
+            return true
+        }
+
+        // Strategy 2: Containment match (handles virus names like "Oxbow virus")
+        if hitLower.contains(queriedLower) || queriedLower.contains(hitLower) {
+            return true
+        }
+
+        return false
     }
 
     // MARK: - Response Parsing

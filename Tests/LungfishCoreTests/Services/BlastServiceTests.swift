@@ -90,42 +90,71 @@ final class BlastResultModelTests: XCTestCase {
         }
     }
 
-    // MARK: - BlastVerificationResult Confidence
+    // MARK: - BlastVerificationResult Confidence (Taxon-Aware)
 
-    func testConfidenceHigh() {
-        let result = makeVerificationResult(verified: 18, ambiguous: 1, unverified: 1, error: 0)
+    func testConfidenceSupported() {
+        // 18 verified reads matching the queried taxon -> supported
+        let result = makeVerificationResult(
+            supporting: 18, contradicting: 0, ambiguous: 1, unverified: 1, error: 0
+        )
 
-        XCTAssertEqual(result.confidence, .high)
-        XCTAssertEqual(result.verificationRate, 0.9, accuracy: 0.01)
+        XCTAssertEqual(result.confidence, .supported)
+        XCTAssertEqual(result.supportingCount, 18)
+        XCTAssertEqual(result.contradictingCount, 0)
+        XCTAssertEqual(result.supportRate, 1.0, accuracy: 0.01)
     }
 
-    func testConfidenceHighAtBoundary() {
-        // Exactly 80%
-        let result = makeVerificationResult(verified: 16, ambiguous: 2, unverified: 2, error: 0)
+    func testConfidenceSupportedAtBoundary() {
+        // Exactly 80% of significant hits match -> supported
+        let result = makeVerificationResult(
+            supporting: 16, contradicting: 4, ambiguous: 0, unverified: 0, error: 0
+        )
 
-        XCTAssertEqual(result.confidence, .high)
-        XCTAssertEqual(result.verificationRate, 0.8, accuracy: 0.01)
+        XCTAssertEqual(result.confidence, .supported)
+        XCTAssertEqual(result.supportRate, 0.8, accuracy: 0.01)
     }
 
-    func testConfidenceModerate() {
-        let result = makeVerificationResult(verified: 12, ambiguous: 3, unverified: 5, error: 0)
+    func testConfidenceMixed() {
+        // 50% of significant hits match -> mixed
+        let result = makeVerificationResult(
+            supporting: 10, contradicting: 10, ambiguous: 0, unverified: 0, error: 0
+        )
 
-        XCTAssertEqual(result.confidence, .moderate)
-        XCTAssertEqual(result.verificationRate, 0.6, accuracy: 0.01)
+        XCTAssertEqual(result.confidence, .mixed)
+        XCTAssertEqual(result.supportRate, 0.5, accuracy: 0.01)
     }
 
-    func testConfidenceLow() {
-        let result = makeVerificationResult(verified: 5, ambiguous: 5, unverified: 10, error: 0)
+    func testConfidenceUnsupported() {
+        // All 20 reads verified but hitting different organisms -> unsupported
+        // This is the Oxbow virus scenario: high-identity hits to fungi
+        let result = makeVerificationResult(
+            supporting: 0, contradicting: 20, ambiguous: 0, unverified: 0, error: 0
+        )
 
-        XCTAssertEqual(result.confidence, .low)
-        XCTAssertEqual(result.verificationRate, 0.25, accuracy: 0.01)
+        XCTAssertEqual(result.confidence, .unsupported)
+        XCTAssertEqual(result.supportRate, 0.0, accuracy: 0.01)
+        XCTAssertEqual(result.contradictingCount, 20)
     }
 
-    func testConfidenceSuspect() {
-        let result = makeVerificationResult(verified: 1, ambiguous: 2, unverified: 17, error: 0)
+    func testConfidenceUnsupportedMostlyContradicting() {
+        // 2 supporting, 18 contradicting -> < 40% -> unsupported
+        let result = makeVerificationResult(
+            supporting: 2, contradicting: 18, ambiguous: 0, unverified: 0, error: 0
+        )
 
-        XCTAssertEqual(result.confidence, .suspect)
-        XCTAssertEqual(result.verificationRate, 0.05, accuracy: 0.01)
+        XCTAssertEqual(result.confidence, .unsupported)
+        XCTAssertEqual(result.supportRate, 0.1, accuracy: 0.01)
+    }
+
+    func testConfidenceInconclusive() {
+        // No significant hits at all -> inconclusive
+        let result = makeVerificationResult(
+            supporting: 0, contradicting: 0, ambiguous: 5, unverified: 15, error: 0
+        )
+
+        XCTAssertEqual(result.confidence, .inconclusive)
+        XCTAssertEqual(result.supportingCount, 0)
+        XCTAssertEqual(result.contradictingCount, 0)
     }
 
     func testConfidenceZeroReads() {
@@ -146,13 +175,15 @@ final class BlastResultModelTests: XCTestCase {
         )
 
         XCTAssertEqual(result.verificationRate, 0)
-        XCTAssertEqual(result.confidence, .suspect)
+        XCTAssertEqual(result.confidence, .inconclusive)
     }
 
     func testConfidenceAllErrors() {
-        let result = makeVerificationResult(verified: 0, ambiguous: 0, unverified: 0, error: 20)
+        let result = makeVerificationResult(
+            supporting: 0, contradicting: 0, ambiguous: 0, unverified: 0, error: 20
+        )
 
-        XCTAssertEqual(result.confidence, .suspect)
+        XCTAssertEqual(result.confidence, .inconclusive)
         XCTAssertEqual(result.verificationRate, 0)
     }
 
@@ -184,7 +215,9 @@ final class BlastResultModelTests: XCTestCase {
     }
 
     func testVerificationResultCodable() throws {
-        let result = makeVerificationResult(verified: 5, ambiguous: 3, unverified: 2, error: 0)
+        let result = makeVerificationResult(
+            supporting: 5, contradicting: 0, ambiguous: 3, unverified: 2, error: 0
+        )
 
         let data = try JSONEncoder().encode(result)
         let decoded = try JSONDecoder().decode(BlastVerificationResult.self, from: data)
@@ -250,15 +283,31 @@ final class BlastResultModelTests: XCTestCase {
 
     // MARK: - Helpers
 
+    /// Creates a verification result with explicit control over supporting vs contradicting reads.
+    ///
+    /// - Parameters:
+    ///   - supporting: Reads with verified verdict AND matchesQueriedTaxon = true
+    ///   - contradicting: Reads with verified verdict AND matchesQueriedTaxon = false
+    ///   - ambiguous: Reads with ambiguous verdict
+    ///   - unverified: Reads with unverified verdict
+    ///   - error: Reads with error verdict
     private func makeVerificationResult(
-        verified: Int,
+        supporting: Int,
+        contradicting: Int,
         ambiguous: Int,
         unverified: Int,
         error: Int
     ) -> BlastVerificationResult {
         var readResults: [BlastReadResult] = []
-        for i in 0..<verified {
-            readResults.append(BlastReadResult(id: "v_\(i)", verdict: .verified))
+        for i in 0..<supporting {
+            readResults.append(BlastReadResult(
+                id: "s_\(i)", verdict: .verified, matchesQueriedTaxon: true
+            ))
+        }
+        for i in 0..<contradicting {
+            readResults.append(BlastReadResult(
+                id: "c_\(i)", verdict: .verified, matchesQueriedTaxon: false
+            ))
         }
         for i in 0..<ambiguous {
             readResults.append(BlastReadResult(id: "a_\(i)", verdict: .ambiguous))

@@ -126,6 +126,17 @@ public class TaxonomySunburstView: NSView {
         }
     }
 
+    // MARK: - Filter State
+
+    /// Set of taxId values currently passing the table search filter.
+    ///
+    /// When non-nil, segments whose taxId is NOT in this set are drawn
+    /// with reduced opacity (dimmed) so matched taxa stand out visually.
+    /// When `nil`, all segments are drawn at full opacity (no filter active).
+    public var filteredNodeIds: Set<Int>? {
+        didSet { needsDisplay = true }
+    }
+
     // MARK: - Cached Geometry
 
     /// Cached segment geometries, recomputed on tree/bounds changes.
@@ -279,12 +290,24 @@ public class TaxonomySunburstView: NSView {
     }
 
     /// Draws a single arc segment.
+    ///
+    /// When ``filteredNodeIds`` is active, segments whose taxId is not in the
+    /// filter set are drawn with reduced saturation and opacity so that matching
+    /// taxa visually stand out.
     private func drawSegment(_ segment: SunburstSegment, layout: SunburstLayout, ctx: CGContext) {
         let path = segment.bezierPath(center: layout.center)
 
+        // Determine whether this segment is dimmed by the active filter.
+        let isDimmed: Bool = {
+            guard let filtered = filteredNodeIds else { return false }
+            return !filtered.contains(segment.node.taxId)
+        }()
+
         // Fill
         var fillColor = segment.color
-        if segment.node === hoveredNode, !segment.isOther {
+        if isDimmed {
+            fillColor = desaturatedColor(fillColor, saturationFactor: 0.25, alphaFactor: 0.25)
+        } else if segment.node === hoveredNode, !segment.isOther {
             // Brighten hovered segment by 10%
             fillColor = brightenedColor(fillColor, by: 0.10)
         }
@@ -295,7 +318,11 @@ public class TaxonomySunburstView: NSView {
         let isSelected = !segment.isOther && segment.node === selectedNode
         let isHovered = !segment.isOther && segment.node === hoveredNode
 
-        if isSelected {
+        if isDimmed {
+            NSColor.separatorColor.withAlphaComponent(0.15).setStroke()
+            path.lineWidth = 0.5
+            path.stroke()
+        } else if isSelected {
             NSColor.controlAccentColor.setStroke()
             path.lineWidth = 3.0
             path.stroke()
@@ -309,8 +336,8 @@ public class TaxonomySunburstView: NSView {
             path.stroke()
         }
 
-        // Label (only for segments wide enough)
-        if !segment.isOther {
+        // Label (only for segments wide enough and not dimmed)
+        if !segment.isOther, !isDimmed {
             drawSegmentLabel(segment, layout: layout, ctx: ctx)
         }
     }
@@ -489,6 +516,29 @@ public class TaxonomySunburstView: NSView {
             saturation: s,
             brightness: min(1.0, b + factor),
             alpha: a
+        )
+    }
+
+    /// Returns a desaturated and faded variant of a color for dimmed segments.
+    ///
+    /// - Parameters:
+    ///   - color: The original segment color.
+    ///   - saturationFactor: Multiplier for saturation (0 = fully grey, 1 = unchanged).
+    ///   - alphaFactor: Multiplier for alpha (0 = invisible, 1 = unchanged).
+    /// - Returns: The desaturated color.
+    private func desaturatedColor(
+        _ color: NSColor,
+        saturationFactor: CGFloat,
+        alphaFactor: CGFloat
+    ) -> NSColor {
+        let rgb = color.usingColorSpace(.sRGB) ?? color
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        rgb.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        return NSColor(
+            hue: h,
+            saturation: s * saturationFactor,
+            brightness: b,
+            alpha: a * alphaFactor
         )
     }
 

@@ -236,7 +236,6 @@ extension BlastCommand {
             }
 
             // Phase 7: Print results
-            let verificationPct = Int(round(result.verificationRate * 100))
 
             print("")
             print("")
@@ -244,7 +243,9 @@ extension BlastCommand {
             print("")
             print(formatter.keyValueTable([
                 ("Taxon", "\(result.taxonName) (txid\(result.taxId))"),
-                ("Verified", "\(result.verifiedCount)/\(result.totalReads) (\(verificationPct)%)"),
+                ("Supporting", "\(result.supportingCount)/\(result.totalReads) (top hit matches taxon)"),
+                ("Contradicting", "\(result.contradictingCount)/\(result.totalReads) (top hit differs)"),
+                ("Inconclusive", "\(result.inconclusiveCount) (no significant hit)"),
                 ("Ambiguous", "\(result.ambiguousCount)"),
                 ("Unverified", "\(result.unverifiedCount)"),
                 ("Errors", "\(result.errorCount)"),
@@ -288,16 +289,22 @@ extension BlastCommand {
 
             let confidenceLabel: String
             switch result.confidence {
-            case .high:     confidenceLabel = "HIGH"
-            case .moderate: confidenceLabel = "MODERATE"
-            case .low:      confidenceLabel = "LOW"
-            case .suspect:  confidenceLabel = "SUSPECT"
+            case .supported:    confidenceLabel = "SUPPORTED"
+            case .mixed:        confidenceLabel = "MIXED"
+            case .unsupported:  confidenceLabel = "UNSUPPORTED"
+            case .inconclusive: confidenceLabel = "INCONCLUSIVE"
             }
 
-            if result.verificationRate >= 0.5 {
-                print(formatter.success("Verification: \(confidenceLabel) confidence (\(verificationPct)% verified)"))
-            } else {
-                print(formatter.warning("Verification: \(confidenceLabel) confidence (\(verificationPct)% verified)"))
+            let supportInfo = "\(result.supportingCount) supporting, \(result.contradictingCount) contradicting"
+            switch result.confidence {
+            case .supported:
+                print(formatter.success("Verification: \(confidenceLabel) (\(supportInfo))"))
+            case .mixed:
+                print(formatter.warning("Verification: \(confidenceLabel) (\(supportInfo))"))
+            case .unsupported:
+                print(formatter.colored("Verification: \(confidenceLabel) (\(supportInfo))", .red))
+            case .inconclusive:
+                print(formatter.dim("Verification: \(confidenceLabel) (no significant hits)"))
             }
         }
     }

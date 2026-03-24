@@ -162,6 +162,16 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
     /// taxonomic ambiguity (LCA disagreement).
     public let hasLCADisagreement: Bool
 
+    /// Whether the top BLAST hit organism matches the queried (Kraken2-classified)
+    /// taxon at the genus level.
+    ///
+    /// `true` when the first word (genus) of the top hit organism matches the
+    /// first word of the queried taxon name, or when the top hit organism name
+    /// contains the queried taxon name (for virus names that are not binomial).
+    /// `false` when there is a high-quality hit to a different organism, or
+    /// when there is no hit at all.
+    public let matchesQueriedTaxon: Bool
+
     /// Creates a new per-read BLAST result.
     ///
     /// - Parameters:
@@ -177,6 +187,7 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
     ///   - topHits: Up to 5 top hits sorted by E-value
     ///   - querySequence: The original query sequence
     ///   - hasLCADisagreement: Whether top hits disagree at genus level
+    ///   - matchesQueriedTaxon: Whether top hit matches the queried taxon
     public init(
         id: String,
         verdict: BlastVerdict,
@@ -189,7 +200,8 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
         bitScore: Double? = nil,
         topHits: [BlastHitSummary] = [],
         querySequence: String? = nil,
-        hasLCADisagreement: Bool = false
+        hasLCADisagreement: Bool = false,
+        matchesQueriedTaxon: Bool = false
     ) {
         self.id = id
         self.verdict = verdict
@@ -203,6 +215,7 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
         self.topHits = topHits
         self.querySequence = querySequence
         self.hasLCADisagreement = hasLCADisagreement
+        self.matchesQueriedTaxon = matchesQueriedTaxon
     }
 }
 
@@ -211,17 +224,18 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
 /// Summary of BLAST verification across all submitted reads.
 ///
 /// This aggregates individual ``BlastReadResult`` entries into an overall
-/// confidence assessment. The confidence level is based on the fraction
-/// of reads that were verified against the target taxon.
+/// confidence assessment. The confidence level is based on whether the
+/// BLAST hits match the Kraken2-classified taxon, not just whether reads
+/// have high-identity alignments.
 ///
 /// ## Confidence Levels
 ///
 /// | Level | Criteria |
 /// |-------|----------|
-/// | `.high` | >= 80% of reads verified |
-/// | `.moderate` | 50-79% of reads verified |
-/// | `.low` | 20-49% of reads verified |
-/// | `.suspect` | < 20% of reads verified |
+/// | `.supported` | >= 80% of significant hits match the queried taxon |
+/// | `.mixed` | 40-79% of significant hits match |
+/// | `.unsupported` | < 40% match, or most hits are to different organisms |
+/// | `.inconclusive` | No significant hits found at all |
 public struct BlastVerificationResult: Sendable, Codable {
 
     /// The taxon name that was verified (e.g., "Oxbow virus").
@@ -268,7 +282,9 @@ public struct BlastVerificationResult: Sendable, Codable {
 
     /// The fraction of reads that were verified (0.0-1.0).
     ///
-    /// Returns 0 if no reads were submitted.
+    /// Returns 0 if no reads were submitted. Note: This measures alignment
+    /// quality only, not whether hits match the queried taxon. Use
+    /// ``confidence`` for the taxon-aware assessment.
     public var verificationRate: Double {
         totalReads > 0 ? Double(verifiedCount) / Double(totalReads) : 0
     }
@@ -281,29 +297,81 @@ public struct BlastVerificationResult: Sendable, Codable {
         readResults.filter(\.hasLCADisagreement).count
     }
 
-    /// Overall confidence level for the taxon classification.
-    public enum Confidence: String, Sendable, Codable {
-        /// >= 80% of reads verified
-        case high
-        /// 50-79% of reads verified
-        case moderate
-        /// 20-49% of reads verified
-        case low
-        /// < 20% of reads verified
-        case suspect
+    /// Number of reads whose top BLAST hit matches the queried taxon
+    /// (same genus or name containment).
+    ///
+    /// A "supporting" read has a significant hit AND that hit's organism
+    /// matches the Kraken2-classified taxon.
+    public var supportingCount: Int {
+        readResults.filter { $0.verdict == .verified && $0.matchesQueriedTaxon }.count
     }
 
-    /// The computed confidence level based on verification rate.
+    /// Number of reads whose top BLAST hit is a significant match to a
+    /// DIFFERENT organism than the queried taxon.
+    ///
+    /// These reads actively contradict the Kraken2 classification --
+    /// the sequences are real but belong to something else.
+    public var contradictingCount: Int {
+        readResults.filter { $0.verdict == .verified && !$0.matchesQueriedTaxon }.count
+    }
+
+    /// Number of reads with no significant BLAST hit, or with ambiguous/error results.
+    ///
+    /// These reads neither support nor contradict the classification.
+    public var inconclusiveCount: Int {
+        totalReads - supportingCount - contradictingCount
+    }
+
+    /// The fraction of reads with significant hits that support the queried taxon (0.0-1.0).
+    ///
+    /// Only reads with significant hits (verified verdict) are counted in
+    /// the denominator. Returns 0 if no reads had significant hits.
+    public var supportRate: Double {
+        let significantHits = supportingCount + contradictingCount
+        guard significantHits > 0 else { return 0 }
+        return Double(supportingCount) / Double(significantHits)
+    }
+
+    /// Overall confidence that the Kraken2 classification is correct,
+    /// based on whether BLAST hits match the queried taxon.
+    ///
+    /// ## Confidence Levels
+    ///
+    /// | Level | Criteria |
+    /// |-------|----------|
+    /// | `.supported` | >= 80% of significant hits match the queried taxon |
+    /// | `.mixed` | 40-79% of significant hits match |
+    /// | `.unsupported` | < 40% match, or most hits are to different organisms |
+    /// | `.inconclusive` | No significant hits found at all |
+    public enum Confidence: String, Sendable, Codable {
+        /// >= 80% of reads with significant hits match the queried taxon
+        case supported
+        /// 40-79% of reads with significant hits match
+        case mixed
+        /// < 40% of reads match, or most hits are to different organisms
+        case unsupported
+        /// No significant hits found at all
+        case inconclusive
+    }
+
+    /// The computed confidence level based on taxon-match rate among
+    /// reads with significant BLAST hits.
+    ///
+    /// This measures whether BLAST results SUPPORT the Kraken2 classification,
+    /// not just whether reads have high-identity hits. A read with 100% identity
+    /// to a different organism contradicts the classification.
     public var confidence: Confidence {
-        let rate = verificationRate
+        let significantHits = supportingCount + contradictingCount
+        guard significantHits > 0 else {
+            return .inconclusive
+        }
+        let rate = supportRate
         if rate >= 0.8 {
-            return .high
-        } else if rate >= 0.5 {
-            return .moderate
-        } else if rate >= 0.2 {
-            return .low
+            return .supported
+        } else if rate >= 0.4 {
+            return .mixed
         } else {
-            return .suspect
+            return .unsupported
         }
     }
 

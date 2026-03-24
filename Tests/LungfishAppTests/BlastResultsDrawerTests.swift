@@ -10,12 +10,12 @@ import XCTest
 
 // MARK: - Test Helpers
 
-/// Builds a high-confidence BLAST verification result (18/20 verified = 90%).
+/// Builds a supported BLAST verification result (18/20 verified, all matching taxon).
 @MainActor
 private func makeHighConfidenceResult() -> BlastVerificationResult {
     var reads: [BlastReadResult] = []
 
-    // 16 verified reads
+    // 16 verified reads matching the queried taxon
     for i in 0..<16 {
         reads.append(BlastReadResult(
             id: "SRR123456.\(1000 + i)",
@@ -23,18 +23,20 @@ private func makeHighConfidenceResult() -> BlastVerificationResult {
             topHitOrganism: "Escherichia coli",
             topHitAccession: "NZ_CP012345.\(i)",
             percentIdentity: 98.5 + Double.random(in: -1.0...1.0),
-            eValue: 0.0
+            eValue: 0.0,
+            matchesQueriedTaxon: true
         ))
     }
 
-    // 2 verified reads with slightly different organism names
+    // 2 verified reads with slightly different organism names (still matching genus)
     reads.append(BlastReadResult(
         id: "SRR123456.2000",
         verdict: .verified,
         topHitOrganism: "Escherichia coli K-12",
         topHitAccession: "U00096.3",
         percentIdentity: 99.8,
-        eValue: 0.0
+        eValue: 0.0,
+        matchesQueriedTaxon: true
     ))
     reads.append(BlastReadResult(
         id: "SRR123456.2001",
@@ -42,7 +44,8 @@ private func makeHighConfidenceResult() -> BlastVerificationResult {
         topHitOrganism: "Escherichia coli O157:H7",
         topHitAccession: "NC_002695.2",
         percentIdentity: 97.1,
-        eValue: 0.0
+        eValue: 0.0,
+        matchesQueriedTaxon: true
     ))
 
     // 1 ambiguous read (related genus)
@@ -72,19 +75,20 @@ private func makeHighConfidenceResult() -> BlastVerificationResult {
     )
 }
 
-/// Builds a low-confidence BLAST verification result (3/20 verified = 15%).
+/// Builds a low-confidence BLAST verification result (3/20 verified, 3 supporting).
 @MainActor
 private func makeLowConfidenceResult() -> BlastVerificationResult {
     var reads: [BlastReadResult] = []
 
-    // 3 verified reads
+    // 3 verified reads matching the queried taxon
     for i in 0..<3 {
         reads.append(BlastReadResult(
             id: "SRR999999.\(i)",
             verdict: .verified,
             topHitOrganism: "Oxbow virus",
             percentIdentity: 95.0 + Double(i),
-            eValue: 1e-45
+            eValue: 1e-45,
+            matchesQueriedTaxon: true
         ))
     }
 
@@ -139,7 +143,8 @@ private func makeResultWithEmptyRID() -> BlastVerificationResult {
                 verdict: .verified,
                 topHitOrganism: "Test organism",
                 percentIdentity: 99.0,
-                eValue: 0.0
+                eValue: 0.0,
+                matchesQueriedTaxon: true
             ),
         ],
         submittedAt: Date(),
@@ -204,7 +209,8 @@ private func makeResultWithLCADisagreement() -> BlastVerificationResult {
                 ),
             ],
             querySequence: "GCTAGCTAGCTAGCTAGCTA",
-            hasLCADisagreement: false
+            hasLCADisagreement: false,
+            matchesQueriedTaxon: true
         ),
         BlastReadResult(
             id: "read_lca_2",
@@ -292,11 +298,12 @@ final class BlastResultsDrawerTests: XCTestCase {
         tab.showResults(result)
         tab.layoutSubtreeIfNeeded()
 
-        // Verify summary text
-        XCTAssertEqual(tab.summaryLabel.stringValue, "18 of 20 reads verified (90%)")
+        // Verify summary text shows taxon name and support/contradict counts
+        XCTAssertTrue(tab.summaryLabel.stringValue.contains("Escherichia coli"))
+        XCTAssertTrue(tab.summaryLabel.stringValue.contains("18 supporting"))
 
-        // Verify confidence label (BlastVerificationResult.Confidence.high -> "High")
-        XCTAssertEqual(tab.confidenceLabel.stringValue, "High")
+        // Verify confidence label (BlastVerificationResult.Confidence.supported -> "Supported")
+        XCTAssertEqual(tab.confidenceLabel.stringValue, "Supported")
 
         // Verify the result model
         XCTAssertEqual(result.verifiedCount, 18)
@@ -315,11 +322,12 @@ final class BlastResultsDrawerTests: XCTestCase {
         tab.showResults(result)
         tab.layoutSubtreeIfNeeded()
 
-        // Verify summary text
-        XCTAssertEqual(tab.summaryLabel.stringValue, "3 of 20 reads verified (15%)")
+        // Verify summary text shows taxon name and support/contradict counts
+        XCTAssertTrue(tab.summaryLabel.stringValue.contains("Oxbow virus"))
+        XCTAssertTrue(tab.summaryLabel.stringValue.contains("3 supporting"))
 
-        // Verify confidence label - 15% is "suspect" (< 20%), displayed as "Very Low"
-        XCTAssertEqual(tab.confidenceLabel.stringValue, "Very Low")
+        // Verify confidence label - 3 supporting, 0 contradicting -> supported
+        XCTAssertEqual(tab.confidenceLabel.stringValue, "Supported")
 
         // Verify the result model
         XCTAssertEqual(result.verifiedCount, 3)
@@ -541,83 +549,91 @@ final class BlastResultsDrawerTests: XCTestCase {
 
     // MARK: - Confidence Levels
 
-    func testConfidenceLevelFromRate() throws {
-        // Use the actual model's confidence property
-        let highResult = BlastVerificationResult(
-            taxonName: "Test", taxId: 1, totalReads: 10,
-            verifiedCount: 9, ambiguousCount: 1, unverifiedCount: 0, errorCount: 0,
-            readResults: [], submittedAt: Date(), completedAt: Date(),
+    func testConfidenceLevelFromTaxonMatch() throws {
+        // All supporting reads -> supported
+        let supportedReads = (0..<9).map {
+            BlastReadResult(id: "s\($0)", verdict: .verified, matchesQueriedTaxon: true)
+        } + [BlastReadResult(id: "a0", verdict: .ambiguous)]
+        let supportedResult = BlastVerificationResult(
+            taxonName: "Test", taxId: 1, readResults: supportedReads,
+            submittedAt: Date(), completedAt: Date(),
             rid: "X", blastProgram: "megablast", database: "nt"
         )
-        XCTAssertEqual(highResult.confidence, .high)
+        XCTAssertEqual(supportedResult.confidence, .supported)
 
-        let moderateResult = BlastVerificationResult(
-            taxonName: "Test", taxId: 1, totalReads: 10,
-            verifiedCount: 6, ambiguousCount: 2, unverifiedCount: 2, errorCount: 0,
-            readResults: [], submittedAt: Date(), completedAt: Date(),
+        // 50/50 supporting vs contradicting -> mixed
+        let mixedReads = (0..<5).map {
+            BlastReadResult(id: "s\($0)", verdict: .verified, matchesQueriedTaxon: true)
+        } + (0..<5).map {
+            BlastReadResult(id: "c\($0)", verdict: .verified, matchesQueriedTaxon: false)
+        }
+        let mixedResult = BlastVerificationResult(
+            taxonName: "Test", taxId: 1, readResults: mixedReads,
+            submittedAt: Date(), completedAt: Date(),
             rid: "X", blastProgram: "megablast", database: "nt"
         )
-        XCTAssertEqual(moderateResult.confidence, .moderate)
+        XCTAssertEqual(mixedResult.confidence, .mixed)
 
-        let lowResult = BlastVerificationResult(
-            taxonName: "Test", taxId: 1, totalReads: 10,
-            verifiedCount: 3, ambiguousCount: 3, unverifiedCount: 4, errorCount: 0,
-            readResults: [], submittedAt: Date(), completedAt: Date(),
+        // All contradicting -> unsupported
+        let unsupportedReads = (0..<10).map {
+            BlastReadResult(id: "c\($0)", verdict: .verified, matchesQueriedTaxon: false)
+        }
+        let unsupportedResult = BlastVerificationResult(
+            taxonName: "Test", taxId: 1, readResults: unsupportedReads,
+            submittedAt: Date(), completedAt: Date(),
             rid: "X", blastProgram: "megablast", database: "nt"
         )
-        XCTAssertEqual(lowResult.confidence, .low)
+        XCTAssertEqual(unsupportedResult.confidence, .unsupported)
 
-        let suspectResult = BlastVerificationResult(
-            taxonName: "Test", taxId: 1, totalReads: 10,
-            verifiedCount: 1, ambiguousCount: 1, unverifiedCount: 8, errorCount: 0,
-            readResults: [], submittedAt: Date(), completedAt: Date(),
+        // No significant hits -> inconclusive
+        let inconclusiveReads = (0..<10).map {
+            BlastReadResult(id: "u\($0)", verdict: .unverified)
+        }
+        let inconclusiveResult = BlastVerificationResult(
+            taxonName: "Test", taxId: 1, readResults: inconclusiveReads,
+            submittedAt: Date(), completedAt: Date(),
             rid: "X", blastProgram: "megablast", database: "nt"
         )
-        XCTAssertEqual(suspectResult.confidence, .suspect)
+        XCTAssertEqual(inconclusiveResult.confidence, .inconclusive)
     }
 
     func testConfidenceLevelLabels() throws {
-        XCTAssertEqual(BlastVerificationResult.Confidence.high.displayLabel, "High")
-        XCTAssertEqual(BlastVerificationResult.Confidence.moderate.displayLabel, "Mixed")
-        XCTAssertEqual(BlastVerificationResult.Confidence.low.displayLabel, "Low")
-        XCTAssertEqual(BlastVerificationResult.Confidence.suspect.displayLabel, "Very Low")
+        XCTAssertEqual(BlastVerificationResult.Confidence.supported.displayLabel, "Supported")
+        XCTAssertEqual(BlastVerificationResult.Confidence.mixed.displayLabel, "Mixed")
+        XCTAssertEqual(BlastVerificationResult.Confidence.unsupported.displayLabel, "Unsupported")
+        XCTAssertEqual(BlastVerificationResult.Confidence.inconclusive.displayLabel, "Inconclusive")
     }
 
     // MARK: - Confidence Dots
 
-    func testConfidenceDotsAllVerified() throws {
+    func testConfidenceDotsAllSupporting() throws {
         let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
-        let dots = tab.buildConfidenceDots(verified: 20, total: 20)
-        // All 10 dots should be filled
+        let dots = tab.buildConfidenceDots(supporting: 20, contradicting: 0, total: 20)
+        // All 10 dots should be filled (supporting)
         let filledCount = dots.filter { $0 == "\u{25CF}" }.count
-        let emptyCount = dots.filter { $0 == "\u{25CB}" }.count
         XCTAssertEqual(filledCount, 10)
-        XCTAssertEqual(emptyCount, 0)
-        XCTAssertEqual(dots.count, 10)
     }
 
-    func testConfidenceDotsNoneVerified() throws {
+    func testConfidenceDotsNoneSupporting() throws {
         let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
-        let dots = tab.buildConfidenceDots(verified: 0, total: 20)
-        // All 10 dots should be empty
-        let filledCount = dots.filter { $0 == "\u{25CF}" }.count
+        let dots = tab.buildConfidenceDots(supporting: 0, contradicting: 0, total: 20)
+        // All 10 dots should be empty (inconclusive)
         let emptyCount = dots.filter { $0 == "\u{25CB}" }.count
-        XCTAssertEqual(filledCount, 0)
         XCTAssertEqual(emptyCount, 10)
     }
 
-    func testConfidenceDotsHalfVerified() throws {
+    func testConfidenceDotsHalfSupportingHalfContradicting() throws {
         let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
-        let dots = tab.buildConfidenceDots(verified: 10, total: 20)
+        let dots = tab.buildConfidenceDots(supporting: 10, contradicting: 10, total: 20)
         let filledCount = dots.filter { $0 == "\u{25CF}" }.count
-        let emptyCount = dots.filter { $0 == "\u{25CB}" }.count
+        let diamondCount = dots.filter { $0 == "\u{25C6}" }.count
         XCTAssertEqual(filledCount, 5)
-        XCTAssertEqual(emptyCount, 5)
+        XCTAssertEqual(diamondCount, 5)
     }
 
     func testConfidenceDotsEmptyTotal() throws {
         let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
-        let dots = tab.buildConfidenceDots(verified: 0, total: 0)
+        let dots = tab.buildConfidenceDots(supporting: 0, contradicting: 0, total: 0)
         // All dots should be empty when total is 0
         let emptyCount = dots.filter { $0 == "\u{25CB}" }.count
         XCTAssertEqual(emptyCount, 10)
@@ -757,7 +773,9 @@ final class BlastResultsDrawerTests: XCTestCase {
         // Rate calculations
         XCTAssertEqual(result.verificationRate, 0.9, accuracy: 0.001)
         XCTAssertEqual(result.verificationPercentage, 90)
-        XCTAssertEqual(result.confidence, .high)
+        XCTAssertEqual(result.supportingCount, 18)
+        XCTAssertEqual(result.contradictingCount, 0)
+        XCTAssertEqual(result.confidence, .supported)
     }
 
     func testVerificationResultEmptyReads() throws {
@@ -775,7 +793,7 @@ final class BlastResultsDrawerTests: XCTestCase {
         XCTAssertEqual(result.verifiedCount, 0)
         XCTAssertEqual(result.verificationRate, 0.0)
         XCTAssertEqual(result.verificationPercentage, 0)
-        XCTAssertEqual(result.confidence, .suspect)
+        XCTAssertEqual(result.confidence, .inconclusive)
     }
 
     // MARK: - BLAST Job Phase

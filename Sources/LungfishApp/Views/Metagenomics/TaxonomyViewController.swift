@@ -405,6 +405,11 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             self.suppressSelectionSync = false
         }
 
+        // Table filter -> sunburst dimming
+        taxonomyTableView.onFilterChanged = { [weak self] filteredIds in
+            self?.sunburstView.filteredNodeIds = filteredIds
+        }
+
         // Breadcrumb navigation -> zoom sunburst
         breadcrumbBar.onNavigateToNode = { [weak self] node in
             guard let self else { return }

@@ -14,7 +14,6 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "SidebarViewC
 /// Pasteboard type for internal sidebar item dragging
 private let sidebarItemPasteboardType = NSPasteboard.PasteboardType("com.lungfish.browser.sidebaritem")
 
-
 // MARK: - Sidebar Drop Target View
 
 /// Custom NSView subclass that acts as a fallback drag destination for the sidebar.
@@ -863,7 +862,6 @@ public class SidebarViewController: NSViewController {
             return groupItem
         }
     }
-
 
     /// Collects classification result directories from inside a FASTQ bundle.
     ///
@@ -2275,6 +2273,17 @@ extension SidebarViewController: NSMenuDelegate {
             menu.addItem(NSMenuItem.separator())
         }
 
+        // Classification result selected - show Copy Classification Command
+        if items.count == 1, let item = items.first, item.type == .classificationResult {
+            let copyCommandItem = NSMenuItem(
+                title: "Copy Classification Command",
+                action: #selector(contextMenuCopyClassificationCommand(_:)),
+                keyEquivalent: ""
+            )
+            copyCommandItem.target = self
+            menu.addItem(copyCommandItem)
+            menu.addItem(NSMenuItem.separator())
+        }
 
         // Single item selected - show Open
         if items.count == 1 && hasFiles {
@@ -2670,6 +2679,29 @@ extension SidebarViewController: NSMenuDelegate {
         pasteboard.setString(url.path, forType: .string)
 
         logger.info("contextMenuCopyPath: Copied path '\(url.path, privacy: .public)'")
+    }
+
+    /// Copies the classification command(s) to the system clipboard.
+    ///
+    /// Loads provenance or config from the classification result directory
+    /// and builds a shell-ready command string for kraken2 (and bracken,
+    /// if profiling was performed).
+    @objc private func contextMenuCopyClassificationCommand(_ sender: Any?) {
+        let items = selectedItems()
+        guard let item = items.first,
+              item.type == .classificationResult,
+              let url = item.url else { return }
+
+        guard let command = ClassificationResult.copyableCommandString(from: url) else {
+            logger.warning("contextMenuCopyClassificationCommand: Failed to build command for '\(item.title, privacy: .public)'")
+            return
+        }
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(command, forType: .string)
+
+        logger.info("contextMenuCopyClassificationCommand: Copied command for '\(item.title, privacy: .public)'")
     }
 
     /// Posts a notification to show the selected bundle in the inspector.

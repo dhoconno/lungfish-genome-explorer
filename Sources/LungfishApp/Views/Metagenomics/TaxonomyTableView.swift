@@ -72,6 +72,14 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     /// Called when the user right-clicks a row to extract sequences including children.
     public var onExtractWithChildrenRequested: ((TaxonNode) -> Void)?
 
+    /// Called when the search filter changes.
+    ///
+    /// The parameter is the set of taxId values currently passing the filter
+    /// (including both direct matches and their ancestors), or `nil` when the
+    /// filter is cleared. Consumers such as the sunburst chart can use this to
+    /// dim excluded taxa.
+    public var onFilterChanged: ((Set<Int>?) -> Void)?
+
     /// Called when the user right-clicks and selects an NCBI link or BLAST.
     public var onNCBITaxonomyRequested: ((TaxonNode) -> Void)?
     public var onNCBIGenBankRequested: ((TaxonNode) -> Void)?
@@ -332,6 +340,9 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         if filteredTree != nil, let root = tree?.root {
             expandFilteredNodes(from: root)
         }
+
+        // Notify listeners (e.g., sunburst chart) of the new filter state
+        onFilterChanged?(filteredTree)
     }
 
     private func expandFilteredNodes(from node: TaxonNode) {

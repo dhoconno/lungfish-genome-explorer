@@ -52,30 +52,30 @@ extension BlastVerificationResult.Confidence {
     /// Background tint color for the summary bar (alpha 0.15).
     var tintColor: NSColor {
         switch self {
-        case .high:     return NSColor.systemGreen.withAlphaComponent(0.15)
-        case .moderate: return NSColor.systemYellow.withAlphaComponent(0.15)
-        case .low:      return NSColor.systemOrange.withAlphaComponent(0.15)
-        case .suspect:  return NSColor.systemRed.withAlphaComponent(0.15)
+        case .supported:    return NSColor.systemGreen.withAlphaComponent(0.15)
+        case .mixed:        return NSColor.systemYellow.withAlphaComponent(0.15)
+        case .unsupported:  return NSColor.systemRed.withAlphaComponent(0.15)
+        case .inconclusive: return NSColor.systemGray.withAlphaComponent(0.15)
         }
     }
 
     /// Foreground accent color for confidence indicators.
     var accentColor: NSColor {
         switch self {
-        case .high:     return .systemGreen
-        case .moderate: return .systemYellow
-        case .low:      return .systemOrange
-        case .suspect:  return .systemRed
+        case .supported:    return .systemGreen
+        case .mixed:        return .systemYellow
+        case .unsupported:  return .systemRed
+        case .inconclusive: return .systemGray
         }
     }
 
     /// Human-readable display label.
     var displayLabel: String {
         switch self {
-        case .high:     return "High"
-        case .moderate: return "Mixed"
-        case .low:      return "Low"
-        case .suspect:  return "Very Low"
+        case .supported:    return "Supported"
+        case .mixed:        return "Mixed"
+        case .unsupported:  return "Unsupported"
+        case .inconclusive: return "Inconclusive"
         }
     }
 }
@@ -353,16 +353,20 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
     func showResults(_ result: BlastVerificationResult) {
         displayState = .results(result)
 
-        // Update summary bar
-        let verified = result.verifiedCount
+        // Update summary bar with taxon-aware counts
+        let supporting = result.supportingCount
+        let contradicting = result.contradictingCount
         let total = result.totalReads
-        let pct = result.verificationPercentage
-        summaryLabel.stringValue = "\(verified) of \(total) reads verified (\(pct)%)"
+        summaryLabel.stringValue = "BLAST for \(result.taxonName): \(supporting) supporting, \(contradicting) contradicting (\(total) reads)"
 
         let confidence = result.confidence
         confidenceLabel.stringValue = confidence.displayLabel
         confidenceLabel.textColor = confidence.accentColor
-        confidenceDots.stringValue = buildConfidenceDots(verified: verified, total: total)
+        confidenceDots.stringValue = buildConfidenceDots(
+            supporting: supporting,
+            contradicting: contradicting,
+            total: total
+        )
         confidenceDots.textColor = confidence.accentColor
         summaryBar.layer?.backgroundColor = confidence.tintColor.cgColor
 
@@ -377,8 +381,15 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
             lcaWarningLabel.isHidden = true
         }
 
+        let summaryIconName: String
+        switch confidence {
+        case .supported:    summaryIconName = "checkmark.circle.fill"
+        case .mixed:        summaryIconName = "exclamationmark.triangle.fill"
+        case .unsupported:  summaryIconName = "xmark.circle.fill"
+        case .inconclusive: summaryIconName = "questionmark.circle.fill"
+        }
         let summaryIconImage = NSImage(
-            systemSymbolName: verified > 0 ? "checkmark.circle.fill" : "xmark.circle.fill",
+            systemSymbolName: summaryIconName,
             accessibilityDescription: confidence.displayLabel
         )
         summaryIcon.image = summaryIconImage
@@ -395,7 +406,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
         showState(.results(result))
 
         blastLogger.info(
-            "Showing BLAST results: \(verified)/\(total) verified for \(result.taxonName, privacy: .public)"
+            "Showing BLAST results: \(supporting) supporting, \(contradicting) contradicting of \(total) for \(result.taxonName, privacy: .public)"
         )
     }
 
@@ -675,7 +686,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
         resultsOutlineView.rowHeight = 24
         resultsOutlineView.intercellSpacing = NSSize(width: 4, height: 0)
         resultsOutlineView.usesAlternatingRowBackgroundColors = true
-        resultsOutlineView.allowsMultipleSelection = false
+        resultsOutlineView.allowsMultipleSelection = true
         resultsOutlineView.allowsColumnReordering = false
         resultsOutlineView.indentationPerLevel = 16
         resultsOutlineView.headerView = NSTableHeaderView()
@@ -823,83 +834,134 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
         return menu
     }
 
-    /// Validates context menu items based on the clicked row type.
+    // MARK: - Selection Helpers
+
+    /// Returns the selected `ReadResultItem` instances from the outline view.
     ///
-    /// - "Copy Sequence as FASTA" is only enabled for parent rows that have
-    ///   a `querySequence`.
-    /// - "Copy Read ID" is only enabled for parent rows.
-    /// - "Copy Accession" is enabled for both parent and child rows.
+    /// For selected child rows (`HitSummaryItem`), the parent `ReadResultItem`
+    /// is included instead (deduplicated). Items are returned in outline view
+    /// order.
+    ///
+    /// - Returns: An ordered array of unique `ReadResultItem` instances.
+    private func selectedReadItems() -> [ReadResultItem] {
+        let indexes = resultsOutlineView.selectedRowIndexes
+        var seen = Set<ObjectIdentifier>()
+        var items: [ReadResultItem] = []
+
+        for row in indexes {
+            let item = resultsOutlineView.item(atRow: row)
+            let readItem: ReadResultItem?
+            if let ri = item as? ReadResultItem {
+                readItem = ri
+            } else if let hi = item as? HitSummaryItem {
+                readItem = hi.parent
+            } else {
+                readItem = nil
+            }
+            if let readItem, seen.insert(ObjectIdentifier(readItem)).inserted {
+                items.append(readItem)
+            }
+        }
+        return items
+    }
+
+    /// Returns all selected items (both `ReadResultItem` and `HitSummaryItem`)
+    /// in outline view order.
+    private func selectedItems() -> [AnyObject] {
+        let indexes = resultsOutlineView.selectedRowIndexes
+        var items: [AnyObject] = []
+        for row in indexes {
+            if let item = resultsOutlineView.item(atRow: row) as AnyObject? {
+                items.append(item)
+            }
+        }
+        return items
+    }
+
+    /// Validates context menu items based on the current selection.
+    ///
+    /// With multi-selection enabled, validation checks all selected rows:
+    /// - "Copy Sequence as FASTA" is enabled when at least one selected parent
+    ///   row has a `querySequence`.
+    /// - "Copy Read ID" is enabled when at least one parent row is selected.
+    /// - "Copy Accession" is enabled when at least one selected row (parent or
+    ///   child) has an accession.
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        let row = resultsOutlineView.clickedRow
-        guard row >= 0 else { return menuItem.action == #selector(contextExpandAll(_:))
-            || menuItem.action == #selector(contextCollapseAll(_:)) }
-
-        let item = resultsOutlineView.item(atRow: row)
-
         switch menuItem.action {
-        case #selector(contextCopyFASTA(_:)):
-            if let readItem = item as? ReadResultItem {
-                return readItem.result.querySequence != nil
-            }
-            return false
-
-        case #selector(contextCopyReadId(_:)):
-            return item is ReadResultItem
-
-        case #selector(contextCopyAccession(_:)):
-            if let readItem = item as? ReadResultItem {
-                return readItem.result.topHitAccession != nil
-            }
-            return item is HitSummaryItem
-
         case #selector(contextExpandAll(_:)),
              #selector(contextCollapseAll(_:)):
             return true
+
+        case #selector(contextCopyFASTA(_:)):
+            let readItems = selectedReadItems()
+            return readItems.contains { $0.result.querySequence != nil }
+
+        case #selector(contextCopyReadId(_:)):
+            return !selectedReadItems().isEmpty
+
+        case #selector(contextCopyAccession(_:)):
+            let items = selectedItems()
+            return items.contains { item in
+                if let readItem = item as? ReadResultItem {
+                    return readItem.result.topHitAccession != nil
+                }
+                if item is HitSummaryItem {
+                    return true
+                }
+                return false
+            }
 
         default:
             return true
         }
     }
 
+    /// Copies all selected reads as FASTA entries to the pasteboard.
+    ///
+    /// Each selected read with a `querySequence` becomes a separate FASTA
+    /// entry, joined by newlines.
     @objc private func contextCopyFASTA(_ sender: Any?) {
-        let row = resultsOutlineView.clickedRow
-        guard row >= 0,
-              let readItem = resultsOutlineView.item(atRow: row) as? ReadResultItem,
-              let sequence = readItem.result.querySequence else { return }
-
-        let fasta = ">\(readItem.result.id)\n\(sequence)\n"
+        let readItems = selectedReadItems()
+        var entries: [String] = []
+        for readItem in readItems {
+            if let sequence = readItem.result.querySequence {
+                entries.append(">\(readItem.result.id)\n\(sequence)")
+            }
+        }
+        guard !entries.isEmpty else { return }
+        let fasta = entries.joined(separator: "\n") + "\n"
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(fasta, forType: .string)
     }
 
+    /// Copies the read IDs of all selected parent rows to the pasteboard,
+    /// one per line.
     @objc private func contextCopyReadId(_ sender: Any?) {
-        let row = resultsOutlineView.clickedRow
-        guard row >= 0,
-              let readItem = resultsOutlineView.item(atRow: row) as? ReadResultItem else { return }
-
+        let readItems = selectedReadItems()
+        guard !readItems.isEmpty else { return }
+        let ids = readItems.map { $0.result.id }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(readItem.result.id, forType: .string)
+        NSPasteboard.general.setString(ids.joined(separator: "\n"), forType: .string)
     }
 
+    /// Copies accessions from all selected rows to the pasteboard, one per line.
+    ///
+    /// For parent rows, the top hit accession is used. For child rows, the
+    /// hit accession is used.
     @objc private func contextCopyAccession(_ sender: Any?) {
-        let row = resultsOutlineView.clickedRow
-        guard row >= 0 else { return }
-
-        let item = resultsOutlineView.item(atRow: row)
-        let accession: String?
-
-        if let readItem = item as? ReadResultItem {
-            accession = readItem.result.topHitAccession
-        } else if let hitItem = item as? HitSummaryItem {
-            accession = hitItem.hit.accession
-        } else {
-            accession = nil
+        let items = selectedItems()
+        var accessions: [String] = []
+        for item in items {
+            if let readItem = item as? ReadResultItem,
+               let accession = readItem.result.topHitAccession {
+                accessions.append(accession)
+            } else if let hitItem = item as? HitSummaryItem {
+                accessions.append(hitItem.hit.accession)
+            }
         }
-
-        if let accession {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(accession, forType: .string)
-        }
+        guard !accessions.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(accessions.joined(separator: "\n"), forType: .string)
     }
 
     @objc private func contextExpandAll(_ sender: Any?) {
@@ -913,18 +975,25 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
     // MARK: - Confidence Dots
 
     /// Builds a string of filled and empty circle characters representing the
-    /// verification rate.
+    /// taxon support rate among reads with significant BLAST hits.
+    ///
+    /// Green-filled dots represent supporting reads, red-filled dots represent
+    /// contradicting reads, and empty dots represent inconclusive reads.
     ///
     /// - Parameters:
-    ///   - verified: Number of verified reads.
-    ///   - total: Total number of reads.
+    ///   - supporting: Number of reads whose top hit matches the queried taxon.
+    ///   - contradicting: Number of reads whose top hit is a different organism.
+    ///   - total: Total number of reads submitted.
     /// - Returns: A string like "●●●●●●●●●○○" with 10 characters total.
-    func buildConfidenceDots(verified: Int, total: Int) -> String {
+    func buildConfidenceDots(supporting: Int, contradicting: Int, total: Int) -> String {
         guard total > 0 else { return String(repeating: "\u{25CB}", count: 10) }
-        let filledCount = Int(round(Double(verified) / Double(total) * 10.0))
-        let filled = String(repeating: "\u{25CF}", count: filledCount)
-        let empty = String(repeating: "\u{25CB}", count: 10 - filledCount)
-        return filled + empty
+        let supportDots = Int(round(Double(supporting) / Double(total) * 10.0))
+        let contradictDots = Int(round(Double(contradicting) / Double(total) * 10.0))
+        let emptyDots = max(0, 10 - supportDots - contradictDots)
+        let filled = String(repeating: "\u{25CF}", count: supportDots)
+        let contra = String(repeating: "\u{25C6}", count: contradictDots)
+        let empty = String(repeating: "\u{25CB}", count: emptyDots)
+        return filled + contra + empty
     }
 
     // MARK: - Sorting
@@ -1000,7 +1069,9 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
 
         let menu = NSMenu()
         let csvItem = NSMenuItem(title: "Export as CSV...", action: #selector(exportCSV(_:)), keyEquivalent: "")
+        csvItem.target = self
         let tsvItem = NSMenuItem(title: "Export as TSV...", action: #selector(exportTSV(_:)), keyEquivalent: "")
+        tsvItem.target = self
         menu.addItem(csvItem)
         menu.addItem(tsvItem)
 
@@ -1125,7 +1196,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
     @objc private func openInBlastClicked(_ sender: NSButton) {
         if case .results(let result) = displayState, let url = result.ncbiResultsURL {
             blastLogger.info("Opening BLAST results in browser: \(url.absoluteString, privacy: .public)")
-            onOpenInBrowser?(url)
+            if let callback = onOpenInBrowser { callback(url) } else { NSWorkspace.shared.open(url) }
         }
     }
 
