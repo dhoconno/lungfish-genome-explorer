@@ -61,7 +61,28 @@ public final class MiniBAMViewController: NSViewController {
 
         setupScrollView()
         setupStatusLabel()
+
+        // Context menu for the pileup view
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Zoom In", action: #selector(zoomInAction), keyEquivalent: "+")
+        menu.items.last?.keyEquivalentModifierMask = .command
+        menu.addItem(withTitle: "Zoom Out", action: #selector(zoomOutAction), keyEquivalent: "-")
+        menu.items.last?.keyEquivalentModifierMask = .command
+        menu.addItem(withTitle: "Zoom to Fit", action: #selector(zoomToFitAction), keyEquivalent: "0")
+        menu.items.last?.keyEquivalentModifierMask = .command
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Copy Read Sequence (FASTQ)", action: #selector(copyReadFASTQ), keyEquivalent: "")
+        menu.addItem(withTitle: "Copy Read Name", action: #selector(copyReadName), keyEquivalent: "")
+        pileupView.menu = menu
+
+        // Wire the pileup view's click handler for read selection
+        pileupView.onReadClicked = { [weak self] readIndex in
+            self?.selectedReadIndex = readIndex
+        }
     }
+
+    /// Index of the currently selected read (for context menu operations).
+    private var selectedReadIndex: Int?
 
     private func setupScrollView() {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -154,10 +175,19 @@ public final class MiniBAMViewController: NSViewController {
                 self.detectDuplicates()
                 self.updatePileup()
 
+                // Scroll to TOP of pileup (where most reads are concentrated)
+                // so the user sees the highest-coverage region first
+                self.scrollView.magnification = 1.0
+                if let docView = self.scrollView.documentView {
+                    let topPoint = NSPoint(x: 0, y: docView.frame.height - self.scrollView.contentSize.height)
+                    self.scrollView.contentView.scroll(to: topPoint)
+                }
+
                 let dupCount = self.duplicateIndices.count
-                let dupText = dupCount > 0 ? " · \(dupCount) potential PCR duplicates" : ""
-                let zoomHint = fetchedReads.count > 0 ? " · Pinch or ⌘+/⌘- to zoom" : ""
-                self.statusLabel.stringValue = "\(fetchedReads.count) reads aligned to \(contig)\(dupText)\(zoomHint)"
+                let uniqueCount = fetchedReads.count - dupCount
+                let dupText = dupCount > 0 ? " (\(uniqueCount) unique, \(dupCount) PCR duplicates)" : ""
+                let zoomHint = fetchedReads.count > 0 ? " · ⌘+/⌘- to zoom" : ""
+                self.statusLabel.stringValue = "\(fetchedReads.count) reads\(dupText)\(zoomHint)"
 
                 logger.info("Loaded \(fetchedReads.count) reads for \(contig, privacy: .public), \(dupCount) potential duplicates")
             } catch {
@@ -165,6 +195,54 @@ public final class MiniBAMViewController: NSViewController {
                 logger.error("Failed to fetch reads for \(contig, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    // MARK: - Keyboard Shortcuts
+
+    public override func keyDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if modifiers == .command {
+            switch event.charactersIgnoringModifiers {
+            case "+", "=":
+                zoomIn()
+                return
+            case "-":
+                zoomOut()
+                return
+            case "0":
+                zoomToFit()
+                return
+            default:
+                break
+            }
+        }
+        super.keyDown(with: event)
+    }
+
+    // Make sure we can become first responder for keyboard events
+    public override var acceptsFirstResponder: Bool { true }
+
+    // MARK: - Context Menu Actions
+
+    @objc private func zoomInAction() { zoomIn() }
+    @objc private func zoomOutAction() { zoomOut() }
+    @objc private func zoomToFitAction() { zoomToFit() }
+
+    @objc private func copyReadFASTQ() {
+        guard let idx = selectedReadIndex ?? pileupView.lastClickedReadIndex,
+              idx < reads.count else { return }
+        let read = reads[idx]
+        let qualString = String(read.qualities.map { Character(UnicodeScalar($0 + 33)) })
+        let fastq = "@\(read.name)\n\(read.sequence)\n+\n\(qualString)"
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(fastq, forType: .string)
+    }
+
+    @objc private func copyReadName() {
+        guard let idx = selectedReadIndex ?? pileupView.lastClickedReadIndex,
+              idx < reads.count else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(reads[idx].name, forType: .string)
     }
 
     /// Clears the current display.
@@ -234,6 +312,12 @@ final class MiniPileupView: NSView {
     private var contigLength: Int = 0
     private var packedRows: [[Int]] = []  // indices into reads array per row
     private var bpPerPixel: Double = 1.0
+
+    /// Callback when a read is clicked.
+    var onReadClicked: ((Int) -> Void)?
+
+    /// Index of the last read that was right-clicked (for context menu).
+    var lastClickedReadIndex: Int?
 
     // MARK: - Constants
 
@@ -407,19 +491,25 @@ final class MiniPileupView: NSView {
         // Skip if outside dirty rect
         guard readRect.intersects(dirtyRect) else { return }
 
-        // Read color: forward=blue, reverse=red, duplicate=orange
+        // Read color: forward=blue, reverse=red
+        // Duplicates: same strand color but at 50% opacity with orange tint
         let baseColor: NSColor
+        let fillOpacity: CGFloat
         if isDuplicate {
+            // Duplicate reads: orange-tinted at 50% opacity to de-emphasize
             baseColor = .systemOrange
+            fillOpacity = 0.35
         } else if read.isReverse {
             baseColor = NSColor(red: 0.85, green: 0.45, blue: 0.45, alpha: 1.0)
+            fillOpacity = 0.7
         } else {
             baseColor = NSColor(red: 0.45, green: 0.55, blue: 0.85, alpha: 1.0)
+            fillOpacity = 0.7
         }
 
         // Draw read body
         let readPath = NSBezierPath(roundedRect: readRect, xRadius: 2, yRadius: 2)
-        baseColor.withAlphaComponent(0.7).setFill()
+        baseColor.withAlphaComponent(fillOpacity).setFill()
         readPath.fill()
 
         // Draw strand arrow at the end
@@ -605,5 +695,51 @@ final class MiniPileupView: NSView {
             at: NSPoint(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2),
             withAttributes: attrs
         )
+    }
+
+    // MARK: - Hit Testing
+
+    /// Finds the read index at a given point in view coordinates.
+    private func readIndex(at point: NSPoint) -> Int? {
+        let pileupTop = bounds.height - depthTrackHeight - topMargin * 2
+
+        for (rowIdx, row) in packedRows.enumerated() {
+            let rowY = pileupTop - CGFloat(rowIdx + 1) * (readHeight + readGap)
+
+            for readIdx in row {
+                let read = reads[readIdx]
+                let startX = leftMargin + CGFloat(Double(read.position) / bpPerPixel)
+                let endX = leftMargin + CGFloat(Double(read.alignmentEnd) / bpPerPixel)
+                let readRect = NSRect(x: startX, y: rowY, width: max(2, endX - startX), height: readHeight)
+
+                if readRect.contains(point) {
+                    return readIdx
+                }
+            }
+        }
+        return nil
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if let idx = readIndex(at: point) {
+            lastClickedReadIndex = idx
+            onReadClicked?(idx)
+        } else {
+            lastClickedReadIndex = nil
+        }
+        super.mouseDown(with: event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        lastClickedReadIndex = readIndex(at: point)
+        super.rightMouseDown(with: event)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let point = convert(event.locationInWindow, from: nil)
+        lastClickedReadIndex = readIndex(at: point)
+        return super.menu(for: event)
     }
 }

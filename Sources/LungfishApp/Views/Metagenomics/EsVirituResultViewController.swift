@@ -108,6 +108,11 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     /// Called when the user wants to re-run EsViritu with the same or different settings.
     public var onReRun: (() -> Void)?
 
+    /// The BLAST results drawer embedded at the bottom of the view.
+    private var blastDrawerView: BlastResultsDrawerTab?
+    private var blastDrawerBottomConstraint: NSLayoutConstraint?
+    private var isBlastDrawerOpen = false
+
     /// Called when the user clicks "View Alignments" to open the BAM viewer
     /// for a specific viral reference. Parameters: BAM URL, reference accession.
     public var onViewBAM: ((URL, String) -> Void)?
@@ -358,6 +363,50 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         actionBar.onProvenance = { [weak self] sender in
             self?.showProvenancePopover(relativeTo: sender)
         }
+    }
+
+    // MARK: - BLAST Results
+
+    /// Shows BLAST verification results in a bottom drawer.
+    ///
+    /// Creates a ``BlastResultsDrawerTab`` if needed, populates it with the
+    /// results, and slides the drawer open with animation.
+    public func showBlastResults(_ result: BlastVerificationResult) {
+        if blastDrawerView == nil {
+            let drawer = BlastResultsDrawerTab()
+            drawer.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(drawer)
+
+            let bottomConstraint = drawer.bottomAnchor.constraint(equalTo: actionBar.topAnchor, constant: 220)
+            let heightConstraint = drawer.heightAnchor.constraint(equalToConstant: 220)
+
+            NSLayoutConstraint.activate([
+                drawer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                drawer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                heightConstraint,
+                bottomConstraint,
+            ])
+
+            blastDrawerView = drawer
+            blastDrawerBottomConstraint = bottomConstraint
+            view.layoutSubtreeIfNeeded()
+        }
+
+        blastDrawerView?.showResults(result)
+
+        // Animate drawer open
+        if !isBlastDrawerOpen {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.25
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                context.allowsImplicitAnimation = true
+                self.blastDrawerBottomConstraint?.animator().constant = 0
+                self.view.layoutSubtreeIfNeeded()
+            }
+            isBlastDrawerOpen = true
+        }
+
+        logger.info("Showing BLAST results: \(result.verifiedCount)/\(result.readResults.count) verified for \(result.taxonName)")
     }
 
     // MARK: - NSSplitViewDelegate

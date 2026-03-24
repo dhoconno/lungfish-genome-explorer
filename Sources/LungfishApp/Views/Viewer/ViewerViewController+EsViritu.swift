@@ -134,12 +134,15 @@ extension ViewerViewController {
                             }
                         )
 
+                        nonisolated(unsafe) let capturedBlastResult = blastResult
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
                                 OperationCenter.shared.complete(
                                     id: opID,
-                                    detail: "\(blastResult.verifiedCount)/\(blastResult.readResults.count) verified"
+                                    detail: "\(capturedBlastResult.verifiedCount)/\(capturedBlastResult.readResults.count) verified"
                                 )
+                                // Auto-show BLAST results in the EsViritu result VC
+                                controller.showBlastResults(capturedBlastResult)
                             }
                         }
                     } catch {
