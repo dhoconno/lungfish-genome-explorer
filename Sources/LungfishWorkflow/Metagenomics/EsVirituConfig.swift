@@ -212,6 +212,11 @@ public struct EsVirituConfig: Sendable, Codable, Equatable {
         // Minimum read length
         args += ["--min_read_length", String(minReadLength)]
 
+        // Keep intermediate BAM files for alignment inspection in the viewer.
+        // The final BAM ({SAMPLE}.third.filt.sorted.bam) shows reads mapped
+        // to detected viral contigs and is viewable in Lungfish's BAM viewer.
+        args += ["--keep", "True"]
+
         return args
     }
 
