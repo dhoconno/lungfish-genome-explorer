@@ -196,21 +196,17 @@ public struct EsVirituConfig: Sendable, Codable, Equatable {
         // Output directory
         args += ["-o", outputDirectory.path]
 
-        // Paired-end mode
-        if isPairedEnd {
-            args += ["-p", "paired"]
-        }
+        // Paired-end mode: "unpaired" (default) or "paired" (requires 2 files after -r)
+        args += ["-p", isPairedEnd ? "paired" : "unpaired"]
 
         // Thread count
         args += ["-t", String(threads)]
 
-        // Quality filtering
-        if !qualityFilter {
-            args.append("--skip_qc")
-        }
+        // Quality filtering (fastp): True or False
+        args += ["-q", qualityFilter ? "True" : "False"]
 
-        // Minimum read length
-        args += ["--min_read_length", String(minReadLength)]
+        // Database path (also set via ESVIRITU_DB env var as fallback)
+        args += ["--db", databasePath.path]
 
         // Keep intermediate BAM files for alignment inspection in the viewer.
         // The final BAM ({SAMPLE}.third.filt.sorted.bam) shows reads mapped

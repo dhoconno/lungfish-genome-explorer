@@ -217,16 +217,43 @@ public actor EsVirituDatabaseManager {
 
         // Prefer the registry-managed path
         if let registryPath = registryDatabasePath() {
-            if directoryContainsEsVirituDB(registryPath) {
-                let size = directorySize(at: registryPath)
-                return (version: Self.currentVersion, path: registryPath, sizeBytes: size)
-            }
+            let resolved = resolveDBDirectory(registryPath)
+            let size = directorySize(at: resolved)
+            return (version: Self.currentVersion, path: resolved, sizeBytes: size)
         }
 
         // Fall back to legacy path
         let dbDir = databaseURL
         let size = directorySize(at: dbDir)
         return (version: Self.currentVersion, path: dbDir, sizeBytes: size)
+    }
+
+    /// Resolves the actual directory containing EsViritu DB files.
+    ///
+    /// The registry may store the database at a parent directory (e.g.,
+    /// `esviritu-viral-db/`) while the actual files are in a version
+    /// subdirectory (e.g., `esviritu-viral-db/v3.2.4/`). This method
+    /// finds the deepest directory containing `.fna`, `.fasta`, or `.mmi` files.
+    private func resolveDBDirectory(_ dir: URL) -> URL {
+        let fm = FileManager.default
+        let contents = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+
+        // If this directory directly contains DB files, return it
+        if contents.contains(where: { ["fna", "fasta", "fa", "mmi"].contains($0.pathExtension.lowercased()) }) {
+            return dir
+        }
+
+        // Check subdirectories
+        for subdir in contents {
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: subdir.path, isDirectory: &isDir), isDir.boolValue else { continue }
+            let subContents = (try? fm.contentsOfDirectory(at: subdir, includingPropertiesForKeys: nil)) ?? []
+            if subContents.contains(where: { ["fna", "fasta", "fa", "mmi"].contains($0.pathExtension.lowercased()) }) {
+                return subdir
+            }
+        }
+
+        return dir
     }
 
     // MARK: - Download

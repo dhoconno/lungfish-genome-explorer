@@ -213,17 +213,20 @@ final class EsVirituConfigTests: XCTestCase {
             XCTAssertEqual(args[tIdx + 1], "4")
         }
 
-        // Should NOT contain paired flag for single-end.
-        XCTAssertFalse(args.contains("paired"))
-
-        // Should NOT contain --skip_qc when quality filter is enabled.
-        XCTAssertFalse(args.contains("--skip_qc"))
-
-        // Should contain min read length.
-        XCTAssertTrue(args.contains("--min_read_length"))
-        if let mIdx = args.firstIndex(of: "--min_read_length") {
-            XCTAssertEqual(args[mIdx + 1], "100")
+        // Should contain -p unpaired for single-end.
+        XCTAssertTrue(args.contains("-p"))
+        if let pIdx = args.firstIndex(of: "-p") {
+            XCTAssertEqual(args[pIdx + 1], "unpaired")
         }
+
+        // Should contain -q True when quality filter is enabled.
+        XCTAssertTrue(args.contains("-q"))
+        if let qIdx = args.firstIndex(of: "-q") {
+            XCTAssertEqual(args[qIdx + 1], "True")
+        }
+
+        // Should contain --db with database path.
+        XCTAssertTrue(args.contains("--db"))
     }
 
     func testPairedEndArguments() throws {
@@ -273,11 +276,14 @@ final class EsVirituConfigTests: XCTestCase {
 
         let args = config.esVirituArguments()
 
-        // Should contain --skip_qc when quality filter is disabled.
-        XCTAssertTrue(args.contains("--skip_qc"))
+        // Should contain -q False when quality filter is disabled.
+        XCTAssertTrue(args.contains("-q"))
+        if let qIdx = args.firstIndex(of: "-q") {
+            XCTAssertEqual(args[qIdx + 1], "False")
+        }
     }
 
-    func testCustomMinReadLength() throws {
+    func testDatabasePathArgument() throws {
         let dbDir = try makeFakeDatabaseDirectory()
         let fastq = try makeFakeFastqFile()
         let outputDir = try makeOutputDirectory()
@@ -285,18 +291,25 @@ final class EsVirituConfigTests: XCTestCase {
         let config = EsVirituConfig(
             inputFiles: [fastq],
             isPairedEnd: false,
-            sampleName: "MinLen",
+            sampleName: "DBTest",
             outputDirectory: outputDir,
-            databasePath: dbDir,
-            minReadLength: 200
+            databasePath: dbDir
         )
 
         let args = config.esVirituArguments()
 
-        if let mIdx = args.firstIndex(of: "--min_read_length") {
-            XCTAssertEqual(args[mIdx + 1], "200")
+        // Should contain --db with the database path
+        if let dbIdx = args.firstIndex(of: "--db") {
+            XCTAssertEqual(args[dbIdx + 1], dbDir.path)
         } else {
-            XCTFail("--min_read_length not found in arguments")
+            XCTFail("--db not found in arguments")
+        }
+
+        // Should contain --keep True for BAM preservation
+        if let kIdx = args.firstIndex(of: "--keep") {
+            XCTAssertEqual(args[kIdx + 1], "True")
+        } else {
+            XCTFail("--keep not found in arguments")
         }
     }
 
