@@ -238,34 +238,23 @@ public actor TaxTriagePipeline {
 
         // Fix spaces-in-path issue: the conda-installed Nextflow wrapper script
         // has the conda prefix hardcoded into NXF_DIST without proper quoting.
-        // If the prefix contains spaces (e.g., ~/Library/Application Support/...),
-        // the script fails. We fix this by:
-        // 1. Setting NXF_DIST to the correct quoted path via environment variable
-        // 2. Setting NXF_HOME to a space-free directory
-        let nextflowDir = nextflowPath.deletingLastPathComponent().deletingLastPathComponent()
-        let distPath = nextflowDir.appendingPathComponent("share/nextflow/dist")
-        if FileManager.default.fileExists(atPath: distPath.path) {
-            environment["NXF_DIST"] = distPath.path
-        }
+        // Patch the script to quote the NXF_DIST assignment.
+        patchNextflowScript(at: nextflowPath)
+
         // Use a space-free home directory for Nextflow's cache
         let nxfHome = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".nextflow")
         environment["NXF_HOME"] = nxfHome.path
 
-        // Spawn Nextflow via micromamba to ensure the conda environment is
-        // properly activated. This also avoids spaces-in-path issues with the
-        // Nextflow wrapper script (the conda prefix may contain spaces like
-        // "Application Support" which breaks unquoted shell variable expansion
-        // in the Nextflow bash wrapper).
+        // Run Nextflow via micromamba to ensure the conda environment is activated
         let condaManager = CondaManager.shared
         let micromambaPath = await condaManager.micromambaPath
 
-        // Find which conda environment contains nextflow
         let nextflowEnvName: String
         if let envName = await condaManager.environmentContaining(tool: "nextflow") {
             nextflowEnvName = envName
         } else {
-            nextflowEnvName = "nextflow"  // Default assumption
+            nextflowEnvName = "nextflow"
         }
 
         let micromambaArgs = ["run", "-n", nextflowEnvName, "nextflow"] + arguments
@@ -374,6 +363,61 @@ public actor TaxTriagePipeline {
     ///
     /// - Parameter config: The pipeline configuration.
     /// - Returns: The argument array (excluding the `nextflow` executable itself).
+    /// Patches the conda-installed Nextflow wrapper script to quote paths
+    /// that contain spaces.
+    ///
+    /// The conda package hardcodes `NXF_DIST=/path/with spaces/...` on line 24
+    /// without quotes. This causes bash to split on the space. We patch ONLY:
+    /// - Line starting with `NXF_DIST=/` → `NXF_DIST="/..."`
+    /// - Line containing `NXF_BIN=${NXF_BIN:-$NXF_DIST/` → adds quotes
+    ///
+    /// This is idempotent — already-patched scripts are left unchanged.
+    private func patchNextflowScript(at path: URL) {
+        do {
+            let content = try String(contentsOf: path, encoding: .utf8)
+
+            // Only patch if NXF_DIST contains a space and isn't already quoted
+            guard content.contains("NXF_DIST=/") else { return }
+
+            let lines = content.components(separatedBy: "\n")
+            var newLines: [String] = []
+            var patched = false
+
+            for line in lines {
+                // ONLY patch the NXF_DIST assignment line (starts with NXF_DIST=/)
+                if line.hasPrefix("NXF_DIST=/") && !line.hasPrefix("NXF_DIST=\"") {
+                    let value = String(line.dropFirst("NXF_DIST=".count))
+                    if value.contains(" ") {
+                        newLines.append("NXF_DIST=\"\(value)\"")
+                        patched = true
+                        continue
+                    }
+                }
+
+                // ONLY patch the specific NXF_BIN default assignment line
+                if line == "NXF_BIN=${NXF_BIN:-$NXF_DIST/$NXF_VER/$NXF_JAR}" {
+                    newLines.append("NXF_BIN=${NXF_BIN:-\"$NXF_DIST/$NXF_VER/$NXF_JAR\"}")
+                    patched = true
+                    continue
+                }
+
+                newLines.append(line)
+            }
+
+            if patched {
+                let patchedContent = newLines.joined(separator: "\n")
+                try patchedContent.write(to: path, atomically: true, encoding: .utf8)
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: 0o755],
+                    ofItemAtPath: path.path
+                )
+                logger.info("Patched Nextflow script to quote NXF_DIST path with spaces")
+            }
+        } catch {
+            logger.warning("Failed to patch Nextflow script: \(error.localizedDescription)")
+        }
+    }
+
     func buildNextflowArguments(config: TaxTriageConfig) -> [String] {
         var args: [String] = ["run"]
 

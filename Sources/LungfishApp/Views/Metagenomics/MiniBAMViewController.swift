@@ -84,15 +84,18 @@ public final class MiniBAMViewController: NSViewController {
     /// Index of the currently selected read (for context menu operations).
     private var selectedReadIndex: Int?
 
+    /// Current zoom level (1.0 = fit entire contig in viewport width).
+    private var zoomLevel: Double = 1.0
+
     private func setupScrollView() {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
-        scrollView.autohidesScrollers = false  // Always show scrollers for zoom indication
+        scrollView.autohidesScrollers = false
         scrollView.drawsBackground = false
-        scrollView.allowsMagnification = true
-        scrollView.minMagnification = 1.0
-        scrollView.maxMagnification = 100.0  // Allow deep zoom to base-level
+        // Do NOT use allowsMagnification — it just scales pixels.
+        // We implement semantic zoom by changing bpPerPixel and re-rendering.
+        scrollView.allowsMagnification = false
         scrollView.documentView = pileupView
         view.addSubview(scrollView)
 
@@ -121,21 +124,69 @@ public final class MiniBAMViewController: NSViewController {
 
     // MARK: - Public API
 
-    /// Zoom in (increase magnification by 2x centered on current view).
+    /// Zoom in: doubles the zoom level (halves bp/px), re-renders at higher detail.
+    ///
+    /// Preserves the scroll position by centering on the current viewport midpoint.
     public func zoomIn() {
-        let newMag = min(scrollView.maxMagnification, scrollView.magnification * 2)
-        scrollView.magnification = newMag
+        let maxZoom = Double(contigLength) / 2.0  // Min 2bp visible
+        let newZoom = min(maxZoom, zoomLevel * 2)
+        applyZoom(newZoom)
     }
 
-    /// Zoom out (decrease magnification by 2x).
+    /// Zoom out: halves the zoom level (doubles bp/px).
     public func zoomOut() {
-        let newMag = max(scrollView.minMagnification, scrollView.magnification / 2)
-        scrollView.magnification = newMag
+        let newZoom = max(1.0, zoomLevel / 2)
+        applyZoom(newZoom)
     }
 
     /// Zoom to fit the entire contig in the viewport.
     public func zoomToFit() {
-        scrollView.magnification = 1.0
+        applyZoom(1.0)
+    }
+
+    /// Applies a new zoom level and re-renders the pileup.
+    private func applyZoom(_ newZoom: Double) {
+        // Remember viewport center position in bp coordinates
+        let viewportWidth = scrollView.contentSize.width
+        let scrollX = scrollView.contentView.bounds.origin.x
+        let oldBpPerPx = pileupView.bpPerPixel
+        let centerBp = (Double(scrollX) + Double(viewportWidth) / 2) * oldBpPerPx
+
+        zoomLevel = newZoom
+
+        // Re-render with new zoom level
+        pileupView.configure(
+            reads: reads,
+            duplicateIndices: duplicateIndices,
+            contigName: contigName,
+            contigLength: contigLength,
+            viewportWidth: viewportWidth,
+            zoomLevel: zoomLevel
+        )
+
+        // Scroll to keep the same bp position centered
+        let newBpPerPx = pileupView.bpPerPixel
+        let newScrollX = CGFloat(centerBp / newBpPerPx) - viewportWidth / 2
+        let clampedX = max(0, min(newScrollX, pileupView.frame.width - viewportWidth))
+        scrollView.contentView.scroll(to: NSPoint(x: clampedX, y: scrollView.contentView.bounds.origin.y))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+
+        updateZoomStatus()
+    }
+
+    private func updateZoomStatus() {
+        let bpPerPx = pileupView.bpPerPixel
+        let zoomText: String
+        if bpPerPx < 1 {
+            zoomText = String(format: "%.1f px/bp", 1.0 / bpPerPx)
+        } else {
+            zoomText = String(format: "%.0f bp/px", bpPerPx)
+        }
+
+        let dupCount = duplicateIndices.count
+        let uniqueCount = reads.count - dupCount
+        let dupText = dupCount > 0 ? " (\(uniqueCount) unique, \(dupCount) PCR dups)" : ""
+        statusLabel.stringValue = "\(reads.count) reads\(dupText) · \(zoomText) · ⌘+/⌘- to zoom"
     }
 
     /// Loads and displays reads for a specific viral contig from the BAM file.
@@ -288,7 +339,8 @@ public final class MiniBAMViewController: NSViewController {
             duplicateIndices: duplicateIndices,
             contigName: contigName,
             contigLength: contigLength,
-            viewportWidth: scrollView.contentSize.width
+            viewportWidth: scrollView.contentSize.width,
+            zoomLevel: zoomLevel
         )
     }
 }
@@ -311,7 +363,7 @@ final class MiniPileupView: NSView {
     private var contigName: String = ""
     private var contigLength: Int = 0
     private var packedRows: [[Int]] = []  // indices into reads array per row
-    private var bpPerPixel: Double = 1.0
+    private(set) var bpPerPixel: Double = 1.0
 
     /// Callback when a read is clicked.
     var onReadClicked: ((Int) -> Void)?
@@ -334,16 +386,19 @@ final class MiniPileupView: NSView {
         duplicateIndices: Set<Int>,
         contigName: String,
         contigLength: Int,
-        viewportWidth: CGFloat
+        viewportWidth: CGFloat,
+        zoomLevel: Double = 1.0
     ) {
         self.reads = reads
         self.duplicateIndices = duplicateIndices
         self.contigName = contigName
         self.contigLength = contigLength
 
-        // Compute bp/px to fit entire contig in the viewport width
+        // Compute bp/px: at zoom=1.0, entire contig fits in viewport.
+        // Higher zoom = fewer bp/px = more detail.
         let effectiveWidth = max(1, viewportWidth - leftMargin * 2)
-        bpPerPixel = max(1, Double(contigLength) / Double(effectiveWidth))
+        let baseBpPerPx = Double(contigLength) / Double(effectiveWidth)
+        bpPerPixel = max(0.1, baseBpPerPx / zoomLevel)  // min 0.1 bp/px (~10 px per base)
 
         // Pack reads into rows (greedy left-to-right packing)
         packReads()

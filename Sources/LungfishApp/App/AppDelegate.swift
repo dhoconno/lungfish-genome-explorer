@@ -3616,7 +3616,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
             let hostingController = NSHostingController(rootView: wizardView)
             wizardPanel.contentViewController = hostingController
-            wizardPanel.setContentSize(NSSize(width: 560, height: 520))
+            wizardPanel.setContentSize(NSSize(width: 560, height: 680))
             await window.beginSheet(wizardPanel)
         }
     }

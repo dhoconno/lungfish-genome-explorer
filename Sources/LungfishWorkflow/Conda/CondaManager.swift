@@ -441,6 +441,49 @@ public actor CondaManager {
         self.rootPrefix = home.appendingPathComponent(".lungfish/conda")
     }
 
+    /// Migrates ~/.lungfish/conda from a symlink to a real directory.
+    ///
+    /// If the conda root is a symlink (typically pointing to
+    /// ~/Library/Application Support/Lungfish/conda), moves the actual
+    /// directory contents to the symlink location so tools don't see
+    /// spaces in their prefix paths.
+    ///
+    /// **Why**: conda hardcodes the prefix path into installed scripts
+    /// (e.g., Nextflow's NXF_DIST). If the prefix resolves to a path
+    /// with spaces, bash scripts and Java classpaths break.
+    private func migrateSymlinkToRealDirectory() {
+        let fm = FileManager.default
+        let path = rootPrefix.path
+
+        // Check if it's a symlink
+        guard let attrs = try? fm.attributesOfItem(atPath: path),
+              attrs[.type] as? FileAttributeType == .typeSymbolicLink else {
+            return  // Already a real directory (or doesn't exist yet)
+        }
+
+        // Resolve the symlink target
+        guard let realPath = try? fm.destinationOfSymbolicLink(atPath: path) else {
+            return
+        }
+
+        let realURL = URL(fileURLWithPath: realPath)
+        guard fm.fileExists(atPath: realURL.path) else { return }
+
+        logger.info("Migrating conda from symlink to real directory: \(realPath) → \(path)")
+
+        do {
+            // Remove the symlink
+            try fm.removeItem(atPath: path)
+            // Move the real directory to the symlink location
+            try fm.moveItem(at: realURL, to: rootPrefix)
+            logger.info("Successfully migrated conda to space-free path")
+        } catch {
+            logger.error("Failed to migrate conda symlink: \(error.localizedDescription)")
+            // Try to restore the symlink if move failed
+            try? fm.createSymbolicLink(atPath: path, withDestinationPath: realPath)
+        }
+    }
+
     // MARK: - Micromamba Bootstrap
 
     /// Ensures micromamba is available, downloading it if necessary.
@@ -451,6 +494,11 @@ public actor CondaManager {
     public func ensureMicromamba(
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> URL {
+        // Migration: if ~/.lungfish/conda is a symlink (pointing to a path with
+        // spaces like ~/Library/Application Support/...), replace it with a real
+        // directory. Spaces in conda prefix paths break bioinformatics tools.
+        migrateSymlinkToRealDirectory()
+
         let binDir = rootPrefix.appendingPathComponent("bin")
 
         if FileManager.default.fileExists(atPath: micromambaPath.path) {

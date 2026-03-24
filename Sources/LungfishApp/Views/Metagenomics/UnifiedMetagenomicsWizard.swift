@@ -168,7 +168,7 @@ struct UnifiedMetagenomicsWizard: View {
                 configurationStep
             }
         }
-        .frame(width: 560, height: currentStep == .chooseType ? 520 : 580)
+        .frame(width: 560, height: currentStep == .chooseType ? 520 : 680)
         .animation(.easeInOut(duration: 0.2), value: currentStep)
         .onAppear {
             checkToolAvailability()
