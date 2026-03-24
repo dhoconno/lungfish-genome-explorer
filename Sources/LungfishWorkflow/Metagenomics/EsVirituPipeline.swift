@@ -367,6 +367,48 @@ public actor EsVirituPipeline {
 
         progress?(0.15, "Running EsViritu...")
 
+        // Symlink input files to a temp directory without spaces in the path.
+        // EsViritu shells out to fastp/minimap2 via Python subprocess which
+        // breaks on paths with spaces (known bioinformatics tool limitation).
+        var effectiveConfig = config
+        let symlinkDir = config.outputDirectory.appendingPathComponent("_input_links")
+        var symlinkPaths: [URL] = []
+        let needsSymlinks = config.inputFiles.contains { $0.path.contains(" ") }
+            || config.outputDirectory.path.contains(" ")
+
+        if needsSymlinks {
+            try fm.createDirectory(at: symlinkDir, withIntermediateDirectories: true)
+            for inputFile in config.inputFiles {
+                let linkName = inputFile.lastPathComponent.replacingOccurrences(of: " ", with: "_")
+                let linkURL = symlinkDir.appendingPathComponent(linkName)
+                try? fm.removeItem(at: linkURL)
+                try fm.createSymbolicLink(at: linkURL, withDestinationURL: inputFile)
+                symlinkPaths.append(linkURL)
+            }
+
+            // If the output directory has spaces, use a temp directory and
+            // copy results back later.
+            let safeOutputDir: URL
+            if config.outputDirectory.path.contains(" ") {
+                safeOutputDir = fm.temporaryDirectory
+                    .appendingPathComponent("esviritu-\(UUID().uuidString.prefix(8))")
+                try fm.createDirectory(at: safeOutputDir, withIntermediateDirectories: true)
+            } else {
+                safeOutputDir = config.outputDirectory
+            }
+
+            effectiveConfig = EsVirituConfig(
+                inputFiles: symlinkPaths,
+                isPairedEnd: config.isPairedEnd,
+                sampleName: config.sampleName,
+                outputDirectory: safeOutputDir,
+                databasePath: config.databasePath,
+                qualityFilter: config.qualityFilter,
+                threads: config.threads
+            )
+            logger.info("Created symlinks to avoid spaces in paths: \(symlinkPaths.map(\.lastPathComponent))")
+        }
+
         // Begin provenance recording.
         let provenanceRecorder = ProvenanceRecorder.shared
         let runID = await provenanceRecorder.beginRun(
@@ -374,14 +416,13 @@ public actor EsVirituPipeline {
             parameters: [
                 "sample": .string(config.sampleName),
                 "qualityFilter": .boolean(config.qualityFilter),
-                "minReadLength": .integer(config.minReadLength),
                 "threads": .integer(config.threads),
                 "pairedEnd": .boolean(config.isPairedEnd),
             ]
         )
 
         // Phase 3: Run EsViritu (0.15 -- 0.85)
-        let esVirituArgs = config.esVirituArguments()
+        let esVirituArgs = effectiveConfig.esVirituArguments()
         let esVirituCommand = ["EsViritu"] + esVirituArgs
 
         logger.info("Running: EsViritu \(esVirituArgs.joined(separator: " "))")
@@ -411,7 +452,7 @@ public actor EsVirituPipeline {
                 name: "EsViritu",
                 arguments: esVirituArgs,
                 environment: Self.esVirituEnvironment,
-                environmentVariables: ["ESVIRITU_DB": config.databasePath.path],
+                environmentVariables: ["ESVIRITU_DB": effectiveConfig.databasePath.path],
                 timeout: estimatedTimeout,
                 stderrHandler: esVirituStderrHandler
             )
@@ -454,7 +495,28 @@ public actor EsVirituPipeline {
 
         progress?(0.85, "Parsing detection results...")
 
-        // Phase 4: Parse output (0.85 -- 0.95)
+        // Phase 4: Copy results back if we used a temp output directory (0.85 -- 0.90)
+        if needsSymlinks && effectiveConfig.outputDirectory != config.outputDirectory {
+            progress?(0.85, "Copying results to project directory...")
+            let tempOutput = effectiveConfig.outputDirectory
+            let contents = (try? fm.contentsOfDirectory(at: tempOutput, includingPropertiesForKeys: nil)) ?? []
+            for item in contents {
+                let dest = config.outputDirectory.appendingPathComponent(item.lastPathComponent)
+                try? fm.removeItem(at: dest)
+                try? fm.moveItem(at: item, to: dest)
+            }
+            try? fm.removeItem(at: tempOutput)
+            logger.info("Moved results from temp dir to \(config.outputDirectory.path)")
+        }
+
+        // Clean up input symlinks
+        if needsSymlinks {
+            try? fm.removeItem(at: symlinkDir)
+        }
+
+        // Phase 4b: Parse output (0.90 -- 0.95)
+        progress?(0.90, "Parsing detection results...")
+
         guard fm.fileExists(atPath: config.detectionOutputURL.path) else {
             await provenanceRecorder.completeRun(runID, status: .failed)
             throw EsVirituPipelineError.detectionOutputNotProduced(config.detectionOutputURL)
