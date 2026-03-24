@@ -737,6 +737,33 @@ public actor CondaManager {
         return binPath
     }
 
+    /// Checks whether a tool is installed in any conda environment.
+    ///
+    /// Searches all environments under the conda root prefix for an executable
+    /// matching the given tool name. This is a lightweight filesystem check —
+    /// no subprocess is spawned.
+    ///
+    /// - Parameter name: The tool executable name (e.g., "kraken2", "EsViritu").
+    /// - Returns: `true` if the tool is found in any environment's `bin/` directory.
+    public func isToolInstalled(_ name: String) async -> Bool {
+        let envsDir = rootPrefix.appendingPathComponent("envs")
+        guard let envDirs = try? FileManager.default.contentsOfDirectory(
+            at: envsDir,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return false
+        }
+
+        for envDir in envDirs {
+            let binPath = envDir.appendingPathComponent("bin/\(name)")
+            if FileManager.default.isExecutableFile(atPath: binPath.path) {
+                return true
+            }
+        }
+        return false
+    }
+
     /// Runs a tool from a conda environment.
     ///
     /// Uses `micromamba run -n <env> <tool> [args...]` to ensure the correct

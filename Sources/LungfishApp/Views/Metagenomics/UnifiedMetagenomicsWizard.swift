@@ -40,10 +40,18 @@ struct UnifiedMetagenomicsWizard: View {
     @State private var selectedType: AnalysisType? = nil
 
     // Tool availability (checked asynchronously)
+    @State private var kraken2Available: Bool? = nil
+    @State private var esvirituAvailable: Bool? = nil
     @State private var nextflowAvailable: Bool? = nil
     @State private var containerAvailable: Bool? = nil
 
     // MARK: - Callbacks
+
+    /// Called when the user configures and launches a Kraken2 classification.
+    var onRunClassification: ((ClassificationConfig) -> Void)?
+
+    /// Called when the user configures and launches an EsViritu run.
+    var onRunEsViritu: ((EsVirituConfig) -> Void)?
 
     /// Called when the user configures and launches a TaxTriage run.
     var onRunTaxTriage: ((TaxTriageConfig) -> Void)?
@@ -106,18 +114,9 @@ struct UnifiedMetagenomicsWizard: View {
             }
         }
 
-        /// Whether this analysis type is currently available for configuration.
-        ///
-        /// Classification and viral detection require additional infrastructure
-        /// (ClassificationWizardSheet, EsVirituWizardSheet) that may not yet be
-        /// present. Only clinical triage is fully integrated.
-        var isConfigurable: Bool {
-            switch self {
-            case .classification: return false // Requires ClassificationWizardSheet
-            case .viralDetection: return false // Requires EsVirituWizardSheet
-            case .clinicalTriage: return true
-            }
-        }
+        /// All analysis types are configurable — tool availability is checked
+        /// separately and shown as badges on each card.
+        var isConfigurable: Bool { true }
     }
 
     // MARK: - Body
@@ -293,38 +292,45 @@ struct UnifiedMetagenomicsWizard: View {
     @ViewBuilder
     private func toolAvailabilityBadge(for type: AnalysisType) -> some View {
         switch type {
-        case .classification, .viralDetection:
-            HStack(spacing: 2) {
-                Image(systemName: "wrench.and.screwdriver")
-                    .foregroundStyle(.secondary)
-                Text("Coming soon")
-                    .foregroundStyle(.secondary)
-            }
-            .font(.system(size: 10, weight: .medium))
+        case .classification:
+            availabilityIndicator(available: kraken2Available)
+
+        case .viralDetection:
+            availabilityIndicator(available: esvirituAvailable)
 
         case .clinicalTriage:
             if let nf = nextflowAvailable, let ct = containerAvailable {
-                if nf && ct {
-                    HStack(spacing: 2) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                        Text("Ready")
-                            .foregroundStyle(.green)
-                    }
-                    .font(.system(size: 10, weight: .medium))
-                } else {
-                    HStack(spacing: 2) {
-                        Image(systemName: "exclamationmark.circle")
-                            .foregroundStyle(.orange)
-                        Text("Setup needed")
-                            .foregroundStyle(.orange)
-                    }
-                    .font(.system(size: 10, weight: .medium))
-                }
+                availabilityIndicator(available: nf && ct ? true : false)
             } else {
                 ProgressView()
                     .controlSize(.mini)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func availabilityIndicator(available: Bool?) -> some View {
+        if let available {
+            if available {
+                HStack(spacing: 2) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("Ready")
+                        .foregroundStyle(.green)
+                }
+                .font(.system(size: 10, weight: .medium))
+            } else {
+                HStack(spacing: 2) {
+                    Image(systemName: "exclamationmark.circle")
+                        .foregroundStyle(.orange)
+                    Text("Install in Plugin Manager")
+                        .foregroundStyle(.orange)
+                }
+                .font(.system(size: 10, weight: .medium))
+            }
+        } else {
+            ProgressView()
+                .controlSize(.mini)
         }
     }
 
@@ -333,6 +339,24 @@ struct UnifiedMetagenomicsWizard: View {
     @ViewBuilder
     private var configurationStep: some View {
         switch selectedType {
+        case .classification:
+            ClassificationWizardSheet(
+                inputFiles: inputFiles,
+                onRun: { config in
+                    onRunClassification?(config)
+                },
+                onCancel: { onCancel?() }
+            )
+
+        case .viralDetection:
+            EsVirituWizardSheet(
+                inputFiles: inputFiles,
+                onRun: { config in
+                    onRunEsViritu?(config)
+                },
+                onCancel: { onCancel?() }
+            )
+
         case .clinicalTriage:
             TaxTriageWizardSheet(
                 initialFiles: inputFiles,
@@ -342,17 +366,8 @@ struct UnifiedMetagenomicsWizard: View {
                 onCancel: { onCancel?() }
             )
 
-        case .classification, .viralDetection, nil:
-            VStack {
-                Spacer()
-                Text("This analysis type is not yet available.")
-                    .foregroundStyle(.secondary)
-                Text("Please select Clinical Triage to proceed.")
-                    .foregroundStyle(.secondary)
-                    .font(.caption)
-                Spacer()
-            }
-            .frame(maxWidth: .infinity)
+        case nil:
+            EmptyView()
         }
     }
 
@@ -360,6 +375,15 @@ struct UnifiedMetagenomicsWizard: View {
 
     private func checkToolAvailability() {
         Task { @MainActor in
+            // Check Kraken2 via conda
+            let condaMgr = CondaManager.shared
+            let kraken2Installed = await condaMgr.isToolInstalled("kraken2")
+            kraken2Available = kraken2Installed
+
+            // Check EsViritu via conda
+            let esvirituInstalled = await condaMgr.isToolInstalled("EsViritu")
+            esvirituAvailable = esvirituInstalled
+
             // Check Nextflow
             let nfRunner = NextflowRunner()
             nextflowAvailable = await nfRunner.isAvailable()
