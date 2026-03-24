@@ -158,8 +158,14 @@ final class PluginManagerViewModel {
     /// Map of database name to error message from a failed download.
     var downloadError: [String: String] = [:]
 
+    /// Map of database name to the Task handle for cancellation.
+    private var downloadTasks: [String: Task<Void, Never>] = [:]
+
     /// Set of database names currently being removed.
     var removingDatabases: Set<String> = []
+
+    /// Database name pending removal confirmation, drives the confirmation alert.
+    var databasePendingRemoval: String?
 
     /// Name of the recommended database based on system RAM.
     var recommendedDatabaseName: String = ""
@@ -461,15 +467,17 @@ final class PluginManagerViewModel {
 
         downloadingDatabases.insert(name)
         downloadProgress[name] = 0.0
-        downloadMessage[name] = "Starting download..."
+        downloadMessage[name] = "Starting download\u{2026}"
         downloadError.removeValue(forKey: name)
 
-        Task {
+        let task = Task {
             defer {
                 downloadingDatabases.remove(name)
+                downloadTasks.removeValue(forKey: name)
             }
 
             do {
+                try Task.checkCancellation()
                 _ = try await MetagenomicsDatabaseRegistry.shared.downloadDatabase(
                     name: name,
                     progress: { [weak self] fraction, message in
@@ -485,14 +493,48 @@ final class PluginManagerViewModel {
                 downloadMessage.removeValue(forKey: name)
                 logger.info("Database '\(name, privacy: .public)' downloaded successfully")
                 refreshDatabases()
+            } catch is CancellationError {
+                downloadProgress.removeValue(forKey: name)
+                downloadMessage.removeValue(forKey: name)
+                logger.info("Database '\(name, privacy: .public)' download cancelled by user")
+                refreshDatabases()
             } catch {
                 downloadProgress.removeValue(forKey: name)
                 downloadMessage.removeValue(forKey: name)
-                downloadError[name] = error.localizedDescription
-                logger.error("Database '\(name, privacy: .public)' download failed: \(error.localizedDescription, privacy: .public)")
+                if !Task.isCancelled {
+                    downloadError[name] = error.localizedDescription
+                    logger.error("Database '\(name, privacy: .public)' download failed: \(error.localizedDescription, privacy: .public)")
+                }
                 refreshDatabases()
             }
         }
+        downloadTasks[name] = task
+    }
+
+    /// Cancels an in-progress database download.
+    ///
+    /// - Parameter name: Name of the database whose download to cancel.
+    func cancelDownload(name: String) {
+        guard let task = downloadTasks[name] else { return }
+        task.cancel()
+        logger.info("Cancelling download of database '\(name, privacy: .public)'")
+    }
+
+    /// Requests removal of a database, showing a confirmation alert first.
+    ///
+    /// Sets ``databasePendingRemoval`` which drives the confirmation alert
+    /// in the view. Call ``confirmRemoveDatabase()`` to proceed.
+    ///
+    /// - Parameter name: Name of the database to remove.
+    func requestRemoveDatabase(name: String) {
+        databasePendingRemoval = name
+    }
+
+    /// Confirms and executes the pending database removal.
+    func confirmRemoveDatabase() {
+        guard let name = databasePendingRemoval else { return }
+        databasePendingRemoval = nil
+        removeDatabase(name: name)
     }
 
     /// Removes a downloaded database, deleting its files from disk.

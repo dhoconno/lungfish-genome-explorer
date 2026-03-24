@@ -692,6 +692,24 @@ struct DatabasesTabView: View {
                 viewModel.refreshDatabases()
             }
         }
+        .alert(
+            "Remove Database",
+            isPresented: Binding(
+                get: { viewModel.databasePendingRemoval != nil },
+                set: { if !$0 { viewModel.databasePendingRemoval = nil } }
+            )
+        ) {
+            Button("Remove", role: .destructive) {
+                viewModel.confirmRemoveDatabase()
+            }
+            Button("Cancel", role: .cancel) {
+                viewModel.databasePendingRemoval = nil
+            }
+        } message: {
+            if let name = viewModel.databasePendingRemoval {
+                Text("Are you sure you want to remove the \(name) database? This will delete all database files from disk and free the associated storage space.")
+            }
+        }
     }
 
     // MARK: - Header
@@ -763,8 +781,11 @@ struct DatabasesTabView: View {
                     onDownload: {
                         viewModel.downloadDatabase(name: db.name)
                     },
+                    onCancel: {
+                        viewModel.cancelDownload(name: db.name)
+                    },
                     onRemove: {
-                        viewModel.removeDatabase(name: db.name)
+                        viewModel.requestRemoveDatabase(name: db.name)
                     },
                     onDismissError: {
                         viewModel.downloadError.removeValue(forKey: db.name)
@@ -822,6 +843,7 @@ private struct DatabaseRow: View {
     let errorMessage: String?
     let systemRAMBytes: UInt64
     let onDownload: () -> Void
+    let onCancel: () -> Void
     let onRemove: () -> Void
     let onDismissError: () -> Void
 
@@ -962,9 +984,13 @@ private struct DatabaseRow: View {
             ProgressView()
                 .controlSize(.small)
         } else if isDownloading {
-            Text("Downloading...")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            Button(role: .cancel) {
+                onCancel()
+            } label: {
+                Label("Cancel", systemImage: "xmark.circle")
+            }
+            .controlSize(.small)
+            .help("Cancel this download")
         } else if database.status == .ready {
             HStack(spacing: 8) {
                 Text("Installed")
