@@ -720,7 +720,7 @@ struct DatabasesTabView: View {
                 Image(systemName: "cylinder.split.1x2")
                     .font(.title2)
                     .foregroundStyle(Color.accentColor)
-                Text("Kraken2 Databases")
+                Text("Databases")
                     .font(.headline)
 
                 Spacer()
@@ -764,33 +764,72 @@ struct DatabasesTabView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - Database List
+    // MARK: - Database List (grouped by tool)
+
+    /// Groups databases by their tool property for sectioned display.
+    private var groupedDatabases: [(tool: String, title: String, symbol: String, databases: [MetagenomicsDatabaseInfo])] {
+        let toolOrder: [MetagenomicsTool] = [.kraken2, .esviritu, .taxtriage]
+        var result: [(tool: String, title: String, symbol: String, databases: [MetagenomicsDatabaseInfo])] = []
+
+        for tool in toolOrder {
+            let dbs = viewModel.databases.filter { $0.tool == tool.rawValue }
+            if !dbs.isEmpty {
+                result.append((
+                    tool: tool.rawValue,
+                    title: tool.databaseSectionTitle,
+                    symbol: tool.symbolName,
+                    databases: dbs
+                ))
+            }
+        }
+
+        // Any remaining tools not in the explicit order
+        let knownTools = Set(toolOrder.map(\.rawValue))
+        let otherDbs = viewModel.databases.filter { !knownTools.contains($0.tool) }
+        if !otherDbs.isEmpty {
+            result.append((tool: "other", title: "Other Databases", symbol: "cylinder", databases: otherDbs))
+        }
+
+        return result
+    }
 
     private var databaseList: some View {
         List {
-            ForEach(viewModel.databases) { db in
-                DatabaseRow(
-                    database: db,
-                    isRecommended: db.name == viewModel.recommendedDatabaseName,
-                    isDownloading: viewModel.downloadingDatabases.contains(db.name),
-                    isRemoving: viewModel.removingDatabases.contains(db.name),
-                    progress: viewModel.downloadProgress[db.name],
-                    progressMessage: viewModel.downloadMessage[db.name],
-                    errorMessage: viewModel.downloadError[db.name],
-                    systemRAMBytes: viewModel.systemRAMBytes,
-                    onDownload: {
-                        viewModel.downloadDatabase(name: db.name)
-                    },
-                    onCancel: {
-                        viewModel.cancelDownload(name: db.name)
-                    },
-                    onRemove: {
-                        viewModel.requestRemoveDatabase(name: db.name)
-                    },
-                    onDismissError: {
-                        viewModel.downloadError.removeValue(forKey: db.name)
+            ForEach(groupedDatabases, id: \.tool) { section in
+                Section {
+                    ForEach(section.databases) { db in
+                        DatabaseRow(
+                            database: db,
+                            isRecommended: db.name == viewModel.recommendedDatabaseName,
+                            isDownloading: viewModel.downloadingDatabases.contains(db.name),
+                            isRemoving: viewModel.removingDatabases.contains(db.name),
+                            progress: viewModel.downloadProgress[db.name],
+                            progressMessage: viewModel.downloadMessage[db.name],
+                            errorMessage: viewModel.downloadError[db.name],
+                            systemRAMBytes: viewModel.systemRAMBytes,
+                            onDownload: {
+                                viewModel.downloadDatabase(name: db.name)
+                            },
+                            onCancel: {
+                                viewModel.cancelDownload(name: db.name)
+                            },
+                            onRemove: {
+                                viewModel.requestRemoveDatabase(name: db.name)
+                            },
+                            onDismissError: {
+                                viewModel.downloadError.removeValue(forKey: db.name)
+                            }
+                        )
                     }
-                )
+                } header: {
+                    HStack(spacing: 6) {
+                        Image(systemName: section.symbol)
+                            .foregroundStyle(Color.accentColor)
+                        Text(section.title)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                    }
+                }
             }
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))

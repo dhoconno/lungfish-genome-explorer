@@ -19,6 +19,32 @@ public enum MetagenomicsTool: String, Codable, Sendable, CaseIterable {
     case metaphlan
     /// KrakenTools utilities (extract reads, combine reports, etc.).
     case krakentools
+    /// EsViritu viral metagenomics detection pipeline.
+    case esviritu
+    /// TaxTriage clinical metagenomic triage (Nextflow pipeline).
+    case taxtriage
+
+    /// Human-readable display name for the database section header.
+    public var databaseSectionTitle: String {
+        switch self {
+        case .kraken2: return "Kraken2 Databases"
+        case .bracken: return "Bracken Databases"
+        case .metaphlan: return "MetaPhlAn Databases"
+        case .krakentools: return "KrakenTools"
+        case .esviritu: return "EsViritu Databases"
+        case .taxtriage: return "TaxTriage Databases"
+        }
+    }
+
+    /// SF Symbol for the tool icon.
+    public var symbolName: String {
+        switch self {
+        case .kraken2, .bracken, .krakentools: return "cylinder.split.1x2"
+        case .metaphlan: return "chart.bar"
+        case .esviritu: return "ant"
+        case .taxtriage: return "stethoscope"
+        }
+    }
 }
 
 // MARK: - DatabaseCollection

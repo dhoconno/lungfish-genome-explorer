@@ -151,10 +151,11 @@ final class MetagenomicsDatabaseInfoTests: XCTestCase {
     func testBuiltInCatalogComplete() {
         let catalog = MetagenomicsDatabaseInfo.builtInCatalog
 
-        // Must have exactly as many entries as DatabaseCollection cases.
-        XCTAssertEqual(catalog.count, DatabaseCollection.allCases.count)
+        // Must have at least as many entries as DatabaseCollection cases (Kraken2)
+        // plus additional tool databases (EsViritu, etc.)
+        XCTAssertGreaterThanOrEqual(catalog.count, DatabaseCollection.allCases.count)
 
-        // Every collection should be represented.
+        // Every Kraken2 collection should be represented.
         let collections = Set(catalog.compactMap(\.collection))
         for collection in DatabaseCollection.allCases {
             XCTAssertTrue(
@@ -163,10 +164,14 @@ final class MetagenomicsDatabaseInfoTests: XCTestCase {
             )
         }
 
+        // EsViritu database should be present
+        let esvirituDBs = catalog.filter { $0.tool == MetagenomicsTool.esviritu.rawValue }
+        XCTAssertFalse(esvirituDBs.isEmpty, "Catalog should include EsViritu databases")
+
         // Every entry must have required fields populated.
         for entry in catalog {
             XCTAssertFalse(entry.name.isEmpty, "Catalog entry has empty name")
-            XCTAssertEqual(entry.tool, "kraken2", "Catalog entry '\(entry.name)' has wrong tool")
+            XCTAssertFalse(entry.tool.isEmpty, "Catalog entry '\(entry.name)' has empty tool")
             XCTAssertNotNil(entry.version, "Catalog entry '\(entry.name)' has nil version")
             XCTAssertGreaterThan(entry.sizeBytes, 0, "Catalog entry '\(entry.name)' has zero size")
             XCTAssertNotNil(entry.downloadURL, "Catalog entry '\(entry.name)' has nil download URL")
@@ -191,21 +196,25 @@ final class MetagenomicsDatabaseInfoTests: XCTestCase {
                 urlString.hasSuffix(".tar.gz"),
                 "Catalog entry '\(entry.name)' download URL does not end with .tar.gz"
             )
+            // Kraken2 databases come from AWS, EsViritu from Zenodo
+            let isKnownHost = urlString.contains("genome-idx.s3.amazonaws.com")
+                || urlString.contains("zenodo.org")
             XCTAssertTrue(
-                urlString.contains("genome-idx.s3.amazonaws.com"),
-                "Catalog entry '\(entry.name)' download URL is not from the expected host"
+                isKnownHost,
+                "Catalog entry '\(entry.name)' download URL is not from a known host: \(urlString)"
             )
         }
     }
 
-    func testViralDatabaseIsSmallest() {
-        let catalog = MetagenomicsDatabaseInfo.builtInCatalog
-        let viral = catalog.first { $0.name == "Viral" }
+    func testViralDatabaseIsSmallestKraken2() {
+        // Among Kraken2 databases, "Viral" should be the smallest
+        let kraken2Catalog = MetagenomicsDatabaseInfo.builtInCatalog.filter { $0.tool == "kraken2" }
+        let viral = kraken2Catalog.first { $0.name == "Viral" }
         XCTAssertNotNil(viral)
 
         guard let viralDB = viral else { return }
 
-        for entry in catalog where entry.name != "Viral" {
+        for entry in kraken2Catalog where entry.name != "Viral" {
             XCTAssertLessThan(
                 viralDB.sizeBytes, entry.sizeBytes,
                 "Viral (\(viralDB.sizeBytes)) should be smaller than \(entry.name) (\(entry.sizeBytes))"
@@ -337,7 +346,8 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
 
         let dbs = try await registry.availableDatabases()
-        XCTAssertEqual(dbs.count, DatabaseCollection.allCases.count)
+        // Catalog includes Kraken2 collections + EsViritu + any other tool databases
+        XCTAssertGreaterThanOrEqual(dbs.count, DatabaseCollection.allCases.count)
 
         // All should be in .missing status.
         for db in dbs {

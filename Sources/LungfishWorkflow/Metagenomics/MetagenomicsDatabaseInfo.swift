@@ -178,29 +178,51 @@ extension MetagenomicsDatabaseInfo {
     /// `https://benlangmead.github.io/aws-indexes/k2`.
     static let latestBuildDate = "20240904"
 
-    /// Complete built-in catalog of Kraken2 pre-built databases.
+    /// Complete built-in catalog of all metagenomics databases.
     ///
-    /// These entries describe databases available for download from Ben Langmead's
-    /// AWS-hosted collection. None are installed by default -- the user picks one
-    /// (or the app recommends one based on available RAM) and the registry downloads it.
-    public static let builtInCatalog: [MetagenomicsDatabaseInfo] = DatabaseCollection.allCases.map { collection in
-        MetagenomicsDatabaseInfo(
-            name: collection.displayName,
-            tool: MetagenomicsTool.kraken2.rawValue,
-            version: latestBuildDate,
-            sizeBytes: collection.approximateSizeBytes,
-            sizeOnDisk: collection.approximateSizeBytes, // roughly 1:1 for Kraken2 DBs
-            downloadURL: "\(collection.downloadURLBase)_\(latestBuildDate).tar.gz",
-            description: collection.contentsDescription,
-            collection: collection,
+    /// Includes Kraken2 pre-built databases from Ben Langmead's AWS collection
+    /// and EsViritu's curated viral database from Zenodo.
+    public static let builtInCatalog: [MetagenomicsDatabaseInfo] = {
+        // Kraken2 databases
+        var catalog = DatabaseCollection.allCases.map { collection in
+            MetagenomicsDatabaseInfo(
+                name: collection.displayName,
+                tool: MetagenomicsTool.kraken2.rawValue,
+                version: latestBuildDate,
+                sizeBytes: collection.approximateSizeBytes,
+                sizeOnDisk: collection.approximateSizeBytes,
+                downloadURL: "\(collection.downloadURLBase)_\(latestBuildDate).tar.gz",
+                description: collection.contentsDescription,
+                collection: collection,
+                path: nil,
+                isExternal: false,
+                bookmarkData: nil,
+                lastUpdated: nil,
+                status: .missing,
+                recommendedRAM: collection.approximateRAMBytes
+            )
+        }
+
+        // EsViritu curated viral database
+        catalog.append(MetagenomicsDatabaseInfo(
+            name: "EsViritu Viral DB",
+            tool: MetagenomicsTool.esviritu.rawValue,
+            version: "v3.2.4",
+            sizeBytes: 400 * 1_048_576,  // ~400 MB download
+            sizeOnDisk: 5 * 1_073_741_824,  // ~5 GB extracted
+            downloadURL: "https://zenodo.org/records/17716199/files/esviritu_db_v3.2.4.tar.gz",
+            description: "19,925 curated viral assemblies across 63 families (Tisza et al. 2023)",
+            collection: nil,
             path: nil,
             isExternal: false,
             bookmarkData: nil,
             lastUpdated: nil,
             status: .missing,
-            recommendedRAM: collection.approximateRAMBytes
-        )
-    }
+            recommendedRAM: 8 * 1_073_741_824  // ~8 GB RAM recommended
+        ))
+
+        return catalog
+    }()
 
     /// Returns a catalog entry by collection, or `nil` if not found.
     ///
