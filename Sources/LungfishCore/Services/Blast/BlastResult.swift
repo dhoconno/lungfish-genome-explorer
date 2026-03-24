@@ -32,6 +32,80 @@ public enum BlastVerdict: String, Sendable, Codable, CaseIterable {
     case error
 }
 
+// MARK: - Hit Summary
+
+/// Lightweight summary of a single BLAST hit for display in the UI.
+///
+/// Each ``BlastHitSummary`` captures the key alignment statistics for one
+/// database hit, ranked within a read's hit list. Up to 5 summaries are
+/// stored per ``BlastReadResult`` for multi-hit inspection.
+public struct BlastHitSummary: Sendable, Codable, Identifiable {
+
+    /// Unique identifier derived from the accession.
+    public var id: String { accession }
+
+    /// 1-based rank within the read's hits (1 = best hit).
+    public let rank: Int
+
+    /// GenBank accession of the hit sequence.
+    public let accession: String
+
+    /// Organism name from the hit description, if available.
+    public let organism: String?
+
+    /// NCBI taxonomy ID from the hit description, if available.
+    public let taxId: Int?
+
+    /// Percent identity of the best HSP for this hit (0-100).
+    public let percentIdentity: Double
+
+    /// Query coverage percentage (0-100).
+    public let queryCoverage: Double
+
+    /// E-value of the best HSP for this hit.
+    public let eValue: Double
+
+    /// Bit score of the best HSP for this hit.
+    public let bitScore: Double
+
+    /// Alignment length of the best HSP in base pairs.
+    public let alignmentLength: Int
+
+    /// Creates a BLAST hit summary.
+    ///
+    /// - Parameters:
+    ///   - rank: 1-based rank within the read's hits
+    ///   - accession: GenBank accession
+    ///   - organism: Organism name
+    ///   - taxId: NCBI taxonomy ID
+    ///   - percentIdentity: Percent identity (0-100)
+    ///   - queryCoverage: Query coverage (0-100)
+    ///   - eValue: E-value
+    ///   - bitScore: Bit score
+    ///   - alignmentLength: Alignment length in bp
+    public init(
+        rank: Int,
+        accession: String,
+        organism: String?,
+        taxId: Int?,
+        percentIdentity: Double,
+        queryCoverage: Double,
+        eValue: Double,
+        bitScore: Double,
+        alignmentLength: Int
+    ) {
+        self.rank = rank
+        self.accession = accession
+        self.organism = organism
+        self.taxId = taxId
+        self.percentIdentity = percentIdentity
+        self.queryCoverage = queryCoverage
+        self.eValue = eValue
+        self.bitScore = bitScore
+        self.alignmentLength = alignmentLength
+    }
+}
+
 // MARK: - Per-Read Result
 
 /// Result of a BLAST verification for a single read.
@@ -78,6 +152,16 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
     /// Bit score of the best alignment.
     public let bitScore: Double?
 
+    /// Up to 5 top hits sorted by E-value, for multi-hit inspection.
+    public let topHits: [BlastHitSummary]
+
+    /// The original query sequence submitted to BLAST (for FASTA copy).
+    public let querySequence: String?
+
+    /// Whether the top hits disagree at genus level, indicating possible
+    /// taxonomic ambiguity (LCA disagreement).
+    public let hasLCADisagreement: Bool
+
     /// Creates a new per-read BLAST result.
     ///
     /// - Parameters:
@@ -90,6 +174,9 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
     ///   - eValue: E-value of best hit
     ///   - alignmentLength: Alignment length in bp
     ///   - bitScore: Bit score of best hit
+    ///   - topHits: Up to 5 top hits sorted by E-value
+    ///   - querySequence: The original query sequence
+    ///   - hasLCADisagreement: Whether top hits disagree at genus level
     public init(
         id: String,
         verdict: BlastVerdict,
@@ -99,7 +186,10 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
         queryCoverage: Double? = nil,
         eValue: Double? = nil,
         alignmentLength: Int? = nil,
-        bitScore: Double? = nil
+        bitScore: Double? = nil,
+        topHits: [BlastHitSummary] = [],
+        querySequence: String? = nil,
+        hasLCADisagreement: Bool = false
     ) {
         self.id = id
         self.verdict = verdict
@@ -110,6 +200,9 @@ public struct BlastReadResult: Sendable, Codable, Identifiable {
         self.eValue = eValue
         self.alignmentLength = alignmentLength
         self.bitScore = bitScore
+        self.topHits = topHits
+        self.querySequence = querySequence
+        self.hasLCADisagreement = hasLCADisagreement
     }
 }
 
@@ -178,6 +271,14 @@ public struct BlastVerificationResult: Sendable, Codable {
     /// Returns 0 if no reads were submitted.
     public var verificationRate: Double {
         totalReads > 0 ? Double(verifiedCount) / Double(totalReads) : 0
+    }
+
+    /// Number of reads where the top hits disagree at genus level (LCA disagreement).
+    ///
+    /// A high count indicates taxonomic ambiguity in the BLAST results,
+    /// suggesting the reads may match multiple genera equally well.
+    public var lcaDisagreementCount: Int {
+        readResults.filter(\.hasLCADisagreement).count
     }
 
     /// Overall confidence level for the taxon classification.
@@ -332,14 +433,25 @@ public struct BlastHit: Sendable, Codable {
     /// The organism name extracted from the hit description, if available.
     public let organism: String?
 
+    /// The NCBI taxonomy ID from the hit description, if available.
+    public let taxId: Int?
+
     /// High-scoring segment pairs for this hit.
     public let hsps: [BlastHSP]
 
     /// Creates a BLAST hit.
-    public init(accession: String, title: String, organism: String?, hsps: [BlastHSP]) {
+    ///
+    /// - Parameters:
+    ///   - accession: GenBank accession
+    ///   - title: Full title/description
+    ///   - organism: Organism name
+    ///   - taxId: NCBI taxonomy ID (default: nil)
+    ///   - hsps: High-scoring segment pairs
+    public init(accession: String, title: String, organism: String?, taxId: Int? = nil, hsps: [BlastHSP]) {
         self.accession = accession
         self.title = title
         self.organism = organism
+        self.taxId = taxId
         self.hsps = hsps
     }
 }

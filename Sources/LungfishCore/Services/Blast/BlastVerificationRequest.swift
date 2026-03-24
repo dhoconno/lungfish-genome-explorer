@@ -10,7 +10,7 @@ import Foundation
 ///
 /// This bundles all parameters needed to submit a taxon verification
 /// job to the NCBI BLAST URL API, including the subsampled sequences,
-/// search parameters, and organism filter.
+/// search parameters, and optional organism filter.
 ///
 /// ## Usage
 /// ```swift
@@ -20,8 +20,7 @@ import Foundation
 ///     sequences: [("read_1", "ATGCGATCGA...")],
 ///     program: "blastn",
 ///     database: "nt",
-///     entrezQuery: "txid2560178[Organism:exp]",
-///     maxTargetSeqs: 10,
+///     maxTargetSeqs: 5,
 ///     eValueThreshold: 1e-10
 /// )
 /// ```
@@ -45,11 +44,14 @@ public struct BlastVerificationRequest: Sendable {
     /// The BLAST database to search (typically "nt" for non-redundant nucleotide).
     public let database: String
 
-    /// Entrez query to restrict the search to the target taxon.
+    /// Optional Entrez query to restrict the BLAST search.
     ///
-    /// Format: `txid{taxid}[Organism:exp]` where `[Organism:exp]` expands
-    /// to include all descendant taxa.
-    public let entrezQuery: String
+    /// When `nil`, no Entrez filter is applied and BLAST searches all of
+    /// `core_nt` (or the configured database) without taxonomic restriction.
+    /// When set, the value is passed as the `ENTREZ_QUERY` parameter to NCBI.
+    ///
+    /// Example: `"txid2560178[Organism:exp]"` restricts to a specific taxon.
+    public let entrezQuery: String?
 
     /// Maximum number of target sequences to return per query.
     public let maxTargetSeqs: Int
@@ -65,8 +67,8 @@ public struct BlastVerificationRequest: Sendable {
     ///   - sequences: Subsampled reads as (id, sequence) pairs
     ///   - program: BLAST program (default: "blastn")
     ///   - database: BLAST database (default: "nt")
-    ///   - entrezQuery: Entrez query filter (default: constructed from taxId)
-    ///   - maxTargetSeqs: Max target sequences per query (default: 10)
+    ///   - entrezQuery: Optional Entrez query filter (default: nil, no filter applied)
+    ///   - maxTargetSeqs: Max target sequences per query (default: 5)
     ///   - eValueThreshold: E-value threshold (default: 1e-10)
     public init(
         taxonName: String,
@@ -75,7 +77,7 @@ public struct BlastVerificationRequest: Sendable {
         program: String = "blastn",
         database: String = "nt",
         entrezQuery: String? = nil,
-        maxTargetSeqs: Int = 10,
+        maxTargetSeqs: Int = 5,
         eValueThreshold: Double = 1e-10
     ) {
         self.taxonName = taxonName
@@ -83,7 +85,7 @@ public struct BlastVerificationRequest: Sendable {
         self.sequences = sequences
         self.program = program
         self.database = database
-        self.entrezQuery = entrezQuery ?? "txid\(taxId)[Organism:exp]"
+        self.entrezQuery = entrezQuery
         self.maxTargetSeqs = maxTargetSeqs
         self.eValueThreshold = eValueThreshold
     }

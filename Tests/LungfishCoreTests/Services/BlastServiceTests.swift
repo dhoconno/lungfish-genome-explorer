@@ -299,8 +299,8 @@ final class BlastVerificationRequestTests: XCTestCase {
         XCTAssertEqual(request.sequences.count, 2)
         XCTAssertEqual(request.program, "blastn")
         XCTAssertEqual(request.database, "nt")
-        XCTAssertEqual(request.entrezQuery, "txid2560178[Organism:exp]")
-        XCTAssertEqual(request.maxTargetSeqs, 10)
+        XCTAssertNil(request.entrezQuery)
+        XCTAssertEqual(request.maxTargetSeqs, 5)
         XCTAssertEqual(request.eValueThreshold, 1e-10)
     }
 
@@ -363,7 +363,7 @@ final class BlastVerificationRequestTests: XCTestCase {
             sequences: []
         )
 
-        XCTAssertEqual(request.entrezQuery, "txid9606[Organism:exp]")
+        XCTAssertNil(request.entrezQuery)
     }
 }
 

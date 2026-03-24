@@ -150,6 +150,100 @@ private func makeResultWithEmptyRID() -> BlastVerificationResult {
     )
 }
 
+/// Builds a result with LCA disagreements and multi-hit data for hierarchy tests.
+@MainActor
+private func makeResultWithLCADisagreement() -> BlastVerificationResult {
+    let reads: [BlastReadResult] = [
+        BlastReadResult(
+            id: "read_lca_1",
+            verdict: .ambiguous,
+            topHitOrganism: "Escherichia coli",
+            topHitAccession: "NZ_CP012345.1",
+            percentIdentity: 98.5,
+            queryCoverage: 95.0,
+            eValue: 0.0,
+            alignmentLength: 250,
+            bitScore: 420.0,
+            topHits: [
+                BlastHitSummary(
+                    rank: 1, accession: "NZ_CP012345.1",
+                    organism: "Escherichia coli", taxId: 562,
+                    percentIdentity: 98.5, queryCoverage: 95.0,
+                    eValue: 0.0, bitScore: 420.0, alignmentLength: 250
+                ),
+                BlastHitSummary(
+                    rank: 2, accession: "NC_007613.1",
+                    organism: "Shigella boydii", taxId: 621,
+                    percentIdentity: 97.2, queryCoverage: 93.0,
+                    eValue: 1e-120, bitScore: 380.0, alignmentLength: 245
+                ),
+                BlastHitSummary(
+                    rank: 3, accession: "NC_004337.2",
+                    organism: "Shigella flexneri", taxId: 623,
+                    percentIdentity: 96.1, queryCoverage: 91.0,
+                    eValue: 1e-115, bitScore: 360.0, alignmentLength: 240
+                ),
+            ],
+            querySequence: "ATCGATCGATCGATCGATCG",
+            hasLCADisagreement: true
+        ),
+        BlastReadResult(
+            id: "read_clean_1",
+            verdict: .verified,
+            topHitOrganism: "Escherichia coli",
+            topHitAccession: "NZ_CP012345.2",
+            percentIdentity: 99.1,
+            eValue: 0.0,
+            bitScore: 450.0,
+            topHits: [
+                BlastHitSummary(
+                    rank: 1, accession: "NZ_CP012345.2",
+                    organism: "Escherichia coli", taxId: 562,
+                    percentIdentity: 99.1, queryCoverage: 98.0,
+                    eValue: 0.0, bitScore: 450.0, alignmentLength: 260
+                ),
+            ],
+            querySequence: "GCTAGCTAGCTAGCTAGCTA",
+            hasLCADisagreement: false
+        ),
+        BlastReadResult(
+            id: "read_lca_2",
+            verdict: .ambiguous,
+            topHitOrganism: "Klebsiella pneumoniae",
+            topHitAccession: "NC_016845.1",
+            percentIdentity: 95.0,
+            eValue: 1e-90,
+            bitScore: 320.0,
+            topHits: [
+                BlastHitSummary(
+                    rank: 1, accession: "NC_016845.1",
+                    organism: "Klebsiella pneumoniae", taxId: 573,
+                    percentIdentity: 95.0, queryCoverage: 88.0,
+                    eValue: 1e-90, bitScore: 320.0, alignmentLength: 230
+                ),
+                BlastHitSummary(
+                    rank: 2, accession: "NC_009648.1",
+                    organism: "Klebsiella variicola", taxId: 244366,
+                    percentIdentity: 94.2, queryCoverage: 86.0,
+                    eValue: 1e-85, bitScore: 300.0, alignmentLength: 225
+                ),
+            ],
+            hasLCADisagreement: true
+        ),
+    ]
+
+    return BlastVerificationResult(
+        taxonName: "Escherichia coli",
+        taxId: 562,
+        readResults: reads,
+        submittedAt: Date(),
+        completedAt: Date(),
+        rid: "LCA_TEST_1234",
+        blastProgram: "megablast",
+        database: "core_nt"
+    )
+}
+
 // MARK: - BlastResultsDrawerTests
 
 @MainActor
@@ -235,28 +329,151 @@ final class BlastResultsDrawerTests: XCTestCase {
         XCTAssertEqual(result.verificationPercentage, 15)
     }
 
-    // MARK: - Results Table Row Count
+    // MARK: - Outline View Row Count
 
-    func testResultsTableRowCount() throws {
+    func testOutlineViewTopLevelItemCount() throws {
         let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
         let result = makeHighConfidenceResult()
 
         tab.showResults(result)
         tab.layoutSubtreeIfNeeded()
 
-        let rowCount = tab.resultsTableView.dataSource?.numberOfRows?(in: tab.resultsTableView) ?? 0
-        XCTAssertEqual(rowCount, 20, "Table should have 20 rows (one per submitted read)")
+        // Use NSOutlineViewDataSource API: nil item = top-level children
+        let topLevelCount = tab.outlineView(
+            tab.resultsOutlineView,
+            numberOfChildrenOfItem: nil
+        )
+        XCTAssertEqual(topLevelCount, 20, "Outline view should have 20 top-level items (one per read)")
     }
 
-    func testResultsTableRowCountLowConfidence() throws {
+    func testOutlineViewTopLevelItemCountLowConfidence() throws {
         let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
         let result = makeLowConfidenceResult()
 
         tab.showResults(result)
         tab.layoutSubtreeIfNeeded()
 
-        let rowCount = tab.resultsTableView.dataSource?.numberOfRows?(in: tab.resultsTableView) ?? 0
-        XCTAssertEqual(rowCount, 20, "Table should have 20 rows")
+        let topLevelCount = tab.outlineView(
+            tab.resultsOutlineView,
+            numberOfChildrenOfItem: nil
+        )
+        XCTAssertEqual(topLevelCount, 20, "Outline view should have 20 top-level items")
+    }
+
+    // MARK: - Outline Hierarchy
+
+    func testOutlineViewHierarchyWithMultiHitReads() throws {
+        let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let result = makeResultWithLCADisagreement()
+
+        tab.showResults(result)
+        tab.layoutSubtreeIfNeeded()
+
+        // 3 top-level items (reads)
+        let topLevelCount = tab.outlineView(
+            tab.resultsOutlineView,
+            numberOfChildrenOfItem: nil
+        )
+        XCTAssertEqual(topLevelCount, 3)
+
+        // Get the first item (read_lca_1 with 3 top hits => 2 child items, since hit 1 is on parent)
+        let firstItem = tab.outlineView(tab.resultsOutlineView, child: 0, ofItem: nil)
+        let firstReadItem = try XCTUnwrap(firstItem as? ReadResultItem)
+        XCTAssertEqual(firstReadItem.result.id, "read_lca_1")
+
+        let childCount = tab.outlineView(tab.resultsOutlineView, numberOfChildrenOfItem: firstItem)
+        XCTAssertEqual(childCount, 2, "read_lca_1 has 3 hits; hits 2-3 are children")
+
+        // First item should be expandable
+        XCTAssertTrue(tab.outlineView(tab.resultsOutlineView, isItemExpandable: firstItem))
+
+
+        // Second item is read_lca_2 (also ambiguous, sorted after read_lca_1)
+        let secondItem = tab.outlineView(tab.resultsOutlineView, child: 1, ofItem: nil)
+        let secondReadItem = try XCTUnwrap(secondItem as? ReadResultItem)
+        XCTAssertEqual(secondReadItem.result.id, "read_lca_2")
+
+        let secondChildCount = tab.outlineView(tab.resultsOutlineView, numberOfChildrenOfItem: secondItem)
+        XCTAssertEqual(secondChildCount, 1, "read_lca_2 has 2 hits; hit 2 is a child")
+        XCTAssertTrue(tab.outlineView(tab.resultsOutlineView, isItemExpandable: secondItem))
+
+        // Third item is read_clean_1 (verified, sorts last by status ascending)
+        let thirdItem = tab.outlineView(tab.resultsOutlineView, child: 2, ofItem: nil)
+        let thirdReadItem = try XCTUnwrap(thirdItem as? ReadResultItem)
+        XCTAssertEqual(thirdReadItem.result.id, "read_clean_1")
+
+        let thirdChildCount = tab.outlineView(tab.resultsOutlineView, numberOfChildrenOfItem: thirdItem)
+        XCTAssertEqual(thirdChildCount, 0, "read_clean_1 has only 1 hit, so no children")
+        XCTAssertFalse(tab.outlineView(tab.resultsOutlineView, isItemExpandable: thirdItem))
+    }
+    func testOutlineViewChildItems() throws {
+        let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let result = makeResultWithLCADisagreement()
+
+        tab.showResults(result)
+        tab.layoutSubtreeIfNeeded()
+
+        // Get read_lca_1 and its children
+        let firstItem = tab.outlineView(tab.resultsOutlineView, child: 0, ofItem: nil)
+        let child0 = tab.outlineView(tab.resultsOutlineView, child: 0, ofItem: firstItem)
+        let child1 = tab.outlineView(tab.resultsOutlineView, child: 1, ofItem: firstItem)
+
+        let hitItem0 = try XCTUnwrap(child0 as? HitSummaryItem)
+        let hitItem1 = try XCTUnwrap(child1 as? HitSummaryItem)
+
+        // Children should be hits 2 and 3 (hit 1 is on the parent)
+        XCTAssertEqual(hitItem0.hit.rank, 2)
+        XCTAssertEqual(hitItem0.hit.accession, "NC_007613.1")
+        XCTAssertEqual(hitItem0.hit.organism, "Shigella boydii")
+
+        XCTAssertEqual(hitItem1.hit.rank, 3)
+        XCTAssertEqual(hitItem1.hit.accession, "NC_004337.2")
+        XCTAssertEqual(hitItem1.hit.organism, "Shigella flexneri")
+
+        // Children should not be expandable
+        XCTAssertFalse(tab.outlineView(tab.resultsOutlineView, isItemExpandable: child0))
+        XCTAssertFalse(tab.outlineView(tab.resultsOutlineView, isItemExpandable: child1))
+    }
+
+    // MARK: - LCA Disagreement
+
+    func testLCADisagreementSummaryLabel() throws {
+        let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let result = makeResultWithLCADisagreement()
+
+        tab.showResults(result)
+        tab.layoutSubtreeIfNeeded()
+
+        // 2 reads have LCA disagreement
+        XCTAssertEqual(result.lcaDisagreementCount, 2)
+        XCTAssertEqual(tab.lcaWarningLabel.stringValue, "2 with conflicting organisms")
+        XCTAssertEqual(tab.lcaWarningLabel.textColor, .systemOrange)
+        XCTAssertFalse(tab.lcaWarningLabel.isHidden)
+    }
+
+    func testLCADisagreementHiddenWhenNone() throws {
+        let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let result = makeHighConfidenceResult()
+
+        tab.showResults(result)
+        tab.layoutSubtreeIfNeeded()
+
+        // No LCA disagreements in high confidence result
+        XCTAssertEqual(result.lcaDisagreementCount, 0)
+        XCTAssertTrue(tab.lcaWarningLabel.isHidden)
+    }
+
+    // MARK: - Export Button
+
+    func testExportButtonExists() throws {
+        let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let result = makeHighConfidenceResult()
+
+        tab.showResults(result)
+        tab.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(tab.exportButton.title, "Export")
+        XCTAssertNotNil(tab.exportButton.image)
     }
 
     // MARK: - Verdict Icons
@@ -456,6 +673,20 @@ final class BlastResultsDrawerTests: XCTestCase {
                        "Expected scientific or decimal notation, got: \(formatted)")
     }
 
+    // MARK: - Bit Score Formatting
+
+    func testBitScoreFormattingNil() throws {
+        XCTAssertEqual(BlastResultsDrawerTab.formatBitScore(nil), "--")
+    }
+
+    func testBitScoreFormattingLarge() throws {
+        XCTAssertEqual(BlastResultsDrawerTab.formatBitScore(420.3), "420")
+    }
+
+    func testBitScoreFormattingSmall() throws {
+        XCTAssertEqual(BlastResultsDrawerTab.formatBitScore(45.7), "45.7")
+    }
+
     // MARK: - Drawer Tab Integration
 
     func testDrawerTabSwitching() throws {
@@ -632,5 +863,35 @@ final class BlastResultsDrawerTests: XCTestCase {
         tab.rerunBlastButton.performClick(nil)
 
         XCTAssertTrue(rerunCalled, "Re-run callback should have been called")
+    }
+
+    // MARK: - LCA Disagreement Count
+
+    func testLCADisagreementCount() throws {
+        let result = makeResultWithLCADisagreement()
+        XCTAssertEqual(result.lcaDisagreementCount, 2)
+    }
+
+    func testLCADisagreementCountZero() throws {
+        let result = makeHighConfidenceResult()
+        XCTAssertEqual(result.lcaDisagreementCount, 0)
+    }
+
+    // MARK: - Context Menu
+
+    func testContextMenuExists() throws {
+        let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let result = makeHighConfidenceResult()
+        tab.showResults(result)
+
+        let menu = tab.resultsOutlineView.menu
+        XCTAssertNotNil(menu, "Outline view should have a context menu")
+
+        let titles = menu?.items.compactMap { $0.isSeparatorItem ? nil : $0.title }
+        XCTAssertTrue(titles?.contains("Copy Sequence as FASTA") ?? false)
+        XCTAssertTrue(titles?.contains("Copy Read ID") ?? false)
+        XCTAssertTrue(titles?.contains("Copy Accession") ?? false)
+        XCTAssertTrue(titles?.contains("Expand All") ?? false)
+        XCTAssertTrue(titles?.contains("Collapse All") ?? false)
     }
 }

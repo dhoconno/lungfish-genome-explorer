@@ -6,6 +6,7 @@ import AppKit
 import LungfishCore
 import LungfishIO
 import os.log
+import UniformTypeIdentifiers
 
 private let blastLogger = Logger(subsystem: LogSubsystem.app, category: "BlastResultsDrawer")
 
@@ -121,14 +122,66 @@ public enum BlastJobPhase: Int, Sendable {
     public static let totalPhases = 3
 }
 
+// MARK: - Outline View Wrapper Classes
+
+/// Wrapper for `BlastReadResult` providing stable object identity for
+/// `NSOutlineView`, which uses `===` for item comparison.
+///
+/// Each `ReadResultItem` is a parent row in the outline view. Its children
+/// are `HitSummaryItem` instances representing hits 2-5 (hit 1 is shown
+/// inline on the parent row).
+@MainActor
+final class ReadResultItem {
+
+    /// The underlying BLAST read result.
+    let result: BlastReadResult
+
+    /// Child hit items (hits 2+, since hit 1 is shown on the parent row).
+    let hitItems: [HitSummaryItem]
+
+    /// Creates a wrapper for the given read result.
+    ///
+    /// Populates `hitItems` from `result.topHits` where rank > 1.
+    init(_ result: BlastReadResult) {
+        self.result = result
+        let items = result.topHits.dropFirst().map { HitSummaryItem($0) }
+        self.hitItems = items
+        // Set parent reference after creation
+        for item in items {
+            item.parent = self
+        }
+    }
+}
+
+/// Wrapper for `BlastHitSummary` providing stable object identity for
+/// `NSOutlineView`.
+///
+/// Each `HitSummaryItem` is a child row under a `ReadResultItem`, showing
+/// a secondary BLAST hit's accession, organism, identity, and E-value.
+@MainActor
+final class HitSummaryItem {
+
+    /// The underlying BLAST hit summary.
+    let hit: BlastHitSummary
+
+    /// Back-reference to the parent read result item.
+    weak var parent: ReadResultItem?
+
+    /// Creates a wrapper for the given hit summary.
+    init(_ hit: BlastHitSummary) {
+        self.hit = hit
+    }
+}
+
 // MARK: - BlastResultsDrawerTab Column Identifiers
 
 private extension NSUserInterfaceItemIdentifier {
     static let blastStatus = NSUserInterfaceItemIdentifier("blastStatus")
     static let blastReadId = NSUserInterfaceItemIdentifier("blastReadId")
-    static let blastTopHit = NSUserInterfaceItemIdentifier("blastTopHit")
+    static let blastOrganism = NSUserInterfaceItemIdentifier("blastOrganism")
     static let blastIdentity = NSUserInterfaceItemIdentifier("blastIdentity")
     static let blastEValue = NSUserInterfaceItemIdentifier("blastEValue")
+    static let blastBitScore = NSUserInterfaceItemIdentifier("blastBitScore")
 }
 
 // MARK: - BlastResultsDrawerTab
@@ -138,19 +191,19 @@ private extension NSUserInterfaceItemIdentifier {
 /// ## Layout
 ///
 /// ```
-/// +------------------------------------------------------------------+
-/// | BLAST Verification Results                                        |
-/// +------------------------------------------------------------------+
-/// | Summary: 18 of 20 reads verified (90%)  [filled/empty dots] High  |
-/// +------------------------------------------------------------------+
-/// | Status | Read ID       | Top Hit        | Identity | E-value     |
-/// | CK     | read_12345    | Oxbow virus    | 98.5%    | 1e-45       |
-/// | CK     | read_67890    | Oxbow virus    | 96.2%    | 3e-38       |
-/// | WN     | read_11111    | Bunyaviridae   | 82.1%    | 2e-12       |
-/// | XM     | read_22222    | (no hit)       | -        | -           |
-/// +------------------------------------------------------------------+
-/// | [Open in NCBI BLAST]                         [Re-run BLAST]       |
-/// +------------------------------------------------------------------+
+/// +----------------------------------------------------------------------+
+/// | BLAST Verification Results                                            |
+/// +----------------------------------------------------------------------+
+/// | Summary: 18/20 verified (90%)  [dots] High  . 2 conflicting  [Export] |
+/// +----------------------------------------------------------------------+
+/// | St | Read ID / Accession | Organism       | Identity | E-value | Bit |
+/// | CK | read_12345          | Oxbow virus    | 98.5%    | 1e-45   | 180 |
+/// |  > |   NZ_CP012345.1     | Oxbow virus    | 96.2%    | 3e-38   | 165 |
+/// |  > |   NC_002695.2       | Bunyaviridae   | 82.1%    | 2e-12   |  90 |
+/// | WN | read_67890          | (no hit)       | --       | --      | --  |
+/// +----------------------------------------------------------------------+
+/// | [Open in NCBI BLAST]                              [Re-run BLAST]      |
+/// +----------------------------------------------------------------------+
 /// ```
 ///
 /// ## States
@@ -158,14 +211,15 @@ private extension NSUserInterfaceItemIdentifier {
 /// The view has three states:
 /// - **Empty**: No BLAST results yet. Shows a centered icon and instructional text.
 /// - **Loading**: A BLAST job is in progress. Shows a spinner, phase label, and progress.
-/// - **Results**: BLAST verification results are available. Shows summary bar and table.
+/// - **Results**: BLAST verification results are available. Shows summary bar and
+///   hierarchical outline view with expandable per-read hit details.
 ///
 /// ## Thread Safety
 ///
 /// This class is `@MainActor` isolated. All data source and delegate methods
 /// run on the main thread.
 @MainActor
-public final class BlastResultsDrawerTab: NSView {
+public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
 
     // MARK: - State
 
@@ -179,8 +233,8 @@ public final class BlastResultsDrawerTab: NSView {
     /// The current display state.
     private(set) var displayState: DisplayState = .empty
 
-    /// Sorted read results for the table (when in results state).
-    private var sortedResults: [BlastReadResult] = []
+    /// Outline view wrapper items for the current result (parent rows).
+    private var outlineItems: [ReadResultItem] = []
 
     /// The current sort descriptor key path and direction.
     private var sortKey: NSUserInterfaceItemIdentifier = .blastStatus
@@ -220,10 +274,12 @@ public final class BlastResultsDrawerTab: NSView {
     let summaryBar = NSView()
     private let summaryIcon = NSImageView()
     let summaryLabel = NSTextField(labelWithString: "")
+    let lcaWarningLabel = NSTextField(labelWithString: "")
     let confidenceLabel = NSTextField(labelWithString: "")
     let confidenceDots = NSTextField(labelWithString: "")
+    let exportButton = NSButton()
     private let resultsScrollView = NSScrollView()
-    let resultsTableView = NSTableView()
+    let resultsOutlineView = NSOutlineView()
     private let actionBar = NSView()
     let openInBlastButton = NSButton()
     let rerunBlastButton = NSButton()
@@ -289,8 +345,9 @@ public final class BlastResultsDrawerTab: NSView {
 
     /// Shows BLAST verification results.
     ///
-    /// Populates the summary bar and results table with data from the
-    /// verification result.
+    /// Populates the summary bar and results outline view with data from the
+    /// verification result. Reads are displayed as parent rows with expandable
+    /// child rows for secondary BLAST hits.
     ///
     /// - Parameter result: The BLAST verification result to display.
     func showResults(_ result: BlastVerificationResult) {
@@ -309,6 +366,17 @@ public final class BlastResultsDrawerTab: NSView {
         confidenceDots.textColor = confidence.accentColor
         summaryBar.layer?.backgroundColor = confidence.tintColor.cgColor
 
+        // LCA disagreement indicator
+        let lcaCount = result.lcaDisagreementCount
+        if lcaCount > 0 {
+            lcaWarningLabel.stringValue = "\(lcaCount) with conflicting organisms"
+            lcaWarningLabel.textColor = .systemOrange
+            lcaWarningLabel.isHidden = false
+        } else {
+            lcaWarningLabel.stringValue = ""
+            lcaWarningLabel.isHidden = true
+        }
+
         let summaryIconImage = NSImage(
             systemSymbolName: verified > 0 ? "checkmark.circle.fill" : "xmark.circle.fill",
             accessibilityDescription: confidence.displayLabel
@@ -319,10 +387,10 @@ public final class BlastResultsDrawerTab: NSView {
         // Enable/disable "Open in BLAST" based on request ID
         openInBlastButton.isEnabled = !result.rid.isEmpty
 
-        // Sort and reload table
-        sortedResults = result.readResults
+        // Build outline items, sort, and reload
+        outlineItems = result.readResults.map { ReadResultItem($0) }
         applySortDescriptors()
-        resultsTableView.reloadData()
+        resultsOutlineView.reloadData()
 
         showState(.results(result))
 
@@ -487,7 +555,7 @@ public final class BlastResultsDrawerTab: NSView {
         addSubview(resultsContainer)
 
         setupSummaryBar()
-        setupResultsTable()
+        setupResultsOutlineView()
         setupActionBar()
 
         NSLayoutConstraint.activate([
@@ -502,7 +570,7 @@ public final class BlastResultsDrawerTab: NSView {
             summaryBar.trailingAnchor.constraint(equalTo: resultsContainer.trailingAnchor),
             summaryBar.heightAnchor.constraint(equalToConstant: 36),
 
-            // Results table (fills middle)
+            // Results outline view (fills middle)
             resultsScrollView.topAnchor.constraint(equalTo: summaryBar.bottomAnchor),
             resultsScrollView.leadingAnchor.constraint(equalTo: resultsContainer.leadingAnchor),
             resultsScrollView.trailingAnchor.constraint(equalTo: resultsContainer.trailingAnchor),
@@ -531,7 +599,16 @@ public final class BlastResultsDrawerTab: NSView {
         summaryLabel.font = .systemFont(ofSize: 12, weight: .medium)
         summaryLabel.textColor = .labelColor
         summaryLabel.lineBreakMode = .byTruncatingTail
+        summaryLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         summaryBar.addSubview(summaryLabel)
+
+        lcaWarningLabel.translatesAutoresizingMaskIntoConstraints = false
+        lcaWarningLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        lcaWarningLabel.textColor = .systemOrange
+        lcaWarningLabel.lineBreakMode = .byTruncatingTail
+        lcaWarningLabel.isHidden = true
+        lcaWarningLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        summaryBar.addSubview(lcaWarningLabel)
 
         confidenceDots.translatesAutoresizingMaskIntoConstraints = false
         confidenceDots.font = .systemFont(ofSize: 10)
@@ -545,6 +622,19 @@ public final class BlastResultsDrawerTab: NSView {
         confidenceLabel.setContentHuggingPriority(.required, for: .horizontal)
         summaryBar.addSubview(confidenceLabel)
 
+        exportButton.translatesAutoresizingMaskIntoConstraints = false
+        exportButton.bezelStyle = .accessoryBarAction
+        exportButton.controlSize = .small
+        exportButton.font = .systemFont(ofSize: 11)
+        exportButton.title = "Export"
+        exportButton.image = NSImage(systemSymbolName: "square.and.arrow.up",
+                                     accessibilityDescription: "Export")
+        exportButton.imagePosition = .imageLeading
+        exportButton.target = self
+        exportButton.action = #selector(exportButtonClicked(_:))
+        exportButton.setAccessibilityLabel("Export BLAST results")
+        summaryBar.addSubview(exportButton)
+
         NSLayoutConstraint.activate([
             summaryIcon.leadingAnchor.constraint(equalTo: summaryBar.leadingAnchor, constant: 12),
             summaryIcon.centerYAnchor.constraint(equalTo: summaryBar.centerYAnchor),
@@ -554,21 +644,27 @@ public final class BlastResultsDrawerTab: NSView {
             summaryLabel.leadingAnchor.constraint(equalTo: summaryIcon.trailingAnchor, constant: 8),
             summaryLabel.centerYAnchor.constraint(equalTo: summaryBar.centerYAnchor),
 
-            confidenceDots.leadingAnchor.constraint(greaterThanOrEqualTo: summaryLabel.trailingAnchor, constant: 8),
+            lcaWarningLabel.leadingAnchor.constraint(equalTo: summaryLabel.trailingAnchor, constant: 8),
+            lcaWarningLabel.centerYAnchor.constraint(equalTo: summaryBar.centerYAnchor),
+
+            confidenceDots.leadingAnchor.constraint(greaterThanOrEqualTo: lcaWarningLabel.trailingAnchor, constant: 8),
             confidenceDots.centerYAnchor.constraint(equalTo: summaryBar.centerYAnchor),
 
             confidenceLabel.leadingAnchor.constraint(equalTo: confidenceDots.trailingAnchor, constant: 8),
-            confidenceLabel.trailingAnchor.constraint(equalTo: summaryBar.trailingAnchor, constant: -12),
             confidenceLabel.centerYAnchor.constraint(equalTo: summaryBar.centerYAnchor),
+
+            exportButton.leadingAnchor.constraint(equalTo: confidenceLabel.trailingAnchor, constant: 12),
+            exportButton.trailingAnchor.constraint(equalTo: summaryBar.trailingAnchor, constant: -12),
+            exportButton.centerYAnchor.constraint(equalTo: summaryBar.centerYAnchor),
         ])
 
         summaryBar.setAccessibilityRole(.group)
         summaryBar.setAccessibilityLabel("BLAST verification summary")
     }
 
-    // MARK: - Setup: Results Table
+    // MARK: - Setup: Results Outline View
 
-    private func setupResultsTable() {
+    private func setupResultsOutlineView() {
         resultsScrollView.translatesAutoresizingMaskIntoConstraints = false
         resultsScrollView.hasVerticalScroller = true
         resultsScrollView.hasHorizontalScroller = false
@@ -576,36 +672,38 @@ public final class BlastResultsDrawerTab: NSView {
         resultsScrollView.borderType = .noBorder
         resultsContainer.addSubview(resultsScrollView)
 
-        resultsTableView.rowHeight = 24
-        resultsTableView.intercellSpacing = NSSize(width: 4, height: 0)
-        resultsTableView.usesAlternatingRowBackgroundColors = true
-        resultsTableView.allowsMultipleSelection = false
-        resultsTableView.allowsColumnReordering = false
+        resultsOutlineView.rowHeight = 24
+        resultsOutlineView.intercellSpacing = NSSize(width: 4, height: 0)
+        resultsOutlineView.usesAlternatingRowBackgroundColors = true
+        resultsOutlineView.allowsMultipleSelection = false
+        resultsOutlineView.allowsColumnReordering = false
+        resultsOutlineView.indentationPerLevel = 16
+        resultsOutlineView.headerView = NSTableHeaderView()
 
-        // Status column (24pt, icon)
+        // Status column (30pt, icon)
         let statusColumn = NSTableColumn(identifier: .blastStatus)
         statusColumn.title = ""
-        statusColumn.width = 24
-        statusColumn.minWidth = 24
-        statusColumn.maxWidth = 24
+        statusColumn.width = 30
+        statusColumn.minWidth = 30
+        statusColumn.maxWidth = 30
         statusColumn.sortDescriptorPrototype = NSSortDescriptor(key: "status", ascending: true)
-        resultsTableView.addTableColumn(statusColumn)
+        resultsOutlineView.addTableColumn(statusColumn)
 
-        // Read ID column (flexible)
+        // Read/Accession column (flexible)
         let readIdColumn = NSTableColumn(identifier: .blastReadId)
-        readIdColumn.title = "Read ID"
+        readIdColumn.title = "Read / Accession"
         readIdColumn.minWidth = 120
         readIdColumn.resizingMask = .autoresizingMask
         readIdColumn.sortDescriptorPrototype = NSSortDescriptor(key: "readId", ascending: true)
-        resultsTableView.addTableColumn(readIdColumn)
+        resultsOutlineView.addTableColumn(readIdColumn)
 
-        // Top Hit column (flexible)
-        let topHitColumn = NSTableColumn(identifier: .blastTopHit)
-        topHitColumn.title = "Top Hit"
-        topHitColumn.minWidth = 100
-        topHitColumn.resizingMask = .autoresizingMask
-        topHitColumn.sortDescriptorPrototype = NSSortDescriptor(key: "topHit", ascending: true)
-        resultsTableView.addTableColumn(topHitColumn)
+        // Organism column (flexible)
+        let organismColumn = NSTableColumn(identifier: .blastOrganism)
+        organismColumn.title = "Organism"
+        organismColumn.minWidth = 100
+        organismColumn.resizingMask = .autoresizingMask
+        organismColumn.sortDescriptorPrototype = NSSortDescriptor(key: "organism", ascending: true)
+        resultsOutlineView.addTableColumn(organismColumn)
 
         // Identity column (60pt, right-aligned monospaced)
         let identityColumn = NSTableColumn(identifier: .blastIdentity)
@@ -614,23 +712,36 @@ public final class BlastResultsDrawerTab: NSView {
         identityColumn.minWidth = 50
         identityColumn.maxWidth = 80
         identityColumn.sortDescriptorPrototype = NSSortDescriptor(key: "identity", ascending: false)
-        resultsTableView.addTableColumn(identityColumn)
+        resultsOutlineView.addTableColumn(identityColumn)
 
-        // E-value column (60pt, right-aligned)
+        // E-value column (70pt, right-aligned)
         let eValueColumn = NSTableColumn(identifier: .blastEValue)
         eValueColumn.title = "E-value"
-        eValueColumn.width = 60
-        eValueColumn.minWidth = 50
-        eValueColumn.maxWidth = 80
+        eValueColumn.width = 70
+        eValueColumn.minWidth = 55
+        eValueColumn.maxWidth = 90
         eValueColumn.sortDescriptorPrototype = NSSortDescriptor(key: "eValue", ascending: true)
-        resultsTableView.addTableColumn(eValueColumn)
+        resultsOutlineView.addTableColumn(eValueColumn)
 
-        resultsTableView.dataSource = self
-        resultsTableView.delegate = self
+        // Bit Score column (65pt, right-aligned)
+        let bitScoreColumn = NSTableColumn(identifier: .blastBitScore)
+        bitScoreColumn.title = "Bit Score"
+        bitScoreColumn.width = 65
+        bitScoreColumn.minWidth = 50
+        bitScoreColumn.maxWidth = 85
+        bitScoreColumn.sortDescriptorPrototype = NSSortDescriptor(key: "bitScore", ascending: false)
+        resultsOutlineView.addTableColumn(bitScoreColumn)
 
-        resultsScrollView.documentView = resultsTableView
+        // The outline column is Read/Accession (shows disclosure triangles)
+        resultsOutlineView.outlineTableColumn = readIdColumn
 
-        resultsTableView.setAccessibilityLabel("BLAST Results Table")
+        resultsOutlineView.dataSource = self
+        resultsOutlineView.delegate = self
+        resultsOutlineView.menu = buildContextMenu()
+
+        resultsScrollView.documentView = resultsOutlineView
+
+        resultsOutlineView.setAccessibilityLabel("BLAST Results Table")
     }
 
     // MARK: - Setup: Action Bar
@@ -678,6 +789,127 @@ public final class BlastResultsDrawerTab: NSView {
         ])
     }
 
+    // MARK: - Context Menu
+
+    /// Builds the context menu for the outline view.
+    ///
+    /// Menu items include:
+    /// - Copy Sequence as FASTA (parent rows only)
+    /// - Copy Read ID (parent rows only)
+    /// - Copy Accession (both parent and child rows)
+    /// - Expand All / Collapse All
+    private func buildContextMenu() -> NSMenu {
+        let menu = NSMenu()
+
+        menu.addItem(withTitle: "Copy Sequence as FASTA",
+                     action: #selector(contextCopyFASTA(_:)),
+                     keyEquivalent: "")
+        menu.addItem(withTitle: "Copy Read ID",
+                     action: #selector(contextCopyReadId(_:)),
+                     keyEquivalent: "")
+        menu.addItem(withTitle: "Copy Accession",
+                     action: #selector(contextCopyAccession(_:)),
+                     keyEquivalent: "")
+
+        menu.addItem(.separator())
+
+        menu.addItem(withTitle: "Expand All",
+                     action: #selector(contextExpandAll(_:)),
+                     keyEquivalent: "")
+        menu.addItem(withTitle: "Collapse All",
+                     action: #selector(contextCollapseAll(_:)),
+                     keyEquivalent: "")
+
+        return menu
+    }
+
+    /// Validates context menu items based on the clicked row type.
+    ///
+    /// - "Copy Sequence as FASTA" is only enabled for parent rows that have
+    ///   a `querySequence`.
+    /// - "Copy Read ID" is only enabled for parent rows.
+    /// - "Copy Accession" is enabled for both parent and child rows.
+    public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        let row = resultsOutlineView.clickedRow
+        guard row >= 0 else { return menuItem.action == #selector(contextExpandAll(_:))
+            || menuItem.action == #selector(contextCollapseAll(_:)) }
+
+        let item = resultsOutlineView.item(atRow: row)
+
+        switch menuItem.action {
+        case #selector(contextCopyFASTA(_:)):
+            if let readItem = item as? ReadResultItem {
+                return readItem.result.querySequence != nil
+            }
+            return false
+
+        case #selector(contextCopyReadId(_:)):
+            return item is ReadResultItem
+
+        case #selector(contextCopyAccession(_:)):
+            if let readItem = item as? ReadResultItem {
+                return readItem.result.topHitAccession != nil
+            }
+            return item is HitSummaryItem
+
+        case #selector(contextExpandAll(_:)),
+             #selector(contextCollapseAll(_:)):
+            return true
+
+        default:
+            return true
+        }
+    }
+
+    @objc private func contextCopyFASTA(_ sender: Any?) {
+        let row = resultsOutlineView.clickedRow
+        guard row >= 0,
+              let readItem = resultsOutlineView.item(atRow: row) as? ReadResultItem,
+              let sequence = readItem.result.querySequence else { return }
+
+        let fasta = ">\(readItem.result.id)\n\(sequence)\n"
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(fasta, forType: .string)
+    }
+
+    @objc private func contextCopyReadId(_ sender: Any?) {
+        let row = resultsOutlineView.clickedRow
+        guard row >= 0,
+              let readItem = resultsOutlineView.item(atRow: row) as? ReadResultItem else { return }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(readItem.result.id, forType: .string)
+    }
+
+    @objc private func contextCopyAccession(_ sender: Any?) {
+        let row = resultsOutlineView.clickedRow
+        guard row >= 0 else { return }
+
+        let item = resultsOutlineView.item(atRow: row)
+        let accession: String?
+
+        if let readItem = item as? ReadResultItem {
+            accession = readItem.result.topHitAccession
+        } else if let hitItem = item as? HitSummaryItem {
+            accession = hitItem.hit.accession
+        } else {
+            accession = nil
+        }
+
+        if let accession {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(accession, forType: .string)
+        }
+    }
+
+    @objc private func contextExpandAll(_ sender: Any?) {
+        resultsOutlineView.expandItem(nil, expandChildren: true)
+    }
+
+    @objc private func contextCollapseAll(_ sender: Any?) {
+        resultsOutlineView.collapseItem(nil, collapseChildren: true)
+    }
+
     // MARK: - Confidence Dots
 
     /// Builds a string of filled and empty circle characters representing the
@@ -697,23 +929,25 @@ public final class BlastResultsDrawerTab: NSView {
 
     // MARK: - Sorting
 
-    /// Sorts the results based on the current sort key and direction.
+    /// Sorts the outline items based on the current sort key and direction.
     private func applySortDescriptors() {
-        sortedResults.sort { lhs, rhs in
+        outlineItems.sort { lhs, rhs in
             let result: Bool
             switch sortKey {
             case .blastStatus:
-                result = lhs.verdict.rawValue < rhs.verdict.rawValue
+                result = lhs.result.verdict.rawValue < rhs.result.verdict.rawValue
             case .blastReadId:
-                result = lhs.id.localizedStandardCompare(rhs.id) == .orderedAscending
-            case .blastTopHit:
-                let lhsOrg = lhs.topHitOrganism ?? ""
-                let rhsOrg = rhs.topHitOrganism ?? ""
+                result = lhs.result.id.localizedStandardCompare(rhs.result.id) == .orderedAscending
+            case .blastOrganism:
+                let lhsOrg = lhs.result.topHitOrganism ?? ""
+                let rhsOrg = rhs.result.topHitOrganism ?? ""
                 result = lhsOrg.localizedStandardCompare(rhsOrg) == .orderedAscending
             case .blastIdentity:
-                result = (lhs.percentIdentity ?? -1) < (rhs.percentIdentity ?? -1)
+                result = (lhs.result.percentIdentity ?? -1) < (rhs.result.percentIdentity ?? -1)
             case .blastEValue:
-                result = (lhs.eValue ?? Double.infinity) < (rhs.eValue ?? Double.infinity)
+                result = (lhs.result.eValue ?? Double.infinity) < (rhs.result.eValue ?? Double.infinity)
+            case .blastBitScore:
+                result = (lhs.result.bitScore ?? -1) < (rhs.result.bitScore ?? -1)
             default:
                 result = false
             }
@@ -744,6 +978,148 @@ public final class BlastResultsDrawerTab: NSView {
         return String(format: "%.1e", eValue)
     }
 
+    /// Formats a bit score for display in the table.
+    ///
+    /// - Parameter bitScore: The bit score to format, or `nil`.
+    /// - Returns: A formatted string, or "--" if `nil`.
+    static func formatBitScore(_ bitScore: Double?) -> String {
+        guard let bitScore else { return "--" }
+        if bitScore >= 100 {
+            return String(format: "%.0f", bitScore)
+        }
+        return String(format: "%.1f", bitScore)
+    }
+
+    // MARK: - Export
+
+    /// Presents an NSSavePanel for exporting BLAST results as CSV or TSV.
+    ///
+    /// Uses `beginSheetModal` (never `runModal`) per macOS 26 guidelines.
+    @objc private func exportButtonClicked(_ sender: NSButton) {
+        guard case .results(_) = displayState else { return }
+
+        let menu = NSMenu()
+        let csvItem = NSMenuItem(title: "Export as CSV...", action: #selector(exportCSV(_:)), keyEquivalent: "")
+        let tsvItem = NSMenuItem(title: "Export as TSV...", action: #selector(exportTSV(_:)), keyEquivalent: "")
+        menu.addItem(csvItem)
+        menu.addItem(tsvItem)
+
+        // Show the menu below the button
+        let point = NSPoint(x: 0, y: sender.bounds.height + 2)
+        menu.popUp(positioning: nil, at: point, in: sender)
+    }
+
+    @objc private func exportCSV(_ sender: Any?) {
+        exportResults(separator: ",", fileExtension: "csv")
+    }
+
+    @objc private func exportTSV(_ sender: Any?) {
+        exportResults(separator: "\t", fileExtension: "tsv")
+    }
+
+    /// Exports results to a delimited file using NSSavePanel.
+    private func exportResults(separator: String, fileExtension: String) {
+        guard case .results(let result) = displayState else { return }
+
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "blast_results.\(fileExtension)"
+        panel.allowedContentTypes = fileExtension == "csv"
+            ? [UTType.commaSeparatedText]
+            : [UTType.tabSeparatedText]
+        panel.canCreateDirectories = true
+
+        guard let parentWindow = window else {
+            blastLogger.warning("No parent window for export save panel")
+            return
+        }
+
+        panel.beginSheetModal(for: parentWindow) { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            self?.writeExportFile(result: result, to: url, separator: separator)
+        }
+    }
+
+    /// Writes the export file to disk.
+    ///
+    /// CSV/TSV columns: Read ID, Verdict, LCA Flag, Hit Rank, Accession,
+    /// Organism, TaxId, Identity%, Coverage%, E-value, Bit Score, Alignment Length.
+    ///
+    /// One row per hit (a read with 5 hits produces 5 output rows).
+    private func writeExportFile(
+        result: BlastVerificationResult,
+        to url: URL,
+        separator: String
+    ) {
+        var lines: [String] = []
+
+        // Header
+        let header = [
+            "Read ID", "Verdict", "LCA Flag", "Hit Rank", "Accession",
+            "Organism", "TaxId", "Identity%", "Coverage%", "E-value",
+            "Bit Score", "Alignment Length"
+        ]
+        lines.append(header.joined(separator: separator))
+
+        // Data rows
+        for readResult in result.readResults {
+            if readResult.topHits.isEmpty {
+                // Read with no hits: single row with top-level fields
+                let row = [
+                    escapeField(readResult.id, separator: separator),
+                    readResult.verdict.rawValue,
+                    readResult.hasLCADisagreement ? "true" : "false",
+                    "1",
+                    escapeField(readResult.topHitAccession ?? "", separator: separator),
+                    escapeField(readResult.topHitOrganism ?? "", separator: separator),
+                    "",
+                    readResult.percentIdentity.map { String(format: "%.2f", $0) } ?? "",
+                    readResult.queryCoverage.map { String(format: "%.2f", $0) } ?? "",
+                    readResult.eValue.map { String($0) } ?? "",
+                    readResult.bitScore.map { String(format: "%.1f", $0) } ?? "",
+                    readResult.alignmentLength.map { String($0) } ?? "",
+                ]
+                lines.append(row.joined(separator: separator))
+            } else {
+                // One row per hit
+                for hit in readResult.topHits {
+                    let row = [
+                        escapeField(readResult.id, separator: separator),
+                        readResult.verdict.rawValue,
+                        readResult.hasLCADisagreement ? "true" : "false",
+                        String(hit.rank),
+                        escapeField(hit.accession, separator: separator),
+                        escapeField(hit.organism ?? "", separator: separator),
+                        hit.taxId.map { String($0) } ?? "",
+                        String(format: "%.2f", hit.percentIdentity),
+                        String(format: "%.2f", hit.queryCoverage),
+                        String(hit.eValue),
+                        String(format: "%.1f", hit.bitScore),
+                        String(hit.alignmentLength),
+                    ]
+                    lines.append(row.joined(separator: separator))
+                }
+            }
+        }
+
+        let content = lines.joined(separator: "\n") + "\n"
+        do {
+            try content.write(to: url, atomically: true, encoding: .utf8)
+            blastLogger.info("Exported BLAST results to \(url.path, privacy: .public)")
+        } catch {
+            blastLogger.error("Failed to export BLAST results: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Escapes a field for CSV output by quoting if it contains the separator,
+    /// quotes, or newlines.
+    private func escapeField(_ value: String, separator: String) -> String {
+        if value.contains(separator) || value.contains("\"") || value.contains("\n") {
+            let escaped = value.replacingOccurrences(of: "\"", with: "\"\"")
+            return "\"\(escaped)\""
+        }
+        return value
+    }
+
     // MARK: - Actions
 
     @objc private func openInBlastClicked(_ sender: NSButton) {
@@ -764,19 +1140,50 @@ public final class BlastResultsDrawerTab: NSView {
     }
 }
 
-// MARK: - NSTableViewDataSource
+// MARK: - NSOutlineViewDataSource
 
-extension BlastResultsDrawerTab: NSTableViewDataSource {
+extension BlastResultsDrawerTab: NSOutlineViewDataSource {
 
-    public func numberOfRows(in tableView: NSTableView) -> Int {
-        sortedResults.count
+    /// Returns the number of children for the given item.
+    ///
+    /// - `nil` item: returns the count of top-level read result items.
+    /// - `ReadResultItem`: returns the count of child hit items.
+    /// - `HitSummaryItem`: returns 0 (leaf node).
+    public func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
+        if item == nil {
+            return outlineItems.count
+        }
+        if let readItem = item as? ReadResultItem {
+            return readItem.hitItems.count
+        }
+        return 0
     }
 
-    public func tableView(
-        _ tableView: NSTableView,
+    /// Returns the child at the given index.
+    public func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
+        if item == nil {
+            return outlineItems[index]
+        }
+        if let readItem = item as? ReadResultItem {
+            return readItem.hitItems[index]
+        }
+        fatalError("Unexpected outline item type: \(type(of: item))")
+    }
+
+    /// Returns whether the item can be expanded (has children).
+    public func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
+        if let readItem = item as? ReadResultItem {
+            return !readItem.hitItems.isEmpty
+        }
+        return false
+    }
+
+    /// Handles sort descriptor changes from column header clicks.
+    public func outlineView(
+        _ outlineView: NSOutlineView,
         sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]
     ) {
-        guard let descriptor = tableView.sortDescriptors.first,
+        guard let descriptor = outlineView.sortDescriptors.first,
               let key = descriptor.key else { return }
 
         // Map sort descriptor keys to column identifiers
@@ -784,40 +1191,62 @@ extension BlastResultsDrawerTab: NSTableViewDataSource {
         switch key {
         case "status":   columnId = .blastStatus
         case "readId":   columnId = .blastReadId
-        case "topHit":   columnId = .blastTopHit
+        case "organism": columnId = .blastOrganism
         case "identity": columnId = .blastIdentity
         case "eValue":   columnId = .blastEValue
+        case "bitScore": columnId = .blastBitScore
         default: return
         }
 
         sortKey = columnId
         sortAscending = descriptor.ascending
         applySortDescriptors()
-        tableView.reloadData()
+        outlineView.reloadData()
     }
 }
 
-// MARK: - NSTableViewDelegate
+// MARK: - NSOutlineViewDelegate
 
-extension BlastResultsDrawerTab: NSTableViewDelegate {
+extension BlastResultsDrawerTab: NSOutlineViewDelegate {
 
-    public func tableView(
-        _ tableView: NSTableView,
+    /// Provides the cell view for a given item and column.
+    public func outlineView(
+        _ outlineView: NSOutlineView,
         viewFor tableColumn: NSTableColumn?,
-        row: Int
+        item: Any
     ) -> NSView? {
-        guard let columnId = tableColumn?.identifier,
-              row >= 0, row < sortedResults.count else { return nil }
+        guard let columnId = tableColumn?.identifier else { return nil }
 
-        let readResult = sortedResults[row]
+        if let readItem = item as? ReadResultItem {
+            return makeParentCell(columnId: columnId, readItem: readItem)
+        }
+
+        if let hitItem = item as? HitSummaryItem {
+            return makeChildCell(columnId: columnId, hitItem: hitItem)
+        }
+
+        return nil
+    }
+
+    // MARK: - Parent Row Cells (ReadResultItem)
+
+    /// Creates a cell for a parent (read result) row.
+    private func makeParentCell(columnId: NSUserInterfaceItemIdentifier, readItem: ReadResultItem) -> NSView? {
+        let readResult = readItem.result
 
         switch columnId {
         case .blastStatus:
-            return makeStatusCell(for: readResult)
+            return makeParentStatusCell(for: readResult)
         case .blastReadId:
-            return makeTextCell(readResult.id, font: .monospacedSystemFont(ofSize: 11, weight: .regular))
-        case .blastTopHit:
-            return makeTextCell(readResult.topHitOrganism ?? "No significant hit", font: .systemFont(ofSize: 11))
+            return makeTextCell(
+                readResult.id,
+                font: .monospacedSystemFont(ofSize: 11, weight: .regular)
+            )
+        case .blastOrganism:
+            return makeOrganismCell(
+                organism: readResult.topHitOrganism ?? "No significant hit",
+                hasLCADisagreement: readResult.hasLCADisagreement
+            )
         case .blastIdentity:
             let text: String
             if let pct = readResult.percentIdentity {
@@ -825,10 +1254,20 @@ extension BlastResultsDrawerTab: NSTableViewDelegate {
             } else {
                 text = "--"
             }
-            return makeTextCell(text, font: .monospacedDigitSystemFont(ofSize: 11, weight: .regular), alignment: .right)
+            return makeTextCell(
+                text,
+                font: .monospacedDigitSystemFont(ofSize: 11, weight: .regular),
+                alignment: .right
+            )
         case .blastEValue:
             return makeTextCell(
                 Self.formatEValue(readResult.eValue),
+                font: .monospacedDigitSystemFont(ofSize: 11, weight: .regular),
+                alignment: .right
+            )
+        case .blastBitScore:
+            return makeTextCell(
+                Self.formatBitScore(readResult.bitScore),
                 font: .monospacedDigitSystemFont(ofSize: 11, weight: .regular),
                 alignment: .right
             )
@@ -837,41 +1276,152 @@ extension BlastResultsDrawerTab: NSTableViewDelegate {
         }
     }
 
+    // MARK: - Child Row Cells (HitSummaryItem)
+
+    /// Creates a cell for a child (hit summary) row.
+    private func makeChildCell(columnId: NSUserInterfaceItemIdentifier, hitItem: HitSummaryItem) -> NSView? {
+        let hit = hitItem.hit
+
+        switch columnId {
+        case .blastStatus:
+            return makeChildStatusCell(rank: hit.rank)
+        case .blastReadId:
+            return makeTextCell(
+                hit.accession,
+                font: .monospacedSystemFont(ofSize: 11, weight: .regular),
+                textColor: .secondaryLabelColor
+            )
+        case .blastOrganism:
+            return makeTextCell(
+                hit.organism ?? "",
+                font: .systemFont(ofSize: 11),
+                textColor: .secondaryLabelColor
+            )
+        case .blastIdentity:
+            return makeTextCell(
+                String(format: "%.1f%%", hit.percentIdentity),
+                font: .monospacedDigitSystemFont(ofSize: 11, weight: .regular),
+                alignment: .right,
+                textColor: .secondaryLabelColor
+            )
+        case .blastEValue:
+            return makeTextCell(
+                Self.formatEValue(hit.eValue),
+                font: .monospacedDigitSystemFont(ofSize: 11, weight: .regular),
+                alignment: .right,
+                textColor: .secondaryLabelColor
+            )
+        case .blastBitScore:
+            return makeTextCell(
+                Self.formatBitScore(hit.bitScore),
+                font: .monospacedDigitSystemFont(ofSize: 11, weight: .regular),
+                alignment: .right,
+                textColor: .secondaryLabelColor
+            )
+        default:
+            return nil
+        }
+    }
+
     // MARK: - Cell Factories
 
-    /// Creates a status icon cell for a read result.
-    private func makeStatusCell(for result: BlastReadResult) -> NSView {
+    /// Creates a status icon cell for a parent row (read result).
+    ///
+    /// Shows the verdict icon. When `hasLCADisagreement` is true, an additional
+    /// orange warning triangle is overlaid.
+    private func makeParentStatusCell(for result: BlastReadResult) -> NSView {
         let cell = NSTableCellView()
-        let image = NSImage(
-            systemSymbolName: result.verdict.sfSymbolName,
-            accessibilityDescription: result.verdict.accessibilityDescription
-        )
-        let imageView = NSImageView(image: image ?? NSImage())
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.contentTintColor = result.verdict.displayColor
-        cell.addSubview(imageView)
+
+        if result.hasLCADisagreement {
+            // Show orange LCA warning triangle instead of verdict icon
+            let warningImage = NSImage(
+                systemSymbolName: "exclamationmark.triangle",
+                accessibilityDescription: "LCA disagreement"
+            )
+            let imageView = NSImageView(image: warningImage ?? NSImage())
+            imageView.translatesAutoresizingMaskIntoConstraints = false
+            imageView.contentTintColor = .systemOrange
+            cell.addSubview(imageView)
+
+            NSLayoutConstraint.activate([
+                imageView.centerXAnchor.constraint(equalTo: cell.centerXAnchor),
+                imageView.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                imageView.widthAnchor.constraint(equalToConstant: 14),
+                imageView.heightAnchor.constraint(equalToConstant: 14),
+            ])
+        } else {
+            let image = NSImage(
+                systemSymbolName: result.verdict.sfSymbolName,
+                accessibilityDescription: result.verdict.accessibilityDescription
+            )
+            let imageView = NSImageView(image: image ?? NSImage())
+            imageView.translatesAutoresizingMaskIntoConstraints = false
+            imageView.contentTintColor = result.verdict.displayColor
+            cell.addSubview(imageView)
+
+            NSLayoutConstraint.activate([
+                imageView.centerXAnchor.constraint(equalTo: cell.centerXAnchor),
+                imageView.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                imageView.widthAnchor.constraint(equalToConstant: 14),
+                imageView.heightAnchor.constraint(equalToConstant: 14),
+            ])
+        }
+
+        return cell
+    }
+
+    /// Creates a status cell for a child row showing the hit rank number.
+    private func makeChildStatusCell(rank: Int) -> NSView {
+        let cell = NSTableCellView()
+        let label = NSTextField(labelWithString: "#\(rank)")
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = .monospacedDigitSystemFont(ofSize: 9, weight: .medium)
+        label.textColor = .tertiaryLabelColor
+        label.alignment = .center
+        cell.addSubview(label)
+        cell.textField = label
 
         NSLayoutConstraint.activate([
-            imageView.centerXAnchor.constraint(equalTo: cell.centerXAnchor),
-            imageView.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-            imageView.widthAnchor.constraint(equalToConstant: 14),
-            imageView.heightAnchor.constraint(equalToConstant: 14),
+            label.centerXAnchor.constraint(equalTo: cell.centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
         ])
 
         return cell
     }
 
-    /// Creates a text cell with the given string, font, and alignment.
+    /// Creates an organism name cell, with orange tint when LCA disagreement is present.
+    private func makeOrganismCell(organism: String, hasLCADisagreement: Bool) -> NSView {
+        let cell = NSTableCellView()
+        let label = NSTextField(labelWithString: organism)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = .systemFont(ofSize: 11)
+        label.textColor = hasLCADisagreement ? .systemOrange : .labelColor
+        label.lineBreakMode = .byTruncatingTail
+        label.toolTip = organism
+        cell.addSubview(label)
+        cell.textField = label
+
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
+            label.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -2),
+            label.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+        ])
+
+        return cell
+    }
+
+    /// Creates a text cell with the given string, font, alignment, and color.
     private func makeTextCell(
         _ text: String,
         font: NSFont,
-        alignment: NSTextAlignment = .left
+        alignment: NSTextAlignment = .left,
+        textColor: NSColor = .labelColor
     ) -> NSView {
         let cell = NSTableCellView()
         let label = NSTextField(labelWithString: text)
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = font
-        label.textColor = .labelColor
+        label.textColor = textColor
         label.alignment = alignment
         label.lineBreakMode = .byTruncatingTail
         label.toolTip = text

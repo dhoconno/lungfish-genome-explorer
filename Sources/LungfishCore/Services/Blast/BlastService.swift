@@ -292,7 +292,7 @@ public actor BlastService {
             taxonName: taxonName,
             taxId: taxId,
             sequences: subsampled,
-            entrezQuery: "txid\(taxId)[Organism:exp]"
+            entrezQuery: nil
         )
     }
 
@@ -352,9 +352,16 @@ public actor BlastService {
         // Phase 3: Assign verdicts
         progress?(0.90, "Parsing BLAST results...")
 
+        // Build a sequence map from the request for querySequence population
+        let sequenceMap = Dictionary(
+            request.sequences.map { ($0.id, $0.sequence) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
         let readResults = assignVerdicts(
             searchResults: searchResults,
-            eValueThreshold: request.eValueThreshold
+            eValueThreshold: request.eValueThreshold,
+            sequenceMap: sequenceMap
         )
 
         let completedAt = Date()
@@ -613,29 +620,39 @@ public actor BlastService {
     /// - **Ambiguous**: Hit found but thresholds not fully met
     /// - **Unverified**: No hits found within the taxon
     ///
+    /// Also builds up to 5 ``BlastHitSummary`` entries per read, computes
+    /// LCA genus disagreement, and attaches the original query sequence.
+    ///
     /// - Parameters:
     ///   - searchResults: Parsed BLAST search results
     ///   - eValueThreshold: E-value threshold for significance
+    ///   - sequenceMap: Mapping from read ID to original query sequence (default: empty)
     /// - Returns: Array of per-read verification results
     nonisolated func assignVerdicts(
         searchResults: [BlastSearchResult],
-        eValueThreshold: Double
+        eValueThreshold: Double,
+        sequenceMap: [String: String] = [:]
     ) -> [BlastReadResult] {
         searchResults.map { result in
-            assignVerdict(for: result, eValueThreshold: eValueThreshold)
+            assignVerdict(for: result, eValueThreshold: eValueThreshold, sequenceMap: sequenceMap)
         }
     }
 
     /// Assigns a verdict for a single query result.
     private nonisolated func assignVerdict(
         for result: BlastSearchResult,
-        eValueThreshold: Double
+        eValueThreshold: Double,
+        sequenceMap: [String: String]
     ) -> BlastReadResult {
         // Find the best HSP across all hits
         guard let topHit = result.hits.first,
               let bestHSP = topHit.hsps.first else {
             // No hits at all
-            return BlastReadResult(id: result.queryId, verdict: .unverified)
+            return BlastReadResult(
+                id: result.queryId,
+                verdict: .unverified,
+                querySequence: sequenceMap[result.queryId]
+            )
         }
 
         let pctIdentity = bestHSP.percentIdentity
@@ -654,6 +671,16 @@ public actor BlastService {
             verdict = .unverified
         }
 
+        // Build up to 5 hit summaries sorted by best HSP e-value
+        let topHits = buildHitSummaries(
+            hits: result.hits,
+            queryLength: result.queryLength,
+            maxCount: 5
+        )
+
+        // Compute LCA genus disagreement across the top hits
+        let hasLCADisagreement = computeGenusDisagreement(hits: topHits)
+
         return BlastReadResult(
             id: result.queryId,
             verdict: verdict,
@@ -663,8 +690,55 @@ public actor BlastService {
             queryCoverage: coverage,
             eValue: eValue,
             alignmentLength: bestHSP.alignLength,
-            bitScore: bestHSP.bitScore
+            bitScore: bestHSP.bitScore,
+            topHits: topHits,
+            querySequence: sequenceMap[result.queryId],
+            hasLCADisagreement: hasLCADisagreement
         )
+    }
+
+    /// Builds an array of ``BlastHitSummary`` from up to `maxCount` hits.
+    ///
+    /// Each summary uses the best HSP (first) from its hit for statistics.
+    ///
+    /// - Parameters:
+    ///   - hits: All hits for one query
+    ///   - queryLength: Length of the query sequence
+    ///   - maxCount: Maximum number of summaries to produce
+    /// - Returns: Array of hit summaries sorted by E-value (ascending)
+    private nonisolated func buildHitSummaries(
+        hits: [BlastHit],
+        queryLength: Int,
+        maxCount: Int
+    ) -> [BlastHitSummary] {
+        let limitedHits = hits.prefix(maxCount)
+        return limitedHits.enumerated().compactMap { rank, hit in
+            guard let bestHSP = hit.hsps.first else { return nil }
+            return BlastHitSummary(
+                rank: rank + 1,
+                accession: hit.accession,
+                organism: hit.organism,
+                taxId: hit.taxId,
+                percentIdentity: bestHSP.percentIdentity,
+                queryCoverage: bestHSP.queryCoverage(queryLength: queryLength),
+                eValue: bestHSP.evalue,
+                bitScore: bestHSP.bitScore,
+                alignmentLength: bestHSP.alignLength
+            )
+        }
+    }
+
+    /// Determines whether the top hits disagree at genus level.
+    ///
+    /// Extracts the first word of each organism name (the genus) and checks
+    /// whether multiple distinct genera are represented. A count > 1 indicates
+    /// LCA disagreement.
+    ///
+    /// - Parameter hits: Hit summaries to inspect
+    /// - Returns: `true` if multiple genera are present among the hits
+    nonisolated func computeGenusDisagreement(hits: [BlastHitSummary]) -> Bool {
+        let genera = Set(hits.compactMap { $0.organism?.split(separator: " ").first.map(String.init) })
+        return genera.count > 1
     }
 
     // MARK: - Response Parsing
@@ -800,6 +874,7 @@ public actor BlastService {
         let accession = firstDesc["accession"] as? String ?? ""
         let title = firstDesc["title"] as? String ?? ""
         let organism = firstDesc["sciname"] as? String
+        let taxId = firstDesc["taxid"] as? Int
 
         let hspsArray = hitDict["hsps"] as? [[String: Any]] ?? []
         let hsps: [BlastHSP] = hspsArray.compactMap { hspDict in
@@ -808,7 +883,7 @@ public actor BlastService {
 
         guard !hsps.isEmpty else { return nil }
 
-        return BlastHit(accession: accession, title: title, organism: organism, hsps: hsps)
+        return BlastHit(accession: accession, title: title, organism: organism, taxId: taxId, hsps: hsps)
     }
 
     /// Parses a single HSP from the JSON2 hsps array.
