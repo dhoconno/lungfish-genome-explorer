@@ -35,6 +35,10 @@ struct TaxTriageWizardSheet: View {
     @State private var skipKrona: Bool = false
     @State private var showAdvanced: Bool = false
 
+    // Database
+    @State private var installedDatabases: [MetagenomicsDatabaseInfo] = []
+    @State private var selectedDatabaseName: String = ""
+
     // Advanced settings
     @State private var k2Confidence: Double = 0.2
     @State private var topHitsCount: Int = 10
@@ -73,6 +77,7 @@ struct TaxTriageWizardSheet: View {
         !samples.isEmpty
         && nextflowAvailable == true
         && containerAvailable == true
+        && !selectedDatabaseName.isEmpty
         && samples.allSatisfy { !$0.sampleId.trimmingCharacters(in: .whitespaces).isEmpty }
     }
 
@@ -111,6 +116,11 @@ struct TaxTriageWizardSheet: View {
 
                     // Sample list
                     sampleSection
+
+                    Divider()
+
+                    // Database picker
+                    databaseSection
 
                     Divider()
 
@@ -156,7 +166,7 @@ struct TaxTriageWizardSheet: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }
-        .frame(width: 560, height: 580)
+        .frame(width: 560, height: 700)
         .onAppear {
             populateFromInitialFiles()
             checkPrerequisites()
@@ -301,6 +311,33 @@ struct TaxTriageWizardSheet: View {
         samples.remove(at: index)
     }
 
+    // MARK: - Database
+
+    private var databaseSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Kraken2 Database")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            if installedDatabases.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.circle")
+                        .foregroundStyle(.orange)
+                    Text("No Kraken2 databases installed")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.orange)
+                }
+            } else {
+                Picker("", selection: $selectedDatabaseName) {
+                    ForEach(installedDatabases, id: \.name) { db in
+                        Text(db.name).tag(db.name)
+                    }
+                }
+                .labelsHidden()
+            }
+        }
+    }
+
     // MARK: - Platform
 
     private var platformSection: some View {
@@ -411,6 +448,15 @@ struct TaxTriageWizardSheet: View {
                 containerAvailable = false
                 containerName = "Container: Not found"
             }
+
+            // Load installed Kraken2 databases
+            let registry = MetagenomicsDatabaseRegistry.shared
+            let allDbs = (try? await registry.availableDatabases()) ?? []
+            let kraken2Dbs = allDbs.filter { $0.tool == "kraken2" && $0.isDownloaded }
+            installedDatabases = kraken2Dbs
+            if selectedDatabaseName.isEmpty, let first = kraken2Dbs.first {
+                selectedDatabaseName = first.name
+            }
         }
     }
 
@@ -469,10 +515,14 @@ struct TaxTriageWizardSheet: View {
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
                 .appendingPathComponent("taxtriage-\(UUID().uuidString.prefix(8))")
 
+        // Find the selected database path
+        let dbPath = installedDatabases.first(where: { $0.name == selectedDatabaseName })?.path
+
         let config = TaxTriageConfig(
             samples: taxSamples,
             platform: platform,
             outputDirectory: outputDir,
+            kraken2DatabasePath: dbPath,
             topHitsCount: topHitsCount,
             k2Confidence: k2Confidence,
             skipAssembly: skipAssembly,

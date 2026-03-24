@@ -1,0 +1,385 @@
+Mar-24 15:43:13.281 [main] DEBUG nextflow.cli.Launcher - $> nextflow run jhuapl-bio/taxtriage -r main -profile docker --input /tmp/taxtriage_test/samplesheet.csv --db /Users/dho/.lungfish/databases/kraken2/viral --outdir /tmp/taxtriage_test/output --skip_fastp --skip_plots -preview
+Mar-24 15:43:13.316 [main] DEBUG nextflow.cli.CmdRun - N E X T F L O W  ~  version 25.10.4
+Mar-24 15:43:13.335 [main] DEBUG nextflow.plugin.PluginsFacade - Setting up plugin manager > mode=prod; embedded=false; plugins-dir=/Users/dho/.nextflow/plugins; core-plugins: nf-amazon@3.4.4,nf-azure@1.20.2,nf-cloudcache@0.5.0,nf-codecommit@0.5.0,nf-console@1.3.0,nf-google@1.23.5,nf-k8s@1.2.2,nf-tower@1.17.5,nf-wave@1.16.1
+Mar-24 15:43:13.355 [main] INFO  o.pf4j.DefaultPluginStatusProvider - Enabled plugins: []
+Mar-24 15:43:13.356 [main] INFO  o.pf4j.DefaultPluginStatusProvider - Disabled plugins: []
+Mar-24 15:43:13.357 [main] INFO  org.pf4j.DefaultPluginManager - PF4J version 3.12.0 in 'deployment' mode
+Mar-24 15:43:13.368 [main] DEBUG nextflow.util.RetryConfig - Missing nextflow session - using default retry config
+Mar-24 15:43:13.466 [main] INFO  org.pf4j.AbstractPluginManager - No plugins
+Mar-24 15:43:13.474 [main] DEBUG nextflow.scm.ProviderConfig - Using SCM config path: /Users/dho/.nextflow/scm
+Mar-24 15:43:13.857 [main] DEBUG nextflow.scm.AssetManager - Git config: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/.git/config; branch: null; remote: origin; url: https://github.com/jhuapl-bio/taxtriage.git
+Mar-24 15:43:13.874 [main] DEBUG nextflow.scm.RepositoryFactory - Found Git repository result: [RepositoryFactory]
+Mar-24 15:43:13.879 [main] DEBUG nextflow.scm.AssetManager - Git config: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/.git/config; branch: null; remote: origin; url: https://github.com/jhuapl-bio/taxtriage.git
+Mar-24 15:43:15.093 [main] INFO  nextflow.scm.AssetManager - NOTE: Your local project version looks outdated - a different revision is available in the remote repository [d7189308ba]
+Mar-24 15:43:15.101 [main] DEBUG nextflow.config.ConfigBuilder - Found config base: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/nextflow.config
+Mar-24 15:43:15.102 [main] DEBUG nextflow.config.ConfigBuilder - Parsing config file: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/nextflow.config
+Mar-24 15:43:15.107 [main] DEBUG nextflow.config.ConfigBuilder - Applying config profile: `docker`
+Mar-24 15:43:15.740 [main] DEBUG nextflow.config.ConfigBuilder - Available config profiles: [bih, cfc_dev, uzl_omics, ifb_core, embl_hd, denbi_qbic, alice, mjolnir_globe, uppmax, giga, incliva, ilifu, test_viral, ki_luria, uge, icr_alma, rosalind_uge, lugh, mccleary, unibe_ibu, vai, czbiohub_aws, jax, roslin, iris, tes, scw, unc_longleaf, tigem, tubingen_apg, apollo, ipop_up, vsc_calcua, pdc_kth, ceci_nic5, ccga_cau, humantechnopole, stjude, daisybio, eddie, medair, mce_seqera, biowulf, mahuika, apptainer, bi, bigpurple, adcra, cedars, pawsey_setonix, local, vsc_kul_uhasselt, pawsey_nimbus, rki, ucl_myriad, utd_ganymede, charliecloud, fred_hutch, seattlechildrens, icr_davros, ceres, munin, arm, rosalind, hasta, cfc, uzh, shu_bmrc, ebi_codon_slurm, ebc, ccga_dx, crick, ku_sund_danhead, marvin, lrz_cm4, biohpc_gen, shifter, mana, york_viking, unc_lccc, wehi, awsbatch, wustl_htcf, arcc, ceci_dragon2, imperial, maestro, software_license, cannon, genotoul, nci_gadi, abims, eva_grace, janelia, nu_genomics, mce, googlebatch, oist, sahmri, sge, kaust, alliance_canada, mpcdf, leicester, vsc_ugent, create, sage, cambridge, jex, podman, ebi_codon, cheaha, xanadu, nyu_hpc, test, marjorie, computerome, ucd_sonic, seg_globe, mssm, sanger, dkfz, bluebear, pasteur, einstein, ethz_euler, m3c, imb, ucl_cscluster, tuos_stanage, azurebatch, seadragon, crukmi, csiro_petrichor, qmul_apocrita, wave, docker, engaging, gis, hypatia, psmn, eva, unity, cropdiversityhpc, nygc, fgcz, conda, crg, singularity, mpcdf_viper, dirac, self_hosted_runner, tufts, uw_hyak_pedslabs, binac2, hki_genie, debug, genouest, cbe, unsw_katana, utd_juno, slurm, phoenix, seawulf, uod_hpc, fub_curta, lovelace, uct_hpc, aws_tower, fsu_draco]
+Mar-24 15:43:15.762 [main] DEBUG nextflow.plugin.PluginsFacade - Plugins default=[]
+Mar-24 15:43:15.763 [main] DEBUG nextflow.plugin.PluginsFacade - Plugins resolved requirement=[]
+Mar-24 15:43:15.764 [main] DEBUG n.secret.LocalSecretsProvider - Secrets store: /Users/dho/.nextflow/secrets/store.json
+Mar-24 15:43:15.765 [main] DEBUG nextflow.secret.SecretsLoader - Discovered secrets providers: [nextflow.secret.LocalSecretsProvider@36c783ca] - activable => nextflow.secret.LocalSecretsProvider@36c783ca
+Mar-24 15:43:15.766 [main] DEBUG nextflow.cli.CmdRun - Applied DSL=2 from script declaration
+Mar-24 15:43:15.767 [main] DEBUG nextflow.cli.CmdRun - * PREVIEW * https://github.com/jhuapl-bio/taxtriage [prickly_mcclintock] DSL2 - revision: c808b451ff [main]
+Mar-24 15:43:15.796 [main] DEBUG nextflow.Session - Session UUID: 19f06f63-1b78-47c5-ab6e-5ae916f3492e
+Mar-24 15:43:15.796 [main] DEBUG nextflow.Session - Run name: prickly_mcclintock
+Mar-24 15:43:15.796 [main] DEBUG nextflow.Session - Executor pool size: 14
+Mar-24 15:43:15.801 [main] DEBUG nextflow.file.FilePorter - File porter settings maxRetries=3; maxTransfers=50; pollTimeout=null
+Mar-24 15:43:15.803 [main] DEBUG nextflow.util.ThreadPoolBuilder - Creating thread pool 'FileTransfer' minSize=10; maxSize=42; workQueue=LinkedBlockingQueue[-1]; allowCoreThreadTimeout=false
+Mar-24 15:43:15.815 [main] DEBUG nextflow.cli.CmdRun - 
+  Version: 25.10.4 build 11173
+  Created: 10-02-2026 15:17 UTC (09:17 CDT)
+  System: Mac OS X 26.3
+  Runtime: Groovy 4.0.28 on OpenJDK 64-Bit Server VM 23.0.2+7
+  Encoding: UTF-8 (UTF-8)
+  Process: 91380@static-208-113.vpn.wisc.edu [146.151.208.113]
+  CPUs: 14 - Mem: 48 GB (140.3 MB) - Swap: 8 GB (928.8 MB)
+Mar-24 15:43:15.822 [main] DEBUG nextflow.Session - Work-dir: /Users/dho/Documents/lungfish-genome-browser/work [Mac OS X]
+Mar-24 15:43:15.838 [main] DEBUG nextflow.executor.ExecutorFactory - Extension executors providers=[]
+Mar-24 15:43:15.843 [main] DEBUG nextflow.Session - Observer factory (v2): LinObserverFactory
+Mar-24 15:43:15.844 [main] DEBUG nextflow.Session - Observer factory (v2): DefaultObserverFactory
+Mar-24 15:43:15.874 [main] DEBUG nextflow.cache.CacheFactory - Using Nextflow cache factory: nextflow.cache.DefaultCacheFactory
+Mar-24 15:43:15.880 [main] DEBUG nextflow.util.CustomThreadPool - Creating default thread pool > poolSize: 15; maxThreads: 1000
+Mar-24 15:43:15.913 [main] DEBUG nextflow.Session - Session start
+Mar-24 15:43:15.917 [main] DEBUG nextflow.trace.TraceFileObserver - Workflow started -- trace file: /tmp/taxtriage_test/output/pipeline_info/execution_trace_2026-03-24_15-43-15.txt
+Mar-24 15:43:15.920 [main] DEBUG nextflow.Session - Using default localLib path: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/lib
+Mar-24 15:43:15.922 [main] DEBUG nextflow.Session - Adding to the classpath library: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/lib
+Mar-24 15:43:15.923 [main] DEBUG nextflow.Session - Adding to the classpath library: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/lib/nfcore_external_java_deps.jar
+Mar-24 15:43:16.381 [main] DEBUG nextflow.script.ScriptRunner - > Launching execution
+Mar-24 15:43:16.476 [main] WARN  nextflow.Nextflow - Found unexpected parameters:
+* --three_prime_clip_r2: null
+* --three_prime_clip_r1: null
+* --clip_r2: null
+* --clip_r1: null
+* --save_unclassified_fastq: null
+* --classifier: kraken2
+Mar-24 15:43:16.477 [main] INFO  nextflow.Nextflow - - [2mIgnore this warning: params.schema_ignore_params = "three_prime_clip_r2,three_prime_clip_r1,clip_r2,clip_r1,save_unclassified_fastq,classifier" [0m
+Mar-24 15:43:16.489 [main] INFO  nextflow.Nextflow - 
+
+-[2m----------------------------------------------------[0m-
+                                        [0;32m,--.[0;30m/[0;32m,-.[0m
+[0;34m        ___     __   __   __   ___     [0;32m/,-._.--~'[0m
+[0;34m  |\ | |__  __ /  ` /  \ |__) |__         [0;33m}  {[0m
+[0;34m  | \| |       \__, \__/ |  \ |___     [0;32m\`-._,-`-,[0m
+                                        [0;32m`._,._,'[0m
+[0;35m  nf-core/taxtriage v1.0dev[0m
+-[2m----------------------------------------------------[0m-
+[1mCore Nextflow options[0m
+  [0;34mrevision              : [0;32mmain[0m
+  [0;34mrunName               : [0;32mprickly_mcclintock[0m
+  [0;34mcontainerEngine       : [0;32mdocker[0m
+  [0;34mlaunchDir             : [0;32m/Users/dho/Documents/lungfish-genome-browser[0m
+  [0;34mworkDir               : [0;32m/Users/dho/Documents/lungfish-genome-browser/work[0m
+  [0;34mprojectDir            : [0;32m/Users/dho/.nextflow/assets/jhuapl-bio/taxtriage[0m
+  [0;34muserName              : [0;32mdho[0m
+  [0;34mprofile               : [0;32mdocker[0m
+  [0;34mconfigFiles           : [0;32m/Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/nextflow.config[0m
+
+[1mInput/output options (Required)[0m
+  [0;34minput                 : [0;32m/tmp/taxtriage_test/samplesheet.csv[0m
+  [0;34mdb                    : [0;32m/Users/dho/.lungfish/databases/kraken2/viral[0m
+  [0;34moutdir                : [0;32m/tmp/taxtriage_test/output[0m
+
+[1mPreliminary and QC[0m
+  [0;34mremove_taxids         : [0;32mnull[0m
+
+[1mMetagenomics Parameters[0m
+  [0;34mtop_per_taxa          : [0;32mnull[0m
+  [0;34mtaxtab                : [0;32mdefault[0m
+  [0;34mtop_hits_count        : [0;32mnull[0m
+
+[1mAlignment[0m
+  [0;34mmin_conf              : [0;32m0.6[0m
+  [0;34mgini_weight           : [0;32m0.71[0m
+  [0;34mbreadth_weight        : [0;32m0.24[0m
+  [0;34mminhash_weight        : [0;32m0.05[0m
+  [0;34mmapq_weight           : [0;32m0.0[0m
+  [0;34mdisparity_score_weight: [0;32m0.0[0m
+  [0;34mhmp_weight            : [0;32m0.0[0m
+  [0;34mdispersion_factor     : [0;32m0.55[0m
+  [0;34mreward_factor         : [0;32m4[0m
+  [0;34mmin_reads_align       : [0;32m1[0m
+  [0;34mzscore_accepted       : [0;32m1.5[0m
+  [0;34mminmapq               : [0;32m5[0m
+  [0;34mmmap2_fraction_filter : [0;32m0.0009[0m
+  [0;34mdistributions         : [0;32massets/taxid_abundance_stats.hmp.tsv.gz[0m
+
+[1mSkip Steps[0m
+  [0;34mskip_plots            : [0;32mtrue[0m
+  [0;34mskip_fastp            : [0;32mtrue[0m
+  [0;34mignore_missing        : [0;32mtrue[0m
+
+[1mGeneral Info[0m
+  [0;34mvalidate_params       : [0;32mtrue[0m
+  [0;34mmax_cpus              : [0;32m16[0m
+  [0;34mmax_memory            : [0;32m1380.GB[0m
+  [0;34mmax_time              : [0;32m240.h[0m
+
+!! Only displaying parameters that differ from the pipeline defaults !!
+-[2m----------------------------------------------------[0m-
+If you use nf-core/taxtriage for your analysis please cite:
+
+* The nf-core framework
+  https://doi.org/10.1038/s41587-020-0439-x
+
+* Software dependencies
+  https://github.com/nf-core/taxtriage/blob/master/CITATIONS.md
+-[2m----------------------------------------------------[0m-
+Mar-24 15:43:16.805 [main] INFO  nextflow.script.BaseScript - Working Directory: /Users/dho/Documents/lungfish-genome-browser/work
+Mar-24 15:43:16.808 [main] INFO  nextflow.script.BaseScript - Min Quality set to default
+Mar-24 15:43:16.808 [main] INFO  nextflow.script.BaseScript - The value matches the pattern.
+Mar-24 15:43:16.809 [main] INFO  nextflow.script.BaseScript - No assembly file given, downloading the standard ncbi one
+Mar-24 15:43:20.065 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_medium` matches labels `process_medium` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:GET_ASSEMBLIES
+Mar-24 15:43:20.070 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.071 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.076 [main] DEBUG nextflow.executor.Executor - [warm up] executor > local
+Mar-24 15:43:20.080 [main] DEBUG n.processor.LocalPollingMonitor - Creating local task monitor for executor 'local' > cpus=14; memory=48 GB; capacity=14; pollInterval=100ms; dumpInterval=5m
+Mar-24 15:43:20.081 [main] DEBUG n.processor.TaskPollingMonitor - >>> barrier register (monitor: local)
+Mar-24 15:43:20.091 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:GET_ASSEMBLIES': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.107 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withName:SAMPLESHEET_CHECK` matches process NFCORE_TAXTRIAGE:TAXTRIAGE:INPUT_CHECK:SAMPLESHEET_CHECK
+Mar-24 15:43:20.109 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.109 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.110 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:INPUT_CHECK:SAMPLESHEET_CHECK': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.119 [main] INFO  nextflow.script.BaseScript - Nextflow version: 25.10.4
+Mar-24 15:43:20.120 [main] INFO  nextflow.script.BaseScript - Commit ID: c808b451ff3d119906aaa6dbf2ace9e21c8a50fd
+Mar-24 15:43:20.120 [main] INFO  nextflow.script.BaseScript - Repository URL: https://github.com/jhuapl-bio/taxtriage
+Mar-24 15:43:20.120 [main] INFO  nextflow.script.BaseScript - Date: Tue Mar 24 15:43:20 CDT 2026
+Mar-24 15:43:20.123 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_high` matches labels `process_high` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:ARTIC_GUPPYPLEX
+Mar-24 15:43:20.124 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.125 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.125 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:ARTIC_GUPPYPLEX': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.129 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_low` matches labels `process_low` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:PIGZ_COMPRESS
+Mar-24 15:43:20.131 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.131 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.131 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:PIGZ_COMPRESS': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.135 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_high` matches labels `process_high` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:TRIMGALORE
+Mar-24 15:43:20.136 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.136 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.137 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:TRIMGALORE': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.142 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_medium` matches labels `process_medium` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:PORECHOP
+Mar-24 15:43:20.143 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withName:PORECHOP` matches process NFCORE_TAXTRIAGE:TAXTRIAGE:PORECHOP
+Mar-24 15:43:20.144 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.144 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.144 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:PORECHOP': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.148 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_low` matches labels `process_low` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:COUNT_READS
+Mar-24 15:43:20.150 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.150 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.150 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:COUNT_READS': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.153 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_medium` matches labels `process_medium` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:PYCOQC
+Mar-24 15:43:20.154 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withName:PYCOQC` matches process NFCORE_TAXTRIAGE:TAXTRIAGE:PYCOQC
+Mar-24 15:43:20.155 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.155 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.155 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:PYCOQC': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.165 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_high` matches labels `process_high` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:KRAKEN2_KRAKEN2
+Mar-24 15:43:20.165 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withName:KRAKEN2_KRAKEN2` matches process NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:KRAKEN2_KRAKEN2
+Mar-24 15:43:20.166 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.166 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.167 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:KRAKEN2_KRAKEN2': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.170 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_medium` matches labels `process_medium` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:KREPORT_TO_KRONATXT
+Mar-24 15:43:20.170 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withName:KREPORT_TO_KRONATXT` matches process NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:KREPORT_TO_KRONATXT
+Mar-24 15:43:20.171 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.171 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.172 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:KREPORT_TO_KRONATXT': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.175 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withName:KRONA_KTIMPORTTEXT` matches process NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:KRONA_KTIMPORTTEXT
+Mar-24 15:43:20.176 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.176 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.177 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:KRONA_KTIMPORTTEXT': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.183 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_medium` matches labels `process_medium` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:TOP_HITS
+Mar-24 15:43:20.184 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withName:TOP_HITS` matches process NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:TOP_HITS
+Mar-24 15:43:20.185 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.185 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.185 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:TOP_HITS': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.188 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_medium` matches labels `process_medium` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:MERGEDSUBSPECIES
+Mar-24 15:43:20.189 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withName:MERGEDSUBSPECIES` matches process NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:MERGEDSUBSPECIES
+Mar-24 15:43:20.189 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.189 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.190 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:MERGEDSUBSPECIES': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.194 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_medium` matches labels `process_medium` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:MERGEDKRAKENREPORT
+Mar-24 15:43:20.195 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.196 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.196 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:MERGEDKRAKENREPORT': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.197 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_medium` matches labels `process_medium` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:FILTERKRAKEN
+Mar-24 15:43:20.198 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.198 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.198 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:FILTERKRAKEN': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.216 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_medium` matches labels `process_medium` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:REFERENCE_PREP:DOWNLOAD_ASSEMBLY
+Mar-24 15:43:20.217 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.217 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.217 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:REFERENCE_PREP:DOWNLOAD_ASSEMBLY': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.224 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_low` matches labels `process_low` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:REFERENCE_PREP:COMBINE_MAPFILES
+Mar-24 15:43:20.225 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.225 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.225 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:REFERENCE_PREP:COMBINE_MAPFILES': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.229 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_medium` matches labels `process_medium` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:REFERENCE_PREP:MAP_TAXID_ASSEMBLY
+Mar-24 15:43:20.230 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withName:MAP_TAXID_ASSEMBLY` matches process NFCORE_TAXTRIAGE:TAXTRIAGE:REFERENCE_PREP:MAP_TAXID_ASSEMBLY
+Mar-24 15:43:20.230 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.230 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.231 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:REFERENCE_PREP:MAP_TAXID_ASSEMBLY': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.243 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_high` matches labels `process_high` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:MINIMAP2_ALIGN
+Mar-24 15:43:20.244 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withName:MINIMAP2_ALIGN` matches process NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:MINIMAP2_ALIGN
+Mar-24 15:43:20.245 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.245 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.245 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:MINIMAP2_ALIGN': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.255 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_medium` matches labels `process_medium` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:SAMTOOLS_MERGE
+Mar-24 15:43:20.255 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withName:SAMTOOLS_MERGE` matches process NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:SAMTOOLS_MERGE
+Mar-24 15:43:20.256 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.256 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.256 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:SAMTOOLS_MERGE': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.263 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_low` matches labels `process_low` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:SAMTOOLS_INDEX
+Mar-24 15:43:20.264 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withName:SAMTOOLS_INDEX` matches process NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:SAMTOOLS_INDEX
+Mar-24 15:43:20.265 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.265 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.265 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:SAMTOOLS_INDEX': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.270 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.270 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.270 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:SAMTOOLS_COVERAGE': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.274 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_high` matches labels `process_high` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:BEDTOOLS_GENOMECOVERAGE
+Mar-24 15:43:20.276 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.276 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.277 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:BEDTOOLS_GENOMECOVERAGE': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.283 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withName:SAMTOOLS_HIST_COVERAGE` matches process NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:SAMTOOLS_HIST_COVERAGE
+Mar-24 15:43:20.284 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.284 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.285 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:SAMTOOLS_HIST_COVERAGE': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.322 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_standard` matches labels `process_standard` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:REPORT:ALIGNMENT_PER_SAMPLE
+Mar-24 15:43:20.322 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withName:ALIGNMENT_PER_SAMPLE` matches process NFCORE_TAXTRIAGE:TAXTRIAGE:REPORT:ALIGNMENT_PER_SAMPLE
+Mar-24 15:43:20.323 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.323 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.323 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:REPORT:ALIGNMENT_PER_SAMPLE': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.328 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_medium` matches labels `process_medium` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:REPORT:SINGLE_REPORT
+Mar-24 15:43:20.328 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withName:ORGANISM_MERGE_REPORT` matches process NFCORE_TAXTRIAGE:TAXTRIAGE:REPORT:SINGLE_REPORT
+Mar-24 15:43:20.329 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.329 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.330 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:REPORT:SINGLE_REPORT': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.333 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_medium` matches labels `process_medium` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:REPORT:ORGANISM_MERGE_REPORT
+Mar-24 15:43:20.333 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withName:ORGANISM_MERGE_REPORT` matches process NFCORE_TAXTRIAGE:TAXTRIAGE:REPORT:ORGANISM_MERGE_REPORT
+Mar-24 15:43:20.334 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.334 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.334 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:REPORT:ORGANISM_MERGE_REPORT': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.341 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withLabel:process_low` matches labels `process_low` for process with name NFCORE_TAXTRIAGE:TAXTRIAGE:CUSTOM_DUMPSOFTWAREVERSIONS
+Mar-24 15:43:20.342 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withName:CUSTOM_DUMPSOFTWAREVERSIONS` matches process NFCORE_TAXTRIAGE:TAXTRIAGE:CUSTOM_DUMPSOFTWAREVERSIONS
+Mar-24 15:43:20.342 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.342 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.343 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:CUSTOM_DUMPSOFTWAREVERSIONS': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.348 [main] DEBUG n.script.dsl.ProcessConfigBuilder - Config settings `withName:MULTIQC` matches process NFCORE_TAXTRIAGE:TAXTRIAGE:MULTIQC
+Mar-24 15:43:20.349 [main] DEBUG nextflow.executor.ExecutorFactory - << taskConfig executor: null
+Mar-24 15:43:20.349 [main] DEBUG nextflow.executor.ExecutorFactory - >> processorType: 'local'
+Mar-24 15:43:20.349 [main] DEBUG nextflow.processor.TaskProcessor - Creating process 'NFCORE_TAXTRIAGE:TAXTRIAGE:MULTIQC': maxForks=0; fair=false; array=0
+Mar-24 15:43:20.353 [main] DEBUG nextflow.Session - Workflow process names [dsl2]: DOWNLOAD_TAXTAB, NFCORE_TAXTRIAGE:TAXTRIAGE:MULTIQC, METRIC_ALIGNMENT, COUNT_READS, BOWTIE2_BUILD_DWNLD, SAMTOOLS_HIST_COVERAGE, FEATURES_DOWNLOAD, GENERATE_SAMPLESHEET, KRONA_KTIMPORTTEXT, REFERENCE_REHEADER, SAMTOOLS_MERGE, BWA_MEM, BCFTOOLS_CONSENSUS, NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:KRONA_KTIMPORTTEXT, NFCORE_TAXTRIAGE:TAXTRIAGE:REPORT:ALIGNMENT_PER_SAMPLE, SAMTOOLS_STATS, PULL_FASTA, EXTRACT_TOP_SEQS, KRAKENTOOLS_COMBINEKREPORTS, MAP_TAXID_ASSEMBLY, HISAT2_BUILD, NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:SAMTOOLS_HIST_COVERAGE, TRIMGALORE, REMOVE_HOSTREADS, COMBINE_MAPFILES, TAXPASTA_STANDARDISE, FILTER_MINIMAP2_INDEX, SPLIT_VCF, ORGANISM_MERGE_REPORT, FILTERED_SAMTOOLS_INDEX, DIAMOND_BLASTX, NFCORE_TAXTRIAGE:TAXTRIAGE:PORECHOP, BOWTIE2_ALIGN, PORECHOP, NANOPLOT, MINIMAP2_INDEX, KRONA, SAMTOOLS_INDEX, NFCORE_TAXTRIAGE:TAXTRIAGE:GET_ASSEMBLIES, FASTQC, NFCORE_TAXTRIAGE:TAXTRIAGE:INPUT_CHECK:SAMPLESHEET_CHECK, MULTIQC, NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:SAMTOOLS_INDEX, BCFTOOLS_INDEX, FILTERREADSKRAKEN2, BEDTOOLS_BAMTOBED, NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:MINIMAP2_ALIGN, FEATURES_TO_BED, NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:SAMTOOLS_COVERAGE, FILTER_KRAKEN2, KRAKENREPORT, DIAMOND_MAKEDB, SAMTOOLS_FAIDX, KREPORT_TO_TAXONOMY, MAKE_FILE, SAMPLESHEET_CHECK, MOVE_FILES, MERGE_FASTA, FEATURES_MAP, NCBIGENOMEDOWNLOAD_FEATURES, FLYE, BOWTIE2_BUILD_LOCAL, BEDTOOLS_MASKFASTA, NFCORE_TAXTRIAGE:TAXTRIAGE:PYCOQC, FILTERED_STATS, MINIMAP2_ALIGN, ARTIC_GUPPYPLEX, NFCORE_TAXTRIAGE:TAXTRIAGE:COUNT_READS, NFCORE_TAXTRIAGE:TAXTRIAGE:TRIMGALORE, SAMTOOLS_COVERAGE, BCFTOOLS_STATS, SINGLE_REPORT, FASTP, PYCOQC, KREPORT_TO_KRONATXT, FILTER_MINIMAP2, MAP_LOCAL_ASSEMBLY_TO_FASTA, NFCORE_TAXTRIAGE:TAXTRIAGE:REFERENCE_PREP:COMBINE_MAPFILES, HISAT2_BUILD_LOCAL, MERGEDSUBSPECIES, NFCORE_TAXTRIAGE:TAXTRIAGE:CUSTOM_DUMPSOFTWAREVERSIONS, DOWNLOAD_PATHOGENS, NFCORE_TAXTRIAGE:TAXTRIAGE:REPORT:SINGLE_REPORT, MERGE_ALIGNMENT_MERGES, KRAKEN2_KRAKEN2, CONVERT_METRICS, MERGEDKRAKENREPORT, GET_ASSEMBLIES, SEQTK_SAMPLE, NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:TOP_HITS, MOVE_NANOPLOT, DOWNLOAD_TAXDUMP, FILTERKRAKEN, RSEQC_BAMSTAT, NFCORE_TAXTRIAGE:TAXTRIAGE:REPORT:ORGANISM_MERGE_REPORT, NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:MERGEDKRAKENREPORT, NFCORE_TAXTRIAGE:TAXTRIAGE:REFERENCE_PREP:MAP_TAXID_ASSEMBLY, HISAT2_BUILD_DWNLD, MAP_PROT_ASSEMBLY, DOWNLOAD_DB, MEGAHIT_LONG, PIGZ_COMPRESS, BEDTOOLS_COVERAGE, METRIC_MERGE, NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:BEDTOOLS_GENOMECOVERAGE, FILTER_DB_DOWNLOAD, NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:FILTERKRAKEN, MEGAHIT, BOWTIE2_BUILD, TOP_HITS, METAPHLAN_METAPHLAN, NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:MERGEDSUBSPECIES, BEDTOOLS_GENOMECOVERAGE, NFCORE_TAXTRIAGE:TAXTRIAGE:REFERENCE_PREP:DOWNLOAD_ASSEMBLY, PULL_TAXID, NFCORE_TAXTRIAGE:TAXTRIAGE:PIGZ_COMPRESS, ALIGNMENT_PER_SAMPLE, REFERENCE, BCFTOOLS_MPILEUP, HISAT2_ALIGN, MAP_GCF, BWA_INDEX, SAMTOOLS_VIEW, NCBIGENOMEDOWNLOAD, NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:KRAKEN2_KRAKEN2, CHECK_GZIPPED_READS, REMOVETAXIDSCLASSIFICATION, DOWNLOAD_ASSEMBLY, TAXPASTA_MERGE, SAMTOOLS_DEPTH, NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:SAMTOOLS_MERGE, BEDTOOLS_DEPTHCOVERAGE, BBMAP_BBNORM, CUSTOM_DUMPSOFTWAREVERSIONS, NFCORE_TAXTRIAGE:TAXTRIAGE:ARTIC_GUPPYPLEX, NFCORE_TAXTRIAGE:TAXTRIAGE:CLASSIFIER:KREPORT_TO_KRONATXT
+Mar-24 15:43:20.363 [main] DEBUG nextflow.script.ScriptRunner - Parsed script files:
+  Script_9e969e1c3b8850f3: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/trimgalore/main.nf
+  Script_190b7fbf98b9fa02: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/artic/guppyplex/main.nf
+  Script_5168b708825122f8: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/generate_krona_txtfile.nf
+  Script_6b0fcef023e6430e: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/extract_top_seqs.nf
+  Script_feac450cdec7abba: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/merge_fasta.nf
+  Script_a760f81acdf72634: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/download_taxdump.nf
+  Script_58e794dbd977701f: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/samtools/index/main.nf
+  Script_51c381c5c1e74616: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/filter_krakenreport.nf
+  Script_ad25244a60d44b90: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/bcftools/stats/main.nf
+  Script_cbc4b0f6c561a0c2: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/download_db.nf
+  Script_dd55f41dc532ce4b: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/samplesheet_check.nf
+  Script_c6297c083bdb41b1: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/rseqc/bamstat/main.nf
+  Script_b45e20340abbf4c6: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/metaphlan/metaphlan/main.nf
+  Script_d2a9794756a6e1d1: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/subworkflows/local/assembly.nf
+  Script_4c6c92e5f1798754: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/fastqc/main.nf
+  Script_300f2619ae48b418: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/kraken2/kraken2/main.nf
+  Script_f74aba22d2ded521: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/subworkflows/local/reference_prep.nf
+  Script_48eead056fc8e1e4: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/ncbigenomedownload/main.nf
+  Script_fe7c8333d81c12f8: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/subworkflows/local/input_check.nf
+  Script_3d8b59eac062d357: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/bowtie2/build/main.nf
+  Script_2efee6bcec5ea795: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/subworkflows/local/host_removal.nf
+  Script_a9f4e17d99768ba9: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/krona/ktimporttext/main.nf
+  Script_5dd8199b73e4766d: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/subworkflows/local/filter_reads.nf
+  Script_bc83d01f5cf6e0f2: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/merged_krakenreport.nf
+  Script_1528ca2734b7f9f4: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/reheader.nf
+  Script_df78714e50ef8e4f: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/bcftools/index/main.nf
+  Script_9e7b6718786ea090: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/get_assembly_refs.nf
+  Script_b3cd7417bf7f18cf: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/samplesheet_generate.nf
+  Script_854a4d3a2a6bc0d4: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/merged_subspecies.nf
+  Script_5c1fbdafaf527bf2: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/merge_confidence.nf
+  Script_f7902522fd9ab884: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/bedtools_coverage.nf
+  Script_e122273fa24095fe: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/custom/dumpsoftwareversions/main.nf
+  Script_dd65172625bbc22f: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/minimap2/align/main.nf
+  Script_47c9e5087123dd2b: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/bcftools/mpileup/main.nf
+  Script_080a2e56a8d8bcb0: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/main.nf
+  Script_1be9ec7f488c7d07: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/seqtk/sample/main.nf
+  Script_54753d550a337598: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/get_feature_tables.nf
+  Script_b61d491dcc5ea998: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/report_merge.nf
+  Script_ad406a7efdef7089: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/samtools/view/main.nf
+  Script_e3b732e712b7c721: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/bbmap/bbnorm/main.nf
+  Script_fceec4a39f782482: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/samtools/merge/main.nf
+  Script_9bc3608a3db36e21: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/map_taxid_assembly.nf
+  Script_9995a687e52f3bdb: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/krakenreport.nf
+  Script_f79bb6c408fefce9: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/count_reads.nf
+  Script_09dc5ae3acf4cfe5: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/bedtools_genomcov.nf
+  Script_765aa5fa963c6090: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/bowtie2/align/main.nf
+  Script_54a51df7a84c5300: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/bcftools/consensus/main.nf
+  Script_9ef5a0ba3ad00270: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/top_hits.nf
+  Script_322e95e8397b8e42: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/samtools/depth/main.nf
+  Script_7ffda9a3ea456ef8: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/taxpasta/merge/main.nf
+  Script_9141a0360a7d174b: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/pigz/compress/main.nf
+  Script_7c146e273341971b: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/map_gcfs.nf
+  Script_d6087f4f1ae62723: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/map_prot_assembly.nf
+  Script_7c8a310cd66b8f33: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/diamond/makedb/main.nf
+  Script_9ad125cd671e3bbd: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/download_taxtab.nf
+  Script_302fc49ea43cf885: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/check_reads_exist.nf
+  Script_db0156ba853576e7: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/megahit/main.nf
+  Script_1a7518aa049c8a19: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/kreport_to_taxonomy.nf
+  Script_cf1fb057ca6c60d7: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/map_assembly_to_fasta.nf
+  Script_6f5648585e837727: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/nanoplot/main.nf
+  Script_1112509f7b95db79: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/flye/main.nf
+  Script_d520ae5f916592e3: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/bedtools/bamtobed/main.nf
+  Script_935cb08cc53b38aa: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/merge_confidence_contigs.nf
+  Script_e893e1ad71ee78a8: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/taxpasta/standardise/main.nf
+  Script_392e9de0c1cc1048: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/diamond/blastx/main.nf
+  Script_eaef92edff0e107c: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/fastp/main.nf
+  Script_5b982932b0b84f03: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/porechop/main.nf
+  Script_66e9091ccd2fb3c3: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/multiqc/main.nf
+  Script_fe4d3187d06a1f42: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/workflows/taxtriage.nf
+  Script_f55da1a039477ac4: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/remove_unaligned.nf
+  Script_bb85bccd915d8e53: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/krakentools/combinekreports/main.nf
+  Script_a1ec67d824c6d8c6: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/features_map.nf
+  Script_0cd266907935a6d4: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/hisat2/align/main.nf
+  Script_0a87ee7a79309778: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/combine_mapfiles.nf
+  Script_7b4d439e393cc88f: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/split_vcf.nf
+  Script_5c40b32093c7eb2f: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/remove_taxids.nf
+  Script_fed10999c9e10664: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/subworkflows/local/classifier.nf
+  Script_f2e6dba0574e74ff: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/minimap2/index/main.nf
+  Script_8a40a3c152122d85: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/convert_features_to_bed.nf
+  Script_a227d857710d259e: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/bedtools/maskfasta/main.nf
+  Script_0a4c6f2fd5f881bc: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/subworkflows/local/alignment.nf
+  Script_dc19b80db037bc37: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/subworkflows/local/report.nf
+  Script_03e47f2ea1ad4bda: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/samtools/stats/main.nf
+  Script_8a0aad640006a48e: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/convert_confidence.nf
+  Script_2ea5e0c085ccc57e: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/bwa/index/main.nf
+  Script_327dd1f9ffeb9ec8: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/move_nanoplot.nf
+  Script_105404b2ee09c713: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/samtools/coverage/main.nf
+  Script_257fd006171ffcc3: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/samtools_hist_coverage
+  Script_d79ab3e34a0b21e6: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/alignment_per_sample.nf
+  Script_c6e027c98448e5b1: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/download_pathogens.nf
+  Script_e30c3c26958a2677: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/download_reference.nf
+  Script_d8e6381ff53f3490: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/confidence.nf
+  Script_639076a5d2b33e1d: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/make_file.nf
+  Script_7095b53f8a2dadad: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/bwa/mem/main.nf
+  Script_1619af4bf70c9941: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/download_features.nf
+  Script_c4282bc821b4fbc7: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/download_assembly.nf
+  Script_7efc2c4c16f7e409: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/pycoqc/main.nf
+  Script_3cec34a111456199: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/pullFASTA.nf
+  Script_1abd298cf97eebd1: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/hisat2/build/main.nf
+  Script_2720cecaaa7f909e: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/krona.nf
+  Script_f966762edf858697: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/pull_taxid.nf
+  Script_20e1185fd0bd96fb: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/local/moveFiles.nf
+  Script_9f4a8ed1211165c7: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/bedtools/coverage/main.nf
+  Script_82c5624f5f63abe7: /Users/dho/.nextflow/assets/jhuapl-bio/taxtriage/modules/nf-core/samtools/faidx/main.nf
+Mar-24 15:43:20.364 [main] INFO  nextflow.Nextflow - -[0;35m[nf-core/taxtriage][0;32m Pipeline completed successfully[0m-
+Mar-24 15:43:20.368 [main] DEBUG n.trace.WorkflowStatsObserver - Workflow completed > WorkflowStats[succeededCount=0; failedCount=0; ignoredCount=0; cachedCount=0; pendingCount=0; submittedCount=0; runningCount=0; retriesCount=0; abortedCount=0; succeedDuration=0ms; failedDuration=0ms; cachedDuration=0ms;loadCpus=0; loadMemory=0; peakRunning=0; peakCpus=0; peakMemory=0; ]
+Mar-24 15:43:20.397 [Task monitor] DEBUG n.processor.TaskPollingMonitor - <<< barrier arrives (monitor: local) - terminating tasks monitor poll loop
+Mar-24 15:43:20.520 [main] WARN  nextflow.dag.GraphvizRenderer - Graphviz is required to render the execution DAG in the given format -- See http://www.graphviz.org for more info.
+Mar-24 15:43:20.521 [main] DEBUG nextflow.trace.ReportObserver - Workflow completed -- rendering execution report
+Mar-24 15:43:21.041 [main] DEBUG nextflow.trace.TimelineObserver - Workflow completed -- rendering execution timeline
+Mar-24 15:43:21.093 [main] DEBUG nextflow.trace.TraceFileObserver - Workflow completed -- saving trace file
+Mar-24 15:43:21.097 [main] DEBUG nextflow.cache.CacheDB - Closing CacheDB done
+Mar-24 15:43:21.173 [main] DEBUG nextflow.util.ThreadPoolManager - Thread pool 'FileTransfer' shutdown completed (hard=false)
+Mar-24 15:43:21.174 [main] DEBUG nextflow.file.SortFileCollector - FileCollector temp dir not removed: null
+Mar-24 15:43:21.174 [main] DEBUG nextflow.file.SortFileCollector - FileCollector temp dir not removed: null
+Mar-24 15:43:21.174 [main] DEBUG nextflow.script.ScriptRunner - > Execution complete -- Goodbye
