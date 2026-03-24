@@ -236,12 +236,46 @@ public actor TaxTriagePipeline {
         var environment = ProcessInfo.processInfo.environment
         environment["NXF_ANSI_LOG"] = "false"
 
-        // Spawn the Nextflow process
+        // Fix spaces-in-path issue: the conda-installed Nextflow wrapper script
+        // has the conda prefix hardcoded into NXF_DIST without proper quoting.
+        // If the prefix contains spaces (e.g., ~/Library/Application Support/...),
+        // the script fails. We fix this by:
+        // 1. Setting NXF_DIST to the correct quoted path via environment variable
+        // 2. Setting NXF_HOME to a space-free directory
+        let nextflowDir = nextflowPath.deletingLastPathComponent().deletingLastPathComponent()
+        let distPath = nextflowDir.appendingPathComponent("share/nextflow/dist")
+        if FileManager.default.fileExists(atPath: distPath.path) {
+            environment["NXF_DIST"] = distPath.path
+        }
+        // Use a space-free home directory for Nextflow's cache
+        let nxfHome = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".nextflow")
+        environment["NXF_HOME"] = nxfHome.path
+
+        // Spawn Nextflow via micromamba to ensure the conda environment is
+        // properly activated. This also avoids spaces-in-path issues with the
+        // Nextflow wrapper script (the conda prefix may contain spaces like
+        // "Application Support" which breaks unquoted shell variable expansion
+        // in the Nextflow bash wrapper).
+        let condaManager = CondaManager.shared
+        let micromambaPath = await condaManager.micromambaPath
+
+        // Find which conda environment contains nextflow
+        let nextflowEnvName: String
+        if let envName = await condaManager.environmentContaining(tool: "nextflow") {
+            nextflowEnvName = envName
+        } else {
+            nextflowEnvName = "nextflow"  // Default assumption
+        }
+
+        let micromambaArgs = ["run", "-n", nextflowEnvName, "nextflow"] + arguments
+        logger.info("Running via micromamba: \(micromambaArgs.joined(separator: " "))")
+
         let handle: ProcessHandle
         do {
             handle = try await processManager.spawn(
-                executable: nextflowPath,
-                arguments: arguments,
+                executable: micromambaPath,
+                arguments: micromambaArgs,
                 workingDirectory: config.outputDirectory,
                 environment: environment
             )
