@@ -427,6 +427,9 @@ public actor TaxTriagePipeline {
             logger.info("Moved TaxTriage results from temp dir to \(config.outputDirectory.path)")
         }
 
+        // Prune non-essential heavy intermediates before result indexing.
+        pruneOutputArtifacts(in: config.outputDirectory)
+
         // Phase 5: Collect outputs from the ORIGINAL config path (0.95 -- 1.00)
         let result = collectOutputFiles(
             config: config,
@@ -662,6 +665,28 @@ public actor TaxTriagePipeline {
             traceFile: traceFile,
             allOutputFiles: allFiles
         )
+    }
+
+    /// Removes large intermediate directories that are not required for
+    /// reproducibility or in-app exploration.
+    ///
+    /// The viewer uses persisted reports/metrics/BAM outputs and sidecars,
+    /// not Nextflow's `work/` cache tree.
+    private func pruneOutputArtifacts(in outputDirectory: URL) {
+        let fm = FileManager.default
+        let removableDirs = ["work"]
+
+        for dirName in removableDirs {
+            let dirURL = outputDirectory.appendingPathComponent(dirName, isDirectory: true)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: dirURL.path, isDirectory: &isDir), isDir.boolValue else { continue }
+            do {
+                try fm.removeItem(at: dirURL)
+                logger.info("Pruned TaxTriage intermediate directory: \(dirName, privacy: .public)")
+            } catch {
+                logger.warning("Failed to prune \(dirName, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 
     // MARK: - Progress Parsing

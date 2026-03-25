@@ -701,11 +701,15 @@ public class SidebarViewController: NSViewController {
             // These contain Kraken2 kreport/kraken output from metagenomics classification.
             let classificationChildren = collectClassificationResults(in: url)
             item.children.append(contentsOf: classificationChildren)
+            let classificationBatchGroups = collectClassificationBatchResults(in: url)
+            item.children.append(contentsOf: classificationBatchGroups)
 
             // Scan for EsViritu result directories (esviritu-XXXXXXXX/).
             // These contain viral detection output from EsViritu runs.
             let esvirituChildren = collectEsVirituResults(in: url)
             item.children.append(contentsOf: esvirituChildren)
+            let esvirituBatchGroups = collectEsVirituBatchResults(in: url)
+            item.children.append(contentsOf: esvirituBatchGroups)
 
             // Scan for TaxTriage result directories (taxtriage-XXXXXXXX/).
             let taxTriageChildren = collectTaxTriageResults(in: url)
@@ -917,6 +921,86 @@ public class SidebarViewController: NSViewController {
         }
     }
 
+    /// Collects classification batch result groups from inside a FASTQ bundle.
+    ///
+    /// Scans for `classification-batch-*` directories and builds one virtual
+    /// batch group node per run, with one child per sample result directory.
+    private func collectClassificationBatchResults(in bundleURL: URL) -> [SidebarItem] {
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(
+            at: bundleURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+
+        var groups: [SidebarItem] = []
+
+        for batchDir in contents.sorted(by: {
+            $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending
+        }) {
+            guard batchDir.lastPathComponent.hasPrefix("classification-batch-") else { continue }
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: batchDir.path, isDirectory: &isDir), isDir.boolValue else { continue }
+
+            let batchToken = String(batchDir.lastPathComponent.dropFirst("classification-batch-".count))
+            let groupItem = SidebarItem(
+                title: "Classification Batch \(batchToken)",
+                type: .batchGroup,
+                icon: "tray.2",
+                children: [],
+                url: nil
+            )
+
+            if let manifest = MetagenomicsBatchResultStore.loadClassification(from: batchDir) {
+                let dbLabel = manifest.databaseName.isEmpty ? "" : " · \(manifest.databaseName)"
+                groupItem.subtitle = "\(manifest.header.sampleCount) samples\(dbLabel)"
+
+                for record in manifest.samples.sorted(by: {
+                    $0.sampleId.localizedCaseInsensitiveCompare($1.sampleId) == .orderedAscending
+                }) {
+                    let resultURL = batchDir.appendingPathComponent(record.resultDirectory)
+                    guard ClassificationResult.exists(in: resultURL) else { continue }
+                    let childItem = SidebarItem(
+                        title: record.sampleId,
+                        type: .classificationResult,
+                        icon: "chart.pie",
+                        children: [],
+                        url: resultURL,
+                        subtitle: classificationResultTitle(for: resultURL)
+                    )
+                    groupItem.children.append(childItem)
+                }
+            } else if let batchContents = try? fm.contentsOfDirectory(
+                at: batchDir,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) {
+                for child in batchContents.sorted(by: {
+                    $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending
+                }) {
+                    var childIsDir: ObjCBool = false
+                    guard fm.fileExists(atPath: child.path, isDirectory: &childIsDir), childIsDir.boolValue else { continue }
+                    guard ClassificationResult.exists(in: child) else { continue }
+                    let childItem = SidebarItem(
+                        title: child.lastPathComponent,
+                        type: .classificationResult,
+                        icon: "chart.pie",
+                        children: [],
+                        url: child,
+                        subtitle: classificationResultTitle(for: child)
+                    )
+                    groupItem.children.append(childItem)
+                }
+                groupItem.subtitle = "\(groupItem.children.count) samples"
+            }
+
+            guard !groupItem.children.isEmpty else { continue }
+            groups.append(groupItem)
+        }
+
+        return groups
+    }
+
     /// Derives a human-readable title for a classification result directory.
     ///
     /// Attempts to read the sidecar JSON to extract the database name.
@@ -977,6 +1061,85 @@ public class SidebarViewController: NSViewController {
         return results.sorted {
             $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
         }
+    }
+
+    /// Collects EsViritu batch result groups from inside a FASTQ bundle.
+    ///
+    /// Scans for `esviritu-batch-*` directories and builds one virtual batch
+    /// group node per run, with one child per sample result directory.
+    private func collectEsVirituBatchResults(in bundleURL: URL) -> [SidebarItem] {
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(
+            at: bundleURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+
+        var groups: [SidebarItem] = []
+
+        for batchDir in contents.sorted(by: {
+            $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending
+        }) {
+            guard batchDir.lastPathComponent.hasPrefix("esviritu-batch-") else { continue }
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: batchDir.path, isDirectory: &isDir), isDir.boolValue else { continue }
+
+            let batchToken = String(batchDir.lastPathComponent.dropFirst("esviritu-batch-".count))
+            let groupItem = SidebarItem(
+                title: "EsViritu Batch \(batchToken)",
+                type: .batchGroup,
+                icon: "tray.2",
+                children: [],
+                url: nil
+            )
+
+            if let manifest = MetagenomicsBatchResultStore.loadEsViritu(from: batchDir) {
+                groupItem.subtitle = "\(manifest.header.sampleCount) samples"
+
+                for record in manifest.samples.sorted(by: {
+                    $0.sampleId.localizedCaseInsensitiveCompare($1.sampleId) == .orderedAscending
+                }) {
+                    let resultURL = batchDir.appendingPathComponent(record.resultDirectory)
+                    guard EsVirituResult.exists(in: resultURL) else { continue }
+                    let childItem = SidebarItem(
+                        title: record.sampleId,
+                        type: .esvirituResult,
+                        icon: "ant",
+                        children: [],
+                        url: resultURL,
+                        subtitle: esvirituResultTitle(for: resultURL)
+                    )
+                    groupItem.children.append(childItem)
+                }
+            } else if let batchContents = try? fm.contentsOfDirectory(
+                at: batchDir,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) {
+                for child in batchContents.sorted(by: {
+                    $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending
+                }) {
+                    var childIsDir: ObjCBool = false
+                    guard fm.fileExists(atPath: child.path, isDirectory: &childIsDir), childIsDir.boolValue else { continue }
+                    guard EsVirituResult.exists(in: child) else { continue }
+                    let childItem = SidebarItem(
+                        title: child.lastPathComponent,
+                        type: .esvirituResult,
+                        icon: "ant",
+                        children: [],
+                        url: child,
+                        subtitle: esvirituResultTitle(for: child)
+                    )
+                    groupItem.children.append(childItem)
+                }
+                groupItem.subtitle = "\(groupItem.children.count) samples"
+            }
+
+            guard !groupItem.children.isEmpty else { continue }
+            groups.append(groupItem)
+        }
+
+        return groups
     }
 
     /// Derives a human-readable title for an EsViritu result directory.

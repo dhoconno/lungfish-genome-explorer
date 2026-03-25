@@ -54,7 +54,6 @@ struct EsVirituWizardSheet: View {
     // MARK: - State
 
     @State private var sampleName: String = ""
-    @State private var isPairedEnd: Bool = false
     @State private var qualityFilter: Bool = true
     @State private var showAdvanced: Bool = false
 
@@ -70,18 +69,29 @@ struct EsVirituWizardSheet: View {
     // MARK: - Callbacks
 
     /// Called when the user clicks Run.
-    var onRun: ((EsVirituConfig) -> Void)?
+    ///
+    /// The wizard always emits one config per logical sample. For single-sample
+    /// runs this array has one element.
+    var onRun: (([EsVirituConfig]) -> Void)?
 
     /// Called when the user clicks Cancel.
     var onCancel: (() -> Void)?
 
     // MARK: - Computed Properties
 
+    /// Grouped sample inputs inferred from selected FASTQ files.
+    private var groupedSamples: [MetagenomicsSampleInput] {
+        MetagenomicsSampleGrouper.group(inputFiles)
+    }
+
+    /// Whether this run is a multi-sample batch.
+    private var isBatchMode: Bool {
+        groupedSamples.count > 1
+    }
+
     /// Whether the Run button should be enabled.
     private var canRun: Bool {
-        !inputFiles.isEmpty
-        && !sampleName.trimmingCharacters(in: .whitespaces).isEmpty
-        && isDatabaseInstalled
+        !groupedSamples.isEmpty && isDatabaseInstalled && (isBatchMode || !sampleName.trimmingCharacters(in: .whitespaces).isEmpty)
     }
 
     /// The system's physical memory in bytes.
@@ -111,7 +121,7 @@ struct EsVirituWizardSheet: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                 } else {
-                    Text("\(inputFiles.count) files")
+                    Text("\(groupedSamples.count) sample\(groupedSamples.count == 1 ? "" : "s") · \(inputFiles.count) files")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -131,8 +141,8 @@ struct EsVirituWizardSheet: View {
 
                     Divider()
 
-                    // Sample name
-                    sampleNameSection
+                    // Sample configuration
+                    sampleSection
 
                     Divider()
 
@@ -161,6 +171,10 @@ struct EsVirituWizardSheet: View {
                     Text("No input files selected")
                         .font(.caption)
                         .foregroundStyle(.red)
+                } else if !canRun && groupedSamples.isEmpty {
+                    Text("Could not detect valid sample inputs")
+                        .font(.caption)
+                        .foregroundStyle(.red)
                 } else if !canRun && !isDatabaseInstalled {
                     Text("EsViritu database not installed")
                         .font(.caption)
@@ -186,46 +200,53 @@ struct EsVirituWizardSheet: View {
         }
         .frame(width: 520, height: 480)
         .onAppear {
-            // Auto-populate sample name from first input file
-            if sampleName.isEmpty, let firstFile = inputFiles.first {
-                var baseName = firstFile.deletingPathExtension().lastPathComponent
-                // Strip common FASTQ suffixes
-                for suffix in ["_R1", "_R2", "_1", "_2", ".fastq", ".fq"] {
-                    if baseName.hasSuffix(suffix) {
-                        baseName = String(baseName.dropLast(suffix.count))
-                    }
-                }
-                sampleName = baseName
+            // Auto-populate sample name for single-sample runs
+            if sampleName.isEmpty, let sample = groupedSamples.first {
+                sampleName = sample.sampleId
             }
-
-            // Auto-detect paired end
-            isPairedEnd = inputFiles.count == 2
 
             // Check database installation
             checkDatabaseStatus()
         }
     }
 
-    // MARK: - Sample Name
+    // MARK: - Samples
 
-    private var sampleNameSection: some View {
+    private var sampleSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Sample Name")
+            Text(isBatchMode ? "Batch Samples" : "Sample")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
 
-            TextField("Enter sample name", text: $sampleName)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12))
-
-            Toggle("Paired-end reads", isOn: $isPairedEnd)
-                .font(.system(size: 12))
-                .disabled(inputFiles.count != 2)
-
-            if isPairedEnd && inputFiles.count != 2 {
-                Text("Paired-end mode requires exactly 2 input files")
+            if isBatchMode {
+                Text("One EsViritu run will be executed per sample.")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.secondary)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(groupedSamples.prefix(8)) { sample in
+                        let mode = sample.isPairedEnd ? "PE" : "SE"
+                        Text("• \(sample.sampleId) (\(mode))")
+                            .font(.system(size: 11))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    if groupedSamples.count > 8 {
+                        Text("…and \(groupedSamples.count - 8) more")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                TextField("Enter sample name", text: $sampleName)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12))
+
+                if let sample = groupedSamples.first {
+                    Text(sample.isPairedEnd ? "Paired-end reads" : "Single-end reads")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }
@@ -369,23 +390,37 @@ struct EsVirituWizardSheet: View {
     /// Builds an EsVirituConfig and calls onRun.
     private func performRun() {
         guard let dbPath = databasePath else { return }
+        let samples = groupedSamples
+        guard !samples.isEmpty else { return }
 
-        let outputDir = inputFiles.first?.deletingLastPathComponent()
-            .appendingPathComponent("esviritu-\(UUID().uuidString.prefix(8))")
+        let runToken = String(UUID().uuidString.prefix(8))
+        let baseDir = inputFiles.first?.deletingLastPathComponent()
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("esviritu-\(UUID().uuidString.prefix(8))")
+        let batchRoot = baseDir.appendingPathComponent("esviritu-batch-\(runToken)")
+        let trimmedName = sampleName.trimmingCharacters(in: .whitespaces)
 
-        let config = EsVirituConfig(
-            inputFiles: inputFiles,
-            isPairedEnd: isPairedEnd,
-            sampleName: sampleName.trimmingCharacters(in: .whitespaces),
-            outputDirectory: outputDir,
-            databasePath: dbPath,
-            qualityFilter: qualityFilter,
-            minReadLength: minReadLength,
-            threads: threads
-        )
+        let configs = samples.map { sample in
+            let outputDir: URL
+            if isBatchMode {
+                outputDir = batchRoot.appendingPathComponent(
+                    MetagenomicsSampleGrouper.sanitizeSampleId(sample.sampleId)
+                )
+            } else {
+                outputDir = baseDir.appendingPathComponent("esviritu-\(runToken)")
+            }
 
-        onRun?(config)
+            return EsVirituConfig(
+                inputFiles: sample.inputFiles,
+                isPairedEnd: sample.isPairedEnd,
+                sampleName: isBatchMode ? sample.sampleId : (trimmedName.isEmpty ? sample.sampleId : trimmedName),
+                outputDirectory: outputDir,
+                databasePath: dbPath,
+                qualityFilter: qualityFilter,
+                minReadLength: minReadLength,
+                threads: threads
+            )
+        }
+
+        onRun?(configs)
     }
 }

@@ -1540,7 +1540,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     public func sidebarDidSelectItems(_ items: [SidebarItem]) {
         // Filter to displayable items
         let displayableItems = items.filter { item in
-            item.type != .folder && item.type != .project && item.type != .group
+            item.type != .folder && item.type != .project && item.type != .group && item.type != .batchGroup
         }
 
         guard !displayableItems.isEmpty else { return }
@@ -1572,7 +1572,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         }
 
         // Skip non-displayable container types
-        guard item.type != .folder && item.type != .project && item.type != .group else {
+        guard item.type != .folder && item.type != .project && item.type != .group && item.type != .batchGroup else {
             logger.debug("displayContent: Skipping container item type")
             return
         }

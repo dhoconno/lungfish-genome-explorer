@@ -566,6 +566,10 @@ public actor EsVirituPipeline {
             logger.warning("Failed to save result sidecar: \(error.localizedDescription)")
         }
 
+        // Prune non-essential intermediates while preserving files needed for
+        // reproducibility and in-app exploration (taxonomy/coverage/miniBAM/BLAST).
+        pruneOutputArtifacts(for: config)
+
         progress?(1.0, "Detection complete")
 
         let runtimeStr = String(format: "%.1f", totalRuntime)
@@ -629,6 +633,79 @@ public actor EsVirituPipeline {
 
         // Subtract 1 for the header line.
         return max(0, lines.count - 1)
+    }
+
+    /// Removes large transient artifacts not needed after a successful run.
+    ///
+    /// Retains:
+    /// - sidecars (`esviritu-result.json`, `.lungfish-provenance.json`)
+    /// - primary TSV outputs (detection/profile/coverage/assembly summary)
+    /// - consensus FASTA (for BLAST verification)
+    /// - final sorted BAM (+ index) used by the mini-BAM viewer
+    ///
+    /// Removes:
+    /// - non-final intermediates under `<sample>_temp/`
+    /// - tool log/params files (captured in provenance sidecar already)
+    private func pruneOutputArtifacts(for config: EsVirituConfig) {
+        let fm = FileManager.default
+
+        // Drop auxiliary tool artifacts that are redundant with sidecars/provenance.
+        for url in [config.logURL, config.paramsURL] {
+            if fm.fileExists(atPath: url.path) {
+                try? fm.removeItem(at: url)
+            }
+        }
+
+        // Keep only the final BAM (+ index) within the temp directory.
+        let tempDir = config.outputDirectory.appendingPathComponent("\(config.sampleName)_temp", isDirectory: true)
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: tempDir.path, isDirectory: &isDir), isDir.boolValue else { return }
+
+        let bamName = "\(config.sampleName).third.filt.sorted.bam"
+        let baiName = "\(bamName).bai"
+        let keepNames = Set([bamName, baiName])
+
+        if let enumerator = fm.enumerator(
+            at: tempDir,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            var filesToDelete: [URL] = []
+            for case let candidate as URL in enumerator {
+                let values = try? candidate.resourceValues(forKeys: [.isDirectoryKey])
+                if values?.isDirectory == true { continue }
+                if keepNames.contains(candidate.lastPathComponent) { continue }
+                filesToDelete.append(candidate)
+            }
+
+            for file in filesToDelete {
+                try? fm.removeItem(at: file)
+            }
+        }
+
+        // Remove any now-empty directories under temp.
+        if let enumerator = fm.enumerator(
+            at: tempDir,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            let dirs = enumerator.allObjects
+                .compactMap { $0 as? URL }
+                .filter {
+                    (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+                }
+                .sorted { $0.path.count > $1.path.count }
+
+            for dir in dirs {
+                if let items = try? fm.contentsOfDirectory(atPath: dir.path), items.isEmpty {
+                    try? fm.removeItem(at: dir)
+                }
+            }
+        }
+
+        if let remaining = try? fm.contentsOfDirectory(atPath: tempDir.path), remaining.isEmpty {
+            try? fm.removeItem(at: tempDir)
+        }
     }
 }
 

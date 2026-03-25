@@ -193,12 +193,14 @@ extension ViewerViewController {
 
             let wizardSheet = EsVirituWizardSheet(
                 inputFiles: inputFiles,
-                onRun: { [weak window] newConfig in
+                onRun: { [weak window] newConfigs in
                     guard let window else { return }
                     if let sheetWindow = window.attachedSheet {
                         window.endSheet(sheetWindow)
                     }
-                    esVirituLogger.info("Re-run with new config: \(newConfig.sampleName, privacy: .public)")
+                    if let first = newConfigs.first {
+                        esVirituLogger.info("Re-run with new config: \(first.sampleName, privacy: .public)")
+                    }
                     // TODO: Wire to pipeline execution when available
                 },
                 onCancel: { [weak window] in

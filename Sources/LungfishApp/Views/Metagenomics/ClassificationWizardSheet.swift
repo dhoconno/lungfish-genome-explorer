@@ -75,7 +75,10 @@ struct ClassificationWizardSheet: View {
     // MARK: - Callbacks
 
     /// Called when the user clicks Run.
-    var onRun: ((ClassificationConfig) -> Void)?
+    ///
+    /// The wizard always emits one config per logical sample. For single-sample
+    /// runs this array has one element.
+    var onRun: (([ClassificationConfig]) -> Void)?
 
     /// Called when the user clicks Cancel.
     var onCancel: (() -> Void)?
@@ -126,7 +129,7 @@ struct ClassificationWizardSheet: View {
     init(
         inputFiles: [URL],
         installedDatabases: [MetagenomicsDatabaseInfo] = [],
-        onRun: ((ClassificationConfig) -> Void)? = nil,
+        onRun: (([ClassificationConfig]) -> Void)? = nil,
         onCancel: (() -> Void)? = nil
     ) {
         self.inputFiles = inputFiles
@@ -151,9 +154,19 @@ struct ClassificationWizardSheet: View {
         installedDatabases.filter { $0.status == .ready }
     }
 
+    /// Grouped sample inputs inferred from selected FASTQ files.
+    private var groupedSamples: [MetagenomicsSampleInput] {
+        MetagenomicsSampleGrouper.group(inputFiles)
+    }
+
+    /// Whether this run is a multi-sample batch.
+    private var isBatchMode: Bool {
+        groupedSamples.count > 1
+    }
+
     /// Whether the Run button should be enabled.
     private var canRun: Bool {
-        !inputFiles.isEmpty && selectedDatabase != nil && selectedDatabase?.status == .ready
+        !groupedSamples.isEmpty && selectedDatabase != nil && selectedDatabase?.status == .ready
     }
 
     /// Description text for the current preset.
@@ -208,7 +221,7 @@ struct ClassificationWizardSheet: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                 } else {
-                    Text("\(inputFiles.count) files")
+                    Text("\(groupedSamples.count) sample\(groupedSamples.count == 1 ? "" : "s") · \(inputFiles.count) files")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -226,6 +239,11 @@ struct ClassificationWizardSheet: View {
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+
+                    if isBatchMode {
+                        sampleOverviewSection
+                        Divider()
+                    }
 
                     Divider()
 
@@ -252,6 +270,10 @@ struct ClassificationWizardSheet: View {
             HStack {
                 if !canRun && inputFiles.isEmpty {
                     Text("No input files selected")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                } else if !canRun && groupedSamples.isEmpty {
+                    Text("Could not detect valid sample inputs")
                         .font(.caption)
                         .foregroundStyle(.red)
                 } else if !canRun && readyDatabases.isEmpty {
@@ -290,6 +312,32 @@ struct ClassificationWizardSheet: View {
     }
 
     // MARK: - Goal Selector
+
+    private var sampleOverviewSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Batch Samples")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text("One Kraken2/Bracken run will be executed per sample.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(groupedSamples.prefix(8)) { sample in
+                    let mode = sample.isPairedEnd ? "PE" : "SE"
+                    Text("• \(sample.sampleId) (\(mode))")
+                        .font(.system(size: 11))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                if groupedSamples.count > 8 {
+                    Text("…and \(groupedSamples.count - 8) more")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
 
     private var goalSelector: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -517,28 +565,41 @@ struct ClassificationWizardSheet: View {
     /// Builds a ClassificationConfig from the current settings and calls onRun.
     private func performRun() {
         guard let db = selectedDatabase, let dbPath = db.path else { return }
+        let samples = groupedSamples
+        guard !samples.isEmpty else { return }
 
-        let outputDir = inputFiles.first?.deletingLastPathComponent()
-            .appendingPathComponent("classification-\(UUID().uuidString.prefix(8))")
+        let runToken = String(UUID().uuidString.prefix(8))
+        let baseDir = inputFiles.first?.deletingLastPathComponent()
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("classification-\(UUID().uuidString.prefix(8))")
+        let batchRoot = baseDir.appendingPathComponent("classification-batch-\(runToken)")
 
-        let config = ClassificationConfig(
-            goal: .profile,  // Always run classify + Bracken profiling
-            inputFiles: inputFiles,
-            isPairedEnd: inputFiles.count == 2,
-            databaseName: db.name,
-            databaseVersion: db.version ?? "unknown",
-            databasePath: dbPath,
-            confidence: confidence,
-            minimumHitGroups: minimumHitGroups,
-            threads: threads,
-            memoryMapping: memoryMapping,
-            quickMode: false,
-            outputDirectory: outputDir
-        )
+        let configs = samples.map { sample in
+            let outputDir: URL
+            if isBatchMode {
+                outputDir = batchRoot.appendingPathComponent(
+                    MetagenomicsSampleGrouper.sanitizeSampleId(sample.sampleId)
+                )
+            } else {
+                outputDir = baseDir.appendingPathComponent("classification-\(runToken)")
+            }
 
-        onRun?(config)
+            return ClassificationConfig(
+                goal: .profile,  // Always run classify + Bracken profiling
+                inputFiles: sample.inputFiles,
+                isPairedEnd: sample.isPairedEnd,
+                databaseName: db.name,
+                databaseVersion: db.version ?? "unknown",
+                databasePath: dbPath,
+                confidence: confidence,
+                minimumHitGroups: minimumHitGroups,
+                threads: threads,
+                memoryMapping: memoryMapping,
+                quickMode: false,
+                outputDirectory: outputDir
+            )
+        }
+
+        onRun?(configs)
     }
 
     // MARK: - Formatting

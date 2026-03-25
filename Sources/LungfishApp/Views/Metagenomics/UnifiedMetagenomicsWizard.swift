@@ -48,10 +48,10 @@ struct UnifiedMetagenomicsWizard: View {
     // MARK: - Callbacks
 
     /// Called when the user configures and launches a Kraken2 classification.
-    var onRunClassification: ((ClassificationConfig) -> Void)?
+    var onRunClassification: (([ClassificationConfig]) -> Void)?
 
     /// Called when the user configures and launches an EsViritu run.
-    var onRunEsViritu: ((EsVirituConfig) -> Void)?
+    var onRunEsViritu: (([EsVirituConfig]) -> Void)?
 
     /// Called when the user configures and launches a TaxTriage run.
     var onRunTaxTriage: ((TaxTriageConfig) -> Void)?
@@ -342,8 +342,8 @@ struct UnifiedMetagenomicsWizard: View {
         case .classification:
             ClassificationWizardSheet(
                 inputFiles: inputFiles,
-                onRun: { config in
-                    onRunClassification?(config)
+                onRun: { configs in
+                    onRunClassification?(configs)
                 },
                 onCancel: { onCancel?() }
             )
@@ -351,8 +351,8 @@ struct UnifiedMetagenomicsWizard: View {
         case .viralDetection:
             EsVirituWizardSheet(
                 inputFiles: inputFiles,
-                onRun: { config in
-                    onRunEsViritu?(config)
+                onRun: { configs in
+                    onRunEsViritu?(configs)
                 },
                 onCancel: { onCancel?() }
             )
