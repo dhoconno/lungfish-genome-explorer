@@ -4305,6 +4305,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         // Write cross-reference sidecars into each source bundle so
                         // the sidebar discovers TaxTriage results under all contributors.
                         Self.writeTaxTriageCrossRefSidecars(result: capturedResult, config: capturedConfig)
+
+                        // Record in batch run history log
+                        BatchRunHistory.recordRun(result: capturedResult, config: capturedConfig)
                     }
                 }
             } catch {

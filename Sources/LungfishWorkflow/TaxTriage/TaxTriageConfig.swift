@@ -324,6 +324,13 @@ public struct TaxTriageSample: Sendable, Codable, Equatable, Identifiable {
     /// Sequencing platform for this sample.
     public let platform: TaxTriageConfig.Platform
 
+    /// Whether this sample is a negative control (e.g. blank extraction, NTC).
+    ///
+    /// Organisms detected in negative control samples are flagged as potential
+    /// contaminants in batch analysis. Optional with default `false` for
+    /// backward compatibility with previously serialized configs.
+    public var isNegativeControl: Bool
+
     /// Creates a new TaxTriage sample.
     ///
     /// - Parameters:
@@ -331,16 +338,33 @@ public struct TaxTriageSample: Sendable, Codable, Equatable, Identifiable {
     ///   - fastq1: Path to R1 (or single-end) FASTQ file.
     ///   - fastq2: Path to R2 FASTQ file (nil for single-end).
     ///   - platform: Sequencing platform.
+    ///   - isNegativeControl: Whether this sample is a negative control.
     public init(
         sampleId: String,
         fastq1: URL,
         fastq2: URL? = nil,
-        platform: TaxTriageConfig.Platform = .illumina
+        platform: TaxTriageConfig.Platform = .illumina,
+        isNegativeControl: Bool = false
     ) {
         self.sampleId = sampleId
         self.fastq1 = fastq1
         self.fastq2 = fastq2
         self.platform = platform
+        self.isNegativeControl = isNegativeControl
+    }
+
+    // Backward-compatible decoding: isNegativeControl defaults to false if absent.
+    enum CodingKeys: String, CodingKey {
+        case sampleId, fastq1, fastq2, platform, isNegativeControl
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sampleId = try container.decode(String.self, forKey: .sampleId)
+        fastq1 = try container.decode(URL.self, forKey: .fastq1)
+        fastq2 = try container.decodeIfPresent(URL.self, forKey: .fastq2)
+        platform = try container.decode(TaxTriageConfig.Platform.self, forKey: .platform)
+        isNegativeControl = try container.decodeIfPresent(Bool.self, forKey: .isNegativeControl) ?? false
     }
 
     /// Whether this sample has paired-end reads.

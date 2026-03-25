@@ -475,6 +475,20 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             uniquingKeysWith: { first, _ in first }
         )
 
+        // Compute contamination risk: organisms detected in negative control samples
+        let negControlIds = negativeControlSampleIds()
+        let contaminationOrganisms: Set<String>
+        if !negControlIds.isEmpty {
+            contaminationOrganisms = Set(
+                self.metrics.filter { m in
+                    if let sample = m.sample { return negControlIds.contains(sample) }
+                    return false
+                }.map { normalizedOrganismName($0.organism) }
+            )
+        } else {
+            contaminationOrganisms = []
+        }
+
         var rows: [TaxTriageTableRow] = []
 
         // Start from organisms (report data)
@@ -491,7 +505,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                     ?? confidenceLabel(for: matchingMetric?.tassScore ?? organism.score),
                 taxId: matchingMetric?.taxId ?? organism.taxId,
                 rank: matchingMetric?.rank ?? organism.rank,
-                abundance: matchingMetric?.abundance
+                abundance: matchingMetric?.abundance,
+                isContaminationRisk: contaminationOrganisms.contains(normalizedName)
             ))
         }
 
@@ -509,7 +524,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                     ?? confidenceLabel(for: metric.tassScore),
                 taxId: metric.taxId,
                 rank: metric.rank,
-                abundance: metric.abundance
+                abundance: metric.abundance,
+                isContaminationRisk: contaminationOrganisms.contains(normalizedName)
             ))
         }
 
@@ -617,7 +633,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             // "All Samples" — show merged view / batch overview
             filteredRows = allTableRows
             if showBatchOverview {
-                batchOverviewView.configure(metrics: metrics, sampleIds: sampleIds)
+                let negControlIds = negativeControlSampleIds()
+                batchOverviewView.configure(metrics: metrics, sampleIds: sampleIds, negativeControlSampleIds: negControlIds)
             }
         } else {
             let targetSample = sampleIds[selectedSampleIndex - 1]
@@ -1448,6 +1465,14 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
     }
 
+    // MARK: - Negative Control Helpers
+
+    /// Returns sample IDs marked as negative controls in the config.
+    private func negativeControlSampleIds() -> Set<String> {
+        guard let config = taxTriageConfig else { return [] }
+        return Set(config.samples.filter(\.isNegativeControl).map(\.sampleId))
+    }
+
     // MARK: - Related Analyses Discovery
 
     /// Scans source bundles for Kraken2 and EsViritu results to enable cross-navigation.
@@ -1577,6 +1602,27 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         copyItem.target = self
         menu.addItem(copyItem)
 
+        // Batch export options (only when multiple samples)
+        if sampleIds.count > 1 {
+            menu.addItem(.separator())
+
+            let matrixItem = NSMenuItem(
+                title: "Export Organism Matrix (CSV)\u{2026}",
+                action: #selector(exportBatchMatrixAction(_:)),
+                keyEquivalent: ""
+            )
+            matrixItem.target = self
+            menu.addItem(matrixItem)
+
+            let reportItem = NSMenuItem(
+                title: "Export Batch Report\u{2026}",
+                action: #selector(exportBatchReportAction(_:)),
+                keyEquivalent: ""
+            )
+            reportItem.target = self
+            menu.addItem(reportItem)
+        }
+
         return menu
     }
 
@@ -1592,6 +1638,50 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         guard let result = taxTriageResult else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(result.summary, forType: .string)
+    }
+
+    @objc private func exportBatchMatrixAction(_ sender: Any) {
+        guard let window = view.window else { return }
+        let csv = TaxTriageBatchExporter.generateOrganismMatrixCSV(
+            metrics: metrics,
+            sampleIds: sampleIds,
+            negativeControlSampleIds: negativeControlSampleIds()
+        )
+
+        let panel = NSSavePanel()
+        panel.title = "Export Organism Matrix"
+        panel.allowedContentTypes = [.commaSeparatedText]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = "organism_matrix.csv"
+
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let url = panel.url else { return }
+            try? csv.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
+    @objc private func exportBatchReportAction(_ sender: Any) {
+        guard let window = view.window,
+              let result = taxTriageResult,
+              let config = taxTriageConfig else { return }
+
+        let report = TaxTriageBatchExporter.generateSummaryReport(
+            result: result,
+            config: config,
+            metrics: metrics,
+            sampleIds: sampleIds
+        )
+
+        let panel = NSSavePanel()
+        panel.title = "Export Batch Report"
+        panel.allowedContentTypes = [.plainText]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = "batch_report.txt"
+
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let url = panel.url else { return }
+            try? report.write(to: url, atomically: true, encoding: .utf8)
+        }
     }
 
     // MARK: - Delimited Export
@@ -1767,6 +1857,33 @@ struct TaxTriageTableRow: Equatable {
     /// Relative abundance (0.0 to 1.0), if available.
     let abundance: Double?
 
+    /// Whether this organism was detected in a negative control sample (contamination risk).
+    let isContaminationRisk: Bool
+
+    init(
+        organism: String,
+        tassScore: Double,
+        reads: Int,
+        uniqueReads: Int? = nil,
+        coverage: Double? = nil,
+        confidence: String? = nil,
+        taxId: Int? = nil,
+        rank: String? = nil,
+        abundance: Double? = nil,
+        isContaminationRisk: Bool = false
+    ) {
+        self.organism = organism
+        self.tassScore = tassScore
+        self.reads = reads
+        self.uniqueReads = uniqueReads
+        self.coverage = coverage
+        self.confidence = confidence
+        self.taxId = taxId
+        self.rank = rank
+        self.abundance = abundance
+        self.isContaminationRisk = isContaminationRisk
+    }
+
     func with(uniqueReads: Int?) -> TaxTriageTableRow {
         TaxTriageTableRow(
             organism: organism,
@@ -1777,7 +1894,8 @@ struct TaxTriageTableRow: Equatable {
             confidence: confidence,
             taxId: taxId,
             rank: rank,
-            abundance: abundance
+            abundance: abundance,
+            isContaminationRisk: isContaminationRisk
         )
     }
 }
@@ -2079,7 +2197,13 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
 
         switch column.identifier {
         case ColumnID.organism:
-            return makeLabelCell(text: item.organism, bold: true)
+            let displayText = item.isContaminationRisk ? "\u{26A0} \(item.organism)" : item.organism
+            let cell = makeLabelCell(text: displayText, bold: true)
+            if item.isContaminationRisk {
+                cell.toolTip = "Contamination risk: detected in negative control sample"
+                cell.textColor = .systemOrange
+            }
+            return cell
 
         case ColumnID.tassScore:
             return makeLabelCell(text: String(format: "%.3f", item.tassScore), monospaced: true)

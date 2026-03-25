@@ -44,12 +44,16 @@ final class TaxTriageBatchOverviewView: NSView {
         let maxReads: Int
         /// Per-sample TASS scores keyed by sample ID.
         let perSampleTASS: [String: Double]
+        /// Whether this organism was detected in a negative control sample.
+        let isContaminationRisk: Bool
     }
 
     // MARK: - State
 
     private var sampleIds: [String] = []
     private var crossSampleRows: [CrossSampleRow] = []
+    /// Sample IDs flagged as negative controls.
+    private var negativeControlSampleIds: Set<String> = []
 
     /// Called when a cell in the heatmap is clicked.
     /// Parameters: (organism name, sample ID).
@@ -133,6 +137,15 @@ final class TaxTriageBatchOverviewView: NSView {
         readsCol.minWidth = 80
         tableView.addTableColumn(readsCol)
 
+        // Contamination risk column (only when negative controls exist)
+        if !negativeControlSampleIds.isEmpty {
+            let riskCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("risk"))
+            riskCol.title = "Risk"
+            riskCol.width = 50
+            riskCol.minWidth = 40
+            tableView.addTableColumn(riskCol)
+        }
+
         // One column per sample (heatmap cells)
         for sampleId in sampleIds {
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("sample_\(sampleId)"))
@@ -150,17 +163,24 @@ final class TaxTriageBatchOverviewView: NSView {
     /// - Parameters:
     ///   - metrics: All parsed TaxTriageMetric records across all samples.
     ///   - sampleIds: Ordered sample identifiers.
-    func configure(metrics: [TaxTriageMetric], sampleIds: [String]) {
+    /// Configures the overview with parsed metrics and sample identifiers.
+    ///
+    /// - Parameters:
+    ///   - metrics: All parsed TaxTriageMetric records across all samples.
+    ///   - sampleIds: Ordered sample identifiers.
+    ///   - negativeControlSampleIds: Sample IDs that are negative controls.
+    func configure(metrics: [TaxTriageMetric], sampleIds: [String], negativeControlSampleIds: Set<String> = []) {
         self.sampleIds = sampleIds
-        self.crossSampleRows = buildCrossSampleRows(from: metrics, sampleIds: sampleIds)
+        self.negativeControlSampleIds = negativeControlSampleIds
+        self.crossSampleRows = buildCrossSampleRows(from: metrics, sampleIds: sampleIds, negativeControlSampleIds: negativeControlSampleIds)
         rebuildColumns()
         tableView.reloadData()
-        logger.info("Batch overview configured: \(self.crossSampleRows.count) organisms across \(sampleIds.count) samples")
+        logger.info("Batch overview configured: \(self.crossSampleRows.count) organisms across \(sampleIds.count) samples, \(negativeControlSampleIds.count) negative controls")
     }
 
     // MARK: - Data Building
 
-    private func buildCrossSampleRows(from metrics: [TaxTriageMetric], sampleIds: [String]) -> [CrossSampleRow] {
+    private func buildCrossSampleRows(from metrics: [TaxTriageMetric], sampleIds: [String], negativeControlSampleIds: Set<String> = []) -> [CrossSampleRow] {
         // Group metrics by organism
         var byOrganism: [String: [TaxTriageMetric]] = [:]
         for metric in metrics {
@@ -183,13 +203,18 @@ final class TaxTriageBatchOverviewView: NSView {
                 }
             }
 
+            // Flag contamination risk: organism detected in any negative control sample
+            let inNegativeControl = !negativeControlSampleIds.isEmpty
+                && !detectedSamples.intersection(negativeControlSampleIds).isEmpty
+
             rows.append(CrossSampleRow(
                 organism: first.organism,
                 sampleCount: detectedSamples.count,
                 meanTASS: meanTASS,
                 minReads: readCounts.min() ?? 0,
                 maxReads: readCounts.max() ?? 0,
-                perSampleTASS: perSample
+                perSampleTASS: perSample,
+                isContaminationRisk: inNegativeControl
             ))
         }
 
@@ -212,7 +237,7 @@ final class TaxTriageBatchOverviewView: NSView {
         let rowData = crossSampleRows[row]
 
         // If clicked on a sample column, navigate to that organism in that sample
-        let fixedColumnCount = 4
+        let fixedColumnCount = negativeControlSampleIds.isEmpty ? 4 : 5
         if col >= fixedColumnCount, col - fixedColumnCount < sampleIds.count {
             let sampleId = sampleIds[col - fixedColumnCount]
             onCellSelected?(rowData.organism, sampleId)
@@ -287,6 +312,17 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
             cellView.textField?.alignment = .right
             cellView.wantsLayer = false
             cellView.layer?.backgroundColor = nil
+
+        case "risk":
+            if data.isContaminationRisk {
+                cellView.textField?.stringValue = "\u{26A0}"  // warning sign
+                cellView.textField?.alignment = .center
+                cellView.textField?.toolTip = "Detected in negative control sample"
+                cellView.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.15).cgColor
+            } else {
+                cellView.textField?.stringValue = ""
+                cellView.layer?.backgroundColor = nil
+            }
 
         default:
             // Sample heatmap column

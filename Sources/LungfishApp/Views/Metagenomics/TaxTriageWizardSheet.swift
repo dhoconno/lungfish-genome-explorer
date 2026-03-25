@@ -283,6 +283,11 @@ struct TaxTriageWizardSheet: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
+            Toggle("NTC", isOn: $samples[index].isNegativeControl)
+                .toggleStyle(.checkbox)
+                .font(.system(size: 10))
+                .help("Mark as negative control (blank extraction, no-template control)")
+
             Button {
                 removeSample(at: index)
             } label: {
@@ -500,7 +505,8 @@ struct TaxTriageWizardSheet: View {
                 sampleId: wizardSample.sampleId.trimmingCharacters(in: .whitespaces),
                 fastq1: r1,
                 fastq2: wizardSample.fastq2,
-                platform: platform
+                platform: platform,
+                isNegativeControl: wizardSample.isNegativeControl
             )
         }
 
@@ -590,4 +596,5 @@ private struct WizardSample: Identifiable {
     var sampleId: String
     var fastq1: URL?
     var fastq2: URL?
+    var isNegativeControl: Bool = false
 }
