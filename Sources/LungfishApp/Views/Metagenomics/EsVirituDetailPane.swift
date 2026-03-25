@@ -397,7 +397,7 @@ public final class EsVirituDetailPane: NSView {
         let metrics: [(String, String)] = [
             ("Reads", formatNumber(assembly.totalReads)),
             ("RPKMF", String(format: "%.1f", assembly.rpkmf)),
-            ("Coverage", String(format: "%.1f%%", assembly.meanCoverage * 100)),
+            ("Coverage", String(format: "%.1fx", assembly.meanCoverage)),
             ("Identity", String(format: "%.1f%%", assembly.avgReadIdentity * 100)),
             ("Family", assembly.family ?? "Unknown"),
         ]

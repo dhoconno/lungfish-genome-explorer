@@ -194,6 +194,11 @@ extension TaxTriageCommand {
                     "--sample is required when using --input"
                 )
             }
+            if skipAssembly && noSkipAssembly {
+                throw ValidationError(
+                    "Cannot use both --skip-assembly and --no-skip-assembly"
+                )
+            }
         }
 
         // MARK: - Execution
@@ -272,7 +277,14 @@ extension TaxTriageCommand {
             }
 
             // Determine effective skipAssembly (default true unless --no-skip-assembly)
-            let effectiveSkipAssembly = noSkipAssembly ? false : true
+            let effectiveSkipAssembly: Bool
+            if noSkipAssembly {
+                effectiveSkipAssembly = false
+            } else if skipAssembly {
+                effectiveSkipAssembly = true
+            } else {
+                effectiveSkipAssembly = true
+            }
 
             // Build configuration
             let config = TaxTriageConfig(

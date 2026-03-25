@@ -1765,13 +1765,49 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     private func displayTaxTriageResultFromSidebar(at url: URL) {
         logger.info("displayTaxTriageResult: Opening '\(url.lastPathComponent, privacy: .public)'")
 
-        // Build a TaxTriageResult from the directory contents
+        // Prefer the persisted sidecar so view parsing matches pipeline-time discovery.
+        if let persisted = try? TaxTriageResult.load(from: url) {
+            viewerController.displayTaxTriageResult(persisted, config: persisted.config)
+            return
+        }
+
+        // Fallback: rebuild from on-disk contents when sidecar is missing/corrupt.
         let fm = FileManager.default
         let allFiles: [URL]
-        if let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
-            allFiles = enumerator.allObjects.compactMap { $0 as? URL }
+        if let enumerator = fm.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            allFiles = enumerator.compactMap { element -> URL? in
+                guard let fileURL = element as? URL else { return nil }
+                let isRegularFile = (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) ?? false
+                return isRegularFile ? fileURL : nil
+            }
         } else {
             allFiles = []
+        }
+
+        let reportFiles = allFiles.filter {
+            let name = $0.lastPathComponent.lowercased()
+            let ext = $0.pathExtension.lowercased()
+            return name.contains("report") && (ext == "txt" || ext == "tsv")
+        }
+
+        let metricsFiles = allFiles.filter {
+            let name = $0.lastPathComponent.lowercased()
+            let ext = $0.pathExtension.lowercased()
+            return name.contains("tass")
+                || name.contains("metrics")
+                || name.contains("confidence")
+                || (ext == "tsv" && !name.contains("trace") && !name.contains("samplesheet"))
+        }
+
+        let kronaFiles = allFiles.filter {
+            let name = $0.lastPathComponent.lowercased()
+            let ext = $0.pathExtension.lowercased()
+            let path = $0.path.lowercased()
+            return ext == "html" && (name.contains("krona") || path.contains("/krona/"))
         }
 
         let result = TaxTriageResult(
@@ -1779,9 +1815,9 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             runtime: 0,
             exitCode: 0,
             outputDirectory: url,
-            reportFiles: allFiles.filter { $0.lastPathComponent.contains("report") && ($0.pathExtension == "txt" || $0.pathExtension == "tsv") },
-            metricsFiles: allFiles.filter { $0.pathExtension == "tsv" && !$0.lastPathComponent.contains("report") },
-            kronaFiles: [],
+            reportFiles: reportFiles,
+            metricsFiles: metricsFiles,
+            kronaFiles: kronaFiles,
             logFile: nil,
             traceFile: nil,
             allOutputFiles: allFiles

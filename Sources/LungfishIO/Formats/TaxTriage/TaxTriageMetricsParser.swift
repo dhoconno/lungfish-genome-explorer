@@ -33,19 +33,41 @@ public enum TaxTriageMetricsParser {
 
     // MARK: - Known Column Names
 
-    /// Standard column names recognized by the parser (case-insensitive).
-    private enum Column: String, CaseIterable {
+    /// Canonical field identifiers used for parsing alternate header spellings.
+    private enum Field {
         case sample
-        case taxid
+        case taxId
         case organism
         case rank
+        case readsAligned
         case reads
+        case k2Reads
         case abundance
-        case coverageBreadth = "coverage_breadth"
-        case coverageDepth = "coverage_depth"
-        case tassScore = "tass_score"
+        case coverageBreadth
+        case coverage
+        case coverageDepth
+        case tassScore
         case confidence
+        case status
     }
+
+    /// Header aliases normalized through `normalizeHeader(_:)`.
+    private static let aliases: [Field: [String]] = [
+        .sample: ["sample", "specimen id"],
+        .taxId: ["taxid", "tax id", "taxonomy id", "taxonomic id"],
+        .organism: ["organism", "detected organism", "name", "species"],
+        .rank: ["rank", "taxonomic rank"],
+        .readsAligned: ["reads aligned"],
+        .reads: ["reads", "read count", "number fragments assigned", "clade fragments covered"],
+        .k2Reads: ["k2 reads"],
+        .abundance: ["abundance", "percent reads"],
+        .coverageBreadth: ["coverage breadth", "coverage_breadth"],
+        .coverage: ["coverage"],
+        .coverageDepth: ["coverage depth", "coverage_depth", "mean depth", "mean coverage"],
+        .tassScore: ["tass score", "tass_score"],
+        .confidence: ["confidence"],
+        .status: ["status", "group"],
+    ]
 
     // MARK: - Parsing
 
@@ -76,11 +98,10 @@ public enum TaxTriageMetricsParser {
             throw TaxTriageMetricsParserError.emptyFile
         }
 
-        // Build column index mapping
-        let columns = headerLine.components(separatedBy: "\t")
-            .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
-
-        guard !columns.isEmpty else {
+        let rawColumns = headerLine.components(separatedBy: "\t")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        let columns = rawColumns.map(normalizeHeader)
+        guard !rawColumns.isEmpty else {
             throw TaxTriageMetricsParserError.emptyHeader
         }
 
@@ -89,6 +110,37 @@ public enum TaxTriageMetricsParser {
             columnMap[name] = index
         }
 
+        let sampleIndex = firstIndex(columnMap, for: .sample)
+        let taxIdIndex = firstIndex(columnMap, for: .taxId)
+        let organismIndex = firstIndex(columnMap, for: .organism)
+        let rankIndex = firstIndex(columnMap, for: .rank)
+        let readsAlignedIndex = firstIndex(columnMap, for: .readsAligned)
+        let readsIndex = firstIndex(columnMap, for: .reads)
+        let k2ReadsIndex = firstIndex(columnMap, for: .k2Reads)
+        let abundanceIndex = firstIndex(columnMap, for: .abundance)
+        let coverageBreadthIndex = firstIndex(columnMap, for: .coverageBreadth)
+        let coverageIndex = firstIndex(columnMap, for: .coverage)
+        let coverageDepthIndex = firstIndex(columnMap, for: .coverageDepth)
+        let tassScoreIndex = firstIndex(columnMap, for: .tassScore)
+        let confidenceIndex = firstIndex(columnMap, for: .confidence)
+        let statusIndex = firstIndex(columnMap, for: .status)
+        let knownIndices = Set([
+            sampleIndex,
+            taxIdIndex,
+            organismIndex,
+            rankIndex,
+            readsAlignedIndex,
+            readsIndex,
+            k2ReadsIndex,
+            abundanceIndex,
+            coverageBreadthIndex,
+            coverageIndex,
+            coverageDepthIndex,
+            tassScoreIndex,
+            confidenceIndex,
+            statusIndex,
+        ].compactMap { $0 })
+
         // Parse data rows
         var metrics: [TaxTriageMetric] = []
 
@@ -96,21 +148,41 @@ public enum TaxTriageMetricsParser {
             let fields = line.components(separatedBy: "\t")
                 .map { $0.trimmingCharacters(in: .whitespaces) }
 
+            let sample = fieldValue(fields, index: sampleIndex)
+            let taxId = fieldInt(fieldValue(fields, index: taxIdIndex))
+            let organism = cleanOrganismName(fieldValue(fields, index: organismIndex) ?? "unknown")
+            let rank = fieldValue(fields, index: rankIndex)
+            let reads = fieldInt(
+                fieldValue(fields, index: readsAlignedIndex)
+                ?? fieldValue(fields, index: readsIndex)
+                ?? fieldValue(fields, index: k2ReadsIndex)
+            ) ?? 0
+            let abundance = fieldDouble(fieldValue(fields, index: abundanceIndex))
+            let coverageRaw = fieldDouble(
+                fieldValue(fields, index: coverageBreadthIndex)
+                ?? fieldValue(fields, index: coverageIndex)
+            )
+            let coverageBreadth = normalizeCoverage(coverageRaw)
+            let coverageDepth = fieldDouble(fieldValue(fields, index: coverageDepthIndex))
+            let tassScore = fieldDouble(fieldValue(fields, index: tassScoreIndex)) ?? 0.0
+            let confidence = fieldValue(fields, index: confidenceIndex)
+                ?? fieldValue(fields, index: statusIndex)
+
             let metric = TaxTriageMetric(
-                sample: fieldValue(fields, columnMap, "sample"),
-                taxId: fieldInt(fields, columnMap, "taxid"),
-                organism: fieldValue(fields, columnMap, "organism") ?? "unknown",
-                rank: fieldValue(fields, columnMap, "rank"),
-                reads: fieldInt(fields, columnMap, "reads") ?? 0,
-                abundance: fieldDouble(fields, columnMap, "abundance"),
-                coverageBreadth: fieldDouble(fields, columnMap, "coverage_breadth"),
-                coverageDepth: fieldDouble(fields, columnMap, "coverage_depth"),
-                tassScore: fieldDouble(fields, columnMap, "tass_score") ?? 0.0,
-                confidence: fieldValue(fields, columnMap, "confidence"),
+                sample: sample,
+                taxId: taxId,
+                organism: organism,
+                rank: rank,
+                reads: reads,
+                abundance: abundance,
+                coverageBreadth: coverageBreadth,
+                coverageDepth: coverageDepth,
+                tassScore: tassScore,
+                confidence: confidence,
                 additionalFields: collectAdditionalFields(
                     fields: fields,
-                    columns: columns,
-                    knownColumns: Set(Column.allCases.map(\.rawValue))
+                    rawColumns: rawColumns,
+                    knownIndices: knownIndices
                 ),
                 sourceLineNumber: lineIndex + 2
             )
@@ -123,47 +195,92 @@ public enum TaxTriageMetricsParser {
 
     // MARK: - Field Extraction
 
-    /// Extracts a string field by column name.
+    private static func normalizeHeader(_ value: String) -> String {
+        let scalarTokens = value.lowercased().unicodeScalars.map { scalar -> String in
+            CharacterSet.alphanumerics.contains(scalar) ? String(scalar) : " "
+        }
+        return scalarTokens
+            .joined()
+            .split { $0.isWhitespace }
+            .joined(separator: " ")
+    }
+
+    private static func firstIndex(_ columnMap: [String: Int], for field: Field) -> Int? {
+        for alias in aliases[field] ?? [] {
+            let normalized = normalizeHeader(alias)
+            if let index = columnMap[normalized] {
+                return index
+            }
+        }
+        return nil
+    }
+
+    /// Extracts a string field by column index.
     private static func fieldValue(
         _ fields: [String],
-        _ columnMap: [String: Int],
-        _ name: String
+        index: Int?
     ) -> String? {
-        guard let index = columnMap[name], index < fields.count else { return nil }
+        guard let index, index < fields.count else { return nil }
         let value = fields[index]
         return value.isEmpty ? nil : value
     }
 
-    /// Extracts an integer field by column name.
-    private static func fieldInt(
-        _ fields: [String],
-        _ columnMap: [String: Int],
-        _ name: String
-    ) -> Int? {
-        guard let str = fieldValue(fields, columnMap, name) else { return nil }
-        return Int(str)
+    /// Extracts an integer field from a raw value.
+    private static func fieldInt(_ raw: String?) -> Int? {
+        guard let raw else { return nil }
+        let cleaned = raw.replacingOccurrences(of: ",", with: "")
+        if let integer = Int(cleaned) {
+            return integer
+        }
+        if let double = Double(cleaned) {
+            return Int(double.rounded())
+        }
+        return nil
     }
 
-    /// Extracts a double field by column name.
-    private static func fieldDouble(
-        _ fields: [String],
-        _ columnMap: [String: Int],
-        _ name: String
-    ) -> Double? {
-        guard let str = fieldValue(fields, columnMap, name) else { return nil }
-        return Double(str)
+    /// Extracts a double field from a raw value.
+    private static func fieldDouble(_ raw: String?) -> Double? {
+        guard let raw else { return nil }
+        let cleaned = raw
+            .replacingOccurrences(of: ",", with: "")
+            .replacingOccurrences(of: "%", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return Double(cleaned)
+    }
+
+    private static func normalizeCoverage(_ coverage: Double?) -> Double? {
+        guard let coverage else { return nil }
+        if coverage > 0, coverage <= 1 {
+            return coverage * 100
+        }
+        return coverage
+    }
+
+    private static func cleanOrganismName(_ value: String) -> String {
+        let cleaned = value
+            .replacingOccurrences(of: "★", with: "")
+            .replacingOccurrences(of: "°", with: "")
+            .replacingOccurrences(of: "\u{25CF}", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // TaxTriage reports occasionally emit a leading-character truncation
+        // for Influenza names (e.g. "nfluenza B virus ..."). Repair it here.
+        if cleaned.lowercased().hasPrefix("nfluenza") {
+            return "I" + cleaned
+        }
+        return cleaned
     }
 
     /// Collects fields not in the known column set.
     private static func collectAdditionalFields(
         fields: [String],
-        columns: [String],
-        knownColumns: Set<String>
+        rawColumns: [String],
+        knownIndices: Set<Int>
     ) -> [String: String] {
         var additional: [String: String] = [:]
-        for (index, column) in columns.enumerated() where !knownColumns.contains(column) {
+        for (index, column) in rawColumns.enumerated() where !knownIndices.contains(index) {
             if index < fields.count && !fields[index].isEmpty {
-                additional[column] = fields[index]
+                additional[column.trimmingCharacters(in: .whitespaces)] = fields[index]
             }
         }
         return additional

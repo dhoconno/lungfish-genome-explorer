@@ -86,11 +86,36 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Path to the merged BAM from TaxTriage alignment output.
     private var bamURL: URL?
 
-    /// Maps organism names → BAM reference accessions (from gcfmapping.tsv).
+    /// Path to the resolved BAM index (.bai or .csi).
+    private var bamIndexURL: URL?
+
+    /// Maps normalized organism names → BAM reference accessions (from gcfmapping.tsv).
     private var organismToAccessions: [String: [String]] = [:]
+
+    /// Maps Taxonomy ID → BAM reference accessions (from merged.taxid.tsv).
+    private var taxIDToAccessions: [Int: [String]] = [:]
 
     /// Maps accessions → reference lengths (from BAM header via samtools).
     private var accessionLengths: [String: Int] = [:]
+
+    /// Maps accessions → mapped read count from `samtools idxstats`.
+    private var accessionMappedReadCounts: [String: Int] = [:]
+
+    /// Optional downloaded reference FASTA from TaxTriage output.
+    private var referenceFastaURL: URL?
+
+    /// Cached accession → reference sequence map loaded from `referenceFastaURL`.
+    private var referenceSequenceCache: [String: String] = [:]
+
+    /// Cached normalized organism name → deduplicated read count.
+    private var deduplicatedReadCounts: [String: Int] = [:]
+
+    /// Background task computing deduplicated read counts per organism row.
+    private var deduplicatedReadCountTask: Task<Void, Never>?
+
+    /// Currently selected row state for action-bar/detail updates.
+    private var selectedOrganismName: String?
+    private var selectedReadCount: Int?
 
     // MARK: - Child Views
 
@@ -135,6 +160,15 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     private func setupMiniBAMViewer() {
         let bamVC = MiniBAMViewController()
         bamVC.subjectNoun = "organism"
+        bamVC.onReadStatsUpdated = { [weak self] _, uniqueReads in
+            guard let self, let selectedOrganismName = self.selectedOrganismName else { return }
+            // For segmented organisms, table unique reads are aggregated across
+            // accessions in background; don't overwrite with one segment's value.
+            if (self.accessions(for: selectedOrganismName)?.count ?? 0) > 1 {
+                return
+            }
+            self.applyUniqueReadCount(uniqueReads, for: selectedOrganismName)
+        }
         addChild(bamVC)
         miniBAMController = bamVC
 
@@ -166,9 +200,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     /// Configures the view with a TaxTriage result and optional config.
     ///
-    /// Parses the top_report.tsv for organism data and the kreport for the
-    /// taxonomy tree. Falls back to parsing metrics/report files if the
-    /// primary files aren't found.
+    /// Prefers parsing TaxTriage confidence reports (`multiqc_confidences.txt`
+    /// and `*.organisms.report.txt`) so displayed TASS/read values match the
+    /// PDF report content.
     ///
     /// - Parameters:
     ///   - result: The TaxTriage pipeline result.
@@ -178,25 +212,55 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         taxTriageConfig = config ?? result.config
         taxonomyTree = nil
         bamURL = nil
+        bamIndexURL = nil
         organismToAccessions = [:]
+        taxIDToAccessions = [:]
         accessionLengths = [:]
+        accessionMappedReadCounts = [:]
+        referenceFastaURL = nil
+        referenceSequenceCache = [:]
+        deduplicatedReadCounts = [:]
+        deduplicatedReadCountTask?.cancel()
+        deduplicatedReadCountTask = nil
+        selectedOrganismName = nil
+        selectedReadCount = nil
 
-        // Strategy: find the top_report.tsv (has organism names + read counts)
-        // and the kreport.txt (has full taxonomy tree for sunburst).
-        let outputDir = result.outputDirectory
-
-        // 1. Parse organisms from top_report.tsv (exclude work/ duplicates)
-        var allOrganisms: [TaxTriageOrganism] = []
-        let topReportFiles = result.allOutputFiles.filter {
-            $0.lastPathComponent.contains("top_report.tsv")
-                && !$0.path.contains("/work/")
+        // 1. Parse confidence/organism metrics (preferred over top_report.tsv).
+        let preferredMetrics = parsePreferredConfidenceMetrics(from: result)
+        var allMetrics = preferredMetrics
+        if allMetrics.isEmpty {
+            for metricsURL in result.metricsFiles where !metricsURL.path.contains("/work/") {
+                if let parsed = try? TaxTriageMetricsParser.parse(url: metricsURL), !parsed.isEmpty {
+                    allMetrics.append(contentsOf: parsed)
+                }
+            }
         }
-        for topReportURL in topReportFiles {
-            let parsed = parseTopReport(url: topReportURL)
-            allOrganisms.append(contentsOf: parsed)
+        metrics = deduplicatedMetrics(allMetrics)
+
+        var allOrganisms = metrics.map {
+            TaxTriageOrganism(
+                name: $0.organism,
+                score: $0.tassScore,
+                reads: $0.reads,
+                coverage: $0.coverageBreadth,
+                taxId: $0.taxId,
+                rank: $0.rank
+            )
         }
 
-        // Fallback: try the old report parsing if no top_report found
+        // Fallback: top_report.tsv for older/incomplete runs.
+        if allOrganisms.isEmpty {
+            let topReportFiles = result.allOutputFiles.filter {
+                $0.lastPathComponent.contains("top_report.tsv")
+                    && !$0.path.contains("/work/")
+            }
+            for topReportURL in topReportFiles {
+                let parsed = parseTopReport(url: topReportURL)
+                allOrganisms.append(contentsOf: parsed)
+            }
+        }
+
+        // Last fallback: legacy key/value report parser.
         if allOrganisms.isEmpty {
             for reportURL in result.reportFiles {
                 if let parsed = try? TaxTriageReportParser.parse(url: reportURL) {
@@ -211,7 +275,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             $0.lastPathComponent.hasSuffix(".kraken2.report.txt")
                 && !$0.path.contains("/work/")
         }
-        logger.info("Found \(kreportFiles.count) kreport file(s), \(topReportFiles.count) top_report file(s)")
+        logger.info("Found \(kreportFiles.count) kreport file(s)")
         if let kreportURL = kreportFiles.first {
             do {
                 let tree = try KreportParser.parse(url: kreportURL)
@@ -222,17 +286,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             }
         }
 
-        // 3. Parse TASS metrics if available
-        var allMetrics: [TaxTriageMetric] = []
-        for metricsURL in result.metricsFiles {
-            if let parsed = try? TaxTriageMetricsParser.parse(url: metricsURL) {
-                allMetrics.append(contentsOf: parsed)
-            }
-        }
-        metrics = allMetrics
-
         // Build table rows from organisms (enriched with metrics if available)
-        let mergedRows = buildTableRows(organisms: allOrganisms, metrics: allMetrics)
+        let mergedRows = buildTableRows(organisms: allOrganisms, metrics: metrics)
 
         // Update summary bar
         summaryBar.update(
@@ -255,21 +310,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
         if let bam = bamFiles.first {
             bamURL = bam
-            // Ensure a BAI index exists (TaxTriage produces CSI, we need BAI for samtools view)
-            let baiPath = bam.path + ".bai"
-            if !FileManager.default.fileExists(atPath: baiPath) {
-                logger.info("Generating BAI index for TaxTriage BAM")
-                Task.detached {
-                    let proc = Process()
-                    proc.executableURL = URL(fileURLWithPath: "/usr/local/bin/samtools")
-                    proc.arguments = ["index", bam.path]
-                    proc.standardOutput = FileHandle.nullDevice
-                    proc.standardError = FileHandle.nullDevice
-                    try? proc.run()
-                    proc.waitUntilExit()
-                }
-            }
-            logger.info("Found TaxTriage BAM: \(bam.lastPathComponent, privacy: .public)")
+            bamIndexURL = resolveBamIndex(for: bam, allOutputFiles: result.allOutputFiles)
+            let indexName = bamIndexURL?.lastPathComponent ?? "none"
+            logger.info("Found TaxTriage BAM: \(bam.lastPathComponent, privacy: .public), index: \(indexName, privacy: .public)")
         }
 
         // Parse gcfmapping.tsv to build organism→accession lookup
@@ -279,6 +322,21 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         if let gcfFile = gcfFiles.first {
             parseGCFMapping(url: gcfFile)
         }
+
+        // Parse merged.taxid.tsv to build taxid→accession lookup and enrich organism mapping.
+        let taxIDMapFiles = result.allOutputFiles.filter {
+            $0.lastPathComponent.contains("merged.taxid.tsv") && !$0.path.contains("/work/")
+        }
+        if let taxIDMapFile = taxIDMapFiles.first {
+            parseTaxIDMapping(url: taxIDMapFile)
+        }
+
+        referenceFastaURL = result.allOutputFiles.first(where: { url in
+            guard !url.path.contains("/work/") else { return false }
+            let ext = url.pathExtension.lowercased()
+            guard ext == "fasta" || ext == "fa" || ext == "fna" else { return false }
+            return url.lastPathComponent.lowercased().contains("references")
+        })
 
         // Parse BAM header for reference lengths (needed for MiniBAMViewController)
         if let bam = bamURL {
@@ -292,6 +350,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             organismCount: mergedRows.count,
             sampleCount: result.config.samples.count
         )
+
+        scheduleDeduplicatedReadCountComputation(for: mergedRows)
 
         logger.info("Configured with \(mergedRows.count) organisms, \(result.metricsFiles.count) metrics files, \(result.kronaFiles.count) Krona files")
     }
@@ -309,7 +369,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     ) -> [TaxTriageTableRow] {
         // Build lookup from organism name to metric
         let metricsByName = Dictionary(
-            metrics.map { ($0.organism.lowercased(), $0) },
+            metrics.map { (normalizedOrganismName($0.organism), $0) },
             uniquingKeysWith: { first, _ in first }
         )
 
@@ -317,11 +377,13 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         // Start from organisms (report data)
         for organism in organisms {
-            let matchingMetric = metricsByName[organism.name.lowercased()]
+            let normalizedName = normalizedOrganismName(organism.name)
+            let matchingMetric = metricsByName[normalizedName]
             rows.append(TaxTriageTableRow(
                 organism: organism.name,
                 tassScore: matchingMetric?.tassScore ?? organism.score,
                 reads: matchingMetric?.reads ?? organism.reads,
+                uniqueReads: deduplicatedReadCounts[normalizedName],
                 coverage: matchingMetric?.coverageBreadth ?? organism.coverage,
                 confidence: normalizedConfidenceLabel(matchingMetric?.confidence)
                     ?? confidenceLabel(for: matchingMetric?.tassScore ?? organism.score),
@@ -332,12 +394,14 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
 
         // Add metrics not in organisms list
-        let existingNames = Set(organisms.map { $0.name.lowercased() })
-        for metric in metrics where !existingNames.contains(metric.organism.lowercased()) {
+        let existingNames = Set(organisms.map { normalizedOrganismName($0.name) })
+        for metric in metrics where !existingNames.contains(normalizedOrganismName(metric.organism)) {
+            let normalizedName = normalizedOrganismName(metric.organism)
             rows.append(TaxTriageTableRow(
                 organism: metric.organism,
                 tassScore: metric.tassScore,
                 reads: metric.reads,
+                uniqueReads: deduplicatedReadCounts[normalizedName],
                 coverage: metric.coverageBreadth,
                 confidence: normalizedConfidenceLabel(metric.confidence)
                     ?? confidenceLabel(for: metric.tassScore),
@@ -443,7 +507,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     /// Updates segment availability and default selection based on loaded data.
     private func refreshLeftPaneMode(preferTaxonomy: Bool) {
-        let hasBAM = bamURL != nil
+        let hasBAM = (bamURL != nil && bamIndexURL != nil)
         let hasTaxonomy = taxonomyTree != nil
 
         leftTabView.setEnabled(hasBAM, forSegment: 0)
@@ -471,6 +535,44 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Sets up the NSTabView with Report and Krona tabs.
     // MARK: - Top Report Parser
 
+    /// Parses preferred confidence/organism reports in deterministic order.
+    private func parsePreferredConfidenceMetrics(from result: TaxTriageResult) -> [TaxTriageMetric] {
+        let files = result.allOutputFiles
+            .filter { !$0.path.contains("/work/") }
+            .sorted { $0.path < $1.path }
+
+        let preferred = files.filter {
+            $0.lastPathComponent == "multiqc_confidences.txt"
+                || $0.lastPathComponent.hasSuffix(".organisms.report.txt")
+        }
+
+        var parsed: [TaxTriageMetric] = []
+        for url in preferred {
+            if let metrics = try? TaxTriageMetricsParser.parse(url: url), !metrics.isEmpty {
+                logger.info("Parsed \(metrics.count) TaxTriage metrics from \(url.lastPathComponent, privacy: .public)")
+                parsed.append(contentsOf: metrics)
+            } else {
+                logger.warning("Failed to parse TaxTriage metrics from \(url.lastPathComponent, privacy: .public)")
+            }
+        }
+        if parsed.isEmpty {
+            logger.info("No preferred TaxTriage confidence metrics found in output files")
+        }
+        return parsed
+    }
+
+    private func deduplicatedMetrics(_ metrics: [TaxTriageMetric]) -> [TaxTriageMetric] {
+        var seen = Set<String>()
+        var deduped: [TaxTriageMetric] = []
+        for metric in metrics.sorted(by: { $0.tassScore > $1.tassScore }) {
+            let key = normalizedOrganismName(metric.organism)
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            deduped.append(metric)
+        }
+        return deduped
+    }
+
     /// Parses the TaxTriage top_report.tsv into TaxTriageOrganism objects.
     ///
     /// The top_report.tsv has columns:
@@ -492,10 +594,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
             let abundance = Double(cols[0]) ?? 0
             let cladeReads = Int(Double(cols[1]) ?? 0)
-            let directReads = Int(Double(cols[2]) ?? 0)
             let rank = cols[3]
             let taxId = Int(cols[4])
-            let name = cols[5]
+            let name = cols[5].trimmingCharacters(in: .whitespacesAndNewlines)
 
             let organism = TaxTriageOrganism(
                 name: name,
@@ -525,40 +626,363 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         for line in content.components(separatedBy: .newlines) {
             let cols = line.components(separatedBy: "\t")
             guard cols.count >= 3 else { continue }
-            let accession = cols[0]
-            let organismName = cols[2]
-            mapping[organismName, default: []].append(accession)
+            let accession = cols[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            let organismName = cols[2].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !accession.isEmpty else { continue }
+            let key = normalizedOrganismName(organismName)
+            guard !key.isEmpty else { continue }
+            mapping[key, default: []].append(accession)
         }
-        organismToAccessions = mapping
+        organismToAccessions = mapping.mapValues(uniqueAccessionsPreservingOrder)
         logger.info("Parsed gcfmapping: \(mapping.count) organisms → \(mapping.values.flatMap { $0 }.count) accessions")
+    }
+
+    /// Parses merged taxid mapping: accession + organism + taxid.
+    ///
+    /// Expected columns:
+    /// `Acc\tAssembly\tOrganism_Name\tDescription\tMapped_Value`
+    private func parseTaxIDMapping(url: URL) {
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return }
+
+        var byTaxID: [Int: [String]] = [:]
+        var byOrganism: [String: [String]] = organismToAccessions
+
+        for line in content.components(separatedBy: .newlines) {
+            let cols = line.components(separatedBy: "\t")
+            guard cols.count >= 5 else { continue }
+
+            let accession = cols[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            let organismName = cols[2].trimmingCharacters(in: .whitespacesAndNewlines)
+            let taxIDRaw = cols[4].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !accession.isEmpty, accession.lowercased() != "acc" else { continue }
+
+            if let taxID = Int(taxIDRaw), taxID > 0 {
+                byTaxID[taxID, default: []].append(accession)
+            }
+
+            let key = normalizedOrganismName(organismName)
+            if !key.isEmpty {
+                byOrganism[key, default: []].append(accession)
+            }
+        }
+
+        taxIDToAccessions = byTaxID.mapValues(uniqueAccessionsPreservingOrder)
+        organismToAccessions = byOrganism.mapValues(uniqueAccessionsPreservingOrder)
+        logger.info("Parsed merged taxid mapping: \(self.taxIDToAccessions.count) taxids, \(self.organismToAccessions.count) organisms")
+    }
+
+    private func uniqueAccessionsPreservingOrder(_ accessions: [String]) -> [String] {
+        var seen = Set<String>()
+        var ordered: [String] = []
+        ordered.reserveCapacity(accessions.count)
+        for accession in accessions where !accession.isEmpty {
+            if seen.insert(accession).inserted {
+                ordered.append(accession)
+            }
+        }
+        return ordered
+    }
+
+    private func normalizedOrganismName(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "★", with: "")
+            .replacingOccurrences(of: "°", with: "")
+            .replacingOccurrences(of: "\u{25CF}", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
+    private func rankAccessionsByReadSupport(_ accessions: [String]) -> [String] {
+        let unique = uniqueAccessionsPreservingOrder(accessions)
+        return unique.sorted { lhs, rhs in
+            let lhsReads = accessionMappedReadCounts[lhs] ?? 0
+            let rhsReads = accessionMappedReadCounts[rhs] ?? 0
+            if lhsReads != rhsReads {
+                return lhsReads > rhsReads
+            }
+            return lhs < rhs
+        }
+    }
+
+    private func accessions(for row: TaxTriageTableRow) -> [String]? {
+        if let taxID = row.taxId, let byTaxID = taxIDToAccessions[taxID], !byTaxID.isEmpty {
+            return rankAccessionsByReadSupport(byTaxID)
+        }
+        return accessions(for: row.organism)
+    }
+
+    private func accessions(for organismName: String) -> [String]? {
+        let normalized = normalizedOrganismName(organismName)
+        guard !normalized.isEmpty else { return nil }
+        if let exact = organismToAccessions[normalized] {
+            return rankAccessionsByReadSupport(exact)
+        }
+        if let fuzzy = organismToAccessions.first(where: { key, _ in
+            key.contains(normalized) || normalized.contains(key)
+        }) {
+            return rankAccessionsByReadSupport(fuzzy.value)
+        }
+
+        // Token-overlap fallback handles minor source typos/variant formatting
+        // (e.g. missing first character, shortened years like /40 vs /1940).
+        let best = organismToAccessions.max { lhs, rhs in
+            tokenSimilarity(lhs.key, normalized) < tokenSimilarity(rhs.key, normalized)
+        }
+        if let best, tokenSimilarity(best.key, normalized) >= 0.75 {
+            return rankAccessionsByReadSupport(best.value)
+        }
+        return nil
+    }
+
+    private func tokenSimilarity(_ lhs: String, _ rhs: String) -> Double {
+        let lhsTokens = Set(lhs.split(separator: " ").map(String.init))
+        let rhsTokens = Set(rhs.split(separator: " ").map(String.init))
+        guard !lhsTokens.isEmpty, !rhsTokens.isEmpty else { return 0 }
+        let intersection = lhsTokens.intersection(rhsTokens).count
+        let denominator = max(lhsTokens.count, rhsTokens.count)
+        guard denominator > 0 else { return 0 }
+        return Double(intersection) / Double(denominator)
+    }
+
+    private func referenceSequence(for accession: String) -> String? {
+        if referenceSequenceCache.isEmpty {
+            loadReferenceSequenceCache()
+        }
+        return referenceSequenceCache[accession]
+    }
+
+    private func loadReferenceSequenceCache() {
+        guard referenceSequenceCache.isEmpty else { return }
+        guard let fastaURL = referenceFastaURL else { return }
+        guard let content = try? String(contentsOf: fastaURL, encoding: .utf8) else {
+            logger.warning("Failed to load reference FASTA: \(fastaURL.lastPathComponent, privacy: .public)")
+            return
+        }
+
+        var cache: [String: String] = [:]
+        var currentAccession: String?
+        var sequenceBuffer = ""
+
+        for rawLine in content.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+
+            if line.hasPrefix(">") {
+                if let accession = currentAccession, !sequenceBuffer.isEmpty {
+                    cache[accession] = sequenceBuffer
+                }
+                sequenceBuffer = ""
+                let header = String(line.dropFirst())
+                let accession = header
+                    .split(whereSeparator: { $0.isWhitespace })
+                    .first
+                    .map(String.init)
+                currentAccession = accession
+            } else {
+                sequenceBuffer.append(line.uppercased())
+            }
+        }
+
+        if let accession = currentAccession, !sequenceBuffer.isEmpty {
+            cache[accession] = sequenceBuffer
+        }
+
+        referenceSequenceCache = cache
+        logger.info("Loaded \(cache.count) reference sequences from \(fastaURL.lastPathComponent, privacy: .public)")
+    }
+
+    private static func deduplicatedReadCount(from reads: [AlignedRead]) -> Int {
+        guard !reads.isEmpty else { return 0 }
+        var positionGroups: [String: Int] = [:]
+        for read in reads {
+            let strand = read.isReverse ? "R" : "F"
+            let key = "\(read.position)-\(read.alignmentEnd)-\(strand)"
+            positionGroups[key, default: 0] += 1
+        }
+        let duplicateCount = positionGroups.values.reduce(into: 0) { total, count in
+            if count > 1 { total += count - 1 }
+        }
+        return max(0, reads.count - duplicateCount)
+    }
+
+    private func scheduleDeduplicatedReadCountComputation(for rows: [TaxTriageTableRow]) {
+        deduplicatedReadCountTask?.cancel()
+        guard let bamURL, let bamIndexURL else { return }
+        guard !rows.isEmpty else { return }
+
+        let rowsByReadCount = rows.sorted { $0.reads > $1.reads }
+        let provider = AlignmentDataProvider(
+            alignmentPath: bamURL.path,
+            indexPath: bamIndexURL.path
+        )
+
+        deduplicatedReadCountTask = Task { [weak self] in
+            guard let self else { return }
+
+            if self.accessionLengths.isEmpty {
+                self.parseBamReferenceLengths(bamURL: bamURL)
+            }
+
+            for row in rowsByReadCount {
+                if Task.isCancelled { return }
+                let normalized = self.normalizedOrganismName(row.organism)
+                if self.deduplicatedReadCounts[normalized] != nil { continue }
+
+                guard let rowAccessions = self.accessions(for: row), !rowAccessions.isEmpty else { continue }
+                var totalUnique = 0
+                var fetchedAny = false
+
+                for accession in rowAccessions {
+                    if Task.isCancelled { return }
+                    if self.accessionLengths[accession] == nil {
+                        self.parseBamReferenceLengths(bamURL: bamURL)
+                    }
+                    guard let contigLength = self.accessionLengths[accession] else { continue }
+
+                    do {
+                        let fetchedReads = try await provider.fetchReads(
+                            chromosome: accession,
+                            start: 0,
+                            end: contigLength,
+                            maxReads: 5000
+                        )
+                        if fetchedReads.isEmpty { continue }
+                        fetchedAny = true
+                        totalUnique += Self.deduplicatedReadCount(from: fetchedReads)
+                    } catch {
+                        logger.debug("Failed dedup count for \(row.organism, privacy: .public) (\(accession, privacy: .public)): \(error.localizedDescription, privacy: .public)")
+                    }
+                }
+
+                if fetchedAny {
+                    let boundedUnique = min(row.reads, totalUnique)
+                    self.applyUniqueReadCount(boundedUnique, for: row.organism)
+                } else if row.reads == 0 {
+                    self.applyUniqueReadCount(0, for: row.organism)
+                }
+            }
+        }
+    }
+
+    private func applyUniqueReadCount(_ uniqueReads: Int, for organismName: String) {
+        let key = normalizedOrganismName(organismName)
+        deduplicatedReadCounts[key] = uniqueReads
+
+        var changed = false
+        let updated = organismTableView.rows.map { row -> TaxTriageTableRow in
+            guard normalizedOrganismName(row.organism) == key else { return row }
+            if row.uniqueReads == uniqueReads { return row }
+            changed = true
+            return row.with(uniqueReads: uniqueReads)
+        }
+
+        if changed {
+            organismTableView.rows = updated
+        }
+
+        if normalizedOrganismName(selectedOrganismName ?? "") == key {
+            actionBar.updateSelection(
+                organismName: selectedOrganismName,
+                readCount: selectedReadCount,
+                uniqueReadCount: uniqueReads
+            )
+        }
+    }
+
+    private func resolveBamIndex(for bamURL: URL, allOutputFiles: [URL]) -> URL? {
+        let fm = FileManager.default
+        let adjacentBAI = URL(fileURLWithPath: bamURL.path + ".bai")
+        if fm.fileExists(atPath: adjacentBAI.path) { return adjacentBAI }
+
+        let adjacentCSI = URL(fileURLWithPath: bamURL.path + ".csi")
+        if fm.fileExists(atPath: adjacentCSI.path) { return adjacentCSI }
+
+        if let externalIndex = allOutputFiles.first(where: {
+            $0.lastPathComponent == "\(bamURL.lastPathComponent).bai"
+                || $0.lastPathComponent == "\(bamURL.lastPathComponent).csi"
+        }) {
+            let desired = URL(fileURLWithPath: bamURL.path + ".\(externalIndex.pathExtension)")
+            if !fm.fileExists(atPath: desired.path) {
+                do {
+                    try fm.createSymbolicLink(at: desired, withDestinationURL: externalIndex)
+                    logger.info("Linked BAM index \(externalIndex.lastPathComponent, privacy: .public) -> \(desired.lastPathComponent, privacy: .public)")
+                } catch {
+                    logger.warning("Failed to link BAM index: \(error.localizedDescription, privacy: .public)")
+                }
+            }
+            if fm.fileExists(atPath: desired.path) {
+                return desired
+            }
+            return externalIndex
+        }
+
+        guard let samtools = ProcessManager.shared.findExecutable(named: "samtools") else {
+            logger.warning("Cannot generate BAM index: samtools not found")
+            return nil
+        }
+
+        let proc = Process()
+        proc.executableURL = samtools
+        proc.arguments = ["index", bamURL.path]
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        do {
+            try proc.run()
+            proc.waitUntilExit()
+        } catch {
+            logger.warning("samtools index failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+
+        if fm.fileExists(atPath: adjacentBAI.path) { return adjacentBAI }
+        if fm.fileExists(atPath: adjacentCSI.path) { return adjacentCSI }
+        return nil
     }
 
     /// Parses BAM reference lengths from samtools idxstats output.
     private func parseBamReferenceLengths(bamURL: URL) {
+        guard ProcessManager.shared.findExecutable(named: "samtools") != nil else {
+            logger.warning("Cannot parse BAM references: samtools not found")
+            return
+        }
         let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/local/bin/samtools")
+        proc.executableURL = ProcessManager.shared.findExecutable(named: "samtools")
         proc.arguments = ["idxstats", bamURL.path]
         let pipe = Pipe()
         proc.standardOutput = pipe
-        proc.standardError = FileHandle.nullDevice
+        let errorPipe = Pipe()
+        proc.standardError = errorPipe
 
         do {
             try proc.run()
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             proc.waitUntilExit()
+            guard proc.terminationStatus == 0 else {
+                let stderrData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+                logger.warning("samtools idxstats failed: \(stderr, privacy: .public)")
+                return
+            }
 
             if let output = String(data: data, encoding: .utf8) {
                 for line in output.components(separatedBy: .newlines) {
                     let cols = line.components(separatedBy: "\t")
-                    guard cols.count >= 3 else { continue }
-                    let ref = cols[0]
+                    guard cols.count >= 4 else { continue }
+                    let ref = cols[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !ref.isEmpty, ref != "*" else { continue }
                     if let length = Int(cols[1]), length > 0 {
                         accessionLengths[ref] = length
+                    }
+                    if let mappedReads = Int(cols[2]) {
+                        accessionMappedReadCounts[ref] = mappedReads
                     }
                 }
             }
             let refCount = self.accessionLengths.count
-            logger.info("Parsed BAM references: \(refCount) contigs")
+            logger.info("Parsed BAM references: \(refCount) contigs, mapped-read stats for \(self.accessionMappedReadCounts.count) contigs")
         } catch {
             logger.warning("Failed to parse BAM references: \(error.localizedDescription)")
         }
@@ -610,9 +1034,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         // Table selection -> action bar update + BAM viewer update
         organismTableView.onRowSelected = { [weak self] row in
             guard let self else { return }
+            self.selectedOrganismName = row?.organism
+            self.selectedReadCount = row?.reads
             self.actionBar.updateSelection(
                 organismName: row?.organism,
-                readCount: row?.reads
+                readCount: row?.reads,
+                uniqueReadCount: row?.uniqueReads
             )
 
             // Load BAM alignments for the selected organism.
@@ -620,17 +1047,27 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             // not organism names. Use the gcfmapping to translate.
             if let row, let bamURL = self.bamURL {
                 let organismName = row.organism
-                if let accessions = self.organismToAccessions[organismName],
-                   let primaryAccession = accessions.first,
-                   let contigLength = self.accessionLengths[primaryAccession] {
-                    self.miniBAMController?.displayContig(
-                        bamURL: bamURL,
-                        contig: primaryAccession,
-                        contigLength: contigLength
-                    )
-                    // Switch to Alignments tab automatically
-                    self.leftTabView.selectedSegment = 0
-                    self.leftTabChanged(self.leftTabView)
+                if let accessions = self.accessions(for: row),
+                   let primaryAccession = accessions.first {
+                    if self.accessionLengths[primaryAccession] == nil {
+                        self.parseBamReferenceLengths(bamURL: bamURL)
+                    }
+                    if let contigLength = self.accessionLengths[primaryAccession] {
+                        let referenceSequence = self.referenceSequence(for: primaryAccession)
+                        self.miniBAMController?.displayContig(
+                            bamURL: bamURL,
+                            contig: primaryAccession,
+                            contigLength: contigLength,
+                            indexURL: self.bamIndexURL,
+                            referenceSequence: referenceSequence
+                        )
+                        // Switch to Alignments tab automatically
+                        self.leftTabView.selectedSegment = 0
+                        self.leftTabChanged(self.leftTabView)
+                    } else {
+                        self.miniBAMController?.clear()
+                        logger.debug("No reference length for accession: \(primaryAccession, privacy: .public)")
+                    }
                 } else {
                     self.miniBAMController?.clear()
                     logger.debug("No accession mapping for organism: \(organismName, privacy: .public)")
@@ -788,7 +1225,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         var lines: [String] = []
 
         let headers = [
-            "Organism", "TASS Score", "Reads", "Coverage", "Confidence",
+            "Organism", "TASS Score", "Reads", "Unique Reads", "Coverage", "Confidence",
             "Tax ID", "Rank", "Abundance",
         ]
         lines.append(headers.joined(separator: separator))
@@ -798,6 +1235,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             fields.append(escapeField(row.organism, separator: separator))
             fields.append(String(format: "%.4f", row.tassScore))
             fields.append("\(row.reads)")
+            fields.append(row.uniqueReads.map(String.init) ?? "")
             fields.append(row.coverage.map { String(format: "%.2f", $0) } ?? "")
             fields.append(row.confidence ?? "")
             fields.append(row.taxId.map { "\($0)" } ?? "")
@@ -905,6 +1343,9 @@ struct TaxTriageTableRow: Equatable {
     /// Number of reads assigned to this organism.
     let reads: Int
 
+    /// Number of reads remaining after PCR-duplicate masking/removal.
+    let uniqueReads: Int?
+
     /// Coverage breadth percentage (0.0 to 100.0), if available.
     let coverage: Double?
 
@@ -919,6 +1360,20 @@ struct TaxTriageTableRow: Equatable {
 
     /// Relative abundance (0.0 to 1.0), if available.
     let abundance: Double?
+
+    func with(uniqueReads: Int?) -> TaxTriageTableRow {
+        TaxTriageTableRow(
+            organism: organism,
+            tassScore: tassScore,
+            reads: reads,
+            uniqueReads: uniqueReads,
+            coverage: coverage,
+            confidence: confidence,
+            taxId: taxId,
+            rank: rank,
+            abundance: abundance
+        )
+    }
 }
 
 
@@ -937,6 +1392,7 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
         static let organism = NSUserInterfaceItemIdentifier("organism")
         static let tassScore = NSUserInterfaceItemIdentifier("tassScore")
         static let reads = NSUserInterfaceItemIdentifier("reads")
+        static let uniqueReads = NSUserInterfaceItemIdentifier("uniqueReads")
         static let coverage = NSUserInterfaceItemIdentifier("coverage")
         static let confidence = NSUserInterfaceItemIdentifier("confidence")
     }
@@ -946,8 +1402,14 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
     /// The rows to display, sorted by the active sort descriptor.
     var rows: [TaxTriageTableRow] = [] {
         didSet {
+            let previousSelectionKeys = selectedRowKeys()
+            let shouldRestoreFocus = tableHasKeyboardFocus
             sortedRows = sortRows(rows)
             tableView.reloadData()
+            restoreSelection(using: previousSelectionKeys)
+            if shouldRestoreFocus {
+                tableView.window?.makeFirstResponder(tableView)
+            }
         }
     }
 
@@ -974,6 +1436,15 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
 
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
+
+    private var tableHasKeyboardFocus: Bool {
+        guard let firstResponder = window?.firstResponder else { return false }
+        if firstResponder === tableView { return true }
+        if let view = firstResponder as? NSView {
+            return view.isDescendant(of: tableView)
+        }
+        return false
+    }
 
     // MARK: - Initialization
 
@@ -1021,6 +1492,15 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
         readsCol.maxWidth = 120
         readsCol.sortDescriptorPrototype = NSSortDescriptor(key: "reads", ascending: false)
         tableView.addTableColumn(readsCol)
+
+        // Deduplicated reads column
+        let uniqueReadsCol = NSTableColumn(identifier: ColumnID.uniqueReads)
+        uniqueReadsCol.title = "Unique Reads"
+        uniqueReadsCol.width = 90
+        uniqueReadsCol.minWidth = 70
+        uniqueReadsCol.maxWidth = 140
+        uniqueReadsCol.sortDescriptorPrototype = NSSortDescriptor(key: "uniqueReads", ascending: false)
+        tableView.addTableColumn(uniqueReadsCol)
 
         // Coverage column
         let coverageCol = NSTableColumn(identifier: ColumnID.coverage)
@@ -1083,6 +1563,30 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
         tableView.menu = menu
     }
 
+    private func selectedRowKeys() -> [String] {
+        let indexes = tableView.selectedRowIndexes
+        guard !indexes.isEmpty else { return [] }
+        return indexes.compactMap { index in
+            guard index >= 0, index < sortedRows.count else { return nil }
+            return rowSelectionKey(for: sortedRows[index])
+        }
+    }
+
+    private func restoreSelection(using keys: [String]) {
+        guard !keys.isEmpty else { return }
+        let firstKey = keys[0]
+        guard let newIndex = sortedRows.firstIndex(where: { rowSelectionKey(for: $0) == firstKey }) else {
+            return
+        }
+        tableView.selectRowIndexes(IndexSet(integer: newIndex), byExtendingSelection: false)
+        tableView.scrollRowToVisible(newIndex)
+    }
+
+    private func rowSelectionKey(for row: TaxTriageTableRow) -> String {
+        let tax = row.taxId.map(String.init) ?? "-"
+        return "\(tax)|\(row.organism.lowercased())"
+    }
+
     @objc private func contextBlastAction(_ sender: Any) {
         let row = tableView.clickedRow
         guard row >= 0, row < sortedRows.count else { return }
@@ -1112,6 +1616,8 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
                 result = a.tassScore < b.tassScore
             case "reads":
                 result = a.reads < b.reads
+            case "uniqueReads":
+                result = (a.uniqueReads ?? -1) < (b.uniqueReads ?? -1)
             case "coverage":
                 result = (a.coverage ?? 0) < (b.coverage ?? 0)
             case "confidence":
@@ -1150,6 +1656,13 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
         case ColumnID.reads:
             let text = Self.countFormatter.string(from: NSNumber(value: item.reads)) ?? "\(item.reads)"
             return makeLabelCell(text: text, monospaced: true)
+
+        case ColumnID.uniqueReads:
+            if let uniqueReads = item.uniqueReads {
+                let text = Self.countFormatter.string(from: NSNumber(value: uniqueReads)) ?? "\(uniqueReads)"
+                return makeLabelCell(text: text, monospaced: true)
+            }
+            return makeLabelCell(text: "\u{2014}", dimmed: true)
 
         case ColumnID.coverage:
             if let coverage = item.coverage {
@@ -1418,13 +1931,18 @@ final class TaxTriageActionBar: NSView {
     }
 
     /// Updates the info label with the selected organism details.
-    func updateSelection(organismName: String?, readCount: Int?) {
+    func updateSelection(organismName: String?, readCount: Int?, uniqueReadCount: Int?) {
         if let name = organismName, let count = readCount {
             let formatter = NumberFormatter()
             formatter.numberStyle = .decimal
             formatter.groupingSeparator = ","
             let readStr = formatter.string(from: NSNumber(value: count)) ?? "\(count)"
-            infoLabel.stringValue = "\(name) \u{2014} \(readStr) reads"
+            if let uniqueReadCount {
+                let uniqueStr = formatter.string(from: NSNumber(value: uniqueReadCount)) ?? "\(uniqueReadCount)"
+                infoLabel.stringValue = "\(name) \u{2014} \(readStr) reads (\(uniqueStr) unique)"
+            } else {
+                infoLabel.stringValue = "\(name) \u{2014} \(readStr) reads"
+            }
             infoLabel.textColor = .labelColor
         } else {
             infoLabel.stringValue = "Select an organism to view details"

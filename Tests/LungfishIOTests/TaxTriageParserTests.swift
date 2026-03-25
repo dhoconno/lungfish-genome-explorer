@@ -479,6 +479,42 @@ final class TaxTriageParserTests: XCTestCase {
         XCTAssertNil(metrics[0].confidence)
     }
 
+    func testParseMetricsFromTaxTriageConfidenceReport() throws {
+        let tsv = """
+        Index\tDetected Organism\t# Reads Aligned\tCoverage\tTaxonomic ID #\tK2 Reads\tTASS Score\tStatus
+        0\t★ WU Polyomavirus°\t693\t0.94\t440266\t688\t1.0\testablished
+        1\tHuman mastadenovirus F\t518\t0.17\t130309\t299\t0.86\testablished
+        """
+
+        let metrics = try TaxTriageMetricsParser.parse(tsv: tsv)
+        XCTAssertEqual(metrics.count, 2)
+
+        XCTAssertEqual(metrics[0].organism, "WU Polyomavirus")
+        XCTAssertEqual(metrics[0].reads, 693)
+        XCTAssertEqual(metrics[0].coverageBreadth, 94.0)
+        XCTAssertEqual(metrics[0].taxId, 440266)
+        XCTAssertEqual(metrics[0].tassScore, 1.0)
+        XCTAssertEqual(metrics[0].confidence, "established")
+
+        XCTAssertEqual(metrics[1].organism, "Human mastadenovirus F")
+        XCTAssertEqual(metrics[1].reads, 518)
+        XCTAssertEqual(metrics[1].coverageBreadth, 17.0)
+        XCTAssertEqual(metrics[1].taxId, 130309)
+        XCTAssertEqual(metrics[1].tassScore, 0.86)
+    }
+
+    func testParseMetricsRepairsInfluenzaLeadingCharacterDrop() throws {
+        let tsv = """
+        Index\tDetected Organism\t# Reads Aligned\tCoverage\tTaxonomic ID #\tK2 Reads\tTASS Score\tStatus
+        0\t★ nfluenza B virus (B/Lee/40)°\t9\t0.03\t518987\t0\t0.29\testablished
+        """
+
+        let metrics = try TaxTriageMetricsParser.parse(tsv: tsv)
+        XCTAssertEqual(metrics.count, 1)
+        XCTAssertEqual(metrics[0].organism, "Influenza B virus (B/Lee/40)")
+        XCTAssertEqual(metrics[0].taxId, 518987)
+    }
+
     func testParseMetricsLineNumbers() throws {
         let tsv = """
         organism\ttass_score

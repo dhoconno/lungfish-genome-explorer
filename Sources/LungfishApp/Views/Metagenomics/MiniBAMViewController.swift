@@ -12,6 +12,7 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "MiniBAM")
 /// Drag handle used to resize the embedded mini-BAM viewport vertically.
 private final class MiniBAMResizeHandleView: NSView {
     var onDragDeltaY: ((CGFloat) -> Void)?
+    var onDragEnded: (() -> Void)?
     private var lastWindowPoint: NSPoint?
 
     override var isFlipped: Bool { true }
@@ -29,27 +30,27 @@ private final class MiniBAMResizeHandleView: NSView {
     override func mouseDragged(with event: NSEvent) {
         guard let lastWindowPoint else { return }
         let next = event.locationInWindow
-        // Window Y increases upward; dragging down should increase BAM height.
-        let deltaY = -(next.y - lastWindowPoint.y)
+        // Match app-standard divider behavior: dragging up increases height.
+        let deltaY = next.y - lastWindowPoint.y
         onDragDeltaY?(deltaY)
         self.lastWindowPoint = next
     }
 
     override func mouseUp(with event: NSEvent) {
         lastWindowPoint = nil
+        onDragEnded?()
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.separatorColor.withAlphaComponent(0.35).setFill()
-        NSBezierPath(rect: bounds).fill()
+        // Match other app divider visuals: 1px separator + subtle grip.
+        NSColor.separatorColor.setFill()
+        NSBezierPath.fill(NSRect(x: 0, y: 0, width: bounds.width, height: 1))
 
-        NSColor.tertiaryLabelColor.withAlphaComponent(0.8).setStroke()
-        for y in [bounds.midY - 2, bounds.midY, bounds.midY + 2] {
-            let line = NSBezierPath()
-            line.lineWidth = 1
-            line.move(to: NSPoint(x: bounds.midX - 16, y: y))
-            line.line(to: NSPoint(x: bounds.midX + 16, y: y))
-            line.stroke()
+        let cx = bounds.midX
+        let cy = bounds.midY
+        NSColor.tertiaryLabelColor.setFill()
+        for offset: CGFloat in [-2, 0, 2] {
+            NSBezierPath.fill(NSRect(x: cx - 8, y: cy + offset, width: 16, height: 0.5))
         }
     }
 }
@@ -88,9 +89,20 @@ public final class MiniBAMViewController: NSViewController {
     private var indexURL: URL?
     private var contigName: String = ""
     private var contigLength: Int = 0
+    private var allReads: [AlignedRead] = []
     private var reads: [AlignedRead] = []
+    private var allDuplicateIndices: Set<Int> = []
     private var duplicateIndices: Set<Int> = []
     private var depthPoints: [DepthPoint] = []
+    private var referenceSequence: String?
+    public private(set) var uniqueReadCount: Int = 0
+    public private(set) var pcrDuplicateReadCount: Int = 0
+    public var showsPCRDuplicates: Bool = false {
+        didSet {
+            updateDuplicateMenuState()
+            applyDuplicateVisibility(rebuildReference: false)
+        }
+    }
 
     // MARK: - Subviews
 
@@ -98,6 +110,13 @@ public final class MiniBAMViewController: NSViewController {
     private let pileupView = MiniPileupView()
     private let resizeHandleView = MiniBAMResizeHandleView()
     private let statusLabel = NSTextField(labelWithString: "")
+    private var resizeHandleHeightConstraint: NSLayoutConstraint?
+    private weak var duplicateToggleMenuItem: NSMenuItem?
+
+    private var lastKnownViewportSize: CGSize = .zero
+    private var keyMonitorToken: Any?
+    private var clipBoundsObserver: NSObjectProtocol?
+    private var clipFrameObserver: NSObjectProtocol?
 
     // MARK: - Lifecycle
 
@@ -111,19 +130,38 @@ public final class MiniBAMViewController: NSViewController {
         resizeHandleView.onDragDeltaY = { [weak self] deltaY in
             self?.onResizeBy?(deltaY)
         }
+        resizeHandleView.onDragEnded = { [weak self] in
+            guard let self else { return }
+            self.view.window?.makeFirstResponder(self.pileupView)
+        }
 
         // Context menu for the pileup view
         let menu = NSMenu()
         menu.addItem(withTitle: "Zoom In", action: #selector(zoomInAction), keyEquivalent: "+")
         menu.items.last?.keyEquivalentModifierMask = .command
+        menu.items.last?.target = self
         menu.addItem(withTitle: "Zoom Out", action: #selector(zoomOutAction), keyEquivalent: "-")
         menu.items.last?.keyEquivalentModifierMask = .command
+        menu.items.last?.target = self
         menu.addItem(withTitle: "Zoom to Fit", action: #selector(zoomToFitAction), keyEquivalent: "0")
         menu.items.last?.keyEquivalentModifierMask = .command
+        menu.items.last?.target = self
         menu.addItem(withTitle: "Center View Here", action: #selector(centerViewHereAction), keyEquivalent: "")
+        menu.items.last?.target = self
+        let duplicateToggleItem = NSMenuItem(
+            title: "Show PCR Duplicates",
+            action: #selector(togglePCRDuplicatesAction),
+            keyEquivalent: ""
+        )
+        duplicateToggleItem.target = self
+        duplicateToggleItem.state = showsPCRDuplicates ? .on : .off
+        menu.addItem(duplicateToggleItem)
+        duplicateToggleMenuItem = duplicateToggleItem
         menu.addItem(.separator())
         menu.addItem(withTitle: "Copy Read Sequence (FASTQ)", action: #selector(copyReadFASTQ), keyEquivalent: "")
+        menu.items.last?.target = self
         menu.addItem(withTitle: "Copy Read Name", action: #selector(copyReadName), keyEquivalent: "")
+        menu.items.last?.target = self
         pileupView.menu = menu
 
         // Wire the pileup view's click handler for read selection
@@ -133,6 +171,23 @@ public final class MiniBAMViewController: NSViewController {
         pileupView.onZoomInRequested = { [weak self] in self?.zoomIn() }
         pileupView.onZoomOutRequested = { [weak self] in self?.zoomOut() }
         pileupView.onZoomToFitRequested = { [weak self] in self?.zoomToFit() }
+    }
+
+    public override func viewWillAppear() {
+        super.viewWillAppear()
+        installClipViewObserversIfNeeded()
+        installLocalKeyMonitorIfNeeded()
+    }
+
+    public override func viewDidDisappear() {
+        super.viewDidDisappear()
+        removeLocalKeyMonitor()
+        removeClipViewObservers()
+    }
+
+    public override func viewDidLayout() {
+        super.viewDidLayout()
+        updatePileupForViewportResizeIfNeeded()
     }
 
     /// Index of the currently selected read (for context menu operations).
@@ -156,9 +211,12 @@ public final class MiniBAMViewController: NSViewController {
     /// Optional callback used by host views to resize this mini-BAM vertically.
     public var onResizeBy: ((CGFloat) -> Void)? {
         didSet {
-            resizeHandleView.isHidden = (onResizeBy == nil)
+            updateResizeHandleVisibility()
         }
     }
+
+    /// Emits `(totalReads, uniqueReads)` whenever read stats change.
+    public var onReadStatsUpdated: ((Int, Int) -> Void)?
 
     /// Current zoom level (1.0 = fit entire contig in viewport width).
     private var zoomLevel: Double = 1.0
@@ -174,6 +232,7 @@ public final class MiniBAMViewController: NSViewController {
         scrollView.allowsMagnification = false
         scrollView.documentView = pileupView
         view.addSubview(scrollView)
+        installClipViewObserversIfNeeded()
 
         resizeHandleView.translatesAutoresizingMaskIntoConstraints = false
         resizeHandleView.isHidden = true
@@ -189,23 +248,51 @@ public final class MiniBAMViewController: NSViewController {
             scrollView.topAnchor.constraint(equalTo: view.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: resizeHandleView.topAnchor, constant: -1),
+            scrollView.bottomAnchor.constraint(equalTo: resizeHandleView.topAnchor),
 
             resizeHandleView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             resizeHandleView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            resizeHandleView.bottomAnchor.constraint(equalTo: statusLabel.topAnchor, constant: -1),
-            resizeHandleView.heightAnchor.constraint(equalToConstant: 8),
+            resizeHandleView.bottomAnchor.constraint(equalTo: statusLabel.topAnchor),
 
             statusLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 4),
             statusLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -4),
             statusLabel.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -2),
             statusLabel.heightAnchor.constraint(equalToConstant: 14),
         ])
+
+        let handleHeight = resizeHandleView.heightAnchor.constraint(equalToConstant: 0)
+        handleHeight.isActive = true
+        resizeHandleHeightConstraint = handleHeight
+        updateResizeHandleVisibility()
     }
 
     private func setupStatusLabel() {
         pileupView.subjectNoun = subjectNoun
         statusLabel.stringValue = emptyStatusText
+    }
+
+    private var currentViewportWidth: CGFloat {
+        max(scrollView.contentView.bounds.width, scrollView.bounds.width, 1)
+    }
+
+    private var currentViewportHeight: CGFloat {
+        max(scrollView.contentView.bounds.height, scrollView.bounds.height, 1)
+    }
+
+    private var topAlignedVerticalOffset: CGFloat {
+        let clipView = scrollView.contentView
+        let maxY = max(0, pileupView.frame.height - clipView.bounds.height)
+        return clipView.isFlipped ? 0 : maxY
+    }
+
+    private func updateResizeHandleVisibility() {
+        let showsHandle = (onResizeBy != nil)
+        resizeHandleView.isHidden = !showsHandle
+        resizeHandleHeightConstraint?.constant = showsHandle ? 8 : 0
+    }
+
+    private func updateDuplicateMenuState() {
+        duplicateToggleMenuItem?.state = showsPCRDuplicates ? .on : .off
     }
 
     // MARK: - Public API
@@ -233,7 +320,8 @@ public final class MiniBAMViewController: NSViewController {
     /// Applies a new zoom level and re-renders the pileup.
     private func applyZoom(_ newZoom: Double) {
         // Remember viewport center position in bp coordinates
-        let viewportWidth = scrollView.contentSize.width
+        let viewportWidth = currentViewportWidth
+        let viewportHeight = currentViewportHeight
         let scrollX = scrollView.contentView.bounds.origin.x
         let oldBpPerPx = pileupView.bpPerPixel
         let centerBp = (Double(scrollX) + Double(viewportWidth) / 2) * oldBpPerPx
@@ -247,17 +335,53 @@ public final class MiniBAMViewController: NSViewController {
             contigName: contigName,
             contigLength: contigLength,
             viewportWidth: viewportWidth,
+            viewportHeight: viewportHeight,
             zoomLevel: zoomLevel,
             rebuildReference: false
         )
+        lastKnownViewportSize = CGSize(width: viewportWidth, height: viewportHeight)
 
         // Scroll to keep the same bp position centered
         let newBpPerPx = pileupView.bpPerPixel
         let newScrollX = CGFloat(centerBp / newBpPerPx) - viewportWidth / 2
         let clampedX = max(0, min(newScrollX, pileupView.frame.width - viewportWidth))
-        scrollView.contentView.scroll(to: NSPoint(x: clampedX, y: scrollView.contentView.bounds.origin.y))
+        let topY = topAlignedVerticalOffset
+        scrollView.contentView.scroll(to: NSPoint(x: clampedX, y: topY))
         scrollView.reflectScrolledClipView(scrollView.contentView)
 
+        updateZoomStatus()
+    }
+
+    private func updatePileupForViewportResizeIfNeeded() {
+        let viewportWidth = currentViewportWidth
+        let viewportHeight = currentViewportHeight
+        let widthChanged = abs(viewportWidth - lastKnownViewportSize.width) > 0.5
+        let heightChanged = abs(viewportHeight - lastKnownViewportSize.height) > 0.5
+        guard widthChanged || heightChanged else { return }
+        let oldBpPerPx = pileupView.bpPerPixel
+        let currentScrollX = scrollView.contentView.bounds.origin.x
+        let centerBp = (Double(currentScrollX) + Double(viewportWidth) / 2) * oldBpPerPx
+        lastKnownViewportSize = CGSize(width: viewportWidth, height: viewportHeight)
+
+        guard !reads.isEmpty else { return }
+
+        pileupView.configure(
+            reads: reads,
+            duplicateIndices: duplicateIndices,
+            contigName: contigName,
+            contigLength: contigLength,
+            viewportWidth: viewportWidth,
+            viewportHeight: viewportHeight,
+            zoomLevel: zoomLevel,
+            rebuildReference: false
+        )
+
+        let newBpPerPx = pileupView.bpPerPixel
+        let newScrollX = CGFloat(centerBp / newBpPerPx) - viewportWidth / 2
+        let clampedX = max(0, min(newScrollX, pileupView.frame.width - viewportWidth))
+        let topY = topAlignedVerticalOffset
+        scrollView.contentView.scroll(to: NSPoint(x: clampedX, y: topY))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
         updateZoomStatus()
     }
 
@@ -270,10 +394,13 @@ public final class MiniBAMViewController: NSViewController {
             zoomText = String(format: "%.0f bp/px", bpPerPx)
         }
 
-        let dupCount = duplicateIndices.count
-        let uniqueCount = reads.count - dupCount
-        let dupText = dupCount > 0 ? " (\(uniqueCount) unique, \(dupCount) PCR dups)" : ""
-        statusLabel.stringValue = "\(reads.count) reads\(dupText) · \(zoomText) · ⌘+/⌘- to zoom"
+        let total = allReads.count
+        let unique = uniqueReadCount
+        let dupCount = pcrDuplicateReadCount
+        let visibilitySuffix = showsPCRDuplicates ? " shown" : " hidden"
+        let dupText = dupCount > 0 ? " (\(unique) unique, \(dupCount) PCR dups\(visibilitySuffix))" : ""
+        statusLabel.stringValue = "\(total) reads\(dupText) · \(zoomText) · ⌘+/⌘- to zoom"
+        onReadStatsUpdated?(total, unique)
     }
 
     /// Loads and displays reads for a specific viral contig from the BAM file.
@@ -282,17 +409,42 @@ public final class MiniBAMViewController: NSViewController {
     ///   - bamURL: Path to the sorted, indexed BAM file.
     ///   - contig: The viral contig accession to display.
     ///   - contigLength: Length of the reference contig in base pairs.
-    public func displayContig(bamURL: URL, contig: String, contigLength: Int) {
+    ///   - indexURL: Optional explicit index path (.bai/.csi).
+    ///   - referenceSequence: Optional reference sequence for this contig.
+    public func displayContig(
+        bamURL: URL,
+        contig: String,
+        contigLength: Int,
+        indexURL: URL? = nil,
+        referenceSequence: String? = nil
+    ) {
         self.bamURL = bamURL
         self.contigName = contig
         self.contigLength = contigLength
+        self.referenceSequence = referenceSequence
 
-        let indexPath = bamURL.path + ".bai"
-        guard FileManager.default.fileExists(atPath: indexPath) else {
+        let fm = FileManager.default
+        let resolvedIndexPath: String? = {
+            if let indexURL, fm.fileExists(atPath: indexURL.path) {
+                return indexURL.path
+            }
+            let baiPath = bamURL.path + ".bai"
+            if fm.fileExists(atPath: baiPath) {
+                return baiPath
+            }
+            let csiPath = bamURL.path + ".csi"
+            if fm.fileExists(atPath: csiPath) {
+                return csiPath
+            }
+            return nil
+        }()
+
+        guard let indexPath = resolvedIndexPath else {
             statusLabel.stringValue = "BAM index not found"
-            logger.warning("BAM index not found at \(indexPath)")
+            logger.warning("BAM index not found for \(bamURL.lastPathComponent, privacy: .public)")
             return
         }
+        self.indexURL = URL(fileURLWithPath: indexPath)
 
         let provider = AlignmentDataProvider(
             alignmentPath: bamURL.path,
@@ -309,26 +461,17 @@ public final class MiniBAMViewController: NSViewController {
                     maxReads: 5000
                 )
 
-                self.reads = fetchedReads
-                self.detectDuplicates()
-                self.updatePileup()
-                self.view.window?.makeFirstResponder(self.pileupView)
+                self.allReads = fetchedReads
+                self.allDuplicateIndices = self.detectDuplicates(in: fetchedReads)
+                self.pcrDuplicateReadCount = self.allDuplicateIndices.count
+                self.uniqueReadCount = max(0, fetchedReads.count - self.pcrDuplicateReadCount)
+                self.applyDuplicateVisibility(rebuildReference: true)
 
-                // Scroll to TOP of pileup (where most reads are concentrated)
-                // so the user sees the highest-coverage region first
-                self.scrollView.magnification = 1.0
-                if let docView = self.scrollView.documentView {
-                    let topPoint = NSPoint(x: 0, y: docView.frame.height - self.scrollView.contentSize.height)
-                    self.scrollView.contentView.scroll(to: topPoint)
-                }
+                // Keep the coverage/reference tracks pinned at the top of the viewport.
+                self.scrollToTop()
+                self.updateZoomStatus()
 
-                let dupCount = self.duplicateIndices.count
-                let uniqueCount = fetchedReads.count - dupCount
-                let dupText = dupCount > 0 ? " (\(uniqueCount) unique, \(dupCount) PCR duplicates)" : ""
-                let zoomHint = fetchedReads.count > 0 ? " · ⌘+/⌘- to zoom" : ""
-                self.statusLabel.stringValue = "\(fetchedReads.count) reads\(dupText)\(zoomHint)"
-
-                logger.info("Loaded \(fetchedReads.count) reads for \(contig, privacy: .public), \(dupCount) potential duplicates")
+                logger.info("Loaded \(fetchedReads.count) reads for \(contig, privacy: .public), \(self.pcrDuplicateReadCount) potential duplicates")
             } catch {
                 self.statusLabel.stringValue = "Failed to load reads: \(error.localizedDescription)"
                 logger.error("Failed to fetch reads for \(contig, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -344,6 +487,20 @@ public final class MiniBAMViewController: NSViewController {
         guard modifiers.contains(.command) else { return false }
         let disallowed: NSEvent.ModifierFlags = [.control, .option, .function]
         guard modifiers.intersection(disallowed).isEmpty else { return false }
+
+        switch event.keyCode {
+        case 24, 69:  // =/+ main + keypad
+            zoomIn()
+            return true
+        case 27, 78:  // - main + keypad
+            zoomOut()
+            return true
+        case 29, 82:  // 0 main + keypad
+            zoomToFit()
+            return true
+        default:
+            break
+        }
 
         switch event.charactersIgnoringModifiers {
         case "+", "=":
@@ -367,19 +524,119 @@ public final class MiniBAMViewController: NSViewController {
         super.keyDown(with: event)
     }
 
+    public override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if handleZoomShortcut(event) {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     // Make sure we can become first responder for keyboard events
     public override var acceptsFirstResponder: Bool { true }
+
+    private func installLocalKeyMonitorIfNeeded() {
+        guard keyMonitorToken == nil else { return }
+        keyMonitorToken = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            guard self.shouldHandleLocalZoomShortcut(event) else { return event }
+            if self.handleZoomShortcut(event) {
+                return nil
+            }
+            return event
+        }
+    }
+
+    private func removeLocalKeyMonitor() {
+        guard let keyMonitorToken else { return }
+        NSEvent.removeMonitor(keyMonitorToken)
+        self.keyMonitorToken = nil
+    }
+
+    private func installClipViewObserversIfNeeded() {
+        guard clipBoundsObserver == nil, clipFrameObserver == nil else { return }
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        scrollView.contentView.postsFrameChangedNotifications = true
+
+        clipBoundsObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.updatePileupForViewportResizeIfNeeded()
+            }
+        }
+        clipFrameObserver = NotificationCenter.default.addObserver(
+            forName: NSView.frameDidChangeNotification,
+            object: scrollView.contentView,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.updatePileupForViewportResizeIfNeeded()
+            }
+        }
+    }
+
+    private func removeClipViewObservers() {
+        if let clipBoundsObserver {
+            NotificationCenter.default.removeObserver(clipBoundsObserver)
+            self.clipBoundsObserver = nil
+        }
+        if let clipFrameObserver {
+            NotificationCenter.default.removeObserver(clipFrameObserver)
+            self.clipFrameObserver = nil
+        }
+    }
+
+    private var isVisibleInHierarchy: Bool {
+        guard isViewLoaded, view.window != nil else { return false }
+        var node: NSView? = view
+        while let current = node {
+            if current.isHidden || current.alphaValue <= 0.01 {
+                return false
+            }
+            node = current.superview
+        }
+        return true
+    }
+
+    private func shouldHandleLocalZoomShortcut(_ event: NSEvent) -> Bool {
+        guard let window = view.window else { return false }
+        guard window == event.window, window.isKeyWindow else { return false }
+        guard isVisibleInHierarchy else { return false }
+        // Keep working even when focus moved to the split view/clip view after drag interactions.
+        if responderIsWithinMiniBAM(window.firstResponder) {
+            return true
+        }
+        return window.firstResponder === window
+    }
+
+    private func responderIsWithinMiniBAM(_ responder: NSResponder?) -> Bool {
+        guard let rootView = viewIfLoaded else { return false }
+        var current: NSResponder? = responder
+        while let responder = current {
+            if let responderView = responder as? NSView, responderView.isDescendant(of: rootView) {
+                return true
+            }
+            current = responder.nextResponder
+        }
+        return false
+    }
 
     // MARK: - Context Menu Actions
 
     @objc private func zoomInAction() { zoomIn() }
     @objc private func zoomOutAction() { zoomOut() }
     @objc private func zoomToFitAction() { zoomToFit() }
+    @objc private func togglePCRDuplicatesAction() {
+        showsPCRDuplicates.toggle()
+    }
+
     @objc private func centerViewHereAction() {
         guard let clickPoint = pileupView.lastContextClickPoint else { return }
-        let viewportWidth = scrollView.contentSize.width
+        let viewportWidth = currentViewportWidth
         let targetX = clickPoint.x - viewportWidth / 2
-        let clampedX = max(0, min(targetX, pileupView.bounds.width - viewportWidth))
+        let clampedX = max(0, min(targetX, pileupView.frame.width - viewportWidth))
         scrollView.contentView.scroll(to: NSPoint(x: clampedX, y: scrollView.contentView.bounds.origin.y))
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
@@ -403,11 +660,19 @@ public final class MiniBAMViewController: NSViewController {
 
     /// Clears the current display.
     public func clear() {
+        allReads = []
         reads = []
+        allDuplicateIndices = []
         duplicateIndices = []
         depthPoints = []
+        uniqueReadCount = 0
+        pcrDuplicateReadCount = 0
+        referenceSequence = nil
+        updateDuplicateMenuState()
         pileupView.clear()
         statusLabel.stringValue = emptyStatusText
+        onReadStatsUpdated?(0, 0)
+        lastKnownViewportSize = CGSize(width: currentViewportWidth, height: currentViewportHeight)
     }
 
     // MARK: - Duplicate Detection
@@ -417,8 +682,8 @@ public final class MiniBAMViewController: NSViewController {
     /// The FIRST read in each position group is kept as the "real" read.
     /// Subsequent reads at the same position are marked as potential duplicates
     /// and rendered at 50% opacity in orange.
-    private func detectDuplicates() {
-        duplicateIndices = []
+    private func detectDuplicates(in reads: [AlignedRead]) -> Set<Int> {
+        var duplicates: Set<Int> = []
 
         // Group reads by (start, end, strand) — same position AND strand = likely PCR dup
         var positionGroups: [String: [Int]] = [:]
@@ -431,24 +696,67 @@ public final class MiniBAMViewController: NSViewController {
         // Mark all reads EXCEPT the first in each group as duplicates
         for (_, indices) in positionGroups where indices.count > 1 {
             for idx in indices.dropFirst() {
-                duplicateIndices.insert(idx)
+                duplicates.insert(idx)
             }
         }
+        return duplicates
+    }
+
+    private func applyDuplicateVisibility(rebuildReference: Bool) {
+        if showsPCRDuplicates {
+            reads = allReads
+            // Duplicate indices are defined against all reads, which is now the displayed set.
+            duplicateIndices = allDuplicateIndices
+        } else {
+            reads = allReads.enumerated().compactMap { index, read in
+                allDuplicateIndices.contains(index) ? nil : read
+            }
+            duplicateIndices = []
+        }
+
+        if rebuildReference {
+            updatePileup()
+        } else {
+            pileupView.configure(
+                reads: reads,
+                duplicateIndices: duplicateIndices,
+                contigName: contigName,
+                contigLength: contigLength,
+                viewportWidth: currentViewportWidth,
+                viewportHeight: currentViewportHeight,
+                zoomLevel: zoomLevel,
+                rebuildReference: false
+            )
+        }
+
+        updateZoomStatus()
+    }
+
+    private func scrollToTop() {
+        let topY = topAlignedVerticalOffset
+        scrollView.contentView.scroll(to: NSPoint(x: scrollView.contentView.bounds.origin.x, y: topY))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     // MARK: - Pileup Update
 
     private func updatePileup() {
+        let viewportWidth = currentViewportWidth
+        let viewportHeight = currentViewportHeight
         pileupView.configure(
             reads: reads,
             duplicateIndices: duplicateIndices,
             contigName: contigName,
             contigLength: contigLength,
-            viewportWidth: scrollView.contentSize.width,
+            viewportWidth: viewportWidth,
+            viewportHeight: viewportHeight,
             zoomLevel: zoomLevel,
-            rebuildReference: true
+            rebuildReference: true,
+            referenceSequence: referenceSequence
         )
+        lastKnownViewportSize = CGSize(width: viewportWidth, height: viewportHeight)
     }
+
 }
 
 // MARK: - MiniPileupView
@@ -505,15 +813,21 @@ final class MiniPileupView: NSView {
         contigName: String,
         contigLength: Int,
         viewportWidth: CGFloat,
+        viewportHeight: CGFloat,
         zoomLevel: Double = 1.0,
-        rebuildReference: Bool = false
+        rebuildReference: Bool = false,
+        referenceSequence: String? = nil
     ) {
         self.reads = reads
         self.duplicateIndices = duplicateIndices
         self.contigName = contigName
         self.contigLength = contigLength
         if rebuildReference {
-            inferredReferenceBases = inferReferenceBases()
+            if let referenceSequence, !referenceSequence.isEmpty {
+                inferredReferenceBases = Self.referenceBaseMap(from: referenceSequence)
+            } else {
+                inferredReferenceBases = inferReferenceBases()
+            }
         }
 
         // Compute bp/px: at zoom=1.0, entire contig fits in viewport.
@@ -529,9 +843,19 @@ final class MiniPileupView: NSView {
         let pileupHeight = CGFloat(packedRows.count) * (readHeight + readGap)
             + depthTrackHeight + referenceTrackGap + referenceTrackHeight + topMargin * 2
         let contentWidth = max(viewportWidth, CGFloat(Double(contigLength) / bpPerPixel) + leftMargin * 2)
-        frame = NSRect(x: 0, y: 0, width: contentWidth, height: max(200, pileupHeight))
+        let contentHeight = max(200, pileupHeight, viewportHeight)
+        frame = NSRect(x: 0, y: 0, width: contentWidth, height: contentHeight)
 
         needsDisplay = true
+    }
+
+    private static func referenceBaseMap(from sequence: String) -> [Int: Character] {
+        var bases: [Int: Character] = [:]
+        bases.reserveCapacity(sequence.count)
+        for (index, base) in sequence.uppercased().enumerated() {
+            bases[index] = base
+        }
+        return bases
     }
 
     func clear() {
@@ -768,15 +1092,22 @@ final class MiniPileupView: NSView {
 
         // At high zoom: draw individual base letters on the read
         let effectiveBpPerPx = bpPerPixel / max(1, Double(window?.backingScaleFactor ?? 1))
+        let hasReferenceBases = !inferredReferenceBases.isEmpty
         if effectiveBpPerPx < 0.5 {
             // Ultra-zoom: draw full sequence bases
             drawBaseLetters(read: read, startX: startX, y: y)
-            if let mdTag = read.mdTag {
+            if hasReferenceBases {
+                drawReferenceDifferences(read: read, readRect: readRect, y: y, style: .baseLevel)
+            } else if let mdTag = read.mdTag {
                 drawMismatchesFromMD(read: read, mdTag: mdTag, readRect: readRect, y: y, style: .outline)
             }
-        } else if bpPerPixel < 5, let mdTag = read.mdTag {
+        } else if bpPerPixel < 8 {
             // Medium zoom: draw mismatches as colored ticks.
-            drawMismatchesFromMD(read: read, mdTag: mdTag, readRect: readRect, y: y, style: .fillTick)
+            if hasReferenceBases {
+                drawReferenceDifferences(read: read, readRect: readRect, y: y, style: .compact)
+            } else if let mdTag = read.mdTag {
+                drawMismatchesFromMD(read: read, mdTag: mdTag, readRect: readRect, y: y, style: .fillTick)
+            }
         }
 
         // Draw soft-clip indicators from CIGAR
@@ -838,6 +1169,11 @@ final class MiniPileupView: NSView {
         case outline
     }
 
+    private enum ReferenceDifferenceStyle {
+        case compact
+        case baseLevel
+    }
+
     private func drawMismatchesFromMD(
         read: AlignedRead,
         mdTag: String,
@@ -883,7 +1219,13 @@ final class MiniPileupView: NSView {
 
                     let color = baseColor(for: readBase)
 
-                    let tickWidth = max(1, CGFloat(1 / bpPerPixel))
+                    let tickWidth: CGFloat
+                    switch style {
+                    case .fillTick:
+                        tickWidth = max(2, CGFloat(1 / bpPerPixel))
+                    case .outline:
+                        tickWidth = max(1, CGFloat(1 / bpPerPixel))
+                    }
                     let tickRect = NSRect(x: mismatchX, y: y, width: max(1, tickWidth), height: readHeight)
                     switch style {
                     case .fillTick:
@@ -901,6 +1243,50 @@ final class MiniPileupView: NSView {
                 i = mdTag.index(after: i)
             } else {
                 i = mdTag.index(after: i)
+            }
+        }
+    }
+
+    private func drawReferenceDifferences(
+        read: AlignedRead,
+        readRect: NSRect,
+        y: CGFloat,
+        style: ReferenceDifferenceStyle
+    ) {
+        let readBases = Array(read.sequence.uppercased())
+        guard !readBases.isEmpty else { return }
+        let queryByReference = buildReferenceToQueryIndexMap(for: read)
+        guard !queryByReference.isEmpty else { return }
+
+        for (refPos, queryOffset) in queryByReference {
+            guard queryOffset >= 0, queryOffset < readBases.count else { continue }
+            guard let referenceBase = inferredReferenceBases[refPos], referenceBase != "N" else { continue }
+
+            let readBase = readBases[queryOffset]
+            guard readBase != "N", readBase != referenceBase else { continue }
+
+            let mismatchX = leftMargin + CGFloat(Double(refPos) / bpPerPixel)
+            guard mismatchX >= readRect.minX - 1, mismatchX <= readRect.maxX + 1 else { continue }
+
+            let markerWidth = max(2, CGFloat(1 / bpPerPixel))
+            let markerRect = NSRect(x: mismatchX, y: y, width: max(1, markerWidth), height: readHeight)
+            let markerColor = baseColor(for: readBase)
+
+            switch style {
+            case .compact:
+                markerColor.withAlphaComponent(0.95).setFill()
+                NSBezierPath(rect: markerRect).fill()
+            case .baseLevel:
+                NSColor.systemYellow.withAlphaComponent(0.32).setFill()
+                NSBezierPath(rect: markerRect).fill()
+                let outline = NSBezierPath(
+                    roundedRect: markerRect.insetBy(dx: -0.4, dy: -0.4),
+                    xRadius: 1,
+                    yRadius: 1
+                )
+                markerColor.setStroke()
+                outline.lineWidth = 1
+                outline.stroke()
             }
         }
     }
@@ -1069,6 +1455,20 @@ final class MiniPileupView: NSView {
         let disallowed: NSEvent.ModifierFlags = [.control, .option, .function]
         guard modifiers.intersection(disallowed).isEmpty else { return false }
 
+        switch event.keyCode {
+        case 24, 69:
+            onZoomInRequested?()
+            return true
+        case 27, 78:
+            onZoomOutRequested?()
+            return true
+        case 29, 82:
+            onZoomToFitRequested?()
+            return true
+        default:
+            break
+        }
+
         switch event.charactersIgnoringModifiers {
         case "+", "=":
             onZoomInRequested?()
@@ -1089,6 +1489,13 @@ final class MiniPileupView: NSView {
             return
         }
         super.keyDown(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if handleZoomShortcut(event) {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 
     /// Finds the read index at a given point in view coordinates.
@@ -1112,9 +1519,13 @@ final class MiniPileupView: NSView {
         return nil
     }
 
+    private func pointInDocumentCoordinates(from event: NSEvent) -> NSPoint {
+        convert(event.locationInWindow, from: nil)
+    }
+
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        let point = convert(event.locationInWindow, from: nil)
+        let point = pointInDocumentCoordinates(from: event)
         if let idx = readIndex(at: point) {
             lastClickedReadIndex = idx
             onReadClicked?(idx)
@@ -1124,16 +1535,9 @@ final class MiniPileupView: NSView {
         super.mouseDown(with: event)
     }
 
-    override func rightMouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(self)
-        let point = convert(event.locationInWindow, from: nil)
-        lastContextClickPoint = point
-        lastClickedReadIndex = readIndex(at: point)
-        super.rightMouseDown(with: event)
-    }
-
     override func menu(for event: NSEvent) -> NSMenu? {
-        let point = convert(event.locationInWindow, from: nil)
+        window?.makeFirstResponder(self)
+        let point = pointInDocumentCoordinates(from: event)
         lastContextClickPoint = point
         lastClickedReadIndex = readIndex(at: point)
         return super.menu(for: event)

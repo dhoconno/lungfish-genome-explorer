@@ -163,17 +163,29 @@ public actor TaxTriagePipeline {
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> TaxTriageResult {
         let startTime = Date()
+        var profileAdjustedConfig = config
+        profileAdjustedConfig.profile = profileAdjustedConfig.profile
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if profileAdjustedConfig.profile.isEmpty {
+            profileAdjustedConfig.profile = "docker"
+        }
 
         // Phase 1: Prerequisites (0.00 -- 0.05)
         progress?(0.0, "Checking prerequisites...")
-        try config.validate()
+        try profileAdjustedConfig.validate()
+
+        let launchEnvironment = buildLaunchEnvironment()
+        if profileAdjustedConfig.profile == "docker" {
+            try await ensureDockerDaemonReady(
+                progress: progress,
+                environment: launchEnvironment
+            )
+        }
 
         let prereqs = await checkPrerequisites()
         guard prereqs.nextflowInstalled else {
             throw TaxTriagePipelineError.nextflowNotInstalled
-        }
-        guard prereqs.containerRuntimeAvailable else {
-            throw TaxTriagePipelineError.containerRuntimeNotAvailable
         }
 
         guard let nextflowPath = processManager.findExecutable(named: "nextflow") else {
@@ -181,20 +193,20 @@ public actor TaxTriagePipeline {
         }
 
         let nfVersion = prereqs.nextflowVersion ?? "unknown"
-        let rtName = prereqs.containerRuntimeName ?? "unknown"
-        logger.info("Prerequisites met: Nextflow \(nfVersion, privacy: .public), container: \(rtName, privacy: .public)")
+        let executionBackend = profileAdjustedConfig.profile
+        logger.info("Prerequisites met: Nextflow \(nfVersion, privacy: .public), backend: \(executionBackend, privacy: .public)")
 
         // Create output directory
         let fm = FileManager.default
-        if !fm.fileExists(atPath: config.outputDirectory.path) {
+        if !fm.fileExists(atPath: profileAdjustedConfig.outputDirectory.path) {
             do {
                 try fm.createDirectory(
-                    at: config.outputDirectory,
+                    at: profileAdjustedConfig.outputDirectory,
                     withIntermediateDirectories: true
                 )
             } catch {
                 throw TaxTriageConfigError.outputDirectoryCreationFailed(
-                    config.outputDirectory, error
+                    profileAdjustedConfig.outputDirectory, error
                 )
             }
         }
@@ -206,10 +218,12 @@ public actor TaxTriagePipeline {
         // Nextflow and its Docker bind mounts break on paths with spaces.
         // If the output directory or input files contain spaces, redirect
         // everything through a space-free temp directory with symlinks.
-        let needsRedirect = config.outputDirectory.path.contains(" ")
-            || config.samples.contains(where: { $0.fastq1.path.contains(" ") })
+        let needsRedirect = profileAdjustedConfig.outputDirectory.path.contains(" ")
+            || profileAdjustedConfig.samples.contains(where: {
+                $0.fastq1.path.contains(" ") || ($0.fastq2?.path.contains(" ") ?? false)
+            })
 
-        var effectiveConfig = config
+        var effectiveConfig = profileAdjustedConfig
         var tempRedirectDir: URL?
 
         if needsRedirect {
@@ -219,7 +233,7 @@ public actor TaxTriagePipeline {
             tempRedirectDir = safeDir
 
             // Create symlinks for input FASTQ files
-            let safeSamples = try config.samples.map { sample -> TaxTriageSample in
+            let safeSamples = try profileAdjustedConfig.samples.map { sample -> TaxTriageSample in
                 let safeFastq1: URL
                 if sample.fastq1.path.contains(" ") {
                     let linkName = sample.fastq1.lastPathComponent.replacingOccurrences(of: " ", with: "_")
@@ -252,18 +266,18 @@ public actor TaxTriagePipeline {
 
             effectiveConfig = TaxTriageConfig(
                 samples: safeSamples,
-                platform: config.platform,
+                platform: profileAdjustedConfig.platform,
                 outputDirectory: safeDir.appendingPathComponent("output"),
-                kraken2DatabasePath: config.kraken2DatabasePath,
-                topHitsCount: config.topHitsCount,
-                k2Confidence: config.k2Confidence,
-                rank: config.rank,
-                skipAssembly: config.skipAssembly,
-                skipKrona: config.skipKrona,
-                maxMemory: config.maxMemory,
-                maxCpus: config.maxCpus,
-                profile: config.profile,
-                revision: config.revision
+                kraken2DatabasePath: profileAdjustedConfig.kraken2DatabasePath,
+                topHitsCount: profileAdjustedConfig.topHitsCount,
+                k2Confidence: profileAdjustedConfig.k2Confidence,
+                rank: profileAdjustedConfig.rank,
+                skipAssembly: profileAdjustedConfig.skipAssembly,
+                skipKrona: profileAdjustedConfig.skipKrona,
+                maxMemory: profileAdjustedConfig.maxMemory,
+                maxCpus: profileAdjustedConfig.maxCpus,
+                profile: profileAdjustedConfig.profile,
+                revision: profileAdjustedConfig.revision
             )
 
             try fm.createDirectory(at: effectiveConfig.outputDirectory, withIntermediateDirectories: true)
@@ -299,31 +313,14 @@ public actor TaxTriagePipeline {
         let arguments = buildNextflowArguments(config: effectiveConfig)
         let logFile = config.outputDirectory.appendingPathComponent("nextflow.log")
 
-        logger.info("Executing: nextflow \(arguments.joined(separator: " "))")
-
         // Prepare environment
-        var environment = ProcessInfo.processInfo.environment
-        environment["NXF_ANSI_LOG"] = "false"
-
-        // Ensure Docker is in PATH — micromamba's restricted PATH may not
-        // include /usr/local/bin where Docker Desktop installs its CLI.
-        let currentPath = environment["PATH"] ?? ""
-        let dockerPaths = ["/usr/local/bin", "/opt/homebrew/bin"]
-        let missingPaths = dockerPaths.filter { !currentPath.contains($0) }
-        if !missingPaths.isEmpty {
-            environment["PATH"] = (missingPaths + [currentPath]).joined(separator: ":")
-        }
+        let environment = launchEnvironment
 
         // Fix spaces-in-path issue: the conda-installed Nextflow wrapper script
         // has the conda prefix hardcoded into NXF_DIST without proper quoting.
         // Patch the script to quote the NXF_DIST assignment.
         patchNextflowScript(at: nextflowPath)
         patchTaxTriageDownloadScript()
-
-        // Use a space-free home directory for Nextflow's cache
-        let nxfHome = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".nextflow")
-        environment["NXF_HOME"] = nxfHome.path
 
         // Run Nextflow via micromamba to ensure the conda environment is activated
         let condaManager = CondaManager.shared
@@ -337,7 +334,22 @@ public actor TaxTriagePipeline {
         }
 
         let micromambaArgs = ["run", "-n", nextflowEnvName, "nextflow"] + arguments
-        logger.info("Running via micromamba: \(micromambaArgs.joined(separator: " "))")
+        let launchCommand = shellCommand(executablePath: micromambaPath.path, arguments: micromambaArgs)
+        logger.info("TaxTriage launch command: \(launchCommand, privacy: .public)")
+        let launchMetadata = buildLaunchMetadata(
+            requestedConfig: profileAdjustedConfig,
+            effectiveConfig: effectiveConfig,
+            nextflowArguments: arguments,
+            launcherPath: micromambaPath.path,
+            launcherArguments: micromambaArgs,
+            workingDirectory: effectiveConfig.outputDirectory,
+            environment: environment
+        )
+        persistLaunchMetadata(
+            launchMetadata,
+            requestedOutputDirectory: profileAdjustedConfig.outputDirectory,
+            effectiveOutputDirectory: effectiveConfig.outputDirectory
+        )
 
         let handle: ProcessHandle
         do {
@@ -348,10 +360,13 @@ public actor TaxTriagePipeline {
                 environment: environment
             )
         } catch {
+            let spawnMessage = "Failed to spawn Nextflow: \(error.localizedDescription)"
+            let spawnLog = launchMetadata + "\n--- launcher error ---\n" + spawnMessage + "\n"
+            try? spawnLog.write(to: logFile, atomically: true, encoding: .utf8)
             throw TaxTriagePipelineError.pipelineFailed(
                 exitCode: -1,
-                stderr: "Failed to spawn Nextflow: \(error.localizedDescription)",
-                logFile: nil
+                stderr: spawnMessage,
+                logFile: logFile
             )
         }
 
@@ -394,7 +409,9 @@ public actor TaxTriagePipeline {
         let exitCode = await handle.waitForExit()
 
         // Write combined log
-        let combinedLog = stdoutLines.joined(separator: "\n")
+        let combinedLog = launchMetadata
+            + "\n--- stdout ---\n"
+            + stdoutLines.joined(separator: "\n")
             + "\n--- stderr ---\n"
             + stderrLines.joined(separator: "\n")
         try? combinedLog.write(to: logFile, atomically: true, encoding: .utf8)
@@ -432,7 +449,7 @@ public actor TaxTriagePipeline {
 
         // Phase 5: Collect outputs from the ORIGINAL config path (0.95 -- 1.00)
         let result = collectOutputFiles(
-            config: config,
+            config: profileAdjustedConfig,
             exitCode: exitCode,
             logFile: logFile,
             startTime: startTime
@@ -749,6 +766,181 @@ public actor TaxTriagePipeline {
             }
         }
         return nil
+    }
+
+    private func buildLaunchEnvironment() -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        environment["NXF_ANSI_LOG"] = "false"
+
+        // Ensure Docker CLI paths are available even in restricted launch envs.
+        let dockerPaths = ["/usr/local/bin", "/opt/homebrew/bin"]
+        let existingPaths = (environment["PATH"] ?? "")
+            .split(separator: ":")
+            .map(String.init)
+        var mergedPaths = existingPaths
+        for path in dockerPaths.reversed() where !mergedPaths.contains(path) {
+            mergedPaths.insert(path, at: 0)
+        }
+        environment["PATH"] = mergedPaths.joined(separator: ":")
+
+        // Keep Nextflow cache in a stable, user-space location.
+        let nxfHome = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".nextflow")
+        environment["NXF_HOME"] = nxfHome.path
+        return environment
+    }
+
+    private func ensureDockerDaemonReady(
+        progress: (@Sendable (Double, String) -> Void)?,
+        environment: [String: String]
+    ) async throws {
+        if await dockerDaemonAvailable(environment: environment) {
+            return
+        }
+
+        progress?(0.01, "Docker daemon unavailable. Launching Docker Desktop...")
+        logger.warning("Docker daemon unavailable; attempting to launch Docker Desktop")
+        _ = await launchDockerDesktop()
+
+        let timeoutSeconds: UInt64 = 90
+        let pollIntervalSeconds: UInt64 = 2
+        var waitedSeconds: UInt64 = 0
+        while waitedSeconds < timeoutSeconds {
+            try? await Task.sleep(nanoseconds: pollIntervalSeconds * 1_000_000_000)
+            waitedSeconds += pollIntervalSeconds
+            if await dockerDaemonAvailable(environment: environment) {
+                logger.info("Docker daemon became available after \(waitedSeconds, privacy: .public)s")
+                progress?(0.02, "Docker daemon ready")
+                return
+            }
+        }
+
+        throw TaxTriagePipelineError.prerequisiteFailed(
+            tool: "Docker",
+            reason: "Docker Desktop is not running or daemon is unreachable. Start Docker Desktop and retry."
+        )
+    }
+
+    private func launchDockerDesktop() async -> Bool {
+        let openPath = URL(fileURLWithPath: "/usr/bin/open")
+        do {
+            let result = try await processManager.runAndWait(
+                executable: openPath,
+                arguments: ["-g", "-a", "Docker"],
+                workingDirectory: FileManager.default.homeDirectoryForCurrentUser
+            )
+            if result.exitCode == 0 {
+                logger.info("Requested Docker Desktop launch via open -a Docker")
+                return true
+            }
+            let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            logger.warning("Failed to launch Docker Desktop (exit \(result.exitCode, privacy: .public)): \(stderr, privacy: .public)")
+            return false
+        } catch {
+            logger.warning("Failed to launch Docker Desktop: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func dockerDaemonAvailable(environment: [String: String]) async -> Bool {
+        guard let dockerPath = processManager.findExecutable(named: "docker") else {
+            logger.warning("Docker CLI executable not found in PATH")
+            return false
+        }
+        do {
+            let result = try await processManager.runAndWait(
+                executable: dockerPath,
+                arguments: ["info"],
+                workingDirectory: FileManager.default.temporaryDirectory,
+                environment: environment
+            )
+            return result.exitCode == 0
+        } catch {
+            return false
+        }
+    }
+
+    private func buildLaunchMetadata(
+        requestedConfig: TaxTriageConfig,
+        effectiveConfig: TaxTriageConfig,
+        nextflowArguments: [String],
+        launcherPath: String,
+        launcherArguments: [String],
+        workingDirectory: URL,
+        environment: [String: String]
+    ) -> String {
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let lines = [
+            "# TaxTriage launch metadata",
+            "timestamp: \(timestamp)",
+            "requested_profile: \(requestedConfig.profile)",
+            "effective_profile: \(effectiveConfig.profile)",
+            "requested_output_directory: \(requestedConfig.outputDirectory.path)",
+            "effective_output_directory: \(effectiveConfig.outputDirectory.path)",
+            "working_directory: \(workingDirectory.path)",
+            "nextflow_command: \(shellCommand(executablePath: "nextflow", arguments: nextflowArguments))",
+            "launcher_command: \(shellCommand(executablePath: launcherPath, arguments: launcherArguments))",
+            "PATH: \(environment["PATH"] ?? "")",
+            "NXF_HOME: \(environment["NXF_HOME"] ?? "")",
+            "NXF_ANSI_LOG: \(environment["NXF_ANSI_LOG"] ?? "")",
+        ]
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private func persistLaunchMetadata(
+        _ metadata: String,
+        requestedOutputDirectory: URL,
+        effectiveOutputDirectory: URL
+    ) {
+        let fm = FileManager.default
+        var directories = [requestedOutputDirectory]
+        if effectiveOutputDirectory.path != requestedOutputDirectory.path {
+            directories.append(effectiveOutputDirectory)
+        }
+
+        for directory in directories {
+            do {
+                if !fm.fileExists(atPath: directory.path) {
+                    try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+                }
+                let txtURL = directory.appendingPathComponent("taxtriage-launch-command.txt")
+                try metadata.write(to: txtURL, atomically: true, encoding: .utf8)
+
+                let launcherCommandLine = metadata
+                    .components(separatedBy: .newlines)
+                    .first(where: { $0.hasPrefix("launcher_command: ") })
+                    .map { String($0.dropFirst("launcher_command: ".count)) } ?? ""
+                let script = """
+                #!/usr/bin/env bash
+                set -euo pipefail
+                cd \(shellQuote(directory.path))
+                \(launcherCommandLine)
+                """
+                let shURL = directory.appendingPathComponent("taxtriage-launch-command.sh")
+                try script.write(to: shURL, atomically: true, encoding: .utf8)
+                try? fm.setAttributes(
+                    [.posixPermissions: 0o755],
+                    ofItemAtPath: shURL.path
+                )
+            } catch {
+                logger.warning("Failed to persist TaxTriage launch metadata in \(directory.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    private nonisolated func shellCommand(executablePath: String, arguments: [String]) -> String {
+        ([executablePath] + arguments).map(shellQuote).joined(separator: " ")
+    }
+
+    private nonisolated func shellQuote(_ value: String) -> String {
+        if value.isEmpty {
+            return "''"
+        }
+        let safeChars = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_./-=:")
+        if value.unicodeScalars.allSatisfy({ safeChars.contains($0) }) {
+            return value
+        }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 }
 
