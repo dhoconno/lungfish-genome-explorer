@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 
 // MARK: - TaxTriageConfig
 
@@ -331,6 +332,11 @@ public struct TaxTriageSample: Sendable, Codable, Equatable, Identifiable {
     /// backward compatibility with previously serialized configs.
     public var isNegativeControl: Bool
 
+    /// Structured sample metadata, loaded from the FASTQ bundle's metadata.csv.
+    /// When present, `isAnyNegativeControl` is derived from `metadata.sampleRole`.
+    /// Not serialized in the TaxTriage config JSON (populated at runtime).
+    public var metadata: FASTQSampleMetadata?
+
     /// Creates a new TaxTriage sample.
     ///
     /// - Parameters:
@@ -344,16 +350,19 @@ public struct TaxTriageSample: Sendable, Codable, Equatable, Identifiable {
         fastq1: URL,
         fastq2: URL? = nil,
         platform: TaxTriageConfig.Platform = .illumina,
-        isNegativeControl: Bool = false
+        isNegativeControl: Bool = false,
+        metadata: FASTQSampleMetadata? = nil
     ) {
         self.sampleId = sampleId
         self.fastq1 = fastq1
         self.fastq2 = fastq2
         self.platform = platform
         self.isNegativeControl = isNegativeControl
+        self.metadata = metadata
     }
 
     // Backward-compatible decoding: isNegativeControl defaults to false if absent.
+    // metadata is not serialized in config JSON; it's populated at runtime.
     enum CodingKeys: String, CodingKey {
         case sampleId, fastq1, fastq2, platform, isNegativeControl
     }
@@ -365,6 +374,19 @@ public struct TaxTriageSample: Sendable, Codable, Equatable, Identifiable {
         fastq2 = try container.decodeIfPresent(URL.self, forKey: .fastq2)
         platform = try container.decode(TaxTriageConfig.Platform.self, forKey: .platform)
         isNegativeControl = try container.decodeIfPresent(Bool.self, forKey: .isNegativeControl) ?? false
+        metadata = nil  // Not serialized; populated at runtime
+    }
+
+    /// True if this sample is any type of negative control.
+    ///
+    /// When structured metadata is available, checks `sampleRole` for
+    /// negative control or extraction blank. Falls back to `isNegativeControl`.
+    public var isAnyNegativeControl: Bool {
+        if let metadata {
+            return metadata.sampleRole == .negativeControl
+                || metadata.sampleRole == .extractionBlank
+        }
+        return isNegativeControl
     }
 
     /// Whether this sample has paired-end reads.

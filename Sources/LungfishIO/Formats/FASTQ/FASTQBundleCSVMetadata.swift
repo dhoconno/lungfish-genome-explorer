@@ -226,7 +226,7 @@ extension FASTQBundleCSVMetadata {
     }
 
     /// Escapes a CSV field, quoting it if it contains commas, quotes, or newlines.
-    private static func escapeCSVField(_ field: String) -> String {
+    static func escapeCSVField(_ field: String) -> String {
         if field.contains(",") || field.contains("\"") || field.contains("\n") {
             return "\"" + field.replacingOccurrences(of: "\"", with: "\"\"") + "\""
         }

@@ -44,6 +44,7 @@ struct LungfishCLI: AsyncParsableCommand {
             BlastCommand.self,
             EsVirituCommand.self,
             TaxTriageCommand.self,
+            MetadataCommand.self,
             DebugCommand.self,
         ],
         defaultSubcommand: nil
