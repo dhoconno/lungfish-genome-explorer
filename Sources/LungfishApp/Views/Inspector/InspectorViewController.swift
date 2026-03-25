@@ -73,6 +73,11 @@ public class InspectorViewController: NSViewController {
         viewModel.readStyleSectionViewModel
     }
 
+    /// Public access to the FASTQ metadata section view model.
+    public var fastqMetadataSectionViewModel: FASTQMetadataSectionViewModel {
+        viewModel.fastqMetadataSectionViewModel
+    }
+
     /// Cancellables for Combine subscriptions
     private var cancellables = Set<AnyCancellable>()
 
@@ -371,6 +376,12 @@ public class InspectorViewController: NSViewController {
     /// Document loading is handled exclusively by MainSplitViewController to avoid race conditions
     /// where both controllers attempt to load the same document concurrently.
     @objc private func selectionDidChange(_ notification: Notification) {
+        // Handle empty selection (items array is empty, no "item" key)
+        if let items = notification.userInfo?["items"] as? [SidebarItem], items.isEmpty {
+            clearSelection()
+            return
+        }
+
         guard let item = notification.userInfo?["item"] as? SidebarItem else { return }
 
         // Update UI state only - document loading is handled by MainSplitViewController
@@ -382,6 +393,45 @@ public class InspectorViewController: NSViewController {
         }
 
         logger.debug("selectionDidChange: Updated inspector state for '\(item.title, privacy: .public)' type=\(item.type.description, privacy: .public)")
+    }
+
+    /// Clears all selection state in the inspector, resetting it to "No Selection".
+    ///
+    /// Called when the sidebar selection is emptied (clicking empty space, deselecting).
+    /// Resets the sidebar item display, annotation selection, variant details, document
+    /// metadata, and read selection to their default empty states.
+    public func clearSelection() {
+        logger.info("clearSelection: Resetting inspector to empty state")
+
+        // Clear sidebar selection display
+        viewModel.selectedItem = nil
+        viewModel.selectedType = nil
+
+        // Clear annotation selection
+        viewModel.selectedAnnotation = nil
+        viewModel.selectionSectionViewModel.select(annotation: nil)
+
+        // Clear variant details
+        viewModel.variantSectionViewModel.clear()
+
+        // Clear read selection
+        viewModel.readStyleSectionViewModel.selectedRead = nil
+
+        // Clear document section (bundle metadata, FASTQ stats, etc.)
+        viewModel.documentSectionViewModel.update(manifest: nil, bundleURL: nil)
+        viewModel.documentSectionViewModel.fastqStatistics = nil
+        viewModel.documentSectionViewModel.sraRunInfo = nil
+        viewModel.documentSectionViewModel.enaReadRecord = nil
+        viewModel.documentSectionViewModel.ingestionMetadata = nil
+        viewModel.documentSectionViewModel.fastqDerivativeManifest = nil
+
+        // Clear sample section
+        viewModel.sampleSectionViewModel.clear()
+
+        // Clear FASTQ metadata section
+        viewModel.fastqMetadataSectionViewModel.clear()
+
+        logger.info("clearSelection: Inspector reset to empty state")
     }
 
     /// Handles annotation selection from the viewer.
@@ -495,6 +545,11 @@ public class InspectorViewController: NSViewController {
         viewModel.documentSectionViewModel.updateIngestionMetadata(ingestion)
         let derivative = notification.userInfo?["fastqDerivativeManifest"] as? FASTQDerivedBundleManifest
         viewModel.documentSectionViewModel.updateFASTQDerivativeMetadata(derivative)
+
+        // Load FASTQ sample metadata if bundle URL is provided
+        if let bundleURL = notification.userInfo?["bundleURL"] as? URL {
+            viewModel.fastqMetadataSectionViewModel.load(from: bundleURL)
+        }
 
         viewModel.selectedTab = .document
     }
@@ -1143,6 +1198,9 @@ public final class InspectorViewModel {
     /// View model for sample display controls section
     let sampleSectionViewModel = SampleSectionViewModel()
 
+    /// View model for FASTQ sample metadata section (Document tab)
+    let fastqMetadataSectionViewModel = FASTQMetadataSectionViewModel()
+
     /// Shared AI assistant service for the inspector's AI tab.
     var aiAssistantService: AIAssistantService?
 
@@ -1199,6 +1257,8 @@ public struct InspectorView: View {
                         switch viewModel.selectedTab {
                         case .document:
                             DocumentSection(viewModel: viewModel.documentSectionViewModel)
+
+                            FASTQMetadataSection(viewModel: viewModel.fastqMetadataSectionViewModel)
 
                         case .selection:
                             SelectionSection(viewModel: viewModel.selectionSectionViewModel)
