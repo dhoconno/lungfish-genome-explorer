@@ -297,7 +297,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         accessionMappedReadCounts = [:]
         referenceFastaURL = nil
         referenceSequenceCache = [:]
-        deduplicatedReadCounts = result.deduplicatedReadCounts ?? [:]
+        // Load cached unique reads but discard zeros — they are stale from a bug
+        // where organisms without accession mappings were recorded as 0.
+        // The background task will recompute them correctly.
+        deduplicatedReadCounts = (result.deduplicatedReadCounts ?? [:]).filter { $0.value > 0 }
         perSampleDeduplicatedReadCounts = result.perSampleDeduplicatedReadCounts ?? [:]
         deduplicatedReadCountTask?.cancel()
         deduplicatedReadCountTask = nil
@@ -1149,7 +1152,21 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 let normalized = self.normalizedOrganismName(row.organism)
                 if self.deduplicatedReadCounts[normalized] != nil { continue }
 
-                guard let rowAccessions = self.accessions(for: row), !rowAccessions.isEmpty else { continue }
+                guard let rowAccessions = self.accessions(for: row), !rowAccessions.isEmpty else {
+                    // No accession mapping — can't compute from BAM.
+                    // Use total reads as the unique count (conservative: assume all unique).
+                    if row.reads > 0 {
+                        self.applyUniqueReadCount(row.reads, for: row.organism)
+                        self.computePerSampleUniqueReads(
+                            normalized: normalized,
+                            totalReads: row.reads,
+                            uniqueReads: row.reads
+                        )
+                    } else {
+                        self.applyUniqueReadCount(0, for: row.organism)
+                    }
+                    continue
+                }
                 var totalUnique = 0
                 var fetchedAny = false
 
@@ -1176,7 +1193,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 }
 
                 if fetchedAny {
-                    let boundedUnique = min(row.reads, totalUnique)
+                    let boundedUnique = max(1, min(row.reads, totalUnique))
                     self.applyUniqueReadCount(boundedUnique, for: row.organism)
 
                     // Compute per-sample estimates by distributing the dedup ratio
@@ -1186,8 +1203,18 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                         totalReads: row.reads,
                         uniqueReads: boundedUnique
                     )
-                } else if row.reads == 0 {
-                    self.applyUniqueReadCount(0, for: row.organism)
+                } else {
+                    // No reads fetched from BAM (accession exists but empty).
+                    // Use total reads as conservative estimate.
+                    let fallback = row.reads > 0 ? row.reads : 0
+                    self.applyUniqueReadCount(fallback, for: row.organism)
+                    if row.reads > 0 {
+                        self.computePerSampleUniqueReads(
+                            normalized: normalized,
+                            totalReads: row.reads,
+                            uniqueReads: fallback
+                        )
+                    }
                 }
             }
 
