@@ -2918,7 +2918,9 @@ extension SidebarViewController: NSMenuDelegate {
 
     @objc private func contextMenuImportSampleMetadata(_ sender: Any?) {
         let items = selectedItems()
-        guard let item = items.first, item.type == .referenceBundle, let bundleURL = item.url else { return }
+        guard let item = items.first,
+              (item.type == .referenceBundle || item.type == .fastqBundle),
+              let bundleURL = item.url else { return }
 
         logger.info("contextMenuImportSampleMetadata: Importing metadata into '\(item.title, privacy: .public)'")
         guard let appDelegate = NSApp.delegate as? AppDelegate else { return }

@@ -310,9 +310,15 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 }
             }
         }
-        metrics = deduplicatedMetrics(allMetrics)
+        // Keep all per-sample metrics for filtering; deduplicate only
+        // per (organism, sample) to remove true duplicates from overlapping files.
+        metrics = deduplicatePerOrganismSample(allMetrics)
 
-        var allOrganisms = metrics.map {
+        // For the merged organism list, collapse to one row per organism
+        // using the highest TASS score across samples.
+        let mergedMetrics = deduplicatedMetrics(metrics)
+
+        var allOrganisms = mergedMetrics.map {
             TaxTriageOrganism(
                 name: $0.organism,
                 score: $0.tassScore,
@@ -361,8 +367,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             }
         }
 
-        // Build table rows from organisms (enriched with metrics if available)
-        let mergedRows = buildTableRows(organisms: allOrganisms, metrics: metrics)
+        // Build table rows from organisms (enriched with merged metrics)
+        let mergedRows = buildTableRows(organisms: allOrganisms, metrics: mergedMetrics)
         allTableRows = mergedRows
 
         // Extract distinct sample IDs from metrics for the sample filter control.
@@ -846,6 +852,29 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         return parsed
     }
 
+    /// Deduplicates metrics per (organism, sample) pair, keeping the highest TASS.
+    ///
+    /// Multi-sample runs produce overlapping files (multiqc_confidences.txt +
+    /// per-sample .organisms.report.txt) that contain the same data. This removes
+    /// true duplicates while preserving distinct per-sample entries.
+    private func deduplicatePerOrganismSample(_ metrics: [TaxTriageMetric]) -> [TaxTriageMetric] {
+        var seen = Set<String>()
+        var deduped: [TaxTriageMetric] = []
+        for metric in metrics.sorted(by: { $0.tassScore > $1.tassScore }) {
+            let orgKey = normalizedOrganismName(metric.organism)
+            let sampleKey = metric.sample ?? ""
+            let compositeKey = "\(orgKey)\t\(sampleKey)"
+            guard !seen.contains(compositeKey) else { continue }
+            seen.insert(compositeKey)
+            deduped.append(metric)
+        }
+        return deduped
+    }
+
+    /// Deduplicates metrics per organism (ignoring sample), keeping the highest TASS.
+    ///
+    /// Used for the merged "All Samples" organism list where each organism
+    /// appears once with its best score across all samples.
     private func deduplicatedMetrics(_ metrics: [TaxTriageMetric]) -> [TaxTriageMetric] {
         var seen = Set<String>()
         var deduped: [TaxTriageMetric] = []
