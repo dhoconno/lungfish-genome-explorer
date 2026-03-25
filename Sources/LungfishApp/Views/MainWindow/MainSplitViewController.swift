@@ -1555,27 +1555,26 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         // Increment generation counter to invalidate any in-flight background loads
         selectionGeneration &+= 1
 
-        guard let item = item else {
-            logger.info("sidebarDidSelectItem: Selection cleared, clearing viewer and inspector")
-            cancelFASTQLoadIfNeeded(hideProgress: true, reason: "selection cleared")
-            viewerController.clearViewport(statusMessage: "No sequence selected")
-            inspectorController.clearSelection()
-            return
-        }
-
-        // Debounce rapid clicks: schedule display after 100ms.
-        // If the user clicks another item within that window, the previous
-        // display is cancelled and only the latest selection is processed.
+        // Debounce ALL selection changes (including nil/clear) to avoid
+        // flickering when NSOutlineView fires deselect + reselect in quick
+        // succession, or when clicking within a displayed child view causes
+        // a transient deselection.
         let generation = selectionGeneration
         let workItem = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated {
                 guard let self = self else { return }
-                // Check generation to ensure this is still the latest selection
                 guard self.selectionGeneration == generation else {
-                    logger.debug("sidebarDidSelectItem: Debounced selection superseded (gen \(generation) vs \(self.selectionGeneration))")
                     return
                 }
-                self.displayContent(for: item)
+
+                if let item {
+                    self.displayContent(for: item)
+                } else {
+                    logger.info("sidebarDidSelectItem: Selection cleared, clearing viewer and inspector")
+                    self.cancelFASTQLoadIfNeeded(hideProgress: true, reason: "selection cleared")
+                    self.viewerController.clearViewport(statusMessage: "No sequence selected")
+                    self.inspectorController.clearSelection()
+                }
             }
         }
         selectionDebounceWorkItem = workItem
@@ -1595,29 +1594,28 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             item.type != .folder && item.type != .project && item.type != .group && item.type != .batchGroup
         }
 
-        guard !displayableItems.isEmpty else {
-            // All selected items are containers -- treat as empty selection
-            cancelFASTQLoadIfNeeded(hideProgress: true, reason: "multi-select containers only")
-            viewerController.clearViewport(statusMessage: "No sequence selected")
-            inspectorController.clearSelection()
-            return
-        }
+        // Debounce all paths (including empty) to match sidebarDidSelectItem behavior
+        let generation = selectionGeneration
+        let workItem = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self = self, self.selectionGeneration == generation else { return }
 
-        if displayableItems.count == 1 {
-            let generation = selectionGeneration
-            let item = displayableItems[0]
-            let workItem = DispatchWorkItem { [weak self] in
-                MainActor.assumeIsolated {
-                    guard let self = self, self.selectionGeneration == generation else { return }
-                    self.displayContent(for: item)
+                guard !displayableItems.isEmpty else {
+                    self.cancelFASTQLoadIfNeeded(hideProgress: true, reason: "multi-select containers only")
+                    self.viewerController.clearViewport(statusMessage: "No sequence selected")
+                    self.inspectorController.clearSelection()
+                    return
+                }
+
+                if displayableItems.count == 1 {
+                    self.displayContent(for: displayableItems[0])
+                } else {
+                    self.handleMultipleItemsSelected(displayableItems)
                 }
             }
-            selectionDebounceWorkItem = workItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: workItem)
-        } else {
-            // Multi-selection - delegate to existing handler
-            handleMultipleItemsSelected(displayableItems)
         }
+        selectionDebounceWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: workItem)
     }
 
     /// Unified content dispatch - synchronous for reliability.
