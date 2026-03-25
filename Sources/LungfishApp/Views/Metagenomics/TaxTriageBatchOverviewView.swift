@@ -258,6 +258,14 @@ final class TaxTriageBatchOverviewView: NSView {
     // MARK: - Data Building
 
     private func buildCrossSampleRows(from metrics: [TaxTriageMetric], sampleIds: [String], negativeControlSampleIds: Set<String> = [], perSampleDedup: [String: [String: Int]] = [:]) -> [CrossSampleRow] {
+        // Build a lowercased lookup for the dedup cache, whose keys use a different
+        // normalization (strips decoration characters but does NOT lowercase) than
+        // the organism grouping key below (which lowercases).
+        var dedupByLowercasedKey: [String: [String: Int]] = [:]
+        for (key, value) in perSampleDedup {
+            dedupByLowercasedKey[key.lowercased()] = value
+        }
+
         // Group metrics by organism
         var byOrganism: [String: [TaxTriageMetric]] = [:]
         for metric in metrics {
@@ -284,8 +292,8 @@ final class TaxTriageBatchOverviewView: NSView {
                 }
             }
 
-            // Lookup per-sample unique reads from the dedup cache
-            let perSampleUnique = perSampleDedup[normalizedKey] ?? [:]
+            // Lookup per-sample unique reads from the lowercased dedup cache
+            let perSampleUnique = dedupByLowercasedKey[normalizedKey] ?? [:]
 
             // Flag contamination risk: organism detected in any negative control sample
             let inNegativeControl = !negativeControlSampleIds.isEmpty
