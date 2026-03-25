@@ -458,6 +458,27 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         return ordered
     }
 
+    // MARK: - CSV Metadata Labels
+
+    /// Builds sample display labels from CSV metadata in each source bundle.
+    ///
+    /// For each sample in the config, resolves the source FASTQ bundle and
+    /// loads any `metadata.csv` to extract a display label.
+    private func buildSampleLabelsFromCSVMetadata() -> [String: String] {
+        guard let config = taxTriageConfig else { return [:] }
+        var labels: [String: String] = [:]
+        for sample in config.samples {
+            // Resolve the bundle containing the FASTQ file
+            let bundleURL = sample.fastq1.deletingLastPathComponent()
+            if FASTQBundle.isBundleURL(bundleURL),
+               let csvMeta = FASTQBundleCSVMetadata.load(from: bundleURL),
+               let label = csvMeta.displayLabel {
+                labels[sample.sampleId] = label
+            }
+        }
+        return labels
+    }
+
     // MARK: - Row Building
 
     /// Merges organism report data with TASS metrics into unified table rows.
@@ -628,13 +649,30 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         batchOverviewView.isHidden = !showBatchOverview
         organismTableView.isHidden = showBatchOverview
 
+        // Collapse/restore left pane for full-width batch overview
+        if showBatchOverview {
+            // Hide left pane — give all space to the batch comparison table
+            leftPaneContainer.isHidden = true
+            if splitView.arrangedSubviews.count > 1 {
+                splitView.setPosition(0, ofDividerAt: 0)
+            }
+        } else {
+            // Restore the left pane (taxonomy/alignments)
+            if leftPaneContainer.isHidden {
+                leftPaneContainer.isHidden = false
+                let position = round(splitView.bounds.width * 0.4)
+                splitView.setPosition(position, ofDividerAt: 0)
+            }
+        }
+
         let filteredRows: [TaxTriageTableRow]
         if selectedSampleIndex == 0 || sampleIds.isEmpty {
             // "All Samples" — show merged view / batch overview
             filteredRows = allTableRows
             if showBatchOverview {
                 let negControlIds = negativeControlSampleIds()
-                batchOverviewView.configure(metrics: metrics, sampleIds: sampleIds, negativeControlSampleIds: negControlIds)
+                let labels = buildSampleLabelsFromCSVMetadata()
+                batchOverviewView.configure(metrics: metrics, sampleIds: sampleIds, negativeControlSampleIds: negControlIds, sampleLabels: labels)
             }
         } else {
             let targetSample = sampleIds[selectedSampleIndex - 1]

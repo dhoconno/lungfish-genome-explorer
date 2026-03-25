@@ -762,7 +762,13 @@ public class SidebarViewController: NSViewController {
                     fileManager.fileExists(atPath: childURL.path, isDirectory: &childIsDir)
 
                     if childIsDir.boolValue {
-                        // Always include directories
+                        // Skip metagenomics result directories that are already
+                        // represented by batch group nodes (via collectTaxTriageResults,
+                        // cross-reference sidecars, or similar collectors).
+                        if isMetagenomicsResultDirectory(childURL) {
+                            continue
+                        }
+                        // Always include other directories
                         let childItem = buildSidebarTree(from: childURL, isRoot: false)
                         item.children.append(childItem)
                     } else if !isInternalSidecarFile(childURL) {
@@ -803,7 +809,44 @@ public class SidebarViewController: NSViewController {
 
     /// Returns true for internal sidecar/metadata files that should be hidden from the sidebar.
     private func isInternalSidecarFile(_ url: URL) -> Bool {
-        url.lastPathComponent.hasSuffix(".lungfish-meta.json")
+        let name = url.lastPathComponent
+        return name.hasSuffix(".lungfish-meta.json")
+            || name == FASTQBundleCSVMetadata.filename
+    }
+
+    /// Returns true for metagenomics result directories that should be hidden
+    /// from the generic directory scanner because they are already represented
+    /// by dedicated batch group or result nodes via collectors.
+    ///
+    /// Detects TaxTriage (`taxtriage-*`), classification (`classification-*`,
+    /// `classification-batch-*`), and EsViritu (`esviritu-*`) result directories
+    /// by checking for their characteristic sidecar files.
+    private func isMetagenomicsResultDirectory(_ url: URL) -> Bool {
+        let name = url.lastPathComponent
+        let fm = FileManager.default
+
+        // TaxTriage result directories (taxtriage-XXXXXXXX)
+        if name.hasPrefix("taxtriage-") {
+            let sidecar = url.appendingPathComponent("taxtriage-result.json")
+            if fm.fileExists(atPath: sidecar.path) { return true }
+            // Also check for kreport or top_report (incomplete runs without sidecar)
+            let hasKraken = fm.fileExists(atPath: url.appendingPathComponent("kraken2").path)
+            if hasKraken { return true }
+        }
+
+        // Classification result directories
+        if name.hasPrefix("classification-") {
+            let sidecar = url.appendingPathComponent("classification-result.json")
+            if fm.fileExists(atPath: sidecar.path) { return true }
+        }
+
+        // EsViritu result directories
+        if name.hasPrefix("esviritu-") {
+            let sidecar = url.appendingPathComponent("esviritu-result.json")
+            if fm.fileExists(atPath: sidecar.path) { return true }
+        }
+
+        return false
     }
 
     /// Collects child `.lungfishfastq` bundles from a parent bundle's `demux/` directory.

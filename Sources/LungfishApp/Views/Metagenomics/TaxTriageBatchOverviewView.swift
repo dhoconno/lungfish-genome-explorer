@@ -35,6 +35,21 @@ final class TaxTriageBatchOverviewView: NSView {
 
     // MARK: - Data Model
 
+    /// The value facet displayed in per-sample columns.
+    enum ValueFacet: Int, CaseIterable {
+        case tass = 0
+        case reads = 1
+        case coverage = 2
+
+        var label: String {
+            switch self {
+            case .tass: return "TASS Score"
+            case .reads: return "Total Reads"
+            case .coverage: return "Coverage"
+            }
+        }
+    }
+
     /// One row in the cross-sample summary table.
     struct CrossSampleRow {
         let organism: String
@@ -44,6 +59,10 @@ final class TaxTriageBatchOverviewView: NSView {
         let maxReads: Int
         /// Per-sample TASS scores keyed by sample ID.
         let perSampleTASS: [String: Double]
+        /// Per-sample read counts keyed by sample ID.
+        let perSampleReads: [String: Int]
+        /// Per-sample coverage breadth keyed by sample ID.
+        let perSampleCoverage: [String: Double]
         /// Whether this organism was detected in a negative control sample.
         let isContaminationRisk: Bool
     }
@@ -52,8 +71,12 @@ final class TaxTriageBatchOverviewView: NSView {
 
     private var sampleIds: [String] = []
     private var crossSampleRows: [CrossSampleRow] = []
+    /// Unsorted rows, preserved for re-sorting.
+    private var unsortedRows: [CrossSampleRow] = []
     /// Sample IDs flagged as negative controls.
     private var negativeControlSampleIds: Set<String> = []
+    /// Current value facet for per-sample columns.
+    private(set) var currentFacet: ValueFacet = .tass
 
     /// Called when a cell in the heatmap is clicked.
     /// Parameters: (organism name, sample ID).
@@ -61,6 +84,7 @@ final class TaxTriageBatchOverviewView: NSView {
 
     // MARK: - Child Views
 
+    private let facetControl = NSSegmentedControl()
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
 
@@ -68,15 +92,31 @@ final class TaxTriageBatchOverviewView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        setupFacetControl()
         setupTableView()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
+        setupFacetControl()
         setupTableView()
     }
 
     // MARK: - Setup
+
+    private func setupFacetControl() {
+        facetControl.segmentCount = ValueFacet.allCases.count
+        for facet in ValueFacet.allCases {
+            facetControl.setLabel(facet.label, forSegment: facet.rawValue)
+        }
+        facetControl.selectedSegment = 0
+        facetControl.segmentStyle = .texturedRounded
+        facetControl.controlSize = .small
+        facetControl.target = self
+        facetControl.action = #selector(facetChanged(_:))
+        facetControl.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(facetControl)
+    }
 
     private func setupTableView() {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -86,7 +126,10 @@ final class TaxTriageBatchOverviewView: NSView {
         addSubview(scrollView)
 
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            facetControl.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            facetControl.centerXAnchor.constraint(equalTo: centerXAnchor),
+
+            scrollView.topAnchor.constraint(equalTo: facetControl.bottomAnchor, constant: 6),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -95,6 +138,7 @@ final class TaxTriageBatchOverviewView: NSView {
         tableView.usesAlternatingRowBackgroundColors = true
         tableView.allowsColumnReordering = false
         tableView.allowsColumnResizing = true
+        tableView.allowsColumnSelection = false
         tableView.rowHeight = 22
         tableView.style = .plain
         tableView.delegate = self
@@ -103,6 +147,12 @@ final class TaxTriageBatchOverviewView: NSView {
         tableView.doubleAction = #selector(tableDoubleClicked(_:))
 
         scrollView.documentView = tableView
+    }
+
+    @objc private func facetChanged(_ sender: NSSegmentedControl) {
+        guard let newFacet = ValueFacet(rawValue: sender.selectedSegment) else { return }
+        currentFacet = newFacet
+        tableView.reloadData()
     }
 
     /// Rebuilds table columns for the current sample IDs.
@@ -117,24 +167,28 @@ final class TaxTriageBatchOverviewView: NSView {
         organismCol.title = "Organism"
         organismCol.width = 200
         organismCol.minWidth = 120
+        organismCol.sortDescriptorPrototype = NSSortDescriptor(key: "organism", ascending: true)
         tableView.addTableColumn(organismCol)
 
         let countCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("sampleCount"))
         countCol.title = "# Samples"
         countCol.width = 80
         countCol.minWidth = 60
+        countCol.sortDescriptorPrototype = NSSortDescriptor(key: "sampleCount", ascending: false)
         tableView.addTableColumn(countCol)
 
         let meanCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("meanTASS"))
         meanCol.title = "Mean TASS"
         meanCol.width = 80
         meanCol.minWidth = 60
+        meanCol.sortDescriptorPrototype = NSSortDescriptor(key: "meanTASS", ascending: false)
         tableView.addTableColumn(meanCol)
 
         let readsCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("reads"))
         readsCol.title = "Reads (min-max)"
         readsCol.width = 110
         readsCol.minWidth = 80
+        readsCol.sortDescriptorPrototype = NSSortDescriptor(key: "reads", ascending: false)
         tableView.addTableColumn(readsCol)
 
         // Contamination risk column (only when negative controls exist)
@@ -143,15 +197,17 @@ final class TaxTriageBatchOverviewView: NSView {
             riskCol.title = "Risk"
             riskCol.width = 50
             riskCol.minWidth = 40
+            riskCol.sortDescriptorPrototype = NSSortDescriptor(key: "risk", ascending: false)
             tableView.addTableColumn(riskCol)
         }
 
         // One column per sample (heatmap cells)
         for sampleId in sampleIds {
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("sample_\(sampleId)"))
-            col.title = sampleId
+            col.title = sampleLabels[sampleId] ?? sampleId
             col.width = 70
             col.minWidth = 50
+            col.sortDescriptorPrototype = NSSortDescriptor(key: "sample_\(sampleId)", ascending: false)
             tableView.addTableColumn(col)
         }
     }
@@ -169,10 +225,17 @@ final class TaxTriageBatchOverviewView: NSView {
     ///   - metrics: All parsed TaxTriageMetric records across all samples.
     ///   - sampleIds: Ordered sample identifiers.
     ///   - negativeControlSampleIds: Sample IDs that are negative controls.
-    func configure(metrics: [TaxTriageMetric], sampleIds: [String], negativeControlSampleIds: Set<String> = []) {
+    /// Optional display labels for sample IDs (from CSV metadata).
+    /// Keyed by sample ID, value is the display label.
+    private var sampleLabels: [String: String] = [:]
+
+    func configure(metrics: [TaxTriageMetric], sampleIds: [String], negativeControlSampleIds: Set<String> = [], sampleLabels: [String: String] = [:]) {
         self.sampleIds = sampleIds
         self.negativeControlSampleIds = negativeControlSampleIds
-        self.crossSampleRows = buildCrossSampleRows(from: metrics, sampleIds: sampleIds, negativeControlSampleIds: negativeControlSampleIds)
+        self.sampleLabels = sampleLabels
+        let rows = buildCrossSampleRows(from: metrics, sampleIds: sampleIds, negativeControlSampleIds: negativeControlSampleIds)
+        self.unsortedRows = rows
+        self.crossSampleRows = rows
         rebuildColumns()
         tableView.reloadData()
         logger.info("Batch overview configured: \(self.crossSampleRows.count) organisms across \(sampleIds.count) samples, \(negativeControlSampleIds.count) negative controls")
@@ -196,10 +259,14 @@ final class TaxTriageBatchOverviewView: NSView {
             let readCounts = group.map(\.reads)
             let meanTASS = tassScores.isEmpty ? 0 : tassScores.reduce(0, +) / Double(tassScores.count)
 
-            var perSample: [String: Double] = [:]
+            var perSampleTASS: [String: Double] = [:]
+            var perSampleReads: [String: Int] = [:]
+            var perSampleCoverage: [String: Double] = [:]
             for metric in group {
                 if let sample = metric.sample {
-                    perSample[sample] = metric.tassScore
+                    perSampleTASS[sample] = metric.tassScore
+                    perSampleReads[sample] = metric.reads
+                    perSampleCoverage[sample] = metric.coverageBreadth ?? 0
                 }
             }
 
@@ -213,7 +280,9 @@ final class TaxTriageBatchOverviewView: NSView {
                 meanTASS: meanTASS,
                 minReads: readCounts.min() ?? 0,
                 maxReads: readCounts.max() ?? 0,
-                perSampleTASS: perSample,
+                perSampleTASS: perSampleTASS,
+                perSampleReads: perSampleReads,
+                perSampleCoverage: perSampleCoverage,
                 isContaminationRisk: inNegativeControl
             ))
         }
@@ -270,6 +339,45 @@ extension TaxTriageBatchOverviewView: NSTableViewDataSource {
     func numberOfRows(in tableView: NSTableView) -> Int {
         crossSampleRows.count
     }
+
+    func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
+        guard let descriptor = tableView.sortDescriptors.first,
+              let key = descriptor.key else {
+            crossSampleRows = unsortedRows
+            tableView.reloadData()
+            return
+        }
+
+        let ascending = descriptor.ascending
+        crossSampleRows = unsortedRows.sorted { a, b in
+            let result: Bool
+            switch key {
+            case "organism":
+                result = a.organism.localizedCaseInsensitiveCompare(b.organism) == .orderedAscending
+            case "sampleCount":
+                result = a.sampleCount < b.sampleCount
+            case "meanTASS":
+                result = a.meanTASS < b.meanTASS
+            case "reads":
+                result = a.maxReads < b.maxReads
+            case "risk":
+                // Contamination risks sort first
+                result = !a.isContaminationRisk && b.isContaminationRisk
+            default:
+                // Per-sample column sorting
+                if key.hasPrefix("sample_") {
+                    let sampleId = String(key.dropFirst("sample_".count))
+                    let valA = a.perSampleTASS[sampleId] ?? -1
+                    let valB = b.perSampleTASS[sampleId] ?? -1
+                    result = valA < valB
+                } else {
+                    result = false
+                }
+            }
+            return ascending ? result : !result
+        }
+        tableView.reloadData()
+    }
 }
 
 // MARK: - NSTableViewDelegate
@@ -325,18 +433,42 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
             }
 
         default:
-            // Sample heatmap column
+            // Sample heatmap column — value depends on current facet
             if id.hasPrefix("sample_") {
                 let sampleId = String(id.dropFirst("sample_".count))
-                let score = data.perSampleTASS[sampleId]
-                if let score {
-                    cellView.textField?.stringValue = String(format: "%.2f", score)
-                } else {
-                    cellView.textField?.stringValue = "-"
+                switch currentFacet {
+                case .tass:
+                    let score = data.perSampleTASS[sampleId]
+                    if let score {
+                        cellView.textField?.stringValue = String(format: "%.2f", score)
+                    } else {
+                        cellView.textField?.stringValue = "-"
+                    }
+                    cellView.textField?.alignment = .center
+                    let color = Self.tassColor(for: score)
+                    cellView.layer?.backgroundColor = color.cgColor
+
+                case .reads:
+                    if let reads = data.perSampleReads[sampleId] {
+                        cellView.textField?.stringValue = formatReadCount(reads)
+                    } else {
+                        cellView.textField?.stringValue = "-"
+                    }
+                    cellView.textField?.alignment = .center
+                    // Color by TASS still for context
+                    let score = data.perSampleTASS[sampleId]
+                    cellView.layer?.backgroundColor = Self.tassColor(for: score).cgColor
+
+                case .coverage:
+                    if let cov = data.perSampleCoverage[sampleId], cov > 0 {
+                        cellView.textField?.stringValue = String(format: "%.1f%%", cov)
+                    } else {
+                        cellView.textField?.stringValue = "-"
+                    }
+                    cellView.textField?.alignment = .center
+                    let score = data.perSampleTASS[sampleId]
+                    cellView.layer?.backgroundColor = Self.tassColor(for: score).cgColor
                 }
-                cellView.textField?.alignment = .center
-                let color = Self.tassColor(for: score)
-                cellView.layer?.backgroundColor = color.cgColor
             }
         }
 

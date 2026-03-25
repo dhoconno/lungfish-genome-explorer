@@ -51,6 +51,9 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
 
     private var items: [OperationCenter.Item] = []
 
+    /// Set of item IDs whose detail text is currently expanded.
+    private var expandedItemIDs: Set<UUID> = []
+
     deinit {
         elapsedRefreshTimer?.invalidate()
         elapsedRefreshTimer = nil
@@ -199,6 +202,20 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         OperationCenter.shared.clearCompleted()
     }
 
+    @objc private func toggleDetailExpansion(_ sender: NSButton) {
+        let row = tableView.row(for: sender)
+        guard row >= 0, row < items.count else { return }
+        let itemID = items[row].id
+        if expandedItemIDs.contains(itemID) {
+            expandedItemIDs.remove(itemID)
+        } else {
+            expandedItemIDs.insert(itemID)
+        }
+        // Animate the row height change by telling the table to re-query heights.
+        tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row))
+        tableView.reloadData(forRowIndexes: IndexSet(integer: row), columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns))
+    }
+
     @objc private func cancelItem(_ sender: NSButton) {
         let row = tableView.row(for: sender)
         guard row >= 0, row < items.count else { return }
@@ -212,6 +229,16 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
     }
 
     // MARK: - NSTableViewDelegate
+
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        guard row < items.count else { return 36 }
+        let item = items[row]
+        guard expandedItemIDs.contains(item.id) else { return 36 }
+        // Calculate height needed for expanded detail text
+        let lineCount = item.detail.components(separatedBy: "\n").count
+        let extraLines = max(0, lineCount - 1)
+        return 36 + CGFloat(extraLines) * 13
+    }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard row < items.count, let identifier = tableColumn?.identifier else { return nil }
@@ -267,7 +294,43 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
                 ])
                 return tf
             }()
-            detailField.stringValue = item.detail
+
+            // Find or create the "More" toggle button (tag 102)
+            let moreButton = cell.viewWithTag(102) as? NSButton ?? {
+                let btn = NSButton(title: "More", target: self, action: #selector(toggleDetailExpansion(_:)))
+                btn.tag = 102
+                btn.bezelStyle = .inline
+                btn.controlSize = .mini
+                btn.font = .systemFont(ofSize: 9)
+                btn.translatesAutoresizingMaskIntoConstraints = false
+                cell.addSubview(btn)
+                NSLayoutConstraint.activate([
+                    btn.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
+                    btn.bottomAnchor.constraint(equalTo: cell.bottomAnchor, constant: -2),
+                ])
+                return btn
+            }()
+
+            let isExpanded = expandedItemIDs.contains(item.id)
+            let isMultiLine = item.detail.contains("\n") || item.detail.count > 60
+
+            if isExpanded {
+                // Show full text, wrapping
+                detailField.stringValue = item.detail
+                detailField.lineBreakMode = .byWordWrapping
+                detailField.maximumNumberOfLines = 0
+                moreButton.title = "Less"
+                moreButton.isHidden = false
+            } else {
+                // Collapse to single line: join newlines with ", "
+                let collapsed = item.detail.replacingOccurrences(of: "\n", with: ", ")
+                detailField.stringValue = collapsed
+                detailField.lineBreakMode = .byTruncatingTail
+                detailField.maximumNumberOfLines = 1
+                moreButton.title = "More"
+                moreButton.isHidden = !isMultiLine
+            }
+            detailField.toolTip = isMultiLine ? item.detail : nil
             detailField.font = .systemFont(ofSize: 10)
             detailField.textColor = .secondaryLabelColor
             return cell
