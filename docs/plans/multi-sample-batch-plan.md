@@ -10,22 +10,22 @@
   - [x] QA/QC: Tests + regression check
   - [x] Expert review + sign-off
   - [x] Commit
-- [ ] Phase 2: Enhanced Navigation & Cross-Sample Features
-  - [ ] 2A: Batch overview view (organism×sample heatmap)
-  - [ ] 2B: Cross-reference sidecars in source bundles
-  - [ ] 2C: Link Kraken2/EsViritu results to TaxTriage organisms
-  - [ ] 2D: Keyboard shortcuts for sample navigation
-  - [ ] QA/QC: Tests + regression check
-  - [ ] Expert review + sign-off
-  - [ ] Commit
-- [ ] Phase 3: Advanced Batch Analytics
-  - [ ] 3A: Negative control awareness
-  - [ ] 3B: Batch-level PDF/CSV export
-  - [ ] 3C: Strain-level comparison (consensus SNP diff)
-  - [ ] 3D: Batch history and re-analysis
-  - [ ] QA/QC: Tests + regression check
-  - [ ] Expert review + sign-off
-  - [ ] Commit
+- [x] Phase 2: Enhanced Navigation & Cross-Sample Features
+  - [x] 2A: Batch overview view (organism×sample heatmap)
+  - [x] 2B: Cross-reference sidecars in source bundles
+  - [x] 2C: Link Kraken2/EsViritu results to TaxTriage organisms
+  - [x] 2D: Keyboard shortcuts for sample navigation
+  - [x] QA/QC: Tests + regression check
+  - [x] Expert review + sign-off
+  - [x] Commit
+- [x] Phase 3: Advanced Batch Analytics
+  - [x] 3A: Negative control awareness
+  - [x] 3B: Batch-level PDF/CSV export
+  - [x] 3C: Strain-level comparison (consensus SNP diff)
+  - [x] 3D: Batch history and re-analysis
+  - [x] QA/QC: Tests + regression check
+  - [x] Expert review + sign-off
+  - [x] Commit
 
 ## Key Design Decisions
 
