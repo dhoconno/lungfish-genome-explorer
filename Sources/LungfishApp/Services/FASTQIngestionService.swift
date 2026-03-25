@@ -56,7 +56,7 @@ public enum FASTQIngestionService {
             inputFiles: inputFiles,
             pairingMode: pairingMode,
             outputDirectory: outputDir,
-            threads: min(ProcessInfo.processInfo.processorCount, 8),
+            threads: ProcessInfo.processInfo.activeProcessorCount,
             deleteOriginals: true
         )
 
@@ -304,7 +304,7 @@ public enum FASTQIngestionService {
                 inputFiles: inputFiles,
                 pairingMode: importConfig.pairingMode,
                 outputDirectory: tempDir,
-                threads: min(ProcessInfo.processInfo.processorCount, 8),
+                threads: ProcessInfo.processInfo.activeProcessorCount,
                 deleteOriginals: true,
                 qualityBinning: importConfig.qualityBinning,
                 skipClumpify: importConfig.skipClumpify
@@ -329,11 +329,14 @@ public enum FASTQIngestionService {
                 }
             }
 
-            // 3. Create .lungfishfastq bundle in project
+            // 3. Create .lungfishfastq bundle in project and mark as processing.
+            //    The FileSystemWatcher will pick up the new directory and the sidebar
+            //    will display it with a "Processing..." badge while ingestion finishes.
             let bundleURL = projectDirectory.appendingPathComponent(
                 "\(bundleName).\(FASTQBundle.directoryExtension)"
             )
             try fm.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+            FASTQBundle.markProcessing(bundleURL, detail: "Importing\u{2026}")
 
             // 4. Move processed file into bundle
             let destFASTQ = bundleURL.appendingPathComponent(result.outputFile.lastPathComponent)
@@ -409,6 +412,10 @@ public enum FASTQIngestionService {
                 : "Imported and compressed (saved \(savedStr))"
 
             logger.info("ingestAndBundle: Created bundle \(bundleURL.lastPathComponent)")
+
+            // Clear the processing marker — the bundle is now ready.
+            // If a post-import recipe runs, MainSplitViewController re-marks it.
+            FASTQBundle.clearProcessing(bundleURL)
 
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {

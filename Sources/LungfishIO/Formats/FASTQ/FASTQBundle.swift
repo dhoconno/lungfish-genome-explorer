@@ -285,6 +285,56 @@ public enum FASTQBundle {
         return url.lastPathComponent
     }
 
+    // MARK: - Processing State
+
+    /// Sentinel filename written inside a `.lungfishfastq` bundle to indicate
+    /// that the bundle is still being processed (ingestion, post-import recipe, etc.).
+    ///
+    /// The sidebar checks for this file and shows a "Processing..." badge.
+    /// The file is removed when processing completes (success or failure).
+    public static let processingMarkerFilename = ".processing"
+
+    /// Processing state of a FASTQ bundle.
+    public enum ProcessingState: Sendable, Equatable {
+        /// Bundle is fully ready for use.
+        case ready
+        /// Bundle is being imported or preprocessed. The associated string
+        /// is a human-readable description (e.g. "Importing...", "Running VSP2 recipe...").
+        case processing(detail: String)
+    }
+
+    /// Reads the processing state of a bundle by checking for the sentinel file.
+    public static func processingState(of bundleURL: URL) -> ProcessingState {
+        let markerURL = bundleURL.appendingPathComponent(processingMarkerFilename)
+        guard let data = try? Data(contentsOf: markerURL),
+              let detail = String(data: data, encoding: .utf8) else {
+            return .ready
+        }
+        return .processing(detail: detail.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// Returns `true` when the bundle has a `.processing` marker file.
+    public static func isProcessing(_ bundleURL: URL) -> Bool {
+        let markerURL = bundleURL.appendingPathComponent(processingMarkerFilename)
+        return FileManager.default.fileExists(atPath: markerURL.path)
+    }
+
+    /// Writes the `.processing` sentinel file into the bundle.
+    ///
+    /// Call this as soon as the bundle directory is created but before
+    /// the long-running pipeline starts. The FileSystemWatcher will see
+    /// the bundle directory and the sidebar will display a processing badge.
+    public static func markProcessing(_ bundleURL: URL, detail: String = "Processing\u{2026}") {
+        let markerURL = bundleURL.appendingPathComponent(processingMarkerFilename)
+        try? detail.data(using: .utf8)?.write(to: markerURL, options: .atomic)
+    }
+
+    /// Removes the `.processing` sentinel file, marking the bundle as ready.
+    public static func clearProcessing(_ bundleURL: URL) {
+        let markerURL = bundleURL.appendingPathComponent(processingMarkerFilename)
+        try? FileManager.default.removeItem(at: markerURL)
+    }
+
     // MARK: - Derivatives Directory
 
     /// Subdirectory name for non-demux derivative bundles.

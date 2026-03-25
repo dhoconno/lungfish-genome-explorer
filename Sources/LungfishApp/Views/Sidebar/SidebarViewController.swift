@@ -631,10 +631,13 @@ public class SidebarViewController: NSViewController {
             : filename
 
         // Load composition subtitle for FASTQ bundles with mixed read types,
-        // and materialization state badge for virtual derivatives.
+        // materialization state badge for virtual derivatives, and processing state.
         var subtitle: String?
         if itemType == .fastqBundle {
-            if let manifest = FASTQBundle.loadDerivedManifest(in: url) {
+            // Check processing state first — overrides other badges
+            if case .processing(let detail) = FASTQBundle.processingState(of: url) {
+                subtitle = detail
+            } else if let manifest = FASTQBundle.loadDerivedManifest(in: url) {
                 if let classification = manifest.readClassification {
                     subtitle = classification.compositionLabel
                 }

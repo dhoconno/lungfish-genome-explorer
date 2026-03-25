@@ -294,6 +294,10 @@ public actor FASTQDerivativeService {
 
     private let runner = NativeToolRunner.shared
 
+    /// Number of threads to pass to multithreaded tools (fastp, seqkit, etc.).
+    /// Uses all available cores for maximum throughput.
+    private let toolThreadCount = ProcessInfo.processInfo.activeProcessorCount
+
     /// Cached BBTools environment dictionary — stable across the actor's lifetime.
     private var cachedBBToolsEnv: [String: String]?
 
@@ -1362,7 +1366,7 @@ public actor FASTQDerivativeService {
                     maxLength: maxLength
                 )
             } else {
-                var args = ["seq"]
+                var args = ["seq", "-j", String(toolThreadCount)]
                 if let minLength {
                     args += ["-m", String(minLength)]
                 }
@@ -1390,7 +1394,7 @@ public actor FASTQDerivativeService {
                     searchArgs: buildSearchArgs(field: field, regex: regex, query: query)
                 )
             } else {
-                var args = ["grep"]
+                var args = ["grep", "-j", String(toolThreadCount)]
                 if field == .description {
                     args.append("-n")
                 }
@@ -1419,7 +1423,7 @@ public actor FASTQDerivativeService {
                     searchArgs: buildMotifSearchArgs(pattern: pattern, regex: regex)
                 )
             } else {
-                var args = ["grep", "-s"]
+                var args = ["grep", "-s", "-j", String(toolThreadCount)]
                 if regex {
                     args.append("-r")
                 }
@@ -2665,7 +2669,7 @@ public actor FASTQDerivativeService {
                         maxLength: step.maxLength
                     )
                 } else {
-                    var seqkitArgs = ["seq", currentURL.path, "-o", outputURL.path]
+                    var seqkitArgs = ["seq", "-j", String(toolThreadCount), currentURL.path, "-o", outputURL.path]
                     if let min = step.minLength { seqkitArgs += ["-m", String(min)] }
                     if let max = step.maxLength { seqkitArgs += ["-M", String(max)] }
                     let seqkitResult = try await runner.run(.seqkit, arguments: seqkitArgs)
@@ -2762,7 +2766,7 @@ public actor FASTQDerivativeService {
         }
 
         let scrubSh = try await runner.findTool(.scrubSh)
-        let threads = min(ProcessInfo.processInfo.processorCount, 8)
+        let threads = ProcessInfo.processInfo.activeProcessorCount
         let scriptsDir = scrubSh.deletingLastPathComponent()
 
         // scrub.sh pipes the input file through fastq_to_fasta.py which reads plain text via
@@ -2854,6 +2858,7 @@ public actor FASTQDerivativeService {
         var args = [
             "-i", sourceFASTQ.path,
             "-o", r1Output.path,
+            "-w", String(toolThreadCount),
             "-W", String(windowSize),
             "-M", String(threshold),
             "--disable_adapter_trimming",
@@ -2912,6 +2917,7 @@ public actor FASTQDerivativeService {
         var args = [
             "-i", sourceFASTQ.path,
             "-o", r1Output.path,
+            "-w", String(toolThreadCount),
             "--disable_quality_filtering",
             "--disable_length_filtering",
             "--json", "/dev/null",
@@ -2971,6 +2977,7 @@ public actor FASTQDerivativeService {
         var args = [
             "-i", sourceFASTQ.path,
             "-o", r1Output.path,
+            "-w", String(toolThreadCount),
             "--disable_adapter_trimming",
             "--disable_quality_filtering",
             "--disable_length_filtering",

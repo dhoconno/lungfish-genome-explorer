@@ -124,4 +124,99 @@ final class FASTQBundleDerivativesTests: XCTestCase {
     func testDerivativesDirectoryNameConstant() {
         XCTAssertEqual(FASTQBundle.derivativesDirectoryName, "derivatives")
     }
+
+    // MARK: - Processing State
+
+    func testProcessingStateDefaultsToReady() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BundleProcessingTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundleURL = tempDir.appendingPathComponent("sample.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        XCTAssertEqual(FASTQBundle.processingState(of: bundleURL), .ready)
+        XCTAssertFalse(FASTQBundle.isProcessing(bundleURL))
+    }
+
+    func testMarkProcessingSetsState() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BundleProcessingTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundleURL = tempDir.appendingPathComponent("sample.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        FASTQBundle.markProcessing(bundleURL, detail: "Importing\u{2026}")
+
+        XCTAssertTrue(FASTQBundle.isProcessing(bundleURL))
+        if case .processing(let detail) = FASTQBundle.processingState(of: bundleURL) {
+            XCTAssertEqual(detail, "Importing\u{2026}")
+        } else {
+            XCTFail("Expected .processing state")
+        }
+    }
+
+    func testClearProcessingRestoresReady() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BundleProcessingTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundleURL = tempDir.appendingPathComponent("sample.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        FASTQBundle.markProcessing(bundleURL, detail: "Running VSP2\u{2026}")
+        XCTAssertTrue(FASTQBundle.isProcessing(bundleURL))
+
+        FASTQBundle.clearProcessing(bundleURL)
+        XCTAssertEqual(FASTQBundle.processingState(of: bundleURL), .ready)
+        XCTAssertFalse(FASTQBundle.isProcessing(bundleURL))
+    }
+
+    func testMarkProcessingOverwritesPreviousDetail() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BundleProcessingTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundleURL = tempDir.appendingPathComponent("sample.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        FASTQBundle.markProcessing(bundleURL, detail: "Step 1")
+        FASTQBundle.markProcessing(bundleURL, detail: "Step 2")
+
+        if case .processing(let detail) = FASTQBundle.processingState(of: bundleURL) {
+            XCTAssertEqual(detail, "Step 2")
+        } else {
+            XCTFail("Expected .processing state")
+        }
+    }
+
+    func testClearProcessingIsIdempotent() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BundleProcessingTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundleURL = tempDir.appendingPathComponent("sample.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        // Clearing without marking should not crash
+        FASTQBundle.clearProcessing(bundleURL)
+        XCTAssertEqual(FASTQBundle.processingState(of: bundleURL), .ready)
+
+        // Mark and clear twice
+        FASTQBundle.markProcessing(bundleURL, detail: "test")
+        FASTQBundle.clearProcessing(bundleURL)
+        FASTQBundle.clearProcessing(bundleURL)
+        XCTAssertEqual(FASTQBundle.processingState(of: bundleURL), .ready)
+    }
+
+    func testProcessingMarkerFilenameIsHidden() {
+        // The marker file should start with '.' so it's hidden from the filesystem scanner
+        XCTAssertTrue(FASTQBundle.processingMarkerFilename.hasPrefix("."))
+    }
 }

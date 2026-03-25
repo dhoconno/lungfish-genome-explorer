@@ -79,6 +79,22 @@ public class MainSplitViewController: NSSplitViewController {
     /// Collapsed target for the active inspector transition.
     private var inspectorTransitionTargetCollapsedState: Bool?
 
+    // MARK: - Selection State
+
+    /// Monotonic generation counter for sidebar selection changes.
+    ///
+    /// Incremented every time a new sidebar item is selected. Background tasks
+    /// capture this value and check it before updating the UI, discarding stale
+    /// results when the user has moved on to a different selection.
+    private var selectionGeneration: Int = 0
+
+    /// Debounce work item for rapid sidebar selection changes.
+    ///
+    /// When the user clicks quickly through sidebar items (< 150ms between clicks),
+    /// only the final selection is processed. This prevents unnecessary background
+    /// loads and reduces main thread contention during rapid browsing.
+    private var selectionDebounceWorkItem: DispatchWorkItem?
+
     // MARK: - FASTQ Loading State
 
     /// Background task for FASTQ statistics/sample loading.
@@ -820,6 +836,9 @@ public class MainSplitViewController: NSSplitViewController {
                     throw FASTQIngestionError.clumpifyFailed("Could not resolve primary FASTQ in bundle")
                 }
 
+                // Mark the bundle as processing so the sidebar shows a badge.
+                FASTQBundle.markProcessing(bundleURL, detail: "Running \(recipe.name)\u{2026}")
+
                 let fm = FileManager.default
                 let tempDir = fm.temporaryDirectory.appendingPathComponent(
                     "fastq-postimport-\(UUID().uuidString)"
@@ -862,7 +881,7 @@ public class MainSplitViewController: NSSplitViewController {
                     inputFiles: [processedURL],
                     pairingMode: .interleaved,
                     outputDirectory: tempDir,
-                    threads: min(ProcessInfo.processInfo.processorCount, 8),
+                    threads: ProcessInfo.processInfo.activeProcessorCount,
                     deleteOriginals: true,
                     qualityBinning: qualityBinning,
                     skipClumpify: false
@@ -925,6 +944,9 @@ public class MainSplitViewController: NSSplitViewController {
                 logger.error("runPostImportRecipe: \(error)")
                 result = .failure(error)
             }
+
+            // Clear the processing marker regardless of outcome.
+            FASTQBundle.clearProcessing(bundleURL)
 
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
@@ -1526,27 +1548,72 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     }
 
     public func sidebarDidSelectItem(_ item: SidebarItem?) {
+        // Cancel any pending debounced selection
+        selectionDebounceWorkItem?.cancel()
+        selectionDebounceWorkItem = nil
+
+        // Increment generation counter to invalidate any in-flight background loads
+        selectionGeneration &+= 1
+
         guard let item = item else {
-            logger.info("sidebarDidSelectItem: Selection cleared, clearing viewer")
+            logger.info("sidebarDidSelectItem: Selection cleared, clearing viewer and inspector")
             cancelFASTQLoadIfNeeded(hideProgress: true, reason: "selection cleared")
-            viewerController.clearBundleDisplay()
-            viewerController.clearViewer()
+            viewerController.clearViewport(statusMessage: "No sequence selected")
+            inspectorController.clearSelection()
             return
         }
 
-        displayContent(for: item)
+        // Debounce rapid clicks: schedule display after 100ms.
+        // If the user clicks another item within that window, the previous
+        // display is cancelled and only the latest selection is processed.
+        let generation = selectionGeneration
+        let workItem = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self = self else { return }
+                // Check generation to ensure this is still the latest selection
+                guard self.selectionGeneration == generation else {
+                    logger.debug("sidebarDidSelectItem: Debounced selection superseded (gen \(generation) vs \(self.selectionGeneration))")
+                    return
+                }
+                self.displayContent(for: item)
+            }
+        }
+        selectionDebounceWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: workItem)
     }
 
     public func sidebarDidSelectItems(_ items: [SidebarItem]) {
+        // Cancel any pending debounced selection
+        selectionDebounceWorkItem?.cancel()
+        selectionDebounceWorkItem = nil
+
+        // Increment generation counter
+        selectionGeneration &+= 1
+
         // Filter to displayable items
         let displayableItems = items.filter { item in
             item.type != .folder && item.type != .project && item.type != .group && item.type != .batchGroup
         }
 
-        guard !displayableItems.isEmpty else { return }
+        guard !displayableItems.isEmpty else {
+            // All selected items are containers -- treat as empty selection
+            cancelFASTQLoadIfNeeded(hideProgress: true, reason: "multi-select containers only")
+            viewerController.clearViewport(statusMessage: "No sequence selected")
+            inspectorController.clearSelection()
+            return
+        }
 
         if displayableItems.count == 1 {
-            displayContent(for: displayableItems[0])
+            let generation = selectionGeneration
+            let item = displayableItems[0]
+            let workItem = DispatchWorkItem { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self = self, self.selectionGeneration == generation else { return }
+                    self.displayContent(for: item)
+                }
+            }
+            selectionDebounceWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: workItem)
         } else {
             // Multi-selection - delegate to existing handler
             handleMultipleItemsSelected(displayableItems)
@@ -2883,18 +2950,28 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             return
         }
 
+        // Capture the current selection generation so we can discard stale results
+        let generation = self.selectionGeneration
+
         viewerController.showProgress("Loading \(url.lastPathComponent)...")
 
         // Use detached task for background loading without inheriting actor context.
         // UI callbacks use GCD main queue + MainActor.assumeIsolated (not await MainActor.run)
         // because the cooperative executor doesn't reliably schedule from Task.detached.
-        Task.detached(priority: .userInitiated) {
+        Task.detached(priority: .userInitiated) { [weak self] in
             do {
                 let document = try await DocumentManager.shared.loadDocument(at: url)
 
                 // Update UI via GCD main queue (guaranteed to drain)
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
+                        // Check generation counter — if the user has selected something else
+                        // while we were loading, discard this result
+                        guard let self = self, self.selectionGeneration == generation else {
+                            logger.info("loadGenomicsFileInBackground: Discarding stale result for '\(url.lastPathComponent, privacy: .public)' (generation moved on)")
+                            viewerController.hideProgress()
+                            return
+                        }
                         viewerController.hideProgress()
                         viewerController.displayDocument(document)
                         sidebarController.refreshItem(for: url)
@@ -2903,8 +2980,12 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 }
             } catch {
                 let errorMessage = error.localizedDescription
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
+                        guard let self = self, self.selectionGeneration == generation else {
+                            viewerController.hideProgress()
+                            return
+                        }
                         viewerController.hideProgress()
                         logger.error("loadGenomicsFileInBackground: Failed - \(errorMessage)")
 
