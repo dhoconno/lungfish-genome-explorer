@@ -39,12 +39,14 @@ final class TaxTriageBatchOverviewView: NSView {
     enum ValueFacet: Int, CaseIterable {
         case tass = 0
         case reads = 1
-        case coverage = 2
+        case uniqueReads = 2
+        case coverage = 3
 
         var label: String {
             switch self {
             case .tass: return "TASS Score"
             case .reads: return "Total Reads"
+            case .uniqueReads: return "Unique Reads"
             case .coverage: return "Coverage"
             }
         }
@@ -63,6 +65,8 @@ final class TaxTriageBatchOverviewView: NSView {
         let perSampleReads: [String: Int]
         /// Per-sample coverage breadth keyed by sample ID.
         let perSampleCoverage: [String: Double]
+        /// Per-sample deduplicated (unique) read counts keyed by sample ID.
+        let perSampleUniqueReads: [String: Int]
         /// Whether this organism was detected in a negative control sample.
         let isContaminationRisk: Bool
     }
@@ -229,11 +233,21 @@ final class TaxTriageBatchOverviewView: NSView {
     /// Keyed by sample ID, value is the display label.
     private var sampleLabels: [String: String] = [:]
 
-    func configure(metrics: [TaxTriageMetric], sampleIds: [String], negativeControlSampleIds: Set<String> = [], sampleLabels: [String: String] = [:]) {
+    /// Per-sample deduplicated read counts, keyed by normalized organism name then sample ID.
+    private var perSampleDedup: [String: [String: Int]] = [:]
+
+    func configure(
+        metrics: [TaxTriageMetric],
+        sampleIds: [String],
+        negativeControlSampleIds: Set<String> = [],
+        sampleLabels: [String: String] = [:],
+        perSampleDeduplicatedReadCounts: [String: [String: Int]] = [:]
+    ) {
         self.sampleIds = sampleIds
         self.negativeControlSampleIds = negativeControlSampleIds
         self.sampleLabels = sampleLabels
-        let rows = buildCrossSampleRows(from: metrics, sampleIds: sampleIds, negativeControlSampleIds: negativeControlSampleIds)
+        self.perSampleDedup = perSampleDeduplicatedReadCounts
+        let rows = buildCrossSampleRows(from: metrics, sampleIds: sampleIds, negativeControlSampleIds: negativeControlSampleIds, perSampleDedup: perSampleDeduplicatedReadCounts)
         self.unsortedRows = rows
         self.crossSampleRows = rows
         rebuildColumns()
@@ -243,7 +257,7 @@ final class TaxTriageBatchOverviewView: NSView {
 
     // MARK: - Data Building
 
-    private func buildCrossSampleRows(from metrics: [TaxTriageMetric], sampleIds: [String], negativeControlSampleIds: Set<String> = []) -> [CrossSampleRow] {
+    private func buildCrossSampleRows(from metrics: [TaxTriageMetric], sampleIds: [String], negativeControlSampleIds: Set<String> = [], perSampleDedup: [String: [String: Int]] = [:]) -> [CrossSampleRow] {
         // Group metrics by organism
         var byOrganism: [String: [TaxTriageMetric]] = [:]
         for metric in metrics {
@@ -252,7 +266,7 @@ final class TaxTriageBatchOverviewView: NSView {
         }
 
         var rows: [CrossSampleRow] = []
-        for (_, group) in byOrganism {
+        for (normalizedKey, group) in byOrganism {
             guard let first = group.first else { continue }
             let detectedSamples = Set(group.compactMap(\.sample))
             let tassScores = group.map(\.tassScore)
@@ -270,6 +284,9 @@ final class TaxTriageBatchOverviewView: NSView {
                 }
             }
 
+            // Lookup per-sample unique reads from the dedup cache
+            let perSampleUnique = perSampleDedup[normalizedKey] ?? [:]
+
             // Flag contamination risk: organism detected in any negative control sample
             let inNegativeControl = !negativeControlSampleIds.isEmpty
                 && !detectedSamples.intersection(negativeControlSampleIds).isEmpty
@@ -283,6 +300,7 @@ final class TaxTriageBatchOverviewView: NSView {
                 perSampleTASS: perSampleTASS,
                 perSampleReads: perSampleReads,
                 perSampleCoverage: perSampleCoverage,
+                perSampleUniqueReads: perSampleUnique,
                 isContaminationRisk: inNegativeControl
             ))
         }
@@ -364,11 +382,25 @@ extension TaxTriageBatchOverviewView: NSTableViewDataSource {
                 // Contamination risks sort first
                 result = !a.isContaminationRisk && b.isContaminationRisk
             default:
-                // Per-sample column sorting
+                // Per-sample column sorting — sort by the active facet value
                 if key.hasPrefix("sample_") {
                     let sampleId = String(key.dropFirst("sample_".count))
-                    let valA = a.perSampleTASS[sampleId] ?? -1
-                    let valB = b.perSampleTASS[sampleId] ?? -1
+                    let valA: Double
+                    let valB: Double
+                    switch currentFacet {
+                    case .tass:
+                        valA = a.perSampleTASS[sampleId] ?? -1
+                        valB = b.perSampleTASS[sampleId] ?? -1
+                    case .reads:
+                        valA = Double(a.perSampleReads[sampleId] ?? -1)
+                        valB = Double(b.perSampleReads[sampleId] ?? -1)
+                    case .uniqueReads:
+                        valA = Double(a.perSampleUniqueReads[sampleId] ?? -1)
+                        valB = Double(b.perSampleUniqueReads[sampleId] ?? -1)
+                    case .coverage:
+                        valA = a.perSampleCoverage[sampleId] ?? -1
+                        valB = b.perSampleCoverage[sampleId] ?? -1
+                    }
                     result = valA < valB
                 } else {
                     result = false
@@ -396,13 +428,11 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
         case "organism":
             cellView.textField?.stringValue = data.organism
             cellView.textField?.font = .systemFont(ofSize: 12, weight: .medium)
-            cellView.wantsLayer = false
             cellView.layer?.backgroundColor = nil
 
         case "sampleCount":
             cellView.textField?.stringValue = "\(data.sampleCount)/\(sampleIds.count)"
             cellView.textField?.alignment = .center
-            cellView.wantsLayer = false
             cellView.layer?.backgroundColor = nil
 
         case "meanTASS":
@@ -418,7 +448,6 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
                 cellView.textField?.stringValue = "\(formatReadCount(data.minReads))-\(formatReadCount(data.maxReads))"
             }
             cellView.textField?.alignment = .right
-            cellView.wantsLayer = false
             cellView.layer?.backgroundColor = nil
 
         case "risk":
@@ -436,17 +465,16 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
             // Sample heatmap column — value depends on current facet
             if id.hasPrefix("sample_") {
                 let sampleId = String(id.dropFirst("sample_".count))
+                let score = data.perSampleTASS[sampleId]
                 switch currentFacet {
                 case .tass:
-                    let score = data.perSampleTASS[sampleId]
                     if let score {
                         cellView.textField?.stringValue = String(format: "%.2f", score)
                     } else {
                         cellView.textField?.stringValue = "-"
                     }
                     cellView.textField?.alignment = .center
-                    let color = Self.tassColor(for: score)
-                    cellView.layer?.backgroundColor = color.cgColor
+                    cellView.layer?.backgroundColor = Self.tassColor(for: score).cgColor
 
                 case .reads:
                     if let reads = data.perSampleReads[sampleId] {
@@ -455,8 +483,18 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
                         cellView.textField?.stringValue = "-"
                     }
                     cellView.textField?.alignment = .center
-                    // Color by TASS still for context
-                    let score = data.perSampleTASS[sampleId]
+                    cellView.layer?.backgroundColor = Self.tassColor(for: score).cgColor
+
+                case .uniqueReads:
+                    if let unique = data.perSampleUniqueReads[sampleId] {
+                        cellView.textField?.stringValue = formatReadCount(unique)
+                    } else if score != nil {
+                        // Organism detected in this sample but unique reads not yet computed
+                        cellView.textField?.stringValue = "\u{2026}"  // ellipsis
+                    } else {
+                        cellView.textField?.stringValue = "-"
+                    }
+                    cellView.textField?.alignment = .center
                     cellView.layer?.backgroundColor = Self.tassColor(for: score).cgColor
 
                 case .coverage:
@@ -466,7 +504,6 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
                         cellView.textField?.stringValue = "-"
                     }
                     cellView.textField?.alignment = .center
-                    let score = data.perSampleTASS[sampleId]
                     cellView.layer?.backgroundColor = Self.tassColor(for: score).cgColor
                 }
             }

@@ -84,6 +84,14 @@ public struct TaxTriageResult: Sendable, Codable, Equatable {
     /// so subsequent loads skip the expensive BAM scan.
     public var deduplicatedReadCounts: [String: Int]?
 
+    /// Per-sample deduplicated (unique) read counts.
+    ///
+    /// Outer key: normalized organism name. Inner key: sample ID. Value: unique read count.
+    /// Populated during background deduplication for multi-sample batch runs and persisted
+    /// to the sidecar so the batch overview can display unique reads per sample instantly
+    /// on subsequent opens.
+    public var perSampleDeduplicatedReadCounts: [String: [String: Int]]?
+
     /// URLs of the source FASTQ bundles that contributed samples to this run.
     ///
     /// Persisted for provenance tracking and sidebar cross-referencing.
@@ -118,6 +126,7 @@ public struct TaxTriageResult: Sendable, Codable, Equatable {
         traceFile: URL? = nil,
         allOutputFiles: [URL] = [],
         deduplicatedReadCounts: [String: Int]? = nil,
+        perSampleDeduplicatedReadCounts: [String: [String: Int]]? = nil,
         sourceBundleURLs: [URL]? = nil
     ) {
         self.config = config
@@ -131,6 +140,7 @@ public struct TaxTriageResult: Sendable, Codable, Equatable {
         self.traceFile = traceFile
         self.allOutputFiles = allOutputFiles
         self.deduplicatedReadCounts = deduplicatedReadCounts
+        self.perSampleDeduplicatedReadCounts = perSampleDeduplicatedReadCounts
         self.sourceBundleURLs = sourceBundleURLs
     }
 

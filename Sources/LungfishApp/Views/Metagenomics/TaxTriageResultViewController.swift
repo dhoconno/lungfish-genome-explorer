@@ -110,6 +110,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Cached normalized organism name → deduplicated read count.
     private var deduplicatedReadCounts: [String: Int] = [:]
 
+    /// Per-sample deduplicated read counts: normalized organism name → [sampleId → unique reads].
+    private var perSampleDeduplicatedReadCounts: [String: [String: Int]] = [:]
+
     /// Background task computing deduplicated read counts per organism row.
     private var deduplicatedReadCountTask: Task<Void, Never>?
 
@@ -295,6 +298,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         referenceFastaURL = nil
         referenceSequenceCache = [:]
         deduplicatedReadCounts = result.deduplicatedReadCounts ?? [:]
+        perSampleDeduplicatedReadCounts = result.perSampleDeduplicatedReadCounts ?? [:]
         deduplicatedReadCountTask?.cancel()
         deduplicatedReadCountTask = nil
         selectedOrganismName = nil
@@ -678,7 +682,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             if showBatchOverview {
                 let negControlIds = negativeControlSampleIds()
                 let labels = buildSampleLabelsFromCSVMetadata()
-                batchOverviewView.configure(metrics: metrics, sampleIds: sampleIds, negativeControlSampleIds: negControlIds, sampleLabels: labels)
+                batchOverviewView.configure(metrics: metrics, sampleIds: sampleIds, negativeControlSampleIds: negControlIds, sampleLabels: labels, perSampleDeduplicatedReadCounts: perSampleDeduplicatedReadCounts)
             }
         } else {
             let targetSample = sampleIds[selectedSampleIndex - 1]
@@ -1174,6 +1178,14 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 if fetchedAny {
                     let boundedUnique = min(row.reads, totalUnique)
                     self.applyUniqueReadCount(boundedUnique, for: row.organism)
+
+                    // Compute per-sample estimates by distributing the dedup ratio
+                    // across each sample's per-organism read count.
+                    self.computePerSampleUniqueReads(
+                        normalized: normalized,
+                        totalReads: row.reads,
+                        uniqueReads: boundedUnique
+                    )
                 } else if row.reads == 0 {
                     self.applyUniqueReadCount(0, for: row.organism)
                 }
@@ -1186,10 +1198,31 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
     }
 
+    /// Computes per-sample unique reads for an organism by applying the dedup ratio
+    /// to each sample's total read count from the metrics.
+    private func computePerSampleUniqueReads(normalized: String, totalReads: Int, uniqueReads: Int) {
+        guard totalReads > 0, sampleIds.count > 1 else { return }
+        let dedupRatio = Double(uniqueReads) / Double(totalReads)
+
+        var perSample: [String: Int] = [:]
+        for metric in metrics {
+            guard let sample = metric.sample else { continue }
+            let metricNormalized = normalizedOrganismName(metric.organism)
+            guard metricNormalized == normalized else { continue }
+            let estimated = Int(round(Double(metric.reads) * dedupRatio))
+            perSample[sample] = estimated
+        }
+
+        if !perSample.isEmpty {
+            perSampleDeduplicatedReadCounts[normalized] = perSample
+        }
+    }
+
     /// Saves current deduplicated read counts into the TaxTriage result sidecar.
     private func persistDeduplicatedReadCounts() {
         guard var result = taxTriageResult else { return }
         result.deduplicatedReadCounts = deduplicatedReadCounts
+        result.perSampleDeduplicatedReadCounts = perSampleDeduplicatedReadCounts.isEmpty ? nil : perSampleDeduplicatedReadCounts
         do {
             try result.save()
             logger.info("Persisted \(self.deduplicatedReadCounts.count) deduplicated read counts to sidecar")
@@ -1212,6 +1245,13 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         if changed {
             organismTableView.rows = updated
+        }
+
+        // Refresh batch overview if it's visible so unique reads facet updates live
+        if !batchOverviewView.isHidden, batchOverviewView.currentFacet == .uniqueReads {
+            let negControlIds = negativeControlSampleIds()
+            let labels = buildSampleLabelsFromCSVMetadata()
+            batchOverviewView.configure(metrics: metrics, sampleIds: sampleIds, negativeControlSampleIds: negControlIds, sampleLabels: labels, perSampleDeduplicatedReadCounts: perSampleDeduplicatedReadCounts)
         }
 
         if normalizedOrganismName(selectedOrganismName ?? "") == key {
@@ -1614,12 +1654,16 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     // MARK: - NSSplitViewDelegate
 
     /// Enforces minimum widths for organism table (300px) and tab view (300px).
+    /// When batch overview is active (All Samples), allows the left pane to collapse
+    /// fully so the batch table gets the full viewport width.
     public func splitView(
         _ splitView: NSSplitView,
         constrainMinCoordinate proposedMinimumPosition: CGFloat,
         ofSubviewAt dividerIndex: Int
     ) -> CGFloat {
-        max(proposedMinimumPosition, 300)
+        let isBatchOverview = selectedSampleIndex == 0 && sampleIds.count > 1
+        if isBatchOverview { return 0 }
+        return max(proposedMinimumPosition, 300)
     }
 
     public func splitView(
