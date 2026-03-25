@@ -921,6 +921,7 @@ final class MiniPileupView: NSView {
         for read in reads {
             let startPx = max(0, Int(Double(read.position) / bpPerPixel))
             let endPx = min(pixelCount - 1, Int(Double(read.alignmentEnd) / bpPerPixel))
+            guard startPx <= endPx else { continue }
             for px in startPx...endPx {
                 depths[px] += 1
             }
