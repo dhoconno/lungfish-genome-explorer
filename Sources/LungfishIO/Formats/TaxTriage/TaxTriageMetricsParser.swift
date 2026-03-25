@@ -53,12 +53,12 @@ public enum TaxTriageMetricsParser {
 
     /// Header aliases normalized through `normalizeHeader(_:)`.
     private static let aliases: [Field: [String]] = [
-        .sample: ["sample", "specimen id"],
+        .sample: ["specimen id", "sample"],
         .taxId: ["taxid", "tax id", "taxonomy id", "taxonomic id"],
         .organism: ["organism", "detected organism", "name", "species"],
         .rank: ["rank", "taxonomic rank"],
         .readsAligned: ["reads aligned"],
-        .reads: ["reads", "read count", "number fragments assigned", "clade fragments covered"],
+        .reads: ["reads aligned", "read count", "number fragments assigned", "clade fragments covered", "reads"],
         .k2Reads: ["k2 reads"],
         .abundance: ["abundance", "percent reads"],
         .coverageBreadth: ["coverage breadth", "coverage_breadth"],
