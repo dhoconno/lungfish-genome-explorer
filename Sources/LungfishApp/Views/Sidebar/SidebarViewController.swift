@@ -1243,6 +1243,79 @@ public class SidebarViewController: NSViewController {
             }
         }
 
+        // Also scan for cross-reference sidecars (taxtriage-ref-*.json)
+        // that point to TaxTriage results stored outside this bundle.
+        let crossRefs = MetagenomicsBatchResultStore.loadTaxTriageRefs(from: bundleURL)
+        for ref in crossRefs {
+            let resultDir = URL(fileURLWithPath: ref.resultDirectory)
+            // Skip if we already have this result from the direct scan above.
+            let alreadyPresent = results.contains { item in
+                item.url?.standardizedFileURL == resultDir.standardizedFileURL
+                    || item.children.contains { $0.url?.standardizedFileURL == resultDir.standardizedFileURL }
+            }
+            guard !alreadyPresent else { continue }
+            // Only add if the result directory actually exists on disk.
+            guard fm.fileExists(atPath: resultDir.path) else { continue }
+
+            let persistedResult = try? TaxTriageResult.load(from: resultDir)
+            let sampleCount = persistedResult?.config.samples.count ?? ref.batchSampleCount
+
+            if sampleCount > 1 {
+                let groupItem = SidebarItem(
+                    title: "Comprehensive Triage",
+                    type: .batchGroup,
+                    icon: "stethoscope",
+                    children: [],
+                    url: resultDir,
+                    subtitle: "\(sampleCount) samples"
+                )
+                let allChild = SidebarItem(
+                    title: "All Samples",
+                    type: .taxTriageResult,
+                    icon: "person.3",
+                    children: [],
+                    url: resultDir
+                )
+                groupItem.children.append(allChild)
+
+                if let samples = persistedResult?.config.samples {
+                    for sample in samples {
+                        let child = SidebarItem(
+                            title: sample.sampleId,
+                            type: .taxTriageResult,
+                            icon: "person",
+                            children: [],
+                            url: resultDir
+                        )
+                        child.userInfo["sampleId"] = sample.sampleId
+                        groupItem.children.append(child)
+                    }
+                } else {
+                    // Minimal: just show the sample from this cross-ref
+                    let child = SidebarItem(
+                        title: ref.sampleId,
+                        type: .taxTriageResult,
+                        icon: "person",
+                        children: [],
+                        url: resultDir
+                    )
+                    child.userInfo["sampleId"] = ref.sampleId
+                    groupItem.children.append(child)
+                }
+
+                results.append(groupItem)
+            } else {
+                let item = SidebarItem(
+                    title: "Comprehensive Triage",
+                    type: .taxTriageResult,
+                    icon: "stethoscope",
+                    children: [],
+                    url: resultDir
+                )
+                results.append(item)
+            }
+        }
+
         return results.sorted {
             ($0.url?.lastPathComponent ?? "") < ($1.url?.lastPathComponent ?? "")
         }

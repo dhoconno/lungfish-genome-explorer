@@ -292,6 +292,16 @@ extension ViewerViewController {
             window.beginSheet(sheetWindow)
         }
 
+        // Wire related analyses navigation callback
+        controller.onRelatedAnalysis = { [weak self] analysisType, url in
+            guard let self else { return }
+            taxTriageLogger.info("Related analysis navigation: \(analysisType, privacy: .public) at \(url.lastPathComponent, privacy: .public)")
+            // Navigate via the main split view controller which knows how to open different result types
+            if let mainSplit = self.parent as? MainSplitViewController {
+                mainSplit.navigateToRelatedAnalysis(type: analysisType, url: url)
+            }
+        }
+
         taxTriageViewController = controller
 
         // Hide normal genomic viewer components

@@ -1832,6 +1832,26 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         viewerController.displayTaxTriageResult(result, config: nil, sampleId: sampleId)
     }
 
+    /// Navigates to a related metagenomics analysis from TaxTriage cross-links.
+    ///
+    /// Called when the user clicks a "View Kraken2" or "View EsViritu" button
+    /// in the TaxTriage action bar. Routes to the appropriate display method.
+    ///
+    /// - Parameters:
+    ///   - type: The analysis type ("kraken2" or "esviritu").
+    ///   - url: The result directory URL.
+    func navigateToRelatedAnalysis(type: String, url: URL) {
+        logger.info("navigateToRelatedAnalysis: type=\(type, privacy: .public), url=\(url.lastPathComponent, privacy: .public)")
+        switch type {
+        case "kraken2":
+            displayClassificationResult(at: url)
+        case "esviritu":
+            displayEsVirituResult(at: url)
+        default:
+            logger.warning("Unknown related analysis type: \(type, privacy: .public)")
+        }
+    }
+
     /// Display genomics file - cache-first, then load via DocumentManager.
     private func displayGenomicsFile(url: URL) {
         // FASTQ bundles use the streaming statistics dashboard

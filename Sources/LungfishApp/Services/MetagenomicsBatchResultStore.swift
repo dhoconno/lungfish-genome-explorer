@@ -40,6 +40,27 @@ struct EsVirituBatchResultManifest: Codable, Sendable, Equatable {
     let samples: [MetagenomicsBatchSampleRecord]
 }
 
+/// Cross-reference sidecar written into each source bundle after a TaxTriage batch run.
+///
+/// Enables the sidebar to discover and display TaxTriage results under every bundle
+/// that contributed samples, not just the bundle that physically hosts the output directory.
+struct TaxTriageCrossRef: Codable, Sendable, Equatable {
+    /// Absolute path to the TaxTriage result output directory.
+    let resultDirectory: String
+
+    /// Unique run identifier (derived from the output directory name, e.g. "taxtriage-20250325-143022").
+    let runId: String
+
+    /// The sample ID from this particular source bundle.
+    let sampleId: String
+
+    /// ISO 8601 timestamp when the run completed.
+    let createdAt: Date
+
+    /// Number of samples in the batch (for display purposes).
+    let batchSampleCount: Int
+}
+
 enum MetagenomicsBatchResultStore {
     static func saveClassification(
         _ manifest: ClassificationBatchResultManifest,
@@ -65,6 +86,44 @@ enum MetagenomicsBatchResultStore {
     static func loadEsViritu(from batchDirectory: URL) -> EsVirituBatchResultManifest? {
         let url = batchDirectory.appendingPathComponent(EsVirituBatchResultManifest.filename)
         return readJSON(EsVirituBatchResultManifest.self, from: url)
+    }
+
+    // MARK: - TaxTriage Cross-Reference Sidecars
+
+    /// Filename pattern for TaxTriage cross-reference sidecars written into source bundles.
+    ///
+    /// Each source bundle that contributed samples to a TaxTriage batch run gets a
+    /// `taxtriage-ref-{runId}.json` sidecar so the sidebar can discover TaxTriage
+    /// results under every contributing bundle, not just the one that physically
+    /// contains the output directory.
+    static func taxTriageRefFilename(runId: String) -> String {
+        "taxtriage-ref-\(runId).json"
+    }
+
+    /// Writes a TaxTriage cross-reference sidecar into a source bundle directory.
+    static func saveTaxTriageRef(
+        _ ref: TaxTriageCrossRef,
+        to bundleDirectory: URL
+    ) throws {
+        let filename = taxTriageRefFilename(runId: ref.runId)
+        let url = bundleDirectory.appendingPathComponent(filename)
+        try writeJSON(ref, to: url)
+    }
+
+    /// Loads all TaxTriage cross-reference sidecars from a bundle directory.
+    static func loadTaxTriageRefs(from bundleDirectory: URL) -> [TaxTriageCrossRef] {
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(
+            at: bundleDirectory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+
+        return contents.compactMap { url in
+            guard url.lastPathComponent.hasPrefix("taxtriage-ref-"),
+                  url.pathExtension == "json" else { return nil }
+            return readJSON(TaxTriageCrossRef.self, from: url)
+        }
     }
 
     private static func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {

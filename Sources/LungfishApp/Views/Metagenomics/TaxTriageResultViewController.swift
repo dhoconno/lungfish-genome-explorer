@@ -139,6 +139,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     private let sunburstView = TaxonomySunburstView()
     private var miniBAMController: MiniBAMViewController?
     private let organismTableView = TaxTriageOrganismTableView()
+    private let batchOverviewView = TaxTriageBatchOverviewView()
     let actionBar = TaxTriageActionBar()
     private let blastDrawer = BlastResultsDrawerTab()
     private var blastDrawerHeightConstraint: NSLayoutConstraint?
@@ -186,6 +187,49 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         setupActionBar()
         layoutSubviews()
         wireCallbacks()
+    }
+
+    // MARK: - Keyboard Shortcuts
+
+    /// Handles Cmd+]/Cmd+[ for sample switching and Cmd+0 for "All Samples".
+    public override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.modifierFlags.contains(.command),
+              !event.modifierFlags.contains(.shift),
+              !event.modifierFlags.contains(.option),
+              sampleIds.count > 1 else {
+            return super.performKeyEquivalent(with: event)
+        }
+
+        switch event.charactersIgnoringModifiers {
+        case "]":
+            // Cmd+] — next sample
+            let maxIndex = sampleIds.count  // segment 0 is "All", 1..count are samples
+            if selectedSampleIndex < maxIndex {
+                selectedSampleIndex += 1
+                sampleFilterControl.selectedSegment = selectedSampleIndex
+                applyCurrentSampleFilter()
+            }
+            return true
+
+        case "[":
+            // Cmd+[ — previous sample
+            if selectedSampleIndex > 0 {
+                selectedSampleIndex -= 1
+                sampleFilterControl.selectedSegment = selectedSampleIndex
+                applyCurrentSampleFilter()
+            }
+            return true
+
+        case "0":
+            // Cmd+0 — "All Samples" overview
+            selectedSampleIndex = 0
+            sampleFilterControl.selectedSegment = 0
+            applyCurrentSampleFilter()
+            return true
+
+        default:
+            return super.performKeyEquivalent(with: event)
+        }
     }
 
     private func setupMiniBAMViewer() {
@@ -394,6 +438,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         scheduleDeduplicatedReadCountComputation(for: mergedRows)
 
+        // Discover related Kraken2/EsViritu analyses in source bundles
+        discoverRelatedAnalyses()
+
         logger.info("Configured with \(mergedRows.count) organisms, \(result.metricsFiles.count) metrics files, \(result.kronaFiles.count) Krona files")
     }
 
@@ -559,10 +606,19 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     /// Filters table rows to the currently selected sample and refreshes the table.
     private func applyCurrentSampleFilter() {
+        let showBatchOverview = selectedSampleIndex == 0 && sampleIds.count > 1
+
+        // Toggle between batch overview and per-sample organism table
+        batchOverviewView.isHidden = !showBatchOverview
+        organismTableView.isHidden = showBatchOverview
+
         let filteredRows: [TaxTriageTableRow]
         if selectedSampleIndex == 0 || sampleIds.isEmpty {
-            // "All Samples" — show merged view
+            // "All Samples" — show merged view / batch overview
             filteredRows = allTableRows
+            if showBatchOverview {
+                batchOverviewView.configure(metrics: metrics, sampleIds: sampleIds)
+            }
         } else {
             let targetSample = sampleIds[selectedSampleIndex - 1]
             // Rebuild rows from metrics filtered to this sample
@@ -647,10 +703,22 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             sunburstView.bottomAnchor.constraint(equalTo: leftPaneContainer.bottomAnchor),
         ])
 
-        // Right pane: organism table
+        // Right pane: organism table + batch overview (mutually exclusive)
         let tableContainer = NSView()
         organismTableView.autoresizingMask = [.width, .height]
         tableContainer.addSubview(organismTableView)
+
+        batchOverviewView.autoresizingMask = [.width, .height]
+        batchOverviewView.isHidden = true
+        tableContainer.addSubview(batchOverviewView)
+
+        // Wire batch overview cell clicks to navigate to organism in sample
+        batchOverviewView.onCellSelected = { [weak self] organism, sampleId in
+            guard let self else { return }
+            self.selectSample(sampleId)
+            // Try to select the organism row in the table
+            self.organismTableView.selectRow(byOrganism: organism)
+        }
 
         splitView.addArrangedSubview(leftPaneContainer)
         splitView.addArrangedSubview(tableContainer)
@@ -1373,7 +1441,83 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         actionBar.onOpenExternally = { [weak self] in
             self?.openReportExternally()
         }
+
+        // Action bar related analyses navigation
+        actionBar.onRelatedAnalysis = { [weak self] analysisType, url in
+            self?.onRelatedAnalysis?(analysisType, url)
+        }
     }
+
+    // MARK: - Related Analyses Discovery
+
+    /// Scans source bundles for Kraken2 and EsViritu results to enable cross-navigation.
+    ///
+    /// After configuring, call this to populate the "Related" button in the action bar.
+    /// Source bundles are discovered from the TaxTriage config's `sourceBundleURLs`
+    /// or inferred from the input FASTQ paths.
+    func discoverRelatedAnalyses() {
+        guard let config = taxTriageConfig else { return }
+        let fm = FileManager.default
+
+        // Determine source bundle directories
+        var bundleURLs: [URL] = taxTriageResult?.sourceBundleURLs ?? []
+        if bundleURLs.isEmpty {
+            // Infer from input FASTQ parent directories
+            bundleURLs = config.samples.compactMap { sample in
+                let parent = sample.fastq1.deletingLastPathComponent()
+                // Check if this looks like a bundle (has FASTQ files)
+                let hasFastq = (try? fm.contentsOfDirectory(at: parent, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]))?.contains { url in
+                    let ext = url.pathExtension.lowercased()
+                    return ext == "fastq" || ext == "fq" || url.lastPathComponent.hasSuffix(".fastq.gz") || url.lastPathComponent.hasSuffix(".fq.gz")
+                } ?? false
+                return hasFastq ? parent : nil
+            }
+        }
+
+        var items: [(String, String, URL)] = []
+
+        for bundleURL in bundleURLs {
+            guard let contents = try? fm.contentsOfDirectory(
+                at: bundleURL,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+
+            let bundleName = bundleURL.lastPathComponent
+
+            for childURL in contents {
+                var isDir: ObjCBool = false
+                guard fm.fileExists(atPath: childURL.path, isDirectory: &isDir), isDir.boolValue else { continue }
+                let dirName = childURL.lastPathComponent.lowercased()
+
+                // Kraken2/Classification results
+                if dirName.hasPrefix("classification-") || dirName.hasPrefix("kraken") {
+                    let hasReport = fm.fileExists(atPath: childURL.appendingPathComponent("classification.kraken2.report.txt").path)
+                        || fm.fileExists(atPath: childURL.appendingPathComponent("classification.report.txt").path)
+                    if hasReport {
+                        items.append(("View Kraken2 (\(bundleName))", "kraken2", childURL))
+                    }
+                }
+
+                // EsViritu results
+                if dirName.hasPrefix("esviritu-") {
+                    let hasSidecar = fm.fileExists(atPath: childURL.appendingPathComponent("esviritu-result.json").path)
+                    if hasSidecar {
+                        items.append(("View EsViritu (\(bundleName))", "esviritu", childURL))
+                    }
+                }
+            }
+        }
+
+        actionBar.configureRelatedAnalyses(items: items)
+        if !items.isEmpty {
+            logger.info("Discovered \(items.count) related analyses in source bundles")
+        }
+    }
+
+    /// Callback for navigating to a related analysis result.
+    /// Set by the host (ViewerViewController+TaxTriage) to handle cross-navigation.
+    public var onRelatedAnalysis: ((String, URL) -> Void)?
 
     // MARK: - NSSplitViewDelegate
 
@@ -1879,6 +2023,14 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
         NSPasteboard.general.setString(sortedRows[row].organism, forType: .string)
     }
 
+    /// Selects the first row matching the given organism name (case-insensitive).
+    func selectRow(byOrganism name: String) {
+        let lowered = name.lowercased()
+        guard let idx = sortedRows.firstIndex(where: { $0.organism.lowercased() == lowered }) else { return }
+        tableView.selectRowIndexes(IndexSet(integer: idx), byExtendingSelection: false)
+        tableView.scrollRowToVisible(idx)
+    }
+
     // MARK: - Sorting
 
     private func sortRows(_ rows: [TaxTriageTableRow]) -> [TaxTriageTableRow] {
@@ -2083,6 +2235,10 @@ final class TaxTriageActionBar: NSView {
     /// Called when the user clicks the open externally button.
     var onOpenExternally: (() -> Void)?
 
+    /// Called when the user selects a related analysis to navigate to.
+    /// Parameter: (analysisType, bundleURL) where analysisType is "kraken2" or "esviritu".
+    var onRelatedAnalysis: ((String, URL) -> Void)?
+
     // MARK: - Subviews
 
     private let exportButton = NSButton(
@@ -2097,6 +2253,11 @@ final class TaxTriageActionBar: NSView {
     )
     private let openExternalButton = NSButton(
         title: "Open Report",
+        target: nil,
+        action: nil
+    )
+    private let relatedButton = NSButton(
+        title: "Related",
         target: nil,
         action: nil
     )
@@ -2156,6 +2317,17 @@ final class TaxTriageActionBar: NSView {
         openExternalButton.setContentHuggingPriority(.required, for: .horizontal)
         addSubview(openExternalButton)
 
+        // Related analyses button (hidden by default, shown when related results exist)
+        relatedButton.translatesAutoresizingMaskIntoConstraints = false
+        relatedButton.bezelStyle = .accessoryBarAction
+        relatedButton.image = NSImage(systemSymbolName: "link", accessibilityDescription: "Related Analyses")
+        relatedButton.imagePosition = .imageLeading
+        relatedButton.target = self
+        relatedButton.action = #selector(relatedTapped(_:))
+        relatedButton.setContentHuggingPriority(.required, for: .horizontal)
+        relatedButton.isHidden = true
+        addSubview(relatedButton)
+
         // Info label (center)
         infoLabel.translatesAutoresizingMaskIntoConstraints = false
         infoLabel.font = .systemFont(ofSize: 11, weight: .regular)
@@ -2188,7 +2360,10 @@ final class TaxTriageActionBar: NSView {
             openExternalButton.leadingAnchor.constraint(equalTo: reRunButton.trailingAnchor, constant: 6),
             openExternalButton.centerYAnchor.constraint(equalTo: centerYAnchor),
 
-            infoLabel.leadingAnchor.constraint(equalTo: openExternalButton.trailingAnchor, constant: 12),
+            relatedButton.leadingAnchor.constraint(equalTo: openExternalButton.trailingAnchor, constant: 6),
+            relatedButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            infoLabel.leadingAnchor.constraint(equalTo: relatedButton.trailingAnchor, constant: 12),
             infoLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             infoLabel.trailingAnchor.constraint(
                 lessThanOrEqualTo: provenanceButton.leadingAnchor, constant: -12
@@ -2248,6 +2423,34 @@ final class TaxTriageActionBar: NSView {
 
     @objc private func provenanceTapped(_ sender: NSButton) {
         onProvenance?(sender)
+    }
+
+    @objc private func relatedTapped(_ sender: NSButton) {
+        guard let items = relatedAnalysisItems, !items.isEmpty else { return }
+
+        let menu = NSMenu()
+        for (label, analysisType, bundleURL) in items {
+            let menuItem = NSMenuItem(title: label, action: nil, keyEquivalent: "")
+            menuItem.representedObject = (analysisType, bundleURL)
+            menuItem.target = self
+            menuItem.action = #selector(relatedMenuItemSelected(_:))
+            menu.addItem(menuItem)
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.maxY), in: sender)
+    }
+
+    @objc private func relatedMenuItemSelected(_ sender: NSMenuItem) {
+        guard let tuple = sender.representedObject as? (String, URL) else { return }
+        onRelatedAnalysis?(tuple.0, tuple.1)
+    }
+
+    /// Cached list of related analysis items: (displayLabel, analysisType, bundleURL).
+    private var relatedAnalysisItems: [(String, String, URL)]?
+
+    /// Configures the related analyses button based on discovered results in source bundles.
+    func configureRelatedAnalyses(items: [(String, String, URL)]) {
+        relatedAnalysisItems = items
+        relatedButton.isHidden = items.isEmpty
     }
 }
 

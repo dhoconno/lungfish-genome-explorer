@@ -4301,6 +4301,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                             detail: capturedResult.summary
                         )
                         viewerController.displayTaxTriageResult(capturedResult, config: capturedConfig)
+
+                        // Write cross-reference sidecars into each source bundle so
+                        // the sidebar discovers TaxTriage results under all contributors.
+                        Self.writeTaxTriageCrossRefSidecars(result: capturedResult, config: capturedConfig)
                     }
                 }
             } catch {
@@ -4324,6 +4328,43 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
 
         OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+    }
+
+    /// Writes TaxTriage cross-reference sidecars into each source bundle directory.
+    ///
+    /// After a multi-sample TaxTriage batch run, each contributing source bundle
+    /// gets a `taxtriage-ref-{runId}.json` so the sidebar can discover the result
+    /// under every bundle, not just the one containing the output directory.
+    private static func writeTaxTriageCrossRefSidecars(result: TaxTriageResult, config: TaxTriageConfig) {
+        guard let sourceBundleURLs = result.sourceBundleURLs, sourceBundleURLs.count > 1 else { return }
+
+        let runId = result.outputDirectory.lastPathComponent
+        let now = Date()
+
+        for (index, bundleURL) in sourceBundleURLs.enumerated() {
+            // Determine which sample(s) came from this bundle
+            let sampleId: String
+            if index < config.samples.count {
+                sampleId = config.samples[index].sampleId
+            } else {
+                sampleId = "sample-\(index)"
+            }
+
+            let ref = TaxTriageCrossRef(
+                resultDirectory: result.outputDirectory.path,
+                runId: runId,
+                sampleId: sampleId,
+                createdAt: now,
+                batchSampleCount: config.samples.count
+            )
+
+            do {
+                try MetagenomicsBatchResultStore.saveTaxTriageRef(ref, to: bundleURL)
+                debugLog("Wrote TaxTriage cross-ref sidecar to \(bundleURL.lastPathComponent) for sample \(sampleId)")
+            } catch {
+                debugLog("Failed to write TaxTriage cross-ref to \(bundleURL.lastPathComponent): \(error)")
+            }
+        }
     }
 
     /// Shows the database browser for the specified source.
