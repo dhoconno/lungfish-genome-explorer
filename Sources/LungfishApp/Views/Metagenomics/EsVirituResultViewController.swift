@@ -114,6 +114,12 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     /// Called when the user wants to re-run EsViritu with the same or different settings.
     public var onReRun: (() -> Void)?
 
+    /// Unified metagenomics drawer (available for views that adopt it).
+    /// Provides Samples, Collections, and BLAST Results tabs.
+    private(set) lazy var metagenomicsDrawer: MetagenomicsDrawerView = {
+        MetagenomicsDrawerView()
+    }()
+
     /// The BLAST results drawer embedded at the bottom of the view.
     private var blastDrawerView: BlastResultsDrawerTab?
     private var blastDrawerBottomConstraint: NSLayoutConstraint?

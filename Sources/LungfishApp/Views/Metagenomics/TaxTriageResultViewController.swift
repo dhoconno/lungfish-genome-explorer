@@ -148,6 +148,19 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     private var blastDrawerHeightConstraint: NSLayoutConstraint?
     private var splitViewBottomConstraint: NSLayoutConstraint?
 
+    /// Unified metagenomics drawer (Samples + Collections + BLAST tabs).
+    /// Created lazily and available for view controllers that adopt the unified drawer.
+    private(set) lazy var metagenomicsDrawer: MetagenomicsDrawerView = {
+        let drawer = MetagenomicsDrawerView()
+        drawer.onSampleFilterChanged = { [weak self] visibleIds in
+            self?.applyMetadataFilter(visibleSampleIds: visibleIds)
+        }
+        return drawer
+    }()
+
+    /// Metadata per sample, keyed by sampleId.
+    private var sampleMetadata: [String: FASTQSampleMetadata] = [:]
+
     /// Height constraint for the sample filter bar (0 when hidden, 24 when visible).
     private var sampleFilterHeightConstraint: NSLayoutConstraint?
     /// Top spacing constraint between sample filter and split view.
@@ -1451,6 +1464,35 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         if !isBlastDrawerOpen {
             blastDrawer.isHidden = true
         }
+    }
+
+    // MARK: - Sample Metadata Integration
+
+    /// Configures the metagenomics drawer's Samples tab with metadata.
+    ///
+    /// Call this after `configure(metrics:...)` once sample metadata has been
+    /// loaded from FASTQ bundles.
+    public func configureSampleMetadata(_ metadata: [String: FASTQSampleMetadata]) {
+        self.sampleMetadata = metadata
+        metagenomicsDrawer.configureSamples(sampleIds: sampleIds, metadata: metadata)
+    }
+
+    /// Called by the metagenomics drawer when sample visibility changes.
+    private func applyMetadataFilter(visibleSampleIds: Set<String>) {
+        // Re-filter using the visible set
+        let filtered = sampleIds.filter { visibleSampleIds.contains($0) }
+        guard !filtered.isEmpty else { return }
+
+        // Reconfigure batch overview with filtered sample IDs
+        let negControlIds = negativeControlSampleIds()
+        let labels = buildSampleLabelsFromCSVMetadata()
+        batchOverviewView.configure(
+            metrics: metrics,
+            sampleIds: filtered,
+            negativeControlSampleIds: negControlIds,
+            sampleLabels: labels,
+            perSampleDeduplicatedReadCounts: perSampleDeduplicatedReadCounts
+        )
     }
 
     // MARK: - Setup: Action Bar
