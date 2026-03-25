@@ -9,6 +9,51 @@ import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "MiniBAM")
 
+/// Drag handle used to resize the embedded mini-BAM viewport vertically.
+private final class MiniBAMResizeHandleView: NSView {
+    var onDragDeltaY: ((CGFloat) -> Void)?
+    private var lastWindowPoint: NSPoint?
+
+    override var isFlipped: Bool { true }
+    override var acceptsFirstResponder: Bool { true }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .resizeUpDown)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        lastWindowPoint = event.locationInWindow
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let lastWindowPoint else { return }
+        let next = event.locationInWindow
+        // Window Y increases upward; dragging down should increase BAM height.
+        let deltaY = -(next.y - lastWindowPoint.y)
+        onDragDeltaY?(deltaY)
+        self.lastWindowPoint = next
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        lastWindowPoint = nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.separatorColor.withAlphaComponent(0.35).setFill()
+        NSBezierPath(rect: bounds).fill()
+
+        NSColor.tertiaryLabelColor.withAlphaComponent(0.8).setStroke()
+        for y in [bounds.midY - 2, bounds.midY, bounds.midY + 2] {
+            let line = NSBezierPath()
+            line.lineWidth = 1
+            line.move(to: NSPoint(x: bounds.midX - 16, y: y))
+            line.line(to: NSPoint(x: bounds.midX + 16, y: y))
+            line.stroke()
+        }
+    }
+}
+
 // MARK: - MiniBAMViewController
 
 /// A compact BAM alignment viewer that shows base-level read pileup for a viral contig.
@@ -51,6 +96,7 @@ public final class MiniBAMViewController: NSViewController {
 
     private let scrollView = NSScrollView()
     private let pileupView = MiniPileupView()
+    private let resizeHandleView = MiniBAMResizeHandleView()
     private let statusLabel = NSTextField(labelWithString: "")
 
     // MARK: - Lifecycle
@@ -62,6 +108,10 @@ public final class MiniBAMViewController: NSViewController {
         setupScrollView()
         setupStatusLabel()
 
+        resizeHandleView.onDragDeltaY = { [weak self] deltaY in
+            self?.onResizeBy?(deltaY)
+        }
+
         // Context menu for the pileup view
         let menu = NSMenu()
         menu.addItem(withTitle: "Zoom In", action: #selector(zoomInAction), keyEquivalent: "+")
@@ -70,6 +120,7 @@ public final class MiniBAMViewController: NSViewController {
         menu.items.last?.keyEquivalentModifierMask = .command
         menu.addItem(withTitle: "Zoom to Fit", action: #selector(zoomToFitAction), keyEquivalent: "0")
         menu.items.last?.keyEquivalentModifierMask = .command
+        menu.addItem(withTitle: "Center View Here", action: #selector(centerViewHereAction), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Copy Read Sequence (FASTQ)", action: #selector(copyReadFASTQ), keyEquivalent: "")
         menu.addItem(withTitle: "Copy Read Name", action: #selector(copyReadName), keyEquivalent: "")
@@ -79,6 +130,9 @@ public final class MiniBAMViewController: NSViewController {
         pileupView.onReadClicked = { [weak self] readIndex in
             self?.selectedReadIndex = readIndex
         }
+        pileupView.onZoomInRequested = { [weak self] in self?.zoomIn() }
+        pileupView.onZoomOutRequested = { [weak self] in self?.zoomOut() }
+        pileupView.onZoomToFitRequested = { [weak self] in self?.zoomToFit() }
     }
 
     /// Index of the currently selected read (for context menu operations).
@@ -99,6 +153,13 @@ public final class MiniBAMViewController: NSViewController {
         "Select a \(subjectNoun) to view alignments"
     }
 
+    /// Optional callback used by host views to resize this mini-BAM vertically.
+    public var onResizeBy: ((CGFloat) -> Void)? {
+        didSet {
+            resizeHandleView.isHidden = (onResizeBy == nil)
+        }
+    }
+
     /// Current zoom level (1.0 = fit entire contig in viewport width).
     private var zoomLevel: Double = 1.0
 
@@ -114,6 +175,10 @@ public final class MiniBAMViewController: NSViewController {
         scrollView.documentView = pileupView
         view.addSubview(scrollView)
 
+        resizeHandleView.translatesAutoresizingMaskIntoConstraints = false
+        resizeHandleView.isHidden = true
+        view.addSubview(resizeHandleView)
+
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         statusLabel.font = .systemFont(ofSize: 10)
         statusLabel.textColor = .tertiaryLabelColor
@@ -124,7 +189,12 @@ public final class MiniBAMViewController: NSViewController {
             scrollView.topAnchor.constraint(equalTo: view.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: statusLabel.topAnchor, constant: -2),
+            scrollView.bottomAnchor.constraint(equalTo: resizeHandleView.topAnchor, constant: -1),
+
+            resizeHandleView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            resizeHandleView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            resizeHandleView.bottomAnchor.constraint(equalTo: statusLabel.topAnchor, constant: -1),
+            resizeHandleView.heightAnchor.constraint(equalToConstant: 8),
 
             statusLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 4),
             statusLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -4),
@@ -177,7 +247,8 @@ public final class MiniBAMViewController: NSViewController {
             contigName: contigName,
             contigLength: contigLength,
             viewportWidth: viewportWidth,
-            zoomLevel: zoomLevel
+            zoomLevel: zoomLevel,
+            rebuildReference: false
         )
 
         // Scroll to keep the same bp position centered
@@ -241,6 +312,7 @@ public final class MiniBAMViewController: NSViewController {
                 self.reads = fetchedReads
                 self.detectDuplicates()
                 self.updatePileup()
+                self.view.window?.makeFirstResponder(self.pileupView)
 
                 // Scroll to TOP of pileup (where most reads are concentrated)
                 // so the user sees the highest-coverage region first
@@ -266,22 +338,29 @@ public final class MiniBAMViewController: NSViewController {
 
     // MARK: - Keyboard Shortcuts
 
-    public override func keyDown(with event: NSEvent) {
+    @discardableResult
+    private func handleZoomShortcut(_ event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if modifiers == .command {
-            switch event.charactersIgnoringModifiers {
-            case "+", "=":
-                zoomIn()
-                return
-            case "-":
-                zoomOut()
-                return
-            case "0":
-                zoomToFit()
-                return
-            default:
-                break
-            }
+        guard modifiers == .command else { return false }
+
+        switch event.charactersIgnoringModifiers {
+        case "+", "=":
+            zoomIn()
+            return true
+        case "-", "_":
+            zoomOut()
+            return true
+        case "0":
+            zoomToFit()
+            return true
+        default:
+            return false
+        }
+    }
+
+    public override func keyDown(with event: NSEvent) {
+        if handleZoomShortcut(event) {
+            return
         }
         super.keyDown(with: event)
     }
@@ -294,6 +373,14 @@ public final class MiniBAMViewController: NSViewController {
     @objc private func zoomInAction() { zoomIn() }
     @objc private func zoomOutAction() { zoomOut() }
     @objc private func zoomToFitAction() { zoomToFit() }
+    @objc private func centerViewHereAction() {
+        guard let clickPoint = pileupView.lastContextClickPoint else { return }
+        let viewportWidth = scrollView.contentSize.width
+        let targetX = clickPoint.x - viewportWidth / 2
+        let clampedX = max(0, min(targetX, pileupView.bounds.width - viewportWidth))
+        scrollView.contentView.scroll(to: NSPoint(x: clampedX, y: scrollView.contentView.bounds.origin.y))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
 
     @objc private func copyReadFASTQ() {
         guard let idx = selectedReadIndex ?? pileupView.lastClickedReadIndex,
@@ -356,7 +443,8 @@ public final class MiniBAMViewController: NSViewController {
             contigName: contigName,
             contigLength: contigLength,
             viewportWidth: scrollView.contentSize.width,
-            zoomLevel: zoomLevel
+            zoomLevel: zoomLevel,
+            rebuildReference: true
         )
     }
 }
@@ -383,9 +471,13 @@ final class MiniPileupView: NSView {
 
     /// Callback when a read is clicked.
     var onReadClicked: ((Int) -> Void)?
+    var onZoomInRequested: (() -> Void)?
+    var onZoomOutRequested: (() -> Void)?
+    var onZoomToFitRequested: (() -> Void)?
 
     /// Index of the last read that was right-clicked (for context menu).
     var lastClickedReadIndex: Int?
+    var lastContextClickPoint: NSPoint?
 
     /// Domain noun used in the empty-state label.
     var subjectNoun: String = "virus"
@@ -397,6 +489,11 @@ final class MiniPileupView: NSView {
     private let readGap: CGFloat = 2
     private let leftMargin: CGFloat = 4
     private let topMargin: CGFloat = 4
+    private let referenceTrackHeight: CGFloat = 14
+    private let referenceTrackGap: CGFloat = 4
+
+    /// Per-position inferred reference bases from aligned reads and MD tags.
+    private var inferredReferenceBases: [Int: Character] = [:]
 
     // MARK: - Configuration
 
@@ -406,12 +503,16 @@ final class MiniPileupView: NSView {
         contigName: String,
         contigLength: Int,
         viewportWidth: CGFloat,
-        zoomLevel: Double = 1.0
+        zoomLevel: Double = 1.0,
+        rebuildReference: Bool = false
     ) {
         self.reads = reads
         self.duplicateIndices = duplicateIndices
         self.contigName = contigName
         self.contigLength = contigLength
+        if rebuildReference {
+            inferredReferenceBases = inferReferenceBases()
+        }
 
         // Compute bp/px: at zoom=1.0, entire contig fits in viewport.
         // Higher zoom = fewer bp/px = more detail.
@@ -423,7 +524,8 @@ final class MiniPileupView: NSView {
         packReads()
 
         // Set frame size
-        let pileupHeight = CGFloat(packedRows.count) * (readHeight + readGap) + depthTrackHeight + topMargin * 2
+        let pileupHeight = CGFloat(packedRows.count) * (readHeight + readGap)
+            + depthTrackHeight + referenceTrackGap + referenceTrackHeight + topMargin * 2
         let contentWidth = max(viewportWidth, CGFloat(Double(contigLength) / bpPerPixel) + leftMargin * 2)
         frame = NSRect(x: 0, y: 0, width: contentWidth, height: max(200, pileupHeight))
 
@@ -434,6 +536,7 @@ final class MiniPileupView: NSView {
         reads = []
         duplicateIndices = []
         packedRows = []
+        inferredReferenceBases = [:]
         frame = NSRect(x: 0, y: 0, width: 100, height: 100)
         needsDisplay = true
     }
@@ -446,7 +549,6 @@ final class MiniPileupView: NSView {
 
         for idx in sorted {
             let read = reads[idx]
-            let readEnd = read.alignmentEnd
 
             // Find first row where this read fits
             var placed = false
@@ -475,6 +577,7 @@ final class MiniPileupView: NSView {
         }
 
         drawDepthTrack(in: dirtyRect)
+        drawReferenceTrack(in: dirtyRect)
         drawPileup(in: dirtyRect)
     }
 
@@ -538,10 +641,63 @@ final class MiniPileupView: NSView {
         maxLabel.draw(at: NSPoint(x: trackRect.minX + 2, y: trackRect.maxY - 12), withAttributes: attrs)
     }
 
+    private func drawReferenceTrack(in dirtyRect: NSRect) {
+        let refRect = NSRect(
+            x: leftMargin,
+            y: bounds.height - depthTrackHeight - topMargin - referenceTrackGap - referenceTrackHeight,
+            width: bounds.width - leftMargin * 2,
+            height: referenceTrackHeight
+        )
+        guard refRect.intersects(dirtyRect) else { return }
+
+        NSColor.controlBackgroundColor.withAlphaComponent(0.85).setFill()
+        NSBezierPath(roundedRect: refRect, xRadius: 3, yRadius: 3).fill()
+
+        guard contigLength > 0 else { return }
+        let basePxWidth = CGFloat(1.0 / bpPerPixel)
+        guard basePxWidth > 0 else { return }
+
+        let startRef = max(0, Int(floor(Double(dirtyRect.minX - leftMargin) * bpPerPixel)))
+        let endRef = min(contigLength - 1, Int(ceil(Double(dirtyRect.maxX - leftMargin) * bpPerPixel)))
+        guard endRef >= startRef else { return }
+
+        if basePxWidth >= 5 {
+            let font = NSFont.monospacedSystemFont(ofSize: min(10, max(7, basePxWidth * 0.7)), weight: .medium)
+            for refPos in startRef...endRef {
+                let base = inferredReferenceBases[refPos] ?? "N"
+                let x = leftMargin + CGFloat(Double(refPos) / bpPerPixel)
+                guard x + basePxWidth >= refRect.minX, x <= refRect.maxX else { continue }
+
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: font,
+                    .foregroundColor: baseColor(for: base),
+                ]
+                let str = String(base) as NSString
+                let size = str.size(withAttributes: attrs)
+                str.draw(
+                    at: NSPoint(
+                        x: x + (basePxWidth - size.width) / 2,
+                        y: refRect.minY + (referenceTrackHeight - size.height) / 2
+                    ),
+                    withAttributes: attrs
+                )
+            }
+        } else {
+            for refPos in startRef...endRef {
+                let base = inferredReferenceBases[refPos] ?? "N"
+                let x = leftMargin + CGFloat(Double(refPos) / bpPerPixel)
+                let width = max(1, basePxWidth)
+                let rect = NSRect(x: x, y: refRect.minY + 2, width: width, height: referenceTrackHeight - 4)
+                baseColor(for: base).withAlphaComponent(0.45).setFill()
+                NSBezierPath(rect: rect).fill()
+            }
+        }
+    }
+
     // MARK: - Read Pileup
 
     private func drawPileup(in dirtyRect: NSRect) {
-        let pileupTop = bounds.height - depthTrackHeight - topMargin * 2
+        let pileupTop = bounds.height - depthTrackHeight - referenceTrackHeight - referenceTrackGap - topMargin * 2
 
         for (rowIdx, row) in packedRows.enumerated() {
             let rowY = pileupTop - CGFloat(rowIdx + 1) * (readHeight + readGap)
@@ -612,10 +768,13 @@ final class MiniPileupView: NSView {
         let effectiveBpPerPx = bpPerPixel / max(1, Double(window?.backingScaleFactor ?? 1))
         if effectiveBpPerPx < 0.5 {
             // Ultra-zoom: draw full sequence bases
-            drawBaseLetters(read: read, startX: startX, y: y, baseColor: baseColor)
+            drawBaseLetters(read: read, startX: startX, y: y)
+            if let mdTag = read.mdTag {
+                drawMismatchesFromMD(read: read, mdTag: mdTag, readRect: readRect, y: y, style: .outline)
+            }
         } else if bpPerPixel < 5, let mdTag = read.mdTag {
-            // Medium zoom: draw only mismatches as colored ticks
-            drawMismatchesFromMD(read: read, mdTag: mdTag, readRect: readRect, y: y)
+            // Medium zoom: draw mismatches as colored ticks.
+            drawMismatchesFromMD(read: read, mdTag: mdTag, readRect: readRect, y: y, style: .fillTick)
         }
 
         // Draw soft-clip indicators from CIGAR
@@ -640,7 +799,7 @@ final class MiniPileupView: NSView {
     }
 
     /// Draws individual base letters on the read at high zoom levels.
-    private func drawBaseLetters(read: AlignedRead, startX: CGFloat, y: CGFloat, baseColor: NSColor) {
+    private func drawBaseLetters(read: AlignedRead, startX: CGFloat, y: CGFloat) {
         let basePxWidth = CGFloat(1.0 / bpPerPixel)
         guard basePxWidth >= 4 else { return }  // Too small to render letters
 
@@ -652,13 +811,7 @@ final class MiniPileupView: NSView {
             let x = leftMargin + CGFloat(Double(refPos) / bpPerPixel)
 
             let color: NSColor
-            switch char.uppercased() {
-            case "A": color = NSColor(red: 0, green: 0.6, blue: 0, alpha: 1)
-            case "T": color = NSColor(red: 0.8, green: 0, blue: 0, alpha: 1)
-            case "G": color = NSColor(red: 0.8, green: 0.7, blue: 0, alpha: 1)
-            case "C": color = NSColor(red: 0, green: 0, blue: 0.8, alpha: 1)
-            default: color = .systemGray
-            }
+            color = baseColor(for: char)
 
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: font,
@@ -678,9 +831,21 @@ final class MiniPileupView: NSView {
     /// The MD tag format: `[0-9]+(([A-Z]|\^[A-Z]+)[0-9]+)*`
     /// Numbers indicate matching bases; letters indicate mismatches;
     /// ^letters indicate deletions from reference.
-    private func drawMismatchesFromMD(read: AlignedRead, mdTag: String, readRect: NSRect, y: CGFloat) {
+    private enum MismatchMarkerStyle {
+        case fillTick
+        case outline
+    }
+
+    private func drawMismatchesFromMD(
+        read: AlignedRead,
+        mdTag: String,
+        readRect: NSRect,
+        y: CGFloat,
+        style: MismatchMarkerStyle
+    ) {
         var refPos = read.position
         var i = mdTag.startIndex
+        let queryByReference = buildReferenceToQueryIndexMap(for: read)
 
         while i < mdTag.endIndex {
             let ch = mdTag[i]
@@ -705,7 +870,7 @@ final class MiniPileupView: NSView {
                 let mismatchX = leftMargin + CGFloat(Double(refPos) / bpPerPixel)
                 if mismatchX >= readRect.minX && mismatchX <= readRect.maxX {
                     // Get the read base at this position from the sequence
-                    let queryOffset = refPos - read.position
+                    let queryOffset = queryByReference[refPos] ?? (refPos - read.position)
                     let readBase: Character
                     if queryOffset >= 0 && queryOffset < read.sequence.count {
                         let idx = read.sequence.index(read.sequence.startIndex, offsetBy: queryOffset)
@@ -714,19 +879,20 @@ final class MiniPileupView: NSView {
                         readBase = "N"
                     }
 
-                    let color: NSColor
-                    switch readBase.uppercased() {
-                    case "A": color = .systemGreen
-                    case "T": color = .systemRed
-                    case "G": color = .systemYellow
-                    case "C": color = .systemBlue
-                    default: color = .systemGray
-                    }
+                    let color = baseColor(for: readBase)
 
                     let tickWidth = max(1, CGFloat(1 / bpPerPixel))
-                    let tickRect = NSRect(x: mismatchX, y: y, width: tickWidth, height: readHeight)
-                    color.setFill()
-                    NSBezierPath(rect: tickRect).fill()
+                    let tickRect = NSRect(x: mismatchX, y: y, width: max(1, tickWidth), height: readHeight)
+                    switch style {
+                    case .fillTick:
+                        color.setFill()
+                        NSBezierPath(rect: tickRect).fill()
+                    case .outline:
+                        let outline = NSBezierPath(roundedRect: tickRect.insetBy(dx: -0.5, dy: -0.5), xRadius: 1, yRadius: 1)
+                        color.setStroke()
+                        outline.lineWidth = 1.2
+                        outline.stroke()
+                    }
                 }
 
                 refPos += 1
@@ -735,6 +901,126 @@ final class MiniPileupView: NSView {
                 i = mdTag.index(after: i)
             }
         }
+    }
+
+    private func baseColor(for base: Character) -> NSColor {
+        switch base.uppercased() {
+        case "A": return NSColor(red: 0, green: 0.6, blue: 0, alpha: 1)
+        case "T": return NSColor(red: 0.8, green: 0, blue: 0, alpha: 1)
+        case "G": return NSColor(red: 0.8, green: 0.7, blue: 0, alpha: 1)
+        case "C": return NSColor(red: 0, green: 0, blue: 0.8, alpha: 1)
+        default: return .systemGray
+        }
+    }
+
+    private func buildReferenceToQueryIndexMap(for read: AlignedRead) -> [Int: Int] {
+        var mapping: [Int: Int] = [:]
+        var refPos = read.position
+        var queryPos = 0
+
+        for op in read.cigar {
+            switch op.op {
+            case .match, .seqMatch, .seqMismatch:
+                for offset in 0..<op.length {
+                    mapping[refPos + offset] = queryPos + offset
+                }
+                refPos += op.length
+                queryPos += op.length
+            case .insertion, .softClip:
+                queryPos += op.length
+            case .deletion, .skip:
+                refPos += op.length
+            case .hardClip, .padding:
+                break
+            }
+        }
+
+        return mapping
+    }
+
+    private func inferReferenceBases() -> [Int: Character] {
+        guard !reads.isEmpty else { return [:] }
+
+        var baseVotes: [Int: [Character: Int]] = [:]
+        for read in reads {
+            let inferredForRead = inferReferenceBases(for: read)
+            for (refPos, base) in inferredForRead {
+                guard refPos >= 0 && refPos < contigLength else { continue }
+                baseVotes[refPos, default: [:]][base, default: 0] += 1
+            }
+        }
+
+        var inferred: [Int: Character] = [:]
+        for (refPos, votes) in baseVotes {
+            let winner = votes.max { lhs, rhs in
+                if lhs.value == rhs.value {
+                    return lhs.key < rhs.key
+                }
+                return lhs.value < rhs.value
+            }?.key ?? "N"
+            inferred[refPos] = winner
+        }
+        return inferred
+    }
+
+    private func inferReferenceBases(for read: AlignedRead) -> [Int: Character] {
+        let readBases = Array(read.sequence.uppercased())
+        guard !readBases.isEmpty else { return [:] }
+
+        var inferred: [Int: Character] = [:]
+        var refPos = read.position
+        var queryPos = 0
+
+        for op in read.cigar {
+            switch op.op {
+            case .match, .seqMatch, .seqMismatch:
+                for offset in 0..<op.length {
+                    let q = queryPos + offset
+                    if q >= 0, q < readBases.count {
+                        inferred[refPos + offset] = readBases[q]
+                    }
+                }
+                refPos += op.length
+                queryPos += op.length
+            case .insertion, .softClip:
+                queryPos += op.length
+            case .deletion, .skip:
+                refPos += op.length
+            case .hardClip, .padding:
+                break
+            }
+        }
+
+        guard let mdTag = read.mdTag, !mdTag.isEmpty else { return inferred }
+
+        refPos = read.position
+        var idx = mdTag.startIndex
+        while idx < mdTag.endIndex {
+            let ch = mdTag[idx]
+            if ch.isNumber {
+                var numStr = ""
+                while idx < mdTag.endIndex, mdTag[idx].isNumber {
+                    numStr.append(mdTag[idx])
+                    idx = mdTag.index(after: idx)
+                }
+                refPos += Int(numStr) ?? 0
+            } else if ch == "^" {
+                idx = mdTag.index(after: idx)
+                while idx < mdTag.endIndex, mdTag[idx].isLetter {
+                    inferred[refPos] = Character(String(mdTag[idx]).uppercased())
+                    refPos += 1
+                    idx = mdTag.index(after: idx)
+                }
+            } else if ch.isLetter {
+                inferred[refPos] = Character(String(ch).uppercased())
+                refPos += 1
+                idx = mdTag.index(after: idx)
+            } else {
+                idx = mdTag.index(after: idx)
+            }
+        }
+
+        return inferred
     }
 
     private func drawDuplicatePattern(in rect: NSRect) {
@@ -773,9 +1059,37 @@ final class MiniPileupView: NSView {
 
     // MARK: - Hit Testing
 
+    override var acceptsFirstResponder: Bool { true }
+
+    private func handleZoomShortcut(_ event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard modifiers == .command else { return false }
+
+        switch event.charactersIgnoringModifiers {
+        case "+", "=":
+            onZoomInRequested?()
+            return true
+        case "-", "_":
+            onZoomOutRequested?()
+            return true
+        case "0":
+            onZoomToFitRequested?()
+            return true
+        default:
+            return false
+        }
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if handleZoomShortcut(event) {
+            return
+        }
+        super.keyDown(with: event)
+    }
+
     /// Finds the read index at a given point in view coordinates.
     private func readIndex(at point: NSPoint) -> Int? {
-        let pileupTop = bounds.height - depthTrackHeight - topMargin * 2
+        let pileupTop = bounds.height - depthTrackHeight - referenceTrackHeight - referenceTrackGap - topMargin * 2
 
         for (rowIdx, row) in packedRows.enumerated() {
             let rowY = pileupTop - CGFloat(rowIdx + 1) * (readHeight + readGap)
@@ -795,6 +1109,7 @@ final class MiniPileupView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
         if let idx = readIndex(at: point) {
             lastClickedReadIndex = idx
@@ -806,13 +1121,16 @@ final class MiniPileupView: NSView {
     }
 
     override func rightMouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
+        lastContextClickPoint = point
         lastClickedReadIndex = readIndex(at: point)
         super.rightMouseDown(with: event)
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
+        lastContextClickPoint = point
         lastClickedReadIndex = readIndex(at: point)
         return super.menu(for: event)
     }

@@ -53,6 +53,10 @@ public final class EsVirituDetailPane: NSView {
     private var selectedCoverageWindows: [String: [ViralCoverageWindow]] = [:]
     private var bamAvailable: Bool = false
     private var currentBAMURL: URL?
+    private var miniBAMPreferredHeight: CGFloat = 320
+    private var miniBAMHeightConstraint: NSLayoutConstraint?
+    private let miniBAMMinHeight: CGFloat = 220
+    private let miniBAMMaxHeight: CGFloat = 900
 
     /// The mini BAM view controller (child VC managed by the parent result VC).
     /// Set by the parent so we can embed the BAM pileup in the detail pane.
@@ -188,6 +192,7 @@ public final class EsVirituDetailPane: NSView {
         for subview in contentView.subviews {
             subview.removeFromSuperview()
         }
+        miniBAMHeightConstraint = nil
 
         switch displayMode {
         case .overview:
@@ -253,14 +258,21 @@ public final class EsVirituDetailPane: NSView {
             let bamView = miniBAM.view
             bamView.translatesAutoresizingMaskIntoConstraints = false
             contentView.addSubview(bamView)
+            miniBAM.onResizeBy = { [weak self] deltaY in
+                self?.adjustMiniBAMHeight(by: deltaY)
+            }
+            let bamHeight = bamView.heightAnchor.constraint(equalToConstant: miniBAMPreferredHeight)
+            miniBAMHeightConstraint = bamHeight
 
             NSLayoutConstraint.activate([
                 bamView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
                 bamView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
                 bamView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -4),
-                bamView.heightAnchor.constraint(greaterThanOrEqualToConstant: 300),
+                bamHeight,
             ])
             topAlignedBAMView = bamView
+        } else {
+            miniBAMViewController?.onResizeBy = nil
         }
 
         // 2. Confidence badge + Virus name + Family
@@ -355,6 +367,23 @@ public final class EsVirituDetailPane: NSView {
         ]
 
         NSLayoutConstraint.activate(constraints)
+    }
+
+    private func adjustMiniBAMHeight(by deltaY: CGFloat) {
+        guard let constraint = miniBAMHeightConstraint else { return }
+
+        let availableHeight: CGFloat
+        if contentView.bounds.height > 0 {
+            availableHeight = contentView.bounds.height - 120
+        } else if bounds.height > 0 {
+            availableHeight = bounds.height - 120
+        } else {
+            availableHeight = miniBAMMaxHeight
+        }
+        let maxHeight = max(miniBAMMinHeight, min(miniBAMMaxHeight, availableHeight))
+        miniBAMPreferredHeight = min(max(miniBAMMinHeight, miniBAMPreferredHeight + deltaY), maxHeight)
+        constraint.constant = miniBAMPreferredHeight
+        contentView.layoutSubtreeIfNeeded()
     }
 
     private func buildMetricsView(for assembly: ViralAssembly) -> NSView {
