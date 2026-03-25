@@ -2749,6 +2749,21 @@ extension SidebarViewController: NSMenuDelegate {
             menu.addItem(NSMenuItem.separator())
         }
 
+        // Edit Sample Metadata (for folders containing FASTQ bundles)
+        if items.count == 1 && hasFolders, let folderItem = items.first, let folderURL = folderItem.url {
+            let hasFASTQChildren = folderItem.children.contains { $0.type == .fastqBundle }
+            if hasFASTQChildren {
+                let editMetaItem = NSMenuItem(
+                    title: "Edit Sample Metadata\u{2026}",
+                    action: #selector(contextMenuEditFolderMetadata(_:)),
+                    keyEquivalent: ""
+                )
+                editMetaItem.target = self
+                menu.addItem(editMetaItem)
+                menu.addItem(NSMenuItem.separator())
+            }
+        }
+
         // Show in Finder
         if !hasGroups {
             let showInFinderItem = NSMenuItem(title: "Show in Finder", action: #selector(contextMenuShowInFinder(_:)), keyEquivalent: "")
@@ -2928,6 +2943,20 @@ extension SidebarViewController: NSMenuDelegate {
         logger.info("contextMenuImportSampleMetadata: Importing metadata into '\(item.title, privacy: .public)'")
         guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
         appDelegate.presentMetadataImportPanel(for: bundleURL, presentingWindow: view.window)
+    }
+
+    @objc private func contextMenuEditFolderMetadata(_ sender: Any?) {
+        let items = selectedItems()
+        guard let item = items.first,
+              (item.type == .folder || item.type == .project),
+              let folderURL = item.url else { return }
+
+        logger.info("contextMenuEditFolderMetadata: Opening metadata editor for '\(item.title, privacy: .public)'")
+
+        let editorSheet = FolderMetadataEditorSheet(folderURL: folderURL)
+        guard let window = view.window else { return }
+
+        window.contentViewController?.presentAsSheet(editorSheet)
     }
 
     /// Checks if a bundle URL has variant tracks by reading its manifest.
