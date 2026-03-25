@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import SwiftUI
+import LungfishIO
 import LungfishWorkflow
 
 // MARK: - TaxTriageWizardSheet
@@ -283,10 +284,15 @@ struct TaxTriageWizardSheet: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Toggle("NTC", isOn: $samples[index].isNegativeControl)
-                .toggleStyle(.checkbox)
-                .font(.system(size: 10))
-                .help("Mark as negative control (blank extraction, no-template control)")
+            Picker("", selection: $samples[index].sampleRole) {
+                ForEach(SampleRole.allCases, id: \.self) { role in
+                    Text(role.displayLabel).tag(role)
+                }
+            }
+            .labelsHidden()
+            .controlSize(.small)
+            .frame(width: 130)
+            .help("Sample role: test sample, negative control, positive control, etc.")
 
             Button {
                 removeSample(at: index)
@@ -489,11 +495,25 @@ struct TaxTriageWizardSheet: View {
             let urls = group.map(\.url)
             let r1 = urls.first
             let r2 = urls.count > 1 ? urls[1] : nil
-            samples.append(WizardSample(
+            var sample = WizardSample(
                 sampleId: baseName,
                 fastq1: r1,
                 fastq2: r2
-            ))
+            )
+
+            // Auto-load metadata from FASTQ bundle if available
+            if let r1 {
+                let bundleURL = r1.deletingLastPathComponent()
+                if bundleURL.pathExtension == "lungfishfastq",
+                   let csvMeta = FASTQBundleCSVMetadata.load(from: bundleURL) {
+                    let meta = FASTQSampleMetadata(from: csvMeta, fallbackName: baseName)
+                    sample.sampleRole = meta.sampleRole
+                    sample.metadataLabel = meta.sampleName != baseName ? meta.sampleName : nil
+                    sample.isNegativeControl = meta.sampleRole == .negativeControl || meta.sampleRole == .extractionBlank
+                }
+            }
+
+            samples.append(sample)
         }
     }
 
@@ -501,12 +521,15 @@ struct TaxTriageWizardSheet: View {
     private func performRun() {
         let taxSamples = samples.compactMap { wizardSample -> TaxTriageSample? in
             guard let r1 = wizardSample.fastq1 else { return nil }
+            var sampleMeta = FASTQSampleMetadata(sampleName: wizardSample.sampleId)
+            sampleMeta.sampleRole = wizardSample.sampleRole
             return TaxTriageSample(
                 sampleId: wizardSample.sampleId.trimmingCharacters(in: .whitespaces),
                 fastq1: r1,
                 fastq2: wizardSample.fastq2,
                 platform: platform,
-                isNegativeControl: wizardSample.isNegativeControl
+                isNegativeControl: wizardSample.effectiveIsNegativeControl,
+                metadata: sampleMeta
             )
         }
 
@@ -597,4 +620,15 @@ private struct WizardSample: Identifiable {
     var fastq1: URL?
     var fastq2: URL?
     var isNegativeControl: Bool = false
+
+    /// Structured sample role, loaded from bundle metadata when available.
+    var sampleRole: SampleRole = .testSample
+
+    /// Display label from metadata (if different from sampleId).
+    var metadataLabel: String?
+
+    /// Whether isNegativeControl should be derived from sampleRole.
+    var effectiveIsNegativeControl: Bool {
+        sampleRole == .negativeControl || sampleRole == .extractionBlank || isNegativeControl
+    }
 }
