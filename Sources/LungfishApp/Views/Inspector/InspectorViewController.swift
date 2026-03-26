@@ -17,17 +17,20 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "InspectorVie
 
 /// Tab selection for the inspector panel's segmented control.
 ///
-/// The inspector supports three tabs:
-/// - `document`: Shows bundle-level metadata (organism, assembly, source info, NCBI metadata)
-/// - `selection`: Shows editing controls (annotation selection, appearance, annotation style, read style)
-/// - `ai`: Shows the embedded AI assistant chat interface
+/// The inspector supports multiple tabs whose availability varies by
+/// ``ViewportContentMode``. The ``InspectorViewModel/availableTabs``
+/// computed property returns only the tabs relevant to the current mode.
 enum InspectorTab: String, CaseIterable {
     /// Bundle metadata and source information.
     case document
-    /// Annotation selection editing and style controls.
+    /// Annotation selection editing and style controls (genomics mode).
     case selection
-    /// Embedded AI assistant.
+    /// Embedded AI assistant (genomics mode).
     case ai
+    /// FASTQ sample metadata editing (FASTQ mode).
+    case fastqMetadata
+    /// Metagenomics result summary (metagenomics mode).
+    case resultSummary
 }
 
 /// Controller for the inspector panel showing selection details.
@@ -191,6 +194,14 @@ public class InspectorViewController: NSViewController {
             self,
             selector: #selector(handleFASTQDatasetLoaded(_:)),
             name: .fastqDatasetLoaded,
+            object: nil
+        )
+
+        // Listen for viewport content mode changes to adapt inspector tabs/sections.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleContentModeChanged(_:)),
+            name: .viewportContentModeDidChange,
             object: nil
         )
 
@@ -552,6 +563,25 @@ public class InspectorViewController: NSViewController {
         }
 
         viewModel.selectedTab = .document
+    }
+
+    /// Handles viewport content mode changes.
+    ///
+    /// Updates the view model's content mode and ensures the selected tab is valid
+    /// for the new mode. If the current tab is no longer available, switches to the
+    /// first available tab.
+    @objc private func handleContentModeChanged(_ notification: Notification) {
+        guard let rawMode = notification.userInfo?[NotificationUserInfoKey.contentMode] as? String,
+              let mode = ViewportContentMode(rawValue: rawMode) else { return }
+
+        logger.info("handleContentModeChanged: mode=\(rawMode, privacy: .public)")
+        viewModel.contentMode = mode
+
+        // If the currently selected tab is not available in the new mode, switch to the first available tab.
+        let available = viewModel.availableTabs
+        if !available.contains(viewModel.selectedTab), let first = available.first {
+            viewModel.selectedTab = first
+        }
     }
 
     /// Applies inspector tab selection from notification userInfo if provided.
@@ -1135,6 +1165,25 @@ public class InspectorViewController: NSViewController {
 @Observable
 @MainActor
 public final class InspectorViewModel {
+    // MARK: - Content Mode
+
+    /// The current viewport content mode, mirrored from ViewerViewController.
+    var contentMode: ViewportContentMode = .empty
+
+    /// Returns the set of inspector tabs available for the current content mode.
+    var availableTabs: [InspectorTab] {
+        switch contentMode {
+        case .genomics:
+            return [.document, .selection, .ai]
+        case .fastq:
+            return [.document, .fastqMetadata]
+        case .metagenomics:
+            return [.resultSummary]
+        case .empty:
+            return [.document, .selection]
+        }
+    }
+
     // MARK: - Tab State
 
     /// Currently selected inspector tab.
@@ -1234,83 +1283,12 @@ public struct InspectorView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            // Tab picker at top
-            Picker("Inspector", selection: $viewModel.selectedTab) {
-                Image(systemName: "doc.text")
-                    .tag(InspectorTab.document)
-                Image(systemName: "cursorarrow.click")
-                    .tag(InspectorTab.selection)
-                Image(systemName: "sparkles")
-                    .tag(InspectorTab.ai)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal)
-            .padding(.vertical, 8)
+            // Tab picker at top — only shows tabs available for current content mode
+            tabPicker
 
             Divider()
 
-            switch viewModel.selectedTab {
-            case .document, .selection:
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        switch viewModel.selectedTab {
-                        case .document:
-                            DocumentSection(viewModel: viewModel.documentSectionViewModel)
-
-                            FASTQMetadataSection(viewModel: viewModel.fastqMetadataSectionViewModel)
-
-                        case .selection:
-                            SelectionSection(viewModel: viewModel.selectionSectionViewModel)
-
-                            // Variant detail (shown when a variant is selected)
-                            VariantSection(viewModel: viewModel.variantSectionViewModel)
-
-                            Divider()
-
-                            // Sequence style
-                            AppearanceSection(viewModel: viewModel.appearanceSectionViewModel)
-
-                            Divider()
-
-                            // Annotation style
-                            AnnotationSection(viewModel: viewModel.annotationSectionViewModel)
-
-                            Divider()
-
-                            // Sample display controls (shown when variant data is available)
-                            SampleSection(viewModel: viewModel.sampleSectionViewModel)
-
-                            Divider()
-
-                            // Read style (BAM/CRAM placeholder)
-                            ReadStyleSection(viewModel: viewModel.readStyleSectionViewModel)
-
-                        case .ai:
-                            EmptyView()
-                        }
-
-                        Spacer()
-                    }
-                    .padding()
-                }
-
-            case .ai:
-                if let service = viewModel.aiAssistantService {
-                    EmbeddedAIAssistantView(service: service)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("AI Assistant")
-                            .font(.headline)
-                        Text("Enable AI services in Settings > AI Services to use the assistant.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                    }
-                    .padding()
-                }
-            }
+            tabContent
         }
         .onChange(of: viewModel.selectedTab) { _, tab in
             guard tab == .ai, viewModel.aiAssistantService == nil else { return }
@@ -1318,6 +1296,187 @@ public struct InspectorView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    // MARK: - Tab Picker
+
+    @ViewBuilder
+    private var tabPicker: some View {
+        let tabs = viewModel.availableTabs
+        if tabs.count > 1 {
+            Picker("Inspector", selection: $viewModel.selectedTab) {
+                ForEach(tabs, id: \.self) { tab in
+                    Image(systemName: tab.iconName)
+                        .tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+        } else if let single = tabs.first {
+            // Single-tab mode: show a label instead of a picker
+            HStack {
+                Image(systemName: single.iconName)
+                    .foregroundStyle(.secondary)
+                Text(single.displayLabel)
+                    .font(.headline)
+                Spacer()
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+        }
+    }
+
+    // MARK: - Tab Content
+
+    @ViewBuilder
+    private var tabContent: some View {
+        switch viewModel.selectedTab {
+        case .document, .selection, .fastqMetadata, .resultSummary:
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    tabScrollContent
+                    Spacer()
+                }
+                .padding()
+            }
+
+        case .ai:
+            if let service = viewModel.aiAssistantService {
+                EmbeddedAIAssistantView(service: service)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("AI Assistant")
+                        .font(.headline)
+                    Text("Enable AI services in Settings > AI Services to use the assistant.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .padding()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var tabScrollContent: some View {
+        switch viewModel.selectedTab {
+        case .document:
+            DocumentSection(viewModel: viewModel.documentSectionViewModel)
+            // Show FASTQ metadata in Document tab when in FASTQ mode
+            if viewModel.contentMode == .fastq {
+                FASTQMetadataSection(viewModel: viewModel.fastqMetadataSectionViewModel)
+            }
+
+        case .selection:
+            SelectionSection(viewModel: viewModel.selectionSectionViewModel)
+
+            // Variant detail (shown when a variant is selected)
+            VariantSection(viewModel: viewModel.variantSectionViewModel)
+
+            Divider()
+
+            // Sequence style
+            AppearanceSection(viewModel: viewModel.appearanceSectionViewModel)
+
+            Divider()
+
+            // Annotation style
+            AnnotationSection(viewModel: viewModel.annotationSectionViewModel)
+
+            Divider()
+
+            // Sample display controls (shown when variant data is available)
+            SampleSection(viewModel: viewModel.sampleSectionViewModel)
+
+            Divider()
+
+            // Read style (BAM/CRAM placeholder)
+            ReadStyleSection(viewModel: viewModel.readStyleSectionViewModel)
+
+        case .fastqMetadata:
+            FASTQMetadataSection(viewModel: viewModel.fastqMetadataSectionViewModel)
+
+        case .resultSummary:
+            MetagenomicsResultSummarySection(viewModel: viewModel.documentSectionViewModel)
+
+        case .ai:
+            EmptyView()
+        }
+    }
+}
+
+// MARK: - InspectorTab Helpers
+
+extension InspectorTab {
+    /// SF Symbol name for this tab's picker icon.
+    var iconName: String {
+        switch self {
+        case .document: return "doc.text"
+        case .selection: return "cursorarrow.click"
+        case .ai: return "sparkles"
+        case .fastqMetadata: return "tag"
+        case .resultSummary: return "chart.bar"
+        }
+    }
+
+    /// Human-readable label for single-tab headers.
+    var displayLabel: String {
+        switch self {
+        case .document: return "Document"
+        case .selection: return "Selection"
+        case .ai: return "AI Assistant"
+        case .fastqMetadata: return "Sample Metadata"
+        case .resultSummary: return "Result Summary"
+        }
+    }
+}
+
+// MARK: - MetagenomicsResultSummarySection
+
+/// A minimal inspector section for metagenomics result views.
+///
+/// Shows pipeline/run information when a TaxTriage, EsViritu, or Kraken2
+/// result is displayed. Re-uses DocumentSectionViewModel data when available,
+/// otherwise shows a "No result information" placeholder.
+private struct MetagenomicsResultSummarySection: View {
+    @Bindable var viewModel: DocumentSectionViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Result Summary", systemImage: "chart.bar")
+                .font(.headline)
+
+            if let manifest = viewModel.manifest {
+                metadataRow("Organism", value: manifest.source.organism)
+                metadataRow("Assembly", value: manifest.source.assembly)
+            }
+
+            if viewModel.hasAnyContent {
+                Text("See the viewer for detailed results. Use the bottom drawer for BLAST verification and sample navigation.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Select a metagenomics result in the sidebar to view its summary here.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func metadataRow(_ label: String, value: String) -> some View {
+        HStack(alignment: .top) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 80, alignment: .trailing)
+            Text(value)
+                .font(.caption)
+                .textSelection(.enabled)
+        }
     }
 }
 

@@ -84,6 +84,11 @@ public final class DocumentSectionViewModel {
     func updateFASTQDerivativeMetadata(_ manifest: FASTQDerivedBundleManifest?) {
         self.fastqDerivativeManifest = manifest
     }
+
+    /// Whether any content is available for display (bundle, FASTQ, or SRA metadata).
+    var hasAnyContent: Bool {
+        manifest != nil || fastqStatistics != nil || sraRunInfo != nil || enaReadRecord != nil
+    }
 }
 
 // MARK: - DocumentSection

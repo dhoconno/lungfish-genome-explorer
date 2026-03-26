@@ -42,6 +42,7 @@ extension ViewerViewController {
         hideTaxonomyView()
         hideEsVirituView()
         hideTaxTriageView()
+        contentMode = .metagenomics
 
         let controller = TaxTriageResultViewController()
         controller.preselectedSampleId = sampleId

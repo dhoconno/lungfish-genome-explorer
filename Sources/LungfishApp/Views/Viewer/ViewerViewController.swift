@@ -76,6 +76,21 @@ public class ViewerViewController: NSViewController {
 
     // MARK: - State
 
+    /// The current viewport content mode (genomics, FASTQ, metagenomics, or empty).
+    ///
+    /// Updated automatically when display methods are called. Posts
+    /// `.viewportContentModeDidChange` so the inspector and toolbar can adapt.
+    public var contentMode: ViewportContentMode = .empty {
+        didSet {
+            guard contentMode != oldValue else { return }
+            NotificationCenter.default.post(
+                name: .viewportContentModeDidChange,
+                object: self,
+                userInfo: [NotificationUserInfoKey.contentMode: contentMode.rawValue]
+            )
+        }
+    }
+
     /// Current reference frame for coordinate mapping
     public var referenceFrame: ReferenceFrame?
 
@@ -924,6 +939,7 @@ public class ViewerViewController: NSViewController {
         hideTaxonomyView()
         hideEsVirituView()
         hideTaxTriageView()
+        contentMode = .fastq
 
         let controller = FASTQDatasetViewController()
         addChild(controller)
@@ -1373,6 +1389,7 @@ public class ViewerViewController: NSViewController {
     /// - Parameter statusMessage: The message to show in the status bar (e.g. "No sequence loaded")
     public func clearViewport(statusMessage: String = "No sequence loaded") {
         logger.info("clearViewport: Clearing all viewport state")
+        contentMode = .empty
 
         // Hide progress overlay
         hideProgress()
@@ -1436,6 +1453,7 @@ public class ViewerViewController: NSViewController {
     /// Displays a loaded document in the viewer.
     public func displayDocument(_ document: LoadedDocument) {
         logger.info("displayDocument: Starting to display '\(document.name, privacy: .public)'")
+        contentMode = .genomics
 
         // Hide any non-document views when showing a genomics document
         hideQuickLookPreview()

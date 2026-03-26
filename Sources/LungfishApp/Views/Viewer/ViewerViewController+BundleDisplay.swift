@@ -29,6 +29,7 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
     public func displayBundle(at url: URL) throws {
         // Save current bundle's view state before switching (flushes color overrides, nav state, etc.)
         saveCurrentViewState()
+        contentMode = .genomics
 
         bundleLogger.info("displayBundle: Opening bundle at '\(url.lastPathComponent, privacy: .public)'")
 

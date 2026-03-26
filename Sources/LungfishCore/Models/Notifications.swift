@@ -128,6 +128,32 @@ extension Notification.Name {
 
 }
 
+// MARK: - Viewport Content Mode
+
+/// Describes the kind of content currently displayed in the main viewport.
+///
+/// Used by the inspector and toolbar to adapt their UI to the active content type.
+/// For example, annotation and translation tools are only relevant in `.genomics` mode,
+/// while FASTQ metadata editing only applies in `.fastq` mode.
+public enum ViewportContentMode: String, Sendable {
+    /// Genomic sequence viewer (FASTA, VCF, genome bundles).
+    case genomics
+    /// FASTQ dataset dashboard.
+    case fastq
+    /// Metagenomics results (TaxTriage, EsViritu, Kraken2 taxonomy).
+    case metagenomics
+    /// Nothing displayed.
+    case empty
+}
+
+extension Notification.Name {
+    /// Posted when the viewport content mode changes.
+    ///
+    /// The `userInfo` dictionary contains:
+    /// - `"contentMode"`: The new `ViewportContentMode` raw value (`String`).
+    public static let viewportContentModeDidChange = Notification.Name("viewportContentModeDidChange")
+}
+
 // MARK: - Inspector Notifications
 
 extension Notification.Name {
@@ -372,4 +398,7 @@ public enum NotificationUserInfoKey {
 
     /// Key for strand-colored read backgrounds toggle (Bool).
     public static let showStrandColors = "showStrandColors"
+
+    /// Key for the viewport content mode (ViewportContentMode raw value String).
+    public static let contentMode = "contentMode"
 }

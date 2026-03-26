@@ -52,6 +52,9 @@ public class MainWindowController: NSWindowController {
     /// Popover anchored from the downloads toolbar button.
     private var downloadsPopover: NSPopover?
 
+    /// Current viewport content mode for toolbar adaptation.
+    private var currentContentMode: ViewportContentMode = .empty
+
     /// Combine subscriptions for toolbar state bindings.
     private var cancellables = Set<AnyCancellable>()
 
@@ -123,10 +126,70 @@ public class MainWindowController: NSWindowController {
             name: .bundleDidLoad,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleContentModeChanged(_:)),
+            name: .viewportContentModeDidChange,
+            object: nil
+        )
     }
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+    }
+
+    // MARK: - Content Mode → Toolbar Adaptation
+
+    @objc private func handleContentModeChanged(_ notification: Notification) {
+        guard let rawMode = notification.userInfo?[NotificationUserInfoKey.contentMode] as? String,
+              let mode = ViewportContentMode(rawValue: rawMode) else { return }
+        guard mode != currentContentMode else { return }
+
+        currentContentMode = mode
+        updateToolbarForContentMode(mode)
+    }
+
+    /// Updates toolbar item visibility based on the viewport content mode.
+    ///
+    /// Genomics-specific tools (translation, chromosome drawer) are hidden when
+    /// the viewport shows FASTQ or metagenomics content. The inspector toggle
+    /// and downloads button are always visible.
+    private func updateToolbarForContentMode(_ mode: ViewportContentMode) {
+        guard let toolbar = window?.toolbar else { return }
+
+        for item in toolbar.items {
+            switch item.itemIdentifier {
+            case ToolbarIdentifier.translateTool:
+                // Translation is only relevant for genomic sequences
+                let visible = (mode == .genomics || mode == .empty)
+                (item.view as? NSButton)?.isHidden = !visible
+                item.isEnabled = visible
+
+            case ToolbarIdentifier.toggleChromosomeDrawer:
+                // Chromosome drawer is only relevant for genomic bundles
+                let visible = (mode == .genomics || mode == .empty)
+                (item.view as? NSButton)?.isHidden = !visible
+                item.isEnabled = visible
+
+            case ToolbarIdentifier.toggleAnnotationDrawer:
+                // Bottom drawer is relevant for genomics (annotations) and metagenomics (BLAST/samples)
+                let visible = (mode != .empty)
+                (item.view as? NSButton)?.isHidden = !visible
+                item.isEnabled = visible
+
+                // Update tooltip based on mode
+                if mode == .metagenomics {
+                    item.toolTip = "Show or hide the BLAST/samples drawer"
+                } else if mode == .fastq {
+                    item.toolTip = "Show or hide the metadata drawer"
+                } else {
+                    item.toolTip = "Show or hide the bottom metadata drawer"
+                }
+
+            default:
+                break
+            }
+        }
     }
 
     // MARK: - Bundle Loaded → Index Building
