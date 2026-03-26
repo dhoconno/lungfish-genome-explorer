@@ -1570,6 +1570,16 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 if let item {
                     self.displayContent(for: item)
                 } else {
+                    // Don't clear the viewport if a child VC is actively displayed
+                    // and the sidebar lost selection due to a filesystem refresh.
+                    let hasActiveChildVC = self.viewerController.taxTriageViewController != nil
+                        || self.viewerController.esVirituViewController != nil
+                        || self.viewerController.taxonomyViewController != nil
+                        || self.viewerController.fastqDatasetController != nil
+                    if hasActiveChildVC {
+                        logger.debug("sidebarDidSelectItem: Ignoring nil selection — active child VC displayed")
+                        return
+                    }
                     logger.info("sidebarDidSelectItem: Selection cleared, clearing viewer and inspector")
                     self.cancelFASTQLoadIfNeeded(hideProgress: true, reason: "selection cleared")
                     self.viewerController.clearViewport(statusMessage: "No sequence selected")

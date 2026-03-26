@@ -25,6 +25,9 @@ public final class FASTQMetadataSectionViewModel {
     /// Whether the section is expanded.
     var isExpanded: Bool = true
 
+    /// Whether the template-specific details section is expanded.
+    var showTemplateDetails: Bool = true
+
     /// Whether metadata is available (controls section visibility).
     var hasMetadata: Bool { metadata != nil }
 
@@ -209,43 +212,41 @@ public struct FASTQMetadataSection: View {
 
     public var body: some View {
         if viewModel.hasMetadata {
-            VStack(alignment: .leading, spacing: 10) {
-                header
-                Divider()
-                keyFields
-                Divider()
-                templateFields
-                notesSection
-                attachmentsSection
-                customFieldsSection
+            DisclosureGroup(isExpanded: $viewModel.isExpanded) {
+                VStack(alignment: .leading, spacing: 10) {
+                    keyFields
+                    Divider()
+                    templateFields
+                    notesSection
+                    attachmentsSection
+                    customFieldsSection
+                }
+            } label: {
+                HStack {
+                    Text("Sample Metadata")
+                        .font(.headline)
+                    Spacer()
+                    Menu {
+                        Button("Revert to Last Saved") { viewModel.revertToLastSaved() }
+                        Button("Clear All Metadata") { viewModel.clearAllMetadata() }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .controlSize(.small)
+                    .frame(width: 24)
+                }
             }
             .padding(.vertical, 4)
-        }
-    }
-
-    // MARK: - Header (Template + Overflow)
-
-    private var header: some View {
-        HStack {
-            Label("Sample Metadata", systemImage: "tag")
-                .font(.headline)
-            Spacer()
-            Menu {
-                Button("Revert to Last Saved") { viewModel.revertToLastSaved() }
-                Button("Clear All Metadata") { viewModel.clearAllMetadata() }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-            }
-            .menuStyle(.borderlessButton)
-            .controlSize(.small)
-            .frame(width: 24)
         }
     }
 
     // MARK: - Key Fields (Always Visible, Above the Fold)
 
     private var keyFields: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let template = viewModel.metadata?.metadataTemplate ?? .clinical
+
+        return VStack(alignment: .leading, spacing: 6) {
             fieldRow("Sample Name", binding: Binding(
                 get: { viewModel.metadata?.sampleName ?? "" },
                 set: { viewModel.metadata?.sampleName = $0; viewModel.scheduleAutosave() }
@@ -267,9 +268,19 @@ public struct FASTQMetadataSection: View {
                 .controlSize(.small)
             }
 
-            fieldRow("Collection Date", binding: metaBinding(\.collectionDate))
+            if template == .airSample {
+                fieldRow("Collection Start", binding: metaBinding(\.collectionDate))
+                fieldRow("Collection End", binding: customBinding("collection_end_date"))
+            } else {
+                fieldRow("Collection Date", binding: metaBinding(\.collectionDate))
+            }
+
             fieldRow("Geographic Location", binding: metaBinding(\.geoLocName))
-            fieldRow("Organism", binding: metaBinding(\.organism))
+
+            // Organism is not relevant for air/environmental samples
+            if template == .clinical || template == .wastewater || template == .custom {
+                fieldRow("Organism", binding: metaBinding(\.organism))
+            }
         }
     }
 
@@ -294,68 +305,68 @@ public struct FASTQMetadataSection: View {
     }
 
     private var clinicalFields: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Clinical Details")
-                .font(.caption.bold())
-                .foregroundStyle(.secondary)
-            fieldRow("Host", binding: metaBinding(\.host))
-            fieldRow("Host Disease", binding: metaBinding(\.hostDisease))
-            fieldRow("Sample Type", binding: metaBinding(\.sampleType))
-            fieldRow("Specimen Source", binding: customBinding("specimen_source"))
-            fieldRow("Anatomical Site", binding: customBinding("anatomical_site"))
-            fieldRow("Patient Age", binding: customBinding("patient_age"))
-            fieldRow("Patient Sex", binding: customBinding("patient_sex"))
-            fieldRow("Symptom Onset", binding: customBinding("symptom_onset_date"))
-            fieldRow("Hospitalization", binding: customBinding("hospitalization_status"))
-            fieldRow("AMR", binding: customBinding("antimicrobial_resistance"))
-            fieldRow("Patient ID", binding: metaBinding(\.patientId))
+        DisclosureGroup("Clinical Details", isExpanded: $viewModel.showTemplateDetails) {
+            VStack(alignment: .leading, spacing: 6) {
+                fieldRow("Host", binding: metaBinding(\.host))
+                fieldRow("Host Disease", binding: metaBinding(\.hostDisease))
+                fieldRow("Sample Type", binding: metaBinding(\.sampleType))
+                fieldRow("Specimen Source", binding: customBinding("specimen_source"))
+                fieldRow("Anatomical Site", binding: customBinding("anatomical_site"))
+                fieldRow("Patient Age", binding: customBinding("patient_age"))
+                fieldRow("Patient Sex", binding: customBinding("patient_sex"))
+                fieldRow("Symptom Onset", binding: customBinding("symptom_onset_date"))
+                fieldRow("Hospitalization", binding: customBinding("hospitalization_status"))
+                fieldRow("AMR", binding: customBinding("antimicrobial_resistance"))
+                fieldRow("Patient ID", binding: metaBinding(\.patientId))
+            }
         }
+        .font(.caption)
     }
 
     private var wastewaterFields: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Wastewater Details")
-                .font(.caption.bold())
-                .foregroundStyle(.secondary)
-            fieldRow("Site Type", binding: customBinding("collection_site_type"))
-            fieldRow("Population Served", binding: customBinding("population_served"))
-            fieldRow("Flow Rate", binding: customBinding("flow_rate"))
-            fieldRow("Composite/Grab", binding: customBinding("composite_vs_grab"))
-            fieldRow("Treatment Stage", binding: customBinding("treatment_stage"))
-            fieldRow("Catchment ID", binding: customBinding("catchment_area_id"))
+        DisclosureGroup("Wastewater Details", isExpanded: $viewModel.showTemplateDetails) {
+            VStack(alignment: .leading, spacing: 6) {
+                fieldRow("Site Type", binding: customBinding("collection_site_type"))
+                fieldRow("Population Served", binding: customBinding("population_served"))
+                fieldRow("Flow Rate", binding: customBinding("flow_rate"))
+                fieldRow("Composite/Grab", binding: customBinding("composite_vs_grab"))
+                fieldRow("Treatment Stage", binding: customBinding("treatment_stage"))
+                fieldRow("Catchment ID", binding: customBinding("catchment_area_id"))
+            }
         }
+        .font(.caption)
     }
 
     private var airSampleFields: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Air Sampling Details")
-                .font(.caption.bold())
-                .foregroundStyle(.secondary)
-            fieldRow("Method", binding: customBinding("sampling_method"))
-            fieldRow("Flow Rate (LPM)", binding: customBinding("flow_rate_lpm"))
-            fieldRow("Duration (min)", binding: customBinding("sampling_duration_minutes"))
-            fieldRow("Indoor/Outdoor", binding: customBinding("indoor_outdoor"))
-            fieldRow("Ventilation", binding: customBinding("ventilation_type"))
-            fieldRow("Particle Size", binding: customBinding("particle_size_fraction"))
-            fieldRow("Temperature (°C)", binding: customBinding("temperature_celsius"))
-            fieldRow("Humidity (%)", binding: customBinding("relative_humidity_percent"))
-            fieldRow("CO₂ (ppm)", binding: customBinding("co2_ppm"))
-            fieldRow("Occupancy", binding: customBinding("occupancy_count"))
+        DisclosureGroup("Air Sampling Details", isExpanded: $viewModel.showTemplateDetails) {
+            VStack(alignment: .leading, spacing: 6) {
+                fieldRow("Method", binding: customBinding("sampling_method"))
+                fieldRow("Flow Rate (LPM)", binding: customBinding("flow_rate_lpm"))
+                fieldRow("Duration (min)", binding: customBinding("sampling_duration_minutes"))
+                fieldRow("Indoor/Outdoor", binding: customBinding("indoor_outdoor"))
+                fieldRow("Ventilation", binding: customBinding("ventilation_type"))
+                fieldRow("Particle Size", binding: customBinding("particle_size_fraction"))
+                fieldRow("Temperature (\u{00B0}C)", binding: customBinding("temperature_celsius"))
+                fieldRow("Humidity (%)", binding: customBinding("relative_humidity_percent"))
+                fieldRow("CO\u{2082} (ppm)", binding: customBinding("co2_ppm"))
+                fieldRow("Occupancy", binding: customBinding("occupancy_count"))
+            }
         }
+        .font(.caption)
     }
 
     private var environmentalFields: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Environmental Details")
-                .font(.caption.bold())
-                .foregroundStyle(.secondary)
-            fieldRow("Biome", binding: customBinding("biome"))
-            fieldRow("Medium", binding: customBinding("environmental_medium"))
-            fieldRow("Depth (m)", binding: customBinding("depth_meters"))
-            fieldRow("Elevation (m)", binding: customBinding("elevation_meters"))
-            fieldRow("Feature", binding: customBinding("environmental_feature"))
-            fieldRow("Isolation Source", binding: customBinding("isolation_source"))
+        DisclosureGroup("Environmental Details", isExpanded: $viewModel.showTemplateDetails) {
+            VStack(alignment: .leading, spacing: 6) {
+                fieldRow("Biome", binding: customBinding("biome"))
+                fieldRow("Medium", binding: customBinding("environmental_medium"))
+                fieldRow("Depth (m)", binding: customBinding("depth_meters"))
+                fieldRow("Elevation (m)", binding: customBinding("elevation_meters"))
+                fieldRow("Feature", binding: customBinding("environmental_feature"))
+                fieldRow("Isolation Source", binding: customBinding("isolation_source"))
+            }
         }
+        .font(.caption)
     }
 
     // MARK: - Notes

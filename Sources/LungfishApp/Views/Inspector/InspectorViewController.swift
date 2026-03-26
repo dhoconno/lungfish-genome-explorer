@@ -1176,7 +1176,7 @@ public final class InspectorViewModel {
         case .genomics:
             return [.document, .selection, .ai]
         case .fastq:
-            return [.document, .fastqMetadata]
+            return [.document]
         case .metagenomics:
             return [.resultSummary]
         case .empty:
