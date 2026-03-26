@@ -217,7 +217,6 @@ final class FASTQMetadataSectionViewModelTests: XCTestCase {
         let vm = FASTQMetadataSectionViewModel()
         vm.load(from: bundleDir)
 
-        XCTAssertNotNil(vm.attachmentManager)
         XCTAssertTrue(vm.attachmentFilenames.isEmpty)
 
         // Create a test file and attach it

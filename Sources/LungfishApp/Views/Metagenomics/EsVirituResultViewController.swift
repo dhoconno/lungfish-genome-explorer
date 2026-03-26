@@ -340,17 +340,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
     /// Counts unique reads by deduplicating on position-strand fingerprint.
     private static func deduplicatedReadCount(from reads: [AlignedRead]) -> Int {
-        guard !reads.isEmpty else { return 0 }
-        var groups: [String: Int] = [:]
-        for read in reads {
-            let strand = read.isReverse ? "R" : "F"
-            let key = "\(read.position)-\(read.alignmentEnd)-\(strand)"
-            groups[key, default: 0] += 1
-        }
-        let dupes = groups.values.reduce(into: 0) { total, count in
-            if count > 1 { total += count - 1 }
-        }
-        return max(0, reads.count - dupes)
+        AlignedRead.deduplicatedReadCount(from: reads)
     }
 
     // MARK: - Unique Read Persistence

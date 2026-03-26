@@ -6,9 +6,7 @@ import AppKit
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
-import PDFKit
 import SwiftUI
-import WebKit
 import os.log
 
 private let logger = Logger(subsystem: "com.lungfish.app", category: "TaxTriageResultVC")
@@ -1101,15 +1099,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     private func normalizedOrganismName(_ value: String) -> String {
-        value
-            .replacingOccurrences(of: "★", with: "")
-            .replacingOccurrences(of: "°", with: "")
-            .replacingOccurrences(of: "\u{25CF}", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
+        OrganismNameNormalizer.normalizedKey(value)
     }
 
     private func rankAccessionsByReadSupport(_ accessions: [String]) -> [String] {
@@ -1212,17 +1202,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 
     private static func deduplicatedReadCount(from reads: [AlignedRead]) -> Int {
-        guard !reads.isEmpty else { return 0 }
-        var positionGroups: [String: Int] = [:]
-        for read in reads {
-            let strand = read.isReverse ? "R" : "F"
-            let key = "\(read.position)-\(read.alignmentEnd)-\(strand)"
-            positionGroups[key, default: 0] += 1
-        }
-        let duplicateCount = positionGroups.values.reduce(into: 0) { total, count in
-            if count > 1 { total += count - 1 }
-        }
-        return max(0, reads.count - duplicateCount)
+        AlignedRead.deduplicatedReadCount(from: reads)
     }
 
     private func scheduleDeduplicatedReadCountComputation(for rows: [TaxTriageTableRow]) {

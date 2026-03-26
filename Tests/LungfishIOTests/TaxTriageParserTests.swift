@@ -638,4 +638,215 @@ final class TaxTriageParserTests: XCTestCase {
         XCTAssertEqual(metrics[0].tassScore, 0.92)
         XCTAssertEqual(metrics[0].reads, 10000)
     }
+
+    // MARK: - Edge Case: Multi-Sample Confidences TSV
+
+    func testParseMultiSampleConfidencesTSV() throws {
+        let tsv = """
+        Specimen ID\tDetected Organism\t# Reads Aligned\tCoverage\tTaxonomic ID #\tK2 Reads\tTASS Score\tStatus
+        SampleA\t★ Escherichia coli°\t5000\t0.75\t562\t4800\t0.95\thigh
+        SampleA\t★ Klebsiella pneumoniae°\t2000\t0.40\t573\t1900\t0.72\tmedium
+        SampleB\t★ Escherichia coli°\t8000\t0.88\t562\t7900\t0.98\thigh
+        SampleB\t★ SARS-CoV-2°\t150\t0.15\t2697049\t100\t0.35\tlow
+        """
+
+        let metrics = try TaxTriageMetricsParser.parse(tsv: tsv)
+
+        XCTAssertEqual(metrics.count, 4)
+
+        // Verify sample IDs are parsed
+        XCTAssertEqual(metrics[0].sample, "SampleA")
+        XCTAssertEqual(metrics[2].sample, "SampleB")
+
+        // Verify organism name cleaning
+        XCTAssertEqual(metrics[0].organism, "Escherichia coli")
+        XCTAssertEqual(metrics[1].organism, "Klebsiella pneumoniae")
+
+        // Verify per-sample filtering
+        let sampleAMetrics = metrics.filter { $0.sample == "SampleA" }
+        XCTAssertEqual(sampleAMetrics.count, 2)
+
+        let sampleBMetrics = metrics.filter { $0.sample == "SampleB" }
+        XCTAssertEqual(sampleBMetrics.count, 2)
+    }
+
+    func testParseSingleSampleNoSampleColumn() throws {
+        // Some TaxTriage outputs omit the sample column for single-sample runs
+        let tsv = """
+        organism\treads\ttass_score\tconfidence
+        Escherichia coli\t5000\t0.95\thigh
+        Staphylococcus aureus\t2000\t0.72\tmedium
+        """
+
+        let metrics = try TaxTriageMetricsParser.parse(tsv: tsv)
+
+        XCTAssertEqual(metrics.count, 2)
+        XCTAssertNil(metrics[0].sample)
+        XCTAssertNil(metrics[1].sample)
+        XCTAssertEqual(metrics[0].organism, "Escherichia coli")
+        XCTAssertEqual(metrics[0].reads, 5000)
+    }
+
+    // MARK: - Edge Case: Special Characters in Organism Names
+
+    func testParseOrganismWithSpecialCharacters() throws {
+        let tsv = """
+        organism\ttass_score\treads
+        ★ WU Polyomavirus°\t1.0\t693
+        \u{25CF} Human mastadenovirus F\t0.86\t518
+        Bacillus cereus var. fluorescéns\t0.5\t100
+        """
+
+        let metrics = try TaxTriageMetricsParser.parse(tsv: tsv)
+
+        XCTAssertEqual(metrics.count, 3)
+        XCTAssertEqual(metrics[0].organism, "WU Polyomavirus")
+        XCTAssertEqual(metrics[1].organism, "Human mastadenovirus F")
+        // Accented characters are preserved in the clean step
+        XCTAssertTrue(metrics[2].organism.contains("fluoresc"))
+    }
+
+    // MARK: - Edge Case: Metrics with Zero Reads
+
+    func testParseMetricsWithZeroReads() throws {
+        let tsv = """
+        organism\treads\ttass_score\tconfidence
+        NoReadsOrganism\t0\t0.0\tlow
+        """
+
+        let metrics = try TaxTriageMetricsParser.parse(tsv: tsv)
+
+        XCTAssertEqual(metrics.count, 1)
+        XCTAssertEqual(metrics[0].reads, 0)
+        XCTAssertEqual(metrics[0].tassScore, 0.0)
+    }
+
+    // MARK: - Edge Case: Header Only (No Data Rows)
+
+    func testParseMetricsHeaderOnly() throws {
+        let tsv = "organism\ttass_score\treads\n"
+
+        let metrics = try TaxTriageMetricsParser.parse(tsv: tsv)
+        XCTAssertTrue(metrics.isEmpty)
+    }
+
+    // MARK: - Edge Case: Extra/Unknown Columns
+
+    func testParseMetricsExtraColumnsPreserved() throws {
+        let tsv = """
+        organism\ttass_score\treads\tcustom_1\tcustom_2\tunknown_field
+        TestOrg\t0.8\t500\tvalA\tvalB\tvalC
+        """
+
+        let metrics = try TaxTriageMetricsParser.parse(tsv: tsv)
+
+        XCTAssertEqual(metrics.count, 1)
+        XCTAssertEqual(metrics[0].additionalFields["custom_1"], "valA")
+        XCTAssertEqual(metrics[0].additionalFields["custom_2"], "valB")
+        XCTAssertEqual(metrics[0].additionalFields["unknown_field"], "valC")
+    }
+
+    // MARK: - Edge Case: Coverage Normalization
+
+    func testParseCoverageFractionNormalized() throws {
+        // Coverage as fraction (0-1) should be normalized to percentage (0-100)
+        let tsv = """
+        organism\ttass_score\tcoverage_breadth
+        OrgA\t0.9\t0.75
+        OrgB\t0.8\t75.0
+        OrgC\t0.7\t0.0
+        """
+
+        let metrics = try TaxTriageMetricsParser.parse(tsv: tsv)
+
+        XCTAssertEqual(metrics[0].coverageBreadth, 75.0) // 0.75 * 100
+        XCTAssertEqual(metrics[1].coverageBreadth, 75.0) // already percentage
+        XCTAssertEqual(metrics[2].coverageBreadth, 0.0) // zero stays zero
+    }
+
+    // MARK: - Edge Case: Reads Column Fallback
+
+    func testParseMetricsReadsColumnFallback() throws {
+        // When "reads aligned" isn't present, fall back to "read count"
+        let tsv = """
+        organism\ttass_score\tread count
+        OrgA\t0.9\t1000
+        """
+
+        let metrics = try TaxTriageMetricsParser.parse(tsv: tsv)
+        XCTAssertEqual(metrics[0].reads, 1000)
+    }
+
+    func testParseMetricsK2ReadsFallback() throws {
+        // Fall back to "K2 Reads" when other read columns are absent
+        let tsv = """
+        organism\ttass_score\tK2 Reads
+        OrgA\t0.9\t500
+        """
+
+        let metrics = try TaxTriageMetricsParser.parse(tsv: tsv)
+        XCTAssertEqual(metrics[0].reads, 500)
+    }
+
+    // MARK: - Edge Case: Comma-Separated Numbers
+
+    func testParseMetricsCommaInNumbers() throws {
+        let tsv = """
+        organism\treads\ttass_score
+        LargeOrg\t1,234,567\t0.99
+        """
+
+        let metrics = try TaxTriageMetricsParser.parse(tsv: tsv)
+        XCTAssertEqual(metrics[0].reads, 1_234_567)
+    }
+
+    // MARK: - Edge Case: Percent Sign in Abundance
+
+    func testParseMetricsPercentInAbundance() throws {
+        let tsv = """
+        organism\tabundance\ttass_score
+        OrgA\t45.5%\t0.9
+        """
+
+        let metrics = try TaxTriageMetricsParser.parse(tsv: tsv)
+        XCTAssertEqual(metrics[0].abundance, 45.5)
+    }
+
+    // MARK: - Edge Case: Rows With Missing Trailing Fields
+
+    func testParseMetricsShortRow() throws {
+        // Row has fewer fields than the header - should not crash
+        let tsv = """
+        organism\ttass_score\treads\tcoverage_breadth\tconfidence
+        FullOrg\t0.9\t1000\t85.0\thigh
+        ShortOrg\t0.5
+        """
+
+        let metrics = try TaxTriageMetricsParser.parse(tsv: tsv)
+        XCTAssertEqual(metrics.count, 2)
+        XCTAssertEqual(metrics[1].organism, "ShortOrg")
+        XCTAssertEqual(metrics[1].tassScore, 0.5)
+        XCTAssertEqual(metrics[1].reads, 0) // defaults to 0
+        XCTAssertNil(metrics[1].coverageBreadth)
+        XCTAssertNil(metrics[1].confidence)
+    }
+
+    // MARK: - TaxTriageResult Persistence
+
+    func testTaxTriageResultSaveAndLoad() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("taxtriage-result-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: tempDir, withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sample = TaxTriageSampleEntry(
+            sampleId: "S1",
+            fastq1Path: "/data/R1.fq.gz",
+            platform: "ILLUMINA"
+        )
+        let config = TaxTriageSamplesheet.generate(from: [sample])
+        XCTAssertTrue(config.contains("S1"))
+    }
 }

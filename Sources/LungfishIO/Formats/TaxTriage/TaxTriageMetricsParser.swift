@@ -150,7 +150,7 @@ public enum TaxTriageMetricsParser {
 
             let sample = fieldValue(fields, index: sampleIndex)
             let taxId = fieldInt(fieldValue(fields, index: taxIdIndex))
-            let organism = cleanOrganismName(fieldValue(fields, index: organismIndex) ?? "unknown")
+            let organism = OrganismNameNormalizer.clean(fieldValue(fields, index: organismIndex) ?? "unknown")
             let rank = fieldValue(fields, index: rankIndex)
             let reads = fieldInt(
                 fieldValue(fields, index: readsAlignedIndex)
@@ -254,21 +254,6 @@ public enum TaxTriageMetricsParser {
             return coverage * 100
         }
         return coverage
-    }
-
-    private static func cleanOrganismName(_ value: String) -> String {
-        let cleaned = value
-            .replacingOccurrences(of: "★", with: "")
-            .replacingOccurrences(of: "°", with: "")
-            .replacingOccurrences(of: "\u{25CF}", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // TaxTriage reports occasionally emit a leading-character truncation
-        // for Influenza names (e.g. "nfluenza B virus ..."). Repair it here.
-        if cleaned.lowercased().hasPrefix("nfluenza") {
-            return "I" + cleaned
-        }
-        return cleaned
     }
 
     /// Collects fields not in the known column set.
