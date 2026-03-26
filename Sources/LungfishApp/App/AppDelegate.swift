@@ -4950,6 +4950,33 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
+    // MARK: - Project-Level Metadata Export/Import
+
+    @objc func exportProjectSampleMetadata(_ sender: Any?) {
+        guard let projectURL = projectFolderURLForMetadata() else {
+            showAlert(title: "No Project Open", message: "Open a project folder to export sample metadata.")
+            return
+        }
+        let sheet = MetadataExportSheet(folderURL: projectURL)
+        guard let window = mainWindowController?.window ?? NSApp.keyWindow else { return }
+        window.contentViewController?.presentAsSheet(sheet)
+    }
+
+    @objc func importProjectSampleMetadata(_ sender: Any?) {
+        guard let projectURL = projectFolderURLForMetadata() else {
+            showAlert(title: "No Project Open", message: "Open a project folder to import sample metadata.")
+            return
+        }
+        let sheet = MetadataImportSheet(folderURL: projectURL)
+        guard let window = mainWindowController?.window ?? NSApp.keyWindow else { return }
+        window.contentViewController?.presentAsSheet(sheet)
+    }
+
+    /// Returns the current project folder URL from the sidebar, if available.
+    private func projectFolderURLForMetadata() -> URL? {
+        mainWindowController?.mainSplitViewController?.sidebarController?.projectFolderURL
+    }
+
     // MARK: - OperationsMenuActions
 
     private var operationsPanelController: OperationsPanelController?

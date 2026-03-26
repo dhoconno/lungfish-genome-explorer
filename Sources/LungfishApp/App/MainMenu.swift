@@ -222,6 +222,14 @@ public final class MainMenu {
             keyEquivalent: ""
         )
 
+        importMenu.addItem(.separator())
+
+        importMenu.addItem(
+            withTitle: "Project Sample Metadata (CSV)\u{2026}",
+            action: #selector(FileMenuActions.importProjectSampleMetadata(_:)),
+            keyEquivalent: ""
+        )
+
         importItem.submenu = importMenu
         fileMenu.addItem(importItem)
 
@@ -243,6 +251,12 @@ public final class MainMenu {
         exportMenu.addItem(
             withTitle: "FASTQ\u{2026}",
             action: #selector(FileMenuActions.exportFASTQ(_:)),
+            keyEquivalent: ""
+        )
+
+        exportMenu.addItem(
+            withTitle: "Project Sample Metadata (CSV)\u{2026}",
+            action: #selector(FileMenuActions.exportProjectSampleMetadata(_:)),
             keyEquivalent: ""
         )
 
@@ -844,6 +858,10 @@ public final class MainMenu {
     func exportProvenanceJSON(_ sender: Any?)
     func exportFASTQ(_ sender: Any?)
     func importONTRun(_ sender: Any?)
+    /// Export project-level FASTQ sample metadata to CSV.
+    func exportProjectSampleMetadata(_ sender: Any?)
+    /// Import project-level FASTQ sample metadata from CSV.
+    func importProjectSampleMetadata(_ sender: Any?)
 }
 
 /// View menu action handlers.

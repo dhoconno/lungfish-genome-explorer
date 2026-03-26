@@ -120,6 +120,9 @@ public class SidebarViewController: NSViewController {
     /// The currently open project URL (filesystem-backed model)
     private var projectURL: URL?
 
+    /// Public read-only accessor for the current project folder URL.
+    public var projectFolderURL: URL? { projectURL }
+
     /// File system watcher for auto-refreshing when files change
     private var fileSystemWatcher: FileSystemWatcher?
 
@@ -2754,7 +2757,7 @@ extension SidebarViewController: NSMenuDelegate {
             menu.addItem(NSMenuItem.separator())
         }
 
-        // Edit Sample Metadata (for folders containing FASTQ bundles)
+        // Edit / Export / Import Sample Metadata (for folders containing FASTQ bundles)
         if items.count == 1 && hasFolders, let folderItem = items.first, let folderURL = folderItem.url {
             let hasFASTQChildren = folderItem.children.contains { $0.type == .fastqBundle }
             if hasFASTQChildren {
@@ -2765,6 +2768,23 @@ extension SidebarViewController: NSMenuDelegate {
                 )
                 editMetaItem.target = self
                 menu.addItem(editMetaItem)
+
+                let exportMetaItem = NSMenuItem(
+                    title: "Export Sample Metadata (CSV)\u{2026}",
+                    action: #selector(contextMenuExportProjectMetadata(_:)),
+                    keyEquivalent: ""
+                )
+                exportMetaItem.target = self
+                menu.addItem(exportMetaItem)
+
+                let importMetaItem = NSMenuItem(
+                    title: "Import Sample Metadata (CSV)\u{2026}",
+                    action: #selector(contextMenuImportProjectMetadata(_:)),
+                    keyEquivalent: ""
+                )
+                importMetaItem.target = self
+                menu.addItem(importMetaItem)
+
                 menu.addItem(NSMenuItem.separator())
             }
         }
@@ -2962,6 +2982,32 @@ extension SidebarViewController: NSMenuDelegate {
         guard let window = view.window else { return }
 
         window.contentViewController?.presentAsSheet(editorSheet)
+    }
+
+    @objc private func contextMenuExportProjectMetadata(_ sender: Any?) {
+        let items = selectedItems()
+        guard let item = items.first,
+              (item.type == .folder || item.type == .project),
+              let folderURL = item.url else { return }
+
+        logger.info("contextMenuExportProjectMetadata: Exporting metadata from '\(item.title, privacy: .public)'")
+
+        let sheet = MetadataExportSheet(folderURL: folderURL)
+        guard let window = view.window else { return }
+        window.contentViewController?.presentAsSheet(sheet)
+    }
+
+    @objc private func contextMenuImportProjectMetadata(_ sender: Any?) {
+        let items = selectedItems()
+        guard let item = items.first,
+              (item.type == .folder || item.type == .project),
+              let folderURL = item.url else { return }
+
+        logger.info("contextMenuImportProjectMetadata: Importing metadata into '\(item.title, privacy: .public)'")
+
+        let sheet = MetadataImportSheet(folderURL: folderURL)
+        guard let window = view.window else { return }
+        window.contentViewController?.presentAsSheet(sheet)
     }
 
     /// Checks if a bundle URL has variant tracks by reading its manifest.
