@@ -251,15 +251,19 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     private func setupMiniBAMViewer() {
         let bamVC = MiniBAMViewController()
         bamVC.subjectNoun = "organism"
-        bamVC.onReadStatsUpdated = { [weak self] totalReads, uniqueReads in
+        bamVC.onReadStatsUpdated = { [weak self] _, uniqueReads in
             guard let self, let selectedOrganismName = self.selectedOrganismName else { return }
-            // Don't overwrite a cached value with 0 from the BAM viewer —
-            // this happens when the organism has no accession mapping and no
-            // reads are loaded in the mini BAM. The cached per-sample value
-            // from the background computation is more accurate.
-            if uniqueReads == 0 && totalReads == 0 {
+            let normalized = self.normalizedOrganismName(selectedOrganismName)
+
+            // Don't overwrite a non-zero cached value with a lower BAM-derived
+            // value. The BAM viewer may report 0 when no accession mapping
+            // exists, but the background computation already computed a correct
+            // value from the aggregate dedup pass.
+            let existing = self.deduplicatedReadCounts[normalized] ?? 0
+            if uniqueReads < existing {
                 return
             }
+
             // For segmented organisms, table unique reads are aggregated across
             // accessions in background; don't overwrite with one segment's value.
             if (self.accessions(for: selectedOrganismName)?.count ?? 0) > 1 {
