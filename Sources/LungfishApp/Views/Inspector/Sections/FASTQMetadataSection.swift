@@ -25,28 +25,16 @@ public final class FASTQMetadataSectionViewModel {
     /// Whether the section is expanded.
     var isExpanded: Bool = true
 
-    /// Whether the "Recommended" disclosure group is expanded.
-    var showRecommended: Bool = true
-
-    /// Whether the "Optional" disclosure group is expanded.
-    var showOptional: Bool = false
-
-    /// Whether the "Custom Fields" disclosure group is expanded.
-    var showCustomFields: Bool = false
-
-    /// Whether the "Template Fields" disclosure group is expanded.
-    var showTemplateFields: Bool = true
-
-    /// Whether the "Notes" disclosure group is expanded.
-    var showNotes: Bool = true
-
-    /// Whether the "Attachments" disclosure group is expanded.
-    var showAttachments: Bool = false
-
     /// Whether metadata is available (controls section visibility).
     var hasMetadata: Bool { metadata != nil }
 
-    // MARK: - Editing State
+    /// Filenames of attachments in the bundle.
+    var attachmentFilenames: [String] = []
+
+    /// Whether there are unsaved changes since last save.
+    var hasUnsavedChanges: Bool { metadata != lastSavedMetadata }
+
+    // MARK: - Internal State
 
     /// New custom field key being typed.
     var newCustomKey: String = ""
@@ -60,27 +48,11 @@ public final class FASTQMetadataSectionViewModel {
     /// Debounce work item for autosave.
     private var autosaveWorkItem: DispatchWorkItem?
 
-    /// Debounce interval in seconds.
+    /// Debounce interval for autosave (500ms).
     private let autosaveInterval: TimeInterval = 0.5
 
-    /// Whether there are unsaved changes.
-    var hasUnsavedChanges: Bool {
-        guard let metadata, let lastSavedMetadata else { return false }
-        return metadata != lastSavedMetadata
-    }
-
-    // MARK: - Preset Store
-
-    /// The current preset store for field suggestions.
-    var presetStore: MetadataPresetStore = MetadataPresetStore()
-
-    // MARK: - Attachment Manager
-
     /// Attachment manager for the current bundle.
-    var attachmentManager: BundleAttachmentManager?
-
-    /// List of current attachment filenames.
-    var attachmentFilenames: [String] = []
+    private var attachmentManager: BundleAttachmentManager?
 
     // MARK: - Callbacks
 
@@ -97,21 +69,12 @@ public final class FASTQMetadataSectionViewModel {
         if let csvMeta = FASTQBundleCSVMetadata.load(from: bundleURL) {
             self.metadata = FASTQSampleMetadata(from: csvMeta, fallbackName: sampleName)
         } else {
-            // No metadata yet; create a default
             self.metadata = FASTQSampleMetadata(sampleName: sampleName)
         }
 
-        self.lastSavedMetadata = self.metadata
-
-        // Set up attachment manager
-        let mgr = BundleAttachmentManager(bundleURL: bundleURL)
-        self.attachmentManager = mgr
-        self.attachmentFilenames = mgr.listAttachments()
-
-        // Sync attachment list from disk into metadata
-        if !attachmentFilenames.isEmpty {
-            metadata?.attachments = attachmentFilenames
-        }
+        lastSavedMetadata = metadata
+        attachmentManager = BundleAttachmentManager(bundleURL: bundleURL)
+        attachmentFilenames = attachmentManager?.listAttachments() ?? []
     }
 
     /// Clears the metadata display.
@@ -119,8 +82,6 @@ public final class FASTQMetadataSectionViewModel {
         metadata = nil
         bundleURL = nil
         lastSavedMetadata = nil
-        newCustomKey = ""
-        newCustomValue = ""
         attachmentManager = nil
         attachmentFilenames = []
         autosaveWorkItem?.cancel()
@@ -143,20 +104,9 @@ public final class FASTQMetadataSectionViewModel {
     /// Immediately saves current metadata to disk.
     func performSave() {
         guard let bundleURL, let metadata else { return }
-
-        // Add pending custom field if non-empty
-        if !newCustomKey.isEmpty {
-            self.metadata?.customFields[newCustomKey] = newCustomValue
-            newCustomKey = ""
-            newCustomValue = ""
-        }
-
-        lastSavedMetadata = self.metadata
-
-        // Persist
+        lastSavedMetadata = metadata
         let legacyCSV = metadata.toLegacyCSV()
         try? FASTQBundleCSVMetadata.save(legacyCSV, to: bundleURL)
-
         onSave?(bundleURL, metadata)
     }
 
@@ -210,7 +160,7 @@ public final class FASTQMetadataSectionViewModel {
             attachmentFilenames = mgr.listAttachments()
             scheduleAutosave()
         } catch {
-            // Attachment add failed; logged by the manager
+            // Attachment add failed
         }
     }
 
@@ -223,7 +173,7 @@ public final class FASTQMetadataSectionViewModel {
             attachmentFilenames = mgr.listAttachments()
             scheduleAutosave()
         } catch {
-            // Removal failed; logged by the manager
+            // Removal failed
         }
     }
 
@@ -236,82 +186,53 @@ public final class FASTQMetadataSectionViewModel {
 
     // MARK: - Legacy API (for tests)
 
-    /// Begins editing the current metadata (legacy support).
     var isEditing: Bool { true }
-
-    /// Returns the editing metadata (now always the live metadata).
     var editingMetadata: FASTQSampleMetadata? {
         get { metadata }
         set { metadata = newValue }
     }
-
-    /// Saves the current edits (legacy API — calls performSave).
-    func save() {
-        performSave()
-    }
-
-    /// Begins editing (no-op in autosave mode, metadata is always editable).
-    func beginEditing() {
-        // No-op: autosave mode means always editing
-    }
-
-    /// Cancels editing (reverts to last saved in autosave mode).
-    func cancelEditing() {
-        revertToLastSaved()
-    }
+    func save() { performSave() }
+    func beginEditing() {}
+    func cancelEditing() { revertToLastSaved() }
 }
 
 // MARK: - FASTQMetadataSection View
 
-/// SwiftUI section showing FASTQ sample metadata in the Inspector's Document tab.
+/// SwiftUI section showing FASTQ sample metadata in the Inspector.
 ///
-/// Displays PHA4GE-aligned fields organized by template, with autosave on edit.
-/// Supports template selection, notes, attachments, and custom fields.
+/// Layout is designed to be simple and template-driven:
+/// 1. **Above the fold**: Sample Name, Template picker — always visible
+/// 2. **Template fields**: Only fields relevant to the selected template
+/// 3. **Notes & Attachments**: Collapsible at the bottom
 public struct FASTQMetadataSection: View {
     @Bindable var viewModel: FASTQMetadataSectionViewModel
 
     public var body: some View {
         if viewModel.hasMetadata {
-            DisclosureGroup(isExpanded: $viewModel.isExpanded) {
-                VStack(alignment: .leading, spacing: 8) {
-                    toolbar
-                    Divider()
-                    editableContent
-                }
-            } label: {
-                Label("Sample Metadata", systemImage: "tag")
-                    .font(.headline)
+            VStack(alignment: .leading, spacing: 10) {
+                header
+                Divider()
+                keyFields
+                Divider()
+                templateFields
+                notesSection
+                attachmentsSection
+                customFieldsSection
             }
+            .padding(.vertical, 4)
         }
     }
 
-    // MARK: - Toolbar
+    // MARK: - Header (Template + Overflow)
 
-    @ViewBuilder
-    private var toolbar: some View {
+    private var header: some View {
         HStack {
-            // Template picker
-            Picker("Template", selection: templateBinding) {
-                Text("Clinical Sample").tag(MetadataTemplate.clinical)
-                Text("Wastewater").tag(MetadataTemplate.wastewater)
-                Text("Air Sample").tag(MetadataTemplate.airSample)
-                Text("Environmental").tag(MetadataTemplate.environmental)
-                Text("Custom").tag(MetadataTemplate.custom)
-            }
-            .controlSize(.small)
-            .frame(maxWidth: 180)
-
+            Label("Sample Metadata", systemImage: "tag")
+                .font(.headline)
             Spacer()
-
             Menu {
-                Button("Revert to Last Saved") {
-                    viewModel.revertToLastSaved()
-                }
-                .disabled(!viewModel.hasUnsavedChanges)
-
-                Button("Clear All Metadata") {
-                    viewModel.clearAllMetadata()
-                }
+                Button("Revert to Last Saved") { viewModel.revertToLastSaved() }
+                Button("Clear All Metadata") { viewModel.clearAllMetadata() }
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
@@ -321,82 +242,128 @@ public struct FASTQMetadataSection: View {
         }
     }
 
-    private var templateBinding: Binding<MetadataTemplate> {
-        Binding(
-            get: { viewModel.metadata?.metadataTemplate ?? .clinical },
-            set: { viewModel.setTemplate($0) }
-        )
+    // MARK: - Key Fields (Always Visible, Above the Fold)
+
+    private var keyFields: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            fieldRow("Sample Name", binding: Binding(
+                get: { viewModel.metadata?.sampleName ?? "" },
+                set: { viewModel.metadata?.sampleName = $0; viewModel.scheduleAutosave() }
+            ))
+
+            HStack {
+                Text("Template")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 90, alignment: .trailing)
+                Picker("", selection: templateBinding) {
+                    Text("Clinical").tag(MetadataTemplate.clinical)
+                    Text("Wastewater").tag(MetadataTemplate.wastewater)
+                    Text("Air Sample").tag(MetadataTemplate.airSample)
+                    Text("Environmental").tag(MetadataTemplate.environmental)
+                    Text("Custom").tag(MetadataTemplate.custom)
+                }
+                .labelsHidden()
+                .controlSize(.small)
+            }
+
+            fieldRow("Collection Date", binding: metaBinding(\.collectionDate))
+            fieldRow("Geographic Location", binding: metaBinding(\.geoLocName))
+            fieldRow("Organism", binding: metaBinding(\.organism))
+        }
     }
 
-    // MARK: - Editable Content
+    // MARK: - Template-Specific Fields
 
     @ViewBuilder
-    private var editableContent: some View {
-        // Required fields
-        editableTextField("Sample Name", text: Binding(
-            get: { viewModel.metadata?.sampleName ?? "" },
-            set: {
-                viewModel.metadata?.sampleName = $0
-                viewModel.scheduleAutosave()
-            }
-        ))
+    private var templateFields: some View {
+        let template = viewModel.metadata?.metadataTemplate ?? .clinical
 
-        Picker("Sample Role", selection: Binding(
-            get: { viewModel.metadata?.sampleRole ?? .testSample },
-            set: {
-                viewModel.metadata?.sampleRole = $0
-                viewModel.scheduleAutosave()
-            }
-        )) {
-            ForEach(SampleRole.allCases, id: \.self) { role in
-                Text(role.displayLabel).tag(role)
-            }
+        switch template {
+        case .clinical:
+            clinicalFields
+        case .wastewater:
+            wastewaterFields
+        case .airSample:
+            airSampleFields
+        case .environmental:
+            environmentalFields
+        case .custom:
+            EmptyView()
         }
-        .controlSize(.small)
+    }
 
-        // Recommended fields
-        DisclosureGroup("Recommended Fields", isExpanded: $viewModel.showRecommended) {
-            VStack(alignment: .leading, spacing: 4) {
-                autosaveField("Sample Type", binding: metaBinding(\.sampleType), presetKey: "sample_type")
-                autosaveField("Collection Date", binding: metaBinding(\.collectionDate))
-                autosaveField("Geographic Location", binding: metaBinding(\.geoLocName), presetKey: "geo_loc_name")
-                autosaveField("Host", binding: metaBinding(\.host), presetKey: "host")
-                autosaveField("Host Disease", binding: metaBinding(\.hostDisease))
-                autosaveField("Purpose", binding: metaBinding(\.purposeOfSequencing), presetKey: "purpose_of_sequencing")
-                autosaveField("Instrument", binding: metaBinding(\.sequencingInstrument))
-                autosaveField("Library Strategy", binding: metaBinding(\.libraryStrategy), presetKey: "library_strategy")
-                autosaveField("Collected By", binding: metaBinding(\.sampleCollectedBy))
-                autosaveField("Organism", binding: metaBinding(\.organism), presetKey: "organism")
-            }
+    private var clinicalFields: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Clinical Details")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+            fieldRow("Host", binding: metaBinding(\.host))
+            fieldRow("Host Disease", binding: metaBinding(\.hostDisease))
+            fieldRow("Sample Type", binding: metaBinding(\.sampleType))
+            fieldRow("Specimen Source", binding: customBinding("specimen_source"))
+            fieldRow("Anatomical Site", binding: customBinding("anatomical_site"))
+            fieldRow("Patient Age", binding: customBinding("patient_age"))
+            fieldRow("Patient Sex", binding: customBinding("patient_sex"))
+            fieldRow("Symptom Onset", binding: customBinding("symptom_onset_date"))
+            fieldRow("Hospitalization", binding: customBinding("hospitalization_status"))
+            fieldRow("AMR", binding: customBinding("antimicrobial_resistance"))
+            fieldRow("Patient ID", binding: metaBinding(\.patientId))
         }
-        .font(.caption)
+    }
 
-        // Template-specific fields
-        if let template = viewModel.metadata?.metadataTemplate,
-           !template.templateFields.isEmpty {
-            DisclosureGroup("Template Fields (\(template.displayLabel))", isExpanded: $viewModel.showTemplateFields) {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(template.templateFields, id: \.key) { field in
-                        autosaveField(field.label, binding: customFieldBinding(field.key), presetKey: field.key)
-                    }
-                }
-            }
-            .font(.caption)
+    private var wastewaterFields: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Wastewater Details")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+            fieldRow("Site Type", binding: customBinding("collection_site_type"))
+            fieldRow("Population Served", binding: customBinding("population_served"))
+            fieldRow("Flow Rate", binding: customBinding("flow_rate"))
+            fieldRow("Composite/Grab", binding: customBinding("composite_vs_grab"))
+            fieldRow("Treatment Stage", binding: customBinding("treatment_stage"))
+            fieldRow("Catchment ID", binding: customBinding("catchment_area_id"))
         }
+    }
 
-        // Batch context
-        DisclosureGroup("Batch Context", isExpanded: $viewModel.showOptional) {
-            VStack(alignment: .leading, spacing: 4) {
-                autosaveField("Patient ID", binding: metaBinding(\.patientId))
-                autosaveField("Run ID", binding: metaBinding(\.runId))
-                autosaveField("Batch ID", binding: metaBinding(\.batchId))
-                autosaveField("Plate Position", binding: metaBinding(\.platePosition))
-            }
+    private var airSampleFields: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Air Sampling Details")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+            fieldRow("Method", binding: customBinding("sampling_method"))
+            fieldRow("Flow Rate (LPM)", binding: customBinding("flow_rate_lpm"))
+            fieldRow("Duration (min)", binding: customBinding("sampling_duration_minutes"))
+            fieldRow("Indoor/Outdoor", binding: customBinding("indoor_outdoor"))
+            fieldRow("Ventilation", binding: customBinding("ventilation_type"))
+            fieldRow("Particle Size", binding: customBinding("particle_size_fraction"))
+            fieldRow("Temperature (°C)", binding: customBinding("temperature_celsius"))
+            fieldRow("Humidity (%)", binding: customBinding("relative_humidity_percent"))
+            fieldRow("CO₂ (ppm)", binding: customBinding("co2_ppm"))
+            fieldRow("Occupancy", binding: customBinding("occupancy_count"))
         }
-        .font(.caption)
+    }
 
-        // Notes
-        DisclosureGroup("Notes", isExpanded: $viewModel.showNotes) {
+    private var environmentalFields: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Environmental Details")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+            fieldRow("Biome", binding: customBinding("biome"))
+            fieldRow("Medium", binding: customBinding("environmental_medium"))
+            fieldRow("Depth (m)", binding: customBinding("depth_meters"))
+            fieldRow("Elevation (m)", binding: customBinding("elevation_meters"))
+            fieldRow("Feature", binding: customBinding("environmental_feature"))
+            fieldRow("Isolation Source", binding: customBinding("isolation_source"))
+        }
+    }
+
+    // MARK: - Notes
+
+    @ViewBuilder
+    private var notesSection: some View {
+        Divider()
+        DisclosureGroup("Notes") {
             TextEditor(text: Binding(
                 get: { viewModel.metadata?.notes ?? "" },
                 set: {
@@ -405,207 +372,147 @@ public struct FASTQMetadataSection: View {
                 }
             ))
             .font(.caption)
-            .frame(minHeight: 60, maxHeight: 120)
+            .frame(minHeight: 50, maxHeight: 100)
             .border(Color.secondary.opacity(0.3))
         }
         .font(.caption)
+    }
 
-        // Attachments
-        DisclosureGroup("Attachments (\(viewModel.attachmentFilenames.count))", isExpanded: $viewModel.showAttachments) {
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(viewModel.attachmentFilenames, id: \.self) { filename in
-                    HStack {
-                        Image(systemName: "doc")
-                            .foregroundStyle(.secondary)
-                        Text(filename)
-                            .font(.caption)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Spacer()
-                        Button {
-                            viewModel.openAttachment(filename)
-                        } label: {
-                            Image(systemName: "arrow.up.right.square")
+    // MARK: - Attachments
+
+    @ViewBuilder
+    private var attachmentsSection: some View {
+        if !viewModel.attachmentFilenames.isEmpty || viewModel.bundleURL != nil {
+            DisclosureGroup("Attachments (\(viewModel.attachmentFilenames.count))") {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(viewModel.attachmentFilenames, id: \.self) { filename in
+                        HStack {
+                            Image(systemName: "doc")
+                                .foregroundStyle(.secondary)
+                            Text(filename)
+                                .font(.caption)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                            Button { viewModel.openAttachment(filename) } label: {
+                                Image(systemName: "arrow.up.right.square")
+                            }
+                            .buttonStyle(.plain).controlSize(.small)
+                            Button(role: .destructive) { viewModel.removeAttachment(filename) } label: {
+                                Image(systemName: "minus.circle")
+                            }
+                            .buttonStyle(.plain).controlSize(.small)
                         }
-                        .buttonStyle(.plain)
-                        .controlSize(.small)
-                        .help("Open in default application")
-                        Button(role: .destructive) {
-                            viewModel.removeAttachment(filename)
-                        } label: {
-                            Image(systemName: "minus.circle")
-                        }
-                        .buttonStyle(.plain)
-                        .controlSize(.small)
-                        .help("Remove attachment")
                     }
-                }
-
-                Button("Attach File\u{2026}") {
-                    let panel = NSOpenPanel()
-                    panel.canChooseFiles = true
-                    panel.canChooseDirectories = false
-                    panel.allowsMultipleSelection = true
-                    panel.beginSheetModal(for: NSApp.keyWindow ?? NSApp.mainWindow ?? NSWindow()) { response in
-                        DispatchQueue.main.async {
-                            MainActor.assumeIsolated {
-                                if response == .OK {
-                                    for url in panel.urls {
-                                        viewModel.addAttachment(from: url)
+                    Button("Attach File\u{2026}") {
+                        let panel = NSOpenPanel()
+                        panel.canChooseFiles = true
+                        panel.canChooseDirectories = false
+                        panel.allowsMultipleSelection = true
+                        panel.beginSheetModal(for: NSApp.keyWindow ?? NSApp.mainWindow ?? NSWindow()) { response in
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    if response == .OK {
+                                        for url in panel.urls {
+                                            viewModel.addAttachment(from: url)
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
-                .controlSize(.small)
-            }
-        }
-        .font(.caption)
-
-        // Custom fields
-        DisclosureGroup("Custom Fields", isExpanded: $viewModel.showCustomFields) {
-            VStack(alignment: .leading, spacing: 4) {
-                let customKeys = (viewModel.metadata?.customFields ?? [:]).keys
-                    .filter { key in
-                        // Hide template fields from custom — they have their own section
-                        let templateKeys = viewModel.metadata?.metadataTemplate?.templateFields.map(\.key) ?? []
-                        return !templateKeys.contains(key)
-                    }
-                    .sorted()
-
-                ForEach(customKeys, id: \.self) { key in
-                    HStack {
-                        Text(key)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .frame(width: 100, alignment: .trailing)
-                        TextField("Value", text: Binding(
-                            get: { viewModel.metadata?.customFields[key] ?? "" },
-                            set: {
-                                viewModel.metadata?.customFields[key] = $0
-                                viewModel.scheduleAutosave()
-                            }
-                        ))
-                        .textFieldStyle(.roundedBorder)
-                        .controlSize(.small)
-                        Button(role: .destructive) {
-                            viewModel.removeCustomField(key)
-                        } label: {
-                            Image(systemName: "minus.circle")
-                        }
-                        .buttonStyle(.plain)
-                        .controlSize(.small)
-                    }
-                }
-
-                // Add new custom field
-                HStack {
-                    TextField("Key", text: $viewModel.newCustomKey)
-                        .textFieldStyle(.roundedBorder)
-                        .controlSize(.small)
-                        .frame(width: 100)
-                    TextField("Value", text: $viewModel.newCustomValue)
-                        .textFieldStyle(.roundedBorder)
-                        .controlSize(.small)
-                    Button {
-                        viewModel.addCustomField()
-                    } label: {
-                        Image(systemName: "plus.circle")
-                    }
-                    .buttonStyle(.plain)
                     .controlSize(.small)
-                    .disabled(viewModel.newCustomKey.isEmpty)
                 }
             }
+            .font(.caption)
         }
-        .font(.caption)
     }
 
-    // MARK: - Field Helpers
+    // MARK: - Custom Fields
 
     @ViewBuilder
-    private func editableTextField(_ label: String, text: Binding<String>) -> some View {
+    private var customFieldsSection: some View {
+        let templateKeys = Set(viewModel.metadata?.metadataTemplate?.templateFields.map(\.key) ?? [])
+        let customKeys = (viewModel.metadata?.customFields ?? [:]).keys
+            .filter { !templateKeys.contains($0) }
+            .sorted()
+
+        if !customKeys.isEmpty || true {
+            DisclosureGroup("Custom Fields") {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(customKeys, id: \.self) { key in
+                        HStack {
+                            Text(key).font(.caption).foregroundStyle(.secondary)
+                                .frame(width: 90, alignment: .trailing)
+                            TextField("", text: Binding(
+                                get: { viewModel.metadata?.customFields[key] ?? "" },
+                                set: { viewModel.metadata?.customFields[key] = $0; viewModel.scheduleAutosave() }
+                            ))
+                            .textFieldStyle(.roundedBorder).controlSize(.small)
+                            Button(role: .destructive) { viewModel.removeCustomField(key) } label: {
+                                Image(systemName: "minus.circle")
+                            }
+                            .buttonStyle(.plain).controlSize(.small)
+                        }
+                    }
+                    HStack {
+                        TextField("Key", text: $viewModel.newCustomKey)
+                            .textFieldStyle(.roundedBorder).controlSize(.small).frame(width: 90)
+                        TextField("Value", text: $viewModel.newCustomValue)
+                            .textFieldStyle(.roundedBorder).controlSize(.small)
+                        Button { viewModel.addCustomField() } label: {
+                            Image(systemName: "plus.circle")
+                        }
+                        .buttonStyle(.plain).controlSize(.small)
+                        .disabled(viewModel.newCustomKey.isEmpty)
+                    }
+                }
+            }
+            .font(.caption)
+        }
+    }
+
+    // MARK: - Binding Helpers
+
+    private var templateBinding: Binding<MetadataTemplate> {
+        Binding(
+            get: { viewModel.metadata?.metadataTemplate ?? .clinical },
+            set: { viewModel.setTemplate($0) }
+        )
+    }
+
+    private func fieldRow(_ label: String, binding: Binding<String>) -> some View {
         HStack {
             Text(label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .frame(width: 100, alignment: .trailing)
-            TextField(label, text: text)
+                .frame(width: 90, alignment: .trailing)
+            TextField("", text: binding)
                 .textFieldStyle(.roundedBorder)
                 .controlSize(.small)
         }
     }
 
-    @ViewBuilder
-    private func autosaveField(
-        _ label: String,
-        binding: Binding<String>,
-        presetKey: String? = nil
-    ) -> some View {
-        HStack {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(width: 100, alignment: .trailing)
-
-            let suggestions = presetKey.flatMap { viewModel.presetStore.suggestions(for: $0) } ?? []
-
-            if suggestions.isEmpty {
-                TextField(label, text: binding)
-                    .textFieldStyle(.roundedBorder)
-                    .controlSize(.small)
-                    .onChange(of: binding.wrappedValue) { _, _ in
-                        viewModel.scheduleAutosave()
-                    }
-            } else {
-                // Combo-style: text field with menu for suggestions
-                HStack(spacing: 2) {
-                    TextField(label, text: binding)
-                        .textFieldStyle(.roundedBorder)
-                        .controlSize(.small)
-                        .onChange(of: binding.wrappedValue) { _, _ in
-                            viewModel.scheduleAutosave()
-                        }
-
-                    Menu {
-                        ForEach(suggestions, id: \.self) { suggestion in
-                            Button(suggestion) {
-                                binding.wrappedValue = suggestion
-                                viewModel.scheduleAutosave()
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "chevron.down")
-                            .imageScale(.small)
-                    }
-                    .menuStyle(.borderlessButton)
-                    .frame(width: 16)
-                }
-            }
-        }
-    }
-
-    /// Creates a binding for an optional String property on metadata with autosave.
     private func metaBinding(_ keyPath: WritableKeyPath<FASTQSampleMetadata, String?>) -> Binding<String> {
         Binding(
             get: { viewModel.metadata?[keyPath: keyPath] ?? "" },
-            set: { newValue in
-                viewModel.metadata?[keyPath: keyPath] = newValue.isEmpty ? nil : newValue
+            set: {
+                viewModel.metadata?[keyPath: keyPath] = $0.isEmpty ? nil : $0
+                viewModel.scheduleAutosave()
             }
         )
     }
 
-    /// Creates a binding for a custom field stored in customFields.
-    private func customFieldBinding(_ key: String) -> Binding<String> {
+    private func customBinding(_ key: String) -> Binding<String> {
         Binding(
             get: { viewModel.metadata?.customFields[key] ?? "" },
-            set: { newValue in
-                if newValue.isEmpty {
+            set: {
+                if $0.isEmpty {
                     viewModel.metadata?.customFields.removeValue(forKey: key)
                 } else {
-                    viewModel.metadata?.customFields[key] = newValue
+                    viewModel.metadata?.customFields[key] = $0
                 }
+                viewModel.scheduleAutosave()
             }
         )
     }
