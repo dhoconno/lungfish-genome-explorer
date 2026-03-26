@@ -514,7 +514,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// without matching metrics fall back to report-level data.
     private func buildTableRows(
         organisms: [TaxTriageOrganism],
-        metrics: [TaxTriageMetric]
+        metrics: [TaxTriageMetric],
+        sampleId: String? = nil
     ) -> [TaxTriageTableRow] {
         // Build lookup from organism name to metric
         let metricsByName = Dictionary(
@@ -536,6 +537,17 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             contaminationOrganisms = []
         }
 
+        // Resolve unique reads: use per-sample counts when filtering by sample,
+        // otherwise fall back to aggregate counts.
+        let resolveUniqueReads: (String) -> Int? = { normalizedName in
+            if let sampleId,
+               let perSample = self.perSampleDeduplicatedReadCounts[normalizedName],
+               let count = perSample[sampleId] {
+                return count
+            }
+            return self.deduplicatedReadCounts[normalizedName]
+        }
+
         var rows: [TaxTriageTableRow] = []
 
         // Start from organisms (report data)
@@ -546,7 +558,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 organism: organism.name,
                 tassScore: matchingMetric?.tassScore ?? organism.score,
                 reads: matchingMetric?.reads ?? organism.reads,
-                uniqueReads: deduplicatedReadCounts[normalizedName],
+                uniqueReads: resolveUniqueReads(normalizedName),
                 coverage: matchingMetric?.coverageBreadth ?? organism.coverage,
                 confidence: normalizedConfidenceLabel(matchingMetric?.confidence)
                     ?? confidenceLabel(for: matchingMetric?.tassScore ?? organism.score),
@@ -565,7 +577,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 organism: metric.organism,
                 tassScore: metric.tassScore,
                 reads: metric.reads,
-                uniqueReads: deduplicatedReadCounts[normalizedName],
+                uniqueReads: resolveUniqueReads(normalizedName),
                 coverage: metric.coverageBreadth,
                 confidence: normalizedConfidenceLabel(metric.confidence)
                     ?? confidenceLabel(for: metric.tassScore),
@@ -714,7 +726,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                     rank: $0.rank
                 )
             }
-            filteredRows = buildTableRows(organisms: filteredOrganisms, metrics: filteredMetrics)
+            // Use per-sample dedup counts for the filtered view
+            filteredRows = buildTableRows(
+                organisms: filteredOrganisms,
+                metrics: filteredMetrics,
+                sampleId: targetSample
+            )
         }
 
         organismTableView.rows = filteredRows
