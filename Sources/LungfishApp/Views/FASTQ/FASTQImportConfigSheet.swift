@@ -180,7 +180,7 @@ public final class FASTQImportConfigSheet: NSViewController {
         recipeDescLabel.font = .systemFont(ofSize: 11)
         recipeDescLabel.textColor = .tertiaryLabelColor
         recipeDescLabel.translatesAutoresizingMaskIntoConstraints = false
-        recipeDescLabel.maximumNumberOfLines = 2
+        recipeDescLabel.maximumNumberOfLines = 4
         recipeDescLabel.preferredMaxLayoutWidth = 400
         recipeDescLabel.isHidden = true
         view.addSubview(recipeDescLabel)
@@ -346,7 +346,60 @@ public final class FASTQImportConfigSheet: NSViewController {
             return
         }
         let recipe = allRecipes[idx]
-        recipeDescLabel.stringValue = "\(recipe.description)\n\(recipe.pipelineSummary)"
+        recipeDescLabel.stringValue = recipePresentationText(for: recipe)
+    }
+
+    private func recipePresentationText(for recipe: ProcessingRecipe) -> String {
+        var lines: [String] = []
+        let purpose = recipe.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !purpose.isEmpty {
+            lines.append(purpose)
+        }
+
+        let workflow = recipe.steps
+            .map { recipeStepLabel(for: $0.kind) }
+            .joined(separator: " -> ")
+        lines.append("Workflow: \(workflow)")
+
+        if recipe.name == ProcessingRecipe.illuminaVSP2TargetEnrichment.name {
+            lines.append("Best for VSP2 viral target-enrichment libraries with host-background removal.")
+        } else if let mode = recipe.requiredPairingMode {
+            lines.append("Input: \(pairingRequirementLabel(mode))")
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func recipeStepLabel(for kind: FASTQDerivativeOperationKind) -> String {
+        switch kind {
+        case .deduplicate: return "deduplicate"
+        case .adapterTrim: return "adapter trim"
+        case .qualityTrim: return "quality trim"
+        case .humanReadScrub: return "remove human reads"
+        case .pairedEndMerge: return "merge pairs"
+        case .lengthFilter: return "length filter"
+        case .primerRemoval: return "primer removal"
+        case .contaminantFilter: return "contaminant filter"
+        case .interleaveReformat: return "interleave/reformat"
+        case .pairedEndRepair: return "repair pairs"
+        case .errorCorrection: return "error correction"
+        case .subsampleProportion: return "subsample proportion"
+        case .subsampleCount: return "subsample count"
+        case .searchText: return "text filter"
+        case .searchMotif: return "motif filter"
+        case .fixedTrim: return "fixed trim"
+        case .demultiplex: return "demultiplex"
+        case .sequencePresenceFilter: return "adapter presence filter"
+        case .orient: return "orientation pass"
+        }
+    }
+
+    private func pairingRequirementLabel(_ mode: IngestionMetadata.PairingMode) -> String {
+        switch mode {
+        case .singleEnd: return "single-end reads"
+        case .pairedEnd: return "paired-end reads"
+        case .interleaved: return "interleaved paired-end reads"
+        }
     }
 
     @objc private func importClicked(_ sender: Any) {

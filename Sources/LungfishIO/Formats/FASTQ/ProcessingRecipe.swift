@@ -321,7 +321,7 @@ extension ProcessingRecipe {
     /// contains a mix of merged reads and unmerged interleaved R1/R2 pairs.
     public static let illuminaVSP2TargetEnrichment = ProcessingRecipe(
         name: "Illumina VSP2 Target Enrichment",
-        description: "Deduplicate, adapter trim, quality trim, human read removal, merge pairs, remove short reads",
+        description: "Optimized for VSP2 short-insert viral enrichment runs: remove duplicates/adapters, trim low-quality tails, remove human reads, merge overlaps, then discard <50 bp reads.",
         steps: [
             // 1. Remove PCR duplicates (exact match, paired-end aware)
             FASTQDerivativeOperation(

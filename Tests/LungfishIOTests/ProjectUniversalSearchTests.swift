@@ -43,7 +43,6 @@ final class ProjectUniversalSearchTests: XCTestCase {
         XCTAssertTrue(parsed.numberFilters.contains {
             $0.key == "filtered_reads_in_sample" && $0.comparison == .lessThan && $0.value == 1_000_000
         })
-        XCTAssertTrue(parsed.textTerms.contains("hku1"))
     }
 
     func testRebuildIndexesFastqAndSupportsRoleAndDateFilters() throws {
@@ -92,6 +91,15 @@ final class ProjectUniversalSearchTests: XCTestCase {
             results.contains(where: { $0.kind == "classification_result" }),
             "Expected classification result to match virus:hku1 query"
         )
+
+        let brackenTaxonResults = try index.search(
+            rawQuery: "type:classification_taxon virus:sars-cov-2 read_count>=20",
+            limit: 20
+        )
+        XCTAssertTrue(
+            brackenTaxonResults.contains(where: { $0.kind == "classification_taxon" }),
+            "Expected classification_taxon entity to be searchable from Bracken taxa"
+        )
     }
 
     func testEsVirituVirusQueryReturnsVirusHitEntity() throws {
@@ -135,6 +143,37 @@ final class ProjectUniversalSearchTests: XCTestCase {
         XCTAssertFalse(
             tooHigh.contains(where: { $0.kind == "virus_hit" }),
             "Expected no virus_hit at excessive unique_reads threshold"
+        )
+
+        let sarsAlias = try index.search(rawQuery: "sars-cov-2", limit: 50)
+        XCTAssertTrue(
+            sarsAlias.contains(where: { $0.kind == "virus_hit" }),
+            "Expected plain-text SARS-CoV-2 alias to match EsViritu virus hits"
+        )
+    }
+
+    func testTaxTriageFoundPathogensAreSearchable() throws {
+        try makeTaxTriageResultDirectory()
+
+        let index = try ProjectUniversalSearchIndex(projectURL: projectURL)
+        _ = try index.rebuild()
+
+        let foundPathogens = try index.search(
+            rawQuery: "type:taxtriage_organism found_pathogen:true virus:sars-cov-2",
+            limit: 20
+        )
+        XCTAssertTrue(
+            foundPathogens.contains(where: { $0.kind == "taxtriage_organism" }),
+            "Expected TaxTriage found pathogens to be searchable by SARS-CoV-2 alias"
+        )
+
+        let parentResults = try index.search(
+            rawQuery: "type:taxtriage_result found_pathogen:true virus:sars-cov-2",
+            limit: 20
+        )
+        XCTAssertTrue(
+            parentResults.contains(where: { $0.kind == "taxtriage_result" }),
+            "Expected TaxTriage parent result to carry found-pathogen search attributes"
         )
     }
 
@@ -181,6 +220,7 @@ final class ProjectUniversalSearchTests: XCTestCase {
             "config": ["databaseName": "kraken2-standard"],
             "reportPath": "classification.kreport",
             "outputPath": "classification.kraken",
+            "brackenPath": "classification.bracken.tsv",
             "runtime": 1.2,
             "toolVersion": "2.1.3",
             "savedAt": "2026-03-28T12:00:00Z",
@@ -195,6 +235,17 @@ final class ProjectUniversalSearchTests: XCTestCase {
         """
         try kreport.write(
             to: directory.appendingPathComponent("classification.kreport"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let bracken = """
+        name\ttaxonomy_id\ttaxonomy_lvl\tkraken_assigned_reads\tadded_reads\tnew_est_reads\tfraction_total_reads
+        Severe acute respiratory syndrome coronavirus 2\t2697049\tS\t12\t38\t50\t0.50000
+        Human coronavirus HKU1\t290028\tS\t5\t20\t25\t0.25000
+        """
+        try bracken.write(
+            to: directory.appendingPathComponent("classification.bracken.tsv"),
             atomically: true,
             encoding: .utf8
         )
@@ -226,9 +277,34 @@ final class ProjectUniversalSearchTests: XCTestCase {
         let detectionTSV = """
         sample_ID\tName\tdescription\tLength\tSegment\tAccession\tAssembly\tAsm_length\tkingdom\tphylum\ttclass\torder\tfamily\tgenus\tspecies\tsubspecies\tRPKMF\tread_count\tcovered_bases\tmean_coverage\tavg_read_identity\tPi\tfiltered_reads_in_sample
         SAMPLE01\tHuman coronavirus HKU1\tHKU1 genome\t30000\tNA\tNC_006577.2\tGCF_009858895.2\t30000\tViruses\tPisuviricota\tPisoniviricetes\tNidovirales\tCoronaviridae\tBetacoronavirus\tHuman coronavirus HKU1\tNA\t18.5\t42\t12000\t3.8\t98.7\t0.001\t500000
+        SAMPLE01\tSevere acute respiratory syndrome coronavirus 2\tSARS-CoV-2 genome\t29903\tNA\tNC_045512.2\tGCF_009858895.2\t29903\tViruses\tPisuviricota\tPisoniviricetes\tNidovirales\tCoronaviridae\tBetacoronavirus\tSevere acute respiratory syndrome coronavirus 2\tNA\t12.2\t24\t9800\t2.5\t98.2\t0.002\t500000
         """
         try detectionTSV.write(
             to: directory.appendingPathComponent("detected_virus.info.tsv"),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
+    private func makeTaxTriageResultDirectory() throws {
+        let directory = projectURL.appendingPathComponent("taxtriage-20250328-120000", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let sidecar: [String: Any] = [
+            "runtime": 7.4,
+            "exitCode": 0,
+            "savedAt": "2026-03-28T12:00:00Z",
+        ]
+        let sidecarData = try JSONSerialization.data(withJSONObject: sidecar, options: [.sortedKeys])
+        try sidecarData.write(to: directory.appendingPathComponent("taxtriage-result.json"))
+
+        let metrics = """
+        sample\ttaxid\torganism\trank\treads\tcoverage_breadth\tcoverage_depth\ttass_score\tconfidence
+        SAMPLE01\t2697049\tSevere acute respiratory syndrome coronavirus 2\tS\t81\t42.0\t8.3\t0.93\thigh
+        SAMPLE01\t290028\tHuman coronavirus HKU1\tS\t22\t19.1\t2.4\t0.52\tmedium
+        """
+        try metrics.write(
+            to: directory.appendingPathComponent("multiqc_confidences.txt"),
             atomically: true,
             encoding: .utf8
         )

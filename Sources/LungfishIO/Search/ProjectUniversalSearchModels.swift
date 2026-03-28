@@ -217,7 +217,6 @@ public enum ProjectUniversalSearchQueryParser {
                 let normalized = normalizeTextValue(value)
                 if !normalized.isEmpty {
                     query.attributeFilters.append(.init(key: "virus_name", value: normalized, match: .contains))
-                    query.textTerms.append(normalized)
                 }
                 continue
             }
@@ -392,10 +391,14 @@ public enum ProjectUniversalSearchQueryParser {
             return "vcf_sample"
         case "classification", "classification_result", "kraken":
             return "classification_result"
+        case "classification_taxon", "kraken_taxon", "bracken_taxon":
+            return "classification_taxon"
         case "esviritu", "esviritu_result":
             return "esviritu_result"
         case "taxtriage", "taxtriage_result":
             return "taxtriage_result"
+        case "taxtriage_organism", "taxtriage_taxon":
+            return "taxtriage_organism"
         case "manifest", "manifest_document":
             return "manifest_document"
         case "virus", "virus_hit":

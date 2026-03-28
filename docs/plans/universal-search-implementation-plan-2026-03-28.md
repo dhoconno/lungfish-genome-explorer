@@ -173,3 +173,6 @@ This CLI doubles as debugging + performance monitoring surface.
 - 2026-03-28: Added `lungfish universal-search` CLI command with `--reindex`, `--stats`, and JSON/TSV/text outputs.
 - 2026-03-28: Added IO and CLI tests covering parser tokens, indexing/query behavior, and command registration/parsing.
 - 2026-03-28: Fixed SQLite binder recursion crash in universal-search index and added app-layer service tests for on-demand indexing and query coverage.
+- 2026-03-28: Expanded index coverage to include Kraken/Bracken taxon entities and TaxTriage organism/found-pathogen entities, with synonym aliases (including `SARS-CoV-2`) for robust matching.
+- 2026-03-28: Added HIG-friendly advanced universal-search popover in sidebar with source scope, family/species, sample, read-threshold, and date filters.
+- 2026-03-28: Fixed boolean attribute serialization so filters like `found_pathogen:true` correctly match TaxTriage organism and parent result entities.

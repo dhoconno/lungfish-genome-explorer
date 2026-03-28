@@ -45,6 +45,30 @@ public final class ProjectUniversalSearchIndex {
         let sizeBytes: Int64?
     }
 
+    private struct ClassificationTaxonSeed {
+        let source: String
+        let name: String
+        let taxID: Int
+        let rank: String
+        let readCount: Int
+        let fraction: Double?
+    }
+
+    private struct TaxTriageOrganismSeed {
+        let name: String
+        let sampleName: String?
+        let taxID: Int?
+        let rank: String?
+        let readCount: Int
+        let uniqueReads: Int?
+        let tassScore: Double?
+        let confidence: String?
+        let coverageBreadth: Double?
+        let coverageDepth: Double?
+        let abundance: Double?
+        let source: String
+    }
+
     // MARK: - Properties
 
     public let projectURL: URL
@@ -669,6 +693,8 @@ public final class ProjectUniversalSearchIndex {
             "result_directory": resultDirectory.lastPathComponent,
         ]
         var deferredTaxonNames: [String] = []
+        var taxonomySeeds: [ClassificationTaxonSeed] = []
+
         if let flattened = flattenJSONFile(at: sidecarURL) {
             for (key, value) in flattened {
                 attributes[key] = value
@@ -692,9 +718,51 @@ public final class ProjectUniversalSearchIndex {
                     .sorted { $0.readsClade > $1.readsClade }
                     .prefix(400)
                 deferredTaxonNames = topTaxa.map(\.name)
+                taxonomySeeds.append(
+                    contentsOf: topTaxa.map {
+                        ClassificationTaxonSeed(
+                            source: "kraken",
+                            name: $0.name,
+                            taxID: $0.taxId,
+                            rank: $0.rank.code,
+                            readCount: $0.readsClade,
+                            fraction: $0.fractionClade
+                        )
+                    }
+                )
                 if !deferredTaxonNames.isEmpty {
                     attributes["top_taxa"] = deferredTaxonNames.prefix(120).joined(separator: " | ")
+                    let aliases = Set(deferredTaxonNames.flatMap(organismAliases(for:)))
+                    if !aliases.isEmpty {
+                        attributes["top_taxa_aliases"] = aliases.sorted().prefix(200).joined(separator: " | ")
+                    }
                 }
+            }
+        }
+
+        if let brackenPath = attributes["brackenpath"] as? String {
+            let brackenURL = resultDirectory.appendingPathComponent(brackenPath)
+            if FileManager.default.fileExists(atPath: brackenURL.path),
+               let brackenRows = try? BrackenParser.parse(url: brackenURL) {
+                let topBracken = brackenRows
+                    .sorted { $0.newEstReads > $1.newEstReads }
+                    .prefix(400)
+                if !topBracken.isEmpty {
+                    attributes["bracken_taxa_count"] = topBracken.count
+                    attributes["bracken_top_taxa"] = topBracken.prefix(120).map(\.name).joined(separator: " | ")
+                }
+                taxonomySeeds.append(
+                    contentsOf: topBracken.map {
+                        ClassificationTaxonSeed(
+                            source: "bracken",
+                            name: $0.name,
+                            taxID: $0.taxId,
+                            rank: $0.taxonomyLevel,
+                            readCount: $0.newEstReads,
+                            fraction: $0.fractionTotalReads
+                        )
+                    }
+                )
             }
         }
 
@@ -722,11 +790,63 @@ public final class ProjectUniversalSearchIndex {
             perKindCounts: &perKindCounts
         )
 
-        for taxonName in deferredTaxonNames {
-            try insertAttribute(entityID: row.id, key: "taxon", value: taxonName)
-            try insertAttribute(entityID: row.id, key: "virus_name", value: taxonName)
-            attributeCount += 1
-            attributeCount += 1
+        for taxonName in Set(deferredTaxonNames) {
+            try insertOrganismAttributes(
+                entityID: row.id,
+                keys: ["taxon", "virus_name"],
+                name: taxonName,
+                includeOriginal: true,
+                attributeCount: &attributeCount
+            )
+        }
+
+        var seenTaxonEntityIDs = Set<String>()
+        for seed in taxonomySeeds {
+            let entityID = "classification_taxon:\(relPath):\(seed.source):\(seed.taxID):\(stableIdentifierComponent(seed.name))"
+            guard seenTaxonEntityIDs.insert(entityID).inserted else { continue }
+
+            let aliases = organismAliases(for: seed.name)
+            var taxonAttributes: [String: Any] = [
+                "taxon": seed.name,
+                "virus_name": seed.name,
+                "organism": seed.name,
+                "tax_id": seed.taxID,
+                "rank": seed.rank,
+                "source": seed.source,
+                "read_count": seed.readCount,
+            ]
+            if let fraction = seed.fraction {
+                taxonAttributes["abundance_fraction"] = fraction
+                taxonAttributes["abundance_percentage"] = fraction * 100.0
+            }
+            if !aliases.isEmpty {
+                taxonAttributes["search_aliases"] = aliases.joined(separator: " | ")
+            }
+
+            let taxonRow = entityRow(
+                id: entityID,
+                kind: "classification_taxon",
+                title: seed.name,
+                subtitle: "\(seed.source.capitalized) • \(resultDirectory.lastPathComponent)",
+                format: "classification",
+                url: resultDirectory
+            )
+
+            try insertEntity(
+                taxonRow,
+                attributes: taxonAttributes,
+                entityCount: &entityCount,
+                attributeCount: &attributeCount,
+                perKindCounts: &perKindCounts
+            )
+
+            try insertOrganismAttributes(
+                entityID: entityID,
+                keys: ["taxon", "virus_name", "organism"],
+                name: seed.name,
+                includeOriginal: false,
+                attributeCount: &attributeCount
+            )
         }
     }
 
@@ -746,6 +866,7 @@ public final class ProjectUniversalSearchIndex {
         var deferredVirusNames: [String] = []
         var deferredFamilies: [String] = []
         var deferredSpecies: [String] = []
+        var deferredVirusAliases: Set<String> = []
 
         if let flattened = flattenJSONFile(at: sidecarURL) {
             for (key, value) in flattened {
@@ -765,6 +886,7 @@ public final class ProjectUniversalSearchIndex {
 
                 for detection in topDetections {
                     let hitEntityID = "virus_hit:\(relPath):\(detection.accession)"
+                    let nameAliases = organismAliases(for: detection.name)
                     var hitAttributes: [String: Any] = [
                         "virus_name": detection.name,
                         "sample_id": detection.sampleId,
@@ -780,10 +902,14 @@ public final class ProjectUniversalSearchIndex {
                         "mean_coverage": detection.meanCoverage,
                         "avg_read_identity": detection.avgReadIdentity,
                     ]
+                    if !nameAliases.isEmpty {
+                        hitAttributes["search_aliases"] = nameAliases.joined(separator: " | ")
+                    }
 
                     if let species = detection.species {
                         hitAttributes["species"] = species
                         deferredSpecies.append(species)
+                        deferredVirusAliases.formUnion(organismAliases(for: species))
                     }
                     if let genus = detection.genus { hitAttributes["genus"] = genus }
                     if let family = detection.family {
@@ -811,9 +937,21 @@ public final class ProjectUniversalSearchIndex {
                     )
 
                     deferredVirusNames.append(detection.name)
+                    deferredVirusAliases.formUnion(nameAliases)
+
+                    try insertOrganismAttributes(
+                        entityID: hitEntityID,
+                        keys: ["virus_name"],
+                        name: detection.name,
+                        includeOriginal: false,
+                        attributeCount: &attributeCount
+                    )
                 }
                 if !deferredVirusNames.isEmpty {
                     attributes["detected_viruses"] = deferredVirusNames.prefix(200).joined(separator: " | ")
+                }
+                if !deferredVirusAliases.isEmpty {
+                    attributes["detected_virus_aliases"] = deferredVirusAliases.sorted().prefix(200).joined(separator: " | ")
                 }
                 if !deferredFamilies.isEmpty {
                     attributes["detected_families"] = Array(Set(deferredFamilies.map { $0.lowercased() })).joined(separator: " | ")
@@ -848,9 +986,14 @@ public final class ProjectUniversalSearchIndex {
             perKindCounts: &perKindCounts
         )
 
-        for virusName in deferredVirusNames {
-            try insertAttribute(entityID: parentEntityID, key: "virus_name", value: virusName)
-            attributeCount += 1
+        for virusName in Set(deferredVirusNames) {
+            try insertOrganismAttributes(
+                entityID: parentEntityID,
+                keys: ["virus_name"],
+                name: virusName,
+                includeOriginal: true,
+                attributeCount: &attributeCount
+            )
         }
         for family in Set(deferredFamilies) {
             try insertAttribute(entityID: parentEntityID, key: "family", value: family)
@@ -874,10 +1017,118 @@ public final class ProjectUniversalSearchIndex {
         var attributes: [String: Any] = [
             "result_directory": resultDirectory.lastPathComponent,
         ]
+        var organismSeeds: [TaxTriageOrganismSeed] = []
 
         if let flattened = flattenJSONFile(at: sidecarURL) {
             for (key, value) in flattened {
                 attributes[key] = value
+            }
+        }
+
+        let allOutputFiles = collectOutputFiles(in: resultDirectory).filter { !$0.path.contains("/work/") }
+        let metricFiles = allOutputFiles.filter {
+            let filename = $0.lastPathComponent.lowercased()
+            let ext = $0.pathExtension.lowercased()
+            guard ext == "txt" || ext == "tsv" else { return false }
+            if filename == "top_report.tsv" { return false }
+            return filename == "multiqc_confidences.txt"
+                || filename.hasSuffix(".organisms.report.txt")
+                || filename.contains("confidence")
+                || filename.contains("tass")
+                || filename.contains("metrics")
+        }
+
+        var metricsByCompositeKey: [String: TaxTriageMetric] = [:]
+        for metricsURL in metricFiles.sorted(by: pathCompare) {
+            guard let parsed = try? TaxTriageMetricsParser.parse(url: metricsURL), !parsed.isEmpty else {
+                continue
+            }
+            for metric in parsed {
+                let key = "\(OrganismNameNormalizer.normalizedKey(metric.organism))\t\(metric.sample ?? "")"
+                if let existing = metricsByCompositeKey[key] {
+                    if metric.tassScore > existing.tassScore {
+                        metricsByCompositeKey[key] = metric
+                    }
+                } else {
+                    metricsByCompositeKey[key] = metric
+                }
+            }
+        }
+
+        organismSeeds.append(
+            contentsOf: metricsByCompositeKey.values.map {
+                TaxTriageOrganismSeed(
+                    name: $0.organism,
+                    sampleName: $0.sample,
+                    taxID: $0.taxId,
+                    rank: $0.rank,
+                    readCount: $0.reads,
+                    uniqueReads: nil,
+                    tassScore: $0.tassScore,
+                    confidence: $0.confidence,
+                    coverageBreadth: $0.coverageBreadth,
+                    coverageDepth: $0.coverageDepth,
+                    abundance: $0.abundance,
+                    source: "metrics"
+                )
+            }
+        )
+
+        let topReportFiles = allOutputFiles.filter { $0.lastPathComponent.lowercased().contains("top_report.tsv") }
+        for topReportURL in topReportFiles {
+            organismSeeds.append(contentsOf: parseTaxTriageTopReport(url: topReportURL))
+        }
+
+        if organismSeeds.isEmpty {
+            let reportFiles = allOutputFiles.filter { $0.lastPathComponent.lowercased().hasSuffix(".report.txt") }
+            for reportURL in reportFiles {
+                guard let organisms = try? TaxTriageReportParser.parse(url: reportURL), !organisms.isEmpty else { continue }
+                organismSeeds.append(
+                    contentsOf: organisms.map {
+                        TaxTriageOrganismSeed(
+                            name: $0.name,
+                            sampleName: nil,
+                            taxID: $0.taxId,
+                            rank: $0.rank,
+                            readCount: $0.reads,
+                            uniqueReads: nil,
+                            tassScore: $0.score,
+                            confidence: nil,
+                            coverageBreadth: $0.coverage,
+                            coverageDepth: nil,
+                            abundance: nil,
+                            source: "report"
+                        )
+                    }
+                )
+            }
+        }
+
+        if !organismSeeds.isEmpty {
+            let sortedSeeds = organismSeeds.sorted {
+                if $0.readCount == $1.readCount {
+                    return ($0.tassScore ?? 0) > ($1.tassScore ?? 0)
+                }
+                return $0.readCount > $1.readCount
+            }
+            let names = sortedSeeds.map(\.name)
+            attributes["detected_organism_count"] = Set(names.map(OrganismNameNormalizer.normalizedKey)).count
+            attributes["detected_organisms"] = names.prefix(300).joined(separator: " | ")
+
+            let aliases = Set(names.flatMap(organismAliases(for:)))
+            if !aliases.isEmpty {
+                attributes["detected_organism_aliases"] = aliases.sorted().prefix(300).joined(separator: " | ")
+            }
+
+            let foundPathogenNames = sortedSeeds
+                .filter { isLikelyFoundPathogen(tassScore: $0.tassScore, confidence: $0.confidence, readCount: $0.readCount) }
+                .map(\.name)
+            if !foundPathogenNames.isEmpty {
+                attributes["found_pathogen_count"] = Set(foundPathogenNames.map(OrganismNameNormalizer.normalizedKey)).count
+                attributes["found_pathogens"] = foundPathogenNames.prefix(200).joined(separator: " | ")
+                attributes["found_pathogen"] = true
+            } else {
+                attributes["found_pathogen"] = false
             }
         }
 
@@ -897,6 +1148,84 @@ public final class ProjectUniversalSearchIndex {
             attributeCount: &attributeCount,
             perKindCounts: &perKindCounts
         )
+
+        let uniqueOrganisms = Set(organismSeeds.map(\.name))
+        for organismName in uniqueOrganisms {
+            try insertOrganismAttributes(
+                entityID: row.id,
+                keys: ["organism", "taxon", "virus_name"],
+                name: organismName,
+                includeOriginal: true,
+                attributeCount: &attributeCount
+            )
+        }
+
+        if !organismSeeds.isEmpty {
+            let groupedByEntity = Dictionary(grouping: organismSeeds) { seed in
+                let sample = seed.sampleName ?? "all"
+                return "\(sample):\(OrganismNameNormalizer.normalizedKey(seed.name))"
+            }
+
+            for (_, group) in groupedByEntity {
+                guard let best = group.max(by: {
+                    if $0.readCount == $1.readCount {
+                        return ($0.tassScore ?? 0) < ($1.tassScore ?? 0)
+                    }
+                    return $0.readCount < $1.readCount
+                }) else { continue }
+
+                let sampleComponent = best.sampleName.map(stableIdentifierComponent(_:)) ?? "all"
+                let entityID = "taxtriage_organism:\(relPath):\(sampleComponent):\(stableIdentifierComponent(best.name))"
+                let aliases = organismAliases(for: best.name)
+                var organismAttributes: [String: Any] = [
+                    "organism": best.name,
+                    "taxon": best.name,
+                    "virus_name": best.name,
+                    "read_count": best.readCount,
+                    "source": best.source,
+                    "found_pathogen": isLikelyFoundPathogen(
+                        tassScore: best.tassScore,
+                        confidence: best.confidence,
+                        readCount: best.readCount
+                    ),
+                ]
+                if let sampleName = best.sampleName { organismAttributes["sample_name"] = sampleName }
+                if let taxID = best.taxID { organismAttributes["tax_id"] = taxID }
+                if let rank = best.rank { organismAttributes["rank"] = rank }
+                if let uniqueReads = best.uniqueReads { organismAttributes["unique_reads"] = uniqueReads }
+                if let tassScore = best.tassScore { organismAttributes["tass_score"] = tassScore }
+                if let confidence = best.confidence { organismAttributes["confidence"] = confidence }
+                if let coverageBreadth = best.coverageBreadth { organismAttributes["coverage_breadth"] = coverageBreadth }
+                if let coverageDepth = best.coverageDepth { organismAttributes["coverage_depth"] = coverageDepth }
+                if let abundance = best.abundance { organismAttributes["abundance_fraction"] = abundance }
+                if !aliases.isEmpty { organismAttributes["search_aliases"] = aliases.joined(separator: " | ") }
+
+                let organismRow = entityRow(
+                    id: entityID,
+                    kind: "taxtriage_organism",
+                    title: best.name,
+                    subtitle: best.sampleName ?? "TaxTriage",
+                    format: "taxtriage",
+                    url: resultDirectory
+                )
+
+                try insertEntity(
+                    organismRow,
+                    attributes: organismAttributes,
+                    entityCount: &entityCount,
+                    attributeCount: &attributeCount,
+                    perKindCounts: &perKindCounts
+                )
+
+                try insertOrganismAttributes(
+                    entityID: entityID,
+                    keys: ["organism", "taxon", "virus_name"],
+                    name: best.name,
+                    includeOriginal: false,
+                    attributeCount: &attributeCount
+                )
+            }
+        }
     }
 
     private func indexManifestDocument(
@@ -933,6 +1262,175 @@ public final class ProjectUniversalSearchIndex {
             attributeCount: &attributeCount,
             perKindCounts: &perKindCounts
         )
+    }
+
+    // MARK: - Organism Helpers
+
+    private func insertOrganismAttributes(
+        entityID: String,
+        keys: [String],
+        name: String,
+        includeOriginal: Bool,
+        attributeCount: inout Int
+    ) throws {
+        var values: [String] = includeOriginal ? [name] : []
+        values.append(contentsOf: organismAliases(for: name))
+
+        var seen = Set<String>()
+        for value in values {
+            let normalized = value
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            guard !normalized.isEmpty, seen.insert(normalized).inserted else { continue }
+            for key in keys {
+                try insertAttribute(entityID: entityID, key: key, value: value)
+                attributeCount += 1
+            }
+        }
+    }
+
+    private func organismAliases(for rawName: String) -> [String] {
+        let cleaned = OrganismNameNormalizer.clean(rawName)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return [] }
+
+        let normalized = OrganismNameNormalizer.normalizedKey(cleaned)
+        guard !normalized.isEmpty else { return [] }
+
+        var aliases = Set<String>()
+
+        if normalized.contains("severe acute respiratory syndrome coronavirus 2")
+            || normalized == "sars cov 2"
+            || normalized == "sarscov2" {
+            aliases.formUnion([
+                "SARS-CoV-2",
+                "SARS CoV 2",
+                "sarscov2",
+                "COVID-19",
+                "covid19",
+                "2019-nCoV",
+                "2019 ncov",
+            ])
+        }
+
+        if normalized.hasPrefix("human coronavirus ") {
+            let code = normalized.replacingOccurrences(of: "human coronavirus ", with: "")
+                .replacingOccurrences(of: " ", with: "")
+                .uppercased()
+            if !code.isEmpty, code.count <= 16 {
+                aliases.insert(code)
+                aliases.insert("HCoV-\(code)")
+                aliases.insert("HCoV \(code)")
+            }
+        }
+
+        switch normalized {
+        case "human coronavirus hku1", "hcov hku1", "hku1":
+            aliases.formUnion(["HKU1", "HCoV-HKU1", "HCoV HKU1", "Human coronavirus HKU1"])
+        case "human coronavirus 229e", "hcov 229e", "229e":
+            aliases.formUnion(["229E", "HCoV-229E", "HCoV 229E", "Human coronavirus 229E"])
+        case "human coronavirus nl63", "hcov nl63", "nl63":
+            aliases.formUnion(["NL63", "HCoV-NL63", "HCoV NL63", "Human coronavirus NL63"])
+        default:
+            break
+        }
+
+        let normalizedInput = OrganismNameNormalizer.normalizedKey(cleaned)
+        return aliases
+            .map { OrganismNameNormalizer.clean($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !OrganismNameNormalizer.normalizedKey($0).isEmpty }
+            .filter { OrganismNameNormalizer.normalizedKey($0) != normalizedInput }
+            .sorted()
+    }
+
+    // MARK: - TaxTriage Helpers
+
+    private func collectOutputFiles(in directory: URL) -> [URL] {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        var files: [URL] = []
+        for case let url as URL in enumerator {
+            if (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true {
+                files.append(url)
+            }
+        }
+        return files
+    }
+
+    private func parseTaxTriageTopReport(url: URL) -> [TaxTriageOrganismSeed] {
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+
+        let lines = content.components(separatedBy: .newlines)
+        guard lines.count > 1 else { return [] }
+
+        var organisms: [TaxTriageOrganismSeed] = []
+        for line in lines.dropFirst() {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+
+            let cols = trimmed.components(separatedBy: "\t")
+            guard cols.count >= 6 else { continue }
+
+            let abundance = Double(cols[0].replacingOccurrences(of: "%", with: ""))
+            let cladeReads = Int(Double(cols[1].replacingOccurrences(of: ",", with: "")) ?? 0)
+            let rank = cols[3].trimmingCharacters(in: .whitespacesAndNewlines)
+            let taxID = Int(cols[4].trimmingCharacters(in: .whitespacesAndNewlines))
+            let name = OrganismNameNormalizer.clean(cols[5])
+
+            organisms.append(
+                TaxTriageOrganismSeed(
+                    name: name,
+                    sampleName: nil,
+                    taxID: taxID,
+                    rank: rank.isEmpty ? nil : rank,
+                    readCount: cladeReads,
+                    uniqueReads: nil,
+                    tassScore: nil,
+                    confidence: nil,
+                    coverageBreadth: nil,
+                    coverageDepth: nil,
+                    abundance: abundance,
+                    source: "top_report"
+                )
+            )
+        }
+
+        return organisms
+    }
+
+    private func isLikelyFoundPathogen(
+        tassScore: Double?,
+        confidence: String?,
+        readCount: Int
+    ) -> Bool {
+        guard readCount > 0 else { return false }
+        if let tassScore, tassScore >= 0.8 {
+            return true
+        }
+
+        guard let confidence else { return false }
+        let normalized = confidence
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return normalized == "high"
+            || normalized == "high confidence"
+            || normalized == "critical"
+    }
+
+    private func stableIdentifierComponent(_ value: String) -> String {
+        let normalized = OrganismNameNormalizer.normalizedKey(value)
+            .replacingOccurrences(of: " ", with: "_")
+        if normalized.isEmpty {
+            return "unknown"
+        }
+        return String(normalized.prefix(80))
     }
 
     // MARK: - Insert Helpers
@@ -1362,6 +1860,8 @@ public final class ProjectUniversalSearchIndex {
         switch value {
         case let text as String:
             return text
+        case let bool as Bool:
+            return bool ? "true" : "false"
         case let number as NSNumber:
             return number.stringValue
         case let int as Int:
@@ -1370,8 +1870,6 @@ public final class ProjectUniversalSearchIndex {
             return String(int64)
         case let double as Double:
             return String(double)
-        case let bool as Bool:
-            return bool ? "true" : "false"
         case let date as Date:
             let formatter = ISO8601DateFormatter()
             return formatter.string(from: date)

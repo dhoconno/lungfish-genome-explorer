@@ -247,10 +247,18 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         guard row < items.count else { return 36 }
         let item = items[row]
         guard expandedItemIDs.contains(item.id) else { return 36 }
-        // Calculate height needed for expanded detail text
-        let lineCount = item.detail.components(separatedBy: "\n").count
-        let extraLines = max(0, lineCount - 1)
-        return 36 + CGFloat(extraLines) * 13
+
+        let titleColumnWidth = tableView.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier("title"))?.width ?? 220
+        let textWidth = max(120, titleColumnWidth - 28) // account for disclosure button + paddings
+        let detailBounds = (item.detail as NSString).boundingRect(
+            with: NSSize(width: textWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: NSFont.systemFont(ofSize: 10)],
+            context: nil
+        )
+        let detailHeight = ceil(detailBounds.height)
+        let total = 8 + 16 + 2 + detailHeight + 4
+        return max(44, total)
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
@@ -283,6 +291,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
                 tf.tag = 100
                 tf.translatesAutoresizingMaskIntoConstraints = false
                 tf.lineBreakMode = .byTruncatingTail
+                tf.maximumNumberOfLines = 1
                 cell.addSubview(tf)
                 NSLayoutConstraint.activate([
                     tf.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
@@ -303,7 +312,8 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
                 NSLayoutConstraint.activate([
                     tf.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
                     tf.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -22),
-                    tf.bottomAnchor.constraint(equalTo: cell.bottomAnchor, constant: -2),
+                    tf.topAnchor.constraint(equalTo: titleField.bottomAnchor, constant: 1),
+                    tf.bottomAnchor.constraint(lessThanOrEqualTo: cell.bottomAnchor, constant: -2),
                 ])
                 return tf
             }()
@@ -319,7 +329,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
                 cell.addSubview(btn)
                 NSLayoutConstraint.activate([
                     btn.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
-                    btn.bottomAnchor.constraint(equalTo: cell.bottomAnchor, constant: -2),
+                    btn.topAnchor.constraint(equalTo: cell.topAnchor, constant: 2),
                 ])
                 return btn
             }()

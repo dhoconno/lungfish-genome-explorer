@@ -113,6 +113,8 @@ public class SidebarViewController: NSViewController {
 
     /// Search field for filtering
     private var searchField: NSSearchField!
+    /// Button that opens the advanced universal-search builder.
+    private var advancedSearchButton: NSButton!
 
     // MARK: - Data
 
@@ -144,6 +146,8 @@ public class SidebarViewController: NSViewController {
 
     /// Monotonic token used to discard stale async query responses.
     private var universalSearchGeneration: Int = 0
+    /// Current advanced-search popover (if shown).
+    private var universalSearchPopover: NSPopover?
 
     /// Suppresses delegate and notification callbacks during programmatic selection changes.
     private var suppressSelectionCallbacks = false
@@ -179,11 +183,24 @@ public class SidebarViewController: NSViewController {
         // Create search field
         searchField = NSSearchField()
         searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.placeholderString = "Search (type:, family:, species:, unique_reads>=, date>=)"
+        searchField.placeholderString = "Search project data and analyses"
         searchField.sendsSearchStringImmediately = true
         searchField.target = self
         searchField.action = #selector(searchFieldChanged(_:))
         containerView.addSubview(searchField)
+
+        // Advanced query builder for HIG-friendly structured search
+        advancedSearchButton = NSButton(title: "", target: self, action: #selector(showAdvancedSearchPopover(_:)))
+        advancedSearchButton.translatesAutoresizingMaskIntoConstraints = false
+        advancedSearchButton.bezelStyle = .rounded
+        advancedSearchButton.controlSize = .small
+        advancedSearchButton.image = NSImage(
+            systemSymbolName: "line.3.horizontal.decrease.circle",
+            accessibilityDescription: "Advanced Search"
+        )
+        advancedSearchButton.imagePosition = .imageOnly
+        advancedSearchButton.toolTip = "Advanced Search"
+        containerView.addSubview(advancedSearchButton)
 
         // Create outline view
         outlineView = NSOutlineView()
@@ -233,7 +250,11 @@ public class SidebarViewController: NSViewController {
         NSLayoutConstraint.activate([
             searchField.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 52),
             searchField.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 8),
-            searchField.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8),
+            searchField.trailingAnchor.constraint(equalTo: advancedSearchButton.leadingAnchor, constant: -6),
+
+            advancedSearchButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8),
+            advancedSearchButton.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
+            advancedSearchButton.widthAnchor.constraint(equalToConstant: 24),
 
             scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
             scrollView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
@@ -344,6 +365,38 @@ public class SidebarViewController: NSViewController {
                 logger.debug("searchFieldChanged: universal search unavailable: \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    @objc private func showAdvancedSearchPopover(_ sender: NSButton) {
+        if let existing = universalSearchPopover, existing.isShown {
+            existing.performClose(sender)
+            universalSearchPopover = nil
+            return
+        }
+
+        let builder = UniversalSearchAdvancedPopoverController()
+        builder.configure(from: searchField.stringValue)
+        builder.onApply = { [weak self] query in
+            guard let self else { return }
+            self.searchField.stringValue = query
+            self.searchFieldChanged(self.searchField)
+            self.universalSearchPopover?.performClose(nil)
+            self.universalSearchPopover = nil
+        }
+        builder.onClear = { [weak self] in
+            guard let self else { return }
+            self.searchField.stringValue = ""
+            self.searchFieldChanged(self.searchField)
+            self.universalSearchPopover?.performClose(nil)
+            self.universalSearchPopover = nil
+        }
+
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentSize = NSSize(width: 470, height: 430)
+        popover.contentViewController = builder
+        popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .maxY)
+        universalSearchPopover = popover
     }
 
     /// Schedules a project universal-search index rebuild.

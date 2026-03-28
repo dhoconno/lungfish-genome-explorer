@@ -99,7 +99,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         // Find and reload the assembly row
         let items = sortedDisplayItems
         if let idx = items.firstIndex(where: { $0.assembly.assembly == accession }) {
-            outlineView.reloadItem(items[idx])
+            reloadItemPreservingSelection(items[idx], reloadChildren: false)
         }
     }
 
@@ -118,8 +118,27 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
             uniqueReadCountsByAssembly[assemblyAccession] = assemblyTotal
 
             // Reload the assembly row and its children
-            outlineView.reloadItem(item, reloadChildren: true)
+            reloadItemPreservingSelection(item, reloadChildren: true)
         }
+    }
+
+    private func reloadItemPreservingSelection(_ item: Any, reloadChildren: Bool) {
+        let selectedItems: [Any] = outlineView.selectedRowIndexes.compactMap { row in
+            let selected = outlineView.item(atRow: row)
+            return selected as Any
+        }
+
+        suppressSelectionCallback = true
+        outlineView.reloadItem(item, reloadChildren: reloadChildren)
+
+        let rowsToReselect = IndexSet(selectedItems.compactMap { selected in
+            let row = outlineView.row(forItem: selected)
+            return row >= 0 ? row : nil
+        })
+        if !rowsToReselect.isEmpty {
+            outlineView.selectRowIndexes(rowsToReselect, byExtendingSelection: false)
+        }
+        suppressSelectionCallback = false
     }
 
     /// Called when the user selects an assembly row.
