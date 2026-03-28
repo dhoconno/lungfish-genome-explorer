@@ -24,7 +24,7 @@ final class ProjectUniversalSearchTests: XCTestCase {
 
     func testQueryParserParsesFieldTokensAndQuotedTerms() {
         let parsed = ProjectUniversalSearchQueryParser.parse(
-            #"type:fastq format:vcf sample:"Air Sample 01" role:test_sample date>=2025-01-01 date<=2025-01-31 virus:HKU1 notes:"batch alpha""#
+            #"type:fastq format:vcf sample:"Air Sample 01" role:test_sample date>=2025-01-01 date<=2025-01-31 virus:HKU1 notes:"batch alpha" unique_reads>=20 total_reads<1000000"#
         )
 
         XCTAssertEqual(parsed.kinds, ["fastq_dataset"])
@@ -37,6 +37,12 @@ final class ProjectUniversalSearchTests: XCTestCase {
         XCTAssertTrue(parsed.attributeFilters.contains { $0.key == "sample_role" && $0.value == "test_sample" })
         XCTAssertTrue(parsed.attributeFilters.contains { $0.key == "virus_name" && $0.value == "hku1" })
         XCTAssertTrue(parsed.attributeFilters.contains { $0.key == "notes" && $0.value == "batch alpha" })
+        XCTAssertTrue(parsed.numberFilters.contains {
+            $0.key == "read_count" && $0.comparison == .greaterThanOrEqual && $0.value == 20
+        })
+        XCTAssertTrue(parsed.numberFilters.contains {
+            $0.key == "filtered_reads_in_sample" && $0.comparison == .lessThan && $0.value == 1_000_000
+        })
         XCTAssertTrue(parsed.textTerms.contains("hku1"))
     }
 
@@ -102,6 +108,33 @@ final class ProjectUniversalSearchTests: XCTestCase {
         XCTAssertTrue(
             results.contains(where: { $0.kind == "esviritu_result" }),
             "Expected parent esviritu_result to be discoverable by virus query"
+        )
+
+        let thresholded = try index.search(
+            rawQuery: #"type:virus_hit family:coronaviridae species:"human coronavirus hku1" unique_reads>=20 total_reads>=500000"#,
+            limit: 50
+        )
+        XCTAssertTrue(
+            thresholded.contains(where: { $0.kind == "virus_hit" }),
+            "Expected virus_hit to match family/species + numeric read thresholds"
+        )
+
+        let parentFamilyMatch = try index.search(
+            rawQuery: "type:esviritu_result family:coronaviridae",
+            limit: 50
+        )
+        XCTAssertTrue(
+            parentFamilyMatch.contains(where: { $0.kind == "esviritu_result" }),
+            "Expected parent esviritu_result to match family filter"
+        )
+
+        let tooHigh = try index.search(
+            rawQuery: "type:virus_hit virus:hku1 unique_reads>=1000",
+            limit: 50
+        )
+        XCTAssertFalse(
+            tooHigh.contains(where: { $0.kind == "virus_hit" }),
+            "Expected no virus_hit at excessive unique_reads threshold"
         )
     }
 

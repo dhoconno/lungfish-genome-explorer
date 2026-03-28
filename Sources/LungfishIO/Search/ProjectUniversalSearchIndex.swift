@@ -247,6 +247,31 @@ public final class ProjectUniversalSearchIndex {
             }
         }
 
+        for filter in query.numberFilters {
+            let comparatorSQL: String = {
+                switch filter.comparison {
+                case .greaterThan:
+                    return ">"
+                case .greaterThanOrEqual:
+                    return ">="
+                case .lessThan:
+                    return "<"
+                case .lessThanOrEqual:
+                    return "<="
+                case .equal:
+                    return "="
+                case .notEqual:
+                    return "!="
+                }
+            }()
+
+            whereClauses.append(
+                "EXISTS (SELECT 1 FROM us_attributes a WHERE a.entity_id = e.id AND a.key = ? AND a.number_value IS NOT NULL AND a.number_value \(comparatorSQL) ?)"
+            )
+            bindings.append(filter.key)
+            bindings.append(filter.value)
+        }
+
         if let dateFrom = query.dateFrom {
             whereClauses.append("EXISTS (SELECT 1 FROM us_attributes a WHERE a.entity_id = e.id AND a.date_value IS NOT NULL AND a.date_value >= ?)")
             bindings.append(Int64(dateFrom.timeIntervalSince1970))
@@ -719,6 +744,8 @@ public final class ProjectUniversalSearchIndex {
             "result_directory": resultDirectory.lastPathComponent,
         ]
         var deferredVirusNames: [String] = []
+        var deferredFamilies: [String] = []
+        var deferredSpecies: [String] = []
 
         if let flattened = flattenJSONFile(at: sidecarURL) {
             for (key, value) in flattened {
@@ -743,16 +770,26 @@ public final class ProjectUniversalSearchIndex {
                         "sample_id": detection.sampleId,
                         "accession": detection.accession,
                         "assembly": detection.assembly,
+                        "unique_reads": detection.readCount,
+                        "supporting_reads": detection.readCount,
+                        "total_reads": detection.filteredReadsInSample,
                         "read_count": detection.readCount,
+                        "filtered_reads_in_sample": detection.filteredReadsInSample,
                         "rpkmf": detection.rpkmf,
                         "covered_bases": detection.coveredBases,
                         "mean_coverage": detection.meanCoverage,
                         "avg_read_identity": detection.avgReadIdentity,
                     ]
 
-                    if let species = detection.species { hitAttributes["species"] = species }
+                    if let species = detection.species {
+                        hitAttributes["species"] = species
+                        deferredSpecies.append(species)
+                    }
                     if let genus = detection.genus { hitAttributes["genus"] = genus }
-                    if let family = detection.family { hitAttributes["family"] = family }
+                    if let family = detection.family {
+                        hitAttributes["family"] = family
+                        deferredFamilies.append(family)
+                    }
                     if let order = detection.order { hitAttributes["order"] = order }
                     if let segment = detection.segment { hitAttributes["segment"] = segment }
 
@@ -777,6 +814,12 @@ public final class ProjectUniversalSearchIndex {
                 }
                 if !deferredVirusNames.isEmpty {
                     attributes["detected_viruses"] = deferredVirusNames.prefix(200).joined(separator: " | ")
+                }
+                if !deferredFamilies.isEmpty {
+                    attributes["detected_families"] = Array(Set(deferredFamilies.map { $0.lowercased() })).joined(separator: " | ")
+                }
+                if !deferredSpecies.isEmpty {
+                    attributes["detected_species"] = Array(Set(deferredSpecies.map { $0.lowercased() })).joined(separator: " | ")
                 }
             }
         }
@@ -807,6 +850,14 @@ public final class ProjectUniversalSearchIndex {
 
         for virusName in deferredVirusNames {
             try insertAttribute(entityID: parentEntityID, key: "virus_name", value: virusName)
+            attributeCount += 1
+        }
+        for family in Set(deferredFamilies) {
+            try insertAttribute(entityID: parentEntityID, key: "family", value: family)
+            attributeCount += 1
+        }
+        for species in Set(deferredSpecies) {
+            try insertAttribute(entityID: parentEntityID, key: "species", value: species)
             attributeCount += 1
         }
     }

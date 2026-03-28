@@ -179,7 +179,7 @@ public class SidebarViewController: NSViewController {
         // Create search field
         searchField = NSSearchField()
         searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.placeholderString = "Search (type:, sample:, virus:, date>=)"
+        searchField.placeholderString = "Search (type:, family:, species:, unique_reads>=, date>=)"
         searchField.sendsSearchStringImmediately = true
         searchField.target = self
         searchField.action = #selector(searchFieldChanged(_:))

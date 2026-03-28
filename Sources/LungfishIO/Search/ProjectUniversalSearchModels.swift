@@ -98,11 +98,33 @@ public struct ProjectUniversalSearchQuery: Sendable, Equatable {
         }
     }
 
+    public enum NumberComparison: Sendable, Equatable {
+        case greaterThan
+        case greaterThanOrEqual
+        case lessThan
+        case lessThanOrEqual
+        case equal
+        case notEqual
+    }
+
+    public struct NumberFilter: Sendable, Equatable {
+        public let key: String
+        public let value: Double
+        public let comparison: NumberComparison
+
+        public init(key: String, value: Double, comparison: NumberComparison) {
+            self.key = key
+            self.value = value
+            self.comparison = comparison
+        }
+    }
+
     public var rawText: String
     public var textTerms: [String]
     public var kinds: Set<String>
     public var formats: Set<String>
     public var attributeFilters: [AttributeFilter]
+    public var numberFilters: [NumberFilter]
     public var dateFrom: Date?
     public var dateTo: Date?
     public var limit: Int
@@ -113,6 +135,7 @@ public struct ProjectUniversalSearchQuery: Sendable, Equatable {
         kinds: Set<String> = [],
         formats: Set<String> = [],
         attributeFilters: [AttributeFilter] = [],
+        numberFilters: [NumberFilter] = [],
         dateFrom: Date? = nil,
         dateTo: Date? = nil,
         limit: Int = 200
@@ -122,6 +145,7 @@ public struct ProjectUniversalSearchQuery: Sendable, Equatable {
         self.kinds = kinds
         self.formats = formats
         self.attributeFilters = attributeFilters
+        self.numberFilters = numberFilters
         self.dateFrom = dateFrom
         self.dateTo = dateTo
         self.limit = max(1, limit)
@@ -140,6 +164,7 @@ public struct ProjectUniversalSearchQuery: Sendable, Equatable {
 /// - `role:<value>`
 /// - `date>=YYYY-MM-DD`
 /// - `date<=YYYY-MM-DD`
+/// - numeric comparisons (`key>=number`, `key<=number`, `key>number`, `key<number`, `key=number`)
 /// - generic `key:value`
 /// - remaining terms are treated as free text
 public enum ProjectUniversalSearchQueryParser {
@@ -205,8 +230,13 @@ public enum ProjectUniversalSearchQueryParser {
                 continue
             }
 
+            if let numberFilter = parseNumberFilter(token: token) {
+                query.numberFilters.append(numberFilter)
+                continue
+            }
+
             if let separatorIndex = token.firstIndex(of: ":"), separatorIndex != token.startIndex {
-                let key = normalizeKey(String(token[..<separatorIndex]))
+                let key = normalizeFilterKey(String(token[..<separatorIndex]))
                 let rawValue = String(token[token.index(after: separatorIndex)...])
                 let normalizedValue = normalizeTextValue(rawValue)
                 if !key.isEmpty, !normalizedValue.isEmpty {
@@ -301,12 +331,52 @@ public enum ProjectUniversalSearchQueryParser {
         return nil
     }
 
+    private static func parseNumberFilter(token: String) -> ProjectUniversalSearchQuery.NumberFilter? {
+        let operators: [(symbol: String, comparison: ProjectUniversalSearchQuery.NumberComparison)] = [
+            (">=", .greaterThanOrEqual),
+            ("<=", .lessThanOrEqual),
+            ("!=", .notEqual),
+            ("==", .equal),
+            (">", .greaterThan),
+            ("<", .lessThan),
+            ("=", .equal),
+        ]
+
+        for candidate in operators {
+            guard let range = token.range(of: candidate.symbol), range.lowerBound != token.startIndex else {
+                continue
+            }
+
+            let rawKey = String(token[..<range.lowerBound])
+            let rawValue = String(token[range.upperBound...])
+            let key = normalizeFilterKey(rawKey)
+            let valueText = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty, let value = Double(valueText) else { return nil }
+
+            return .init(key: key, value: value, comparison: candidate.comparison)
+        }
+
+        return nil
+    }
+
     private static func normalizeKey(_ key: String) -> String {
         key
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
             .replacingOccurrences(of: " ", with: "_")
             .replacingOccurrences(of: "-", with: "_")
+    }
+
+    private static func normalizeFilterKey(_ key: String) -> String {
+        let normalized = normalizeKey(key)
+        switch normalized {
+        case "reads", "supporting_reads", "unique_reads":
+            return "read_count"
+        case "total_reads":
+            return "filtered_reads_in_sample"
+        default:
+            return normalized
+        }
     }
 
     private static func normalizeKind(_ kind: String) -> String {
