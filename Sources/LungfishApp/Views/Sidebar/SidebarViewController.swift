@@ -136,6 +136,15 @@ public class SidebarViewController: NSViewController {
     /// File system watcher for auto-refreshing when files change
     private var fileSystemWatcher: FileSystemWatcher?
 
+    /// Universal search coordinator for project-scoped metadata/entity queries.
+    private let universalSearchService = UniversalProjectSearchService.shared
+
+    /// In-flight async universal-search query task.
+    private var universalSearchTask: Task<Void, Never>?
+
+    /// Monotonic token used to discard stale async query responses.
+    private var universalSearchGeneration: Int = 0
+
     /// Suppresses delegate and notification callbacks during programmatic selection changes.
     private var suppressSelectionCallbacks = false
 
@@ -170,7 +179,7 @@ public class SidebarViewController: NSViewController {
         // Create search field
         searchField = NSSearchField()
         searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.placeholderString = "Filter"
+        searchField.placeholderString = "Search (type:, sample:, virus:, date>=)"
         searchField.sendsSearchStringImmediately = true
         searchField.target = self
         searchField.action = #selector(searchFieldChanged(_:))
@@ -287,35 +296,100 @@ public class SidebarViewController: NSViewController {
 
     @objc private func searchFieldChanged(_ sender: NSSearchField) {
         let searchText = sender.stringValue.trimmingCharacters(in: .whitespaces)
+        universalSearchTask?.cancel()
+        universalSearchGeneration &+= 1
+        let searchGeneration = universalSearchGeneration
+
         if searchText.isEmpty {
             filteredRootItems = nil
-        } else {
-            filteredRootItems = filterItems(rootItems, matching: searchText.lowercased())
+            outlineView.reloadData()
+            return
         }
+
+        let normalizedQuery = searchText.lowercased()
+        filteredRootItems = filterItems(rootItems, matching: normalizedQuery)
         outlineView.reloadData()
-        // Expand all groups when filtering so matches are visible
         if filteredRootItems != nil {
             outlineView.expandItem(nil, expandChildren: true)
         }
+
+        guard let projectURL = projectURL else { return }
+
+        universalSearchTask = Task { [weak self] in
+            guard let self else { return }
+
+            do {
+                let results = try await universalSearchService.search(
+                    projectURL: projectURL,
+                    query: searchText,
+                    limit: 500,
+                    ensureIndexed: true
+                )
+
+                guard !Task.isCancelled else { return }
+                guard self.universalSearchGeneration == searchGeneration else { return }
+                guard self.projectURL?.standardizedFileURL == projectURL.standardizedFileURL else { return }
+
+                let matchedURLs = Set(results.map { $0.url.standardizedFileURL })
+                self.filteredRootItems = self.filterItems(
+                    self.rootItems,
+                    matching: normalizedQuery,
+                    matchingURLs: matchedURLs
+                )
+                self.outlineView.reloadData()
+                if self.filteredRootItems != nil {
+                    self.outlineView.expandItem(nil, expandChildren: true)
+                }
+            } catch {
+                logger.debug("searchFieldChanged: universal search unavailable: \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 
-    /// Recursively filters the sidebar tree, keeping items whose title or
-    /// subtitle match the query, and any group/folder that has matching descendants.
-    private func filterItems(_ items: [SidebarItem], matching query: String) -> [SidebarItem] {
+    /// Schedules a project universal-search index rebuild.
+    private func scheduleUniversalSearchRebuild(immediate: Bool = false) {
+        guard let projectURL else { return }
+        let delay = immediate ? 0.05 : 0.75
+        Task {
+            await universalSearchService.scheduleRebuild(projectURL: projectURL, delaySeconds: delay)
+        }
+    }
+
+    /// Clears universal-search state for a project.
+    private func clearUniversalSearchState(for projectURL: URL?) {
+        universalSearchTask?.cancel()
+        universalSearchTask = nil
+        universalSearchGeneration = 0
+
+        guard let projectURL else { return }
+        Task {
+            await universalSearchService.clearProject(projectURL)
+        }
+    }
+
+    /// Recursively filters the sidebar tree, keeping items whose title, subtitle,
+    /// path, or indexed URL matches the query, and any parent with matching descendants.
+    private func filterItems(
+        _ items: [SidebarItem],
+        matching query: String,
+        matchingURLs: Set<URL> = []
+    ) -> [SidebarItem] {
         var result: [SidebarItem] = []
         for item in items {
             let titleMatch = item.title.lowercased().contains(query)
             let subtitleMatch = item.subtitle?.lowercased().contains(query) == true
             let urlMatch = item.url?.lastPathComponent.lowercased().contains(query) == true
+            let universalURLMatch = item.url.map { matchingURLs.contains($0.standardizedFileURL) } ?? false
 
-            let filteredChildren = filterItems(item.children, matching: query)
+            let directMatch = titleMatch || subtitleMatch || urlMatch || universalURLMatch
+            let filteredChildren = filterItems(item.children, matching: query, matchingURLs: matchingURLs)
 
-            if titleMatch || subtitleMatch || urlMatch || !filteredChildren.isEmpty {
+            if directMatch || !filteredChildren.isEmpty {
                 let copy = SidebarItem(
                     title: item.title,
                     type: item.type,
                     icon: item.icon,
-                    children: filteredChildren.isEmpty && (titleMatch || subtitleMatch || urlMatch) ? item.children : filteredChildren,
+                    children: filteredChildren.isEmpty && directMatch ? item.children : filteredChildren,
                     url: item.url,
                     subtitle: item.subtitle
                 )
@@ -461,12 +535,14 @@ public class SidebarViewController: NSViewController {
 
         // Stop watching previous project
         fileSystemWatcher?.stopWatching()
+        clearUniversalSearchState(for: projectURL)
 
         // Store the new project URL
         projectURL = url
 
         // Scan filesystem and build sidebar
         reloadFromFilesystem()
+        scheduleUniversalSearchRebuild(immediate: true)
 
         // Start watching for changes
         fileSystemWatcher = FileSystemWatcher { [weak self] in
@@ -481,9 +557,11 @@ public class SidebarViewController: NSViewController {
     public func closeProject() {
         logger.info("closeProject: Closing current project")
 
+        let priorProjectURL = projectURL
         fileSystemWatcher?.stopWatching()
         fileSystemWatcher = nil
         projectURL = nil
+        clearUniversalSearchState(for: priorProjectURL)
         rootItems = []
         reloadOutlineView()
     }
@@ -543,6 +621,7 @@ public class SidebarViewController: NSViewController {
 
         let itemCount = rootItems.reduce(0) { $0 + countItems(in: $1) }
         logger.info("reloadFromFilesystem: Sidebar updated with \(itemCount) items")
+        scheduleUniversalSearchRebuild()
     }
 
     /// Builds a SidebarItem tree from a filesystem directory.
