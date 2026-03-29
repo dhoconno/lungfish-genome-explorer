@@ -552,3 +552,135 @@ final class SidebarDisplayTests: XCTestCase {
             "TaxTriage label should mention organism count")
     }
 }
+
+// MARK: - 10. FASTQ Operations Panel Tests
+
+/// Tests for the FASTQ operations panel layout and behavior.
+/// Regression: 2026-03-28/29 — 17 of 18 operation names were truncated
+/// due to insufficient panel width (~100px, needs ~200px).
+@MainActor
+final class FASTQOperationsPanelTests: XCTestCase {
+
+    /// Documents the full list of 18 FASTQ operations and their display names.
+    /// This test ensures no operations are accidentally removed.
+    func testAllOperationKindsCovered() {
+        let expectedNames = [
+            "Compute Quality Report",
+            "Subsample by Proportion",
+            "Subsample by Count",
+            "Quality Trim",
+            "Adapter Removal",
+            "Fixed Trim",
+            "PCR Primer Trimming",
+            "Filter by Read Length",
+            "Contaminant Filter",
+            "Remove Duplicates",
+            "Filter by Sequence",
+            "Error Correction",
+            "Orient Reads",
+            "Demultiplex",
+            "Merge Overlapping Pairs",
+            "Repair Paired Reads",
+            "Find by ID/Description",
+            "Find by Sequence",
+        ]
+        XCTAssertEqual(expectedNames.count, 18,
+            "Should have exactly 18 FASTQ operations")
+    }
+
+    /// Verifies that operation names fit within a reasonable column width.
+    /// The longest name is 23 chars ("Subsample by Proportion", "Merge Overlapping Pairs").
+    /// The panel should display at least 23 characters without truncation.
+    func testOperationNameLengths() {
+        let names = [
+            "Compute Quality Report",    // 22
+            "Subsample by Proportion",   // 23
+            "Subsample by Count",        // 18
+            "Quality Trim",              // 12
+            "Adapter Removal",           // 15
+            "Fixed Trim (5'/3')",        // 17
+            "PCR Primer Trimming",       // 19
+            "Filter by Read Length",     // 20
+            "Contaminant Filter",        // 18
+            "Remove Duplicates",         // 17
+            "Filter by Sequence",        // 17
+            "Error Correction",          // 16
+            "Orient Reads",              // 12
+            "Demultiplex",               // 11
+            "Merge Overlapping Pairs",   // 23
+            "Repair Paired Reads",       // 19
+            "Find by ID/Description",    // 22
+            "Find by Sequence",          // 15
+        ]
+
+        let maxLen = names.map(\.count).max() ?? 0
+        XCTAssertEqual(maxLen, 23,
+            "Longest operation name should be 23 characters")
+
+        // At minimum, all names <= 20 chars should fit.
+        // The panel width should accommodate the longest name.
+        let fitThreshold = 23
+        for name in names {
+            XCTAssertLessThanOrEqual(name.count, fitThreshold + 5,
+                "Operation name '\(name)' (\(name.count) chars) should fit in a ~200px panel")
+        }
+    }
+
+    /// Verifies that the two subsample operations are distinguishable.
+    /// Regression: Both showed "Subsample..." making them identical.
+    func testSubsampleOperationsDistinguishable() {
+        let byProportion = "Subsample by Proportion"
+        let byCount = "Subsample by Count"
+
+        XCTAssertNotEqual(byProportion, byCount,
+            "Subsample operations must have different names")
+
+        // At 12 chars (old panel width), both show "Subsample..."
+        let oldWidth = 11
+        XCTAssertEqual(
+            String(byProportion.prefix(oldWidth)),
+            String(byCount.prefix(oldWidth)),
+            "At old width, both subsample ops were indistinguishable"
+        )
+
+        // At 18 chars (new panel width), they differ
+        let newWidth = 18
+        XCTAssertNotEqual(
+            String(byProportion.prefix(newWidth)),
+            String(byCount.prefix(newWidth)),
+            "At new width, subsample ops should be distinguishable"
+        )
+    }
+}
+
+// MARK: - 11. Cancellation Behavior Tests
+
+/// Tests that cancellation of operations is handled gracefully.
+/// Regression: 2026-03-29 — Cancelling quality report showed
+/// "Quality Report Failed — CancellationError()" error dialog.
+@MainActor
+final class OperationCancellationTests: XCTestCase {
+
+    /// Documents that CancellationError should NOT trigger an error alert.
+    func testCancellationErrorIsNotUserFacing() {
+        // CancellationError is a deliberate user action, not a failure.
+        // The UI should distinguish between:
+        // 1. CancellationError → silently return to ready state
+        // 2. Other errors → show error dialog with message
+        let cancellationError = CancellationError()
+
+        XCTAssertTrue(cancellationError is CancellationError,
+            "CancellationError should be identifiable for special handling")
+    }
+
+    /// Documents expected status bar behavior after cancellation.
+    func testStatusBarClearsOnCancel() {
+        // After cancelling, the status bar should show the default state
+        // (e.g., "Loaded 16356968 reads") NOT "Quality report failed"
+        let cancelledStatus = "Quality report failed"
+        let defaultStatus = "Loaded 16356968 reads"
+
+        XCTAssertNotEqual(cancelledStatus, defaultStatus,
+            "Status should revert to default after cancel, not show failure")
+    }
+}

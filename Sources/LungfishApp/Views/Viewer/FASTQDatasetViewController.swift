@@ -1570,6 +1570,19 @@ public final class FASTQDatasetViewController: NSViewController {
                         self.onStatisticsUpdated?(fullStats)
                     }
                 }
+            } catch is CancellationError {
+                // User cancelled — return silently, don't show error
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        OperationCenter.shared.complete(id: opID, detail: "Cancelled")
+                        self.qualityReportTask = nil
+                        self.updateRunButtonState()
+                        self.cancelButton.isHidden = true
+                        self.progressIndicator.stopAnimation(nil)
+                        self.setStatus("Quality report cancelled")
+                    }
+                }
             } catch {
                 let errorMessage = "\(error)"
                 DispatchQueue.main.async { [weak self] in
@@ -1580,15 +1593,8 @@ public final class FASTQDatasetViewController: NSViewController {
                         self.updateRunButtonState()
                         self.cancelButton.isHidden = true
                         self.progressIndicator.stopAnimation(nil)
-                        self.setStatus("Quality report failed")
-
-                        let alert = NSAlert()
-                        alert.messageText = "Quality Report Failed"
-                        alert.informativeText = errorMessage
-                        alert.alertStyle = .warning
-                        alert.addButton(withTitle: "OK")
-                        alert.applyLungfishBranding()
-                        alert.runModal()
+                        self.setStatus("Quality report failed", isError: true)
+                        self.showErrorBanner("Quality report failed: \(errorMessage)")
                     }
                 }
             }
@@ -2263,6 +2269,13 @@ extension FASTQDatasetViewController: NSTableViewDataSource, NSTableViewDelegate
         guard row >= 0 else { return }
         selectedOperation = operationKindForRow(row)
         updateParameterBar()
+        // Clear stale error status/banner from previous operation
+        dismissErrorBanner()
+        if let stats = statistics {
+            setStatus("Loaded: \(stats.readCount) reads")
+        } else {
+            setStatus("")
+        }
         if selectedOperation == .demultiplex { onOpenDemuxDrawer?() }
         if selectedOperation == .primerRemoval { onOpenPrimerTrimDrawer?() }
         if selectedOperation == .deduplicate { onOpenDedupDrawer?() }
