@@ -115,67 +115,123 @@ public final class FASTQDatasetViewController: NSViewController {
         case orient
         case demultiplex
         case classifyReads
+        case detectViruses
+        case comprehensiveTriage
+        case humanReadScrub
 
         var title: String {
             switch self {
-            case .qualityReport: return "Compute Quality Report"
+            case .qualityReport: return "Generate Quality Report"
             case .subsampleProportion: return "Subsample by Proportion"
             case .subsampleCount: return "Subsample by Count"
             case .lengthFilter: return "Filter by Read Length"
-            case .searchText: return "Find by ID/Description"
-            case .searchMotif: return "Find by Sequence Motif"
-            case .deduplicate: return "Remove Duplicates"
+            case .searchText: return "Extract Reads by ID"
+            case .searchMotif: return "Extract Reads by Motif"
+            case .deduplicate: return "Remove Duplicate Reads"
             case .qualityTrim: return "Quality Trim"
             case .adapterTrim: return "Adapter Removal"
-            case .fixedTrim: return "Fixed Trim (5'/3')"
-            case .contaminantFilter: return "Contaminant Filter"
+            case .fixedTrim: return "Trim Fixed Bases"
+            case .contaminantFilter: return "Remove Spike-in / Contaminants"
             case .pairedEndMerge: return "Merge Overlapping Pairs"
-            case .pairedEndRepair: return "Repair Paired Reads"
-            case .primerRemoval: return "PCR Primer Trimming"
-            case .sequencePresenceFilter: return "Filter by Sequence Presence"
-            case .errorCorrection: return "Error Correction"
-            case .orient: return "Orient Reads"
-            case .demultiplex: return "Demultiplex (Barcodes)"
-            case .classifyReads: return "Classify & Profile Reads"
+            case .pairedEndRepair: return "Repair Paired-End Files"
+            case .primerRemoval: return "PCR Primer Trimming\u{2026}"
+            case .sequencePresenceFilter: return "Select Reads by Sequence"
+            case .errorCorrection: return "Correct Sequencing Errors"
+            case .orient: return "Orient to Reference Strand"
+            case .demultiplex: return "Demultiplex by Barcodes\u{2026}"
+            case .classifyReads: return "Classify & Profile (Kraken2)"
+            case .detectViruses: return "Detect Viruses (EsViritu)"
+            case .comprehensiveTriage: return "Clinical Triage (TaxTriage)"
+            case .humanReadScrub: return "Remove Human Reads"
             }
         }
 
         var sfSymbol: String {
             switch self {
             case .qualityReport: return "chart.bar.doc.horizontal"
-            case .subsampleProportion: return "chart.pie"
+            case .subsampleProportion: return "percent"
             case .subsampleCount: return "number"
-            case .lengthFilter: return "arrow.left.and.right"
+            case .lengthFilter: return "ruler"
             case .searchText: return "magnifyingglass"
             case .searchMotif: return "text.magnifyingglass"
             case .deduplicate: return "square.on.square.dashed"
             case .qualityTrim: return "scissors"
-            case .adapterTrim: return "minus.circle"
-            case .fixedTrim: return "ruler"
+            case .adapterTrim: return "scissors.badge.ellipsis"
+            case .fixedTrim: return "crop"
             case .contaminantFilter: return "shield.slash"
             case .pairedEndMerge: return "arrow.triangle.merge"
             case .pairedEndRepair: return "wrench.and.screwdriver"
-            case .primerRemoval: return "xmark.seal"
-            case .sequencePresenceFilter: return "line.3.horizontal.decrease.circle"
+            case .primerRemoval: return "pin.slash"
+            case .sequencePresenceFilter: return "text.badge.checkmark"
             case .errorCorrection: return "wand.and.stars"
-            case .orient: return "arrow.left.arrow.right"
+            case .orient: return "arrow.uturn.right"
             case .demultiplex: return "barcode"
-            case .classifyReads: return "magnifyingglass.circle"
+            case .classifyReads: return "list.bullet.indent"
+            case .detectViruses: return "allergens"
+            case .comprehensiveTriage: return "cross.case"
+            case .humanReadScrub: return "person.slash"
             }
         }
 
         var category: String {
             switch self {
             case .qualityReport: return "REPORTS"
-            case .subsampleProportion, .subsampleCount: return "SAMPLING"
-            case .qualityTrim, .adapterTrim, .fixedTrim, .primerRemoval: return "TRIMMING"
-            case .lengthFilter, .contaminantFilter, .deduplicate, .sequencePresenceFilter: return "FILTERING"
-            case .errorCorrection: return "CORRECTION"
-            case .pairedEndMerge, .pairedEndRepair: return "REFORMATTING"
-            case .searchText, .searchMotif: return "SEARCH"
-            case .orient: return "PREPROCESSING"
             case .demultiplex: return "DEMULTIPLEXING"
-            case .classifyReads: return "CLASSIFICATION"
+            case .qualityTrim, .adapterTrim, .fixedTrim, .primerRemoval, .lengthFilter: return "TRIMMING"
+            case .humanReadScrub, .contaminantFilter, .deduplicate: return "DECONTAMINATION"
+            case .pairedEndMerge, .pairedEndRepair, .orient, .errorCorrection: return "READ PROCESSING"
+            case .subsampleProportion, .subsampleCount, .searchText, .searchMotif, .sequencePresenceFilter: return "SAMPLING & SEARCH"
+            case .classifyReads, .detectViruses, .comprehensiveTriage: return "CLASSIFICATION"
+            }
+        }
+
+        /// Tooltip describing when and why a biologist would use this operation.
+        var tooltip: String {
+            switch self {
+            case .qualityReport:
+                return "Compute per-base quality, GC content, adapter content, and read length distributions. Use as your first step to decide which preprocessing is needed."
+            case .subsampleProportion:
+                return "Keep a random fraction of reads. Useful for quick test runs or normalizing read depth across samples."
+            case .subsampleCount:
+                return "Keep a specific number of randomly selected reads. Useful for downsampling to a target coverage."
+            case .lengthFilter:
+                return "Keep only reads within a specified length range. Similar to gel-based or bead-based size selection in the lab."
+            case .searchText:
+                return "Find and extract reads matching a text pattern in the read ID or description header."
+            case .searchMotif:
+                return "Find and extract reads containing a specific DNA sequence motif (supports IUPAC ambiguity codes)."
+            case .deduplicate:
+                return "Remove PCR duplicates (identical read pairs from library amplification). Important for WGS and enrichment. Do NOT use for amplicon data — identical reads are expected signal."
+            case .qualityTrim:
+                return "Trim low-quality bases from read ends using a sliding window. Improves downstream mapping and variant calling accuracy."
+            case .adapterTrim:
+                return "Remove sequencing adapter sequences from reads. Auto-detect mode works for most Illumina libraries."
+            case .fixedTrim:
+                return "Remove a fixed number of bases from the 5\u{2032} and/or 3\u{2032} end of every read. Use when you know the first N bases are always a technical artifact."
+            case .contaminantFilter:
+                return "Remove reads matching a contaminant reference (PhiX spike-in by default). Specify a custom FASTA for other contaminants like cloning vectors."
+            case .pairedEndMerge:
+                return "Combine overlapping R1 and R2 reads into single longer reads. Useful when insert size is shorter than 2\u{00D7} read length (common in amplicon and viral WGS)."
+            case .pairedEndRepair:
+                return "Fix paired-end files where R1 and R2 are out of sync (e.g., after filtering removed one mate). Restores proper pairing."
+            case .primerRemoval:
+                return "Remove known PCR primer sequences from read ends. Required for amplicon sequencing to prevent primer-derived false variants."
+            case .sequencePresenceFilter:
+                return "Keep or discard reads containing a specific DNA sequence. Useful for selecting reads with a known barcode or removing unwanted adapter chimeras."
+            case .errorCorrection:
+                return "Correct random sequencing errors using k-mer frequency analysis. Improves de novo assembly quality. Do NOT use before variant calling — it can erase real low-frequency mutations."
+            case .orient:
+                return "Ensure all reads face 5\u{2032}\u{2192}3\u{2032} relative to a reference. Reverse-complements reads on the minus strand. Essential for amplicon data with known primer orientation."
+            case .demultiplex:
+                return "Split a pooled FASTQ into individual samples by barcode. Supports Illumina, ONT, and PacBio kits. Not needed if your core already demultiplexed."
+            case .classifyReads:
+                return "Assign each read to a taxonomic group using Kraken2. Produces abundance profiles at species level and optional Bracken-refined estimates."
+            case .detectViruses:
+                return "Run EsViritu viral metagenomics detection with de novo assembly and genome coverage analysis."
+            case .comprehensiveTriage:
+                return "Run TaxTriage (Nextflow) for end-to-end clinical metagenomics with TASS confidence scoring and organism reporting."
+            case .humanReadScrub:
+                return "Remove human-derived reads using NCBI's sra-human-scrubber. Required before SRA submission and recommended for clinical/surveillance samples."
             }
         }
 
@@ -200,6 +256,9 @@ public final class FASTQDatasetViewController: NSViewController {
             case .orient: return .orient
             case .demultiplex: return .demultiplex
             case .classifyReads: return .classifyReads
+            case .detectViruses: return .detectViruses
+            case .comprehensiveTriage: return .comprehensiveTriage
+            case .humanReadScrub: return .humanReadScrub
             }
         }
     }
@@ -207,18 +266,39 @@ public final class FASTQDatasetViewController: NSViewController {
     // MARK: - Sidebar Data
 
     /// Category headers + operation items for the source list sidebar.
+    /// Ordered to match a typical FASTQ preprocessing workflow.
     private static let categories: [(header: String, items: [OperationKind])] = [
-        ("CLASSIFICATION", [.classifyReads]),
         ("REPORTS", [.qualityReport]),
-        ("SAMPLING", [.subsampleProportion, .subsampleCount]),
-        ("TRIMMING", [.qualityTrim, .adapterTrim, .fixedTrim, .primerRemoval]),
-        ("FILTERING", [.lengthFilter, .contaminantFilter, .deduplicate, .sequencePresenceFilter]),
-        ("CORRECTION", [.errorCorrection]),
-        ("PREPROCESSING", [.orient]),
         ("DEMULTIPLEXING", [.demultiplex]),
-        ("REFORMATTING", [.pairedEndMerge, .pairedEndRepair]),
-        ("SEARCH", [.searchText, .searchMotif]),
+        ("TRIMMING", [.qualityTrim, .adapterTrim, .primerRemoval, .fixedTrim, .lengthFilter]),
+        ("DECONTAMINATION", [.humanReadScrub, .contaminantFilter, .deduplicate]),
+        ("READ PROCESSING", [.pairedEndMerge, .pairedEndRepair, .orient, .errorCorrection]),
+        ("SAMPLING & SEARCH", [.subsampleProportion, .subsampleCount, .searchText, .searchMotif, .sequencePresenceFilter]),
+        ("CLASSIFICATION", [.classifyReads, .detectViruses, .comprehensiveTriage]),
     ]
+
+
+    // MARK: - Sidebar Expansion State
+
+    private static let expansionDefaultsKey = "FASTQOperationSidebarExpansion"
+
+    /// Set of category header names that are currently expanded.
+    /// Categories not in this set are collapsed (all collapsed by default).
+    private var expandedCategories: Set<String> = {
+        guard let dict = UserDefaults.standard.dictionary(forKey: FASTQDatasetViewController.expansionDefaultsKey) as? [String: Bool] else {
+            return []
+        }
+        return Set(dict.filter { $0.value }.map { $0.key })
+    }()
+
+    /// Persists the current expansion state to UserDefaults.
+    private func saveExpansionState() {
+        var dict: [String: Bool] = [:]
+        for (header, _) in Self.categories {
+            dict[header] = expandedCategories.contains(header)
+        }
+        UserDefaults.standard.set(dict, forKey: Self.expansionDefaultsKey)
+    }
 
     // MARK: - Properties
 
@@ -917,12 +997,14 @@ public final class FASTQDatasetViewController: NSViewController {
         case .subsampleProportion:
             fieldOneLabel.stringValue = "Proportion:"
             fieldOneInput.placeholderString = "0.10"
+            fieldOneInput.stringValue = "0.10"
             parameterBar.addArrangedSubview(fieldOneLabel)
             parameterBar.addArrangedSubview(fieldOneInput)
 
         case .subsampleCount:
             fieldOneLabel.stringValue = "Count:"
             fieldOneInput.placeholderString = "10000"
+            fieldOneInput.stringValue = "10000"
             parameterBar.addArrangedSubview(fieldOneLabel)
             parameterBar.addArrangedSubview(fieldOneInput)
 
@@ -958,8 +1040,10 @@ public final class FASTQDatasetViewController: NSViewController {
         case .qualityTrim:
             fieldOneLabel.stringValue = "Q Threshold:"
             fieldOneInput.placeholderString = "20"
+            fieldOneInput.stringValue = "20"
             fieldTwoLabel.stringValue = "Window:"
             fieldTwoInput.placeholderString = "4"
+            fieldTwoInput.stringValue = "4"
             parameterBar.addArrangedSubview(fieldOneLabel)
             parameterBar.addArrangedSubview(fieldOneInput)
             parameterBar.addArrangedSubview(fieldTwoLabel)
@@ -986,8 +1070,10 @@ public final class FASTQDatasetViewController: NSViewController {
         case .contaminantFilter:
             fieldOneLabel.stringValue = "K-mer:"
             fieldOneInput.placeholderString = "31"
+            fieldOneInput.stringValue = "31"
             fieldTwoLabel.stringValue = "Mismatch:"
             fieldTwoInput.placeholderString = "1"
+            fieldTwoInput.stringValue = "1"
             parameterBar.addArrangedSubview(contaminantModePopup)
             parameterBar.addArrangedSubview(fieldOneLabel)
             parameterBar.addArrangedSubview(fieldOneInput)
@@ -997,6 +1083,7 @@ public final class FASTQDatasetViewController: NSViewController {
         case .pairedEndMerge:
             fieldOneLabel.stringValue = "Min Overlap:"
             fieldOneInput.placeholderString = "12"
+            fieldOneInput.stringValue = "12"
             parameterBar.addArrangedSubview(mergeStrictnessPopup)
             parameterBar.addArrangedSubview(fieldOneLabel)
             parameterBar.addArrangedSubview(fieldOneInput)
@@ -1051,6 +1138,7 @@ public final class FASTQDatasetViewController: NSViewController {
         case .errorCorrection:
             fieldOneLabel.stringValue = "K-mer Size:"
             fieldOneInput.placeholderString = "50"
+            fieldOneInput.stringValue = "50"
             parameterBar.addArrangedSubview(fieldOneLabel)
             parameterBar.addArrangedSubview(fieldOneInput)
 
@@ -1142,6 +1230,24 @@ public final class FASTQDatasetViewController: NSViewController {
             label.font = .systemFont(ofSize: 11)
             label.textColor = .secondaryLabelColor
             parameterBar.addArrangedSubview(label)
+
+        case .detectViruses:
+            let label = NSTextField(labelWithString: "Run EsViritu viral detection with genome coverage analysis on this dataset.")
+            label.font = .systemFont(ofSize: 11)
+            label.textColor = .secondaryLabelColor
+            parameterBar.addArrangedSubview(label)
+
+        case .comprehensiveTriage:
+            let label = NSTextField(labelWithString: "Run TaxTriage end-to-end clinical metagenomics triage with confidence scoring.")
+            label.font = .systemFont(ofSize: 11)
+            label.textColor = .secondaryLabelColor
+            parameterBar.addArrangedSubview(label)
+
+        case .humanReadScrub:
+            let label = NSTextField(labelWithString: "Remove human-derived reads using NCBI sra-human-scrubber. Required before SRA submission.")
+            label.font = .systemFont(ofSize: 11)
+            label.textColor = .secondaryLabelColor
+            parameterBar.addArrangedSubview(label)
         }
 
         // Add spacer to push controls left
@@ -1200,6 +1306,32 @@ public final class FASTQDatasetViewController: NSViewController {
         case .subsampleCount:
             let n = Int(fieldOneInput.stringValue) ?? 1000
             outputEstimateLabel.stringValue = "Estimated output: \(formatCount(min(n, stats.readCount))) reads"
+        case .lengthFilter:
+            let minLen = Int(fieldOneInput.stringValue.trimmingCharacters(in: .whitespaces))
+            let maxLen = Int(fieldTwoInput.stringValue.trimmingCharacters(in: .whitespaces))
+            if minLen != nil || maxLen != nil {
+                let passingReads = stats.readLengthHistogram.reduce(0) { total, entry in
+                    let length = entry.key
+                    let count = entry.value
+                    let passMin = minLen.map { length >= $0 } ?? true
+                    let passMax = maxLen.map { length <= $0 } ?? true
+                    return total + (passMin && passMax ? count : 0)
+                }
+                let pct = stats.readCount > 0 ? Double(passingReads) / Double(stats.readCount) * 100 : 0
+                outputEstimateLabel.stringValue = "Estimated output: ~\(formatCount(passingReads)) reads (\(String(format: "%.1f", pct))%)"
+            } else {
+                outputEstimateLabel.stringValue = ""
+            }
+        case .fixedTrim:
+            let from5 = Int(fieldOneInput.stringValue) ?? 0
+            let from3 = Int(fieldTwoInput.stringValue) ?? 0
+            let totalTrim = from5 + from3
+            if totalTrim > 0, stats.meanReadLength > 0 {
+                let avgOutput = max(0, Int(stats.meanReadLength) - totalTrim)
+                outputEstimateLabel.stringValue = "Output reads: ~\(avgOutput) bp avg (from \(Int(stats.meanReadLength)) bp)"
+            } else {
+                outputEstimateLabel.stringValue = ""
+            }
         default:
             outputEstimateLabel.stringValue = ""
         }
@@ -1513,11 +1645,19 @@ public final class FASTQDatasetViewController: NSViewController {
 
     /// Selects the Quality Report operation in the sidebar and immediately runs it.
     private func selectAndRunQualityReport() {
-        // Find the row index for .qualityReport in the sidebar
+        // Ensure the REPORTS category is expanded so the row is visible
+        if !expandedCategories.contains("REPORTS") {
+            expandedCategories.insert("REPORTS")
+            saveExpansionState()
+            operationSidebar.reloadData()
+        }
+
+        // Find the row index for .qualityReport in the sidebar (collapse-aware)
         var targetRow = -1
         var currentRow = 0
-        for (_, items) in Self.categories {
+        for (header, items) in Self.categories {
             currentRow += 1 // header
+            guard expandedCategories.contains(header) else { continue }
             for item in items {
                 if item == .qualityReport {
                     targetRow = currentRow
@@ -1547,10 +1687,12 @@ public final class FASTQDatasetViewController: NSViewController {
         progressIndicator.startAnimation(nil)
         setStatus("Computing quality report...")
 
+        let qrCliCmd = "# lungfish fastq quality-report \(url.path) (CLI command not yet available \u{2014} use GUI)"
         let opID = OperationCenter.shared.start(
             title: "Quality Report",
             detail: url.lastPathComponent,
-            operationType: .qualityReport
+            operationType: .qualityReport,
+            cliCommand: qrCliCmd
         )
 
         let startTime = Date()
@@ -1610,8 +1752,9 @@ public final class FASTQDatasetViewController: NSViewController {
                         self.updateRunButtonState()
                         self.cancelButton.isHidden = true
                         self.progressIndicator.stopAnimation(nil)
-                        self.setStatus("Quality report failed (\(elapsed)s)", isError: true)
-                        self.showErrorBanner("Quality report failed: \(errorMessage)")
+                        self.setStatus("Quality report failed (\(elapsed)s)")
+                        // Error details are in the Operations Panel — auto-open it
+                        (NSApp.delegate as? AppDelegate)?.showOperationsPanel(nil)
                     }
                 }
             }
@@ -1662,8 +1805,10 @@ public final class FASTQDatasetViewController: NSViewController {
             computeQualityReport()
             return
         }
-        // Classify & Profile Reads dispatches to the metagenomics wizard
-        if selectedOperation == .classifyReads {
+        // All classification operations dispatch to the unified metagenomics wizard
+        if selectedOperation == .classifyReads
+            || selectedOperation == .detectViruses
+            || selectedOperation == .comprehensiveTriage {
             NSApp.sendAction(#selector(ToolsMenuActions.classifyReads(_:)), to: nil, from: nil)
             return
         }
@@ -1716,8 +1861,9 @@ public final class FASTQDatasetViewController: NSViewController {
                 self.updateRunButtonState()
                 self.cancelButton.isHidden = true
                 self.progressIndicator.stopAnimation(nil)
-                self.setStatus("Failed: \(error.localizedDescription) (\(elapsed)s)", isError: true)
-                self.showErrorBanner("Operation failed: \(error.localizedDescription)")
+                self.setStatus("Failed (\(elapsed)s) — see Operations Panel")
+                // Error details are in the Operations Panel — auto-open it
+                (NSApp.delegate as? AppDelegate)?.showOperationsPanel(nil)
             }
         }
     }
@@ -1826,12 +1972,14 @@ public final class FASTQDatasetViewController: NSViewController {
 
     // MARK: - Sidebar Row Mapping
 
-    /// Maps a flat table row index to an OperationKind, accounting for category headers.
+    /// Maps a flat table row index to an OperationKind, accounting for category
+    /// headers and collapsed categories.
     private func operationKindForRow(_ row: Int) -> OperationKind? {
         var currentRow = 0
-        for (_, items) in Self.categories {
+        for (header, items) in Self.categories {
             if currentRow == row { return nil } // header row
             currentRow += 1 // header
+            guard expandedCategories.contains(header) else { continue }
             for item in items {
                 if currentRow == row { return item }
                 currentRow += 1
@@ -1840,19 +1988,38 @@ public final class FASTQDatasetViewController: NSViewController {
         return nil
     }
 
-    /// Total number of rows in the sidebar (headers + items).
+    /// Total number of rows in the sidebar (headers + visible items).
     private var sidebarRowCount: Int {
-        Self.categories.reduce(0) { $0 + 1 + $1.items.count }
+        Self.categories.reduce(0) { total, cat in
+            let itemCount = expandedCategories.contains(cat.header) ? cat.items.count : 0
+            return total + 1 + itemCount
+        }
     }
 
     /// Returns whether a row is a group header.
     private func isGroupRow(_ row: Int) -> Bool {
         var currentRow = 0
-        for (_, items) in Self.categories {
+        for (header, items) in Self.categories {
             if currentRow == row { return true }
-            currentRow += 1 + items.count
+            currentRow += 1
+            if expandedCategories.contains(header) {
+                currentRow += items.count
+            }
         }
         return false
+    }
+
+    /// Returns the category header name for a group row, or nil if not a group row.
+    private func categoryHeaderForRow(_ row: Int) -> String? {
+        var currentRow = 0
+        for (header, items) in Self.categories {
+            if currentRow == row { return header }
+            currentRow += 1
+            if expandedCategories.contains(header) {
+                currentRow += items.count
+            }
+        }
+        return nil
     }
 
     /// Returns the category header or operation title for a row.
@@ -1861,6 +2028,7 @@ public final class FASTQDatasetViewController: NSViewController {
         for (header, items) in Self.categories {
             if currentRow == row { return header }
             currentRow += 1
+            guard expandedCategories.contains(header) else { continue }
             for item in items {
                 if currentRow == row { return item.title }
                 currentRow += 1
@@ -1872,6 +2040,61 @@ public final class FASTQDatasetViewController: NSViewController {
     /// Returns the SF Symbol name for an operation row.
     private func sfSymbolForRow(_ row: Int) -> String? {
         operationKindForRow(row)?.sfSymbol
+    }
+
+    /// Toggles expansion of a category, animating row insertion or removal.
+    private func toggleCategory(_ header: String) {
+        guard let catIndex = Self.categories.firstIndex(where: { $0.header == header }) else { return }
+        let items = Self.categories[catIndex].items
+        guard !items.isEmpty else { return }
+
+        // Calculate the row index of this header
+        var headerRow = 0
+        for i in 0..<catIndex {
+            headerRow += 1
+            if expandedCategories.contains(Self.categories[i].header) {
+                headerRow += Self.categories[i].items.count
+            }
+        }
+
+        let wasExpanded = expandedCategories.contains(header)
+
+        if wasExpanded {
+            // Collapse: remove item rows
+            let firstItemRow = headerRow + 1
+            let rowRange = IndexSet(integersIn: firstItemRow..<(firstItemRow + items.count))
+
+            // Deselect any selected row that will be removed
+            let selectedRow = operationSidebar.selectedRow
+            if selectedRow >= firstItemRow && selectedRow < firstItemRow + items.count {
+                selectedOperation = nil
+                updateParameterBar()
+            }
+
+            expandedCategories.remove(header)
+            operationSidebar.beginUpdates()
+            operationSidebar.removeRows(at: rowRange, withAnimation: .slideUp)
+            operationSidebar.endUpdates()
+
+            // Reload the header row to update disclosure triangle rotation
+            operationSidebar.reloadData(forRowIndexes: IndexSet(integer: headerRow),
+                                         columnIndexes: IndexSet(integersIn: 0..<operationSidebar.numberOfColumns))
+        } else {
+            // Expand: insert item rows
+            expandedCategories.insert(header)
+            let firstItemRow = headerRow + 1
+            let rowRange = IndexSet(integersIn: firstItemRow..<(firstItemRow + items.count))
+
+            operationSidebar.beginUpdates()
+            operationSidebar.insertRows(at: rowRange, withAnimation: .slideDown)
+            operationSidebar.endUpdates()
+
+            // Reload the header row to update disclosure triangle rotation
+            operationSidebar.reloadData(forRowIndexes: IndexSet(integer: headerRow),
+                                         columnIndexes: IndexSet(integersIn: 0..<operationSidebar.numberOfColumns))
+        }
+
+        saveExpansionState()
     }
 
     // MARK: - Request Building
@@ -1890,6 +2113,17 @@ public final class FASTQDatasetViewController: NSViewController {
         case .classifyReads:
             // Classify & Profile Reads is dispatched via ToolsMenuActions; not a derivative operation
             return nil
+
+        case .detectViruses:
+            // EsViritu is dispatched via the unified metagenomics wizard; not a derivative operation
+            return nil
+
+        case .comprehensiveTriage:
+            // TaxTriage is dispatched via the unified metagenomics wizard; not a derivative operation
+            return nil
+
+        case .humanReadScrub:
+            return .humanReadScrub(databaseID: "sra-human-scrubber", removeReads: true)
 
         case .subsampleProportion:
             guard let value = Double(fieldOneInput.stringValue), value > 0, value <= 1 else {
@@ -2186,6 +2420,15 @@ public final class FASTQDatasetViewController: NSViewController {
         case .classifyReads:
             runButton.isEnabled = true
             runButton.title = "Classify\u{2026}"
+        case .detectViruses:
+            runButton.isEnabled = true
+            runButton.title = "Detect\u{2026}"
+        case .comprehensiveTriage:
+            runButton.isEnabled = true
+            runButton.title = "Triage\u{2026}"
+        case .humanReadScrub:
+            runButton.isEnabled = true
+            runButton.title = "Run"
         case .orient:
             runButton.isEnabled = orientReferenceURL != nil
             runButton.title = "Run"
@@ -2261,7 +2504,17 @@ extension FASTQDatasetViewController: NSTableViewDataSource, NSTableViewDelegate
         let columnID = tableColumn?.identifier.rawValue ?? ""
 
         if isGroup {
-            if columnID == "icon" { return nil }
+            if columnID == "icon" {
+                // Disclosure triangle in the icon column
+                let isExpanded = expandedCategories.contains(title)
+                let triangleName = isExpanded ? "chevron.down" : "chevron.right"
+                let imageView = NSImageView()
+                imageView.image = NSImage(systemSymbolName: triangleName, accessibilityDescription: isExpanded ? "Collapse" : "Expand")?
+                    .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold))
+                imageView.contentTintColor = .tertiaryLabelColor
+                imageView.imageScaling = .scaleProportionallyDown
+                return imageView
+            }
             let cell = NSTextField(labelWithString: title)
             cell.font = .systemFont(ofSize: 11, weight: .semibold)
             cell.textColor = .secondaryLabelColor
@@ -2283,6 +2536,9 @@ extension FASTQDatasetViewController: NSTableViewDataSource, NSTableViewDelegate
         cell.font = .systemFont(ofSize: 12)
         cell.textColor = .labelColor
         cell.lineBreakMode = .byTruncatingTail
+        if let kind = operationKindForRow(row) {
+            cell.toolTip = kind.tooltip
+        }
         return cell
     }
 
@@ -2293,7 +2549,14 @@ extension FASTQDatasetViewController: NSTableViewDataSource, NSTableViewDelegate
 
     public func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
         if tableView === readPreviewTable { return true }
-        return !isGroupRow(row)
+        if isGroupRow(row) {
+            // Toggle expansion when the user clicks on a group header row
+            if let header = categoryHeaderForRow(row) {
+                toggleCategory(header)
+            }
+            return false
+        }
+        return true
     }
 
     public func tableViewSelectionDidChange(_ notification: Notification) {

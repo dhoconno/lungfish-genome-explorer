@@ -515,7 +515,7 @@ public class WorkflowExecutionView: NSView {
 // MARK: - LogLevel
 
 /// Log level for workflow output messages.
-public enum LogLevel: String, Sendable {
+public enum LogLevel: String, Sendable, Codable {
     case debug
     case info
     case warning

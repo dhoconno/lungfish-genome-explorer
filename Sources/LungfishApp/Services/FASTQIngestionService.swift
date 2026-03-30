@@ -101,10 +101,12 @@ public enum FASTQIngestionService {
         let title = "FASTQ Ingestion: \(baseName)"
 
         // Register the operation FIRST so we have a stable ID to pass to the detached task.
+        let cliCmd = "# lungfish import fastq \(url.path) (CLI command not yet available \u{2014} use GUI)"
         let opID = OperationCenter.shared.start(
             title: title,
             detail: "Preparing...",
-            operationType: .ingestion
+            operationType: .ingestion,
+            cliCommand: cliCmd
         )
 
         let task = Task.detached {
@@ -138,10 +140,12 @@ public enum FASTQIngestionService {
     ) {
         let title = "FASTQ Import: \(bundleName)"
 
+        let cliCmd = "# lungfish import fastq \(sourceURL.path) (CLI command not yet available \u{2014} use GUI)"
         let opID = OperationCenter.shared.start(
             title: title,
             detail: "Preparing import workspace\u{2026}",
-            operationType: .ingestion
+            operationType: .ingestion,
+            cliCommand: cliCmd
         )
 
         let task = Task.detached {
@@ -272,10 +276,16 @@ public enum FASTQIngestionService {
     ) {
         let title = "FASTQ Import: \(bundleName)"
 
+        let cliCmd: String = {
+            var args = [pair.r1.path]
+            if let r2 = pair.r2 { args.append(r2.path) }
+            return "# lungfish import fastq " + args.joined(separator: " ") + " (CLI command not yet available \u{2014} use GUI)"
+        }()
         let opID = OperationCenter.shared.start(
             title: title,
             detail: "Preparing import workspace\u{2026}",
-            operationType: .ingestion
+            operationType: .ingestion,
+            cliCommand: cliCmd
         )
 
         let task = Task.detached {

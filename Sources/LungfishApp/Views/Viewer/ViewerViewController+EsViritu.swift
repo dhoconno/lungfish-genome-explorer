@@ -76,10 +76,12 @@ extension ViewerViewController {
             let selectedReadCount = min(50, max(1, readCount))
             esVirituLogger.info("BLAST verification requested for \(detection.name, privacy: .public) (\(detection.accession, privacy: .public)), readCount=\(selectedReadCount, privacy: .public), accessions=\(accessions.count, privacy: .public)")
 
+            let esBlastCliCmd = "# lungfish blast verify --accession \(detection.accession) (CLI command not yet available \u{2014} use GUI)"
             let opID = OperationCenter.shared.start(
                 title: "BLAST \(detection.name)",
                 detail: "Extracting unique reads\u{2026}",
-                operationType: .blastVerification
+                operationType: .blastVerification,
+                cliCommand: esBlastCliCmd
             )
 
             let virusName = detection.name

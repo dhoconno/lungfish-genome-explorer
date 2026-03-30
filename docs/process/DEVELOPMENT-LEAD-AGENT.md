@@ -132,6 +132,81 @@ Dev Lead Sign-Off → Commit
 
 ---
 
+## Build & Test Workflow (CRITICAL)
+
+### Do NOT build or run the app from worktrees
+
+Worktrees are missing gitignored binaries (`*.dylib` is in `.gitignore`). The bundled JRE has 27+ native libraries that don't exist in worktrees, causing all Java-based tools (BBTools, Clumpify, etc.) to fail at runtime.
+
+**The correct workflow is:**
+
+1. **Develop in a worktree** (code edits only — worktrees isolate changes on a branch)
+2. **Merge the worktree branch back to `main`** when ready to test
+3. **Build and run from the main repo**, which has all gitignored binaries intact
+
+```bash
+# 1. Edit code in worktree
+cd .claude/worktrees/<name>
+# ... make changes ...
+git add -A && git commit -m "description"
+
+# 2. Merge to main
+cd /Users/dho/Documents/lungfish-genome-browser
+git merge <worktree-branch>
+
+# 3. Build and run from main
+swift build --product Lungfish
+open .build/arm64-apple-macosx/debug/Lungfish
+```
+
+**The Dev Lead agent MUST**:
+1. **NEVER** attempt to build and launch the app from a worktree path
+2. Merge worktree changes to `main` before building
+3. Run `swift build --product Lungfish` from the main repo root
+4. Run tests from the main repo: `swift test` or `swift test --filter <TestName>`
+
+**Exception**: `swift build --build-tests` and `swift test` (without launching the GUI app) work fine in worktrees for pure parsing/logic tests. Only runtime execution of tools that depend on gitignored binaries fails.
+
+---
+
+## Test Fixtures (REQUIRED for format/pipeline work)
+
+A shared SARS-CoV-2 test dataset lives in `Tests/Fixtures/sarscov2/` (~85 KB total, MIT licensed from nf-core/test-datasets). All files are internally consistent — reads align to the reference, variants were called from those reads, annotations match the genome.
+
+### Available Fixtures
+
+| Accessor | Format | File |
+|----------|--------|------|
+| `TestFixtures.sarscov2.reference` | FASTA | `genome.fasta` (MT192765.1, ~30 kb) |
+| `TestFixtures.sarscov2.referenceIndex` | FAI | `genome.fasta.fai` |
+| `TestFixtures.sarscov2.pairedFastq` | FASTQ.GZ | `test_1.fastq.gz` + `test_2.fastq.gz` (~200 reads) |
+| `TestFixtures.sarscov2.sortedBam` | BAM | `test.paired_end.sorted.bam` |
+| `TestFixtures.sarscov2.bamIndex` | BAI | `test.paired_end.sorted.bam.bai` |
+| `TestFixtures.sarscov2.vcf` | VCF | `test.vcf` |
+| `TestFixtures.sarscov2.vcfGz` / `.vcfTbi` | VCF.GZ+TBI | `test.vcf.gz` + `.tbi` |
+| `TestFixtures.sarscov2.bed` | BED | `test.bed` (ARTIC primers) |
+| `TestFixtures.sarscov2.gff3` | GFF3 | `genome.gff3` |
+| `TestFixtures.sarscov2.gtf` | GTF | `genome.gtf` |
+
+### Dev Lead Responsibilities
+
+**When implementing or modifying ANY feature that reads, writes, or transforms these formats, the Dev Lead MUST:**
+
+1. **Write functional tests** using `TestFixtures.sarscov2.*` that exercise the real I/O path (not just mocked data)
+2. **Add new fixture files** if the feature handles a format not yet covered (e.g., BigBed, CRAM, SAM) — keep files under 50 KB, add to `TestFixtures.swift`
+3. **Run `swift test --filter FunctionalFixtureTests`** as part of every phase gate (the 10 existing tests verify format parsing and cross-format consistency)
+4. **Ensure CLI commands work against fixtures**: e.g., `lungfish import vcf Tests/Fixtures/sarscov2/test.vcf` should succeed
+5. **Use fixtures for adversarial testing**: malformed input tests go in the unit test targets, but valid-input regression tests use fixtures
+
+### Test Target Setup
+
+Any test target that needs fixtures must:
+1. Symlink or copy `Tests/Fixtures/` into its target directory
+2. Add `.copy("Fixtures")` to `resources:` in Package.swift
+3. Import `TestFixtures.swift` (lives in `Tests/LungfishIntegrationTests/` — copy into other targets as needed)
+
+---
+
 ## Architecture Standards
 
 ### Module Structure (7 modules)
@@ -163,14 +238,19 @@ LungfishCLI       — Command-line interface (ArgumentParser)
 ### Test Organization
 ```
 Tests/
-  LungfishCoreTests/      — Data model and service tests
-  LungfishIOTests/        — Format parsing tests (simulated data)
-  LungfishUITests/        — Renderer and component tests
-  LungfishPluginTests/    — Plugin lifecycle tests
-  LungfishWorkflowTests/  — Pipeline and provenance tests
-  LungfishAppTests/       — Integration tests
-  LungfishCLITests/       — CLI command tests
-  IntegrationTests/       — Cross-module workflow tests
+  Fixtures/                     — Shared test data (SARS-CoV-2 dataset, ~85 KB)
+    sarscov2/                   — FASTA, FASTQ, BAM, VCF, BED, GFF3, GTF
+    README.md                   — Format inventory and usage guide
+  LungfishCoreTests/            — Data model and service tests
+  LungfishIOTests/              — Format parsing tests (simulated data)
+  LungfishUITests/              — Renderer and component tests
+  LungfishPluginTests/          — Plugin lifecycle tests
+  LungfishWorkflowTests/        — Pipeline and provenance tests
+  LungfishAppTests/             — Integration tests
+  LungfishCLITests/             — CLI command tests
+  LungfishIntegrationTests/     — Cross-module workflow tests + functional fixture tests
+    TestFixtures.swift          — Type-safe fixture accessors
+    FunctionalFixtureTests.swift — Format parsing regression tests (10 tests)
 ```
 
 ---

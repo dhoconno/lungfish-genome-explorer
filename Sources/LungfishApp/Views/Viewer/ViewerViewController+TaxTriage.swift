@@ -89,10 +89,14 @@ extension ViewerViewController {
                 return
             }
 
+            let blastCliCmd = OperationCenter.buildCLICommand(subcommand: "blast verify", args: [
+                "--taxid", "\(taxId)",
+            ])
             let opID = OperationCenter.shared.start(
                 title: "BLAST \(orgName)",
                 detail: "Extracting reads\u{2026}",
-                operationType: .blastVerification
+                operationType: .blastVerification,
+                cliCommand: blastCliCmd
             )
 
             // Capture controller reference for MainActor callbacks within

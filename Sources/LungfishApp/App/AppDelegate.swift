@@ -1157,11 +1157,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         let selectedImportProfile = selectedVCFImportProfile()
         let profileLabel = Self.importProfileLabel(selectedImportProfile)
 
+        let cliCmd = "# lungfish import vcf \(vcfURL.path) (CLI command not yet available \u{2014} use GUI)"
         let opID = OperationCenter.shared.start(
             title: "Importing \(vcfURL.lastPathComponent)",
             detail: "Importing VCF variants (\(profileLabel))...",
             operationType: .vcfImport,
             targetBundleURL: bundleURL,
+            cliCommand: cliCmd,
             onCancel: { cancelFlag.withLock { $0 = true } }
         )
         let importStartedAt = Date()
@@ -1973,11 +1975,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
 
         let cancelFlag = OSAllocatedUnfairLock(initialState: false)
+        let cliCmd = "# lungfish import bam \(bamURL.path) (CLI command not yet available \u{2014} use GUI)"
         let opID = OperationCenter.shared.start(
             title: "Importing \(bamURL.lastPathComponent)",
             detail: "Importing alignments...",
             operationType: .bamImport,
             targetBundleURL: bundleURL,
+            cliCommand: cliCmd,
             onCancel: { cancelFlag.withLock { $0 = true } }
         )
         let importStartedAt = Date()
@@ -3676,10 +3680,16 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         let operationTitle = "\(goalLabel) \(inputName)"
 
         // Register the operation with OperationCenter so it appears in the Operations Panel.
+        let cliCmd = OperationCenter.buildCLICommand(subcommand: "classify", args: {
+            var args = ["--db", config.databasePath.path]
+            args += config.inputFiles.map(\.path)
+            return args
+        }())
         let opID = OperationCenter.shared.start(
             title: operationTitle,
             detail: "Starting Kraken2 with \(config.databaseName)...",
-            operationType: .classification
+            operationType: .classification,
+            cliCommand: cliCmd
         )
 
         let task = Task.detached {
@@ -3774,10 +3784,16 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     private func runEsViritu(config: EsVirituConfig, viewerController: ViewerViewController) {
+        let esCliCmd = OperationCenter.buildCLICommand(subcommand: "esviritu detect", args: {
+            var args = ["--input"] + config.inputFiles.map(\.path)
+            args += ["--sample", config.sampleName]
+            return args
+        }())
         let opID = OperationCenter.shared.start(
             title: "EsViritu \(config.sampleName)",
             detail: "Starting EsViritu viral detection\u{2026}",
-            operationType: .classification
+            operationType: .classification,
+            cliCommand: esCliCmd
         )
 
         let task = Task.detached {
@@ -3890,10 +3906,19 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return "sample_\(index + 1)"
         }
 
+        let batchCliCmd: String = {
+            guard let first = configs.first else { return "lungfish classify --batch" }
+            var args = ["--db", first.databasePath.path]
+            for c in configs {
+                args += c.inputFiles.map(\.path)
+            }
+            return OperationCenter.buildCLICommand(subcommand: "classify", args: args)
+        }()
         let opID = OperationCenter.shared.start(
             title: "Classification Batch (\(sampleCount) sample\(sampleCount == 1 ? "" : "s"))",
             detail: "Starting Kraken2/Bracken batch\u{2026}",
-            operationType: .classification
+            operationType: .classification,
+            cliCommand: batchCliCmd
         )
 
         let task = Task.detached {
@@ -4080,10 +4105,19 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return parent
         }()
 
+        let esBatchCliCmd: String = {
+            var args = ["--input"]
+            for c in configs {
+                args += c.inputFiles.map(\.path)
+            }
+            args += ["--sample", configs.first?.sampleName ?? "batch"]
+            return OperationCenter.buildCLICommand(subcommand: "esviritu detect", args: args)
+        }()
         let opID = OperationCenter.shared.start(
             title: "EsViritu Batch (\(sampleCount) sample\(sampleCount == 1 ? "" : "s"))",
             detail: "Starting EsViritu batch\u{2026}",
-            operationType: .classification
+            operationType: .classification,
+            cliCommand: esBatchCliCmd
         )
 
         let task = Task.detached {
@@ -4270,10 +4304,18 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// ``TaxTriageResultViewController`` when complete.
     private func runTaxTriage(config: TaxTriageConfig, viewerController: ViewerViewController) {
         let sampleCount = config.samples.count
+        let ttCliCmd: String = {
+            var args = ["--input"]
+            for sample in config.samples {
+                args.append(sample.fastq1.path); if let f2 = sample.fastq2 { args.append(f2.path) }
+            }
+            return OperationCenter.buildCLICommand(subcommand: "taxtriage", args: args)
+        }()
         let opID = OperationCenter.shared.start(
             title: "TaxTriage (\(sampleCount) sample\(sampleCount == 1 ? "" : "s"))",
             detail: "Starting TaxTriage pipeline\u{2026}",
-            operationType: .classification
+            operationType: .classification,
+            cliCommand: ttCliCmd
         )
 
         let task = Task.detached {
@@ -4617,6 +4659,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             }
 
             activityIndicator?.updateMessage("Loading \(firstURL.lastPathComponent)...")
+            let importedFileCount = copiedURLs.count
 
             loadFileInBackground(at: firstURL) { result in
                 scheduleOnMainRunLoop { [weak activityIndicator, weak viewerController, weak sidebarController] in
@@ -4641,7 +4684,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         self.requestInspectorDocumentModeAfterDownload()
                     }
 
-                    debugLog("handleMultipleDownloadsSync: Completed importing \(copiedURLs.count) files")
+                    debugLog("handleMultipleDownloadsSync: Completed importing \(importedFileCount) files")
                 }
             }
         } else {

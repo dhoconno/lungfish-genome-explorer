@@ -511,10 +511,19 @@ public class AssemblyConfigurationViewModel: ObservableObject {
             )
         }
 
+        let asmCliCmd: String = {
+            var args: [String] = []
+            for r in spadesConfig.forwardReads { args += ["--pe1-1", r.path] }
+            for r in spadesConfig.reverseReads { args += ["--pe1-2", r.path] }
+            for r in spadesConfig.unpairedReads { args += ["-s", r.path] }
+            args += ["-o", spadesConfig.outputDirectory.path]
+            return "# " + OperationCenter.buildCLICommand(subcommand: "assemble", args: args) + " (CLI command not yet available \u{2014} use GUI)"
+        }()
         let operationID = OperationCenter.shared.start(
             title: "SPAdes Assembly: \(projectNameCapture)",
             detail: "Initializing...",
             operationType: .assembly,
+            cliCommand: asmCliCmd,
             onCancel: { task.cancel() }
         )
         assemblyTask = task

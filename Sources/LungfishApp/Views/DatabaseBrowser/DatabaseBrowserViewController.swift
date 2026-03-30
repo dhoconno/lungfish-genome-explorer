@@ -1662,9 +1662,30 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 ? recordsToDownload[0].accession
                 : "\(currentSource.displayName): \(accessionList)\(accessionSuffix)"
         }
+        // Build CLI command for Operations Panel display
+        let cliAccessions = recordsToDownload.map(\.accession)
+        let cliCommand: String
+        if currentSource == .ena {
+            // ENA source is used for SRA/FASTQ downloads
+            cliCommand = OperationCenter.buildCLICommand(
+                subcommand: "fetch sra download",
+                args: cliAccessions + ["--output-dir", "."]
+            )
+        } else if currentSource == .ncbi && searchType == .genome {
+            cliCommand = OperationCenter.buildCLICommand(
+                subcommand: "fetch genome",
+                args: ["--accession"] + cliAccessions + ["-o", "."]
+            )
+        } else {
+            cliCommand = OperationCenter.buildCLICommand(
+                subcommand: "fetch ncbi",
+                args: cliAccessions + ["--save-to", "."]
+            )
+        }
         let downloadCenterTaskID = DownloadCenter.shared.start(
             title: downloadTitle,
-            detail: "Preparing \(totalCount) record(s)..."
+            detail: "Preparing \(totalCount) record(s)...",
+            cliCommand: cliCommand
         )
 
         // Log details about selected records for debugging
@@ -1801,35 +1822,53 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             )
                         }
 
-                        // Download each FASTQ file to the batch directory
+                        // Download each FASTQ file to the batch directory, with byte-level progress.
+                        // Use the total size from ENAReadRecord.fastqBytes to compute a meaningful
+                        // progress fraction and ETA.
                         var downloadedFASTQFiles: [URL] = []
+                        let totalExpectedBytes = readRecord.totalFileSizeBytes.map { Int64($0) }
+                        // Per-file byte sizes (semicolon-separated in fastqBytes, aligned with fastqHTTPURLs)
+                        let perFileSizes: [Int64?] = {
+                            guard let bytesStr = readRecord.fastqBytes else { return fastqURLs.map { _ in nil } }
+                            let sizes = bytesStr.components(separatedBy: ";").map { Int64($0) }
+                            return sizes + Array(repeating: nil, count: max(0, fastqURLs.count - sizes.count))
+                        }()
+
+                        // Track bytes already downloaded from completed files
+                        var priorBytesDownloaded: Int64 = 0
+
                         for (fileIdx, fastqURL) in fastqURLs.enumerated() {
                             let filename = fastqURL.lastPathComponent
                             let localPath = batchDir.appendingPathComponent(filename)
+                            let fileExpectedBytes = fileIdx < perFileSizes.count ? perFileSizes[fileIdx] : nil
+
                             logger.info("performBatchDownload: Downloading \(fastqURL.absoluteString, privacy: .public)")
-                            performOnMainRunLoop {
-                                DownloadCenter.shared.update(
-                                    id: downloadCenterTaskID,
-                                    progress: progressFraction,
-                                    detail: "Downloading \(filename) (\(fileIdx + 1)/\(fastqURLs.count))..."
-                                )
-                            }
 
-                            var request = URLRequest(url: fastqURL)
-                            request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
-                            request.timeoutInterval = 600
+                            let capturedOpID = downloadCenterTaskID
+                            let capturedPrior = priorBytesDownloaded
+                            let capturedTotal = totalExpectedBytes
 
-                            let (data, response) = try await URLSession.shared.data(for: request)
-                            guard let httpResponse = response as? HTTPURLResponse,
-                                  (200...299).contains(httpResponse.statusCode) else {
-                                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-                                throw DatabaseServiceError.serverError(
-                                    message: "Failed to download \(filename) (HTTP \(statusCode))"
-                                )
-                            }
+                            let data = try await streamingDownload(
+                                url: fastqURL,
+                                totalBytes: fileExpectedBytes,
+                                progressHandler: { bytesWritten, _ in
+                                    let totalSoFar = capturedPrior + bytesWritten
+                                    performOnMainRunLoop {
+                                        DownloadCenter.shared.updateBytes(
+                                            id: capturedOpID,
+                                            bytesDownloaded: totalSoFar,
+                                            totalBytes: capturedTotal
+                                        )
+                                    }
+                                }
+                            )
+
                             try data.write(to: localPath)
                             logger.info("performBatchDownload: Saved \(filename) (\(data.count) bytes)")
                             downloadedFASTQFiles.append(localPath)
+
+                            // Accumulate bytes for next file's baseline
+                            priorBytesDownloaded += fileExpectedBytes ?? Int64(data.count)
                         }
 
                         guard !downloadedFASTQFiles.isEmpty else {
@@ -4011,6 +4050,93 @@ struct AutocompleteRow: View {
             isHovered = hovering
         }
     }
+}
+
+// MARK: - Streaming Download Helper
+
+/// Downloads a file using URLSession downloadTask with byte-level progress callbacks.
+///
+/// Unlike `URLSession.shared.data(for:)`, this uses the delegate-based `downloadTask`
+/// API which reliably fires `didWriteData` progress callbacks. The file is written to
+/// a temp location and its contents returned as Data.
+///
+/// - Parameters:
+///   - url: The URL to download.
+///   - totalBytes: Expected total size (used when Content-Length header is absent).
+///   - progressHandler: Called with (bytesDownloaded, totalBytes?) during download.
+/// - Returns: The downloaded data.
+/// - Throws: `DatabaseServiceError` on network or HTTP errors.
+private func streamingDownload(
+    url: URL,
+    totalBytes: Int64?,
+    progressHandler: @escaping @Sendable (Int64, Int64?) -> Void
+) async throws -> Data {
+    final class Delegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+        let knownTotal: Int64?
+        let progress: @Sendable (Int64, Int64?) -> Void
+        var continuation: CheckedContinuation<URL, Error>?
+
+        init(knownTotal: Int64?, progress: @escaping @Sendable (Int64, Int64?) -> Void) {
+            self.knownTotal = knownTotal
+            self.progress = progress
+        }
+
+        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+                        didWriteData _: Int64, totalBytesWritten: Int64,
+                        totalBytesExpectedToWrite expected: Int64) {
+            let total: Int64? = expected > 0 ? expected : knownTotal
+            progress(totalBytesWritten, total)
+        }
+
+        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+                        didFinishDownloadingTo location: URL) {
+            let tmp = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString + "-" + location.lastPathComponent)
+            do {
+                try FileManager.default.copyItem(at: location, to: tmp)
+            } catch {
+                continuation?.resume(throwing: error)
+                continuation = nil
+                return
+            }
+            guard let resp = downloadTask.response as? HTTPURLResponse,
+                  (200...299).contains(resp.statusCode) else {
+                let code = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? -1
+                continuation?.resume(throwing: DatabaseServiceError.serverError(
+                    message: "HTTP \(code) downloading \(downloadTask.originalRequest?.url?.lastPathComponent ?? "file")"
+                ))
+                continuation = nil
+                return
+            }
+            continuation?.resume(returning: tmp)
+            continuation = nil
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask,
+                        didCompleteWithError error: (any Error)?) {
+            if let error, continuation != nil {
+                continuation?.resume(throwing: error)
+                continuation = nil
+            }
+        }
+    }
+
+    var request = URLRequest(url: url)
+    request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
+    request.timeoutInterval = 600
+
+    let delegate = Delegate(knownTotal: totalBytes, progress: progressHandler)
+    let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+
+    let tempURL: URL = try await withCheckedThrowingContinuation { continuation in
+        delegate.continuation = continuation
+        session.downloadTask(with: request).resume()
+    }
+    session.invalidateAndCancel()
+
+    let data = try Data(contentsOf: tempURL)
+    try? FileManager.default.removeItem(at: tempURL)
+    return data
 }
 
 // MARK: - DatabaseSource Extension

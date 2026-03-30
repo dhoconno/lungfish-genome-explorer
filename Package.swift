@@ -214,7 +214,10 @@ let package = Package(
                 "LungfishIO",
                 "LungfishUI",
             ],
-            path: "Tests/LungfishIntegrationTests"
+            path: "Tests/LungfishIntegrationTests",
+            resources: [
+                .copy("Fixtures")
+            ]
         ),
     ]
 )

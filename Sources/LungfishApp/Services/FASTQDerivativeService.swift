@@ -256,6 +256,204 @@ public enum FASTQDerivativeRequest: Sendable {
     }
 }
 
+// MARK: - CLI Command Construction
+
+/// Shell-quotes a single argument for display in the CLI command string.
+///
+/// Uses the same quoting rules as ``OperationCenter/shellQuote(_:)`` but
+/// is a module-level free function to avoid requiring visibility changes
+/// to the private OperationCenter helper.
+private func shellQuoteForCLI(_ argument: String) -> String {
+    let safeCharacters = CharacterSet.alphanumerics
+        .union(CharacterSet(charactersIn: "-_./=:@%+,"))
+    if !argument.isEmpty && argument.unicodeScalars.allSatisfy({ safeCharacters.contains($0) }) {
+        return argument
+    }
+    let escaped = argument.replacingOccurrences(of: "'", with: "'\\''")
+    return "'\(escaped)'"
+}
+
+/// Builds a shell-quoted command string from an array of parts.
+private func buildToolCommand(parts: [String]) -> String {
+    parts.map { shellQuoteForCLI($0) }.joined(separator: " ")
+}
+
+/// Builds a shell-quoted `lungfish <subcommand> <args>` command string.
+private func buildLungfishCommand(subcommand: String, args: [String]) -> String {
+    buildToolCommand(parts: ["lungfish", subcommand] + args)
+}
+
+extension FASTQDerivativeRequest {
+    /// Constructs the equivalent `lungfish fastq` CLI command for this operation.
+    ///
+    /// The returned string is a copy-pasteable shell command that reproduces
+    /// the same transformation on the command line. Displayed in the Operations
+    /// Panel for transparency and reproducibility.
+    ///
+    /// For operations without a direct `lungfish fastq` subcommand (e.g. search,
+    /// orient), the string shows the underlying tool invocation instead.
+    ///
+    /// - Parameters:
+    ///   - inputPath: Path to the input FASTQ file.
+    ///   - outputPath: Path to the output FASTQ file.
+    /// - Returns: A shell-quoted CLI command string.
+    func cliCommand(inputPath: String, outputPath: String) -> String {
+        switch self {
+        case .subsampleProportion(let proportion):
+            return buildLungfishCommand(subcommand: "fastq subsample", args: [
+                "--proportion", String(proportion), inputPath, "-o", outputPath,
+            ])
+
+        case .subsampleCount(let count):
+            return buildLungfishCommand(subcommand: "fastq subsample", args: [
+                "--count", String(count), inputPath, "-o", outputPath,
+            ])
+
+        case .lengthFilter(let min, let max):
+            var args: [String] = []
+            if let min { args += ["--min", String(min)] }
+            if let max { args += ["--max", String(max)] }
+            args += [inputPath, "-o", outputPath]
+            return buildLungfishCommand(subcommand: "fastq length-filter", args: args)
+
+        case .searchText(let query, let field, let regex):
+            // No direct lungfish CLI subcommand — show the seqkit grep invocation.
+            var parts = ["seqkit", "grep"]
+            if field == .description { parts.append("-n") }
+            if regex { parts.append("-r") }
+            parts += ["-p", query, inputPath, "-o", outputPath]
+            return buildToolCommand(parts: parts)
+
+        case .searchMotif(let pattern, let regex):
+            // No direct lungfish CLI subcommand — show the seqkit grep invocation.
+            var parts = ["seqkit", "grep", "-s"]
+            if regex { parts.append("-r") }
+            parts += ["-p", pattern, inputPath, "-o", outputPath]
+            return buildToolCommand(parts: parts)
+
+        case .deduplicate(_, let substitutions, let optical, let opticalDistance):
+            var args = [inputPath, "--subs", String(substitutions), "-o", outputPath]
+            if optical {
+                args += ["--optical", "--dupedist", String(opticalDistance)]
+            }
+            return buildLungfishCommand(subcommand: "fastq deduplicate", args: args)
+
+        case .qualityTrim(let threshold, let windowSize, let mode):
+            let modeString: String
+            switch mode {
+            case .cutRight: modeString = "cut-right"
+            case .cutFront: modeString = "cut-front"
+            case .cutTail: modeString = "cut-tail"
+            case .cutBoth: modeString = "cut-both"
+            }
+            return buildLungfishCommand(subcommand: "fastq quality-trim", args: [
+                "--threshold", String(threshold),
+                "--window", String(windowSize),
+                "--mode", modeString,
+                inputPath, "-o", outputPath,
+            ])
+
+        case .adapterTrim(_, let sequence, _, _):
+            var args = [inputPath, "-o", outputPath]
+            if let sequence {
+                args += ["--adapter", sequence]
+            }
+            return buildLungfishCommand(subcommand: "fastq adapter-trim", args: args)
+
+        case .fixedTrim(let from5Prime, let from3Prime):
+            var args = [inputPath, "-o", outputPath]
+            if from5Prime > 0 { args += ["--front", String(from5Prime)] }
+            if from3Prime > 0 { args += ["--tail", String(from3Prime)] }
+            return buildLungfishCommand(subcommand: "fastq fixed-trim", args: args)
+
+        case .contaminantFilter(let mode, let referenceFasta, let kmerSize, let hammingDistance):
+            var args = [inputPath, "-o", outputPath, "--kmer", String(kmerSize), "--hdist", String(hammingDistance)]
+            switch mode {
+            case .phix:
+                args += ["--mode", "phix"]
+            case .custom:
+                args += ["--mode", "custom"]
+                if let ref = referenceFasta { args += ["--ref", ref] }
+            }
+            return buildLungfishCommand(subcommand: "fastq contaminant-filter", args: args)
+
+        case .pairedEndMerge(let strictness, let minOverlap):
+            var args = [inputPath, "-o", outputPath, "--min-overlap", String(minOverlap)]
+            if strictness == .strict { args.append("--strict") }
+            return buildLungfishCommand(subcommand: "fastq merge", args: args)
+
+        case .pairedEndRepair:
+            return buildLungfishCommand(subcommand: "fastq repair", args: [
+                inputPath, "-o", outputPath,
+            ])
+
+        case .primerRemoval(let configuration):
+            var args = [inputPath, "-o", outputPath]
+            if let seq = configuration.forwardSequence {
+                args += ["--literal", seq]
+            } else if let ref = configuration.referenceFasta {
+                args += ["--ref", ref]
+            }
+            if configuration.tool == .bbduk {
+                args += [
+                    "--kmer", String(configuration.kmerSize),
+                    "--mink", String(configuration.minKmer),
+                    "--hdist", String(configuration.hammingDistance),
+                ]
+            }
+            return buildLungfishCommand(subcommand: "fastq primer-remove", args: args)
+
+        case .sequencePresenceFilter(let sequence, let fastaPath, _, let minOverlap, let errorRate, let keepMatched, _):
+            // No direct lungfish CLI subcommand — show cutadapt invocation.
+            var parts = ["cutadapt", "--discard-untrimmed", "-O", String(minOverlap), "-e", String(format: "%.2f", errorRate)]
+            if let seq = sequence { parts += ["-a", seq] }
+            else if let path = fastaPath { parts += ["-a", "file:\(path)"] }
+            parts += ["-o", outputPath, inputPath]
+            let note = keepMatched ? " # keep matched" : " # keep unmatched"
+            return buildToolCommand(parts: parts) + note
+
+        case .errorCorrection(let kmerSize):
+            return buildLungfishCommand(subcommand: "fastq error-correct", args: [
+                inputPath, "-o", outputPath, "--kmer", String(kmerSize),
+            ])
+
+        case .interleaveReformat(let direction):
+            switch direction {
+            case .deinterleave:
+                return buildLungfishCommand(subcommand: "fastq deinterleave", args: [
+                    inputPath, "--out1", outputPath + ".R1.fastq", "--out2", outputPath + ".R2.fastq",
+                ])
+            case .interleave:
+                return buildLungfishCommand(subcommand: "fastq interleave", args: [
+                    "--in1", inputPath, "--in2", "<R2>", "-o", outputPath,
+                ])
+            }
+
+        case .demultiplex(let kitID, let customCSVPath, let location, _, _, _, let errorRate, let trimBarcodes, _, _):
+            var args = [inputPath, "--kit", customCSVPath ?? kitID, "-o", outputPath]
+            args += ["--location", location, "--error-rate", String(format: "%.2f", errorRate)]
+            if !trimBarcodes { args.append("--no-trim") }
+            return buildLungfishCommand(subcommand: "fastq demultiplex", args: args)
+
+        case .orient(let referenceURL, let wordLength, _, _):
+            // No direct lungfish CLI subcommand — show vsearch invocation.
+            return buildToolCommand(parts: [
+                "vsearch", "--orient", inputPath,
+                "--db", referenceURL.path,
+                "--fastaout", outputPath,
+                "--wordlength", String(wordLength),
+            ])
+
+        case .humanReadScrub(let databaseID, let removeReads):
+            // No direct lungfish CLI subcommand — show sra-human-scrubber invocation.
+            let action = removeReads ? "--remove" : "--flag"
+            return buildToolCommand(parts: [
+                "sra-human-scrubber", "--db", databaseID, action, inputPath, "-o", outputPath,
+            ])
+        }
+    }
+}
+
 public enum FASTQDerivativeError: Error, LocalizedError {
     case sourceMustBeBundle
     case sourceFASTQMissing

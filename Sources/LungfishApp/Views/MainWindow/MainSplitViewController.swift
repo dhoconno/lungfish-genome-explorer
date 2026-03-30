@@ -1038,10 +1038,12 @@ public class MainSplitViewController: NSSplitViewController {
 
         viewerController.showProgress("Importing ONT directory\u{2026}")
 
+        let ontCliCmd = "# lungfish import ont \(sourceURL.path) (CLI command not yet available \u{2014} use GUI)"
         let opID = OperationCenter.shared.start(
             title: "ONT Import: \(sourceURL.lastPathComponent)",
             detail: "Detecting layout\u{2026}",
-            operationType: .ingestion
+            operationType: .ingestion,
+            cliCommand: ontCliCmd
         )
 
         Task.detached(priority: .userInitiated) { [weak self] in
@@ -2477,13 +2479,29 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     private func runFASTQOperation(_ request: FASTQDerivativeRequest, sourceURL: URL) async throws {
         let inputURLs = selectedFASTQOperationSources(fallback: sourceURL)
         let sourceBundleURLs = try inputURLs.map(resolveFASTQOperationSourceBundle(from:))
+
+        // Resolve the FASTQ path for CLI command display.
+        // For bundles, use the bundle path as the representative input.
+        let displayInputPath = sourceBundleURLs.first?.path ?? sourceURL.path
+        let displayOutputPath = "<derived>"
+        let cliCmd = request.cliCommand(inputPath: displayInputPath, outputPath: displayOutputPath)
+
         // Register with OperationCenter for visibility in the Operations panel
         let opTitle = "FASTQ: \(request.operationLabel)"
+        let startTime = Date()
         let opID: UUID = OperationCenter.shared.start(
             title: opTitle,
             detail: "Preparing...",
-            operationType: .fastqOperation
+            operationType: .fastqOperation,
+            cliCommand: cliCmd
         )
+        OperationCenter.shared.log(id: opID, level: .info, message: "Starting \(request.operationLabel)")
+        if sourceBundleURLs.count > 1 {
+            OperationCenter.shared.log(
+                id: opID, level: .info,
+                message: "Batch mode: \(sourceBundleURLs.count) input bundles"
+            )
+        }
 
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated {
@@ -2507,12 +2525,21 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                                 guard let self else { return }
                                 self.viewerController.updateFASTQOperationStatus(message)
                                 OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
+                                OperationCenter.shared.log(id: opID, level: .info, message: message)
                             }
                         }
                     }
                 )
                 derivedURLs = batchResult.outputBundleURLs
                 failureCount = batchResult.failures.count
+                if !batchResult.failures.isEmpty {
+                    for failure in batchResult.failures {
+                        OperationCenter.shared.log(
+                            id: opID, level: .warning,
+                            message: "Failed: \(failure.inputURL.lastPathComponent) - \(failure.error)"
+                        )
+                    }
+                }
             } else if let sourceBundleURL = sourceBundleURLs.first {
                 let derivedURL = try await FASTQDerivativeService.shared.createDerivative(
                     from: sourceBundleURL,
@@ -2523,6 +2550,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                                 guard let self else { return }
                                 self.viewerController.updateFASTQOperationStatus(message)
                                 OperationCenter.shared.update(id: opID, progress: -1, detail: message)
+                                OperationCenter.shared.log(id: opID, level: .info, message: message)
                             }
                         }
                     }
@@ -2538,13 +2566,21 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 throw FASTQDerivativeError.emptyResult
             }
 
-            let doneDetail = failureCount > 0
-                ? "Done (\(derivedURLs.count) produced, \(failureCount) failed)"
-                : "Done"
+            let elapsed = Date().timeIntervalSince(startTime)
+            let doneDetail: String
+            if failureCount > 0 {
+                doneDetail = "Done (\(derivedURLs.count) produced, \(failureCount) failed) in \(String(format: "%.1f", elapsed))s"
+            } else {
+                doneDetail = "Done in \(String(format: "%.1f", elapsed))s"
+            }
 
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
                     guard let self else { return }
+                    OperationCenter.shared.log(
+                        id: opID, level: .info,
+                        message: "Completed in \(String(format: "%.1f", elapsed))s"
+                    )
                     OperationCenter.shared.complete(id: opID, detail: doneDetail)
                     if let last = derivedURLs.last {
                         self.refreshSidebarAndSelectDerivedURL(last)
@@ -2555,10 +2591,26 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 }
             }
         } catch {
-            let errorMessage = "\(error)"
+            let elapsed = Date().timeIntervalSince(startTime)
+            let errorDesc = error.localizedDescription
+            let errorDetail: String
+            if let derivativeError = error as? FASTQDerivativeError {
+                errorDetail = derivativeError.errorDescription ?? "\(error)"
+            } else {
+                errorDetail = "\(error)"
+            }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    OperationCenter.shared.fail(id: opID, detail: errorMessage)
+                    OperationCenter.shared.log(
+                        id: opID, level: .error,
+                        message: "Failed after \(String(format: "%.1f", elapsed))s: \(errorDesc)"
+                    )
+                    OperationCenter.shared.fail(
+                        id: opID,
+                        detail: "Failed after \(String(format: "%.1f", elapsed))s",
+                        errorMessage: errorDesc,
+                        errorDetail: errorDetail
+                    )
                 }
             }
             throw error

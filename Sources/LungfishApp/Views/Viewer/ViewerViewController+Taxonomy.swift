@@ -120,10 +120,17 @@ extension ViewerViewController {
             }
 
             // Register the operation in OperationCenter for the operations panel.
+            let extractCliCmd: String = {
+                var args = ["--kreport", config.classificationOutput.path]
+                args += config.taxIds.sorted().map { "--taxid \($0)" }.flatMap { $0.split(separator: " ").map(String.init) }
+                args += config.sourceFiles.map(\.path)
+                return "# " + OperationCenter.buildCLICommand(subcommand: "extract", args: args) + " (CLI command not yet available \u{2014} use GUI)"
+            }()
             let opID = OperationCenter.shared.start(
                 title: "Extract \(taxonLabel)",
                 detail: "Preparing\u{2026}",
-                operationType: .taxonomyExtraction
+                operationType: .taxonomyExtraction,
+                cliCommand: extractCliCmd
             )
 
             // Capture the tree from the result for descendant lookup inside the
@@ -187,10 +194,12 @@ extension ViewerViewController {
         // When the user clicks "Extract" on a collection, run the batch pipeline
         // using the same Task.detached + OperationCenter pattern.
         controller.onBatchExtract = { collection, classResult in
+            let batchExtractCliCmd = "# lungfish extract --collection \(collection.name) (CLI command not yet available \u{2014} use GUI)"
             let opID = OperationCenter.shared.start(
                 title: "Extract \(collection.name)",
                 detail: "Preparing batch extraction\u{2026}",
-                operationType: .taxonomyExtraction
+                operationType: .taxonomyExtraction,
+                cliCommand: batchExtractCliCmd
             )
 
             let tree = classResult.tree
@@ -261,10 +270,15 @@ extension ViewerViewController {
 
         controller.onBlastVerification = { [weak controller] node, readCount in
             nonisolated(unsafe) let weakController = controller
+            let blastCliCmd = OperationCenter.buildCLICommand(subcommand: "blast verify", args: [
+                "--kreport", capturedOutputURL.path,
+                "--taxid", "\(node.taxId)",
+            ])
             let opID = OperationCenter.shared.start(
                 title: "BLAST \(node.name)",
                 detail: "Preparing BLAST verification\u{2026}",
-                operationType: .blastVerification
+                operationType: .blastVerification,
+                cliCommand: blastCliCmd
             )
 
             let taxId = node.taxId

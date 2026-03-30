@@ -3091,6 +3091,7 @@ public class SequenceViewerView: NSView {
                 region: expandedRegion
             )
             let siteCount = allSites.count
+            let sampleCount = visibleOrderedSamples.count
 
             Self.enqueueMainRunLoop { [weak self] in
                 guard let viewer = self else { return }
@@ -3110,7 +3111,7 @@ public class SequenceViewerView: NSView {
                 viewer.clampGenotypeScrollOffset()
                 viewer.isFetchingGenotypes = false
                 viewer.invalidateAnnotationTile()
-                logger.info("fetchGenotypesAsync: Cached \(siteCount) sites × \(sampleNames.count) samples in \(elapsed, format: .fixed(precision: 3))s")
+                logger.info("fetchGenotypesAsync: Cached \(siteCount) sites × \(sampleCount) samples in \(elapsed, format: .fixed(precision: 3))s")
                 viewer.setNeedsDisplay(viewer.bounds)
             }
         }

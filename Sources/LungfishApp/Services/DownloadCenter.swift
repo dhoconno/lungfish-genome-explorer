@@ -20,21 +20,35 @@ public enum OperationType: String, Sendable {
     case taxonomyExtraction = "Extraction"
     case classification = "Classification"
     case blastVerification = "BLAST"
+}
 
-    /// Whether this operation type should appear in the Downloads popover.
-    ///
-    /// Download/import operations show in the Downloads toolbar popover.
-    /// Pipeline operations (BLAST, classification, extraction) only appear
-    /// in the full Operations Panel (Cmd+Shift+P).
-    public var isDownloadCategory: Bool {
-        switch self {
-        case .download, .bamImport, .vcfImport, .bundleBuild, .ingestion:
-            return true
-        case .export, .assembly, .fastqOperation, .qualityReport,
-             .taxonomyExtraction, .classification, .blastVerification:
-            return false
-        }
+/// A timestamped log entry recorded during an operation's lifecycle.
+///
+/// Log entries provide step-by-step visibility into what an operation
+/// is doing, surfaced in the Operations Panel's expanded detail view.
+public struct OperationLogEntry: Sendable, Identifiable {
+    public let id = UUID()
+    public let timestamp: Date
+    public let level: OperationLogLevel
+    public let message: String
+
+    public init(timestamp: Date = Date(), level: OperationLogLevel, message: String) {
+        self.timestamp = timestamp
+        self.level = level
+        self.message = message
     }
+}
+
+/// Log level for operation log entries.
+///
+/// Separate from ``LogLevel`` in WorkflowExecutionView to avoid coupling
+/// the operation tracking system to the workflow UI module. The levels
+/// mirror standard syslog severity tiers.
+public enum OperationLogLevel: String, Sendable, Codable {
+    case debug
+    case info
+    case warning
+    case error
 }
 
 @MainActor
@@ -62,6 +76,24 @@ public final class OperationCenter: ObservableObject {
         /// Callback invoked when the user cancels this operation.
         public nonisolated(unsafe) var onCancel: (@Sendable () -> Void)?
 
+        // MARK: - Enhanced diagnostics
+
+        /// The reconstructed `lungfish [subcommand] [args]` CLI invocation, if applicable.
+        public var cliCommand: String?
+        /// Step-by-step log entries recorded during this operation.
+        public var logEntries: [OperationLogEntry] = []
+        /// User-facing error summary shown prominently on failure.
+        public var errorMessage: String?
+        /// Extended diagnostic detail (stack trace, stderr, etc.) for debugging.
+        public var errorDetail: String?
+
+        // MARK: - Byte-level progress tracking
+
+        /// Total expected bytes for this operation (if known ahead of time).
+        public var totalBytes: Int64? = nil
+        /// Bytes downloaded/processed so far.
+        public var bytesDownloaded: Int64? = nil
+
         public init(
             id: UUID = UUID(),
             title: String,
@@ -73,7 +105,8 @@ public final class OperationCenter: ObservableObject {
             finishedAt: Date? = nil,
             bundleURLs: [URL] = [],
             targetBundleURL: URL? = nil,
-            onCancel: (@Sendable () -> Void)? = nil
+            onCancel: (@Sendable () -> Void)? = nil,
+            cliCommand: String? = nil
         ) {
             self.id = id
             self.title = title
@@ -86,6 +119,7 @@ public final class OperationCenter: ObservableObject {
             self.bundleURLs = bundleURLs
             self.targetBundleURL = targetBundleURL
             self.onCancel = onCancel
+            self.cliCommand = cliCommand
         }
     }
 
@@ -102,16 +136,6 @@ public final class OperationCenter: ObservableObject {
 
     public var activeCount: Int {
         items.filter { $0.state == .running }.count
-    }
-
-    /// Items that belong in the Downloads popover (download/import only).
-    public var downloadItems: [Item] {
-        items.filter { $0.operationType.isDownloadCategory }
-    }
-
-    /// Number of active download/import operations (for toolbar badge).
-    public var activeDownloadCount: Int {
-        items.filter { $0.state == .running && $0.operationType.isDownloadCategory }.count
     }
 
     // MARK: - Bundle Locking
@@ -154,13 +178,54 @@ public final class OperationCenter: ObservableObject {
         )
     }
 
+    // MARK: - CLI Command Builder
+
+    /// Builds a properly shell-quoted `lungfish` CLI command string.
+    ///
+    /// Arguments containing spaces, quotes, or shell metacharacters are
+    /// wrapped in single quotes with internal single quotes escaped.
+    ///
+    /// - Parameters:
+    ///   - subcommand: The lungfish subcommand (e.g. `"fetch"`, `"classify"`).
+    ///   - args: Positional and flag arguments.
+    /// - Returns: A copy-pasteable shell command string.
+    public static func buildCLICommand(subcommand: String, args: [String]) -> String {
+        let allParts = ["lungfish", subcommand] + args
+        let quoted = allParts.map { shellQuote($0) }
+        return quoted.joined(separator: " ")
+    }
+
+    /// Shell-quotes a single argument if it contains characters that need escaping.
+    private static func shellQuote(_ argument: String) -> String {
+        // Safe characters that don't need quoting
+        let safeCharacters = CharacterSet.alphanumerics
+            .union(CharacterSet(charactersIn: "-_./=:@%+,"))
+        if !argument.isEmpty && argument.unicodeScalars.allSatisfy({ safeCharacters.contains($0) }) {
+            return argument
+        }
+        // Wrap in single quotes; escape any embedded single quotes
+        let escaped = argument.replacingOccurrences(of: "'", with: "'\\''")
+        return "'\(escaped)'"
+    }
+
     // MARK: - Lifecycle
 
+    /// Starts tracking a new operation.
+    ///
+    /// - Parameters:
+    ///   - title: Human-readable operation title.
+    ///   - detail: Initial status detail text.
+    ///   - operationType: The category of operation.
+    ///   - targetBundleURL: Optional bundle URL for locking.
+    ///   - cliCommand: Optional reconstructed CLI invocation for display.
+    ///   - onCancel: Callback invoked if the user cancels the operation.
+    /// - Returns: The unique ID for the new operation item.
     public func start(
         title: String,
         detail: String,
         operationType: OperationType = .download,
         targetBundleURL: URL? = nil,
+        cliCommand: String? = nil,
         onCancel: (@Sendable () -> Void)? = nil
     ) -> UUID {
         let id = UUID()
@@ -173,7 +238,8 @@ public final class OperationCenter: ObservableObject {
                 state: .running,
                 operationType: operationType,
                 targetBundleURL: targetBundleURL,
-                onCancel: onCancel
+                onCancel: onCancel,
+                cliCommand: cliCommand
             ),
             at: 0
         )
@@ -194,6 +260,67 @@ public final class OperationCenter: ObservableObject {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index].progress = max(0, min(1, progress))
         items[index].detail = detail
+    }
+
+    /// Updates byte progress for an operation, computing the progress fraction automatically.
+    ///
+    /// The detail text is auto-generated as "X MB / Y GB · ETA Zm Ws" when enough
+    /// information is available. The ETA is derived from elapsed time and progress fraction.
+    ///
+    /// - Parameters:
+    ///   - id: The operation to update.
+    ///   - bytesDownloaded: Bytes transferred so far.
+    ///   - totalBytes: Total expected bytes (nil if unknown).
+    public func updateBytes(id: UUID, bytesDownloaded: Int64, totalBytes: Int64?) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        items[index].bytesDownloaded = bytesDownloaded
+        // Only update totalBytes if we now have a value (don't overwrite a known value with nil)
+        if let total = totalBytes {
+            items[index].totalBytes = total
+        }
+        let effectiveTotal = totalBytes ?? items[index].totalBytes
+        // Compute progress fraction
+        if let total = effectiveTotal, total > 0 {
+            items[index].progress = Double(bytesDownloaded) / Double(total)
+        }
+        // Auto-generate detail text with transferred/total sizes
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.allowedUnits = [.useMB, .useGB]
+        let downloaded = formatter.string(fromByteCount: bytesDownloaded)
+        // Base detail: "X MB" or "X MB / Y GB"
+        var detail: String
+        if let total = effectiveTotal {
+            let totalStr = formatter.string(fromByteCount: total)
+            detail = "\(downloaded) / \(totalStr)"
+        } else {
+            detail = downloaded
+        }
+        // Append ETA when we have enough elapsed time and meaningful progress
+        let elapsed = Date().timeIntervalSince(items[index].startedAt)
+        let progress = items[index].progress
+        if progress > 0.01 && elapsed > 2 {
+            let estimatedTotal = elapsed / progress
+            let remaining = estimatedTotal - elapsed
+            let etaStr = formatETAInterval(remaining)
+            detail += " · ETA \(etaStr)"
+        }
+        items[index].detail = detail
+    }
+
+    /// Appends a timestamped log entry to an operation's log.
+    ///
+    /// Log entries are displayed in the Operations Panel when a row is expanded,
+    /// giving step-by-step visibility into the operation's progress.
+    ///
+    /// - Parameters:
+    ///   - id: The operation to log against.
+    ///   - level: Severity level of the log entry.
+    ///   - message: The log message text.
+    public func log(id: UUID, level: OperationLogLevel, message: String) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        let entry = OperationLogEntry(level: level, message: message)
+        items[index].logEntries.append(entry)
     }
 
     public func complete(id: UUID, detail: String) {
@@ -228,10 +355,19 @@ public final class OperationCenter: ObservableObject {
         postStateChangedNotification(id: id, state: .completed)
     }
 
-    public func fail(id: UUID, detail: String) {
+    /// Marks an operation as failed.
+    ///
+    /// - Parameters:
+    ///   - id: The operation that failed.
+    ///   - detail: Status detail text (shown in the detail row).
+    ///   - errorMessage: Optional user-facing error summary (shown prominently in red).
+    ///   - errorDetail: Optional extended diagnostic text (stderr, stack trace, etc.).
+    public func fail(id: UUID, detail: String, errorMessage: String? = nil, errorDetail: String? = nil) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index].state = .failed
         items[index].detail = detail
+        items[index].errorMessage = errorMessage
+        items[index].errorDetail = errorDetail
         items[index].finishedAt = Date()
         unlockBundle(for: id)
         trimCompletedItemsIfNeeded()
@@ -258,14 +394,13 @@ public final class OperationCenter: ObservableObject {
         items.removeAll { $0.state != .running }
     }
 
-    /// Clears only completed download/import items (not pipeline operations).
+    /// Removes a single completed or failed item by ID.
     ///
-    /// Called from the Downloads popover, which only shows download-category
-    /// items. Using this instead of ``clearCompleted()`` prevents silently
-    /// removing pipeline operations (BLAST, classification, extraction) that
-    /// are visible in the Operations Panel but not in the popover.
-    public func clearCompletedDownloads() {
-        items.removeAll { $0.state != .running && $0.operationType.isDownloadCategory }
+    /// Running operations cannot be cleared — cancel them first.
+    ///
+    /// - Parameter id: The item to remove.
+    public func clearItem(id: UUID) {
+        items.removeAll { $0.id == id && $0.state != .running }
     }
 
     private func trimCompletedItemsIfNeeded() {
@@ -281,3 +416,17 @@ public final class OperationCenter: ObservableObject {
 
 /// Backwards-compatible typealias.
 public typealias DownloadCenter = OperationCenter
+
+// MARK: - ETA Formatting
+
+/// Formats a time interval as a compact ETA string (e.g., "2m 30s", "45s", "<1s").
+private func formatETAInterval(_ interval: TimeInterval) -> String {
+    let secs = max(0, Int(interval))
+    if secs < 60 { return secs < 2 ? "<1s" : "\(secs)s" }
+    let m = secs / 60
+    let s = secs % 60
+    if m < 60 { return s > 0 ? "\(m)m \(s)s" : "\(m)m" }
+    let h = m / 60
+    let rem = m % 60
+    return rem > 0 ? "\(h)h \(rem)m" : "\(h)h"
+}
