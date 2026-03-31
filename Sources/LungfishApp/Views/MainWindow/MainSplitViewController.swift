@@ -1827,16 +1827,36 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                     accessionToName: accessionToName
                 )
 
-                // Rebuild taxon summaries with enriched names.
+                // Group hits by taxId for identity recomputation from stale caches.
+                var hitsByTaxId: [Int: [NaoMgsVirusHit]] = [:]
+                for hit in hitsFile.virusHits {
+                    hitsByTaxId[hit.taxId, default: []].append(hit)
+                }
+
+                // Rebuild taxon summaries with enriched names and recomputed identity.
                 let enrichedSummaries = hitsFile.taxonSummaries.map { summary in
                     let resolvedName = summary.name.isEmpty
                         ? (taxIdToName[summary.taxId] ?? "Taxid \(summary.taxId)")
                         : summary.name
+
+                    // Recompute avgIdentity from raw hits when cached value is 0
+                    // (stale cache from before the edit-distance derivation fix).
+                    var avgIdentity = summary.avgIdentity
+                    if avgIdentity == 0, let taxHits = hitsByTaxId[summary.taxId], !taxHits.isEmpty {
+                        let totalIdentity = taxHits.reduce(0.0) { sum, hit in
+                            if hit.percentIdentity > 0 { return sum + hit.percentIdentity }
+                            let len = hit.queryLength > 0 ? hit.queryLength : hit.readSequence.count
+                            guard len > 0 else { return sum }
+                            return sum + max(0, (1.0 - Double(hit.editDistance) / Double(len)) * 100.0)
+                        }
+                        avgIdentity = totalIdentity / Double(taxHits.count)
+                    }
+
                     return NaoMgsTaxonSummary(
                         taxId: summary.taxId,
                         name: resolvedName,
                         hitCount: summary.hitCount,
-                        avgIdentity: summary.avgIdentity,
+                        avgIdentity: avgIdentity,
                         avgBitScore: summary.avgBitScore,
                         avgEditDistance: summary.avgEditDistance,
                         accessions: summary.accessions

@@ -138,6 +138,9 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             // Detail pane on left gets 55%, taxonomy table on right gets 45%
             let position = round(splitView.bounds.width * 0.55)
             splitView.setPosition(position, ofDividerAt: 0)
+
+            // Now that the split view has real bounds, size the detail content.
+            resizeDetailContentToFit()
         }
     }
 
@@ -317,14 +320,26 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             buildOverviewContent()
         }
 
-        // Size the content view to fit its content for scrolling.
-        // Width matches the scroll view's clip view; height is intrinsic.
-        detailContentView.layoutSubtreeIfNeeded()
-        let fittingSize = detailContentView.fittingSize
+        // Use a deferred layout pass so the scroll view has real bounds.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.resizeDetailContentToFit()
+        }
+    }
+
+    /// Sizes the detail content view to match the scroll view width and fit content height.
+    private func resizeDetailContentToFit() {
         let clipWidth = detailScrollView.contentView.bounds.width
+        guard clipWidth > 0 else { return }
+
+        // Set width to match clip view, then let Auto Layout compute height.
+        detailContentView.frame.size.width = clipWidth
+        detailContentView.layoutSubtreeIfNeeded()
+
+        let fittingSize = detailContentView.fittingSize
         detailContentView.frame = NSRect(
             x: 0, y: 0,
-            width: max(clipWidth, fittingSize.width),
+            width: clipWidth,
             height: max(fittingSize.height, 400)
         )
 
@@ -628,12 +643,11 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         splitView.dividerStyle = .thin
         splitView.delegate = self
 
-        // Left pane: detail (miniBAM + metrics + accessions)
-        // Uses frame-based layout inside NSSplitView (same pattern as EsViritu).
-        let detailContainer = NSView()
-        setupDetailScrollView()
-        detailScrollView.autoresizingMask = [.width, .height]
-        detailContainer.addSubview(detailScrollView)
+        // Left pane: detail (miniBAM + metrics + accessions).
+        // The detail pane is a self-contained NSView that uses an internal scroll view.
+        // NSSplitView arranged subviews use frame-based layout (default).
+        let detailContainer = NaoMgsDetailContainer(scrollView: detailScrollView, contentView: detailContentView)
+        detailContainer.wantsLayer = false // macOS 26: layer-backed by default
 
         // Right pane: taxonomy table
         let tableContainer = NSView()
@@ -649,16 +663,6 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
 
         view.addSubview(splitView)
-    }
-
-    /// Sets up the detail scroll view with its content view.
-    /// Frame-based layout is used inside NSSplitView arranged subviews.
-    private func setupDetailScrollView() {
-        detailScrollView.hasVerticalScroller = true
-        detailScrollView.hasHorizontalScroller = false
-        detailScrollView.autohidesScrollers = true
-        detailScrollView.drawsBackground = false
-        detailScrollView.documentView = detailContentView
     }
 
     /// Configures the taxonomy table with columns for taxon data.
@@ -964,6 +968,34 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
 /// Flipped container so Auto Layout `topAnchor` maps to visual top.
 private final class FlippedNaoMgsContentView: NSView {
+    override var isFlipped: Bool { true }
+}
+
+// MARK: - NaoMgsDetailContainer
+
+/// A self-contained detail pane container that manages a scroll view filling its bounds.
+///
+/// This is added directly as an NSSplitView arranged subview. NSSplitView
+/// manages its frame via frame-based layout. The container fills itself
+/// with the scroll view using autoresizing masks.
+private final class NaoMgsDetailContainer: NSView {
+
+    init(scrollView: NSScrollView, contentView: FlippedNaoMgsContentView) {
+        super.init(frame: .zero)
+
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = false
+        scrollView.documentView = contentView
+        scrollView.autoresizingMask = [.width, .height]
+        addSubview(scrollView)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) not implemented")
+    }
+
     override var isFlipped: Bool { true }
 }
 

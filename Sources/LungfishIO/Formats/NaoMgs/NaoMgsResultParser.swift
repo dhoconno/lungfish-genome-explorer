@@ -700,7 +700,14 @@ public final class NaoMgsResultParser: @unchecked Sendable {
         }
 
         let summaries: [NaoMgsTaxonSummary] = groups.map { taxId, taxHits in
-            let totalIdentity = taxHits.reduce(0.0) { $0 + $1.percentIdentity }
+            // Use explicit percentIdentity when available (v1 format); otherwise
+            // derive from edit distance: identity = (1 - editDist/queryLen) * 100.
+            let totalIdentity = taxHits.reduce(0.0) { sum, hit in
+                if hit.percentIdentity > 0 { return sum + hit.percentIdentity }
+                let len = hit.queryLength > 0 ? hit.queryLength : hit.readSequence.count
+                guard len > 0 else { return sum }
+                return sum + max(0, (1.0 - Double(hit.editDistance) / Double(len)) * 100.0)
+            }
             let totalBitScore = taxHits.reduce(0.0) { $0 + $1.bitScore }
             let totalEditDistance = taxHits.reduce(0) { $0 + $1.editDistance }
             let accessions = Array(Set(taxHits.map(\.subjectSeqId).filter { !$0.isEmpty })).sorted()
