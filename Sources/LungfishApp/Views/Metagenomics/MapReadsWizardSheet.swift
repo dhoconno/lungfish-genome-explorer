@@ -443,7 +443,10 @@ struct MapReadsWizardSheet: View {
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
 
-        if panel.runModal() == .OK, let url = panel.url {
+        // Use beginSheetModal per macOS 26 rules (NEVER runModal)
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK, let url = panel.url else { return }
             browsedReferenceURL = url
             selectedReferenceID = "__browsed__"
         }

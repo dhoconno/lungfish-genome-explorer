@@ -15,8 +15,55 @@ import Foundation
 /// populate UI dropdowns as candidates are discovered.
 public enum ReferenceSequenceScanner {
 
-    /// Known FASTA file extensions (case-insensitive).
+    /// Known FASTA file extensions (case-insensitive), excluding .gz suffix.
     private static let fastaExtensions: Set<String> = ["fasta", "fa", "fna", "fas"]
+
+    /// Resolves the FASTA URL within a `.lungfishref` bundle.
+    ///
+    /// Handles both simple reference bundles (with `ReferenceSequenceManifest`)
+    /// and full genome bundles (with `BundleManifest` and FASTA in `genome/`).
+    private static func resolveFASTAInBundle(_ bundleURL: URL) -> (fastaURL: URL, displayName: String)? {
+        // Strategy 1: Simple reference manifest
+        if let fastaURL = ReferenceSequenceFolder.fastaURL(in: bundleURL) {
+            let manifestURL = bundleURL.appendingPathComponent("manifest.json")
+            let name: String
+            if let data = try? Data(contentsOf: manifestURL),
+               let manifest = try? {
+                   let d = JSONDecoder(); d.dateDecodingStrategy = .iso8601
+                   return try d.decode(ReferenceSequenceManifest.self, from: data)
+               }() {
+                name = manifest.name
+            } else {
+                name = bundleURL.deletingPathExtension().lastPathComponent
+            }
+            return (fastaURL, name)
+        }
+
+        // Strategy 2: Genome bundle — FASTA in genome/ subdirectory
+        let fm = FileManager.default
+        let genomeDir = bundleURL.appendingPathComponent("genome")
+        if let genomeContents = try? fm.contentsOfDirectory(at: genomeDir, includingPropertiesForKeys: nil) {
+            let fastaFile = genomeContents.first { file in
+                let name = file.lastPathComponent.lowercased()
+                return name.hasSuffix(".fa") || name.hasSuffix(".fasta") || name.hasSuffix(".fna")
+                    || name.hasSuffix(".fa.gz") || name.hasSuffix(".fasta.gz") || name.hasSuffix(".fna.gz")
+            }
+            if let fastaFile {
+                let displayName = bundleURL.deletingPathExtension().lastPathComponent
+                return (fastaFile, displayName)
+            }
+        }
+
+        // Strategy 3: FASTA at bundle root
+        if let rootContents = try? fm.contentsOfDirectory(at: bundleURL, includingPropertiesForKeys: nil) {
+            let fastaFile = rootContents.first { isFASTAFile($0) }
+            if let fastaFile {
+                return (fastaFile, bundleURL.deletingPathExtension().lastPathComponent)
+            }
+        }
+
+        return nil
+    }
 
     /// Scans a project directory for all reference candidates.
     ///
@@ -123,15 +170,10 @@ public enum ReferenceSequenceScanner {
             if isDir.boolValue {
                 // Check for genome bundle (.lungfishref)
                 if url.pathExtension == "lungfishref" {
-                    if let fastaURL = ReferenceSequenceFolder.fastaURL(in: url) {
-                        let manifestURL = url.appendingPathComponent("manifest.json")
-                        if let data = try? Data(contentsOf: manifestURL),
-                           let manifest = try? JSONDecoder().decode(ReferenceSequenceManifest.self, from: data) {
-                            // Already in project refs? Skip.
-                            let alreadyAdded = candidates.contains { $0.fastaURL == fastaURL }
-                            if !alreadyAdded {
-                                candidates.append(.genomeBundleFASTA(url: fastaURL, displayName: manifest.name))
-                            }
+                    if let resolved = resolveFASTAInBundle(url) {
+                        let alreadyAdded = candidates.contains { $0.fastaURL == resolved.fastaURL }
+                        if !alreadyAdded {
+                            candidates.append(.genomeBundleFASTA(url: resolved.fastaURL, displayName: resolved.displayName))
                         }
                     }
                 }
@@ -177,12 +219,8 @@ public enum ReferenceSequenceScanner {
 
             if isDir.boolValue {
                 if url.pathExtension == "lungfishref" {
-                    if let fastaURL = ReferenceSequenceFolder.fastaURL(in: url) {
-                        let manifestURL = url.appendingPathComponent("manifest.json")
-                        if let data = try? Data(contentsOf: manifestURL),
-                           let manifest = try? JSONDecoder().decode(ReferenceSequenceManifest.self, from: data) {
-                            continuation.yield(.genomeBundleFASTA(url: fastaURL, displayName: manifest.name))
-                        }
+                    if let resolved = resolveFASTAInBundle(url) {
+                        continuation.yield(.genomeBundleFASTA(url: resolved.fastaURL, displayName: resolved.displayName))
                     }
                 } else if url.pathExtension != "lungfishfastq" {
                     scanDirectoryAsync(url, projectURL: projectURL, continuation: continuation, depth: depth + 1)
