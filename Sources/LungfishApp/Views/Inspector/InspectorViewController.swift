@@ -805,6 +805,13 @@ public class InspectorViewController: NSViewController {
         viewModel.documentSectionViewModel.selectChromosome(chromosome)
     }
 
+    /// Updates the NAO-MGS manifest in the Document section.
+    ///
+    /// - Parameter manifest: The NAO-MGS manifest, or nil to clear
+    public func updateNaoMgsManifest(_ manifest: NaoMgsManifest?) {
+        viewModel.documentSectionViewModel.updateNaoMgsManifest(manifest)
+    }
+
     /// Injects the shared AI assistant service used by the embedded inspector tab.
     public func setAIAssistantService(_ service: AIAssistantService) {
         viewModel.aiAssistantService = service

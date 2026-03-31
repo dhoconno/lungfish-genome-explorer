@@ -4,6 +4,9 @@
 
 import AppKit
 import LungfishIO
+import os.log
+
+private let naoMgsDisplayLogger = Logger(subsystem: "com.lungfish", category: "NaoMgsDisplay")
 
 // MARK: - ViewerViewController NAO-MGS Display Extension
 
@@ -31,6 +34,30 @@ extension ViewerViewController {
         contentMode = .metagenomics
 
         addChild(controller)
+
+        // Wire BLAST verification callback.
+        controller.onBlastVerification = { [weak self] summary, readCount, reads in
+            guard let self else { return }
+            let readSequences = reads.compactMap { hit -> (String, String, String)? in
+                guard !hit.readSequence.isEmpty else { return nil }
+                return (hit.seqId, hit.readSequence, hit.readQuality)
+            }
+            guard !readSequences.isEmpty else {
+                naoMgsDisplayLogger.warning("BLAST verify for \(summary.name): no read sequences available")
+                return
+            }
+            // Build FASTA from reads for BLAST submission
+            var fasta = ""
+            for (seqId, seq, _) in readSequences.prefix(min(50, readCount)) {
+                fasta += ">\(seqId)\n\(seq)\n"
+            }
+            // Open NCBI BLAST web with the sequences
+            let encodedFasta = fasta.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+            let blastURL = "https://blast.ncbi.nlm.nih.gov/Blast.cgi?PROGRAM=blastn&DATABASE=nt&QUERY=\(encodedFasta)"
+            if let url = URL(string: blastURL) {
+                NSWorkspace.shared.open(url)
+            }
+        }
 
         // Hide normal genomic viewer components (same pattern as Taxonomy/EsViritu/TaxTriage).
         enhancedRulerView.isHidden = true

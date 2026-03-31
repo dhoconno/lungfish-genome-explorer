@@ -116,6 +116,13 @@ extension NaoMgsResultViewController: ResultViewportController {
 
     // MARK: ResultViewportController
 
+    /// Satisfies the `ResultViewportController` protocol requirement.
+    ///
+    /// Delegates to `configure(result:bundleURL:)` with `nil` bundle URL.
+    public func configure(result: NaoMgsResult) {
+        configure(result: result, bundleURL: nil)
+    }
+
     /// Returns the NAO-MGS summary bar at the top of the view.
     ///
     /// The `NaoMgsSummaryBar` is always the first subview added in `loadView`.

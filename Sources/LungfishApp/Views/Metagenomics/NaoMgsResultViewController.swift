@@ -307,6 +307,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         for subview in detailContentView.subviews {
             subview.removeFromSuperview()
         }
+        // Reset any active constraints on the content view
+        detailContentView.removeConstraints(detailContentView.constraints)
         miniBAMHeightConstraint = nil
 
         if let summary = selectedTaxonSummary {
@@ -314,6 +316,17 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         } else {
             buildOverviewContent()
         }
+
+        // Size the content view to fit its content for scrolling.
+        // Width matches the scroll view's clip view; height is intrinsic.
+        detailContentView.layoutSubtreeIfNeeded()
+        let fittingSize = detailContentView.fittingSize
+        let clipWidth = detailScrollView.contentView.bounds.width
+        detailContentView.frame = NSRect(
+            x: 0, y: 0,
+            width: max(clipWidth, fittingSize.width),
+            height: max(fittingSize.height, 400)
+        )
 
         detailScrollView.contentView.scroll(to: .zero)
         detailScrollView.reflectScrolledClipView(detailScrollView.contentView)
@@ -444,7 +457,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     private func adjustMiniBAMHeight(by deltaY: CGFloat) {
         guard let constraint = miniBAMHeightConstraint else { return }
-        let availableHeight = max(detailContentView.bounds.height, bounds.height) - 120
+        let availableHeight = max(detailContentView.bounds.height, view.bounds.height) - 120
         let maxHeight = max(miniBAMMinHeight, min(miniBAMMaxHeight, availableHeight))
         miniBAMPreferredHeight = min(max(miniBAMMinHeight, miniBAMPreferredHeight + deltaY), maxHeight)
         constraint.constant = miniBAMPreferredHeight
@@ -615,17 +628,10 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         splitView.dividerStyle = .thin
         splitView.delegate = self
 
-        // Left pane: detail (miniBAM + metrics)
+        // Left pane: detail (miniBAM + metrics + accessions)
+        // Uses frame-based layout inside NSSplitView (same pattern as EsViritu).
         let detailContainer = NSView()
-        detailScrollView.translatesAutoresizingMaskIntoConstraints = false
-        detailScrollView.hasVerticalScroller = true
-        detailScrollView.hasHorizontalScroller = false
-        detailScrollView.autohidesScrollers = true
-        detailScrollView.drawsBackground = false
-
-        detailContentView.translatesAutoresizingMaskIntoConstraints = false
-        detailScrollView.documentView = detailContentView
-
+        setupDetailScrollView()
         detailScrollView.autoresizingMask = [.width, .height]
         detailContainer.addSubview(detailScrollView)
 
@@ -638,11 +644,21 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         splitView.addArrangedSubview(detailContainer)
         splitView.addArrangedSubview(tableContainer)
 
-        // Detail pane holds more firmly (table is preferred for resize)
+        // Detail pane holds width more firmly (table is preferred for resize)
         splitView.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
         splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
 
         view.addSubview(splitView)
+    }
+
+    /// Sets up the detail scroll view with its content view.
+    /// Frame-based layout is used inside NSSplitView arranged subviews.
+    private func setupDetailScrollView() {
+        detailScrollView.hasVerticalScroller = true
+        detailScrollView.hasHorizontalScroller = false
+        detailScrollView.autohidesScrollers = true
+        detailScrollView.drawsBackground = false
+        detailScrollView.documentView = detailContentView
     }
 
     /// Configures the taxonomy table with columns for taxon data.
@@ -679,9 +695,9 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         taxonomyTableView.addTableColumn(identityColumn)
 
         let accessionsColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("accessions"))
-        accessionsColumn.title = "Accessions"
-        accessionsColumn.width = 56
-        accessionsColumn.minWidth = 40
+        accessionsColumn.title = "Refs"
+        accessionsColumn.width = 40
+        accessionsColumn.minWidth = 32
         accessionsColumn.sortDescriptorPrototype = NSSortDescriptor(key: "accessions", ascending: false)
         taxonomyTableView.addTableColumn(accessionsColumn)
 
@@ -732,9 +748,6 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             splitView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             splitView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             splitView.bottomAnchor.constraint(equalTo: actionBar.topAnchor),
-
-            // Detail content width tracks scroll view
-            detailContentView.widthAnchor.constraint(equalTo: detailScrollView.widthAnchor),
         ])
     }
 
@@ -779,17 +792,6 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             blast50.target = self
             blast50.representedObject = (summary, min(50, hitCount))
             menu.addItem(blast50)
-        }
-
-        if hitCount > 50 {
-            let blastAll = NSMenuItem(
-                title: "BLAST Verify (all \(hitCount))",
-                action: #selector(contextBlastVerify(_:)),
-                keyEquivalent: ""
-            )
-            blastAll.target = self
-            blastAll.representedObject = (summary, hitCount)
-            menu.addItem(blastAll)
         }
 
         menu.addItem(NSMenuItem.separator())
@@ -1213,7 +1215,7 @@ final class NaoMgsActionBar: NSView {
 /// Lightweight data source for the accession table in the detail pane.
 ///
 /// Stored as an associated object on the container view to keep it alive.
-private var accessionDataKey: UInt8 = 0
+nonisolated(unsafe) private var accessionDataKey: UInt8 = 0
 
 @MainActor
 private final class AccessionDataWrapper: NSObject, NSTableViewDataSource, NSTableViewDelegate {

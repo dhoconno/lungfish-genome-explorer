@@ -1859,7 +1859,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                         placeholderVC.configure(result: naoResult, bundleURL: bundleURL)
 
                         // Update inspector with NAO-MGS manifest info
-                        self.inspectorController?.documentSectionViewModel.updateNaoMgsManifest(manifest)
+                        self.inspectorController?.updateNaoMgsManifest(manifest)
 
                         logger.info("displayNaoMgsResult: Configured with \(naoResult.totalHitReads) hits, \(enrichedSummaries.count) taxa")
                     }
@@ -1933,6 +1933,12 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             taxIdAccCounts[hit.taxId, default: [:]][hit.subjectSeqId, default: 0] += 1
         }
 
+        // Also collect subjectTitle from hits (v1 format has these).
+        var taxIdTitleCounts: [Int: [String: Int]] = [:]
+        for hit in hits where !hit.subjectTitle.isEmpty {
+            taxIdTitleCounts[hit.taxId, default: [:]][hit.subjectTitle, default: 0] += 1
+        }
+
         var result: [Int: String] = [:]
         for (taxId, accCounts) in taxIdAccCounts {
             // Pick the accession with the most hits.
@@ -1947,6 +1953,20 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 }
             }
         }
+
+        // Fallback: for taxa without FASTA-derived names, use subjectTitle from the hits.
+        for (taxId, titleCounts) in taxIdTitleCounts where result[taxId] == nil {
+            if let topTitle = titleCounts.max(by: { $0.value < $1.value })?.key {
+                // Clean up the title: sometimes it includes accession prefix
+                var cleanTitle = topTitle
+                // Remove "complete genome" / "complete genome, monopartite" suffixes for cleaner display
+                cleanTitle = cleanTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !cleanTitle.isEmpty {
+                    result[taxId] = cleanTitle
+                }
+            }
+        }
+
         return result
     }
 
