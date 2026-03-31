@@ -1877,7 +1877,7 @@ public actor FASTQDerivativeService {
 
     // MARK: - Materialization
 
-    private func materializeDatasetFASTQ(
+    func materializeDatasetFASTQ(
         fromBundle bundleURL: URL,
         tempDirectory: URL,
         progress: (@Sendable (String) -> Void)?

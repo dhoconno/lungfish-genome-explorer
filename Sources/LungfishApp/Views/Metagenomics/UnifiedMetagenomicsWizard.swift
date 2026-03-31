@@ -21,7 +21,7 @@ import LungfishWorkflow
 /// ## Two-Step Flow
 ///
 /// 1. **Choose Analysis Type**: User selects from the three analysis types.
-///    Each option shows a description, estimated runtime, and tool availability.
+///    Each option shows a description and tool availability.
 /// 2. **Tool Configuration**: The wizard shows the appropriate sub-wizard for
 ///    the selected tool.
 ///
@@ -78,9 +78,9 @@ struct UnifiedMetagenomicsWizard: View {
         /// SF Symbol name for the analysis type card.
         var symbolName: String {
             switch self {
-            case .classification: return "magnifyingglass"
-            case .viralDetection: return "ant"
-            case .clinicalTriage: return "stethoscope"
+            case .classification: return "k.circle"
+            case .viralDetection: return "e.circle"
+            case .clinicalTriage: return "t.circle"
             }
         }
 
@@ -97,20 +97,11 @@ struct UnifiedMetagenomicsWizard: View {
         var analysisDescription: String {
             switch self {
             case .classification:
-                return "Fast k-mer classification of sequencing reads. Assigns each read to a taxon and estimates community abundance using Kraken2 and Bracken."
+                return "Fast k-mer classification of sequencing reads. Assigns each read to a taxon and estimates community abundance using Kraken2 and Bracken. Fast and can classify many types of sequences but prone to false positives."
             case .viralDetection:
                 return "Virus-focused read mapping pipeline. Detects and quantifies viral pathogens with per-genome coverage metrics, consensus sequences, and iterative alignment."
             case .clinicalTriage:
-                return "End-to-end metagenomic classification with alignment validation and TASS confidence scoring. Supports multiple classifiers, host removal, and PDF reporting."
-            }
-        }
-
-        /// Estimated runtime for a typical sample.
-        var estimatedRuntime: String {
-            switch self {
-            case .classification: return "~2-5 min"
-            case .viralDetection: return "~10-20 min"
-            case .clinicalTriage: return "~20-45 min"
+                return "End-to-end metagenomic classification with alignment validation and TASS confidence scoring. Supports multiple classifiers, host removal, and PDF reporting. Can classify many types of sequences but prone to false negatives."
             }
         }
 
@@ -137,7 +128,7 @@ struct UnifiedMetagenomicsWizard: View {
                     Text(type.rawValue)
                         .font(.headline)
                 } else {
-                    Text("Metagenomics Analysis")
+                    Text("Classify Reads")
                         .font(.headline)
                 }
                 Spacer()
@@ -255,16 +246,6 @@ struct UnifiedMetagenomicsWizard: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-
-                    HStack {
-                        Image(systemName: "clock")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                        Text(type.estimatedRuntime)
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.top, 2)
                 }
             }
             .padding(12)

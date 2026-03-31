@@ -1257,7 +1257,7 @@ public class SidebarViewController: NSViewController {
             let item = SidebarItem(
                 title: title,
                 type: .esvirituResult,
-                icon: "ant",
+                icon: "e.circle",
                 children: [],
                 url: childURL
             )
@@ -1310,7 +1310,7 @@ public class SidebarViewController: NSViewController {
                     let childItem = SidebarItem(
                         title: record.sampleId,
                         type: .esvirituResult,
-                        icon: "ant",
+                        icon: "e.circle",
                         children: [],
                         url: resultURL,
                         subtitle: esvirituResultTitle(for: resultURL)
@@ -1331,7 +1331,7 @@ public class SidebarViewController: NSViewController {
                     let childItem = SidebarItem(
                         title: child.lastPathComponent,
                         type: .esvirituResult,
-                        icon: "ant",
+                        icon: "e.circle",
                         children: [],
                         url: child,
                         subtitle: esvirituResultTitle(for: child)
@@ -1405,7 +1405,7 @@ public class SidebarViewController: NSViewController {
                 let groupItem = SidebarItem(
                     title: "Comprehensive Triage",
                     type: .batchGroup,
-                    icon: "stethoscope",
+                    icon: "t.circle",
                     children: [],
                     url: childURL,
                     subtitle: "\(sampleCount) samples"
@@ -1441,7 +1441,7 @@ public class SidebarViewController: NSViewController {
                 let item = SidebarItem(
                     title: "Comprehensive Triage",
                     type: .taxTriageResult,
-                    icon: "stethoscope",
+                    icon: "t.circle",
                     children: [],
                     url: childURL
                 )
@@ -1470,7 +1470,7 @@ public class SidebarViewController: NSViewController {
                 let groupItem = SidebarItem(
                     title: "Comprehensive Triage",
                     type: .batchGroup,
-                    icon: "stethoscope",
+                    icon: "t.circle",
                     children: [],
                     url: resultDir,
                     subtitle: "\(sampleCount) samples"
@@ -1514,7 +1514,7 @@ public class SidebarViewController: NSViewController {
                 let item = SidebarItem(
                     title: "Comprehensive Triage",
                     type: .taxTriageResult,
-                    icon: "stethoscope",
+                    icon: "t.circle",
                     children: [],
                     url: resultDir
                 )

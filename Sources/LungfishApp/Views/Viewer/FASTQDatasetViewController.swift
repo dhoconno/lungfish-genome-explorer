@@ -166,9 +166,9 @@ public final class FASTQDatasetViewController: NSViewController {
             case .errorCorrection: return "wand.and.stars"
             case .orient: return "arrow.uturn.right"
             case .demultiplex: return "barcode"
-            case .classifyReads: return "list.bullet.indent"
-            case .detectViruses: return "allergens"
-            case .comprehensiveTriage: return "cross.case"
+            case .classifyReads: return "k.circle"
+            case .detectViruses: return "e.circle"
+            case .comprehensiveTriage: return "t.circle"
             case .humanReadScrub: return "person.slash"
             }
         }
@@ -885,11 +885,15 @@ public final class FASTQDatasetViewController: NSViewController {
         statusLabel.font = .systemFont(ofSize: 10)
         statusLabel.textColor = .tertiaryLabelColor
         statusLabel.lineBreakMode = .byTruncatingTail
+        statusLabel.maximumNumberOfLines = 1
+        statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         runBar.addSubview(statusLabel)
 
         outputEstimateLabel.font = .systemFont(ofSize: 11)
         outputEstimateLabel.textColor = .secondaryLabelColor
+        outputEstimateLabel.lineBreakMode = .byTruncatingTail
+        outputEstimateLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         outputEstimateLabel.translatesAutoresizingMaskIntoConstraints = false
         runBar.addSubview(outputEstimateLabel)
 
@@ -917,7 +921,7 @@ public final class FASTQDatasetViewController: NSViewController {
 
 
         let statusToEstimate = statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: outputEstimateLabel.leadingAnchor, constant: -8)
-        statusToEstimate.priority = .defaultLow
+        statusToEstimate.priority = .defaultHigh
 
         NSLayoutConstraint.activate([
             border.topAnchor.constraint(equalTo: runBar.topAnchor),
@@ -928,9 +932,11 @@ public final class FASTQDatasetViewController: NSViewController {
             statusLabel.leadingAnchor.constraint(equalTo: runBar.leadingAnchor, constant: 12),
             statusLabel.centerYAnchor.constraint(equalTo: runBar.centerYAnchor),
             statusToEstimate,
+            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: progressIndicator.leadingAnchor, constant: -8),
 
             outputEstimateLabel.centerXAnchor.constraint(equalTo: runBar.centerXAnchor),
             outputEstimateLabel.centerYAnchor.constraint(equalTo: runBar.centerYAnchor),
+            outputEstimateLabel.trailingAnchor.constraint(lessThanOrEqualTo: progressIndicator.leadingAnchor, constant: -8),
 
             progressIndicator.trailingAnchor.constraint(equalTo: cancelButton.leadingAnchor, constant: -8),
             progressIndicator.centerYAnchor.constraint(equalTo: runBar.centerYAnchor),
@@ -1805,11 +1811,17 @@ public final class FASTQDatasetViewController: NSViewController {
             computeQualityReport()
             return
         }
-        // All classification operations dispatch to the unified metagenomics wizard
-        if selectedOperation == .classifyReads
-            || selectedOperation == .detectViruses
-            || selectedOperation == .comprehensiveTriage {
-            NSApp.sendAction(#selector(ToolsMenuActions.classifyReads(_:)), to: nil, from: nil)
+        // Classification operations dispatch to tool-specific launch methods
+        if selectedOperation == .classifyReads {
+            NSApp.sendAction(#selector(AppDelegate.launchKraken2Classification(_:)), to: nil, from: nil)
+            return
+        }
+        if selectedOperation == .detectViruses {
+            NSApp.sendAction(#selector(AppDelegate.launchEsVirituDetection(_:)), to: nil, from: nil)
+            return
+        }
+        if selectedOperation == .comprehensiveTriage {
+            NSApp.sendAction(#selector(AppDelegate.launchTaxTriage(_:)), to: nil, from: nil)
             return
         }
         // Demux requires a configuration from the drawer
@@ -2416,16 +2428,16 @@ public final class FASTQDatasetViewController: NSViewController {
         case .qualityReport:
             // Disabled when data already exists or report is running
             runButton.isEnabled = !hasQualityData && qualityReportTask == nil
-            runButton.title = "Compute"
+            runButton.title = "Run"
         case .classifyReads:
             runButton.isEnabled = true
-            runButton.title = "Classify\u{2026}"
+            runButton.title = "Run"
         case .detectViruses:
             runButton.isEnabled = true
-            runButton.title = "Detect\u{2026}"
+            runButton.title = "Run"
         case .comprehensiveTriage:
             runButton.isEnabled = true
-            runButton.title = "Triage\u{2026}"
+            runButton.title = "Run"
         case .humanReadScrub:
             runButton.isEnabled = true
             runButton.title = "Run"

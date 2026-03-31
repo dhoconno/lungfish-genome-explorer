@@ -61,7 +61,11 @@ public class MainWindowController: NSWindowController {
     }
 
     private static func createMainWindow() -> NSWindow {
-        let contentRect = NSRect(x: 0, y: 0, width: 1200, height: 800)
+        let screen = NSScreen.main ?? NSScreen.screens.first
+        let screenFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let defaultWidth = min(screenFrame.width * 0.85, 1920)
+        let defaultHeight = min(screenFrame.height * 0.85, 1200)
+        let contentRect = NSRect(x: 0, y: 0, width: defaultWidth, height: defaultHeight)
 
         let styleMask: NSWindow.StyleMask = [
             .titled,

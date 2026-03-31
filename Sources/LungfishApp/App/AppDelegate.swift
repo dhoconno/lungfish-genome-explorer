@@ -3559,48 +3559,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
         guard let window = mainWindowController?.window else { return }
 
-        // Find FASTQ files from sidebar selection or loaded documents
-        var inputFiles: [URL] = []
-
-        // First, check the sidebar's selected items for FASTQ URLs
-        if let splitVC = mainWindowController?.mainSplitViewController {
-            let selectedURLs = splitVC.sidebarController.selectedFileURLs()
-            for url in selectedURLs {
-                let ext = url.pathExtension.lowercased()
-                let baseExt = url.deletingPathExtension().pathExtension.lowercased()
-                if ext == "fastq" || ext == "fq" ||
-                   (ext == "gz" && (baseExt == "fastq" || baseExt == "fq")) {
-                    inputFiles.append(url)
-                } else if ext == FASTQBundle.directoryExtension {
-                    // Resolve .lungfishfastq bundle to the actual FASTQ file inside
-                    if let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: url) {
-                        inputFiles.append(fastqURL)
-                    } else {
-                        debugLog("classifyReads: Could not resolve FASTQ inside bundle: \(url.path)")
-                    }
-                }
-            }
-        }
-
-        // Fallback: check DocumentManager for loaded FASTQ documents
-        if inputFiles.isEmpty {
-            for doc in DocumentManager.shared.documents {
-                let url = doc.url
-                let ext = url.pathExtension.lowercased()
-                let baseExt = url.deletingPathExtension().pathExtension.lowercased()
-                if ext == "fastq" || ext == "fq" ||
-                   (ext == "gz" && (baseExt == "fastq" || baseExt == "fq")) {
-                    inputFiles.append(url)
-                } else if ext == FASTQBundle.directoryExtension {
-                    // Resolve .lungfishfastq bundle to the actual FASTQ file inside
-                    if let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: url) {
-                        inputFiles.append(fastqURL)
-                    }
-                }
-            }
-        }
-
-        if inputFiles.isEmpty {
+        let bundleURLs = gatherClassificationBundleURLs()
+        guard !bundleURLs.isEmpty else {
             let alert = NSAlert()
             alert.messageText = "No FASTQ Selected"
             alert.informativeText = "Select a FASTQ file in the sidebar, then use Tools > Classify Reads to run metagenomic classification."
@@ -3610,35 +3570,63 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
-        // Present the unified metagenomics wizard (Kraken2, EsViritu, TaxTriage)
+        // Materialize virtual datasets before presenting the wizard so classifiers
+        // operate on the full FASTQ rather than the small preview file.
         Task { @MainActor [weak self] in
             guard let self else { return }
 
+            let tempDir: URL
+            do {
+                tempDir = try self.makeClassificationTempDirectory()
+            } catch {
+                debugLog("classifyReads: Failed to create temp dir - \(error)")
+                return
+            }
+
+            let inputFiles: [URL]
+            do {
+                inputFiles = try await self.resolveClassificationInputFiles(
+                    bundleURLs, tempDirectory: tempDir)
+            } catch {
+                try? FileManager.default.removeItem(at: tempDir)
+                debugLog("classifyReads: Materialization failed - \(error)")
+                return
+            }
+
+            guard !inputFiles.isEmpty else {
+                try? FileManager.default.removeItem(at: tempDir)
+                return
+            }
+
             let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
-            wizardPanel.title = "Metagenomics Analysis"
+            wizardPanel.title = "Classify Reads"
 
             var wizardView = UnifiedMetagenomicsWizard(inputFiles: inputFiles)
 
             wizardView.onRunClassification = { [weak self] configs in
                 window.endSheet(wizardPanel)
+                try? FileManager.default.removeItem(at: tempDir)
                 guard let self else { return }
                 self.runClassification(configs: configs, viewerController: viewerController)
             }
 
             wizardView.onRunEsViritu = { [weak self] configs in
                 window.endSheet(wizardPanel)
+                try? FileManager.default.removeItem(at: tempDir)
                 guard let self else { return }
                 self.runEsViritu(configs: configs, viewerController: viewerController)
             }
 
             wizardView.onRunTaxTriage = { [weak self] config in
                 window.endSheet(wizardPanel)
+                try? FileManager.default.removeItem(at: tempDir)
                 guard let self else { return }
                 self.runTaxTriage(config: config, viewerController: viewerController)
             }
 
             wizardView.onCancel = {
                 window.endSheet(wizardPanel)
+                try? FileManager.default.removeItem(at: tempDir)
             }
 
             let hostingController = NSHostingController(rootView: wizardView)
@@ -3646,6 +3634,303 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             wizardPanel.setContentSize(NSSize(width: 560, height: 680))
             await window.beginSheet(wizardPanel)
         }
+    }
+
+    // MARK: - Direct-Launch Classification Methods
+
+    /// Gathers FASTQ bundle URLs from the sidebar selection or loaded documents.
+    ///
+    /// Returns raw bundle URLs (not resolved to inner FASTQ files) so the caller
+    /// can decide whether to materialize virtual datasets.
+    private func gatherClassificationBundleURLs() -> [URL] {
+        var bundleURLs: [URL] = []
+
+        if let splitVC = mainWindowController?.mainSplitViewController {
+            let selectedURLs = splitVC.sidebarController.selectedFileURLs()
+            for url in selectedURLs {
+                let ext = url.pathExtension.lowercased()
+                let baseExt = url.deletingPathExtension().pathExtension.lowercased()
+                if ext == "fastq" || ext == "fq" ||
+                   (ext == "gz" && (baseExt == "fastq" || baseExt == "fq")) {
+                    bundleURLs.append(url)
+                } else if ext == FASTQBundle.directoryExtension {
+                    bundleURLs.append(url)
+                }
+            }
+        }
+
+        if bundleURLs.isEmpty {
+            for doc in DocumentManager.shared.documents {
+                let url = doc.url
+                let ext = url.pathExtension.lowercased()
+                let baseExt = url.deletingPathExtension().pathExtension.lowercased()
+                if ext == "fastq" || ext == "fq" ||
+                   (ext == "gz" && (baseExt == "fastq" || baseExt == "fq")) {
+                    bundleURLs.append(url)
+                } else if ext == FASTQBundle.directoryExtension {
+                    bundleURLs.append(url)
+                }
+            }
+        }
+
+        return bundleURLs
+    }
+
+    /// Resolves FASTQ input files for classification, materializing virtual datasets.
+    ///
+    /// Virtual bundles (subset, trim, demux derivatives) only contain `preview.fastq`
+    /// on disk (~1000 reads). This method detects virtual bundles and materializes the
+    /// full dataset by reconstructing it from the root bundle + read ID pointers.
+    ///
+    /// - Parameters:
+    ///   - bundleURLs: The `.lungfishfastq` bundle URLs (or raw FASTQ paths) to resolve.
+    ///   - tempDirectory: Directory for materialized temp files (caller cleans up).
+    ///   - progress: Optional callback for reporting materialization progress.
+    /// - Returns: Array of resolved FASTQ file URLs (physical or materialized).
+    private func resolveClassificationInputFiles(
+        _ bundleURLs: [URL],
+        tempDirectory: URL,
+        progress: (@Sendable (String) -> Void)? = nil
+    ) async throws -> [URL] {
+        var resolvedFiles: [URL] = []
+
+        for (index, bundleURL) in bundleURLs.enumerated() {
+            try Task.checkCancellation()
+
+            let bundleName = bundleURL.deletingPathExtension().lastPathComponent
+
+            // Non-bundle FASTQ files are used directly
+            guard bundleURL.pathExtension.lowercased() == FASTQBundle.directoryExtension else {
+                resolvedFiles.append(bundleURL)
+                continue
+            }
+
+            // Check if this is a derived (potentially virtual) bundle
+            if FASTQBundle.isDerivedBundle(bundleURL) {
+                progress?("Materializing \(bundleName) (\(index + 1)/\(bundleURLs.count))...")
+                let materializedURL = try await FASTQDerivativeService.shared.materializeDatasetFASTQ(
+                    fromBundle: bundleURL,
+                    tempDirectory: tempDirectory,
+                    progress: { msg in progress?(msg) }
+                )
+                resolvedFiles.append(materializedURL)
+            } else {
+                // Not a derived bundle -- use standard resolution
+                if let url = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL) {
+                    resolvedFiles.append(url)
+                }
+            }
+        }
+
+        return resolvedFiles
+    }
+
+    /// Launches Kraken2 classification directly (skipping the wizard chooser step).
+    ///
+    /// Called from the sidebar's "Run" button when the Classify Reads operation is selected.
+    @objc func launchKraken2Classification(_ sender: Any?) {
+        guard let viewerController = mainWindowController?.mainSplitViewController?.viewerController else { return }
+        guard let window = mainWindowController?.window else { return }
+
+        let bundleURLs = gatherClassificationBundleURLs()
+        guard !bundleURLs.isEmpty else {
+            let alert = NSAlert()
+            alert.messageText = "No FASTQ Selected"
+            alert.informativeText = "Select a FASTQ file in the sidebar, then run classification."
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "OK")
+            alert.beginSheetModal(for: window)
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            let tempDir: URL
+            do {
+                tempDir = try self.makeClassificationTempDirectory()
+            } catch {
+                debugLog("launchKraken2Classification: Failed to create temp dir - \(error)")
+                return
+            }
+
+            let resolvedFiles: [URL]
+            do {
+                resolvedFiles = try await self.resolveClassificationInputFiles(
+                    bundleURLs, tempDirectory: tempDir)
+            } catch {
+                try? FileManager.default.removeItem(at: tempDir)
+                debugLog("launchKraken2Classification: Materialization failed - \(error)")
+                return
+            }
+
+            guard !resolvedFiles.isEmpty else {
+                try? FileManager.default.removeItem(at: tempDir)
+                return
+            }
+
+            let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+            wizardPanel.title = "Classify Reads -- Kraken2"
+
+            var sheet = ClassificationWizardSheet(
+                inputFiles: resolvedFiles,
+                onRun: { [weak self] configs in
+                    window.endSheet(wizardPanel)
+                    try? FileManager.default.removeItem(at: tempDir)
+                    guard let self else { return }
+                    self.runClassification(configs: configs, viewerController: viewerController)
+                },
+                onCancel: {
+                    window.endSheet(wizardPanel)
+                    try? FileManager.default.removeItem(at: tempDir)
+                }
+            )
+
+            let hostingController = NSHostingController(rootView: sheet)
+            wizardPanel.contentViewController = hostingController
+            wizardPanel.setContentSize(NSSize(width: 560, height: 680))
+            await window.beginSheet(wizardPanel)
+        }
+    }
+
+    /// Launches EsViritu viral detection directly (skipping the wizard chooser step).
+    @objc func launchEsVirituDetection(_ sender: Any?) {
+        guard let viewerController = mainWindowController?.mainSplitViewController?.viewerController else { return }
+        guard let window = mainWindowController?.window else { return }
+
+        let bundleURLs = gatherClassificationBundleURLs()
+        guard !bundleURLs.isEmpty else {
+            let alert = NSAlert()
+            alert.messageText = "No FASTQ Selected"
+            alert.informativeText = "Select a FASTQ file in the sidebar, then run viral detection."
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "OK")
+            alert.beginSheetModal(for: window)
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            let tempDir: URL
+            do {
+                tempDir = try self.makeClassificationTempDirectory()
+            } catch {
+                debugLog("launchEsVirituDetection: Failed to create temp dir - \(error)")
+                return
+            }
+
+            let resolvedFiles: [URL]
+            do {
+                resolvedFiles = try await self.resolveClassificationInputFiles(
+                    bundleURLs, tempDirectory: tempDir)
+            } catch {
+                try? FileManager.default.removeItem(at: tempDir)
+                debugLog("launchEsVirituDetection: Materialization failed - \(error)")
+                return
+            }
+
+            guard !resolvedFiles.isEmpty else {
+                try? FileManager.default.removeItem(at: tempDir)
+                return
+            }
+
+            let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+            wizardPanel.title = "Classify Reads -- EsViritu"
+
+            var sheet = EsVirituWizardSheet(
+                inputFiles: resolvedFiles,
+                onRun: { [weak self] configs in
+                    window.endSheet(wizardPanel)
+                    try? FileManager.default.removeItem(at: tempDir)
+                    guard let self else { return }
+                    self.runEsViritu(configs: configs, viewerController: viewerController)
+                },
+                onCancel: {
+                    window.endSheet(wizardPanel)
+                    try? FileManager.default.removeItem(at: tempDir)
+                }
+            )
+
+            let hostingController = NSHostingController(rootView: sheet)
+            wizardPanel.contentViewController = hostingController
+            wizardPanel.setContentSize(NSSize(width: 560, height: 680))
+            await window.beginSheet(wizardPanel)
+        }
+    }
+
+    /// Launches TaxTriage comprehensive triage directly (skipping the wizard chooser step).
+    @objc func launchTaxTriage(_ sender: Any?) {
+        guard let viewerController = mainWindowController?.mainSplitViewController?.viewerController else { return }
+        guard let window = mainWindowController?.window else { return }
+
+        let bundleURLs = gatherClassificationBundleURLs()
+        guard !bundleURLs.isEmpty else {
+            let alert = NSAlert()
+            alert.messageText = "No FASTQ Selected"
+            alert.informativeText = "Select a FASTQ file in the sidebar, then run comprehensive triage."
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "OK")
+            alert.beginSheetModal(for: window)
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            let tempDir: URL
+            do {
+                tempDir = try self.makeClassificationTempDirectory()
+            } catch {
+                debugLog("launchTaxTriage: Failed to create temp dir - \(error)")
+                return
+            }
+
+            let resolvedFiles: [URL]
+            do {
+                resolvedFiles = try await self.resolveClassificationInputFiles(
+                    bundleURLs, tempDirectory: tempDir)
+            } catch {
+                try? FileManager.default.removeItem(at: tempDir)
+                debugLog("launchTaxTriage: Materialization failed - \(error)")
+                return
+            }
+
+            guard !resolvedFiles.isEmpty else {
+                try? FileManager.default.removeItem(at: tempDir)
+                return
+            }
+
+            let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+            wizardPanel.title = "Classify Reads -- TaxTriage"
+
+            var sheet = TaxTriageWizardSheet(
+                initialFiles: resolvedFiles,
+                onRun: { [weak self] config in
+                    window.endSheet(wizardPanel)
+                    try? FileManager.default.removeItem(at: tempDir)
+                    guard let self else { return }
+                    self.runTaxTriage(config: config, viewerController: viewerController)
+                },
+                onCancel: {
+                    window.endSheet(wizardPanel)
+                    try? FileManager.default.removeItem(at: tempDir)
+                }
+            )
+
+            let hostingController = NSHostingController(rootView: sheet)
+            wizardPanel.contentViewController = hostingController
+            wizardPanel.setContentSize(NSSize(width: 560, height: 680))
+            await window.beginSheet(wizardPanel)
+        }
+    }
+
+    /// Creates a temporary directory for classification materialization.
+    private func makeClassificationTempDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "lungfish-classify-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 
     /// Runs the classification pipeline, dispatching based on the config's goal.

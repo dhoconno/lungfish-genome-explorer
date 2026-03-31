@@ -38,7 +38,7 @@ import LungfishWorkflow
 /// | Classify Reads                                     |
 /// +----------------------------------------------------+
 /// | Goal:                                              |
-/// |   [magnifyingglass]  [chart.pie]  [scissors]       |
+/// |   [k.circle]  [chart.pie]  [scissors]       |
 /// |   Classify Reads     Profile      Extract          |
 /// +----------------------------------------------------+
 /// | Database: [ Standard-8 (8 GB, ~8 GB RAM)     v ]   |
@@ -105,7 +105,7 @@ struct ClassificationWizardSheet: View {
         /// SF Symbol name for this goal.
         var symbolName: String {
             switch self {
-            case .classify: return "magnifyingglass"
+            case .classify: return "k.circle"
             case .profile:  return "chart.pie"
             case .extract:  return "scissors"
             }

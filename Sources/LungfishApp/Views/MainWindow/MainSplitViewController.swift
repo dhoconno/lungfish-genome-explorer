@@ -2590,6 +2590,21 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                     self.requestInspectorDocumentModeAfterDownload()
                 }
             }
+        } catch is CancellationError {
+            let elapsed = Date().timeIntervalSince(startTime)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    OperationCenter.shared.log(
+                        id: opID, level: .info,
+                        message: "Cancelled after \(String(format: "%.1f", elapsed))s"
+                    )
+                    OperationCenter.shared.fail(
+                        id: opID,
+                        detail: "Cancelled by user"
+                    )
+                }
+            }
+            throw CancellationError()
         } catch {
             let elapsed = Date().timeIntervalSince(startTime)
             let errorDesc = error.localizedDescription
