@@ -1253,6 +1253,18 @@ public final class FASTQDatasetViewController: NSViewController {
                 parameterBar.addArrangedSubview(label)
             }
 
+        case .assembleReads:
+            let label = NSTextField(labelWithString: "Assemble reads de novo into contigs and scaffolds using SPAdes.")
+            label.font = .systemFont(ofSize: 11)
+            label.textColor = .secondaryLabelColor
+            parameterBar.addArrangedSubview(label)
+
+        case .mapReads:
+            let label = NSTextField(labelWithString: "Map reads to a reference genome using minimap2. Produces a sorted, indexed BAM file.")
+            label.font = .systemFont(ofSize: 11)
+            label.textColor = .secondaryLabelColor
+            parameterBar.addArrangedSubview(label)
+
         case .classifyReads:
             let label = NSTextField(labelWithString: "Run Kraken2/Bracken taxonomic classification and abundance profiling on this dataset.")
             label.font = .systemFont(ofSize: 11)
@@ -1267,6 +1279,12 @@ public final class FASTQDatasetViewController: NSViewController {
 
         case .comprehensiveTriage:
             let label = NSTextField(labelWithString: "Run TaxTriage end-to-end clinical metagenomics triage with confidence scoring.")
+            label.font = .systemFont(ofSize: 11)
+            label.textColor = .secondaryLabelColor
+            parameterBar.addArrangedSubview(label)
+
+        case .naoMgsImport:
+            let label = NSTextField(labelWithString: "Import results from NAO metagenomic surveillance pipeline (securebio/nao-mgs-workflow).")
             label.font = .systemFont(ofSize: 11)
             label.textColor = .secondaryLabelColor
             parameterBar.addArrangedSubview(label)
@@ -2351,6 +2369,18 @@ public final class FASTQDatasetViewController: NSViewController {
             let dbMask = orientMaskPopup.titleOfSelectedItem ?? "dust"
             let saveUnoriented = orientSaveUnorientedCheckbox.state == .on
             return .orient(referenceURL: refURL, wordLength: wordLength, dbMask: dbMask, saveUnoriented: saveUnoriented)
+
+        case .assembleReads:
+            // Assembly is dispatched via AssemblySheetPresenter; not a derivative operation
+            return nil
+
+        case .mapReads:
+            // Map Reads is dispatched via the MapReadsWizardSheet; not a derivative operation
+            return nil
+
+        case .naoMgsImport:
+            // NAO-MGS import is dispatched via the NaoMgsImportSheet; not a derivative operation
+            return nil
 
         case .demultiplex:
             guard let step = currentDemuxConfig else {

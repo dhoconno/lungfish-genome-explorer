@@ -130,17 +130,33 @@ struct AssembleCommand: AsyncParsableCommand {
             kmerSizes = nil
         }
 
+        // Split input files into forward/reverse/unpaired
+        let forwardReads: [URL]
+        let reverseReads: [URL]
+        let unpairedReads: [URL]
+        if pairedEnd && inputURLs.count == 2 {
+            forwardReads = [inputURLs[0]]
+            reverseReads = [inputURLs[1]]
+            unpairedReads = []
+        } else {
+            forwardReads = []
+            reverseReads = []
+            unpairedReads = inputURLs
+        }
+
         // Build config
         let config = SPAdesAssemblyConfig(
-            inputFiles: inputURLs,
-            outputDirectory: outputDirectory,
             mode: spadesMode,
-            maxMemoryGB: memory,
-            maxThreads: threads,
+            forwardReads: forwardReads,
+            reverseReads: reverseReads,
+            unpairedReads: unpairedReads,
             kmerSizes: kmerSizes,
-            performErrorCorrection: !noErrorCorrection,
-            careful: careful && spadesMode != .isolate,
+            memoryGB: memory,
+            threads: threads,
             minContigLength: minContigLength,
+            skipErrorCorrection: noErrorCorrection,
+            careful: careful && spadesMode != .isolate,
+            outputDirectory: outputDirectory,
             projectName: name
         )
 
@@ -161,9 +177,18 @@ struct AssembleCommand: AsyncParsableCommand {
         ]))
         print("")
 
+        // Create container runtime
+        guard let runtime = await NewContainerRuntimeFactory.createRuntime() else {
+            print(formatter.error("No container runtime available. SPAdes requires Apple Containers (macOS 26+)."))
+            throw ExitCode.failure
+        }
+
         // Run pipeline
         let pipeline = SPAdesAssemblyPipeline()
-        let result = try await pipeline.run(config: config) { fraction, message in
+        let result = try await pipeline.run(
+            config: config,
+            runtime: runtime as! AppleContainerRuntime
+        ) { fraction, message in
             if !globalOptions.quiet {
                 print("\r\(formatter.info(message))", terminator: "")
             }
@@ -174,25 +199,26 @@ struct AssembleCommand: AsyncParsableCommand {
         print("")
 
         // Print results
+        let stats = result.statistics
         print(formatter.header("Assembly Results"))
         print("")
         print(formatter.keyValueTable([
-            ("Contigs", "\(result.contigCount)"),
-            ("Total length", "\(result.totalLength) bp"),
-            ("N50", "\(result.n50) bp"),
-            ("Largest contig", "\(result.largestContig) bp"),
-            ("GC content", String(format: "%.1f%%", result.gcContent * 100)),
+            ("Contigs", "\(stats.contigCount)"),
+            ("Total length", "\(stats.totalLengthBP) bp"),
+            ("N50", "\(stats.n50) bp"),
+            ("Largest contig", "\(stats.largestContigBP) bp"),
+            ("GC content", String(format: "%.1f%%", stats.gcPercent)),
         ]))
         print("")
 
         // Print output files
         print(formatter.header("Output Files"))
-        print("  Contigs:    \(formatter.path(result.contigsURL.path))")
-        if let scaffolds = result.scaffoldsURL {
+        print("  Contigs:    \(formatter.path(result.contigsPath.path))")
+        if let scaffolds = result.scaffoldsPath {
             print("  Scaffolds:  \(formatter.path(scaffolds.path))")
         }
         print("")
-        print(formatter.success("Assembly completed in \(String(format: "%.1f", result.wallClockSeconds))s"))
+        print(formatter.success("Assembly completed in \(String(format: "%.1f", result.wallTimeSeconds))s"))
     }
 }
 

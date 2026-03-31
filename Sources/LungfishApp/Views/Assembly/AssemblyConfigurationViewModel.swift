@@ -2,11 +2,13 @@
 // Copyright (c) 2025 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import AppKit
 import Foundation
 import os.log
 import UserNotifications
 import LungfishWorkflow
 import LungfishIO
+import LungfishCore
 
 /// Logger for assembly runner operations.
 private let logger = Logger(subsystem: LogSubsystem.app, category: "AssemblyRunner")
@@ -105,7 +107,7 @@ public enum AssemblyRunner {
 
             await MainActor.run {
                 OperationCenter.shared.update(id: opID, progress: 0.02, detail: "Container runtime initialized")
-                OperationCenter.shared.log(id: opID, message: "Container runtime initialized")
+                OperationCenter.shared.log(id: opID, level: .info, message: "Container runtime initialized")
             }
 
             let pipeline = SPAdesAssemblyPipeline()
@@ -117,7 +119,7 @@ public enum AssemblyRunner {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         OperationCenter.shared.update(id: opID, progress: scaledProgress, detail: message)
-                        OperationCenter.shared.log(id: opID, message: message)
+                        OperationCenter.shared.log(id: opID, level: .info, message: message)
                     }
                 }
             }
@@ -132,7 +134,7 @@ public enum AssemblyRunner {
             // Clean intermediate files
             await MainActor.run {
                 OperationCenter.shared.update(id: opID, progress: 0.94, detail: "Cleaning intermediate files...")
-                OperationCenter.shared.log(id: opID, message: "Cleaning intermediate files")
+                OperationCenter.shared.log(id: opID, level: .info, message: "Cleaning intermediate files")
             }
             let freed = try? SPAdesAssemblyPipeline.cleanIntermediates(in: spadesOutputDir)
             if let freed {
@@ -142,7 +144,7 @@ public enum AssemblyRunner {
 
             await MainActor.run {
                 OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Creating reference bundle...")
-                OperationCenter.shared.log(id: opID, message: "Creating reference bundle")
+                OperationCenter.shared.log(id: opID, level: .info, message: "Creating reference bundle")
             }
 
             let inputRecords = config.allInputFiles.map { url in
@@ -166,7 +168,7 @@ public enum AssemblyRunner {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         OperationCenter.shared.update(id: opID, progress: overallFraction, detail: message)
-                        OperationCenter.shared.log(id: opID, message: message)
+                        OperationCenter.shared.log(id: opID, level: .info, message: message)
                     }
                 }
             }

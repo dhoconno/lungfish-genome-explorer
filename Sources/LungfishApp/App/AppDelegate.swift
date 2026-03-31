@@ -3545,24 +3545,23 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         let projectURL = sidebarController?.currentProjectURL
 
-        let sheet = MapReadsWizardSheet(
-            inputFiles: inputFiles,
-            projectURL: projectURL,
-            onRun: { [weak self] config in
-                window.endSheet(sheetWindow)
-                self?.runMinimap2Mapping(config: config)
-            },
-            onCancel: {
-                window.endSheet(sheetWindow)
-            }
-        )
+        let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: true)
+        wizardPanel.title = "Map Reads"
+        wizardPanel.isReleasedWhenClosed = false
+
+        var sheet = MapReadsWizardSheet(inputFiles: inputFiles, projectURL: projectURL)
+        sheet.onRun = { [weak self] config in
+            window.endSheet(wizardPanel)
+            self?.runMinimap2Mapping(config: config)
+        }
+        sheet.onCancel = {
+            window.endSheet(wizardPanel)
+        }
 
         let hostingController = NSHostingController(rootView: sheet)
-        let sheetWindow = NSPanel(contentViewController: hostingController)
-        sheetWindow.styleMask = [.titled, .closable]
-        sheetWindow.isReleasedWhenClosed = false
-        sheetWindow.setContentSize(NSSize(width: 520, height: 520))
-        window.beginSheet(sheetWindow)
+        wizardPanel.contentViewController = hostingController
+        wizardPanel.setContentSize(NSSize(width: 520, height: 520))
+        window.beginSheet(wizardPanel)
     }
 
     @objc func launchNaoMgsImport(_ sender: Any?) {
@@ -3571,22 +3570,23 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
-        let sheet = NaoMgsImportSheet(
-            onImport: { [weak self] resultsDir, sampleName in
-                window.endSheet(sheetWindow)
-                self?.importNaoMgsResults(directory: resultsDir, sampleName: sampleName)
-            },
-            onCancel: {
-                window.endSheet(sheetWindow)
-            }
-        )
+        let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: true)
+        wizardPanel.title = "NAO-MGS Import"
+        wizardPanel.isReleasedWhenClosed = false
+
+        var sheet = NaoMgsImportSheet(datasetURL: nil)
+        sheet.onImport = { [weak self] (resultsDir: URL, sampleName: String, convertToSAM: Bool, minIdentity: Double) in
+            window.endSheet(wizardPanel)
+            self?.importNaoMgsResults(directory: resultsDir, sampleName: sampleName)
+        }
+        sheet.onCancel = {
+            window.endSheet(wizardPanel)
+        }
 
         let hostingController = NSHostingController(rootView: sheet)
-        let sheetWindow = NSPanel(contentViewController: hostingController)
-        sheetWindow.styleMask = [.titled, .closable]
-        sheetWindow.isReleasedWhenClosed = false
-        sheetWindow.setContentSize(NSSize(width: 520, height: 400))
-        window.beginSheet(sheetWindow)
+        wizardPanel.contentViewController = hostingController
+        wizardPanel.setContentSize(NSSize(width: 520, height: 400))
+        window.beginSheet(wizardPanel)
     }
 
     @objc func launchOrientReads(_ sender: Any?) {
@@ -3614,24 +3614,23 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         let projectURL = sidebarController?.currentProjectURL
 
-        let sheet = OrientWizardSheet(
-            inputFiles: inputFiles,
-            projectURL: projectURL,
-            onRun: { [weak self] config in
-                window.endSheet(sheetWindow)
-                self?.runOrientReads(config: config)
-            },
-            onCancel: {
-                window.endSheet(sheetWindow)
-            }
-        )
+        let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: true)
+        wizardPanel.title = "Orient Reads"
+        wizardPanel.isReleasedWhenClosed = false
+
+        var sheet = OrientWizardSheet(inputFiles: inputFiles, projectURL: projectURL)
+        sheet.onRun = { [weak self] config in
+            window.endSheet(wizardPanel)
+            self?.runOrientReads(config: config)
+        }
+        sheet.onCancel = {
+            window.endSheet(wizardPanel)
+        }
 
         let hostingController = NSHostingController(rootView: sheet)
-        let sheetWindow = NSPanel(contentViewController: hostingController)
-        sheetWindow.styleMask = [.titled, .closable]
-        sheetWindow.isReleasedWhenClosed = false
-        sheetWindow.setContentSize(NSSize(width: 520, height: 480))
-        window.beginSheet(sheetWindow)
+        wizardPanel.contentViewController = hostingController
+        wizardPanel.setContentSize(NSSize(width: 520, height: 480))
+        window.beginSheet(wizardPanel)
     }
 
     private func runMinimap2Mapping(config: Minimap2Config) {
@@ -3646,7 +3645,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 let result = try await pipeline.run(config: config) { fraction, message in
                     DispatchQueue.main.async { MainActor.assumeIsolated {
                         OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
-                        OperationCenter.shared.log(id: opID, message: message)
+                        OperationCenter.shared.log(id: opID, level: .info, message: message)
                     }}
                 }
                 DispatchQueue.main.async { MainActor.assumeIsolated {
@@ -3673,7 +3672,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         Task.detached {
             do {
                 let parser = NaoMgsResultParser()
-                let naoResult = try parser.loadResults(from: directory, sampleName: sampleName)
+                let naoResult = try await parser.loadResults(from: directory, sampleName: sampleName)
 
                 // Convert to SAM for viewport display
                 let outputDir = directory.appendingPathComponent("lungfish-import")
@@ -3708,7 +3707,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 let result = try await pipeline.run(config: config) { fraction, message in
                     DispatchQueue.main.async { MainActor.assumeIsolated {
                         OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
-                        OperationCenter.shared.log(id: opID, message: message)
+                        OperationCenter.shared.log(id: opID, level: .info, message: message)
                     }}
                 }
                 DispatchQueue.main.async { MainActor.assumeIsolated {
