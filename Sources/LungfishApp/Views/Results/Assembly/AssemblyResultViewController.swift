@@ -14,6 +14,12 @@
 // SPAdesAssemblyResult because SPAdes is the first tool in this class.
 // Future tools will contribute a common AssemblyResult wrapper once those
 // pipelines are added.
+//
+// ## BLAST integration (Track C)
+// Contig rows support right-click context menu BLAST submission via the
+// BlastVerifiable protocol. Sequence extraction is deferred (file I/O);
+// empty sequences are passed for now with a TODO. The parent controller
+// sets onBlastVerification to route requests through BlastService.
 
 import AppKit
 import LungfishWorkflow
@@ -27,6 +33,13 @@ import LungfishIO
 /// class (Track A4). Shows assembly statistics, a sortable contig table,
 /// and a summary bar for tools that produce assembled contig FASTA files.
 ///
+/// ## BLAST support
+/// The contig table provides a right-click context menu for BLAST submission.
+/// Conformance to ``BlastVerifiable`` allows the parent controller to wire
+/// `onBlastVerification` and route requests through ``BlastService``.
+/// Actual per-contig sequence extraction is deferred pending file I/O work;
+/// the current implementation submits an empty sequence list as a placeholder.
+///
 /// ## Current state
 /// This is a **stub** implementation. The contig table lists each contig
 /// by name, length, and the assembly-level GC content. An Nx plot and
@@ -37,6 +50,7 @@ import LungfishIO
 /// ```swift
 /// let vc = AssemblyResultViewController()
 /// vc.configure(result: spadesResult)
+/// vc.onBlastVerification = { request in /* route to BlastService */ }
 /// addChild(vc)
 /// ```
 @MainActor
@@ -46,6 +60,14 @@ public final class AssemblyResultViewController: NSViewController {
 
     /// The most recently configured assembly result.
     private(set) var currentResult: SPAdesAssemblyResult?
+
+    // MARK: - BlastVerifiable callback
+
+    /// Callback fired when the user requests BLAST verification of selected contigs.
+    ///
+    /// Set by the parent controller (e.g., ``ViewerViewController``) to route
+    /// the ``BlastRequest`` through ``BlastService``.
+    public var onBlastVerification: ((BlastRequest) -> Void)?
 
     // MARK: - Contig table data
 
@@ -110,7 +132,8 @@ public final class AssemblyResultViewController: NSViewController {
         tv.usesAlternatingRowBackgroundColors = true
         tv.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         tv.allowsColumnSelection = false
-        tv.allowsMultipleSelection = false
+        // Multiple selection enabled for multi-contig BLAST (Track C2)
+        tv.allowsMultipleSelection = true
 
         let rankCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("rank"))
         rankCol.title = "#"
@@ -150,6 +173,7 @@ public final class AssemblyResultViewController: NSViewController {
 
         tableView.dataSource = self
         tableView.delegate = self
+        tableView.menu = buildContextMenu()
         scrollView.documentView = tableView
 
         view.addSubview(summaryBar)
@@ -173,6 +197,114 @@ public final class AssemblyResultViewController: NSViewController {
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
+    }
+
+    // MARK: - Context Menu
+
+    /// Builds the right-click context menu for the contig table.
+    ///
+    /// The BLAST item title is updated dynamically in ``menuNeedsUpdate(_:)``
+    /// to reflect the current selection count.
+    private func buildContextMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.delegate = self
+
+        let blastItem = NSMenuItem(
+            title: "BLAST Selected Contig",
+            action: #selector(blastSelectedContigs),
+            keyEquivalent: ""
+        )
+        blastItem.target = self
+        blastItem.tag = 1   // tag 1 = BLAST item; updated by menuNeedsUpdate
+
+        let separator = NSMenuItem.separator()
+
+        let copySeqItem = NSMenuItem(
+            title: "Copy Sequence",
+            action: #selector(copySequenceStub),
+            keyEquivalent: ""
+        )
+        copySeqItem.target = self
+
+        let copyNameItem = NSMenuItem(
+            title: "Copy Name",
+            action: #selector(copyContigName),
+            keyEquivalent: ""
+        )
+        copyNameItem.target = self
+
+        let exportItem = NSMenuItem(
+            title: "Export as FASTA...",
+            action: #selector(exportAsFASTAStub),
+            keyEquivalent: ""
+        )
+        exportItem.target = self
+
+        menu.addItem(blastItem)
+        menu.addItem(separator)
+        menu.addItem(copySeqItem)
+        menu.addItem(copyNameItem)
+        menu.addItem(exportItem)
+
+        return menu
+    }
+
+    // MARK: - Context Menu Actions
+
+    /// Submits the selected contigs for BLAST verification.
+    ///
+    /// Builds a ``BlastRequest`` from the current selection and fires
+    /// ``onBlastVerification``. Actual sequence bytes are deferred pending
+    /// file I/O work; `sequences` is empty for now.
+    ///
+    /// TODO: Extract per-contig FASTA sequences from the assembly bundle's
+    /// `contigs.fasta.gz` using `BgzipIndexedFASTAReader` before calling
+    /// `onBlastVerification`.
+    @objc private func blastSelectedContigs() {
+        let selectedIndices = tableView.selectedRowIndexes
+        guard !selectedIndices.isEmpty else { return }
+
+        let selectedRows = selectedIndices.compactMap { idx -> ContigRow? in
+            guard idx < contigRows.count else { return nil }
+            return contigRows[idx]
+        }
+        guard !selectedRows.isEmpty else { return }
+
+        let sourceLabel: String
+        if selectedRows.count == 1, let first = selectedRows.first {
+            sourceLabel = "contig \(first.name)"
+        } else {
+            sourceLabel = "\(selectedRows.count) contigs"
+        }
+
+        // TODO: populate sequences from assembly FASTA bundle (file I/O deferred)
+        let request = BlastRequest(
+            taxId: nil,
+            sequences: [],
+            readCount: selectedRows.count,
+            sourceLabel: sourceLabel
+        )
+
+        onBlastVerification?(request)
+    }
+
+    /// Stub: copies a placeholder until real sequence extraction is wired up.
+    @objc private func copySequenceStub() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("(sequence extraction not yet implemented)", forType: .string)
+    }
+
+    /// Copies the first selected contig's name to the clipboard.
+    @objc private func copyContigName() {
+        let firstIdx = tableView.selectedRowIndexes.first
+        guard let idx = firstIdx, idx < contigRows.count else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(contigRows[idx].name, forType: .string)
+    }
+
+    /// Stub: export as FASTA is deferred until sequence extraction is available.
+    @objc private func exportAsFASTAStub() {
+        // TODO: open NSSavePanel and write per-contig FASTA from assembly bundle
     }
 
     // MARK: - Private helpers
@@ -270,6 +402,42 @@ extension AssemblyResultViewController: ResultViewportController {
             code: -1,
             userInfo: [NSLocalizedDescriptionKey: "Assembly export not yet implemented"]
         )
+    }
+}
+
+// MARK: - BlastVerifiable
+
+extension AssemblyResultViewController: BlastVerifiable {
+    // onBlastVerification is declared as a stored property on the main class body above.
+    // This extension satisfies the BlastVerifiable protocol conformance.
+}
+
+// MARK: - NSMenuDelegate
+
+extension AssemblyResultViewController: NSMenuDelegate {
+
+    /// Updates the BLAST menu item title to reflect the current selection count
+    /// before the menu is shown.
+    public func menuNeedsUpdate(_ menu: NSMenu) {
+        guard let blastItem = menu.items.first(where: { $0.tag == 1 }) else { return }
+
+        let selectionCount = tableView.selectedRowIndexes.count
+        switch selectionCount {
+        case 0:
+            blastItem.title = "BLAST Selected Contig"
+            blastItem.isEnabled = false
+        case 1:
+            blastItem.title = "BLAST Selected Contig"
+            blastItem.isEnabled = true
+        default:
+            blastItem.title = "BLAST Selected Contigs (\(selectionCount))"
+            blastItem.isEnabled = true
+        }
+
+        // Copy Name is only meaningful for a single selection
+        if let copyNameItem = menu.items.first(where: { $0.action == #selector(copyContigName) }) {
+            copyNameItem.isEnabled = selectionCount == 1
+        }
     }
 }
 
