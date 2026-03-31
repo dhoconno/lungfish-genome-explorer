@@ -857,22 +857,23 @@ public class SidebarViewController: NSViewController {
             }
 
             // Scan for classification result directories (classification-XXXXXXXX/).
-            // These contain Kraken2 kreport/kraken output from metagenomics classification.
-            let classificationChildren = collectClassificationResults(in: url)
-            item.children.append(contentsOf: classificationChildren)
-            let classificationBatchGroups = collectClassificationBatchResults(in: url)
-            item.children.append(contentsOf: classificationBatchGroups)
+            // Results may be at the bundle root OR inside derivatives/.
+            for scanDir in [url, url.appendingPathComponent("derivatives", isDirectory: true)] {
+                let classificationChildren = collectClassificationResults(in: scanDir)
+                item.children.append(contentsOf: classificationChildren)
+                let classificationBatchGroups = collectClassificationBatchResults(in: scanDir)
+                item.children.append(contentsOf: classificationBatchGroups)
 
-            // Scan for EsViritu result directories (esviritu-XXXXXXXX/).
-            // These contain viral detection output from EsViritu runs.
-            let esvirituChildren = collectEsVirituResults(in: url)
-            item.children.append(contentsOf: esvirituChildren)
-            let esvirituBatchGroups = collectEsVirituBatchResults(in: url)
-            item.children.append(contentsOf: esvirituBatchGroups)
+                // Scan for EsViritu result directories (esviritu-XXXXXXXX/).
+                let esvirituChildren = collectEsVirituResults(in: scanDir)
+                item.children.append(contentsOf: esvirituChildren)
+                let esvirituBatchGroups = collectEsVirituBatchResults(in: scanDir)
+                item.children.append(contentsOf: esvirituBatchGroups)
 
-            // Scan for TaxTriage result directories (taxtriage-XXXXXXXX/).
-            let taxTriageChildren = collectTaxTriageResults(in: url)
-            item.children.append(contentsOf: taxTriageChildren)
+                // Scan for TaxTriage result directories (taxtriage-XXXXXXXX/).
+                let taxTriageChildren = collectTaxTriageResults(in: scanDir)
+                item.children.append(contentsOf: taxTriageChildren)
+            }
 
             // Scan for extracted read bundles (.lungfishfastq) at the top level.
             // These are created by taxonomy extraction and don't live in derivatives/.
@@ -971,9 +972,15 @@ public class SidebarViewController: NSViewController {
     }
 
     /// Returns true for internal sidecar/metadata files that should be hidden from the sidebar.
+    ///
+    /// Hides all JSON files (internal metadata), Lungfish sidecar files, and
+    /// CSV metadata used for sample tracking. Users interact with these via
+    /// the Inspector and Operations Panel, not the file browser.
     private func isInternalSidecarFile(_ url: URL) -> Bool {
         let name = url.lastPathComponent
-        return name.hasSuffix(".lungfish-meta.json")
+        let ext = url.pathExtension.lowercased()
+        return ext == "json"
+            || name.hasSuffix(".lungfish-meta.json")
             || name == FASTQBundleCSVMetadata.filename
     }
 

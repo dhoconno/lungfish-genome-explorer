@@ -3968,6 +3968,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                                 progress: max(0, min(1, progress)),
                                 detail: message
                             )
+                            OperationCenter.shared.log(id: opID, level: .info, message: message)
                         }
                     }
                 }
@@ -4099,6 +4100,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                                     progress: max(0, min(1, progress)),
                                     detail: message
                                 )
+                                OperationCenter.shared.log(id: opID, level: .info, message: message)
                             }
                         }
                     }
@@ -4650,6 +4652,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                                     progress: max(0, min(1, progress)),
                                     detail: message
                                 )
+                                OperationCenter.shared.log(id: opID, level: .info, message: message)
                             }
                         }
                     }
