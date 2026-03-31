@@ -3986,7 +3986,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     // Display the NAO-MGS result viewer
                     if let viewerController {
                         let resultVC = NaoMgsResultViewController()
-                        resultVC.configure(result: naoResult)
+                        resultVC.configure(result: naoResult, bundleURL: outputDir)
                         viewerController.displayNaoMgsResult(resultVC)
                     }
 

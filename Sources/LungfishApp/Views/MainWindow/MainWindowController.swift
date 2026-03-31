@@ -159,19 +159,19 @@ public class MainWindowController: NSWindowController {
             case ToolbarIdentifier.translateTool:
                 // Translation is only relevant for genomic sequences
                 let visible = (mode == .genomics || mode == .empty)
-                (item.view as? NSButton)?.isHidden = !visible
+                item.isHidden = !visible
                 item.isEnabled = visible
 
             case ToolbarIdentifier.toggleChromosomeDrawer:
                 // Chromosome drawer is only relevant for genomic bundles
                 let visible = (mode == .genomics || mode == .empty)
-                (item.view as? NSButton)?.isHidden = !visible
+                item.isHidden = !visible
                 item.isEnabled = visible
 
             case ToolbarIdentifier.toggleAnnotationDrawer:
                 // Bottom drawer is relevant for genomics (annotations) and metagenomics (BLAST/samples)
                 let visible = (mode != .empty)
-                (item.view as? NSButton)?.isHidden = !visible
+                item.isHidden = !visible
                 item.isEnabled = visible
 
                 // Update tooltip based on mode

@@ -70,6 +70,11 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         hideQuickLookPreview()
         hideFASTQDatasetView()
         hideVCFDatasetView()
+        hideFASTACollectionView()
+        hideTaxonomyView()
+        hideEsVirituView()
+        hideTaxTriageView()
+        hideNaoMgsView()
 
         // Get chromosome list: from genome if available, otherwise synthesize from variant databases
         var chromosomes = manifest.genome?.chromosomes ?? []

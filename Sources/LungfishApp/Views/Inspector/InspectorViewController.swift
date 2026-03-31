@@ -1451,6 +1451,10 @@ private struct MetagenomicsResultSummarySection: View {
                 metadataRow("Assembly", value: manifest.source.assembly)
             }
 
+            if let naoManifest = viewModel.naoMgsManifest {
+                naoMgsSection(naoManifest)
+            }
+
             if viewModel.hasAnyContent {
                 Text("See the viewer for detailed results. Use the bottom drawer for BLAST verification and sample navigation.")
                     .font(.caption)
@@ -1459,6 +1463,35 @@ private struct MetagenomicsResultSummarySection: View {
                 Text("Select a metagenomics result in the sidebar to view its summary here.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func naoMgsSection(_ manifest: NaoMgsManifest) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("NAO-MGS Result")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.primary)
+
+            metadataRow("Sample", value: manifest.sampleName)
+            metadataRow("Virus Hits", value: "\(manifest.hitCount)")
+            metadataRow("Unique Taxa", value: "\(manifest.taxonCount)")
+            if let topTaxon = manifest.topTaxon {
+                metadataRow("Top Taxon", value: topTaxon)
+            }
+            if let version = manifest.workflowVersion {
+                metadataRow("Workflow", value: "NAO-MGS v\(version)")
+            }
+            metadataRow("Source", value: (manifest.sourceFilePath as NSString).lastPathComponent)
+            metadataRow("Imported", value: {
+                let formatter = DateFormatter()
+                formatter.dateStyle = .medium
+                formatter.timeStyle = .short
+                return formatter.string(from: manifest.importDate)
+            }())
+            if !manifest.fetchedAccessions.isEmpty {
+                metadataRow("References", value: "\(manifest.fetchedAccessions.count) fetched")
             }
         }
     }

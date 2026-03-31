@@ -1856,7 +1856,11 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                     MainActor.assumeIsolated {
                         guard let self else { return }
                         // Configure the already-displayed placeholder VC with real data.
-                        placeholderVC.configure(result: naoResult)
+                        placeholderVC.configure(result: naoResult, bundleURL: bundleURL)
+
+                        // Update inspector with NAO-MGS manifest info
+                        self.inspectorController?.documentSectionViewModel.updateNaoMgsManifest(manifest)
+
                         logger.info("displayNaoMgsResult: Configured with \(naoResult.totalHitReads) hits, \(enrichedSummaries.count) taxa")
                     }
                 }

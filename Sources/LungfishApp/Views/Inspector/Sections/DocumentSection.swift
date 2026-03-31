@@ -85,9 +85,19 @@ public final class DocumentSectionViewModel {
         self.fastqDerivativeManifest = manifest
     }
 
-    /// Whether any content is available for display (bundle, FASTQ, or SRA metadata).
+    // MARK: - NAO-MGS Metadata
+
+    /// NAO-MGS manifest when displaying a surveillance result.
+    var naoMgsManifest: NaoMgsManifest?
+
+    /// Updates the view model with NAO-MGS manifest data.
+    func updateNaoMgsManifest(_ manifest: NaoMgsManifest?) {
+        self.naoMgsManifest = manifest
+    }
+
+    /// Whether any content is available for display (bundle, FASTQ, SRA, or NAO-MGS metadata).
     var hasAnyContent: Bool {
-        manifest != nil || fastqStatistics != nil || sraRunInfo != nil || enaReadRecord != nil
+        manifest != nil || fastqStatistics != nil || sraRunInfo != nil || enaReadRecord != nil || naoMgsManifest != nil
     }
 }
 

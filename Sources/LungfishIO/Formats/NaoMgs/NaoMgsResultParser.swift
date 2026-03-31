@@ -494,7 +494,15 @@ public final class NaoMgsResultParser: @unchecked Sendable {
                 subjectTitle: stringField(fields, map.subjectTitle),
                 bitScore: effectiveBitScore,
                 eValue: doubleField(fields, map.eValue),
-                percentIdentity: doubleField(fields, map.percentIdentity),
+                percentIdentity: {
+                    // v1 format has explicit pident column; v2 derives from edit distance
+                    let pident = doubleField(fields, map.percentIdentity)
+                    if pident > 0 { return pident }
+                    // Derive identity from edit distance: identity = (1 - editDist/queryLen) * 100
+                    let effectiveLen = qLen > 0 ? qLen : readSeq.count
+                    guard effectiveLen > 0 else { return 0 }
+                    return max(0, (1.0 - Double(editDist) / Double(effectiveLen)) * 100.0)
+                }(),
                 editDistance: editDist,
                 fragmentLength: fragLen,
                 isReverseComplement: isRC,
