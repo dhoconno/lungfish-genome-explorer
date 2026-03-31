@@ -252,12 +252,17 @@ public struct NaoMgsResult: Sendable {
 /// strings or zero values rather than parse errors.
 public final class NaoMgsResultParser: @unchecked Sendable {
 
-    /// Expected column names in the virus_hits_final.tsv header.
+    /// Required columns — at least `seq_id` and `sample` must be present.
+    /// Taxonomy ID can come from `taxid` OR `aligner_taxid_lca`.
     private static let requiredColumns: Set<String> = [
-        "sample", "seq_id", "taxid"
+        "sample", "seq_id"
     ]
 
     /// Maps header names to their column indices.
+    ///
+    /// Supports both the original NAO-MGS column names (v1.x with `taxid`,
+    /// `sseqid`, `cigar`, etc.) and the current format (v2.x with
+    /// `aligner_taxid_lca`, `prim_align_genome_id_all`, etc.).
     private struct ColumnMap {
         let sample: Int
         let seqId: Int
@@ -275,6 +280,12 @@ public final class NaoMgsResultParser: @unchecked Sendable {
         let bitScore: Int?
         let eValue: Int?
         let percentIdentity: Int?
+        // v2 columns
+        let queryLen: Int?
+        let queryRC: Int?
+        let editDistance: Int?
+        let fragmentLength: Int?
+        let pairStatus: Int?
 
         init(headers: [String]) throws {
             var map: [String: Int] = [:]
@@ -291,22 +302,54 @@ public final class NaoMgsResultParser: @unchecked Sendable {
                 }
             }
 
+            // Taxonomy ID: try `taxid` first, then `aligner_taxid_lca`, then `aligner_taxid_top`
+            guard let taxIdIdx = map["taxid"] ?? map["aligner_taxid_lca"] ?? map["aligner_taxid_top"] else {
+                throw NaoMgsError.invalidHeader(
+                    "Missing taxonomy column. Need 'taxid', 'aligner_taxid_lca', or 'aligner_taxid_top'. Found: \(headers.joined(separator: ", "))"
+                )
+            }
+
             self.sample = map["sample"]!
             self.seqId = map["seq_id"]!
-            self.taxId = map["taxid"]!
+            self.taxId = taxIdIdx
+
+            // Alignment score: v1 `best_alignment_score` or v2 `prim_align_best_alignment_score`
             self.bestAlignmentScore = map["best_alignment_score"]
+                ?? map["prim_align_best_alignment_score"]
+                ?? map["aligner_length_normalized_score_mean"]
+
+            // CIGAR: v1 only (v2 doesn't have explicit CIGAR)
             self.cigar = map["cigar"]
+
+            // Query coordinates: v1 only
             self.queryStart = map["query_start"]
             self.queryEnd = map["query_end"]
-            self.refStart = map["ref_start"]
+
+            // Reference start: v1 `ref_start` or v2 `prim_align_ref_start`
+            self.refStart = map["ref_start"] ?? map["prim_align_ref_start"]
             self.refEnd = map["ref_end"]
-            self.readSequence = map["read_sequence"]
-            self.readQuality = map["read_quality"]
-            self.subjectSeqId = map["sseqid"]
+
+            // Sequence and quality: v1 `read_sequence`/`read_quality` or v2 `query_seq`/`query_qual`
+            self.readSequence = map["read_sequence"] ?? map["query_seq"]
+            self.readQuality = map["read_quality"] ?? map["query_qual"]
+
+            // Subject/reference ID: v1 `sseqid` or v2 `prim_align_genome_id_all`
+            self.subjectSeqId = map["sseqid"] ?? map["prim_align_genome_id_all"]
+
+            // Subject title: v1 only
             self.subjectTitle = map["stitle"]
+
+            // BLAST scores: v1 only (v2 uses alignment scores instead)
             self.bitScore = map["bitscore"]
             self.eValue = map["evalue"]
             self.percentIdentity = map["pident"]
+
+            // v2-specific columns
+            self.queryLen = map["query_len"]
+            self.queryRC = map["prim_align_query_rc"]
+            self.editDistance = map["prim_align_edit_distance"]
+            self.fragmentLength = map["prim_align_fragment_length"]
+            self.pairStatus = map["prim_align_pair_status"]
         }
     }
 
@@ -361,17 +404,36 @@ public final class NaoMgsResultParser: @unchecked Sendable {
                 continue
             }
 
-            guard let taxId = Int(fields[map.taxId]) else {
-                logger.warning("Skipping line \(lineNumber): invalid taxid '\(fields[map.taxId])'")
+            let taxIdStr = fields[map.taxId]
+            guard let taxId = Int(taxIdStr) else {
+                // Some rows may have "NA" for taxonomy — skip them
+                if taxIdStr != "NA" {
+                    logger.warning("Skipping line \(lineNumber): invalid taxid '\(taxIdStr)'")
+                }
                 continue
             }
+
+            // For v2 format, synthesize a CIGAR from query_len if no explicit cigar column
+            var cigar = stringField(fields, map.cigar)
+            if cigar.isEmpty {
+                let queryLen = intField(fields, map.queryLen)
+                if queryLen > 0 {
+                    cigar = "\(queryLen)M"  // Simple full-length match
+                }
+            }
+
+            // For v2 format, derive alignment score from available fields
+            let alignScore = doubleField(fields, map.bestAlignmentScore)
+            // Use alignment score as proxy for bit score if no explicit bitscore column
+            let bitScore = doubleField(fields, map.bitScore)
+            let effectiveBitScore = bitScore > 0 ? bitScore : alignScore
 
             let hit = NaoMgsVirusHit(
                 sample: fields[map.sample],
                 seqId: fields[map.seqId],
                 taxId: taxId,
-                bestAlignmentScore: doubleField(fields, map.bestAlignmentScore),
-                cigar: stringField(fields, map.cigar),
+                bestAlignmentScore: alignScore,
+                cigar: cigar,
                 queryStart: intField(fields, map.queryStart),
                 queryEnd: intField(fields, map.queryEnd),
                 refStart: intField(fields, map.refStart),
@@ -380,7 +442,7 @@ public final class NaoMgsResultParser: @unchecked Sendable {
                 readQuality: stringField(fields, map.readQuality),
                 subjectSeqId: stringField(fields, map.subjectSeqId),
                 subjectTitle: stringField(fields, map.subjectTitle),
-                bitScore: doubleField(fields, map.bitScore),
+                bitScore: effectiveBitScore,
                 eValue: doubleField(fields, map.eValue),
                 percentIdentity: doubleField(fields, map.percentIdentity)
             )
@@ -404,14 +466,31 @@ public final class NaoMgsResultParser: @unchecked Sendable {
     public func loadResults(from directory: URL, sampleName: String? = nil) async throws -> NaoMgsResult {
         let fm = FileManager.default
 
-        // Search for virus_hits_final.tsv.gz or .tsv
-        let candidates = [
-            directory.appendingPathComponent("virus_hits_final.tsv.gz"),
-            directory.appendingPathComponent("virus_hits_final.tsv"),
-        ]
+        // If the user passed a file directly (not a directory), use it
+        var isDir: ObjCBool = false
+        let virusHitsFile: URL
+        if fm.fileExists(atPath: directory.path, isDirectory: &isDir), !isDir.boolValue {
+            // It's a file, not a directory
+            virusHitsFile = directory
+        } else {
+            // Search for virus_hits files in the directory
+            // Try standard name first, then any *virus_hits*.tsv.gz pattern
+            let candidates = [
+                directory.appendingPathComponent("virus_hits_final.tsv.gz"),
+                directory.appendingPathComponent("virus_hits_final.tsv"),
+            ]
 
-        guard let virusHitsFile = candidates.first(where: { fm.fileExists(atPath: $0.path) }) else {
-            throw NaoMgsError.missingResultFiles(directory)
+            if let found = candidates.first(where: { fm.fileExists(atPath: $0.path) }) {
+                virusHitsFile = found
+            } else if let contents = try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil),
+                      let match = contents.first(where: {
+                          let name = $0.lastPathComponent.lowercased()
+                          return name.contains("virus_hits") && (name.hasSuffix(".tsv") || name.hasSuffix(".tsv.gz"))
+                      }) {
+                virusHitsFile = match
+            } else {
+                throw NaoMgsError.missingResultFiles(directory)
+            }
         }
 
         let hits = try await parseVirusHits(at: virusHitsFile)
