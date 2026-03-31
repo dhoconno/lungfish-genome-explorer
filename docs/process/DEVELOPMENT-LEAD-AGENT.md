@@ -235,6 +235,70 @@ LungfishCLI       — Command-line interface (ArgumentParser)
 - Operations Panel shows user-friendly error messages
 - CLI shows detailed error with `--verbose`, concise error otherwise
 
+### Dialog Design Standards (REQUIRED for all sheets/panels)
+
+All tool dialogs MUST follow this template. The reference implementation is
+`ClassificationWizardSheet.swift` (Kraken2 dialog). Copy its structure when
+creating new dialogs for read mappers, assemblers, or any other tool.
+
+```
+┌─────────────────────────────────────────────┐
+│ [K]  Tool Name                  DatasetName │  ← 20px padding, 16px top
+│      One-line subtitle                      │     Icon + headline + caption
+├─────────────────────────────────────────────┤
+│                                             │
+│ Section Header                              │  ← 20px horizontal, 16px spacing
+│ [Control]                                   │
+│ Helper text                                 │
+│                                             │
+│ ─────────────────────────────────           │
+│                                             │
+│ Section Header                              │
+│ [Control]                                   │
+│                                             │
+│ ─────────────────────────────────           │
+│                                             │
+│ ▶ Advanced Settings (disclosure, collapsed) │
+│                                             │
+├─────────────────────────────────────────────┤
+│                       [Cancel]  [[Run]]     │  ← 20px padding, 12px vertical
+└─────────────────────────────────────────────┘
+```
+
+**Header pattern** (every dialog):
+```swift
+HStack(spacing: 10) {
+    Image(systemName: "k.circle")          // Tool letter icon
+        .font(.system(size: 20))
+        .foregroundStyle(Color.accentColor)
+    VStack(alignment: .leading, spacing: 2) {
+        Text("Kraken2 Classification")     // Tool identity — .headline
+            .font(.headline)
+        Text("One-line description")       // Subtitle — .caption, .secondary
+            .font(.caption)
+            .foregroundStyle(.secondary)
+    }
+    Spacer()
+    Text(datasetDisplayName)               // Dataset name (NOT "preview.fastq")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+}
+```
+
+**Rules:**
+- **Presentation**: Always `NSPanel` + `NSHostingController` + `window.beginSheet()`. NEVER `runModal()`.
+- **Sizing**: Width 480–520px. Height 400–520px. Do NOT use 680px+ — dialogs must be compact.
+- **Tool identity**: Every dialog header shows the tool's letter icon (`k.circle`, `e.circle`, `t.circle`, or equivalent for new tools like `b.circle` for BWA) + tool name as headline + one-line subtitle.
+- **Dataset display name**: Show the bundle/dataset name (e.g., "SRR35520572"), NEVER "preview.fastq". Use `url.deletingPathExtension().lastPathComponent` to strip `.lungfishfastq`.
+- **Sections**: Separated by `Divider()`, each with a section header label.
+- **Advanced settings**: Behind `DisclosureGroup("Advanced Settings")` — collapsed by default.
+- **Buttons**: `Cancel` = `.keyboardShortcut(.cancelAction)`. `Run` = `.keyboardShortcut(.defaultAction)` + `.borderedProminent`. All operation buttons use title "Run".
+- **Validation**: `Run` button disabled when required fields are empty or invalid.
+- **Batch awareness**: When multiple samples are selected, show count (e.g., "3 samples") instead of single dataset name.
+- **Instant display**: Dialogs MUST appear immediately when the user clicks Run. Long operations (FASTQ materialization, tool execution) happen AFTER the dialog closes, as the first pipeline step. NEVER block dialog display on I/O.
+
+**The Dev Lead and GUI Lead agents MUST** enforce this template on every new or modified dialog. Existing dialogs (EsViritu, TaxTriage) should be migrated to match when next modified.
+
 ### Test Organization
 ```
 Tests/

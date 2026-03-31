@@ -15,6 +15,10 @@ import os
 /// - Trim keeps max 20 finished items
 /// - clearCompleted removes non-running items
 /// - Active count tracking
+/// - Byte-level progress tracking
+/// - Error message and failure report data
+/// - CLI command storage
+/// - Log entries
 @MainActor
 final class DownloadCenterTests: XCTestCase {
 
@@ -457,5 +461,188 @@ final class DownloadCenterTests: XCTestCase {
             .taxonomyExtraction, .classification, .blastVerification,
         ]
         XCTAssertEqual(allTypes.count, 12, "Update this test when new OperationType cases are added")
+    }
+
+    // MARK: - Byte-Level Progress Tracking
+
+    func testItemHasTotalBytesFieldDefaultNil() {
+        let id = center.start(title: "Download", detail: "Starting...")
+        let item = center.items.first { $0.id == id }
+        XCTAssertNil(item?.totalBytes, "totalBytes should default to nil")
+    }
+
+    func testItemHasBytesDownloadedFieldDefaultNil() {
+        let id = center.start(title: "Download", detail: "Starting...")
+        let item = center.items.first { $0.id == id }
+        XCTAssertNil(item?.bytesDownloaded, "bytesDownloaded should default to nil")
+    }
+
+    func testUpdateBytesComputesProgressCorrectly() {
+        let id = center.start(title: "Download", detail: "Starting...")
+
+        center.updateBytes(id: id, bytesDownloaded: 500_000, totalBytes: 1_000_000)
+
+        let item = center.items.first { $0.id == id }
+        XCTAssertEqual(item?.progress ?? -1, 0.5, accuracy: 0.001,
+                       "Progress should be bytesDownloaded / totalBytes")
+        XCTAssertEqual(item?.bytesDownloaded, 500_000)
+        XCTAssertEqual(item?.totalBytes, 1_000_000)
+    }
+
+    func testUpdateBytesFullDownloadSetsProgressToOne() {
+        let id = center.start(title: "Download", detail: "Starting...")
+
+        center.updateBytes(id: id, bytesDownloaded: 2_000_000, totalBytes: 2_000_000)
+
+        let item = center.items.first { $0.id == id }
+        XCTAssertEqual(item?.progress ?? -1, 1.0, accuracy: 0.001)
+    }
+
+    func testUpdateBytesPreservesTotalWhenNilPassed() {
+        let id = center.start(title: "Download", detail: "Starting...")
+
+        // First call sets totalBytes
+        center.updateBytes(id: id, bytesDownloaded: 100_000, totalBytes: 500_000)
+        // Second call with nil totalBytes should preserve previously known total
+        center.updateBytes(id: id, bytesDownloaded: 250_000, totalBytes: nil)
+
+        let item = center.items.first { $0.id == id }
+        XCTAssertEqual(item?.totalBytes, 500_000, "Previously known totalBytes should be preserved")
+        XCTAssertEqual(item?.progress ?? -1, 0.5, accuracy: 0.001)
+    }
+
+    func testUpdateBytesGeneratesDetailWithByteCounts() {
+        let id = center.start(title: "Download", detail: "Starting...")
+
+        center.updateBytes(id: id, bytesDownloaded: 50_000_000, totalBytes: 100_000_000)
+
+        let item = center.items.first { $0.id == id }
+        // Detail should contain byte count text (e.g. "50 MB / 100 MB")
+        XCTAssertNotEqual(item?.detail, "Starting...", "Detail should be updated by updateBytes")
+        XCTAssertTrue(item?.detail.contains("/") == true,
+                      "Detail should contain 'downloaded / total' format: \(item?.detail ?? "")")
+    }
+
+    func testUpdateBytesWithoutTotalShowsOnlyDownloaded() {
+        let id = center.start(title: "Download", detail: "Starting...")
+
+        // When totalBytes is nil and no previous total is known
+        center.updateBytes(id: id, bytesDownloaded: 10_000_000, totalBytes: nil)
+
+        let item = center.items.first { $0.id == id }
+        XCTAssertNotEqual(item?.detail, "Starting...",
+                          "Detail should be updated even without totalBytes")
+    }
+
+    // MARK: - Error Message and Failure Report Data
+
+    func testFailWithErrorMessageStoresFields() {
+        let id = center.start(title: "Classify", detail: "Running...")
+
+        center.fail(
+            id: id,
+            detail: "kraken2 exited with code 1",
+            errorMessage: "Database not found",
+            errorDetail: "stderr: /db/k2 does not exist"
+        )
+
+        let item = center.items.first { $0.id == id }
+        XCTAssertEqual(item?.state, .failed)
+        XCTAssertEqual(item?.errorMessage, "Database not found")
+        XCTAssertEqual(item?.errorDetail, "stderr: /db/k2 does not exist")
+        XCTAssertEqual(item?.detail, "kraken2 exited with code 1")
+    }
+
+    func testFailWithoutErrorMessageLeavesErrorMessageNil() {
+        let id = center.start(title: "Download", detail: "Running...")
+
+        center.fail(id: id, detail: "Network timeout")
+
+        let item = center.items.first { $0.id == id }
+        XCTAssertEqual(item?.state, .failed)
+        XCTAssertNil(item?.errorMessage, "errorMessage should be nil when not provided")
+        XCTAssertEqual(item?.detail, "Network timeout",
+                       "detail should serve as fallback failure reason")
+    }
+
+    func testFailedItemWithoutErrorMessageHasDetailForReport() {
+        // buildFailureReport uses `item.errorMessage ?? item.detail` as fallback.
+        // This test verifies the data model supports that pattern.
+        let id = center.start(title: "Import BAM", detail: "Importing...")
+
+        center.fail(id: id, detail: "File not found: /data/sample.bam")
+
+        let item = center.items.first { $0.id == id }!
+        let errorText = item.errorMessage ?? item.detail
+        XCTAssertEqual(errorText, "File not found: /data/sample.bam",
+                       "Failure report should fall back to detail when errorMessage is nil")
+    }
+
+    // MARK: - CLI Command Storage
+
+    func testCLICommandStoredOnStart() {
+        let cmd = "lungfish classify --db standard --input /data/R1.fastq.gz"
+        let id = center.start(title: "Classify", detail: "Running...", cliCommand: cmd)
+
+        let item = center.items.first { $0.id == id }
+        XCTAssertEqual(item?.cliCommand, cmd)
+    }
+
+    func testCLICommandDefaultsToNil() {
+        let id = center.start(title: "Download", detail: "Starting...")
+
+        let item = center.items.first { $0.id == id }
+        XCTAssertNil(item?.cliCommand, "cliCommand should default to nil")
+    }
+
+    func testBuildCLICommandShellQuotes() {
+        let cmd = OperationCenter.buildCLICommand(
+            subcommand: "classify",
+            args: ["--input", "/path with spaces/file.fastq.gz", "--db", "standard"]
+        )
+        XCTAssertTrue(cmd.hasPrefix("lungfish classify"))
+        XCTAssertTrue(cmd.contains("'/path with spaces/file.fastq.gz'"),
+                      "Paths with spaces should be shell-quoted: \(cmd)")
+    }
+
+    // MARK: - Log Entries
+
+    func testLogEntriesAppendedToItem() {
+        let id = center.start(title: "Pipeline", detail: "Running...")
+
+        center.log(id: id, level: .info, message: "Step 1 complete")
+        center.log(id: id, level: .warning, message: "Low memory")
+        center.log(id: id, level: .error, message: "kraken2 failed")
+
+        let item = center.items.first { $0.id == id }
+        XCTAssertEqual(item?.logEntries.count, 3)
+        XCTAssertEqual(item?.logEntries[0].message, "Step 1 complete")
+        XCTAssertEqual(item?.logEntries[0].level, .info)
+        XCTAssertEqual(item?.logEntries[2].level, .error)
+    }
+
+    // MARK: - Failure Report Data Completeness
+
+    func testFailedItemWithAllFieldsHasCompleteReportData() {
+        let cmd = "lungfish classify --db standard --input /data/R1.fastq.gz"
+        let id = center.start(title: "Classify Reads", detail: "Starting...", cliCommand: cmd)
+
+        center.log(id: id, level: .info, message: "Loading database")
+        center.log(id: id, level: .error, message: "OOM killed")
+        center.fail(
+            id: id,
+            detail: "Process exited with code 137",
+            errorMessage: "Out of memory",
+            errorDetail: "Signal 9 (SIGKILL) received"
+        )
+
+        let item = center.items.first { $0.id == id }!
+        // Verify all fields needed by buildFailureReport are populated
+        XCTAssertEqual(item.title, "Classify Reads")
+        XCTAssertNotNil(item.cliCommand)
+        XCTAssertNotNil(item.errorMessage)
+        XCTAssertNotNil(item.errorDetail)
+        XCTAssertFalse(item.logEntries.isEmpty)
+        XCTAssertEqual(item.state, .failed)
     }
 }

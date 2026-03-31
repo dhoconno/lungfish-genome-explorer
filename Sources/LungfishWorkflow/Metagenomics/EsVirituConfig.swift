@@ -39,7 +39,7 @@ public struct EsVirituConfig: Sendable, Codable, Equatable {
     ///
     /// For paired-end data, supply exactly two files (R1, R2). For single-end
     /// or interleaved reads, supply one file.
-    public let inputFiles: [URL]
+    public var inputFiles: [URL]
 
     /// Whether the input is paired-end.
     ///

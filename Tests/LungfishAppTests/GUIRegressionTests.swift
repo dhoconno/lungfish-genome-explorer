@@ -477,8 +477,6 @@ final class UnifiedWizardTests: XCTestCase {
         for type in UnifiedMetagenomicsWizard.AnalysisType.allCases {
             XCTAssertFalse(type.analysisDescription.isEmpty,
                 "\(type) should have a description")
-            XCTAssertFalse(type.estimatedRuntime.isEmpty,
-                "\(type) should have a runtime estimate")
             XCTAssertFalse(type.symbolName.isEmpty,
                 "\(type) should have an SF Symbol")
         }

@@ -70,7 +70,7 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
     ///
     /// For paired-end data, supply exactly two files (R1, R2). For single-end,
     /// supply one file.
-    public let inputFiles: [URL]
+    public var inputFiles: [URL]
 
     /// Whether the input is paired-end.
     ///

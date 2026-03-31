@@ -172,6 +172,18 @@ struct ClassificationWizardSheet: View {
         MetagenomicsSampleGrouper.group(inputFiles)
     }
 
+    /// Display name for a single input file/bundle.
+    /// Strips `.lungfishfastq` extensions so "SRR35520572.lungfishfastq" shows as "SRR35520572".
+    private var inputDisplayName: String {
+        guard let first = inputFiles.first else { return "" }
+        let name = first.deletingPathExtension().lastPathComponent
+        // If stripping .lungfishfastq left a double extension, strip again
+        if name.hasSuffix(".lungfishfastq") {
+            return URL(fileURLWithPath: name).deletingPathExtension().lastPathComponent
+        }
+        return name
+    }
+
     /// Whether this run is a multi-sample batch.
     private var isBatchMode: Bool {
         groupedSamples.count > 1
@@ -222,19 +234,27 @@ struct ClassificationWizardSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Title
-            HStack {
-                Text("Classify & Profile Reads")
-                    .font(.headline)
+            // Header: tool identity + dataset name
+            HStack(spacing: 10) {
+                Image(systemName: "k.circle")
+                    .font(.system(size: 20))
+                    .foregroundStyle(Color.accentColor)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Kraken2 Classification")
+                        .font(.headline)
+                    Text("Classify reads and estimate abundances with Bracken")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 if inputFiles.count == 1 {
-                    Text(inputFiles.first?.lastPathComponent ?? "")
+                    Text(inputDisplayName)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 } else {
-                    Text("\(groupedSamples.count) sample\(groupedSamples.count == 1 ? "" : "s") · \(inputFiles.count) files")
+                    Text("\(groupedSamples.count) sample\(groupedSamples.count == 1 ? "" : "s")")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -247,18 +267,10 @@ struct ClassificationWizardSheet: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    // Brief description of what will happen
-                    Text("Classify reads using Kraken2 and estimate organism abundances with Bracken. Results will be shown as an interactive taxonomy browser.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
                     if isBatchMode {
                         sampleOverviewSection
                         Divider()
                     }
-
-                    Divider()
 
                     // Database picker
                     databasePicker

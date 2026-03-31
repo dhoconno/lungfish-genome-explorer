@@ -75,7 +75,7 @@ public struct TaxTriageConfig: Sendable, Codable, Equatable {
     ///
     /// TaxTriage supports multiple samples in a single run. Each sample has
     /// its own FASTQ file(s) and platform specification.
-    public let samples: [TaxTriageSample]
+    public var samples: [TaxTriageSample]
 
     /// Default sequencing platform for samples without explicit platform.
     public let platform: Platform
@@ -317,10 +317,10 @@ public struct TaxTriageSample: Sendable, Codable, Equatable, Identifiable {
     public let sampleId: String
 
     /// Path to the first (or only) FASTQ file.
-    public let fastq1: URL
+    public var fastq1: URL
 
     /// Path to the second FASTQ file for paired-end data, or nil for single-end.
-    public let fastq2: URL?
+    public var fastq2: URL?
 
     /// Sequencing platform for this sample.
     public let platform: TaxTriageConfig.Platform

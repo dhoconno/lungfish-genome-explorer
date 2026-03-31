@@ -8,6 +8,7 @@
 // Every format the app supports should have at least one test here to catch
 // regressions in I/O, rendering, and CLI operations.
 
+import Compression
 import XCTest
 @testable import LungfishCore
 @testable import LungfishIO
@@ -238,5 +239,131 @@ final class FunctionalFixtureTests: XCTestCase {
             .compactMap { $0.components(separatedBy: "\t").first }
         let uniqueBedChroms = Set(bedChroms)
         XCTAssertEqual(uniqueBedChroms, ["MT192765.1"], "BED should only reference MT192765.1")
+    }
+
+    // MARK: - Paired-End FASTQ Consistency
+
+    /// Verifies that R1 and R2 FASTQ files have the same number of reads.
+    ///
+    /// Paired-end data requires one-to-one correspondence between forward
+    /// and reverse reads. A mismatch indicates truncation or corruption.
+    func testFASTQPairedEndConsistency() async throws {
+        let reader = FASTQReader(validateSequence: false)
+
+        var r1Count = 0
+        for try await _ in reader.records(from: TestFixtures.sarscov2.fastqR1) {
+            r1Count += 1
+        }
+
+        var r2Count = 0
+        for try await _ in reader.records(from: TestFixtures.sarscov2.fastqR2) {
+            r2Count += 1
+        }
+
+        XCTAssertGreaterThan(r1Count, 0, "R1 should have at least one read")
+        XCTAssertEqual(r1Count, r2Count,
+                       "Paired-end R1 (\(r1Count) reads) and R2 (\(r2Count) reads) must have the same count")
+    }
+
+    // MARK: - VCF Variant Positions Within Genome
+
+    /// Verifies that all VCF variant positions fall within the genome length from the FAI index.
+    func testVCFVariantPositionsWithinGenome() throws {
+        // Parse genome length from FAI
+        let faiContent = try String(contentsOf: TestFixtures.sarscov2.referenceIndex, encoding: .utf8)
+        let faiFields = faiContent.trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: "\t")
+        guard faiFields.count >= 2, let genomeLength = Int(faiFields[1]) else {
+            XCTFail("Could not parse genome length from FAI index")
+            return
+        }
+        XCTAssertGreaterThan(genomeLength, 0, "Genome length should be positive")
+
+        // Parse variant positions from VCF
+        let vcfContent = try String(contentsOf: TestFixtures.sarscov2.vcf, encoding: .utf8)
+        let dataLines = vcfContent.components(separatedBy: "\n")
+            .filter { !$0.hasPrefix("#") && !$0.isEmpty }
+
+        XCTAssertGreaterThan(dataLines.count, 0, "VCF should have variant records")
+
+        for line in dataLines {
+            let fields = line.components(separatedBy: "\t")
+            guard fields.count >= 2, let position = Int(fields[1]) else {
+                XCTFail("Could not parse VCF position from line: \(line.prefix(80))")
+                continue
+            }
+            // VCF positions are 1-based
+            XCTAssertGreaterThanOrEqual(position, 1,
+                                        "VCF position should be >= 1 (1-based)")
+            XCTAssertLessThanOrEqual(position, genomeLength,
+                                     "VCF position \(position) exceeds genome length \(genomeLength)")
+        }
+    }
+
+    // MARK: - BAM Reference Matches FASTA
+
+    /// Verifies that the BAM file references the same chromosome as the FASTA reference.
+    ///
+    /// BAM files are BGZF-compressed. This test decompresses the first BGZF block
+    /// to access the BAM header, which contains reference sequence names as
+    /// null-terminated strings in the binary header dictionary.
+    func testBAMReferenceMatchesFASTA() throws {
+        // Get the expected reference name from FAI
+        let faiContent = try String(contentsOf: TestFixtures.sarscov2.referenceIndex, encoding: .utf8)
+        let expectedRefName = faiContent.components(separatedBy: "\t").first ?? ""
+        XCTAssertEqual(expectedRefName, "MT192765.1", "Precondition: FAI ref name")
+
+        // Read the BAM file and decompress the first BGZF block.
+        // BGZF format: gzip header (18 bytes with BGZF extra field), then DEFLATE data.
+        let bamData = try Data(contentsOf: TestFixtures.sarscov2.sortedBam)
+
+        // Parse the BGZF block: skip 18-byte gzip+extra header to get to DEFLATE data.
+        // BGZF extra field at offset 10: SI1=66('B'), SI2=67('C'), SLEN=2, BSIZE=uint16
+        guard bamData.count > 18 else {
+            XCTFail("BAM file too small")
+            return
+        }
+
+        // Read BSIZE from the extra field (uint16 LE at offset 16-17)
+        let bsize = Int(bamData[16]) | (Int(bamData[17]) << 8)
+        // Compressed data starts at offset 18, ends at bsize - 7 (before CRC32+ISIZE)
+        let cDataEnd = bsize - 7  // -8 for CRC32+ISIZE, but bsize is 0-based so -7
+        guard cDataEnd > 18, cDataEnd < bamData.count else {
+            XCTFail("Invalid BGZF block size")
+            return
+        }
+        let compressedBlock = bamData[18...cDataEnd]
+
+        // Decompress using the Compression framework (ZLIB = raw DEFLATE with zlib header,
+        // but BGZF uses raw DEFLATE without zlib header)
+        let srcSize = compressedBlock.count
+        let dstSize = 65536  // BAM header is typically small
+        let dstBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: dstSize)
+        defer { dstBuffer.deallocate() }
+
+        let decompressed = compressedBlock.withUnsafeBytes { srcPtr -> Data? in
+            guard let baseAddress = srcPtr.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                return nil
+            }
+            let written = compression_decode_buffer(
+                dstBuffer, dstSize,
+                baseAddress, srcSize,
+                nil,
+                COMPRESSION_ZLIB
+            )
+            guard written > 0 else { return nil }
+            return Data(bytes: dstBuffer, count: written)
+        }
+
+        guard let headerData = decompressed else {
+            XCTFail("Could not decompress first BGZF block")
+            return
+        }
+
+        // Search for the reference name in the decompressed header
+        let refNameData = expectedRefName.data(using: .utf8)!
+        let containsRef = headerData.range(of: refNameData) != nil
+        XCTAssertTrue(containsRef,
+                      "Decompressed BAM header should contain reference sequence name MT192765.1")
     }
 }

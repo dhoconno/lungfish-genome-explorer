@@ -3570,68 +3570,38 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
-        // Materialize virtual datasets before presenting the wizard so classifiers
-        // operate on the full FASTQ rather than the small preview file.
-        Task { @MainActor [weak self] in
+        // Pass bundle URLs directly — display shows bundle names, not "preview.fastq".
+        let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        wizardPanel.title = "Classify Reads"
+
+        var wizardView = UnifiedMetagenomicsWizard(inputFiles: bundleURLs)
+
+        wizardView.onRunClassification = { [weak self] configs in
+            window.endSheet(wizardPanel)
             guard let self else { return }
+            self.runClassification(configs: configs, viewerController: viewerController)
+        }
 
-            let tempDir: URL
-            do {
-                tempDir = try self.makeClassificationTempDirectory()
-            } catch {
-                debugLog("classifyReads: Failed to create temp dir - \(error)")
-                return
-            }
+        wizardView.onRunEsViritu = { [weak self] configs in
+            window.endSheet(wizardPanel)
+            guard let self else { return }
+            self.runEsViritu(configs: configs, viewerController: viewerController)
+        }
 
-            let inputFiles: [URL]
-            do {
-                inputFiles = try await self.resolveClassificationInputFiles(
-                    bundleURLs, tempDirectory: tempDir)
-            } catch {
-                try? FileManager.default.removeItem(at: tempDir)
-                debugLog("classifyReads: Materialization failed - \(error)")
-                return
-            }
+        wizardView.onRunTaxTriage = { [weak self] config in
+            window.endSheet(wizardPanel)
+            guard let self else { return }
+            self.runTaxTriage(config: config, viewerController: viewerController)
+        }
 
-            guard !inputFiles.isEmpty else {
-                try? FileManager.default.removeItem(at: tempDir)
-                return
-            }
+        wizardView.onCancel = {
+            window.endSheet(wizardPanel)
+        }
 
-            let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
-            wizardPanel.title = "Classify Reads"
-
-            var wizardView = UnifiedMetagenomicsWizard(inputFiles: inputFiles)
-
-            wizardView.onRunClassification = { [weak self] configs in
-                window.endSheet(wizardPanel)
-                try? FileManager.default.removeItem(at: tempDir)
-                guard let self else { return }
-                self.runClassification(configs: configs, viewerController: viewerController)
-            }
-
-            wizardView.onRunEsViritu = { [weak self] configs in
-                window.endSheet(wizardPanel)
-                try? FileManager.default.removeItem(at: tempDir)
-                guard let self else { return }
-                self.runEsViritu(configs: configs, viewerController: viewerController)
-            }
-
-            wizardView.onRunTaxTriage = { [weak self] config in
-                window.endSheet(wizardPanel)
-                try? FileManager.default.removeItem(at: tempDir)
-                guard let self else { return }
-                self.runTaxTriage(config: config, viewerController: viewerController)
-            }
-
-            wizardView.onCancel = {
-                window.endSheet(wizardPanel)
-                try? FileManager.default.removeItem(at: tempDir)
-            }
-
-            let hostingController = NSHostingController(rootView: wizardView)
-            wizardPanel.contentViewController = hostingController
-            wizardPanel.setContentSize(NSSize(width: 560, height: 680))
+        let hostingController = NSHostingController(rootView: wizardView)
+        wizardPanel.contentViewController = hostingController
+        wizardPanel.setContentSize(NSSize(width: 560, height: 680))
+        Task { @MainActor in
             await window.beginSheet(wizardPanel)
         }
     }
@@ -3743,52 +3713,27 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
-        Task { @MainActor [weak self] in
-            guard let self else { return }
+        // Pass bundle URLs directly — the sheet displays bundle names (not "preview.fastq").
+        // Materialization of virtual FASTQs happens later in runClassification().
+        let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        wizardPanel.title = "Kraken2 Classification"
 
-            let tempDir: URL
-            do {
-                tempDir = try self.makeClassificationTempDirectory()
-            } catch {
-                debugLog("launchKraken2Classification: Failed to create temp dir - \(error)")
-                return
+        let sheet = ClassificationWizardSheet(
+            inputFiles: bundleURLs,
+            onRun: { [weak self] configs in
+                window.endSheet(wizardPanel)
+                guard let self else { return }
+                self.runClassification(configs: configs, viewerController: viewerController)
+            },
+            onCancel: {
+                window.endSheet(wizardPanel)
             }
+        )
 
-            let resolvedFiles: [URL]
-            do {
-                resolvedFiles = try await self.resolveClassificationInputFiles(
-                    bundleURLs, tempDirectory: tempDir)
-            } catch {
-                try? FileManager.default.removeItem(at: tempDir)
-                debugLog("launchKraken2Classification: Materialization failed - \(error)")
-                return
-            }
-
-            guard !resolvedFiles.isEmpty else {
-                try? FileManager.default.removeItem(at: tempDir)
-                return
-            }
-
-            let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
-            wizardPanel.title = "Classify Reads -- Kraken2"
-
-            var sheet = ClassificationWizardSheet(
-                inputFiles: resolvedFiles,
-                onRun: { [weak self] configs in
-                    window.endSheet(wizardPanel)
-                    try? FileManager.default.removeItem(at: tempDir)
-                    guard let self else { return }
-                    self.runClassification(configs: configs, viewerController: viewerController)
-                },
-                onCancel: {
-                    window.endSheet(wizardPanel)
-                    try? FileManager.default.removeItem(at: tempDir)
-                }
-            )
-
-            let hostingController = NSHostingController(rootView: sheet)
-            wizardPanel.contentViewController = hostingController
-            wizardPanel.setContentSize(NSSize(width: 560, height: 680))
+        let hostingController = NSHostingController(rootView: sheet)
+        wizardPanel.contentViewController = hostingController
+        wizardPanel.setContentSize(NSSize(width: 520, height: 460))
+        Task { @MainActor in
             await window.beginSheet(wizardPanel)
         }
     }
@@ -3809,52 +3754,25 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
-        Task { @MainActor [weak self] in
-            guard let self else { return }
+        let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        wizardPanel.title = "EsViritu Viral Detection"
 
-            let tempDir: URL
-            do {
-                tempDir = try self.makeClassificationTempDirectory()
-            } catch {
-                debugLog("launchEsVirituDetection: Failed to create temp dir - \(error)")
-                return
+        let sheet = EsVirituWizardSheet(
+            inputFiles: bundleURLs,
+            onRun: { [weak self] configs in
+                window.endSheet(wizardPanel)
+                guard let self else { return }
+                self.runEsViritu(configs: configs, viewerController: viewerController)
+            },
+            onCancel: {
+                window.endSheet(wizardPanel)
             }
+        )
 
-            let resolvedFiles: [URL]
-            do {
-                resolvedFiles = try await self.resolveClassificationInputFiles(
-                    bundleURLs, tempDirectory: tempDir)
-            } catch {
-                try? FileManager.default.removeItem(at: tempDir)
-                debugLog("launchEsVirituDetection: Materialization failed - \(error)")
-                return
-            }
-
-            guard !resolvedFiles.isEmpty else {
-                try? FileManager.default.removeItem(at: tempDir)
-                return
-            }
-
-            let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
-            wizardPanel.title = "Classify Reads -- EsViritu"
-
-            var sheet = EsVirituWizardSheet(
-                inputFiles: resolvedFiles,
-                onRun: { [weak self] configs in
-                    window.endSheet(wizardPanel)
-                    try? FileManager.default.removeItem(at: tempDir)
-                    guard let self else { return }
-                    self.runEsViritu(configs: configs, viewerController: viewerController)
-                },
-                onCancel: {
-                    window.endSheet(wizardPanel)
-                    try? FileManager.default.removeItem(at: tempDir)
-                }
-            )
-
-            let hostingController = NSHostingController(rootView: sheet)
-            wizardPanel.contentViewController = hostingController
-            wizardPanel.setContentSize(NSSize(width: 560, height: 680))
+        let hostingController = NSHostingController(rootView: sheet)
+        wizardPanel.contentViewController = hostingController
+        wizardPanel.setContentSize(NSSize(width: 560, height: 680))
+        Task { @MainActor in
             await window.beginSheet(wizardPanel)
         }
     }
@@ -3875,52 +3793,25 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
-        Task { @MainActor [weak self] in
-            guard let self else { return }
+        let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        wizardPanel.title = "TaxTriage Classification"
 
-            let tempDir: URL
-            do {
-                tempDir = try self.makeClassificationTempDirectory()
-            } catch {
-                debugLog("launchTaxTriage: Failed to create temp dir - \(error)")
-                return
+        let sheet = TaxTriageWizardSheet(
+            initialFiles: bundleURLs,
+            onRun: { [weak self] config in
+                window.endSheet(wizardPanel)
+                guard let self else { return }
+                self.runTaxTriage(config: config, viewerController: viewerController)
+            },
+            onCancel: {
+                window.endSheet(wizardPanel)
             }
+        )
 
-            let resolvedFiles: [URL]
-            do {
-                resolvedFiles = try await self.resolveClassificationInputFiles(
-                    bundleURLs, tempDirectory: tempDir)
-            } catch {
-                try? FileManager.default.removeItem(at: tempDir)
-                debugLog("launchTaxTriage: Materialization failed - \(error)")
-                return
-            }
-
-            guard !resolvedFiles.isEmpty else {
-                try? FileManager.default.removeItem(at: tempDir)
-                return
-            }
-
-            let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
-            wizardPanel.title = "Classify Reads -- TaxTriage"
-
-            var sheet = TaxTriageWizardSheet(
-                initialFiles: resolvedFiles,
-                onRun: { [weak self] config in
-                    window.endSheet(wizardPanel)
-                    try? FileManager.default.removeItem(at: tempDir)
-                    guard let self else { return }
-                    self.runTaxTriage(config: config, viewerController: viewerController)
-                },
-                onCancel: {
-                    window.endSheet(wizardPanel)
-                    try? FileManager.default.removeItem(at: tempDir)
-                }
-            )
-
-            let hostingController = NSHostingController(rootView: sheet)
-            wizardPanel.contentViewController = hostingController
-            wizardPanel.setContentSize(NSSize(width: 560, height: 680))
+        let hostingController = NSHostingController(rootView: sheet)
+        wizardPanel.contentViewController = hostingController
+        wizardPanel.setContentSize(NSSize(width: 560, height: 680))
+        Task { @MainActor in
             await window.beginSheet(wizardPanel)
         }
     }
@@ -3951,6 +3842,69 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         runClassificationBatch(configs: configs, viewerController: viewerController)
     }
 
+    /// Resolves input FASTQ files, materializing virtual datasets as needed.
+    ///
+    /// If any input file lives inside a virtual `.lungfishfastq` bundle (subset,
+    /// trim, demux derivative), materializes the full FASTQ into `tempDirectory`.
+    /// Physical FASTQ files pass through unchanged.
+    ///
+    /// Called at the start of `runClassification` / `runEsViritu` / `runTaxTriage`
+    /// so that dialogs appear instantly and materialization happens as the first
+    /// pipeline step after the user clicks Run.
+    private func materializeInputFilesIfNeeded(
+        _ inputFiles: [URL],
+        tempDirectory: URL,
+        progress: (@Sendable (String) -> Void)? = nil
+    ) async throws -> [URL] {
+        var resolved: [URL] = []
+        for (index, fileURL) in inputFiles.enumerated() {
+            try Task.checkCancellation()
+
+            // Determine the bundle URL: either the input IS a bundle, or its parent is.
+            let bundleURL: URL?
+            if FASTQBundle.isBundleURL(fileURL) {
+                bundleURL = fileURL
+            } else if FASTQBundle.isBundleURL(fileURL.deletingLastPathComponent()) {
+                bundleURL = fileURL.deletingLastPathComponent()
+            } else {
+                // Not associated with a bundle — use as-is (plain FASTQ file)
+                resolved.append(fileURL)
+                continue
+            }
+
+            guard let bundle = bundleURL else {
+                resolved.append(fileURL)
+                continue
+            }
+
+            // Check if the bundle is a virtual derivative that needs materialization
+            if let manifest = FASTQBundle.loadDerivedManifest(in: bundle) {
+                switch manifest.payload {
+                case .subset, .trim, .demuxedVirtual:
+                    let bundleName = bundle.deletingPathExtension().lastPathComponent
+                    progress?("Materializing \(bundleName) (\(index + 1)/\(inputFiles.count))...")
+                    let materializedURL = try await FASTQDerivativeService.shared.materializeDatasetFASTQ(
+                        fromBundle: bundle,
+                        tempDirectory: tempDirectory,
+                        progress: { msg in progress?(msg) }
+                    )
+                    resolved.append(materializedURL)
+                    continue
+                default:
+                    break
+                }
+            }
+
+            // Physical bundle or non-derived — resolve to primary FASTQ
+            if let primaryURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundle) {
+                resolved.append(primaryURL)
+            } else {
+                resolved.append(fileURL)
+            }
+        }
+        return resolved
+    }
+
     private func runClassification(config: ClassificationConfig, viewerController: ViewerViewController) {
         let pipeline = ClassificationPipeline()
 
@@ -3977,8 +3931,34 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             cliCommand: cliCmd
         )
 
-        let task = Task.detached {
+        let task = Task.detached { [weak self] in
             do {
+                // Materialize virtual FASTQs as the first pipeline step.
+                // This creates temp files that are cleaned up after classification.
+                let materializeTempDir = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("lungfish-classify-\(UUID().uuidString)")
+                try FileManager.default.createDirectory(
+                    at: materializeTempDir, withIntermediateDirectories: true)
+                defer { try? FileManager.default.removeItem(at: materializeTempDir) }
+
+                let resolvedFiles = try await self?.materializeInputFilesIfNeeded(
+                    config.inputFiles,
+                    tempDirectory: materializeTempDir,
+                    progress: { message in
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                viewerController.showProgress(message)
+                                OperationCenter.shared.update(id: opID, progress: 0, detail: message)
+                                OperationCenter.shared.log(id: opID, level: .info, message: message)
+                            }
+                        }
+                    }
+                ) ?? config.inputFiles
+
+                // Build a config with resolved (materialized) input files
+                var resolvedConfig = config
+                resolvedConfig.inputFiles = resolvedFiles
+
                 let progressCallback: @Sendable (Double, String) -> Void = { progress, message in
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
@@ -3993,11 +3973,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 }
 
                 let result: ClassificationResult
-                switch config.goal {
+                switch resolvedConfig.goal {
                 case .classify, .extract:
-                    result = try await pipeline.classify(config: config, progress: progressCallback)
+                    result = try await pipeline.classify(config: resolvedConfig, progress: progressCallback)
                 case .profile:
-                    result = try await pipeline.profile(config: config, progress: progressCallback)
+                    result = try await pipeline.profile(config: resolvedConfig, progress: progressCallback)
                 }
 
                 // Persist the classification result sidecar so the sidebar can
@@ -4081,11 +4061,35 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             cliCommand: esCliCmd
         )
 
-        let task = Task.detached {
+        let task = Task.detached { [weak self] in
             do {
+                // Materialize virtual FASTQs before running EsViritu
+                let materializeTempDir = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("lungfish-esviritu-\(UUID().uuidString)")
+                try FileManager.default.createDirectory(
+                    at: materializeTempDir, withIntermediateDirectories: true)
+                defer { try? FileManager.default.removeItem(at: materializeTempDir) }
+
+                let resolvedFiles = try await self?.materializeInputFilesIfNeeded(
+                    config.inputFiles,
+                    tempDirectory: materializeTempDir,
+                    progress: { message in
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                viewerController.showProgress(message)
+                                OperationCenter.shared.update(id: opID, progress: 0, detail: message)
+                                OperationCenter.shared.log(id: opID, level: .info, message: message)
+                            }
+                        }
+                    }
+                ) ?? config.inputFiles
+
+                var resolvedConfig = config
+                resolvedConfig.inputFiles = resolvedFiles
+
                 let pipeline = EsVirituPipeline()
                 let result = try await pipeline.detect(
-                    config: config,
+                    config: resolvedConfig,
                     progress: { progress, message in
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
@@ -4603,11 +4607,40 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             cliCommand: ttCliCmd
         )
 
-        let task = Task.detached {
+        let task = Task.detached { [weak self] in
             do {
+                // Materialize virtual FASTQs for each sample before running TaxTriage
+                let materializeTempDir = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("lungfish-taxtriage-\(UUID().uuidString)")
+                try FileManager.default.createDirectory(
+                    at: materializeTempDir, withIntermediateDirectories: true)
+                defer { try? FileManager.default.removeItem(at: materializeTempDir) }
+
+                var resolvedConfig = config
+                for (i, sample) in resolvedConfig.samples.enumerated() {
+                    let allFiles = [sample.fastq1] + (sample.fastq2.map { [$0] } ?? [])
+                    let resolved = try await self?.materializeInputFilesIfNeeded(
+                        allFiles,
+                        tempDirectory: materializeTempDir,
+                        progress: { message in
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    viewerController.showProgress(message)
+                                    OperationCenter.shared.update(id: opID, progress: 0, detail: message)
+                                    OperationCenter.shared.log(id: opID, level: .info, message: message)
+                                }
+                            }
+                        }
+                    ) ?? allFiles
+                    resolvedConfig.samples[i].fastq1 = resolved[0]
+                    if resolved.count > 1 {
+                        resolvedConfig.samples[i].fastq2 = resolved[1]
+                    }
+                }
+
                 let pipeline = TaxTriagePipeline()
                 let result = try await pipeline.run(
-                    config: config,
+                    config: resolvedConfig,
                     progress: { progress, message in
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
