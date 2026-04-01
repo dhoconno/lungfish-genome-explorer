@@ -89,6 +89,27 @@ public enum TestFixtures {
         }
     }
 
+    /// NAO-MGS toy dataset (35 rows, 4 taxa, v2 format).
+    ///
+    /// Derived from a real CASPER wastewater surveillance dataset.
+    /// Designed to test top-5 accession filtering, cross-taxon deduplication,
+    /// and pair status variety (CP/UP/DP).
+    public enum naomgs {
+        private static let dir = "naomgs"
+
+        /// Gzipped virus_hits_final.tsv (35 data rows, v2 column format).
+        public static var virusHitsTsvGz: URL { fixture("virus_hits_final.tsv.gz") }
+
+        private static func fixture(_ name: String) -> URL {
+            let url = fixturesBaseURL.appendingPathComponent(dir).appendingPathComponent(name)
+            precondition(
+                FileManager.default.fileExists(atPath: url.path),
+                "Test fixture missing: \(dir)/\(name). Run from a test target with .copy(\"Fixtures\") in Package.swift."
+            )
+            return url
+        }
+    }
+
     // MARK: - Base URL Resolution
 
     /// Resolves the Fixtures directory from the test bundle or source tree.
