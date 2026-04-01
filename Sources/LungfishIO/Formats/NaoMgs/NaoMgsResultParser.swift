@@ -454,7 +454,10 @@ public final class NaoMgsResultParser: @unchecked Sendable {
     /// - Parameter url: Path to the virus_hits_final.tsv or .tsv.gz file.
     /// - Returns: Array of parsed virus hits.
     /// - Throws: ``NaoMgsError`` if the file is missing or malformed.
-    public func parseVirusHits(at url: URL) async throws -> [NaoMgsVirusHit] {
+    public func parseVirusHits(
+        at url: URL,
+        lineProgress: (@Sendable (Int) -> Void)? = nil
+    ) async throws -> [NaoMgsVirusHit] {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw NaoMgsError.fileNotFound(url)
         }
@@ -467,6 +470,10 @@ public final class NaoMgsResultParser: @unchecked Sendable {
 
         for try await line in url.linesAutoDecompressing() {
             lineNumber += 1
+
+            if lineProgress != nil, lineNumber % 1000 == 0 {
+                lineProgress?(lineNumber)
+            }
 
             // Skip empty lines
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -561,6 +568,7 @@ public final class NaoMgsResultParser: @unchecked Sendable {
             hits.append(hit)
         }
 
+        lineProgress?(lineNumber)
         logger.info("Parsed \(hits.count) virus hits from \(url.lastPathComponent)")
         return hits
     }
@@ -575,7 +583,11 @@ public final class NaoMgsResultParser: @unchecked Sendable {
     ///   - sampleName: Sample name override. If nil, derived from the first hit.
     /// - Returns: Aggregated ``NaoMgsResult``.
     /// - Throws: ``NaoMgsError`` if no result files are found.
-    public func loadResults(from directory: URL, sampleName: String? = nil) async throws -> NaoMgsResult {
+    public func loadResults(
+        from directory: URL,
+        sampleName: String? = nil,
+        lineProgress: (@Sendable (Int) -> Void)? = nil
+    ) async throws -> NaoMgsResult {
         let fm = FileManager.default
 
         // If the user passed a file directly (not a directory), use it
@@ -605,7 +617,7 @@ public final class NaoMgsResultParser: @unchecked Sendable {
             }
         }
 
-        let hits = try await parseVirusHits(at: virusHitsFile)
+        let hits = try await parseVirusHits(at: virusHitsFile, lineProgress: lineProgress)
 
         let resolvedSampleName = sampleName
             ?? hits.first?.sample
