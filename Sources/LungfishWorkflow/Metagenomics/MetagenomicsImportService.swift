@@ -587,6 +587,40 @@ public enum MetagenomicsImportService {
 
         return selectedAccessions.sorted()
     }
+
+    /// Splits a concatenated multi-record FASTA string into individual records.
+    ///
+    /// - Parameter fasta: Concatenated FASTA text (multiple `>` headers).
+    /// - Returns: Dictionary mapping accession (first token after `>`) to full FASTA record text.
+    public static func splitMultiRecordFASTA(_ fasta: String) -> [String: String] {
+        guard !fasta.isEmpty else { return [:] }
+
+        var records: [String: String] = [:]
+        var currentAccession: String?
+        var currentLines: [String] = []
+
+        for line in fasta.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
+            if line.hasPrefix(">") {
+                if let acc = currentAccession, !currentLines.isEmpty {
+                    records[acc] = currentLines.joined(separator: "\n")
+                }
+                let header = line.dropFirst()
+                let accession = header.split(separator: " ", maxSplits: 1).first
+                    .map(String.init)?
+                    .trimmingCharacters(in: .whitespaces) ?? ""
+                currentAccession = accession.isEmpty ? nil : accession
+                currentLines = [line]
+            } else {
+                currentLines.append(line)
+            }
+        }
+
+        if let acc = currentAccession, !currentLines.isEmpty {
+            records[acc] = currentLines.joined(separator: "\n")
+        }
+
+        return records
+    }
 }
 
 // MARK: - Internal Helpers
@@ -818,26 +852,55 @@ private func fetchNaoMgsReferences(
 ) async -> [String] {
     guard !accessions.isEmpty else { return [] }
 
+    let chunkSize = 200
+    let chunks = stride(from: 0, to: accessions.count, by: chunkSize).map {
+        Array(accessions[$0..<min($0 + chunkSize, accessions.count)])
+    }
+
     let ncbi = NCBIService()
     var fetched: [String] = []
-    for (index, accession) in accessions.enumerated() {
+
+    for (chunkIndex, chunk) in chunks.enumerated() {
+        let chunkLabel = "Fetching references batch \(chunkIndex + 1)/\(chunks.count) (\(chunk.count) accessions)"
+        let baseFraction = Double(chunkIndex) / Double(chunks.count)
+        progress?(0.70 + (0.28 * baseFraction), chunkLabel)
+
         do {
             let data = try await ncbi.efetch(
                 database: .nucleotide,
-                ids: [accession],
+                ids: chunk,
                 format: .fasta
             )
-            let fastaURL = referencesDirectory.appendingPathComponent("\(accession).fasta")
-            try data.write(to: fastaURL, options: .atomic)
-            fetched.append(accession)
-        } catch {
-            // Best effort only: missing references do not invalidate the import.
-        }
+            guard let fastaText = String(data: data, encoding: .utf8) else { continue }
 
-        let fraction = Double(index + 1) / Double(accessions.count)
-        let status = "Fetched references \(index + 1)/\(accessions.count)"
-        progress?(0.70 + (0.28 * fraction), status)
+            let records = MetagenomicsImportService.splitMultiRecordFASTA(fastaText)
+            for (accession, recordText) in records {
+                let fastaURL = referencesDirectory.appendingPathComponent("\(accession).fasta")
+                try? recordText.data(using: .utf8)?.write(to: fastaURL, options: .atomic)
+                fetched.append(accession)
+            }
+        } catch {
+            // Fallback: try individual accessions in this chunk (best-effort)
+            for (i, accession) in chunk.enumerated() {
+                let individualFraction = baseFraction + (Double(i) / Double(accessions.count)) * (1.0 / Double(chunks.count))
+                progress?(0.70 + (0.28 * individualFraction), "Fetching \(accession) (fallback)")
+                do {
+                    let data = try await ncbi.efetch(
+                        database: .nucleotide,
+                        ids: [accession],
+                        format: .fasta
+                    )
+                    let fastaURL = referencesDirectory.appendingPathComponent("\(accession).fasta")
+                    try data.write(to: fastaURL, options: .atomic)
+                    fetched.append(accession)
+                } catch {
+                    // Best effort: skip failed accessions
+                }
+            }
+        }
     }
 
+    let fraction = 1.0
+    progress?(0.70 + (0.28 * fraction), "Fetched \(fetched.count)/\(accessions.count) references")
     return fetched
 }

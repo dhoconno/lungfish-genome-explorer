@@ -79,4 +79,44 @@ struct NaoMgsImportOptimizationTests {
         #expect(selected.contains("KP198630.1"), "10941 accession should be kept")
         #expect(selected.contains("JQ776552.1"), "1187973 accession should be kept")
     }
+
+    // MARK: - FASTA Splitting
+
+    @Test
+    func splitMultiRecordFASTAExtractsRecords() {
+        let concatenated = """
+        >NC_045512.2 Severe acute respiratory syndrome coronavirus 2 isolate Wuhan-Hu-1
+        ATTAAAGGTTTATACCTTCCCAGGTAACAAACCAACCAACTTTCGATCTCTTGTAGATCTG
+        TTCTCTAAACGAACTTTAAAATCTGTGTGGCTGTCACTCGGCTGCATGCTTAGTGCACTCA
+        >MH617353.1 Mammarenavirus juquitibense segment L
+        CGCACCGGGGATCCTAGGCTTTTAGAGCACATGGATACATAGATCTACTCTCCAAGG
+        >KR705168.1 Pepper mottle virus isolate PepMoV-Yolo
+        AAATTAAAACAAATTCAATTCAAACAAAGCAATGGG
+        TTGGAACCACTTGTACCACTACCC
+        """
+
+        let records = MetagenomicsImportService.splitMultiRecordFASTA(concatenated)
+
+        #expect(records.count == 3, "Should find 3 FASTA records, got \(records.count)")
+        #expect(records.keys.contains("NC_045512.2"))
+        #expect(records.keys.contains("MH617353.1"))
+        #expect(records.keys.contains("KR705168.1"))
+
+        for (accession, fastaText) in records {
+            #expect(fastaText.hasPrefix(">"), "Record for \(accession) should start with '>'")
+            let lines = fastaText.split(separator: "\n")
+            #expect(lines.count >= 2, "Record for \(accession) should have header + sequence")
+        }
+
+        // Multi-line sequence should be preserved
+        let pepMottle = records["KR705168.1"]!
+        let pepLines = pepMottle.split(separator: "\n")
+        #expect(pepLines.count == 3, "PepMoV record should have 1 header + 2 sequence lines")
+    }
+
+    @Test
+    func splitMultiRecordFASTAHandlesEmptyInput() {
+        let records = MetagenomicsImportService.splitMultiRecordFASTA("")
+        #expect(records.isEmpty)
+    }
 }
