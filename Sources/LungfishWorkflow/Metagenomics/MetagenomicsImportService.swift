@@ -536,7 +536,7 @@ public enum MetagenomicsImportService {
         var fetchedAccessions: [String] = []
         if fetchReferences {
             progress?(0.70, "Fetching reference FASTA files...")
-            let accessions = Array(Set(result.virusHits.map(\.subjectSeqId).filter { !$0.isEmpty })).sorted()
+            let accessions = selectTopAccessionsPerTaxon(hits: result.virusHits, maxPerTaxon: 5)
             fetchedAccessions = await fetchNaoMgsReferences(
                 accessions: accessions,
                 into: referencesDirectory,
@@ -555,6 +555,37 @@ public enum MetagenomicsImportService {
             fetchedReferenceCount: fetchedAccessions.count,
             createdBAM: createdBAM
         )
+    }
+
+    /// Selects the top N accessions per taxon by hit count, deduplicated across taxa.
+    public static func selectTopAccessionsPerTaxon(
+        hits: [NaoMgsVirusHit],
+        maxPerTaxon: Int = 5
+    ) -> [String] {
+        var taxonHits: [Int: [NaoMgsVirusHit]] = [:]
+        for hit in hits where !hit.subjectSeqId.isEmpty {
+            taxonHits[hit.taxId, default: []].append(hit)
+        }
+
+        var selectedAccessions: Set<String> = []
+
+        for (_, hitsForTaxon) in taxonHits {
+            var accessionCounts: [String: Int] = [:]
+            for hit in hitsForTaxon {
+                accessionCounts[hit.subjectSeqId, default: 0] += 1
+            }
+
+            let sorted = accessionCounts.sorted { lhs, rhs in
+                if lhs.value != rhs.value { return lhs.value > rhs.value }
+                return lhs.key < rhs.key
+            }
+
+            for entry in sorted.prefix(maxPerTaxon) {
+                selectedAccessions.insert(entry.key)
+            }
+        }
+
+        return selectedAccessions.sorted()
     }
 }
 
