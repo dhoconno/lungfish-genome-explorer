@@ -1304,6 +1304,18 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     MainActor.assumeIsolated {
                         let detail = error.localizedDescription
                         OperationCenter.shared.fail(id: opID, detail: detail)
+
+                        // Cleanup partial result directory left by failed import
+                        if let partialDir = (error as? MetagenomicsImportHelperClientError)?
+                            .partialResultDirectory {
+                            try? FileManager.default.removeItem(at: partialDir)
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .info,
+                                message: "Cleaned up partial import directory"
+                            )
+                        }
+
                         self?.showAlert(
                             title: "\(operationTitle) Failed",
                             message: detail
