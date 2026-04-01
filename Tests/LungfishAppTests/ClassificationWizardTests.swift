@@ -71,7 +71,7 @@ final class ClassificationWizardTests: XCTestCase {
         let symbols = goals.map(\.symbolName)
 
         XCTAssertEqual(Set(symbols).count, 3, "Each goal should have a unique symbol")
-        XCTAssertTrue(symbols.contains("magnifyingglass"))
+        XCTAssertTrue(symbols.contains("k.circle"))
         XCTAssertTrue(symbols.contains("chart.pie"))
         XCTAssertTrue(symbols.contains("scissors"))
     }

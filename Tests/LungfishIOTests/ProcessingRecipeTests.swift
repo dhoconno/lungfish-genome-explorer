@@ -81,14 +81,14 @@ final class ProcessingRecipeTests: XCTestCase {
         let recipe = ProcessingRecipe.illuminaVSP2TargetEnrichment
         XCTAssertEqual(recipe.name, "Illumina VSP2 Target Enrichment")
         XCTAssertEqual(recipe.steps.count, 6)
-        // Step order: human scrub → dedup → adapter trim → quality trim → merge → length filter
-        XCTAssertEqual(recipe.steps[0].kind, .humanReadScrub)
-        XCTAssertEqual(recipe.steps[1].kind, .deduplicate)
-        XCTAssertEqual(recipe.steps[1].deduplicatePreset, .exactPCR)
-        XCTAssertEqual(recipe.steps[2].kind, .adapterTrim)
-        XCTAssertEqual(recipe.steps[2].adapterMode, .autoDetect)
-        XCTAssertEqual(recipe.steps[3].kind, .qualityTrim)
-        XCTAssertEqual(recipe.steps[3].qualityThreshold, 15)
+        // Step order: dedup → adapter trim → quality trim → human scrub → merge → length filter
+        XCTAssertEqual(recipe.steps[0].kind, .deduplicate)
+        XCTAssertEqual(recipe.steps[0].deduplicatePreset, .exactPCR)
+        XCTAssertEqual(recipe.steps[1].kind, .adapterTrim)
+        XCTAssertEqual(recipe.steps[1].adapterMode, .autoDetect)
+        XCTAssertEqual(recipe.steps[2].kind, .qualityTrim)
+        XCTAssertEqual(recipe.steps[2].qualityThreshold, 15)
+        XCTAssertEqual(recipe.steps[3].kind, .humanReadScrub)
         XCTAssertEqual(recipe.steps[4].kind, .pairedEndMerge)
         XCTAssertEqual(recipe.steps[4].mergeMinOverlap, 15)
         XCTAssertEqual(recipe.steps[5].kind, .lengthFilter)

@@ -5,12 +5,13 @@ final class FASTAFileTypesTests: XCTestCase {
     func testReadableExtensionsIncludeCommonFASTAAliases() {
         XCTAssertEqual(
             FASTAFileTypes.readableExtensions,
-            ["fa", "fasta", "fna", "fsa"]
+            ["fa", "fasta", "fna", "fsa", "fas", "faa", "ffn", "frn", "gb", "gbk", "gbff", "genbank", "embl"]
         )
     }
 
     func testReadableContentTypesMatchExtensions() {
-        XCTAssertEqual(
+        // Content types include readable extensions + .gzip + compression wrapper types
+        XCTAssertGreaterThan(
             FASTAFileTypes.readableContentTypes.count,
             FASTAFileTypes.readableExtensions.count
         )
