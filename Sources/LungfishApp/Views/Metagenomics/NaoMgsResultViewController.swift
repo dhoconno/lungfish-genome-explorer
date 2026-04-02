@@ -664,7 +664,29 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             )
             titleLabel.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
             titleLabel.lineBreakMode = .byTruncatingTail
+            titleLabel.isSelectable = true
             titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+            let accessionMenu = NSMenu()
+            let viewOnNCBI = NSMenuItem(
+                title: "View \(accessionSummary.accession) on NCBI GenBank",
+                action: #selector(contextViewAccessionOnNCBI(_:)),
+                keyEquivalent: ""
+            )
+            viewOnNCBI.target = self
+            viewOnNCBI.representedObject = accessionSummary.accession
+            accessionMenu.addItem(viewOnNCBI)
+
+            let copyAccession = NSMenuItem(
+                title: "Copy Accession",
+                action: #selector(contextCopyAccession(_:)),
+                keyEquivalent: ""
+            )
+            copyAccession.target = self
+            copyAccession.representedObject = accessionSummary.accession
+            accessionMenu.addItem(copyAccession)
+
+            titleLabel.menu = accessionMenu
             card.addSubview(titleLabel)
 
             let miniBAM = MiniBAMViewController()
