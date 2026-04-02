@@ -25,16 +25,12 @@ import LungfishIO
 /// | Results Location                                    |
 /// | [  /path/to/results/              ] [Browse...]     |
 /// +----------------------------------------------------+
-/// | Sample Name                                         |
-/// | [  WW-2024-01                     ]                 |
-/// +----------------------------------------------------+
 /// | Preview                                             |
 /// |   Virus hits:     1,234                             |
 /// |   Distinct taxa:  42                                |
 /// |   Source file:     virus_hits_final.tsv.gz           |
 /// +----------------------------------------------------+
 /// | Options                                             |
-/// |   [x] Convert to SAM for alignment view             |
 /// |   Min % identity: [---|----90--------]  90%         |
 /// +----------------------------------------------------+
 /// |                        [Cancel]  [Run]              |
@@ -53,8 +49,8 @@ struct NaoMgsImportSheet: View {
     /// The FASTQ bundle URL that triggered this import (for context display).
     let datasetURL: URL?
 
-    /// Called when the user clicks Run. Parameters: (results URL, sample name, min identity).
-    var onImport: ((URL, String, Double) -> Void)?
+    /// Called when the user clicks Run. Parameters: (results URL, min identity).
+    var onImport: ((URL, Double) -> Void)?
 
     /// Called when the user clicks Cancel.
     var onCancel: (() -> Void)?
@@ -62,7 +58,6 @@ struct NaoMgsImportSheet: View {
     // MARK: - State
 
     @State private var selectedPath: URL? = nil
-    @State private var sampleName: String = ""
     @State private var minIdentity: Double = 0
     @State private var isScanning: Bool = false
     @State private var linesScanned: Int = 0
@@ -87,7 +82,7 @@ struct NaoMgsImportSheet: View {
 
     /// Whether the Run button should be enabled.
     private var canRun: Bool {
-        selectedPath != nil && !sampleName.isEmpty && !isScanning && hitCount != nil
+        selectedPath != nil && !isScanning && hitCount != nil
     }
 
     // MARK: - Body
@@ -103,11 +98,6 @@ struct NaoMgsImportSheet: View {
                 VStack(alignment: .leading, spacing: 16) {
                     // Results location
                     locationSection
-
-                    Divider()
-
-                    // Sample name
-                    sampleNameSection
 
                     Divider()
 
@@ -190,20 +180,6 @@ struct NaoMgsImportSheet: View {
             Text("Select a directory containing virus_hits_final.tsv.gz, or the file directly.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-        }
-    }
-
-    // MARK: - Sample Name
-
-    private var sampleNameSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Sample Name")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
-
-            TextField("e.g., WW-2024-01", text: $sampleName)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12))
         }
     }
 
@@ -385,9 +361,6 @@ struct NaoMgsImportSheet: View {
                     hitCount = result.totalHitReads
                     taxonCount = result.taxonSummaries.count
                     sourceFileName = result.virusHitsFile.lastPathComponent
-                    if sampleName.isEmpty {
-                        sampleName = result.sampleName
-                    }
                     isScanning = false
                 }
             } catch {
@@ -401,8 +374,8 @@ struct NaoMgsImportSheet: View {
 
     /// Triggers the import callback with the current configuration.
     private func performImport() {
-        guard let url = selectedPath, !sampleName.isEmpty else { return }
-        onImport?(url, sampleName, minIdentity)
+        guard let url = selectedPath else { return }
+        onImport?(url, minIdentity)
     }
 
     // MARK: - Formatting

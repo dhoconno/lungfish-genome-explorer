@@ -1192,19 +1192,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     private func importNaoMgsResultFromURL(
         _ url: URL,
-        sampleName: String,
         minIdentity: Double
     ) {
-        let trimmedSampleName = sampleName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedSampleName = trimmedSampleName.isEmpty ? nil : trimmedSampleName
         importClassifierResultFromURL(
             url,
             kind: .naomgs,
             operationTitle: "NAO-MGS Import",
             missingProjectMessage: "Please open a project before importing NAO-MGS results.",
-            preferredName: resolvedSampleName,
             naoMgsOptions: .init(
-                sampleName: resolvedSampleName,
                 minIdentity: minIdentity,
                 fetchReferences: true
             )
@@ -1241,11 +1236,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
         if kind == .naomgs {
             let options = naoMgsOptions ?? .init()
-            if let sampleName = options.sampleName?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               !sampleName.isEmpty {
-                cliArgs.append(contentsOf: ["--sample-name", sampleName])
-            }
             let identityFloor = max(0, min(100, options.minIdentity))
             cliArgs.append(contentsOf: ["--min-identity", String(identityFloor)])
             cliArgs.append(contentsOf: ["--fetch-references", options.fetchReferences ? "true" : "false"])
@@ -3876,11 +3866,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         wizardPanel.isReleasedWhenClosed = false
 
         var sheet = NaoMgsImportSheet(datasetURL: nil)
-        sheet.onImport = { [weak self] (resultsDir: URL, sampleName: String, minIdentity: Double) in
+        sheet.onImport = { [weak self] (resultsDir: URL, minIdentity: Double) in
             window.endSheet(wizardPanel)
             self?.importNaoMgsResultFromURL(
                 resultsDir,
-                sampleName: sampleName,
                 minIdentity: minIdentity
             )
         }

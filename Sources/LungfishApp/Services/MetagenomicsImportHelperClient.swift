@@ -43,16 +43,13 @@ public enum MetagenomicsImportHelperClient {
 
     /// NAO-MGS-specific import options forwarded to helper mode.
     public struct NaoMgsOptions: Sendable {
-        public let sampleName: String?
         public let minIdentity: Double
         public let fetchReferences: Bool
 
         public init(
-            sampleName: String? = nil,
             minIdentity: Double = 0,
             fetchReferences: Bool = true
         ) {
-            self.sampleName = sampleName
             self.minIdentity = minIdentity
             self.fetchReferences = fetchReferences
         }
@@ -127,11 +124,6 @@ public enum MetagenomicsImportHelperClient {
         }
         if kind == .naomgs {
             let options = naoMgsOptions ?? NaoMgsOptions()
-            if let sampleName = options.sampleName?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               !sampleName.isEmpty {
-                args.append(contentsOf: ["--sample-name", sampleName])
-            }
             let normalizedIdentity = max(0, min(100, options.minIdentity))
             args.append(contentsOf: ["--min-identity", String(normalizedIdentity)])
             args.append(contentsOf: ["--fetch-references", options.fetchReferences ? "true" : "false"])

@@ -60,9 +60,6 @@ public enum MetagenomicsImportHelper {
         let preferredName = value(for: "--name", in: arguments)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedName = preferredName?.isEmpty == true ? nil : preferredName
-        let sampleName = value(for: "--sample-name", in: arguments)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedSampleName = sampleName?.isEmpty == true ? nil : sampleName
         let minIdentity = Double(value(for: "--min-identity", in: arguments) ?? "") ?? 0
         let fetchReferences = boolValue(
             for: "--fetch-references",
@@ -224,7 +221,7 @@ public enum MetagenomicsImportHelper {
                     let result = try await MetagenomicsImportService.importNaoMgs(
                         inputURL: inputURL,
                         outputDirectory: outputDirectory,
-                        sampleName: normalizedSampleName ?? normalizedName,
+                        sampleName: nil,
                         minIdentity: minIdentity,
                         fetchReferences: fetchReferences,
                         preferredName: normalizedName
