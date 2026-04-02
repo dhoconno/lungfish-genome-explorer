@@ -133,6 +133,7 @@ extension NaoMgsResultViewController: ResultViewportController {
     /// Exports NAO-MGS results to `url` in the requested format.
     ///
     /// Only `.tsv` is supported; all other formats throw an unsupported-format error.
+    /// Uses the internal `exportResults()` method which writes from `displayedRows`.
     ///
     /// - Parameters:
     ///   - url: Destination file URL. Written atomically.
@@ -140,31 +141,10 @@ extension NaoMgsResultViewController: ResultViewportController {
     /// - Throws: ``TaxonomyExportError/unsupportedFormat(_:)`` for non-TSV formats;
     ///   rethrows file-system errors from `String.write(to:atomically:encoding:)`.
     public func exportResults(to url: URL, format: ResultExportFormat) throws {
-        guard let result = naoMgsResult else {
-            throw TaxonomyExportError.noData
-        }
-
         switch format {
         case .tsv:
-            var lines: [String] = [
-                "taxon_id\tname\thit_count\tavg_identity\tavg_bit_score\tavg_edit_distance\taccessions"
-            ]
-            for summary in result.taxonSummaries {
-                let accStr = summary.accessions.joined(separator: ",")
-                lines.append(
-                    [
-                        "\(summary.taxId)",
-                        summary.name,
-                        "\(summary.hitCount)",
-                        String(format: "%.2f", summary.avgIdentity),
-                        String(format: "%.1f", summary.avgBitScore),
-                        String(format: "%.1f", summary.avgEditDistance),
-                        accStr,
-                    ].joined(separator: "\t")
-                )
-            }
-            let content = lines.joined(separator: "\n") + "\n"
-            try content.write(to: url, atomically: true, encoding: .utf8)
+            // Delegate to the VC's own export which uses displayedRows from the database.
+            exportResults()
 
         case .csv, .json, .fasta:
             throw TaxonomyExportError.unsupportedFormat(format)

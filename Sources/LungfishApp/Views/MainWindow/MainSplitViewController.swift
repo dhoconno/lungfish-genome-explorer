@@ -1857,7 +1857,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         let placeholderVC = NaoMgsResultViewController()
         viewerController.displayNaoMgsResult(placeholderVC)
 
-        // Decode and enrich on a background thread (virus_hits.json can be >50 MB).
+        // Open database and manifest on a background thread.
         let bundleURL = url
         Task {
             do {
@@ -1874,98 +1874,25 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 let manifestData = try Data(contentsOf: manifestURL)
                 let manifest = try decoder.decode(NaoMgsManifest.self, from: manifestData)
 
-                // Load cached virus hits JSON (always present after import)
-                let hitsURL = bundleURL.appendingPathComponent("virus_hits.json")
-                guard fm.fileExists(atPath: hitsURL.path) else {
+                // Open SQLite database (created during import)
+                let dbURL = bundleURL.appendingPathComponent("hits.sqlite")
+                guard fm.fileExists(atPath: dbURL.path) else {
                     throw NSError(domain: "NaoMgsDisplay", code: 2,
-                                  userInfo: [NSLocalizedDescriptionKey: "virus_hits.json not found — bundle may be incomplete"])
+                                  userInfo: [NSLocalizedDescriptionKey: "hits.sqlite not found — bundle may need re-import"])
                 }
-                let hitsData = try Data(contentsOf: hitsURL)
-                let hitsFile = try decoder.decode(NaoMgsVirusHitsFile.self, from: hitsData)
-
-                // Build accession → organism name from downloaded reference FASTAs.
-                // The TSV often lacks subjectTitle, so we derive names from FASTA headers.
-                let refsDir = bundleURL.appendingPathComponent("references")
-                let accessionToName = Self.buildAccessionNameMap(referencesDirectory: refsDir)
-
-                // Derive taxId → best organism name from the hits' accessions.
-                let taxIdToName = Self.deriveTaxonNames(
-                    hits: hitsFile.virusHits,
-                    accessionToName: accessionToName
-                )
-
-                // Group hits by taxId for identity recomputation from stale caches.
-                var hitsByTaxId: [Int: [NaoMgsVirusHit]] = [:]
-                for hit in hitsFile.virusHits {
-                    hitsByTaxId[hit.taxId, default: []].append(hit)
-                }
-
-                // Recompute duplicate counts from raw hits so older caches without
-                // persisted duplicate metadata are transparently upgraded at load.
-                let duplicateCountsByTaxId: [Int: Int] = hitsByTaxId.mapValues { taxHits in
-                    var groups: [String: Int] = [:]
-                    for hit in taxHits {
-                        let strand = hit.isReverseComplement ? "R" : "F"
-                        let readLength = hit.queryLength > 0 ? hit.queryLength : max(0, hit.readSequence.count)
-                        let inferredRefEnd = max(hit.refEnd, hit.refStart + max(1, readLength))
-                        let key = "\(hit.subjectSeqId)|\(hit.refStart)|\(inferredRefEnd)|\(strand)"
-                        groups[key, default: 0] += 1
-                    }
-                    return groups.values.reduce(0) { sum, count in
-                        sum + max(0, count - 1)
-                    }
-                }
-
-                // Rebuild taxon summaries with enriched names and recomputed identity.
-                let enrichedSummaries = hitsFile.taxonSummaries.map { summary in
-                    let resolvedName = summary.name.isEmpty
-                        ? (taxIdToName[summary.taxId] ?? "Taxid \(summary.taxId)")
-                        : summary.name
-
-                    // Recompute avgIdentity from raw hits when cached value is 0
-                    // (stale cache from before the edit-distance derivation fix).
-                    var avgIdentity = summary.avgIdentity
-                    if avgIdentity == 0, let taxHits = hitsByTaxId[summary.taxId], !taxHits.isEmpty {
-                        let totalIdentity = taxHits.reduce(0.0) { sum, hit in
-                            if hit.percentIdentity > 0 { return sum + hit.percentIdentity }
-                            let len = hit.queryLength > 0 ? hit.queryLength : hit.readSequence.count
-                            guard len > 0 else { return sum }
-                            return sum + max(0, (1.0 - Double(hit.editDistance) / Double(len)) * 100.0)
-                        }
-                        avgIdentity = totalIdentity / Double(taxHits.count)
-                    }
-
-                    return NaoMgsTaxonSummary(
-                        taxId: summary.taxId,
-                        name: resolvedName,
-                        hitCount: summary.hitCount,
-                        avgIdentity: avgIdentity,
-                        avgBitScore: summary.avgBitScore,
-                        avgEditDistance: summary.avgEditDistance,
-                        accessions: summary.accessions,
-                        pcrDuplicateCount: duplicateCountsByTaxId[summary.taxId] ?? summary.pcrDuplicateCount
-                    )
-                }
-
-                let naoResult = NaoMgsResult(
-                    virusHits: hitsFile.virusHits,
-                    taxonSummaries: enrichedSummaries,
-                    totalHitReads: manifest.hitCount > 0 ? manifest.hitCount : hitsFile.virusHits.count,
-                    sampleName: manifest.sampleName,
-                    sourceDirectory: bundleURL,
-                    virusHitsFile: URL(fileURLWithPath: manifest.sourceFilePath)
-                )
+                let database = try NaoMgsDatabase(at: dbURL)
 
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
                         guard let self else { return }
-                        // Configure the already-displayed placeholder VC with real data.
-                        placeholderVC.configure(result: naoResult, bundleURL: bundleURL)
+                        // Configure the already-displayed placeholder VC with database.
+                        placeholderVC.configure(database: database, manifest: manifest, bundleURL: bundleURL)
 
                         // Update inspector with NAO-MGS manifest info
                         self.inspectorController?.updateNaoMgsManifest(manifest)
 
-                        logger.info("displayNaoMgsResult: Configured with \(naoResult.totalHitReads) hits, \(enrichedSummaries.count) taxa")
+                        let totalHits = (try? database.totalHitCount()) ?? manifest.hitCount
+                        logger.info("displayNaoMgsResult: Configured with database, \(totalHits) hits")
                     }
                 }
             } catch {

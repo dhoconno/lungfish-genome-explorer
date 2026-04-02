@@ -10,14 +10,16 @@ import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "NaoMgsResultVC")
 
+/// Type alias to disambiguate the database accession summary from the in-app one.
+private typealias DBAccessionSummary = LungfishIO.NaoMgsAccessionSummary
+
 // MARK: - NaoMgsResultViewController
 
 /// A full-screen NAO-MGS metagenomic surveillance result browser.
 ///
 /// `NaoMgsResultViewController` is the primary UI for displaying imported
-/// NAO-MGS workflow results (`virus_hits_final.tsv`). It replaces the normal
-/// sequence viewer content area following the same child-VC pattern as
-/// ``TaxonomyViewController`` and ``EsVirituResultViewController``.
+/// NAO-MGS workflow results. It uses a SQLite database for fast random-access
+/// queries instead of holding all hits in memory.
 ///
 /// ## Layout
 ///
@@ -37,11 +39,6 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "NaoMgsResult
 /// +--------------------------------------------------+
 /// ```
 ///
-/// ## MiniBAM Alignment Viewer
-///
-/// When a taxon is selected and BAM data is available, the detail pane shows
-/// a scrollable list of miniBAM panels for the top accessions by unique read count.
-///
 /// ## Thread Safety
 ///
 /// This class is `@MainActor` isolated and uses raw `NSSplitView` (not
@@ -49,28 +46,37 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "NaoMgsResult
 @MainActor
 public final class NaoMgsResultViewController: NSViewController, NSSplitViewDelegate {
 
-    // MARK: - Data
+    // MARK: - Data (Database-backed)
 
-    /// The NAO-MGS result driving this view.
-    private(set) var naoMgsResult: NaoMgsResult?
+    /// SQLite database for virus hits and taxon summaries.
+    private var database: NaoMgsDatabase?
 
-    /// Hits grouped by taxonomy ID for efficient lookup.
-    private var hitsByTaxon: [Int: [NaoMgsVirusHit]] = [:]
-
-    /// Currently selected taxon summary.
-    private var selectedTaxonSummary: NaoMgsTaxonSummary?
-
-    /// Currently selected accession within the detail pane.
-    private var selectedAccession: String?
+    /// Bundle manifest metadata.
+    private var manifest: NaoMgsManifest?
 
     /// URL of the NAO-MGS bundle directory.
     private var bundleURL: URL?
 
-    /// URL to the sorted BAM file for alignment display.
-    private var bamURL: URL?
+    /// All samples with their hit counts from the database.
+    private var allSamples: [(sample: String, hitCount: Int)] = []
 
-    /// URL to the BAM index (.bai) file.
-    private var bamIndexURL: URL?
+    /// Currently selected sample names for filtering.
+    private var selectedSamples: Set<String> = []
+
+    /// Sample entries for the picker view.
+    private var sampleEntries: [NaoMgsSampleEntry] = []
+
+    /// Common prefix stripped from sample display names.
+    private var strippedPrefix: String = ""
+
+    /// Currently displayed taxonomy rows (filtered + sorted).
+    private var displayedRows: [NaoMgsTaxonSummaryRow] = []
+
+    /// Currently selected taxon summary row.
+    private var selectedRow: NaoMgsTaxonSummaryRow?
+
+    /// Currently selected accession within the detail pane.
+    private var selectedAccession: String?
 
     // MARK: - Child Views
 
@@ -79,7 +85,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     private let taxonomyTableScrollView = NSScrollView()
     private let taxonomyTableView = NSTableView()
     private let taxonomyFilterBar = NSStackView()
-    private let sampleFilterField = NSSearchField()
+    private let sampleFilterButton = NSButton(title: "All Samples", target: nil, action: nil)
     private let taxonFilterField = NSSearchField()
     private let hitsFilterField = NSTextField()
     private let uniqueReadsFilterField = NSTextField()
@@ -102,9 +108,6 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// Number of accession miniBAM panels to show per selected taxon.
     private let miniBAMDisplayLimit: Int = 10
 
-    /// Taxonomy row sample labels derived from raw hits (supports multi-sample bundles).
-    private var sampleNamesByTaxId: [Int: String] = [:]
-
     // MARK: - Split View State
 
     /// The left (detail) pane container in the split view.
@@ -120,6 +123,9 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     private var blastDrawerView: BlastResultsDrawerTab?
     private var blastDrawerBottomConstraint: NSLayoutConstraint?
     private var isBlastDrawerOpen = false
+
+    /// Active sample picker popover.
+    private var samplePopover: NSPopover?
 
     // MARK: - Selection Sync
 
@@ -157,101 +163,238 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     // MARK: - Public API
 
-    /// Configures the view with a parsed NAO-MGS result.
-    public func configure(result: NaoMgsResult, bundleURL: URL? = nil) {
-        naoMgsResult = result
-        hitsByTaxon = NaoMgsDataConverter.groupByTaxon(result.virusHits)
-        sampleNamesByTaxId = Self.buildSampleNamesByTaxId(
-            hitsByTaxon: hitsByTaxon,
-            fallbackSampleName: result.sampleName
-        )
+    /// Configures the view with a SQLite database and manifest.
+    public func configure(database: NaoMgsDatabase, manifest: NaoMgsManifest, bundleURL: URL? = nil) {
+        self.database = database
+        self.manifest = manifest
         self.bundleURL = bundleURL
 
-        // Discover BAM file in bundle
-        if let bundleURL {
-            discoverBAMFile(in: bundleURL, sampleName: result.sampleName)
+        // Fetch samples from database
+        do {
+            allSamples = try database.fetchSamples()
+        } catch {
+            logger.error("Failed to fetch samples: \(error.localizedDescription, privacy: .public)")
+            allSamples = []
         }
 
-        // Update summary bar
-        summaryBar.update(result: result)
+        // Compute common prefix for display names
+        let sampleNames = allSamples.map(\.sample)
+        strippedPrefix = NaoMgsSamplePickerView.commonPrefix(of: sampleNames)
 
-        // Reload taxonomy table with current filter state.
-        applyTaxonomyFilters()
+        // Create sample entries with stripped display names
+        sampleEntries = allSamples.map { item in
+            let displayName = strippedPrefix.isEmpty
+                ? item.sample
+                : String(item.sample.dropFirst(strippedPrefix.count))
+            return NaoMgsSampleEntry(id: item.sample, displayName: displayName, hitCount: item.hitCount)
+        }
+
+        // Select all samples initially
+        selectedSamples = Set(sampleNames)
+
+        // Update summary bar
+        summaryBar.update(database: database, manifest: manifest, selectedSamples: Array(selectedSamples))
+
+        // Reload taxonomy table
+        reloadTaxonomyTable()
 
         // Update action bar
-        actionBar.configure(
-            totalHits: result.totalHitReads,
-            taxonCount: result.taxonSummaries.count
-        )
+        let totalHits = (try? database.totalHitCount()) ?? manifest.hitCount
+        let taxonCount = displayedRows.count
+        actionBar.configure(totalHits: totalHits, taxonCount: taxonCount)
 
         // Auto-select top taxon so miniBAM panels are visible immediately.
-        if result.taxonSummaries.isEmpty {
+        if displayedRows.isEmpty {
             showOverview()
         } else {
-            selectTaxonById(displayedSummaries.first?.taxId ?? result.taxonSummaries[0].taxId)
+            selectRowByIndex(0)
         }
 
         // Force the split view to re-apply its 40/60 position now that we have content.
-        // If bounds are not available yet, this remains deferred to viewDidLayout.
         applySplitPositionIfNeeded(force: true)
 
-        logger.info("Configured NAO-MGS viewer with \(result.totalHitReads) hits, \(result.taxonSummaries.count) taxa, sample=\(result.sampleName, privacy: .public), bam=\(self.bamURL != nil)")
+        // Update sample column visibility
+        updateSampleColumnVisibility()
+
+        logger.info("Configured NAO-MGS viewer with database, \(self.allSamples.count) samples")
     }
 
-    // MARK: - BAM Discovery
+    /// Legacy configure method — kept for backward compatibility during transition.
+    public func configure(result: NaoMgsResult, bundleURL: URL? = nil) {
+        logger.warning("configure(result:) called — this code path is deprecated, use configure(database:manifest:bundleURL:)")
+    }
 
-    /// Searches for the sorted BAM file and its index in the bundle directory.
-    private func discoverBAMFile(in bundleURL: URL, sampleName: String) {
-        let fm = FileManager.default
+    // MARK: - Taxonomy Table Reload
 
-        // Try standard naming convention: {sample}.sorted.bam
-        let standardBAM = bundleURL.appendingPathComponent("\(sampleName).sorted.bam")
-        if fm.fileExists(atPath: standardBAM.path) {
-            bamURL = standardBAM
-            // Look for index
-            let bai = bundleURL.appendingPathComponent("\(sampleName).sorted.bam.bai")
-            let csi = bundleURL.appendingPathComponent("\(sampleName).sorted.bam.csi")
-            if fm.fileExists(atPath: bai.path) {
-                bamIndexURL = bai
-            } else if fm.fileExists(atPath: csi.path) {
-                bamIndexURL = csi
-            }
+    private func reloadTaxonomyTable() {
+        guard let database else {
+            displayedRows = []
+            taxonomyTableView.reloadData()
             return
         }
 
-        // Fallback: scan for any .sorted.bam file
-        if let contents = try? fm.contentsOfDirectory(at: bundleURL, includingPropertiesForKeys: nil) {
-            for file in contents where file.pathExtension == "bam" && file.lastPathComponent.contains("sorted") {
-                bamURL = file
-                let bai = file.appendingPathExtension("bai")
-                let csi = file.deletingPathExtension().appendingPathExtension("csi")
-                if fm.fileExists(atPath: bai.path) {
-                    bamIndexURL = bai
-                } else if fm.fileExists(atPath: csi.path) {
-                    bamIndexURL = csi
+        do {
+            var rows = try database.fetchTaxonSummaryRows(samples: Array(selectedSamples))
+
+            // Apply in-memory filters
+            let taxonFilter = taxonFilterField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !taxonFilter.isEmpty {
+                rows = rows.filter {
+                    ($0.name.isEmpty ? "Taxid \($0.taxId)" : $0.name)
+                        .localizedCaseInsensitiveContains(taxonFilter)
                 }
-                break
             }
+
+            if let minHits = parseMinFilter(hitsFilterField.stringValue) {
+                rows = rows.filter { $0.hitCount >= minHits }
+            }
+            if let minUnique = parseMinFilter(uniqueReadsFilterField.stringValue) {
+                rows = rows.filter { $0.uniqueReadCount >= minUnique }
+            }
+            if let minRefs = parseMinFilter(refsFilterField.stringValue) {
+                rows = rows.filter { $0.accessionCount >= minRefs }
+            }
+
+            // Apply sort
+            if let sortDescriptor = taxonomyTableView.sortDescriptors.first {
+                switch sortDescriptor.key {
+                case "sample":
+                    rows.sort {
+                        let compare = $0.sample.localizedCaseInsensitiveCompare($1.sample)
+                        return sortDescriptor.ascending ? compare == .orderedAscending : compare == .orderedDescending
+                    }
+                case "name":
+                    rows.sort {
+                        let compare = $0.name.localizedCaseInsensitiveCompare($1.name)
+                        return sortDescriptor.ascending ? compare == .orderedAscending : compare == .orderedDescending
+                    }
+                case "hits":
+                    rows.sort {
+                        sortDescriptor.ascending ? $0.hitCount < $1.hitCount : $0.hitCount > $1.hitCount
+                    }
+                case "unique":
+                    rows.sort {
+                        sortDescriptor.ascending
+                            ? $0.uniqueReadCount < $1.uniqueReadCount
+                            : $0.uniqueReadCount > $1.uniqueReadCount
+                    }
+                case "refs":
+                    rows.sort {
+                        sortDescriptor.ascending
+                            ? $0.accessionCount < $1.accessionCount
+                            : $0.accessionCount > $1.accessionCount
+                    }
+                default:
+                    break
+                }
+            }
+
+            displayedRows = rows
+        } catch {
+            logger.error("Failed to fetch taxon summaries: \(error.localizedDescription, privacy: .public)")
+            displayedRows = []
         }
+
+        let selectedTaxId = selectedRow?.taxId
+        let selectedSample = selectedRow?.sample
+        taxonomyTableView.reloadData()
+
+        guard !displayedRows.isEmpty else {
+            suppressSelectionSync = true
+            taxonomyTableView.deselectAll(nil)
+            suppressSelectionSync = false
+            showOverview()
+            return
+        }
+
+        // Try to preserve selection
+        if let selectedTaxId, let selectedSample,
+           let idx = displayedRows.firstIndex(where: { $0.taxId == selectedTaxId && $0.sample == selectedSample }) {
+            suppressSelectionSync = true
+            taxonomyTableView.selectRowIndexes(IndexSet(integer: idx), byExtendingSelection: false)
+            suppressSelectionSync = false
+            return
+        }
+
+        // Fall back to first row
+        suppressSelectionSync = true
+        taxonomyTableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        suppressSelectionSync = false
+        showTaxonDetail(displayedRows[0])
+    }
+
+    // MARK: - Sample Column Visibility
+
+    private func updateSampleColumnVisibility() {
+        guard let sampleColumn = taxonomyTableView.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier("sample")) else { return }
+        sampleColumn.isHidden = selectedSamples.count <= 1
+    }
+
+    // MARK: - Sample Filter Button
+
+    private func updateSampleFilterButtonTitle() {
+        let total = allSamples.count
+        let selected = selectedSamples.count
+        if selected == total {
+            sampleFilterButton.title = "All Samples"
+        } else {
+            sampleFilterButton.title = "\(selected) of \(total) Samples"
+        }
+    }
+
+    @objc private func sampleFilterButtonClicked(_ sender: NSButton) {
+        if let existing = samplePopover, existing.isShown {
+            existing.close()
+            samplePopover = nil
+            return
+        }
+
+        let pickerView = NaoMgsSamplePickerView(
+            samples: sampleEntries,
+            selectedSamples: Binding(
+                get: { [weak self] in self?.selectedSamples ?? [] },
+                set: { [weak self] newValue in
+                    guard let self else { return }
+                    self.selectedSamples = newValue
+                    self.updateSampleFilterButtonTitle()
+                    self.updateSampleColumnVisibility()
+                    self.reloadTaxonomyTable()
+                    self.summaryBar.update(
+                        database: self.database,
+                        manifest: self.manifest,
+                        selectedSamples: Array(newValue)
+                    )
+                }
+            ),
+            strippedPrefix: strippedPrefix
+        )
+
+        let hostingController = NSHostingController(rootView: pickerView)
+        let popover = NSPopover()
+        popover.contentViewController = hostingController
+        popover.behavior = .transient
+        popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .maxY)
+        samplePopover = popover
     }
 
     // MARK: - Detail Pane Content
 
     /// Shows the overview when no taxon is selected.
     private func showOverview() {
-        selectedTaxonSummary = nil
+        selectedRow = nil
         selectedAccession = nil
 
         rebuildDetailContent()
         actionBar.updateSelection(nil)
     }
 
-    /// Shows the detail pane for the selected taxon.
-    private func showTaxonDetail(_ summary: NaoMgsTaxonSummary) {
-        selectedTaxonSummary = summary
+    /// Shows the detail pane for the selected taxon row.
+    private func showTaxonDetail(_ row: NaoMgsTaxonSummaryRow) {
+        selectedRow = row
         selectedAccession = nil
         rebuildDetailContent()
-        actionBar.updateSelection(summary)
+        // Create a lightweight summary for the action bar
+        actionBar.updateSelectionRow(row, totalHits: (try? database?.totalHitCount(samples: Array(selectedSamples))) ?? 0)
     }
 
     /// Stores accession selection from legacy list/table widgets.
@@ -269,8 +412,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         // Reset any active constraints on the content view
         detailContentView.removeConstraints(detailContentView.constraints)
 
-        if let summary = selectedTaxonSummary {
-            buildTaxonDetailContent(summary)
+        if let row = selectedRow {
+            buildTaxonDetailContent(row)
         } else {
             buildOverviewContent()
         }
@@ -305,8 +448,6 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     // MARK: - Overview Content
 
     private func buildOverviewContent() {
-        guard let result = naoMgsResult else { return }
-
         let titleLabel = NSTextField(labelWithString: "NAO-MGS Results Overview")
         titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -318,11 +459,28 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
         detailContentView.addSubview(subtitleLabel)
 
-        // Quick stats using hosting view
+        // Build a lightweight summary for the overview
+        let sampleName = manifest?.sampleName ?? "Unknown"
+        let totalHits = (try? database?.totalHitCount(samples: Array(selectedSamples))) ?? 0
+
+        // Build NaoMgsTaxonSummary array from displayed rows for the overview chart
+        let summaries = displayedRows.map { row in
+            NaoMgsTaxonSummary(
+                taxId: row.taxId,
+                name: row.name,
+                hitCount: row.hitCount,
+                avgIdentity: row.avgIdentity,
+                avgBitScore: row.avgBitScore,
+                avgEditDistance: row.avgEditDistance,
+                accessions: row.topAccessions,
+                pcrDuplicateCount: row.pcrDuplicateCount
+            )
+        }
+
         let statsView = NaoMgsOverviewView(
-            taxonSummaries: result.taxonSummaries,
-            totalHitReads: result.totalHitReads,
-            sampleName: result.sampleName,
+            taxonSummaries: summaries,
+            totalHitReads: totalHits,
+            sampleName: sampleName,
             onTaxonSelected: { [weak self] taxId in
                 self?.selectTaxonById(taxId)
             }
@@ -349,31 +507,43 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     // MARK: - Taxon Detail Content
 
-    private func buildTaxonDetailContent(_ summary: NaoMgsTaxonSummary) {
-        let hits = hitsByTaxon[summary.taxId] ?? []
-        let accessionSummaries = NaoMgsDataConverter.buildAccessionSummaries(hits: hits)
+    private func buildTaxonDetailContent(_ row: NaoMgsTaxonSummaryRow) {
+        guard let database else { return }
 
-        // 2. Taxon name header
-        let nameLabel = NSTextField(labelWithString: summary.name.isEmpty ? "Taxid \(summary.taxId)" : summary.name)
+        // Fetch accession summaries from database
+        let accessionSummaries: [DBAccessionSummary]
+        do {
+            accessionSummaries = try database.fetchAccessionSummaries(sample: row.sample, taxId: row.taxId)
+        } catch {
+            logger.error("Failed to fetch accession summaries: \(error.localizedDescription, privacy: .public)")
+            accessionSummaries = []
+        }
+
+        // Taxon name header
+        let nameLabel = NSTextField(labelWithString: row.name.isEmpty ? "Taxid \(row.taxId)" : row.name)
         nameLabel.font = .systemFont(ofSize: 14, weight: .bold)
         nameLabel.lineBreakMode = .byTruncatingTail
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         detailContentView.addSubview(nameLabel)
 
         let subtitleLabel = NSTextField(
-            labelWithString: "Taxid: \(summary.taxId)  \u{2022}  \(summary.uniqueReadCount) unique / \(summary.hitCount) total reads  \u{2022}  \(summary.accessions.count) accessions"
+            labelWithString: "Taxid: \(row.taxId)  \u{2022}  \(row.uniqueReadCount) unique / \(row.hitCount) total reads  \u{2022}  \(row.accessionCount) accessions"
         )
         subtitleLabel.font = .systemFont(ofSize: 10)
         subtitleLabel.textColor = .secondaryLabelColor
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
         detailContentView.addSubview(subtitleLabel)
 
-        // 3. Metrics row
-        let metricsView = buildMetricsView(for: summary)
+        // Metrics row
+        let metricsView = buildMetricsView(for: row)
         detailContentView.addSubview(metricsView)
 
-        // 4. Scrollable list of miniBAM panels for top accessions
-        let miniBAMListView = buildMiniBAMList(accessionSummaries: accessionSummaries)
+        // Scrollable list of miniBAM panels for top accessions
+        let miniBAMListView = buildMiniBAMList(
+            accessionSummaries: accessionSummaries,
+            sample: row.sample,
+            taxId: row.taxId
+        )
         detailContentView.addSubview(miniBAMListView)
 
         NSLayoutConstraint.activate([
@@ -396,7 +566,11 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         ])
     }
 
-    private func buildMiniBAMList(accessionSummaries: [NaoMgsAccessionSummary]) -> NSView {
+    private func buildMiniBAMList(
+        accessionSummaries: [DBAccessionSummary],
+        sample: String,
+        taxId: Int
+    ) -> NSView {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
 
@@ -443,8 +617,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
 
-        guard let bamURL else {
-            let emptyLabel = NSTextField(labelWithString: "No BAM file found in this bundle.")
+        guard let database else {
+            let emptyLabel = NSTextField(labelWithString: "No database available.")
             emptyLabel.font = .systemFont(ofSize: 11)
             emptyLabel.textColor = .secondaryLabelColor
             stack.addArrangedSubview(emptyLabel)
@@ -470,7 +644,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             )
             let coveragePct = String(format: "%.0f%%", accessionSummary.coverageFraction * 100)
             let titleLabel = NSTextField(
-                labelWithString: "\(accessionSummary.accession)  •  \(uniqueReadCount) unique / \(readCount) total reads  •  \(coveragePct) covered"
+                labelWithString: "\(accessionSummary.accession)  \u{2022}  \(uniqueReadCount) unique / \(readCount) total reads  \u{2022}  \(coveragePct) covered"
             )
             titleLabel.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
             titleLabel.lineBreakMode = .byTruncatingTail
@@ -510,13 +684,22 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                 heightConstraint,
             ])
 
-            miniBAM.displayContig(
-                bamURL: bamURL,
-                contig: accessionSummary.accession,
-                contigLength: max(accessionSummary.estimatedRefLength, 1),
-                indexURL: bamIndexURL,
-                maxReads: max(1, accessionSummary.readCount)
-            )
+            // Fetch reads from database and display via displayReads
+            do {
+                let reads = try database.fetchReadsForAccession(
+                    sample: sample,
+                    taxId: taxId,
+                    accession: accessionSummary.accession,
+                    maxReads: max(1, accessionSummary.readCount)
+                )
+                miniBAM.displayReads(
+                    reads: reads,
+                    contig: accessionSummary.accession,
+                    contigLength: max(accessionSummary.estimatedRefLength, 1)
+                )
+            } catch {
+                logger.error("Failed to fetch reads for \(accessionSummary.accession): \(error.localizedDescription, privacy: .public)")
+            }
 
             stack.addArrangedSubview(card)
             card.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
@@ -545,7 +728,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         miniBAMControllers.removeAll()
     }
 
-    private func buildMetricsView(for summary: NaoMgsTaxonSummary) -> NSView {
+    private func buildMetricsView(for row: NaoMgsTaxonSummaryRow) -> NSView {
         let container = NSStackView()
         container.orientation = .horizontal
         container.alignment = .top
@@ -554,11 +737,11 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         container.translatesAutoresizingMaskIntoConstraints = false
 
         let metrics: [(String, String)] = [
-            ("Avg Identity", String(format: "%.1f%%", summary.avgIdentity)),
-            ("Avg Bit Score", String(format: "%.0f", summary.avgBitScore)),
-            ("Avg Edit Dist", String(format: "%.1f", summary.avgEditDistance)),
-            ("Unique Reads", naoMgsFormatCount(summary.uniqueReadCount)),
-            ("Accessions", "\(summary.accessions.count)"),
+            ("Avg Identity", String(format: "%.1f%%", row.avgIdentity)),
+            ("Avg Bit Score", String(format: "%.0f", row.avgBitScore)),
+            ("Avg Edit Dist", String(format: "%.1f", row.avgEditDistance)),
+            ("Unique Reads", naoMgsFormatCount(row.uniqueReadCount)),
+            ("Accessions", "\(row.accessionCount)"),
         ]
 
         for (label, value) in metrics {
@@ -601,7 +784,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         return pill
     }
 
-    private func buildAccessionList(accessionSummaries: [NaoMgsAccessionSummary]) -> NSView {
+    private func buildAccessionList(accessionSummaries: [DBAccessionSummary]) -> NSView {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
 
@@ -680,16 +863,21 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     /// Selects a taxon by its taxonomy ID, updating both the table and detail pane.
     private func selectTaxonById(_ taxId: Int) {
-        guard naoMgsResult != nil else { return }
-        let summaries = displayedSummaries
-        guard let index = summaries.firstIndex(where: { $0.taxId == taxId }) else { return }
+        guard database != nil else { return }
+        guard let index = displayedRows.firstIndex(where: { $0.taxId == taxId }) else { return }
+        selectRowByIndex(index)
+    }
+
+    /// Selects a row by its index in the displayed rows.
+    private func selectRowByIndex(_ index: Int) {
+        guard index < displayedRows.count else { return }
 
         suppressSelectionSync = true
         taxonomyTableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
         taxonomyTableView.scrollRowToVisible(index)
         suppressSelectionSync = false
 
-        showTaxonDetail(summaries[index])
+        showTaxonDetail(displayedRows[index])
     }
 
     // MARK: - Setup: Summary Bar
@@ -808,13 +996,21 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         taxonomyFilterBar.spacing = 6
         container.addSubview(taxonomyFilterBar)
 
-        configureFilterField(sampleFilterField, placeholder: "Sample", width: 130, numeric: false)
+        // Sample filter button (replaces old search field)
+        sampleFilterButton.translatesAutoresizingMaskIntoConstraints = false
+        sampleFilterButton.bezelStyle = .push
+        sampleFilterButton.controlSize = .small
+        sampleFilterButton.font = .systemFont(ofSize: 11)
+        sampleFilterButton.target = self
+        sampleFilterButton.action = #selector(sampleFilterButtonClicked(_:))
+        sampleFilterButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
+
         configureFilterField(taxonFilterField, placeholder: "Taxon", width: 180, numeric: false)
         configureFilterField(hitsFilterField, placeholder: "Min Hits", width: 70, numeric: true)
         configureFilterField(uniqueReadsFilterField, placeholder: "Min Unique", width: 82, numeric: true)
         configureFilterField(refsFilterField, placeholder: "Min Refs", width: 70, numeric: true)
 
-        taxonomyFilterBar.addArrangedSubview(sampleFilterField)
+        taxonomyFilterBar.addArrangedSubview(sampleFilterButton)
         taxonomyFilterBar.addArrangedSubview(taxonFilterField)
         taxonomyFilterBar.addArrangedSubview(hitsFilterField)
         taxonomyFilterBar.addArrangedSubview(uniqueReadsFilterField)
@@ -855,7 +1051,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     }
 
     @objc private func taxonomyFilterChanged(_ sender: Any?) {
-        applyTaxonomyFilters()
+        reloadTaxonomyTable()
     }
 
     // MARK: - Setup: Action Bar
@@ -988,99 +1184,23 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         return menu
     }
 
-    private struct BlastMenuSelection {
-        let summary: NaoMgsTaxonSummary
-        let count: Int
-        let uniqueHits: [NaoMgsVirusHit]
-    }
-
-    /// Deduplicates hits using the same accession/start/end/strand heuristic used
-    /// for NAO duplicate estimation, keeping one representative hit per group.
-    private func uniqueHitsForBLAST(taxId: Int) -> [NaoMgsVirusHit] {
-        let hits = hitsByTaxon[taxId] ?? []
-        guard !hits.isEmpty else { return [] }
-
-        var unique: [NaoMgsVirusHit] = []
-        unique.reserveCapacity(hits.count)
-        var seenKeys: Set<String> = []
-
-        // Prefer higher-confidence representatives when duplicate groups exist.
-        let orderedHits = hits.sorted {
-            if $0.editDistance != $1.editDistance {
-                return $0.editDistance < $1.editDistance
-            }
-            return $0.bitScore > $1.bitScore
-        }
-
-        for hit in orderedHits {
-            let strand = hit.isReverseComplement ? "R" : "F"
-            let readLength = hit.queryLength > 0 ? hit.queryLength : max(0, hit.readSequence.count)
-            let inferredRefEnd = max(hit.refEnd, hit.refStart + max(1, readLength))
-            let key = "\(hit.subjectSeqId)|\(hit.refStart)|\(inferredRefEnd)|\(strand)"
-            if seenKeys.insert(key).inserted {
-                unique.append(hit)
-            }
-        }
-
-        return unique
-    }
-
-    private func addBlastItem(
-        to menu: NSMenu,
-        summary: NaoMgsTaxonSummary,
-        count: Int,
-        uniqueHits: [NaoMgsVirusHit]
-    ) {
-        let item = NSMenuItem(
-            title: "BLAST \(count) reads",
-            action: #selector(contextBlastVerify(_:)),
-            keyEquivalent: ""
-        )
-        item.target = self
-        item.representedObject = BlastMenuSelection(summary: summary, count: count, uniqueHits: uniqueHits)
-        menu.addItem(item)
-    }
-
-    private func populateContextMenu(_ menu: NSMenu, for summary: NaoMgsTaxonSummary) {
+    private func populateContextMenu(_ menu: NSMenu, for row: NaoMgsTaxonSummaryRow) {
         menu.removeAllItems()
 
-        let uniqueHits = uniqueHitsForBLAST(taxId: summary.taxId)
-        let blastCandidates: [NaoMgsVirusHit]
-        if uniqueHits.isEmpty {
-            logger.error("Expected >=1 unique hit for taxon \(summary.taxId), falling back to raw hits")
-            blastCandidates = hitsByTaxon[summary.taxId] ?? []
-        } else {
-            blastCandidates = uniqueHits
-        }
-        let uniqueCount = blastCandidates.count
-
-        // BLAST options based on unique-read count:
-        // >50: offer 20 and 50
-        // 21...50: offer 20 and X
-        // <=20: offer X
-        if uniqueCount > 50 {
-            addBlastItem(to: menu, summary: summary, count: 20, uniqueHits: blastCandidates)
-            addBlastItem(to: menu, summary: summary, count: 50, uniqueHits: blastCandidates)
-        } else if uniqueCount > 20 {
-            addBlastItem(to: menu, summary: summary, count: 20, uniqueHits: blastCandidates)
-            addBlastItem(to: menu, summary: summary, count: uniqueCount, uniqueHits: blastCandidates)
-        } else if uniqueCount > 0 {
-            addBlastItem(to: menu, summary: summary, count: uniqueCount, uniqueHits: blastCandidates)
-        }
-
-        menu.addItem(NSMenuItem.separator())
+        // BLAST is not available in database mode (no in-memory hits for read selection).
+        // Future: add a database query for BLAST read selection.
 
         // Copy Taxon ID
         let copyTaxId = NSMenuItem(title: "Copy Taxon ID", action: #selector(contextCopyTaxonId(_:)), keyEquivalent: "")
         copyTaxId.target = self
-        copyTaxId.representedObject = summary
+        copyTaxId.representedObject = row.taxId
         menu.addItem(copyTaxId)
 
         // Copy accessions
-        if !summary.accessions.isEmpty {
-            let copyAccessions = NSMenuItem(title: "Copy Accessions", action: #selector(contextCopyAccessions(_:)), keyEquivalent: "")
+        if !row.topAccessions.isEmpty {
+            let copyAccessions = NSMenuItem(title: "Copy Top Accessions", action: #selector(contextCopyAccessions(_:)), keyEquivalent: "")
             copyAccessions.target = self
-            copyAccessions.representedObject = summary
+            copyAccessions.representedObject = row.topAccessions
             menu.addItem(copyAccessions)
         }
 
@@ -1089,44 +1209,32 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         // View on NCBI
         let viewNCBI = NSMenuItem(title: "View on NCBI", action: #selector(contextViewOnNCBI(_:)), keyEquivalent: "")
         viewNCBI.target = self
-        viewNCBI.representedObject = summary
+        viewNCBI.representedObject = row.taxId
         menu.addItem(viewNCBI)
 
         let viewTaxonomy = NSMenuItem(title: "View Taxonomy on NCBI", action: #selector(contextViewTaxonomyOnNCBI(_:)), keyEquivalent: "")
         viewTaxonomy.target = self
-        viewTaxonomy.representedObject = summary
+        viewTaxonomy.representedObject = row.taxId
         menu.addItem(viewTaxonomy)
 
         let searchPubMed = NSMenuItem(title: "Search PubMed", action: #selector(contextSearchPubMed(_:)), keyEquivalent: "")
         searchPubMed.target = self
-        searchPubMed.representedObject = summary
+        searchPubMed.representedObject = row.name
         menu.addItem(searchPubMed)
     }
 
     // MARK: - Context Menu Actions
 
-    @objc private func contextBlastVerify(_ sender: NSMenuItem) {
-        guard let selection = sender.representedObject as? BlastMenuSelection else { return }
-        let selectedReads = NaoMgsDataConverter.selectBlastReads(
-            hits: selection.uniqueHits,
-            count: selection.count
-        )
-        logger.info(
-            "BLAST verify taxon \(selection.summary.taxId): \(selectedReads.count) reads selected from \(selection.uniqueHits.count) unique reads"
-        )
-        onBlastVerification?(selection.summary, selectedReads.count, selectedReads)
-    }
-
     @objc private func contextCopyTaxonId(_ sender: NSMenuItem) {
-        guard let summary = sender.representedObject as? NaoMgsTaxonSummary else { return }
+        guard let taxId = sender.representedObject as? Int else { return }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("\(summary.taxId)", forType: .string)
+        NSPasteboard.general.setString("\(taxId)", forType: .string)
     }
 
     @objc private func contextCopyAccessions(_ sender: NSMenuItem) {
-        guard let summary = sender.representedObject as? NaoMgsTaxonSummary else { return }
+        guard let accessions = sender.representedObject as? [String] else { return }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(summary.accessions.joined(separator: "\n"), forType: .string)
+        NSPasteboard.general.setString(accessions.joined(separator: "\n"), forType: .string)
     }
 
     @objc func contextCopyAccession(_ sender: NSMenuItem) {
@@ -1142,20 +1250,20 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     }
 
     @objc private func contextViewOnNCBI(_ sender: NSMenuItem) {
-        guard let summary = sender.representedObject as? NaoMgsTaxonSummary else { return }
-        let url = URL(string: "https://www.ncbi.nlm.nih.gov/nuccore/?term=txid\(summary.taxId)[Organism:exp]")!
+        guard let taxId = sender.representedObject as? Int else { return }
+        let url = URL(string: "https://www.ncbi.nlm.nih.gov/nuccore/?term=txid\(taxId)[Organism:exp]")!
         NSWorkspace.shared.open(url)
     }
 
     @objc private func contextViewTaxonomyOnNCBI(_ sender: NSMenuItem) {
-        guard let summary = sender.representedObject as? NaoMgsTaxonSummary else { return }
-        let url = URL(string: "https://www.ncbi.nlm.nih.gov/datasets/taxonomy/\(summary.taxId)/")!
+        guard let taxId = sender.representedObject as? Int else { return }
+        let url = URL(string: "https://www.ncbi.nlm.nih.gov/datasets/taxonomy/\(taxId)/")!
         NSWorkspace.shared.open(url)
     }
 
     @objc private func contextSearchPubMed(_ sender: NSMenuItem) {
-        guard let summary = sender.representedObject as? NaoMgsTaxonSummary else { return }
-        let encodedName = summary.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? summary.name
+        guard let name = sender.representedObject as? String else { return }
+        let encodedName = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name
         let url = URL(string: "https://pubmed.ncbi.nlm.nih.gov/?term=\(encodedName)")!
         NSWorkspace.shared.open(url)
     }
@@ -1181,23 +1289,22 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     // MARK: - Export
 
     public func exportResults() {
-        guard let result = naoMgsResult, let window = view.window else { return }
+        guard database != nil, let window = view.window else { return }
+        let sampleName = manifest?.sampleName ?? "naomgs"
 
         let savePanel = NSSavePanel()
         savePanel.allowedContentTypes = [.tabSeparatedText]
-        savePanel.nameFieldStringValue = "\(result.sampleName)_naomgs_summary.tsv"
+        savePanel.nameFieldStringValue = "\(sampleName)_naomgs_summary.tsv"
         savePanel.title = "Export NAO-MGS Summary"
 
         savePanel.beginSheetModal(for: window) { [weak self] response in
-            guard response == .OK, let url = savePanel.url,
-                  let self, let result = self.naoMgsResult else { return }
+            guard response == .OK, let url = savePanel.url, let self else { return }
 
             var lines: [String] = []
-            lines.append("taxon_id\tname\thit_count\tunique_read_count\tpcr_duplicate_count\tavg_identity\tavg_bit_score\tavg_edit_distance\taccessions")
+            lines.append("sample\ttaxon_id\tname\thit_count\tunique_read_count\tpcr_duplicate_count\tavg_identity\tavg_bit_score\tavg_edit_distance\taccession_count")
 
-            for summary in result.taxonSummaries {
-                let accStr = summary.accessions.joined(separator: ",")
-                lines.append("\(summary.taxId)\t\(summary.name)\t\(summary.hitCount)\t\(summary.uniqueReadCount)\t\(summary.pcrDuplicateCount)\t\(String(format: "%.2f", summary.avgIdentity))\t\(String(format: "%.1f", summary.avgBitScore))\t\(String(format: "%.1f", summary.avgEditDistance))\t\(accStr)")
+            for row in self.displayedRows {
+                lines.append("\(row.sample)\t\(row.taxId)\t\(row.name)\t\(row.hitCount)\t\(row.uniqueReadCount)\t\(row.pcrDuplicateCount)\t\(String(format: "%.2f", row.avgIdentity))\t\(String(format: "%.1f", row.avgBitScore))\t\(String(format: "%.1f", row.avgEditDistance))\t\(row.accessionCount)")
             }
 
             let content = lines.joined(separator: "\n") + "\n"
@@ -1210,24 +1317,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         }
     }
 
-    // MARK: - Filtered / Sorted Data
-
-    private static func buildSampleNamesByTaxId(
-        hitsByTaxon: [Int: [NaoMgsVirusHit]],
-        fallbackSampleName: String
-    ) -> [Int: String] {
-        hitsByTaxon.mapValues { taxHits in
-            let names = Array(Set(taxHits.map(\.sample).filter { !$0.isEmpty })).sorted()
-            if names.isEmpty {
-                return fallbackSampleName
-            }
-            return names.joined(separator: ", ")
-        }
-    }
-
-    private func sampleLabel(forTaxId taxId: Int) -> String {
-        sampleNamesByTaxId[taxId] ?? naoMgsResult?.sampleName ?? "—"
-    }
+    // MARK: - Filter Helpers
 
     private func parseMinFilter(_ rawValue: String) -> Int? {
         let trimmed = rawValue
@@ -1242,97 +1332,6 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             return Int(value * 1_000_000)
         }
         return Int(lower)
-    }
-
-    private var displayedSummaries: [NaoMgsTaxonSummary] {
-        guard let result = naoMgsResult else { return [] }
-        var summaries = result.taxonSummaries
-
-        let sampleFilter = sampleFilterField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !sampleFilter.isEmpty {
-            summaries = summaries.filter { sampleLabel(forTaxId: $0.taxId).localizedCaseInsensitiveContains(sampleFilter) }
-        }
-
-        let taxonFilter = taxonFilterField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !taxonFilter.isEmpty {
-            summaries = summaries.filter {
-                ($0.name.isEmpty ? "Taxid \($0.taxId)" : $0.name)
-                    .localizedCaseInsensitiveContains(taxonFilter)
-            }
-        }
-
-        if let minHits = parseMinFilter(hitsFilterField.stringValue) {
-            summaries = summaries.filter { $0.hitCount >= minHits }
-        }
-        if let minUnique = parseMinFilter(uniqueReadsFilterField.stringValue) {
-            summaries = summaries.filter { $0.uniqueReadCount >= minUnique }
-        }
-        if let minRefs = parseMinFilter(refsFilterField.stringValue) {
-            summaries = summaries.filter { $0.accessions.count >= minRefs }
-        }
-
-        if let sortDescriptor = taxonomyTableView.sortDescriptors.first {
-            switch sortDescriptor.key {
-            case "sample":
-                summaries.sort {
-                    let lhs = sampleLabel(forTaxId: $0.taxId)
-                    let rhs = sampleLabel(forTaxId: $1.taxId)
-                    let compare = lhs.localizedCaseInsensitiveCompare(rhs)
-                    return sortDescriptor.ascending ? compare == .orderedAscending : compare == .orderedDescending
-                }
-            case "name":
-                summaries.sort {
-                    let compare = $0.name.localizedCaseInsensitiveCompare($1.name)
-                    return sortDescriptor.ascending ? compare == .orderedAscending : compare == .orderedDescending
-                }
-            case "hits":
-                summaries.sort {
-                    sortDescriptor.ascending ? $0.hitCount < $1.hitCount : $0.hitCount > $1.hitCount
-                }
-            case "unique":
-                summaries.sort {
-                    sortDescriptor.ascending
-                        ? $0.uniqueReadCount < $1.uniqueReadCount
-                        : $0.uniqueReadCount > $1.uniqueReadCount
-                }
-            case "refs":
-                summaries.sort {
-                    sortDescriptor.ascending
-                        ? $0.accessions.count < $1.accessions.count
-                        : $0.accessions.count > $1.accessions.count
-                }
-            default:
-                break
-            }
-        }
-
-        return summaries
-    }
-
-    private func applyTaxonomyFilters() {
-        let selectedTaxId = selectedTaxonSummary?.taxId
-        taxonomyTableView.reloadData()
-
-        guard !displayedSummaries.isEmpty else {
-            suppressSelectionSync = true
-            taxonomyTableView.deselectAll(nil)
-            suppressSelectionSync = false
-            showOverview()
-            return
-        }
-
-        if let selectedTaxId,
-           let idx = displayedSummaries.firstIndex(where: { $0.taxId == selectedTaxId }) {
-            suppressSelectionSync = true
-            taxonomyTableView.selectRowIndexes(IndexSet(integer: idx), byExtendingSelection: false)
-            suppressSelectionSync = false
-            return
-        }
-
-        suppressSelectionSync = true
-        taxonomyTableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
-        suppressSelectionSync = false
-        showTaxonDetail(displayedSummaries[0])
     }
 }
 
@@ -1386,11 +1385,11 @@ private final class NaoMgsDetailContainer: NSView {
 extension NaoMgsResultViewController: NSTableViewDataSource {
 
     public func numberOfRows(in tableView: NSTableView) -> Int {
-        displayedSummaries.count
+        displayedRows.count
     }
 
     public func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
-        applyTaxonomyFilters()
+        reloadTaxonomyTable()
     }
 }
 
@@ -1399,10 +1398,9 @@ extension NaoMgsResultViewController: NSTableViewDataSource {
 extension NaoMgsResultViewController: NSTableViewDelegate {
 
     public func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        let summaries = displayedSummaries
-        guard row < summaries.count else { return nil }
+        guard row < displayedRows.count else { return nil }
 
-        let summary = summaries[row]
+        let summaryRow = displayedRows[row]
         let identifier = tableColumn?.identifier ?? NSUserInterfaceItemIdentifier("default")
 
         let cellView = tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView
@@ -1410,25 +1408,25 @@ extension NaoMgsResultViewController: NSTableViewDelegate {
 
         switch identifier.rawValue {
         case "sample":
-            cellView.textField?.stringValue = sampleLabel(forTaxId: summary.taxId)
+            cellView.textField?.stringValue = summaryRow.sample
             cellView.textField?.font = .systemFont(ofSize: 11)
             cellView.textField?.lineBreakMode = .byTruncatingTail
             cellView.textField?.alignment = .left
         case "name":
-            cellView.textField?.stringValue = summary.name.isEmpty ? "Taxid \(summary.taxId)" : summary.name
+            cellView.textField?.stringValue = summaryRow.name.isEmpty ? "Taxid \(summaryRow.taxId)" : summaryRow.name
             cellView.textField?.font = .systemFont(ofSize: 11)
             cellView.textField?.lineBreakMode = .byTruncatingTail
             cellView.textField?.alignment = .left
         case "hits":
-            cellView.textField?.stringValue = naoMgsFormatCount(summary.hitCount)
+            cellView.textField?.stringValue = naoMgsFormatCount(summaryRow.hitCount)
             cellView.textField?.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
             cellView.textField?.alignment = .right
         case "unique":
-            cellView.textField?.stringValue = naoMgsFormatCount(summary.uniqueReadCount)
+            cellView.textField?.stringValue = naoMgsFormatCount(summaryRow.uniqueReadCount)
             cellView.textField?.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
             cellView.textField?.alignment = .right
         case "refs":
-            cellView.textField?.stringValue = "\(summary.accessions.count)"
+            cellView.textField?.stringValue = "\(summaryRow.accessionCount)"
             cellView.textField?.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
             cellView.textField?.alignment = .right
         default:
@@ -1442,10 +1440,9 @@ extension NaoMgsResultViewController: NSTableViewDelegate {
         guard !suppressSelectionSync else { return }
 
         let row = taxonomyTableView.selectedRow
-        let summaries = displayedSummaries
 
-        if row >= 0, row < summaries.count {
-            showTaxonDetail(summaries[row])
+        if row >= 0, row < displayedRows.count {
+            showTaxonDetail(displayedRows[row])
         } else {
             showOverview()
         }
@@ -1485,20 +1482,19 @@ extension NaoMgsResultViewController: NSMenuDelegate {
 
     public func menuNeedsUpdate(_ menu: NSMenu) {
         let clickedRow = taxonomyTableView.clickedRow
-        let summaries = displayedSummaries
 
-        guard clickedRow >= 0, clickedRow < summaries.count else {
+        guard clickedRow >= 0, clickedRow < displayedRows.count else {
             menu.removeAllItems()
             return
         }
 
-        populateContextMenu(menu, for: summaries[clickedRow])
+        populateContextMenu(menu, for: displayedRows[clickedRow])
     }
 }
 
 extension NaoMgsResultViewController: NSTextFieldDelegate {
     public func controlTextDidChange(_ obj: Notification) {
-        applyTaxonomyFilters()
+        reloadTaxonomyTable()
     }
 }
 
@@ -1512,6 +1508,24 @@ final class NaoMgsSummaryBar: GenomicSummaryCardBar {
     private var topTaxonName: String = ""
     private var sampleName: String = ""
 
+    func update(database: NaoMgsDatabase?, manifest: NaoMgsManifest?, selectedSamples: [String]) {
+        guard let database else { return }
+
+        totalHits = (try? database.totalHitCount(samples: selectedSamples)) ?? 0
+
+        let rows = (try? database.fetchTaxonSummaryRows(samples: selectedSamples)) ?? []
+        taxonCount = rows.count
+        if let firstRow = rows.first {
+            topTaxonName = firstRow.name.isEmpty ? "Taxid \(firstRow.taxId)" : firstRow.name
+        } else {
+            topTaxonName = "\u{2014}"
+        }
+
+        sampleName = manifest?.sampleName ?? "Unknown"
+        needsDisplay = true
+    }
+
+    /// Legacy update method kept for compatibility.
     func update(result: NaoMgsResult) {
         totalHits = result.totalHitReads
         taxonCount = result.taxonSummaries.count
@@ -1627,6 +1641,24 @@ final class NaoMgsActionBar: NSView {
         }
     }
 
+    /// Updates the action bar from a database-backed row.
+    func updateSelectionRow(_ row: NaoMgsTaxonSummaryRow, totalHits: Int) {
+        self.totalHits = totalHits
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.groupingSeparator = ","
+        let readStr = formatter.string(from: NSNumber(value: row.hitCount)) ?? "\(row.hitCount)"
+
+        let pct = totalHits > 0
+            ? Double(row.hitCount) / Double(totalHits) * 100
+            : 0
+        let pctStr = String(format: "%.1f%%", pct)
+
+        let displayName = row.name.isEmpty ? "Taxid \(row.taxId)" : row.name
+        infoLabel.stringValue = "\(displayName) \u{2014} \(readStr) hits (\(pctStr))"
+        infoLabel.textColor = .labelColor
+    }
+
     var infoText: String {
         infoLabel.stringValue
     }
@@ -1646,13 +1678,13 @@ nonisolated(unsafe) private var accessionDataKey: UInt8 = 0
 @MainActor
 private final class AccessionDataWrapper: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
-    let summaries: [NaoMgsAccessionSummary]
+    let summaries: [DBAccessionSummary]
     var selectedAccession: String?
     var onSelect: ((String) -> Void)?
     var contextMenu: NSMenu?
     var populateMenu: ((NSMenu, String) -> Void)?
 
-    init(summaries: [NaoMgsAccessionSummary], selected: String?) {
+    init(summaries: [DBAccessionSummary], selected: String?) {
         self.summaries = summaries
         self.selectedAccession = selected
         super.init()
