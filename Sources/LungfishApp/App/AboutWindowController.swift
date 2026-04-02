@@ -287,16 +287,160 @@ final class AboutWindowController: NSWindowController {
             }
         }
 
-        // Other Open Source Dependencies
-        appendHeading("Other Open Source")
+        // Bioinformatics Tools (installed via plugin packs)
+        // (display name, authors, license, GitHub/source URL)
+        typealias ToolEntry = (name: String, authors: String, license: String, url: String?)
 
-        // (display name, license, GitHub/source URL)
-        let otherDeps: [(String, String, String?)] = [
-            ("minimap2", "MIT", "https://github.com/lh3/minimap2"),
-            ("BWA", "GPL-3.0", "https://github.com/lh3/bwa"),
-            ("SPAdes", "GPL-2.0", "https://github.com/ablab/spades"),
-            ("FastQC", "GPL-2.0", "https://github.com/s-andrews/FastQC"),
-            ("MultiQC", "GPL-3.0", "https://github.com/MultiQC/MultiQC"),
+        func appendToolEntries(_ tools: [ToolEntry]) {
+            for tool in tools {
+                credits.append(NSAttributedString(string: tool.name, attributes: bodyStyle))
+                credits.append(NSAttributedString(string: "  \(tool.authors)\n", attributes: secondaryStyle))
+                credits.append(NSAttributedString(string: "  \(tool.license)\n", attributes: versionStyle))
+                if let urlString = tool.url, let url = URL(string: urlString) {
+                    var attrs = linkStyle
+                    attrs[.link] = url
+                    credits.append(NSAttributedString(string: "\(urlString)\n", attributes: attrs))
+                }
+            }
+        }
+
+        appendHeading("Classification & Metagenomics")
+        appendToolEntries([
+            ("Kraken2", "Wood DE, Lu J, Langmead B", "GPL-3.0",
+             "https://github.com/DerrickWood/kraken2"),
+            ("Bracken", "Lu J, Breitwieser FP, Thielen P, Salzberg SL", "GPL-3.0",
+             "https://github.com/jenniferlu717/Bracken"),
+            ("MetaPhlAn", "Blanco-Miguez A, Beghini F, Cumbo F, et al.", "MIT",
+             "https://github.com/biobakery/MetaPhlAn"),
+            ("EsViritu", "Deng X, Achari A, et al.", "MIT",
+             "https://github.com/DengLabSF/EsViritu"),
+            ("TaxTriage", "JHU Applied Physics Laboratory", "Apache 2.0",
+             "https://github.com/jhuapl-bio/taxtriage"),
+            ("Nextflow", "Di Tommaso P, Chatzou M, Floden EW, et al.", "Apache 2.0",
+             "https://github.com/nextflow-io/nextflow"),
+        ])
+
+        appendHeading("Alignment")
+        appendToolEntries([
+            ("minimap2", "Li H", "MIT",
+             "https://github.com/lh3/minimap2"),
+            ("BWA / BWA-MEM2", "Li H; Vasimuddin M, Misra S, et al.", "GPL-3.0",
+             "https://github.com/lh3/bwa"),
+            ("Bowtie2", "Langmead B, Salzberg SL", "GPL-3.0",
+             "https://github.com/BenLangmead/bowtie2"),
+            ("HISAT2", "Kim D, Paggi JM, Park C, Bennett C, Salzberg SL", "GPL-3.0",
+             "https://github.com/DaehwanKimLab/hisat2"),
+            ("STAR", "Dobin A, Davis CA, Schlesinger F, et al.", "GPL-3.0",
+             "https://github.com/alexdobin/STAR"),
+        ])
+
+        appendHeading("Assembly")
+        appendToolEntries([
+            ("SPAdes", "Bankevich A, Nurk S, Antipov D, et al.", "GPL-2.0",
+             "https://github.com/ablab/spades"),
+            ("MEGAHIT", "Li D, Liu CM, Luo R, et al.", "GPL-3.0",
+             "https://github.com/voutcn/megahit"),
+            ("Flye", "Kolmogorov M, Yuan J, Lin Y, Pevzner PA", "BSD-3-Clause",
+             "https://github.com/fenderglass/Flye"),
+            ("HiFiasm", "Cheng H, Concepcion GT, Feng X, Zhang H, Li H", "MIT",
+             "https://github.com/chhylp123/hifiasm"),
+        ])
+
+        appendHeading("Variant Calling")
+        appendToolEntries([
+            ("FreeBayes", "Garrison E, Marth G", "MIT",
+             "https://github.com/freebayes/freebayes"),
+            ("LoFreq", "Wilm A, Aw PPK, Bertrand D, et al.", "MIT",
+             "https://github.com/CSB5/lofreq"),
+            ("GATK", "Van der Auwera GA, O'Connor BD", "BSD-3-Clause",
+             "https://github.com/broadinstitute/gatk"),
+            ("iVar", "Grubaugh ND, Gangavarapu K, Quick J, et al.", "GPL-3.0",
+             "https://github.com/andersen-lab/ivar"),
+        ])
+
+        appendHeading("Quality Control & Preprocessing")
+        appendToolEntries([
+            ("FastQC", "Andrews S", "GPL-2.0",
+             "https://github.com/s-andrews/FastQC"),
+            ("MultiQC", "Ewels P, Magnusson M, Lundin S, K\u{00E4}ller M", "GPL-3.0",
+             "https://github.com/MultiQC/MultiQC"),
+            ("Trimmomatic", "Bolger AM, Lohse M, Usadel B", "GPL-3.0",
+             "https://github.com/usadellab/Trimmomatic"),
+            ("QUAST", "Gurevich A, Saveliev V, Vyahhi N, Tesler G", "GPL-2.0",
+             "https://github.com/ablab/quast"),
+            ("NanoPlot", "De Coster W, D'Hert S, Schultz DT, et al.", "GPL-3.0",
+             "https://github.com/wdecoster/NanoPlot"),
+        ])
+
+        appendHeading("Surveillance & Lineage Assignment")
+        appendToolEntries([
+            ("Freyja", "Karthikeyan S, Levy JI, De Hoff P, et al.", "Apache 2.0",
+             "https://github.com/andersen-lab/Freyja"),
+            ("Pangolin", "O'Toole \u{00C1}, Scher E, Underwood A, et al.", "GPL-3.0",
+             "https://github.com/cov-lineages/pangolin"),
+            ("Nextclade", "Aksamentov I, Roemer C, Hodcroft EB, Neher RA", "MIT",
+             "https://github.com/nextstrain/nextclade"),
+        ])
+
+        appendHeading("Transcriptomics")
+        appendToolEntries([
+            ("Salmon", "Patro R, Duggal G, Love MI, Irizarry RA, Kingsford C", "GPL-3.0",
+             "https://github.com/COMBINE-lab/salmon"),
+            ("Subread / featureCounts", "Liao Y, Smyth GK, Shi W", "GPL-3.0",
+             "https://github.com/ShiLab-Bioinformatics/subread"),
+            ("StringTie", "Pertea M, Pertea GM, Antonescu CM, et al.", "Artistic 2.0",
+             "https://github.com/gpertea/stringtie"),
+        ])
+
+        appendHeading("Phylogenetics")
+        appendToolEntries([
+            ("IQ-TREE", "Minh BQ, Schmidt HA, Chernomor O, et al.", "GPL-2.0",
+             "https://github.com/iqtree/iqtree2"),
+            ("MAFFT", "Katoh K, Standley DM", "BSD-3-Clause",
+             "https://github.com/GSLBiotech/mafft"),
+            ("MUSCLE", "Edgar RC", "Public Domain",
+             "https://github.com/rcedgar/muscle"),
+            ("RAxML-NG", "Kozlov AM, Darriba D, Flouri T, Morel B, Stamatakis A", "AGPL-3.0",
+             "https://github.com/amkozlov/raxml-ng"),
+            ("TreeTime", "Sagulenko P, Puller V, Neher RA", "MIT",
+             "https://github.com/neherlab/treetime"),
+        ])
+
+        appendHeading("Long Read & Polishing")
+        appendToolEntries([
+            ("Medaka", "Oxford Nanopore Technologies", "MPL-2.0",
+             "https://github.com/nanoporetech/medaka"),
+        ])
+
+        appendHeading("Genome Annotation")
+        appendToolEntries([
+            ("Prokka", "Seemann T", "GPL-3.0",
+             "https://github.com/tseemann/prokka"),
+            ("Bakta", "Schwengers O, Jelonek L, Gobel A, et al.", "MIT",
+             "https://github.com/oschwengers/bakta"),
+            ("SnpEff", "Cingolani P, Platts A, Wang LL, et al.", "GPL-3.0",
+             "https://github.com/pcingola/SnpEff"),
+        ])
+
+        appendHeading("Utilities")
+        appendToolEntries([
+            ("BEDTools", "Quinlan AR, Hall IM", "MIT",
+             "https://github.com/arq5x/bedtools2"),
+            ("Picard", "Broad Institute", "MIT",
+             "https://github.com/broadinstitute/picard"),
+        ])
+
+        appendHeading("Single-Cell Analysis")
+        appendToolEntries([
+            ("Scanpy", "Wolf FA, Angerer P, Theis FJ", "BSD-3-Clause",
+             "https://github.com/scverse/scanpy"),
+            ("scVI-tools", "Gayoso A, Lopez R, Xing G, et al.", "BSD-3-Clause",
+             "https://github.com/scverse/scvi-tools"),
+        ])
+
+        // Swift Libraries
+        appendHeading("Swift Libraries")
+        let swiftDeps: [(String, String, String?)] = [
             ("Swift Argument Parser", "Apache 2.0", "https://github.com/apple/swift-argument-parser"),
             ("Swift Collections", "Apache 2.0", "https://github.com/apple/swift-collections"),
             ("Swift Algorithms", "Apache 2.0", "https://github.com/apple/swift-algorithms"),
@@ -304,7 +448,7 @@ final class AboutWindowController: NSWindowController {
             ("Swift Async Algorithms", "Apache 2.0", "https://github.com/apple/swift-async-algorithms"),
             ("Apple Containerization", "Apache 2.0", "https://github.com/apple/containerization"),
         ]
-        for (name, license, urlString) in otherDeps {
+        for (name, license, urlString) in swiftDeps {
             credits.append(NSAttributedString(string: name, attributes: bodyStyle))
             credits.append(NSAttributedString(string: "  \(license)\n", attributes: secondaryStyle))
             if let urlString, let url = URL(string: urlString) {
