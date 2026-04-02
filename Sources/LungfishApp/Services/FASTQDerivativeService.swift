@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import os.log
@@ -649,6 +650,8 @@ public actor FASTQDerivativeService {
             operation: operation
         )
         try FileManager.default.createDirectory(at: outputBundle, withIntermediateDirectories: true)
+        OperationMarker.markInProgress(outputBundle, detail: "Creating derivative FASTQ\u{2026}")
+        defer { OperationMarker.clearInProgress(outputBundle) }
 
         // Build payload depending on operation type
         let payload: FASTQDerivativePayload
@@ -951,6 +954,8 @@ public actor FASTQDerivativeService {
         )
         let bundleURL = uniqueDirectoryURL(startingAt: initialBundleURL)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        OperationMarker.markInProgress(bundleURL, detail: "Creating derivative FASTQ\u{2026}")
+        defer { OperationMarker.clearInProgress(bundleURL) }
 
         // Create the orient-map TSV from vsearch tabbed output
         let orientMapFilename = "orient-map.tsv"
@@ -1040,6 +1045,8 @@ public actor FASTQDerivativeService {
             let initialUnorientedBundleURL = derivDir.appendingPathComponent(unorientedBaseName, isDirectory: true)
             let unorientedBundleURL = uniqueDirectoryURL(startingAt: initialUnorientedBundleURL)
             try FileManager.default.createDirectory(at: unorientedBundleURL, withIntermediateDirectories: true)
+            OperationMarker.markInProgress(unorientedBundleURL, detail: "Creating derivative FASTQ\u{2026}")
+            defer { OperationMarker.clearInProgress(unorientedBundleURL) }
 
             // Copy the unoriented FASTQ
             let unorientedDest = unorientedBundleURL.appendingPathComponent("unoriented.fastq")
@@ -1181,6 +1188,8 @@ public actor FASTQDerivativeService {
             try FileManager.default.removeItem(at: outputDirectory)
         }
         try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        OperationMarker.markInProgress(outputDirectory, detail: "Creating derivative FASTQ\u{2026}")
+        defer { OperationMarker.clearInProgress(outputDirectory) }
 
         progress?("Demultiplexing reads...")
         let pipeline = DemultiplexingPipeline()
@@ -1328,6 +1337,8 @@ public actor FASTQDerivativeService {
             request: request
         )
         try FileManager.default.createDirectory(at: outputBundle, withIntermediateDirectories: true)
+        OperationMarker.markInProgress(outputBundle, detail: "Creating derivative FASTQ\u{2026}")
+        defer { OperationMarker.clearInProgress(outputBundle) }
 
         switch request {
         case .pairedEndMerge(let strictness, let minOverlap):

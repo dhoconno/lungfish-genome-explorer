@@ -79,6 +79,8 @@ public final class BAMImportService: @unchecked Sendable {
         // 2. Create alignments directory in bundle
         let alignmentsDir = bundleURL.appendingPathComponent("alignments")
         try FileManager.default.createDirectory(at: alignmentsDir, withIntermediateDirectories: true)
+        OperationMarker.markInProgress(alignmentsDir, detail: "Importing BAM alignment\u{2026}")
+        defer { OperationMarker.clearInProgress(alignmentsDir) }
 
         // 3. Create sorted/indexed alignment copy in the bundle
         let materialized = try await materializeAlignmentIntoBundle(

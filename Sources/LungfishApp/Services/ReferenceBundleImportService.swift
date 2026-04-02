@@ -165,6 +165,8 @@ public final class ReferenceBundleImportService {
         }
 
         try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        OperationMarker.markInProgress(outputDirectory, detail: "Importing reference bundle\u{2026}")
+        defer { OperationMarker.clearInProgress(outputDirectory) }
 
         let baseName = sanitizedBaseName(preferredBundleName ?? defaultBundleName(for: sourceURL))
         let bundleName = makeUniqueBundleName(base: baseName, in: outputDirectory)
