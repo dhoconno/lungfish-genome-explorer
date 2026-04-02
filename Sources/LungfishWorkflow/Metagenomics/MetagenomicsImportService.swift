@@ -543,6 +543,31 @@ public enum MetagenomicsImportService {
             )
             manifest.fetchedAccessions = fetchedAccessions
             try writeNaoMgsManifest(manifest, to: resultDirectory, encoder: encoder)
+
+            // Extract reference lengths from downloaded FASTA files
+            var refLengths: [String: Int] = [:]
+            if let files = try? FileManager.default.contentsOfDirectory(
+                at: referencesDirectory,
+                includingPropertiesForKeys: nil
+            ) {
+                for file in files where file.pathExtension == "fasta" {
+                    let accession = file.deletingPathExtension().lastPathComponent
+                    if let content = try? String(contentsOf: file, encoding: .utf8) {
+                        let seqLength = content.split(separator: "\n")
+                            .filter { !$0.hasPrefix(">") }
+                            .joined()
+                            .count
+                        if seqLength > 0 {
+                            refLengths[accession] = seqLength
+                        }
+                    }
+                }
+            }
+            if !refLengths.isEmpty {
+                let rwDB = try NaoMgsDatabase.openReadWrite(at: hitsDBURL)
+                try rwDB.updateReferenceLengths(refLengths)
+                logger.info("Stored \(refLengths.count) reference lengths from downloaded FASTAs")
+            }
         }
 
         progress?(1.0, "NAO-MGS import complete")

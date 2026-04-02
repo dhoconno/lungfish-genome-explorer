@@ -639,7 +639,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
         for accessionSummary in displayedAccessions {
             let card = NSView()
-            card.wantsLayer = true
+            // All views are layer-backed by default on macOS 26 — no wantsLayer needed.
             card.layer?.cornerRadius = 6
             card.layer?.borderWidth = 1
             card.layer?.borderColor = NSColor.separatorColor.cgColor
@@ -658,36 +658,60 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                 from: NSNumber(value: accessionSummary.coveredBasePairs),
                 number: .decimal
             )
-            let coveragePct = String(format: "%.0f%%", accessionSummary.coverageFraction * 100)
-            let titleLabel = NSTextField(
-                labelWithString: "\(accessionSummary.accession)  \u{2022}  \(uniqueReadCount) unique / \(readCount) total reads  \u{2022}  \(coveredBP) bp covered (\(coveragePct))"
+            let refLenStr = NumberFormatter.localizedString(
+                from: NSNumber(value: accessionSummary.referenceLength),
+                number: .decimal
             )
-            titleLabel.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
-            titleLabel.lineBreakMode = .byTruncatingTail
-            titleLabel.isSelectable = true
-            titleLabel.translatesAutoresizingMaskIntoConstraints = false
+            let coveragePct = String(format: "%.0f%%", accessionSummary.coverageFraction * 100)
 
-            let accessionMenu = NSMenu()
-            let viewOnNCBI = NSMenuItem(
+            // Accession button — clickable link to GenBank, with context menu
+            let accessionButton = NSButton(title: accessionSummary.accession, target: self, action: #selector(openGenBankFromButton(_:)))
+            accessionButton.bezelStyle = .inline
+            accessionButton.isBordered = false
+            accessionButton.font = .monospacedSystemFont(ofSize: 11, weight: .bold)
+            accessionButton.contentTintColor = .linkColor
+            accessionButton.translatesAutoresizingMaskIntoConstraints = false
+
+            let accMenu = NSMenu()
+            let viewItem = NSMenuItem(
                 title: "View \(accessionSummary.accession) on NCBI GenBank",
                 action: #selector(contextViewAccessionOnNCBI(_:)),
                 keyEquivalent: ""
             )
-            viewOnNCBI.target = self
-            viewOnNCBI.representedObject = accessionSummary.accession
-            accessionMenu.addItem(viewOnNCBI)
+            viewItem.target = self
+            viewItem.representedObject = accessionSummary.accession
+            accMenu.addItem(viewItem)
 
-            let copyAccession = NSMenuItem(
+            let copyItem = NSMenuItem(
                 title: "Copy Accession",
                 action: #selector(contextCopyAccession(_:)),
                 keyEquivalent: ""
             )
-            copyAccession.target = self
-            copyAccession.representedObject = accessionSummary.accession
-            accessionMenu.addItem(copyAccession)
+            copyItem.target = self
+            copyItem.representedObject = accessionSummary.accession
+            accMenu.addItem(copyItem)
+            accessionButton.menu = accMenu
 
-            titleLabel.menu = accessionMenu
-            card.addSubview(titleLabel)
+            // Stats label (non-selectable, informational)
+            let statsLabel = NSTextField(
+                labelWithString: "\(uniqueReadCount) unique / \(readCount) total  \u{2022}  \(coveredBP) / \(refLenStr) bp covered (\(coveragePct))"
+            )
+            statsLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+            statsLabel.textColor = .secondaryLabelColor
+            statsLabel.lineBreakMode = .byTruncatingTail
+            statsLabel.translatesAutoresizingMaskIntoConstraints = false
+
+            // Header strip: accession button + stats in an HStack
+            let headerStrip = NSStackView(views: [accessionButton, statsLabel])
+            headerStrip.orientation = .horizontal
+            headerStrip.alignment = .firstBaseline
+            headerStrip.spacing = 8
+            headerStrip.translatesAutoresizingMaskIntoConstraints = false
+            // Let the stats label compress but not the accession button
+            accessionButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+            statsLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            statsLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            card.addSubview(headerStrip)
 
             let miniBAM = MiniBAMViewController()
             miniBAM.subjectNoun = "reference"
@@ -711,11 +735,11 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             }
 
             NSLayoutConstraint.activate([
-                titleLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 6),
-                titleLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
-                titleLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -8),
+                headerStrip.topAnchor.constraint(equalTo: card.topAnchor, constant: 6),
+                headerStrip.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
+                headerStrip.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -8),
 
-                bamView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 6),
+                bamView.topAnchor.constraint(equalTo: headerStrip.bottomAnchor, constant: 6),
                 bamView.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 4),
                 bamView.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -4),
                 bamView.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -4),
@@ -733,7 +757,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                 miniBAM.displayReads(
                     reads: reads,
                     contig: accessionSummary.accession,
-                    contigLength: max(accessionSummary.estimatedRefLength, 1)
+                    contigLength: max(accessionSummary.referenceLength, 1)
                 )
             } catch {
                 logger.error("Failed to fetch reads for \(accessionSummary.accession): \(error.localizedDescription, privacy: .public)")
@@ -1361,6 +1385,22 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         guard let accession = sender.representedObject as? String else { return }
         let url = URL(string: "https://www.ncbi.nlm.nih.gov/nuccore/\(accession)")!
         NSWorkspace.shared.open(url)
+    }
+
+    /// Opens GenBank for an accession button click (extracts accession from button title).
+    @objc private func openGenBankFromButton(_ sender: Any) {
+        let accession: String?
+        if let button = sender as? NSButton {
+            accession = button.title
+        } else if let menuItem = sender as? NSMenuItem {
+            accession = menuItem.representedObject as? String
+        } else {
+            accession = nil
+        }
+        guard let accession, !accession.isEmpty else { return }
+        if let url = URL(string: "https://www.ncbi.nlm.nih.gov/nuccore/\(accession)") {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     @objc private func contextViewOnNCBI(_ sender: NSMenuItem) {

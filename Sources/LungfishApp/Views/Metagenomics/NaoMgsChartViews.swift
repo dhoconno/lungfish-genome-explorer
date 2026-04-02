@@ -546,7 +546,7 @@ struct NaoMgsDetailPaneView: View {
                     ForEach(topAccessions, id: \.accession) { summary in
                         CoveragePlotView(
                             coverageWindows: summary.coverageWindows,
-                            referenceLength: summary.estimatedRefLength,
+                            referenceLength: summary.referenceLength,
                             accession: summary.accession
                         )
                     }

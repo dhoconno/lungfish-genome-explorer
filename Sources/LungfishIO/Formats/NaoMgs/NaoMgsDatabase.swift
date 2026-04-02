@@ -60,7 +60,7 @@ public struct NaoMgsAccessionSummary: Sendable {
     public let accession: String
     public let readCount: Int
     public let uniqueReadCount: Int
-    public let estimatedRefLength: Int
+    public let referenceLength: Int
     public let coveredBasePairs: Int
     public let coverageFraction: Double
 }
@@ -215,6 +215,11 @@ public final class NaoMgsDatabase: @unchecked Sendable {
             accession_count INTEGER NOT NULL,
             top_accessions_json TEXT NOT NULL,
             PRIMARY KEY (sample, tax_id)
+        );
+
+        CREATE TABLE reference_lengths (
+            accession TEXT PRIMARY KEY,
+            length INTEGER NOT NULL
         );
         """
         guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
@@ -512,6 +517,46 @@ public final class NaoMgsDatabase: @unchecked Sendable {
         }
     }
 
+    // MARK: - Reference Length Updates
+
+    /// Stores reference sequence lengths. Database must be open read-write.
+    ///
+    /// - Parameter lengths: Dictionary mapping accession string to sequence length in bases.
+    public func updateReferenceLengths(_ lengths: [String: Int]) throws {
+        guard let db else { throw NaoMgsDatabaseError.queryFailed("Database not open") }
+        let sql = "INSERT OR REPLACE INTO reference_lengths (accession, length) VALUES (?, ?)"
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            throw NaoMgsDatabaseError.insertFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
+        for (accession, length) in lengths {
+            sqlite3_reset(stmt)
+            sqlite3_clear_bindings(stmt)
+            naoBindText(stmt, 1, accession)
+            sqlite3_bind_int64(stmt, 2, Int64(length))
+            sqlite3_step(stmt)
+        }
+        sqlite3_exec(db, "COMMIT", nil, nil, nil)
+    }
+
+    /// Returns the reference length for an accession, or nil if unknown.
+    public func referenceLength(forAccession accession: String) throws -> Int? {
+        guard let db else { throw NaoMgsDatabaseError.queryFailed("Database not open") }
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        let sql = "SELECT length FROM reference_lengths WHERE accession = ?"
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            throw NaoMgsDatabaseError.queryFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        naoBindText(stmt, 1, accession)
+        if sqlite3_step(stmt) == SQLITE_ROW {
+            return Int(sqlite3_column_int64(stmt, 0))
+        }
+        return nil
+    }
+
     // MARK: - Read-Write Access
 
     /// Opens an existing NAO-MGS database for reading and writing.
@@ -692,18 +737,21 @@ public final class NaoMgsDatabase: @unchecked Sendable {
 
         let sql = """
         SELECT
-            subject_seq_id,
+            vh.subject_seq_id,
             COUNT(*) as read_count,
             (SELECT COUNT(*) FROM (
                 SELECT DISTINCT ref_start, is_reverse_complement, query_length
                 FROM virus_hits v2
-                WHERE v2.sample = ? AND v2.tax_id = ? AND v2.subject_seq_id = virus_hits.subject_seq_id
+                WHERE v2.sample = ? AND v2.tax_id = ? AND v2.subject_seq_id = vh.subject_seq_id
             )) as unique_read_count,
-            MAX(ref_start + query_length) as estimated_ref_length,
-            SUM(query_length) as total_aligned_bp
-        FROM virus_hits
-        WHERE sample = ? AND tax_id = ?
-        GROUP BY subject_seq_id
+            COALESCE(
+                (SELECT length FROM reference_lengths WHERE accession = vh.subject_seq_id),
+                MAX(vh.ref_start + vh.query_length)
+            ) as ref_length,
+            SUM(vh.query_length) as total_aligned_bp
+        FROM virus_hits vh
+        WHERE vh.sample = ? AND vh.tax_id = ?
+        GROUP BY vh.subject_seq_id
         ORDER BY read_count DESC
         """
 
@@ -724,17 +772,17 @@ public final class NaoMgsDatabase: @unchecked Sendable {
             let accession = String(cString: sqlite3_column_text(stmt, 0))
             let readCount = Int(sqlite3_column_int64(stmt, 1))
             let uniqueReadCount = Int(sqlite3_column_int64(stmt, 2))
-            let estimatedRefLength = Int(sqlite3_column_int64(stmt, 3))
+            let refLength = Int(sqlite3_column_int64(stmt, 3))
             let totalAlignedBP = Int(sqlite3_column_int64(stmt, 4))
-            let coverageFraction = estimatedRefLength > 0
-                ? min(1.0, Double(totalAlignedBP) / Double(estimatedRefLength))
+            let coverageFraction = refLength > 0
+                ? min(1.0, Double(totalAlignedBP) / Double(refLength))
                 : 0.0
 
             results.append(NaoMgsAccessionSummary(
                 accession: accession,
                 readCount: readCount,
                 uniqueReadCount: uniqueReadCount,
-                estimatedRefLength: estimatedRefLength,
+                referenceLength: refLength,
                 coveredBasePairs: totalAlignedBP,
                 coverageFraction: coverageFraction
             ))

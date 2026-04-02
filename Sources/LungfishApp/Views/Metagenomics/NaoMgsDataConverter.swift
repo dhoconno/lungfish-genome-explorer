@@ -27,7 +27,7 @@ public struct NaoMgsAccessionSummary: Sendable {
     }
 
     /// Estimated reference genome length (max refEnd across all hits, or max refStart + readLength).
-    public let estimatedRefLength: Int
+    public let referenceLength: Int
 
     /// Per-window coverage depth for sparkline rendering.
     public let coverageWindows: [Int]
@@ -37,8 +37,8 @@ public struct NaoMgsAccessionSummary: Sendable {
 
     /// Fraction of reference covered (0.0 to 1.0).
     public var coverageFraction: Double {
-        guard estimatedRefLength > 0 else { return 0 }
-        return Double(coveredBases) / Double(estimatedRefLength)
+        guard referenceLength > 0 else { return 0 }
+        return Double(coveredBases) / Double(referenceLength)
     }
 }
 
@@ -139,7 +139,7 @@ public enum NaoMgsDataConverter {
                 accession: accession,
                 readCount: accHits.count,
                 pcrDuplicateCount: duplicateCount,
-                estimatedRefLength: refLength,
+                referenceLength: refLength,
                 coverageWindows: windows,
                 coveredBases: min(coveredBases, refLength)
             )
