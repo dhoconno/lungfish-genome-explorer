@@ -1126,6 +1126,7 @@ public class SidebarViewController: NSViewController {
         for childURL in contents {
             // Match directories named classification-XXXXXXXX
             guard childURL.lastPathComponent.hasPrefix("classification-") else { continue }
+            guard !OperationMarker.isInProgress(childURL) else { continue }
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: childURL.path, isDirectory: &isDir), isDir.boolValue else { continue }
 
@@ -1168,6 +1169,7 @@ public class SidebarViewController: NSViewController {
             $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending
         }) {
             guard batchDir.lastPathComponent.hasPrefix("classification-batch-") else { continue }
+            guard !OperationMarker.isInProgress(batchDir) else { continue }
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: batchDir.path, isDirectory: &isDir), isDir.boolValue else { continue }
 
@@ -1268,6 +1270,7 @@ public class SidebarViewController: NSViewController {
 
         for childURL in contents {
             guard childURL.lastPathComponent.hasPrefix("esviritu-") else { continue }
+            guard !OperationMarker.isInProgress(childURL) else { continue }
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: childURL.path, isDirectory: &isDir), isDir.boolValue else { continue }
 
@@ -1310,6 +1313,7 @@ public class SidebarViewController: NSViewController {
             $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending
         }) {
             guard batchDir.lastPathComponent.hasPrefix("esviritu-batch-") else { continue }
+            guard !OperationMarker.isInProgress(batchDir) else { continue }
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: batchDir.path, isDirectory: &isDir), isDir.boolValue else { continue }
 
@@ -1395,6 +1399,7 @@ public class SidebarViewController: NSViewController {
 
         for childURL in contents {
             guard childURL.lastPathComponent.hasPrefix("taxtriage-") else { continue }
+            guard !OperationMarker.isInProgress(childURL) else { continue }
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: childURL.path, isDirectory: &isDir), isDir.boolValue else { continue }
 
@@ -1569,6 +1574,7 @@ public class SidebarViewController: NSViewController {
 
         for childURL in contents {
             guard childURL.lastPathComponent.hasPrefix("naomgs-") else { continue }
+            guard !OperationMarker.isInProgress(childURL) else { continue }
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: childURL.path, isDirectory: &isDir), isDir.boolValue else { continue }
 
