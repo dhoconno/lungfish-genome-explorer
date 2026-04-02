@@ -655,7 +655,10 @@ public enum MetagenomicsImportService {
                     .trimmingCharacters(in: .whitespaces) ?? ""
                 currentAccession = accession.isEmpty ? nil : accession
                 currentLines = [line]
-            } else {
+            } else if !line.trimmingCharacters(in: .whitespaces).isEmpty {
+                // Skip blank lines — NCBI efetch may insert them between records,
+                // and samtools faidx produces incorrect lengths when blank lines
+                // appear within a FASTA sequence.
                 currentLines.append(line)
             }
         }
