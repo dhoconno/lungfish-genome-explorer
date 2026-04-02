@@ -516,6 +516,35 @@ public final class MiniBAMViewController: NSViewController {
         }
     }
 
+    /// Displays pre-fetched reads directly, without invoking samtools.
+    ///
+    /// Use this for NAO-MGS results where reads come from a SQLite database
+    /// rather than a BAM file. The existing `displayContig(bamURL:...)` method
+    /// remains for regular BAM viewing (EsViritu, alignment viewport, etc.).
+    ///
+    /// - Parameters:
+    ///   - reads: Pre-fetched aligned reads.
+    ///   - contig: Reference sequence name (accession).
+    ///   - contigLength: Length of the reference sequence.
+    public func displayReads(reads: [AlignedRead], contig: String, contigLength: Int) {
+        loadTask?.cancel()
+        self.bamURL = nil
+        self.indexURL = nil
+        self.contigName = contig
+        self.contigLength = contigLength
+
+        self.allReads = reads
+        self.allDuplicateIndices = detectDuplicates(in: reads)
+        self.pcrDuplicateReadCount = allDuplicateIndices.count
+        self.uniqueReadCount = max(0, reads.count - pcrDuplicateReadCount)
+        self.applyDuplicateVisibility(rebuildReference: true)
+
+        scrollToTop()
+        updateZoomStatus()
+
+        logger.info("Displayed \(reads.count) pre-fetched reads for \(contig, privacy: .public), \(self.pcrDuplicateReadCount) potential duplicates")
+    }
+
     // MARK: - Keyboard Shortcuts
 
     @discardableResult
