@@ -479,16 +479,36 @@ public enum MetagenomicsImportService {
             if !unresolvedIds.isEmpty {
                 // Try to find installed NCBI Taxonomy database
                 let registry = MetagenomicsDatabaseRegistry.shared
-                if let taxonomyDB = try await registry.installedDatabase(tool: .ncbiTaxonomy),
-                   let taxonomyPath = taxonomyDB.path {
+                var taxonomyPath: URL?
+
+                // Check if taxonomy DB is already installed
+                if let installed = try await registry.installedDatabase(tool: .ncbiTaxonomy),
+                   let path = installed.path {
+                    taxonomyPath = path
+                } else {
+                    // Auto-download taxonomy DB on first use
+                    logger.info("NCBI Taxonomy database not installed \u{2014} downloading automatically")
+                    progress?(0.56, "Downloading NCBI Taxonomy database\u{2026}")
+                    do {
+                        let installedURL = try await registry.downloadDatabase(
+                            name: "NCBI Taxonomy"
+                        ) { dlProgress, dlMessage in
+                            progress?(0.56 + dlProgress * 0.08, dlMessage)
+                        }
+                        taxonomyPath = installedURL
+                        logger.info("NCBI Taxonomy database installed at \(installedURL.path, privacy: .public)")
+                    } catch {
+                        logger.warning("Failed to download NCBI Taxonomy database: \(error.localizedDescription, privacy: .public)")
+                    }
+                }
+
+                if let taxonomyPath {
                     let resolver = try TaxonomyNameResolver(taxonomyDirectory: taxonomyPath)
                     let resolvedNames = resolver.resolve(taxIds: unresolvedIds)
                     if !resolvedNames.isEmpty {
                         try rwDB.updateTaxonNames(resolvedNames)
                     }
                     logger.info("Resolved \(resolvedNames.count)/\(unresolvedIds.count) taxon names from local taxonomy DB")
-                } else {
-                    logger.warning("NCBI Taxonomy database not installed \u{2014} taxon names will show as IDs. Install via Plugin Manager > Databases.")
                 }
             }
         } catch {
