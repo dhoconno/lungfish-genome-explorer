@@ -111,15 +111,13 @@ struct MetagenomicsImportServiceTests {
             outputDirectory: outputDirectory,
             sampleName: "SAMPLE_A",
             minIdentity: 90,
-            includeAlignment: false,
             fetchReferences: false
         )
 
         let bundle = result.resultDirectory
         #expect(FileManager.default.fileExists(atPath: bundle.path))
         #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("manifest.json").path))
-        #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("virus_hits.json").path))
-        #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("references").path))
+        #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("hits.sqlite").path))
         #expect(result.sampleName == "SAMPLE_A")
         #expect(result.taxonCount == 2)
         #expect(result.createdBAM == false)

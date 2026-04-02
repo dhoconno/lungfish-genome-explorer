@@ -45,18 +45,15 @@ public enum MetagenomicsImportHelperClient {
     public struct NaoMgsOptions: Sendable {
         public let sampleName: String?
         public let minIdentity: Double
-        public let includeAlignment: Bool
         public let fetchReferences: Bool
 
         public init(
             sampleName: String? = nil,
             minIdentity: Double = 0,
-            includeAlignment: Bool = true,
             fetchReferences: Bool = true
         ) {
             self.sampleName = sampleName
             self.minIdentity = minIdentity
-            self.includeAlignment = includeAlignment
             self.fetchReferences = fetchReferences
         }
     }
@@ -137,7 +134,6 @@ public enum MetagenomicsImportHelperClient {
             }
             let normalizedIdentity = max(0, min(100, options.minIdentity))
             args.append(contentsOf: ["--min-identity", String(normalizedIdentity)])
-            args.append(contentsOf: ["--include-alignment", options.includeAlignment ? "true" : "false"])
             args.append(contentsOf: ["--fetch-references", options.fetchReferences ? "true" : "false"])
         }
         process.arguments = args

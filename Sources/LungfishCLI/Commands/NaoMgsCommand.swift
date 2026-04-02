@@ -66,9 +66,6 @@ struct NaoMgsCommand: AsyncParsableCommand {
         )
         var outputDir: String?
 
-        @Flag(name: .customLong("sam"), help: "Convert virus hits to SAM format")
-        var convertToSAM: Bool = false
-
         @Option(
             name: .customLong("min-identity"),
             help: "Minimum percent identity filter (0-100, default: 0)"
@@ -150,15 +147,6 @@ struct NaoMgsCommand: AsyncParsableCommand {
                 at: outputDirectory,
                 withIntermediateDirectories: true
             )
-
-            // Convert to SAM if requested
-            if convertToSAM {
-                let samURL = outputDirectory.appendingPathComponent(
-                    "\(result.sampleName)_nao-mgs.sam"
-                )
-                try parser.convertToSAM(hits: filteredHits, outputURL: samURL)
-                print(formatter.success("SAM file written to \(samURL.path)"))
-            }
 
             // Write filtered hits as JSON for downstream use
             let jsonURL = outputDirectory.appendingPathComponent(

@@ -134,20 +134,18 @@ struct NaoMgsImportOptimizationTests {
             inputURL: url,
             outputDirectory: outputDirectory,
             sampleName: "CASPER_TEST",
-            includeAlignment: false,
             fetchReferences: false
         )
 
         // Verify bundle structure
         let bundle = result.resultDirectory
         #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("manifest.json").path))
-        #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("virus_hits.json").path))
+        #expect(FileManager.default.fileExists(atPath: bundle.appendingPathComponent("hits.sqlite").path))
 
         // Verify result metadata
         #expect(result.sampleName == "CASPER_TEST")
         #expect(result.totalHitReads == 35)
         #expect(result.taxonCount == 4)
-        #expect(result.createdBAM == false)
         #expect(result.fetchedReferenceCount == 0)
 
         // Verify manifest content
@@ -159,13 +157,13 @@ struct NaoMgsImportOptimizationTests {
         #expect(manifest.hitCount == 35)
         #expect(manifest.taxonCount == 4)
 
-        // Verify virus_hits.json content
-        let hitsData = try Data(contentsOf: bundle.appendingPathComponent("virus_hits.json"))
-        let hitsFile = try JSONDecoder().decode(NaoMgsVirusHitsFile.self, from: hitsData)
-        #expect(hitsFile.virusHits.count == 35)
-        #expect(hitsFile.taxonSummaries.count == 4)
-        // Sorted by hit count descending
-        #expect(hitsFile.taxonSummaries[0].taxId == 28875, "Top taxon should be 28875 (20 hits)")
+        // Verify SQLite database content
+        let db = try NaoMgsDatabase(at: bundle.appendingPathComponent("hits.sqlite"))
+        #expect(try db.totalHitCount(samples: nil) == 35)
+        let samples = try db.fetchSamples()
+        #expect(!samples.isEmpty)
+        let summaryRows = try db.fetchTaxonSummaryRows(samples: nil)
+        #expect(!summaryRows.isEmpty)
     }
 
     @Test
@@ -181,7 +179,6 @@ struct NaoMgsImportOptimizationTests {
             outputDirectory: outputDirectory,
             sampleName: "FILTER_TEST",
             minIdentity: 99.5,
-            includeAlignment: false,
             fetchReferences: false
         )
 
@@ -210,7 +207,6 @@ struct NaoMgsImportOptimizationTests {
                 inputURL: sourceFile,
                 outputDirectory: outputDirectory,
                 sampleName: "ABORT_TEST",
-                includeAlignment: true,
                 fetchReferences: false
             )
             // If it succeeds (samtools available), that's fine

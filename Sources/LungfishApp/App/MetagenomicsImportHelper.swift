@@ -64,11 +64,6 @@ public enum MetagenomicsImportHelper {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedSampleName = sampleName?.isEmpty == true ? nil : sampleName
         let minIdentity = Double(value(for: "--min-identity", in: arguments) ?? "") ?? 0
-        let includeAlignment = boolValue(
-            for: "--include-alignment",
-            in: arguments,
-            defaultValue: true
-        )
         let fetchReferences = boolValue(
             for: "--fetch-references",
             in: arguments,
@@ -231,7 +226,6 @@ public enum MetagenomicsImportHelper {
                         outputDirectory: outputDirectory,
                         sampleName: normalizedSampleName ?? normalizedName,
                         minIdentity: minIdentity,
-                        includeAlignment: includeAlignment,
                         fetchReferences: fetchReferences,
                         preferredName: normalizedName
                     ) { progress, message in

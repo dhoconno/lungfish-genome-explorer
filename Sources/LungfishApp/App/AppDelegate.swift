@@ -1193,8 +1193,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     private func importNaoMgsResultFromURL(
         _ url: URL,
         sampleName: String,
-        minIdentity: Double,
-        includeAlignment: Bool
+        minIdentity: Double
     ) {
         let trimmedSampleName = sampleName.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedSampleName = trimmedSampleName.isEmpty ? nil : trimmedSampleName
@@ -1207,7 +1206,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             naoMgsOptions: .init(
                 sampleName: resolvedSampleName,
                 minIdentity: minIdentity,
-                includeAlignment: includeAlignment,
                 fetchReferences: true
             )
         )
@@ -1250,7 +1248,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             }
             let identityFloor = max(0, min(100, options.minIdentity))
             cliArgs.append(contentsOf: ["--min-identity", String(identityFloor)])
-            cliArgs.append(contentsOf: ["--include-alignment", options.includeAlignment ? "true" : "false"])
             cliArgs.append(contentsOf: ["--fetch-references", options.fetchReferences ? "true" : "false"])
         }
 
@@ -3879,13 +3876,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         wizardPanel.isReleasedWhenClosed = false
 
         var sheet = NaoMgsImportSheet(datasetURL: nil)
-        sheet.onImport = { [weak self] (resultsDir: URL, sampleName: String, convertToSAM: Bool, minIdentity: Double) in
+        sheet.onImport = { [weak self] (resultsDir: URL, sampleName: String, _: Bool, minIdentity: Double) in
             window.endSheet(wizardPanel)
             self?.importNaoMgsResultFromURL(
                 resultsDir,
                 sampleName: sampleName,
-                minIdentity: minIdentity,
-                includeAlignment: convertToSAM
+                minIdentity: minIdentity
             )
         }
         sheet.onCancel = {

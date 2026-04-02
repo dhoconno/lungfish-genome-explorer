@@ -1030,13 +1030,6 @@ extension ImportCommand {
         var minIdentity: Double = 0
 
         @Flag(
-            name: [.customLong("sam"), .customLong("include-alignment")],
-            inversion: .prefixedNo,
-            help: "Create sorted BAM + BAI for miniBAM visualization (default: enabled)"
-        )
-        var includeAlignment: Bool = true
-
-        @Flag(
             name: .customLong("fetch-references"),
             inversion: .prefixedNo,
             help: "Fetch NCBI reference FASTA files into references/ (default: enabled)"
@@ -1068,7 +1061,6 @@ extension ImportCommand {
                     outputDirectory: outputDirectory,
                     sampleName: sampleName,
                     minIdentity: minIdentity,
-                    includeAlignment: includeAlignment,
                     fetchReferences: fetchReferences,
                     preferredName: sampleName
                 ) { progress, message in
@@ -1087,7 +1079,6 @@ extension ImportCommand {
                 ("Total hits", formatNumber(Int64(imported.totalHitReads))),
                 ("Distinct taxa", String(imported.taxonCount)),
                 ("References fetched", String(imported.fetchedReferenceCount)),
-                ("BAM created", imported.createdBAM ? "yes" : "no"),
                 ("Output", imported.resultDirectory.lastPathComponent),
             ]))
             print("")

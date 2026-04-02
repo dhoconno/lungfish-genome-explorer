@@ -403,15 +403,13 @@ public enum MetagenomicsImportService {
 
     /// Imports NAO-MGS results into a canonical result directory:
     /// - `manifest.json`
-    /// - `virus_hits.json`
-    /// - `{sample}.sorted.bam` + index (when alignment conversion is enabled)
+    /// - `hits.sqlite` (SQLite database with all hits and taxon summaries)
     /// - `references/*.fasta` (best-effort fetch from NCBI)
     public static func importNaoMgs(
         inputURL: URL,
         outputDirectory: URL,
         sampleName: String? = nil,
         minIdentity: Double = 0,
-        includeAlignment: Bool = true,
         fetchReferences: Bool = true,
         preferredName: String? = nil,
         progress: (@Sendable (Double, String) -> Void)? = nil
@@ -463,32 +461,16 @@ public enum MetagenomicsImportService {
         OperationMarker.markInProgress(resultDirectory, detail: "Importing NAO-MGS results\u{2026}")
         defer { OperationMarker.clearInProgress(resultDirectory) }
 
-        let referencesDirectory = resultDirectory.appendingPathComponent("references", isDirectory: true)
-        try ensureDirectoryExists(referencesDirectory)
-
         do {
-        progress?(0.20, "Writing NAO-MGS sidecars...")
+        progress?(0.20, "Creating NAO-MGS database\u{2026}")
+        let hitsDBURL = resultDirectory.appendingPathComponent("hits.sqlite")
+        try NaoMgsDatabase.create(at: hitsDBURL, hits: filteredHits) { dbProgress, dbMessage in
+            progress?(0.20 + dbProgress * 0.48, dbMessage)
+        }
+
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-
-        let hitsFile = NaoMgsVirusHitsFile(
-            virusHits: result.virusHits,
-            taxonSummaries: result.taxonSummaries
-        )
-        do {
-            let data = try encoder.encode(hitsFile)
-            try data.write(
-                to: resultDirectory.appendingPathComponent("virus_hits.json"),
-                options: .atomic
-            )
-        } catch {
-            throw MetagenomicsImportError.copyFailed(
-                source: loaded.virusHitsFile,
-                destination: resultDirectory.appendingPathComponent("virus_hits.json"),
-                reason: error.localizedDescription
-            )
-        }
 
         var manifest = NaoMgsManifest(
             sampleName: normalizedSampleName,
@@ -500,53 +482,10 @@ public enum MetagenomicsImportService {
         )
         try writeNaoMgsManifest(manifest, to: resultDirectory, encoder: encoder)
 
-        var createdBAM = false
-        let safeSampleStem = sanitizePathComponent(normalizedSampleName)
-        if includeAlignment, !result.virusHits.isEmpty {
-            progress?(0.40, "Converting NAO-MGS hits to alignment files...")
-            let samURL = resultDirectory.appendingPathComponent("\(safeSampleStem).sam")
-            let bamURL = resultDirectory.appendingPathComponent("\(safeSampleStem).sorted.bam")
-            do {
-                try parser.convertToSAM(hits: result.virusHits, outputURL: samURL)
-            } catch {
-                throw MetagenomicsImportError.parseFailed(samURL, error.localizedDescription)
-            }
-
-            let runner = NativeToolRunner.shared
-            let sortResult = try await runner.run(
-                .samtools,
-                arguments: ["sort", "-o", bamURL.path, samURL.path],
-                workingDirectory: resultDirectory,
-                timeout: 1800
-            )
-            guard sortResult.isSuccess else {
-                throw MetagenomicsImportError.copyFailed(
-                    source: samURL,
-                    destination: bamURL,
-                    reason: sortResult.combinedOutput
-                )
-            }
-
-            let indexResult = try await runner.run(
-                .samtools,
-                arguments: ["index", bamURL.path],
-                workingDirectory: resultDirectory,
-                timeout: 900
-            )
-            guard indexResult.isSuccess else {
-                throw MetagenomicsImportError.copyFailed(
-                    source: bamURL,
-                    destination: bamURL.appendingPathExtension("bai"),
-                    reason: indexResult.combinedOutput
-                )
-            }
-
-            createdBAM = true
-            try? fm.removeItem(at: samURL)
-        }
-
         var fetchedAccessions: [String] = []
         if fetchReferences {
+            let referencesDirectory = resultDirectory.appendingPathComponent("references", isDirectory: true)
+            try ensureDirectoryExists(referencesDirectory)
             progress?(0.70, "Fetching reference FASTA files...")
             let accessions = selectTopAccessionsPerTaxon(hits: result.virusHits, maxPerTaxon: 5)
             fetchedAccessions = await fetchNaoMgsReferences(
@@ -565,7 +504,7 @@ public enum MetagenomicsImportService {
             totalHitReads: result.totalHitReads,
             taxonCount: result.taxonSummaries.count,
             fetchedReferenceCount: fetchedAccessions.count,
-            createdBAM: createdBAM
+            createdBAM: false
         )
         } catch {
             throw MetagenomicsImportError.importAborted(
