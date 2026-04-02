@@ -471,18 +471,24 @@ public enum MetagenomicsImportService {
             progress?(0.15 + dbProgress * 0.40, dbMessage)
         }
 
-        // Resolve taxon names from NCBI Taxonomy before reference fetching.
-        progress?(0.56, "Resolving taxon names from NCBI\u{2026}")
+        // Resolve taxon names from local NCBI Taxonomy database.
+        progress?(0.56, "Resolving taxon names\u{2026}")
         do {
             let rwDB = try NaoMgsDatabase.openReadWrite(at: hitsDBURL)
             let unresolvedIds = try rwDB.taxonIdsNeedingNames()
             if !unresolvedIds.isEmpty {
-                let resolvedNames = await resolveTaxonScientificNames(
-                    taxIds: unresolvedIds,
-                    progress: progress
-                )
-                if !resolvedNames.isEmpty {
-                    try rwDB.updateTaxonNames(resolvedNames)
+                // Try to find installed NCBI Taxonomy database
+                let registry = MetagenomicsDatabaseRegistry.shared
+                if let taxonomyDB = try await registry.installedDatabase(tool: .ncbiTaxonomy),
+                   let taxonomyPath = taxonomyDB.path {
+                    let resolver = try TaxonomyNameResolver(taxonomyDirectory: taxonomyPath)
+                    let resolvedNames = resolver.resolve(taxIds: unresolvedIds)
+                    if !resolvedNames.isEmpty {
+                        try rwDB.updateTaxonNames(resolvedNames)
+                    }
+                    logger.info("Resolved \(resolvedNames.count)/\(unresolvedIds.count) taxon names from local taxonomy DB")
+                } else {
+                    logger.warning("NCBI Taxonomy database not installed \u{2014} taxon names will show as IDs. Install via Plugin Manager > Databases.")
                 }
             }
         } catch {
@@ -884,55 +890,3 @@ private func fetchNaoMgsReferences(
     return fetched
 }
 
-/// Resolves taxon IDs to NCBI scientific names via the taxonomy esummary endpoint.
-///
-/// The taxonomy esummary returns JSON with a `ScientificName` field that the generic
-/// `NCBIDocumentSummary` does not decode. This function parses the raw JSON manually.
-///
-/// - Parameters:
-///   - taxIds: Taxon IDs to resolve.
-///   - progress: Optional callback.
-/// - Returns: Dictionary mapping taxon ID to scientific name.
-private func resolveTaxonScientificNames(
-    taxIds: [Int],
-    progress: (@Sendable (Double, String) -> Void)?
-) async -> [Int: String] {
-    guard !taxIds.isEmpty else { return [:] }
-
-    let chunkSize = 200
-    let chunks = stride(from: 0, to: taxIds.count, by: chunkSize).map {
-        Array(taxIds[$0..<min($0 + chunkSize, taxIds.count)])
-    }
-
-    let ncbi = NCBIService()
-    var resolved: [Int: String] = [:]
-
-    for (chunkIndex, chunk) in chunks.enumerated() {
-        let label = "Resolving taxon names batch \(chunkIndex + 1)/\(chunks.count)"
-        progress?(0.56 + 0.08 * Double(chunkIndex) / Double(max(1, chunks.count)), label)
-
-        do {
-            // Use esummary for taxonomy database. The response JSON has
-            // "ScientificName" per UID which NCBIDocumentSummary doesn't decode,
-            // so we parse the raw JSON.
-            let stringIds = chunk.map(String.init)
-            let summaries = try await ncbi.esummary(database: .taxonomy, ids: stringIds)
-            for summary in summaries {
-                guard let taxId = Int(summary.uid) else { continue }
-                // Taxonomy esummary populates scientificName (ScientificName in JSON).
-                if let name = summary.scientificName, !name.isEmpty {
-                    resolved[taxId] = name
-                } else if let name = summary.organism, !name.isEmpty {
-                    resolved[taxId] = name
-                } else if let title = summary.title, !title.isEmpty {
-                    resolved[taxId] = title
-                }
-            }
-        } catch {
-            logger.warning("Taxonomy esummary failed for batch \(chunkIndex + 1): \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
-    logger.info("Resolved \(resolved.count)/\(taxIds.count) taxon names")
-    return resolved
-}

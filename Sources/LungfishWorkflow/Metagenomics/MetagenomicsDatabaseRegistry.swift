@@ -321,6 +321,15 @@ public actor MetagenomicsDatabaseRegistry {
         return databases[name]
     }
 
+    /// Returns the first installed (ready) database for the given tool, or nil.
+    ///
+    /// - Parameter tool: The metagenomics tool to find an installed database for.
+    /// - Returns: The first database entry with matching tool, `.ready` status, and a non-nil path.
+    public func installedDatabase(tool: MetagenomicsTool) throws -> MetagenomicsDatabaseInfo? {
+        try loadIfNeeded()
+        return databases.values.first { $0.tool == tool.rawValue && $0.status == .ready && $0.path != nil }
+    }
+
     /// Registers an existing database directory.
     ///
     /// Validates that the directory contains the required Kraken2 files,
@@ -826,6 +835,10 @@ public actor MetagenomicsDatabaseRegistry {
                 return ["*.fasta or *.fa reference files"]
             }
             return []
+
+        case MetagenomicsTool.ncbiTaxonomy.rawValue:
+            let required = ["names.dmp"]
+            return required.filter { !fm.fileExists(atPath: directory.appendingPathComponent($0).path) }
 
         default:
             // Unknown tool — skip validation

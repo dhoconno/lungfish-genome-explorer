@@ -23,6 +23,8 @@ public enum MetagenomicsTool: String, Codable, Sendable, CaseIterable {
     case esviritu
     /// TaxTriage clinical metagenomic triage (Nextflow pipeline).
     case taxtriage
+    /// NCBI Taxonomy dump (names.dmp, nodes.dmp) for taxon ID resolution.
+    case ncbiTaxonomy = "ncbi-taxonomy"
 
     /// Human-readable display name for the database section header.
     public var databaseSectionTitle: String {
@@ -33,6 +35,20 @@ public enum MetagenomicsTool: String, Codable, Sendable, CaseIterable {
         case .krakentools: return "KrakenTools"
         case .esviritu: return "EsViritu Databases"
         case .taxtriage: return "TaxTriage Databases"
+        case .ncbiTaxonomy: return "Reference Databases"
+        }
+    }
+
+    /// Human-readable display name for the tool.
+    public var displayName: String {
+        switch self {
+        case .kraken2: return "Kraken2"
+        case .bracken: return "Bracken"
+        case .metaphlan: return "MetaPhlAn"
+        case .krakentools: return "KrakenTools"
+        case .esviritu: return "EsViritu"
+        case .taxtriage: return "TaxTriage"
+        case .ncbiTaxonomy: return "NCBI Taxonomy"
         }
     }
 
@@ -43,6 +59,7 @@ public enum MetagenomicsTool: String, Codable, Sendable, CaseIterable {
         case .metaphlan: return "chart.bar"
         case .esviritu: return "ant"
         case .taxtriage: return "stethoscope"
+        case .ncbiTaxonomy: return "books.vertical"
         }
     }
 }

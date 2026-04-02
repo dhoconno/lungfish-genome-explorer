@@ -329,8 +329,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     // MARK: - Sample Column Visibility
 
     private func updateSampleColumnVisibility() {
-        guard let sampleColumn = taxonomyTableView.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier("sample")) else { return }
-        sampleColumn.isHidden = selectedSamples.count <= 1
+        // Sample column is always visible — even with a single sample,
+        // it provides useful context about which dataset the rows come from.
     }
 
     // MARK: - Sample Filter Button
@@ -1517,56 +1517,38 @@ extension NaoMgsResultViewController: NSTextFieldDelegate {
 @MainActor
 final class NaoMgsSummaryBar: GenomicSummaryCardBar {
 
-    private var totalHits: Int = 0
-    private var taxonCount: Int = 0
-    private var topTaxonName: String = ""
-    private var sampleName: String = ""
+    private var samplesLabel: String = ""
+    private var taxaLabel: String = ""
 
     func update(database: NaoMgsDatabase?, manifest: NaoMgsManifest?, selectedSamples: [String]) {
         guard let database else { return }
 
-        totalHits = (try? database.totalHitCount(samples: selectedSamples)) ?? 0
-
-        let rows = (try? database.fetchTaxonSummaryRows(samples: selectedSamples)) ?? []
-        taxonCount = rows.count
-        if let firstRow = rows.first {
-            topTaxonName = firstRow.name.isEmpty ? "Taxid \(firstRow.taxId)" : firstRow.name
+        let allSampleCount = (try? database.fetchSamples().count) ?? 0
+        let selectedCount = selectedSamples.count
+        if selectedCount == allSampleCount {
+            samplesLabel = allSampleCount == 1 ? "1 sample" : "\(allSampleCount) samples"
         } else {
-            topTaxonName = "\u{2014}"
+            samplesLabel = "\(selectedCount) of \(allSampleCount) samples"
         }
 
-        sampleName = manifest?.sampleName ?? "Unknown"
+        let rows = (try? database.fetchTaxonSummaryRows(samples: selectedSamples)) ?? []
+        taxaLabel = rows.count == 1 ? "1 taxon" : "\(rows.count) taxa"
+
         needsDisplay = true
     }
 
     /// Legacy update method kept for compatibility.
     func update(result: NaoMgsResult) {
-        totalHits = result.totalHitReads
-        taxonCount = result.taxonSummaries.count
-        let firstName = result.taxonSummaries.first?.name ?? ""
-        topTaxonName = firstName.isEmpty
-            ? (result.taxonSummaries.first.map { "Taxid \($0.taxId)" } ?? "\u{2014}")
-            : firstName
-        sampleName = result.sampleName
+        samplesLabel = "1 sample"
+        taxaLabel = result.taxonSummaries.count == 1 ? "1 taxon" : "\(result.taxonSummaries.count) taxa"
         needsDisplay = true
     }
 
     override var cards: [Card] {
         [
-            Card(label: "Virus Hits", value: GenomicSummaryCardBar.formatCount(totalHits)),
-            Card(label: "Unique Taxa", value: "\(taxonCount)"),
-            Card(label: "Top Taxon", value: topTaxonName),
-            Card(label: "Sample", value: sampleName),
+            Card(label: "Samples", value: samplesLabel),
+            Card(label: "Taxa", value: taxaLabel),
         ]
-    }
-
-    override func abbreviatedLabel(for label: String) -> String {
-        switch label {
-        case "Virus Hits": return "Hits"
-        case "Unique Taxa": return "Taxa"
-        case "Top Taxon": return "Top"
-        default: return super.abbreviatedLabel(for: label)
-        }
     }
 }
 

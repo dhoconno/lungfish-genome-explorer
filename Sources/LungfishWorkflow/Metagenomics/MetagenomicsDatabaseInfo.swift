@@ -221,6 +221,24 @@ extension MetagenomicsDatabaseInfo {
             recommendedRAM: 8 * 1_073_741_824  // ~8 GB RAM recommended
         ))
 
+        // NCBI Taxonomy dump for taxon ID resolution
+        catalog.append(MetagenomicsDatabaseInfo(
+            name: "NCBI Taxonomy",
+            tool: MetagenomicsTool.ncbiTaxonomy.rawValue,
+            version: "2025-03",
+            sizeBytes: 63 * 1_048_576,          // ~63 MB compressed
+            sizeOnDisk: 200 * 1_048_576,        // ~200 MB extracted
+            downloadURL: "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz",
+            description: "NCBI Taxonomy names and hierarchy for taxon ID resolution",
+            collection: nil,
+            path: nil,
+            isExternal: false,
+            bookmarkData: nil,
+            lastUpdated: nil,
+            status: .missing,
+            recommendedRAM: 256 * 1_048_576     // 256 MB
+        ))
+
         return catalog
     }()
 
