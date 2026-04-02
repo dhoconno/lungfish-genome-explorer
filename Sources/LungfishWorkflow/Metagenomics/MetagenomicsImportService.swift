@@ -158,6 +158,8 @@ public enum MetagenomicsImportService {
 
         progress?(0.05, "Preparing output directory...")
         try ensureDirectoryExists(resultDirectory)
+        OperationMarker.markInProgress(resultDirectory, detail: "Importing Kraken2 results\u{2026}")
+        defer { OperationMarker.clearInProgress(resultDirectory) }
 
         let canonicalReportURL = resultDirectory.appendingPathComponent("classification.kreport")
         progress?(0.25, "Copying report...")
@@ -246,6 +248,8 @@ public enum MetagenomicsImportService {
             in: outputDirectory
         )
         try ensureDirectoryExists(resultDirectory)
+        OperationMarker.markInProgress(resultDirectory, detail: "Importing EsViritu results\u{2026}")
+        defer { OperationMarker.clearInProgress(resultDirectory) }
         progress?(0.05, "Copying EsViritu files...")
 
         let copiedFiles = try copyInputPayload(from: inputURL, into: resultDirectory)
@@ -339,6 +343,8 @@ public enum MetagenomicsImportService {
             in: outputDirectory
         )
         try ensureDirectoryExists(resultDirectory)
+        OperationMarker.markInProgress(resultDirectory, detail: "Importing TaxTriage results\u{2026}")
+        defer { OperationMarker.clearInProgress(resultDirectory) }
         progress?(0.05, "Copying TaxTriage files...")
 
         _ = try copyInputPayload(from: inputURL, into: resultDirectory)
@@ -454,6 +460,8 @@ public enum MetagenomicsImportService {
             in: outputDirectory
         )
         try ensureDirectoryExists(resultDirectory)
+        OperationMarker.markInProgress(resultDirectory, detail: "Importing NAO-MGS results\u{2026}")
+        defer { OperationMarker.clearInProgress(resultDirectory) }
 
         let referencesDirectory = resultDirectory.appendingPathComponent("references", isDirectory: true)
         try ensureDirectoryExists(referencesDirectory)
