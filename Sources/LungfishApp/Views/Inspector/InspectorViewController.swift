@@ -1515,9 +1515,9 @@ private struct MetagenomicsResultSummarySection: View {
                     NaoMgsSamplePickerView(
                         samples: viewModel.sampleEntries,
                         pickerState: pickerState,
-                        strippedPrefix: viewModel.sampleStrippedPrefix
+                        strippedPrefix: viewModel.sampleStrippedPrefix,
+                        isInline: true
                     )
-                    .frame(maxWidth: .infinity)
                 }
                 .onChange(of: pickerState.selectedSamples) { _, _ in
                     NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil)

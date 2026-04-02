@@ -35,6 +35,10 @@ struct NaoMgsSamplePickerView: View {
     /// Common prefix stripped from display (shown as caption).
     let strippedPrefix: String
 
+    /// When true, the picker fills available space (for Inspector inline embedding).
+    /// When false, uses fixed 360×300 sizing (for NSPopover).
+    var isInline: Bool = false
+
     private var filteredSamples: [NaoMgsSampleEntry] {
         if searchText.isEmpty { return samples }
         return samples.filter {
@@ -108,9 +112,9 @@ struct NaoMgsSamplePickerView: View {
                     }
                 }
             }
-            .frame(maxHeight: 300)
+            .frame(maxHeight: isInline ? .infinity : 300)
         }
-        .frame(width: 360)
+        .frame(width: isInline ? .none : 360)
     }
 
     private func sampleRow(_ sample: NaoMgsSampleEntry) -> some View {

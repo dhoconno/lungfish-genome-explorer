@@ -245,6 +245,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
         // Select all samples initially
         selectedSamples = Set(sampleNames)
+        samplePickerState.selectedSamples = selectedSamples
 
         // Update summary bar
         summaryBar.update(database: database, manifest: manifest, selectedSamples: Array(selectedSamples))
