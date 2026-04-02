@@ -3876,7 +3876,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         wizardPanel.isReleasedWhenClosed = false
 
         var sheet = NaoMgsImportSheet(datasetURL: nil)
-        sheet.onImport = { [weak self] (resultsDir: URL, sampleName: String, _: Bool, minIdentity: Double) in
+        sheet.onImport = { [weak self] (resultsDir: URL, sampleName: String, minIdentity: Double) in
             window.endSheet(wizardPanel)
             self?.importNaoMgsResultFromURL(
                 resultsDir,

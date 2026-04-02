@@ -330,8 +330,6 @@ public struct NaoMgsResult: Sendable {
 /// // Load a complete result set from a directory
 /// let result = try await parser.loadResults(from: resultsDir, sampleName: "sample1")
 ///
-/// // Convert hits to SAM for viewport display
-/// try parser.convertToSAM(hits: hits, outputURL: samOutputURL)
 /// ```
 ///
 /// ## Column Mapping

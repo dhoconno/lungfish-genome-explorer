@@ -53,8 +53,8 @@ struct NaoMgsImportSheet: View {
     /// The FASTQ bundle URL that triggered this import (for context display).
     let datasetURL: URL?
 
-    /// Called when the user clicks Run. Parameters: (results URL, sample name, convert to SAM, min identity).
-    var onImport: ((URL, String, Bool, Double) -> Void)?
+    /// Called when the user clicks Run. Parameters: (results URL, sample name, min identity).
+    var onImport: ((URL, String, Double) -> Void)?
 
     /// Called when the user clicks Cancel.
     var onCancel: (() -> Void)?
@@ -63,7 +63,6 @@ struct NaoMgsImportSheet: View {
 
     @State private var selectedPath: URL? = nil
     @State private var sampleName: String = ""
-    @State private var convertToSAM: Bool = true
     @State private var minIdentity: Double = 0
     @State private var isScanning: Bool = false
     @State private var linesScanned: Int = 0
@@ -281,10 +280,6 @@ struct NaoMgsImportSheet: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
 
-            Toggle("Convert to SAM for alignment view", isOn: $convertToSAM)
-                .font(.system(size: 12))
-                .toggleStyle(.checkbox)
-
             HStack {
                 Text("Min % identity:")
                     .font(.system(size: 12))
@@ -407,7 +402,7 @@ struct NaoMgsImportSheet: View {
     /// Triggers the import callback with the current configuration.
     private func performImport() {
         guard let url = selectedPath, !sampleName.isEmpty else { return }
-        onImport?(url, sampleName, convertToSAM, minIdentity)
+        onImport?(url, sampleName, minIdentity)
     }
 
     // MARK: - Formatting
