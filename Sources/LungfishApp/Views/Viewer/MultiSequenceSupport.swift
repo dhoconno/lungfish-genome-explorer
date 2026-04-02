@@ -649,6 +649,12 @@ public extension Notification.Name {
 
     /// Posted when annotation visibility changes for any sequence
     static let annotationVisibilityChanged = Notification.Name("com.lungfish.annotationVisibilityChanged")
+
+    /// Posted when the user requests a layout swap (table left vs right) in a metagenomics viewer.
+    static let metagenomicsLayoutSwapRequested = Notification.Name("com.lungfish.metagenomicsLayoutSwapRequested")
+
+    /// Posted when sample selection changes in the Inspector-embedded sample picker.
+    static let metagenomicsSampleSelectionChanged = Notification.Name("com.lungfish.metagenomicsSampleSelectionChanged")
 }
 
 // MARK: - NotificationUserInfoKey Extensions

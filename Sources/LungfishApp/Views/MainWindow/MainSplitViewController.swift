@@ -1857,7 +1857,8 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         let placeholderVC = NaoMgsResultViewController()
         viewerController.displayNaoMgsResult(placeholderVC)
 
-        // Open database and manifest on a background thread.
+        // Two-phase load: manifest first (fast) for instant taxon list,
+        // then SQLite database (slow) for detail queries.
         let bundleURL = url
         Task {
             do {
@@ -1865,7 +1866,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 let decoder = JSONDecoder()
                 decoder.dateDecodingStrategy = .iso8601
 
-                // Read manifest
+                // Phase 1: Read manifest (fast — small JSON file).
                 let manifestURL = bundleURL.appendingPathComponent("manifest.json")
                 guard fm.fileExists(atPath: manifestURL.path) else {
                     throw NSError(domain: "NaoMgsDisplay", code: 1,
@@ -1874,7 +1875,19 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 let manifestData = try Data(contentsOf: manifestURL)
                 let manifest = try decoder.decode(NaoMgsManifest.self, from: manifestData)
 
-                // Open SQLite database (created during import)
+                // If manifest has cached taxon rows, show them immediately.
+                if let cachedRows = manifest.cachedTaxonRows, !cachedRows.isEmpty {
+                    DispatchQueue.main.async { [weak self] in
+                        MainActor.assumeIsolated {
+                            guard let self else { return }
+                            placeholderVC.configureWithCachedRows(cachedRows, manifest: manifest, bundleURL: bundleURL)
+                            self.inspectorController?.updateNaoMgsManifest(manifest)
+                            logger.info("displayNaoMgsResult: Showing \(cachedRows.count) cached taxon rows instantly")
+                        }
+                    }
+                }
+
+                // Phase 2: Open SQLite database (slow — full file I/O + SQLite init).
                 let dbURL = bundleURL.appendingPathComponent("hits.sqlite")
                 guard fm.fileExists(atPath: dbURL.path) else {
                     throw NSError(domain: "NaoMgsDisplay", code: 2,
@@ -1885,11 +1898,18 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
                         guard let self else { return }
-                        // Configure the already-displayed placeholder VC with database.
+                        // Full configure with database — enables detail queries, filtering, BLAST.
                         placeholderVC.configure(database: database, manifest: manifest, bundleURL: bundleURL)
 
                         // Update inspector with NAO-MGS manifest info
                         self.inspectorController?.updateNaoMgsManifest(manifest)
+
+                        // Wire sample picker state to Inspector for embedded sample selector
+                        self.inspectorController?.updateMetagenomicsSampleState(
+                            pickerState: placeholderVC.samplePickerState,
+                            entries: placeholderVC.sampleEntries,
+                            strippedPrefix: placeholderVC.strippedPrefix
+                        )
 
                         let totalHits = (try? database.totalHitCount()) ?? manifest.hitCount
                         logger.info("displayNaoMgsResult: Configured with database, \(totalHits) hits")

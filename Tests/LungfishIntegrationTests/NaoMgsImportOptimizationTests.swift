@@ -244,6 +244,73 @@ struct NaoMgsImportOptimizationTests {
         #expect(taxA111?.uniqueReadCount == 1, "Two reads at same position should be 1 unique")
     }
 
+    // MARK: - FASTA Blank-Line Normalization
+
+    @Test
+    func splitMultiRecordFASTAStripsBlankLinesWithinSequences() {
+        // Simulates NCBI efetch returning blank lines within a sequence record.
+        // This is the root cause of wrong reference lengths: samtools faidx treats
+        // blank lines as record separators, so a 935bp genome reads as 186bp if
+        // there's a blank line after the first 186 bases of sequence.
+        let fasta = """
+        >AB283001.1 Human polyomavirus 6, complete genome
+        ATGGCCCTCAAAATTACAGAACTAAAAGAAACTTTAGCTAGAATCAAAGAACCAGATTATG
+        ATGATATTCAAGCAGTCTTACTTTTTAAGAAAGGCACCCCATTTTTTGCATTCAGATTTCA
+
+        GCAGCAGACAGCACCATTTCACCTGCCTCAGAACTGTTGCCTCAAACCTTCAATGAGAATA
+        ACAGAGGTCTAGCAGCAGGTTTCAAAGGAGAGAAGGGCCGGTCACAGGAT
+        """
+
+        let records = MetagenomicsImportService.splitMultiRecordFASTA(fasta)
+        #expect(records.count == 1, "Should find 1 record, blank line within sequence should not split")
+        guard let record = records["AB283001.1"] else {
+            Issue.record("Missing AB283001.1 record")
+            return
+        }
+
+        // The blank line should be stripped, leaving header + 4 sequence lines
+        let lines = record.split(separator: "\n")
+        #expect(lines.count == 5, "Expected 1 header + 4 sequence lines, got \(lines.count)")
+
+        // No blank lines should remain
+        for (i, line) in lines.enumerated() {
+            #expect(!line.trimmingCharacters(in: .whitespaces).isEmpty,
+                "Line \(i) should not be blank: '\(line)'")
+        }
+    }
+
+    @Test
+    func splitMultiRecordFASTAStripsWindowsLineEndings() {
+        // NCBI efetch may return \r\n line endings
+        let fasta = ">ACC001.1 Some virus\r\nACGTACGT\r\nGGCCTTAA\r\n\r\n>ACC002.1 Another virus\r\nTTAAGGCC\r\n"
+
+        let records = MetagenomicsImportService.splitMultiRecordFASTA(fasta)
+        #expect(records.count == 2)
+
+        // Verify no \r characters remain
+        for (acc, text) in records {
+            #expect(!text.contains("\r"), "Record \(acc) should not contain \\r")
+        }
+    }
+
+    @Test
+    func normalizeSingleFASTARecordStripsBlankLines() {
+        // Test the helper that normalizes a single FASTA record (used by the fallback path)
+        let rawFasta = ">AB283001.1 Human polyomavirus 6\r\nACGTACGT\r\n\r\nGGCCTTAA\r\nTTAAGGCC\r\n"
+
+        let normalized = MetagenomicsImportService.normalizeFASTARecord(rawFasta)
+
+        // Should strip \r, remove blank lines, end with \n
+        #expect(!normalized.contains("\r"), "Should not contain \\r")
+        #expect(normalized.hasSuffix("\n"), "Should end with newline")
+
+        let lines = normalized.split(separator: "\n")
+        #expect(lines.count == 4, "Expected 1 header + 3 sequence lines, got \(lines.count)")
+        for line in lines {
+            #expect(!line.trimmingCharacters(in: .whitespaces).isEmpty, "No blank lines")
+        }
+    }
+
     // MARK: - Error Handling
 
     @Test

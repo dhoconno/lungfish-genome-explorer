@@ -471,10 +471,13 @@ public enum MetagenomicsImportService {
             progress?(0.15 + dbProgress * 0.40, dbMessage)
         }
 
+        // Open a single read-write connection for all post-creation operations.
+        // Multiple connections cause SQLite locking errors on large imports.
+        let rwDB = try NaoMgsDatabase.openReadWrite(at: hitsDBURL)
+
         // Resolve taxon names from local NCBI Taxonomy database.
         progress?(0.56, "Resolving taxon names\u{2026}")
         do {
-            let rwDB = try NaoMgsDatabase.openReadWrite(at: hitsDBURL)
             let unresolvedIds = try rwDB.taxonIdsNeedingNames()
             if !unresolvedIds.isEmpty {
                 // Try to find installed NCBI Taxonomy database
@@ -530,12 +533,17 @@ public enum MetagenomicsImportService {
         )
         try writeNaoMgsManifest(manifest, to: resultDirectory, encoder: encoder)
 
+        try Task.checkCancellation()
+
         var fetchedAccessions: [String] = []
         if fetchReferences {
             let referencesDirectory = resultDirectory.appendingPathComponent("references", isDirectory: true)
             try ensureDirectoryExists(referencesDirectory)
             progress?(0.70, "Fetching reference FASTA files...")
-            let accessions = selectTopAccessionsPerTaxon(hits: result.virusHits, maxPerTaxon: 5)
+            // Fetch exactly the accessions that will be shown as miniBAM panels:
+            // top 5 by unique read count per (sample, taxId) pair. Derived from
+            // in-memory hits to avoid reopening the database (SQLite locking issues).
+            let accessions = selectMiniBAMAccessions(hits: result.virusHits, maxPerRow: 5)
             fetchedAccessions = await fetchNaoMgsReferences(
                 accessions: accessions,
                 into: referencesDirectory,
@@ -543,6 +551,8 @@ public enum MetagenomicsImportService {
             )
             manifest.fetchedAccessions = fetchedAccessions
             try writeNaoMgsManifest(manifest, to: resultDirectory, encoder: encoder)
+
+            try Task.checkCancellation()
 
             // Extract reference lengths by indexing downloaded FASTA files with samtools faidx.
             // Each .fai index contains sequence name and length — parsed via FASTAIndex.
@@ -575,10 +585,20 @@ public enum MetagenomicsImportService {
                 }
             }
             if !refLengths.isEmpty {
-                let rwDB = try NaoMgsDatabase.openReadWrite(at: hitsDBURL)
                 try rwDB.updateReferenceLengths(refLengths)
                 logger.info("Stored \(refLengths.count) reference lengths from downloaded FASTAs")
             }
+        }
+
+        // Cache taxon summary rows in the manifest for instant display.
+        // Uses the same rwDB connection — avoids opening another handle.
+        do {
+            let cachedRows = try rwDB.fetchTaxonSummaryRows(samples: nil)
+            manifest.cachedTaxonRows = cachedRows
+            try writeNaoMgsManifest(manifest, to: resultDirectory, encoder: encoder)
+            logger.info("Cached \(cachedRows.count) taxon summary rows in manifest")
+        } catch {
+            logger.warning("Failed to cache taxon rows in manifest: \(error.localizedDescription, privacy: .public)")
         }
 
         progress?(1.0, "NAO-MGS import complete")
@@ -629,6 +649,52 @@ public enum MetagenomicsImportService {
         return selectedAccessions.sorted()
     }
 
+    /// Selects the exact accessions needed for miniBAM display: top `maxPerRow`
+    /// accessions by unique read count per (sample, taxId) pair.
+    ///
+    /// This mirrors the database's `top_accessions_json` logic but works from
+    /// in-memory hits, avoiding an extra database open that could cause SQLite
+    /// locking issues.
+    public static func selectMiniBAMAccessions(
+        hits: [NaoMgsVirusHit],
+        maxPerRow: Int = 5
+    ) -> [String] {
+        // Group hits by (sample, taxId) — each pair is one taxon row in the UI.
+        struct RowKey: Hashable {
+            let sample: String
+            let taxId: Int
+        }
+        var rowHits: [RowKey: [NaoMgsVirusHit]] = [:]
+        for hit in hits where !hit.subjectSeqId.isEmpty {
+            rowHits[RowKey(sample: hit.sample, taxId: hit.taxId), default: []].append(hit)
+        }
+
+        var allAccessions = Set<String>()
+
+        for (_, hitsForRow) in rowHits {
+            // Count unique reads per accession (same dedup key as the database).
+            var accessionUniqueCounts: [String: Set<String>] = [:]
+            for hit in hitsForRow {
+                let dedup = "\(hit.refStart)|\(hit.isReverseComplement)|\(hit.queryLength)"
+                accessionUniqueCounts[hit.subjectSeqId, default: []].insert(dedup)
+            }
+
+            // Sort by unique count descending, then alphabetically.
+            let sorted = accessionUniqueCounts.sorted { lhs, rhs in
+                if lhs.value.count != rhs.value.count {
+                    return lhs.value.count > rhs.value.count
+                }
+                return lhs.key < rhs.key
+            }
+
+            for entry in sorted.prefix(maxPerRow) {
+                allAccessions.insert(entry.key)
+            }
+        }
+
+        return allAccessions.sorted()
+    }
+
     /// Splits a concatenated multi-record FASTA string into individual records.
     ///
     /// - Parameter fasta: Concatenated FASTA text (multiple `>` headers).
@@ -668,6 +734,25 @@ public enum MetagenomicsImportService {
         }
 
         return records
+    }
+
+    /// Normalizes a single FASTA record: strips `\r`, removes blank lines,
+    /// and ensures the record ends with a newline.
+    ///
+    /// Use this when writing a single FASTA record to disk (e.g. fallback
+    /// individual-accession fetch) to prevent `samtools faidx` from
+    /// misinterpreting blank lines as record boundaries.
+    public static func normalizeFASTARecord(_ raw: String) -> String {
+        let normalized = raw.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        var result = lines.joined(separator: "\n")
+        if !result.hasSuffix("\n") {
+            result += "\n"
+        }
+        return result
     }
 }
 
@@ -906,12 +991,20 @@ private func fetchNaoMgsReferences(
     }
 
     let ncbi = NCBIService()
+    logger.info("Fetching \(accessions.count) reference FASTA files in batches of \(chunkSize)")
     var fetched: [String] = []
 
     for (chunkIndex, chunk) in chunks.enumerated() {
+        // Check for cancellation before each batch
+        if Task.isCancelled {
+            logger.info("Reference fetch cancelled after \(fetched.count)/\(accessions.count) accessions")
+            return fetched
+        }
+
         let chunkLabel = "Fetching references batch \(chunkIndex + 1)/\(chunks.count) (\(chunk.count) accessions)"
         let baseFraction = Double(chunkIndex) / Double(chunks.count)
         progress?(0.70 + (0.28 * baseFraction), chunkLabel)
+        logger.info("\(chunkLabel, privacy: .public)")
 
         do {
             let data = try await ncbi.efetch(
@@ -919,9 +1012,13 @@ private func fetchNaoMgsReferences(
                 ids: chunk,
                 format: .fasta
             )
-            guard let fastaText = String(data: data, encoding: .utf8) else { continue }
+            guard let fastaText = String(data: data, encoding: .utf8) else {
+                logger.warning("Batch \(chunkIndex + 1): efetch returned non-UTF8 data, skipping")
+                continue
+            }
 
             let records = MetagenomicsImportService.splitMultiRecordFASTA(fastaText)
+            logger.info("Batch \(chunkIndex + 1): received \(records.count)/\(chunk.count) records")
             for (accession, recordText) in records {
                 let fastaURL = referencesDirectory.appendingPathComponent("\(accession).fasta")
                 // Ensure record ends with newline for valid FASTA (required by samtools faidx)
@@ -930,8 +1027,15 @@ private func fetchNaoMgsReferences(
                 fetched.append(accession)
             }
         } catch {
+            logger.warning("Batch \(chunkIndex + 1) failed: \(error.localizedDescription, privacy: .public) — falling back to individual downloads")
             // Fallback: try individual accessions in this chunk (best-effort)
             for (i, accession) in chunk.enumerated() {
+                // Check for cancellation before each individual download
+                if Task.isCancelled {
+                    logger.info("Reference fetch cancelled during fallback after \(fetched.count)/\(accessions.count) accessions")
+                    return fetched
+                }
+
                 let individualFraction = baseFraction + (Double(i) / Double(accessions.count)) * (1.0 / Double(chunks.count))
                 progress?(0.70 + (0.28 * individualFraction), "Fetching \(accession) (fallback)")
                 do {
@@ -940,15 +1044,23 @@ private func fetchNaoMgsReferences(
                         ids: [accession],
                         format: .fasta
                     )
+                    guard let fastaText = String(data: data, encoding: .utf8) else { continue }
                     let fastaURL = referencesDirectory.appendingPathComponent("\(accession).fasta")
-                    try data.write(to: fastaURL, options: .atomic)
+                    // Normalize: strip \r, blank lines — matches batch path behavior.
+                    // Raw NCBI FASTA with blank lines causes samtools faidx to report
+                    // incorrect reference lengths.
+                    let normalized = MetagenomicsImportService.normalizeFASTARecord(fastaText)
+                    try normalized.data(using: .utf8)?.write(to: fastaURL, options: .atomic)
                     fetched.append(accession)
+                    logger.debug("Fallback: fetched \(accession, privacy: .public)")
                 } catch {
-                    // Best effort: skip failed accessions
+                    logger.warning("Fallback: failed to fetch \(accession, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 }
             }
         }
     }
+
+    logger.info("Reference fetch complete: \(fetched.count)/\(accessions.count) accessions downloaded")
 
     let fraction = 1.0
     progress?(0.70 + (0.28 * fraction), "Fetched \(fetched.count)/\(accessions.count) references")

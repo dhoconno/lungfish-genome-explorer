@@ -41,7 +41,7 @@ public enum NaoMgsDatabaseError: Error, LocalizedError, Sendable {
 // MARK: - Result Types
 
 /// A single row in the taxonomy table — one per (sample, taxon) pair.
-public struct NaoMgsTaxonSummaryRow: Sendable {
+public struct NaoMgsTaxonSummaryRow: Codable, Sendable {
     public let sample: String
     public let taxId: Int
     public let name: String

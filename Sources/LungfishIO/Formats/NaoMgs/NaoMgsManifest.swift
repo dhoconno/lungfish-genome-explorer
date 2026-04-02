@@ -53,6 +53,11 @@ public struct NaoMgsManifest: Codable, Sendable {
     /// Version of nao-mgs-workflow (if detectable from results).
     public let workflowVersion: String?
 
+    /// Cached taxon summary rows for instant display before database opens.
+    /// Written during import; used by the viewport to show the taxon list
+    /// immediately while the SQLite database loads in the background.
+    public var cachedTaxonRows: [NaoMgsTaxonSummaryRow]?
+
     /// Creates a new NAO-MGS bundle manifest.
     ///
     /// - Parameters:

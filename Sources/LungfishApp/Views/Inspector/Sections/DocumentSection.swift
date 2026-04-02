@@ -95,6 +95,18 @@ public final class DocumentSectionViewModel {
         self.naoMgsManifest = manifest
     }
 
+    // MARK: - Layout Preferences
+    /// When true, taxonomy table is on the left instead of the default right.
+    var isTableOnLeft: Bool = UserDefaults.standard.bool(forKey: "metagenomicsTableOnLeft")
+
+    // MARK: - Sample Picker State
+    /// Shared sample picker state for Inspector-embedded sample selector.
+    var samplePickerState: NaoMgsSamplePickerState?
+    /// Sample entries for the picker view.
+    var sampleEntries: [NaoMgsSampleEntry] = []
+    /// Common prefix stripped from sample display names.
+    var sampleStrippedPrefix: String = ""
+
     /// Whether any content is available for display (bundle, FASTQ, SRA, or NAO-MGS metadata).
     var hasAnyContent: Bool {
         manifest != nil || fastqStatistics != nil || sraRunInfo != nil || enaReadRecord != nil || naoMgsManifest != nil

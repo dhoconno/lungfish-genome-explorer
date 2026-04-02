@@ -812,6 +812,17 @@ public class InspectorViewController: NSViewController {
         viewModel.documentSectionViewModel.updateNaoMgsManifest(manifest)
     }
 
+    /// Wires the shared sample picker state for the Inspector-embedded sample selector.
+    func updateMetagenomicsSampleState(
+        pickerState: NaoMgsSamplePickerState,
+        entries: [NaoMgsSampleEntry],
+        strippedPrefix: String
+    ) {
+        viewModel.documentSectionViewModel.samplePickerState = pickerState
+        viewModel.documentSectionViewModel.sampleEntries = entries
+        viewModel.documentSectionViewModel.sampleStrippedPrefix = strippedPrefix
+    }
+
     /// Injects the shared AI assistant service used by the embedded inspector tab.
     public func setAIAssistantService(_ service: AIAssistantService) {
         viewModel.aiAssistantService = service
@@ -1470,6 +1481,47 @@ private struct MetagenomicsResultSummarySection: View {
                 Text("Select a metagenomics result in the sidebar to view its summary here.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            Divider()
+                .padding(.vertical, 4)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Panel Layout")
+                    .font(.caption.weight(.semibold))
+
+                Picker("Layout", selection: $viewModel.isTableOnLeft) {
+                    Label("Detail | Table", systemImage: "sidebar.left")
+                        .tag(false)
+                    Label("Table | Detail", systemImage: "sidebar.right")
+                        .tag(true)
+                }
+                .pickerStyle(.radioGroup)
+                .labelsHidden()
+                .onChange(of: viewModel.isTableOnLeft) { _, newValue in
+                    UserDefaults.standard.set(newValue, forKey: "metagenomicsTableOnLeft")
+                    NotificationCenter.default.post(name: .metagenomicsLayoutSwapRequested, object: nil)
+                }
+            }
+
+            if let pickerState = viewModel.samplePickerState, !viewModel.sampleEntries.isEmpty {
+                Divider()
+                    .padding(.vertical, 4)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Sample Filter")
+                        .font(.caption.weight(.semibold))
+
+                    NaoMgsSamplePickerView(
+                        samples: viewModel.sampleEntries,
+                        pickerState: pickerState,
+                        strippedPrefix: viewModel.sampleStrippedPrefix
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .onChange(of: pickerState.selectedSamples) { _, _ in
+                    NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil)
+                }
             }
         }
     }

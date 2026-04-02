@@ -64,10 +64,10 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     private var selectedSamples: Set<String> = []
 
     /// Sample entries for the picker view.
-    private var sampleEntries: [NaoMgsSampleEntry] = []
+    var sampleEntries: [NaoMgsSampleEntry] = []
 
     /// Common prefix stripped from sample display names.
-    private var strippedPrefix: String = ""
+    var strippedPrefix: String = ""
 
     /// Currently displayed taxonomy rows (filtered + sorted).
     private var displayedRows: [NaoMgsTaxonSummaryRow] = []
@@ -106,12 +106,34 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     private let miniBAMMinHeight: CGFloat = 140
     private let miniBAMMaxHeight: CGFloat = 900
     /// Number of accession miniBAM panels to show per selected taxon.
-    private let miniBAMDisplayLimit: Int = 10
+    private let miniBAMDisplayLimit: Int = 5
+
+    // MARK: - Loading State
+
+    /// Overlay view shown during initial load and filter operations.
+    private let loadingOverlay = NSView()
+    private let loadingSpinner = NSProgressIndicator()
+    private let loadingLabel = NSTextField(labelWithString: "Loading…")
+
+    /// Debounce work item for filter field changes.
+    private var filterDebounceWorkItem: DispatchWorkItem?
+
+    /// Task for asynchronously loading miniBAM reads.
+    private var miniBAMLoadingTask: Task<Void, Never>?
+
+    /// Per-card loading spinners for miniBAM skeleton views.
+    private var miniBAMCardSpinners: [NSProgressIndicator] = []
+
+    /// Accession summaries for the currently displayed taxon (retained for async loading).
+    private var currentAccessionSummaries: [DBAccessionSummary] = []
 
     // MARK: - Split View State
 
     /// The left (detail) pane container in the split view.
     private var detailContainer: NaoMgsDetailContainer?
+
+    /// The right (table) pane container in the split view.
+    private var tableContainer: NSView?
 
     /// Whether the initial divider position has been applied.
     private var didSetInitialSplitPosition = false
@@ -127,8 +149,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// Active sample picker popover.
     private var samplePopover: NSPopover?
 
-    /// Observable state shared with the SwiftUI sample picker popover.
-    private let samplePickerState = NaoMgsSamplePickerState()
+    /// Observable state shared with the SwiftUI sample picker popover and Inspector.
+    let samplePickerState = NaoMgsSamplePickerState()
 
     // MARK: - Selection Sync
 
@@ -155,6 +177,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         setupSummaryBar()
         setupSplitView()
         setupActionBar()
+        setupLoadingOverlay()
         layoutSubviews()
         wireCallbacks()
     }
@@ -166,8 +189,36 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     // MARK: - Public API
 
+    /// Configures the view with cached taxon rows from the manifest.
+    ///
+    /// Shows the taxon list immediately from cached data in manifest.json.
+    /// The database is not yet available — detail pane and filters are disabled
+    /// until `configure(database:manifest:bundleURL:)` is called.
+    public func configureWithCachedRows(_ rows: [NaoMgsTaxonSummaryRow], manifest: NaoMgsManifest, bundleURL: URL? = nil) {
+        self.manifest = manifest
+        self.bundleURL = bundleURL
+
+        // Populate the taxonomy table from cached data
+        displayedRows = rows
+        taxonomyTableView.reloadData()
+
+        // Update summary bar with cached counts
+        let totalHits = manifest.hitCount
+        let taxonCount = rows.count
+        actionBar.configure(totalHits: totalHits, taxonCount: taxonCount)
+
+        // Show loading indicator in the detail pane since database isn't ready
+        showLoadingOverlay("Opening database…")
+
+        // Force the split view to re-apply its 40/60 position.
+        applySplitPositionIfNeeded(force: true)
+        logger.info("Configured with \(rows.count) cached taxon rows from manifest")
+    }
+
     /// Configures the view with a SQLite database and manifest.
     public func configure(database: NaoMgsDatabase, manifest: NaoMgsManifest, bundleURL: URL? = nil) {
+        showLoadingOverlay("Loading taxonomy data…")
+
         self.database = database
         self.manifest = manifest
         self.bundleURL = bundleURL
@@ -219,6 +270,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         // Update sample column visibility
         updateSampleColumnVisibility()
 
+        hideLoadingOverlay()
         logger.info("Configured NAO-MGS viewer with database, \(self.allSamples.count) samples")
     }
 
@@ -393,6 +445,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     /// Shows the overview when no taxon is selected.
     private func showOverview() {
+        miniBAMLoadingTask?.cancel()
+        miniBAMLoadingTask = nil
         selectedRow = nil
         selectedAccession = nil
 
@@ -402,6 +456,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     /// Shows the detail pane for the selected taxon row.
     private func showTaxonDetail(_ row: NaoMgsTaxonSummaryRow) {
+        miniBAMLoadingTask?.cancel()
+        miniBAMLoadingTask = nil
         selectedRow = row
         selectedAccession = nil
         rebuildDetailContent()
@@ -513,8 +569,10 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             hostingView.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 8),
             hostingView.leadingAnchor.constraint(equalTo: detailContentView.leadingAnchor),
             hostingView.trailingAnchor.constraint(equalTo: detailContentView.trailingAnchor),
-            hostingView.bottomAnchor.constraint(lessThanOrEqualTo: detailContentView.bottomAnchor, constant: -16),
         ])
+        let overviewBottomConstraint = hostingView.bottomAnchor.constraint(lessThanOrEqualTo: detailContentView.bottomAnchor, constant: -16)
+        overviewBottomConstraint.priority = .defaultHigh
+        overviewBottomConstraint.isActive = true
     }
 
     // MARK: - Taxon Detail Content
@@ -550,13 +608,17 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         let metricsView = buildMetricsView(for: row)
         detailContentView.addSubview(metricsView)
 
-        // Scrollable list of miniBAM panels for top accessions
+        // Scrollable list of miniBAM panels for top accessions (skeleton with spinners)
+        currentAccessionSummaries = accessionSummaries
         let miniBAMListView = buildMiniBAMList(
             accessionSummaries: accessionSummaries,
             sample: row.sample,
             taxId: row.taxId
         )
         detailContentView.addSubview(miniBAMListView)
+
+        // Fetch reads asynchronously — populates miniBAM cards one at a time
+        loadMiniBAMsAsync(accessionSummaries: accessionSummaries, sample: row.sample, taxId: row.taxId)
 
         NSLayoutConstraint.activate([
             nameLabel.topAnchor.constraint(equalTo: detailContentView.topAnchor, constant: 12),
@@ -574,8 +636,15 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             miniBAMListView.topAnchor.constraint(equalTo: metricsView.bottomAnchor, constant: 12),
             miniBAMListView.leadingAnchor.constraint(equalTo: detailContentView.leadingAnchor, constant: 8),
             miniBAMListView.trailingAnchor.constraint(equalTo: detailContentView.trailingAnchor, constant: -8),
-            miniBAMListView.bottomAnchor.constraint(lessThanOrEqualTo: detailContentView.bottomAnchor, constant: -8),
         ])
+
+        // Bottom constraint at lower priority — the FlippedNaoMgsContentView is frame-based
+        // (documentView of scroll view) so its autoresizing mask creates a required-priority
+        // height constraint. This bottom anchor defines the content size for resizeDetailContentToFit()
+        // but must yield during the initial layout pass before the frame is expanded.
+        let bottomConstraint = miniBAMListView.bottomAnchor.constraint(lessThanOrEqualTo: detailContentView.bottomAnchor, constant: -8)
+        bottomConstraint.priority = .defaultHigh
+        bottomConstraint.isActive = true
     }
 
     private func buildMiniBAMList(
@@ -746,28 +815,134 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                 heightConstraint,
             ])
 
-            // Fetch reads from database and display via displayReads
-            do {
-                let reads = try database.fetchReadsForAccession(
-                    sample: sample,
-                    taxId: taxId,
-                    accession: accessionSummary.accession,
-                    maxReads: max(1, accessionSummary.readCount)
-                )
-                miniBAM.displayReads(
-                    reads: reads,
-                    contig: accessionSummary.accession,
-                    contigLength: max(accessionSummary.referenceLength, 1)
-                )
-            } catch {
-                logger.error("Failed to fetch reads for \(accessionSummary.accession): \(error.localizedDescription, privacy: .public)")
-            }
+            // Per-card loading spinner — reads fetched async via loadMiniBAMsAsync()
+            let cardSpinner = NSProgressIndicator()
+            cardSpinner.style = .spinning
+            cardSpinner.controlSize = .small
+            cardSpinner.translatesAutoresizingMaskIntoConstraints = false
+            bamView.addSubview(cardSpinner)
+            NSLayoutConstraint.activate([
+                cardSpinner.centerXAnchor.constraint(equalTo: bamView.centerXAnchor),
+                cardSpinner.centerYAnchor.constraint(equalTo: bamView.centerYAnchor),
+            ])
+            cardSpinner.startAnimation(nil)
+            miniBAMCardSpinners.append(cardSpinner)
 
             stack.addArrangedSubview(card)
             card.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
 
         return container
+    }
+
+    // MARK: - Loading Overlay
+
+    private func setupLoadingOverlay() {
+        loadingOverlay.translatesAutoresizingMaskIntoConstraints = false
+        loadingOverlay.isHidden = true
+
+        // Semi-transparent background
+        let backing = NSVisualEffectView()
+        backing.material = .hudWindow
+        backing.blendingMode = .withinWindow
+        backing.state = .active
+        backing.translatesAutoresizingMaskIntoConstraints = false
+        loadingOverlay.addSubview(backing)
+
+        loadingSpinner.style = .spinning
+        loadingSpinner.controlSize = .regular
+        loadingSpinner.translatesAutoresizingMaskIntoConstraints = false
+        loadingOverlay.addSubview(loadingSpinner)
+
+        loadingLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        loadingLabel.textColor = .secondaryLabelColor
+        loadingLabel.alignment = .center
+        loadingLabel.translatesAutoresizingMaskIntoConstraints = false
+        loadingOverlay.addSubview(loadingLabel)
+
+        view.addSubview(loadingOverlay)
+
+        NSLayoutConstraint.activate([
+            backing.topAnchor.constraint(equalTo: loadingOverlay.topAnchor),
+            backing.leadingAnchor.constraint(equalTo: loadingOverlay.leadingAnchor),
+            backing.trailingAnchor.constraint(equalTo: loadingOverlay.trailingAnchor),
+            backing.bottomAnchor.constraint(equalTo: loadingOverlay.bottomAnchor),
+
+            loadingOverlay.topAnchor.constraint(equalTo: splitView.topAnchor),
+            loadingOverlay.leadingAnchor.constraint(equalTo: splitView.leadingAnchor),
+            loadingOverlay.trailingAnchor.constraint(equalTo: splitView.trailingAnchor),
+            loadingOverlay.bottomAnchor.constraint(equalTo: splitView.bottomAnchor),
+
+            loadingSpinner.centerXAnchor.constraint(equalTo: loadingOverlay.centerXAnchor),
+            loadingSpinner.centerYAnchor.constraint(equalTo: loadingOverlay.centerYAnchor, constant: -12),
+
+            loadingLabel.topAnchor.constraint(equalTo: loadingSpinner.bottomAnchor, constant: 8),
+            loadingLabel.centerXAnchor.constraint(equalTo: loadingOverlay.centerXAnchor),
+            loadingLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 300),
+        ])
+    }
+
+    private func showLoadingOverlay(_ message: String) {
+        loadingLabel.stringValue = message
+        loadingOverlay.isHidden = false
+        loadingSpinner.startAnimation(nil)
+    }
+
+    private func hideLoadingOverlay() {
+        loadingSpinner.stopAnimation(nil)
+        loadingOverlay.isHidden = true
+    }
+
+    // MARK: - Async MiniBAM Loading
+
+    /// Asynchronously fetches reads and populates miniBAM cards one at a time.
+    ///
+    /// Cards are built as skeletons with spinners by `buildMiniBAMList()`. This method
+    /// then fills them sequentially, yielding between cards for UI responsiveness.
+    private func loadMiniBAMsAsync(
+        accessionSummaries: [DBAccessionSummary],
+        sample: String,
+        taxId: Int
+    ) {
+        miniBAMLoadingTask?.cancel()
+        let displayed = Array(accessionSummaries.prefix(miniBAMDisplayLimit))
+
+        miniBAMLoadingTask = Task { [weak self] in
+            guard let self else { return }
+
+            for (index, summary) in displayed.enumerated() {
+                guard !Task.isCancelled else { return }
+                guard let database = self.database else { return }
+                guard index < self.miniBAMControllers.count else { return }
+
+                do {
+                    let reads = try database.fetchReadsForAccession(
+                        sample: sample,
+                        taxId: taxId,
+                        accession: summary.accession,
+                        maxReads: max(1, summary.readCount)
+                    )
+                    guard !Task.isCancelled else { return }
+
+                    self.miniBAMControllers[index].displayReads(
+                        reads: reads,
+                        contig: summary.accession,
+                        contigLength: max(summary.referenceLength, 1)
+                    )
+                } catch {
+                    logger.error("Failed to fetch reads for \(summary.accession): \(error.localizedDescription, privacy: .public)")
+                }
+
+                // Remove per-card spinner
+                if index < self.miniBAMCardSpinners.count {
+                    self.miniBAMCardSpinners[index].stopAnimation(nil)
+                    self.miniBAMCardSpinners[index].removeFromSuperview()
+                }
+
+                // Yield between cards to keep UI responsive
+                await Task.yield()
+            }
+        }
     }
 
     private func adjustMiniBAMHeight(
@@ -783,6 +958,14 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     }
 
     private func teardownEmbeddedMiniBAMControllers() {
+        miniBAMLoadingTask?.cancel()
+        miniBAMLoadingTask = nil
+        for spinner in miniBAMCardSpinners {
+            spinner.stopAnimation(nil)
+            spinner.removeFromSuperview()
+        }
+        miniBAMCardSpinners.removeAll()
+        currentAccessionSummaries.removeAll()
         for controller in miniBAMControllers {
             controller.view.removeFromSuperview()
             controller.removeFromParent()
@@ -966,12 +1149,13 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         detailContainer = detail
 
         // Right pane: taxonomy table
-        let tableContainer = NSView()
+        let tableCont = NSView()
+        self.tableContainer = tableCont
         setupTaxonomyTable()
-        setupTaxonomyFilterBar(in: tableContainer)
+        setupTaxonomyFilterBar(in: tableCont)
 
         splitView.addArrangedSubview(detail)
-        splitView.addArrangedSubview(tableContainer)
+        splitView.addArrangedSubview(tableCont)
 
         // Table pane resizes first; detail pane holds width firmly.
         splitView.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
@@ -981,6 +1165,9 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         splitView.adjustSubviews()
 
         view.addSubview(splitView)
+
+        // Respect saved layout preference (table on left vs right).
+        applyLayoutPreference()
     }
 
     /// Configures the taxonomy table with columns for taxon data.
@@ -1176,6 +1363,75 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         actionBar.onExport = { [weak self] in
             self?.exportResults()
         }
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleLayoutSwapRequested),
+            name: .metagenomicsLayoutSwapRequested,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleInspectorSampleSelectionChanged),
+            name: .metagenomicsSampleSelectionChanged,
+            object: nil
+        )
+    }
+
+    @objc private func handleLayoutSwapRequested(_ notification: Notification) {
+        applyLayoutPreference()
+    }
+
+    @objc private func handleInspectorSampleSelectionChanged(_ notification: Notification) {
+        let newSelection = samplePickerState.selectedSamples
+        guard newSelection != selectedSamples else { return }
+        selectedSamples = newSelection
+        updateSampleFilterButtonTitle()
+        updateSampleColumnVisibility()
+        reloadTaxonomyTable()
+        if let database, let manifest {
+            summaryBar.update(database: database, manifest: manifest, selectedSamples: Array(newSelection))
+        }
+    }
+
+    /// Swaps the split view pane order based on the persisted layout preference.
+    private func applyLayoutPreference() {
+        let tableOnLeft = UserDefaults.standard.bool(forKey: "metagenomicsTableOnLeft")
+        guard splitView.arrangedSubviews.count == 2,
+              let detail = detailContainer,
+              let table = tableContainer else { return }
+
+        let currentTableIsFirst = (splitView.arrangedSubviews[0] === table)
+        guard tableOnLeft != currentTableIsFirst else { return }  // Already correct
+
+        // Preserve split ratio
+        let totalWidth = max(splitView.bounds.width, 1)
+        let leftRatio = splitView.arrangedSubviews[0].frame.width / totalWidth
+
+        splitView.removeArrangedSubview(detail)
+        splitView.removeArrangedSubview(table)
+        detail.removeFromSuperview()
+        table.removeFromSuperview()
+
+        if tableOnLeft {
+            splitView.addArrangedSubview(table)
+            splitView.addArrangedSubview(detail)
+        } else {
+            splitView.addArrangedSubview(detail)
+            splitView.addArrangedSubview(table)
+        }
+
+        // Table always gets low holding priority (resizes first on window resize)
+        let tableIndex = tableOnLeft ? 0 : 1
+        let detailIndex = tableOnLeft ? 1 : 0
+        splitView.setHoldingPriority(.defaultLow, forSubviewAt: tableIndex)
+        splitView.setHoldingPriority(.defaultHigh, forSubviewAt: detailIndex)
+
+        // Apply inverse ratio to maintain visual proportion
+        let newPosition = round(totalWidth * (1.0 - leftRatio))
+        splitView.setPosition(newPosition, ofDividerAt: 0)
+        splitView.adjustSubviews()
     }
 
     // MARK: - BLAST Drawer
@@ -1294,6 +1550,18 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             menu.addItem(copyAccessions)
         }
 
+        // Copy unique reads as FASTQ
+        if row.uniqueReadCount > 0 {
+            let copyReads = NSMenuItem(
+                title: "Copy Unique Reads as FASTQ (\(row.uniqueReadCount))",
+                action: #selector(contextCopyUniqueReadsFASTQ(_:)),
+                keyEquivalent: ""
+            )
+            copyReads.target = self
+            copyReads.representedObject = row
+            menu.addItem(copyReads)
+        }
+
         menu.addItem(NSMenuItem.separator())
 
         // View on NCBI
@@ -1373,6 +1641,41 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         guard let accessions = sender.representedObject as? [String] else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(accessions.joined(separator: "\n"), forType: .string)
+    }
+
+    @objc private func contextCopyUniqueReadsFASTQ(_ sender: NSMenuItem) {
+        guard let row = sender.representedObject as? NaoMgsTaxonSummaryRow,
+              let database else { return }
+        do {
+            // Fetch deduplicated reads (same logic as BLAST verification)
+            let hits = try database.fetchVirusHitsForBLAST(
+                sample: row.sample,
+                taxId: row.taxId,
+                maxReads: row.uniqueReadCount
+            )
+            guard !hits.isEmpty else { return }
+
+            // Format as FASTQ if quality data is available, otherwise FASTA
+            var lines: [String] = []
+            let hasFASTQ = hits.contains { !$0.readQuality.isEmpty && $0.readQuality != "*" }
+            for hit in hits {
+                if hasFASTQ {
+                    lines.append("@\(hit.seqId)")
+                    lines.append(hit.readSequence)
+                    lines.append("+")
+                    lines.append(hit.readQuality.isEmpty ? String(repeating: "I", count: hit.readSequence.count) : hit.readQuality)
+                } else {
+                    lines.append(">\(hit.seqId)")
+                    lines.append(hit.readSequence)
+                }
+            }
+
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+            logger.info("Copied \(hits.count) unique reads as \(hasFASTQ ? "FASTQ" : "FASTA") for taxId \(row.taxId)")
+        } catch {
+            logger.error("Failed to fetch reads for copy: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     @objc func contextCopyAccession(_ sender: NSMenuItem) {
@@ -1648,7 +1951,17 @@ extension NaoMgsResultViewController: NSMenuDelegate {
 
 extension NaoMgsResultViewController: NSTextFieldDelegate {
     public func controlTextDidChange(_ obj: Notification) {
-        reloadTaxonomyTable()
+        // Debounce filter changes to avoid excessive database queries on every keystroke.
+        filterDebounceWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self?.reloadTaxonomyTable()
+                }
+            }
+        }
+        filterDebounceWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: workItem)
     }
 }
 

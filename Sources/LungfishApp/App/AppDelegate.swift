@@ -1251,7 +1251,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             cliCommand: cliCmd
         )
 
-        Task.detached { [weak self] in
+        let task = Task.detached { [weak self] in
             do {
                 let result = try await MetagenomicsImportHelperClient.importViaCLI(
                     kind: kind,
@@ -1311,6 +1311,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 }
             }
         }
+
+        // Wire cancellation so the Operations Panel cancel button stops downloads.
+        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
     }
 
     @objc func importSampleMetadataToBundle(_ sender: Any?) {
