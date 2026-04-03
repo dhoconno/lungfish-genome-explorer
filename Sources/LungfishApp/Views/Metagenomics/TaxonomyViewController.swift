@@ -107,7 +107,45 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     let splitView = NSSplitView()
     private let sunburstView = TaxonomySunburstView()
     private let taxonomyTableView = TaxonomyTableView()
-    let actionBar = TaxonomyActionBar()
+    let actionBar = ClassifierActionBar()
+
+    // MARK: - Collections / BLAST Toggle Buttons (custom, managed by this VC)
+
+    let collectionsToggleButton: NSButton = {
+        let btn = NSButton(title: "Collections", target: nil, action: nil)
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        btn.bezelStyle = .accessoryBarAction
+        btn.setButtonType(.pushOnPushOff)
+        btn.image = NSImage(systemSymbolName: "rectangle.stack", accessibilityDescription: "Collections")
+        btn.imagePosition = .imageLeading
+        btn.controlSize = .small
+        btn.font = .systemFont(ofSize: 11)
+        btn.setContentHuggingPriority(.required, for: .horizontal)
+        btn.setAccessibilityLabel("Toggle Taxa Collections Drawer")
+        return btn
+    }()
+
+    let blastResultsToggleButton: NSButton = {
+        let btn = NSButton(title: "BLAST Results", target: nil, action: nil)
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        btn.bezelStyle = .accessoryBarAction
+        btn.setButtonType(.pushOnPushOff)
+        btn.image = NSImage(systemSymbolName: "bolt.circle", accessibilityDescription: "BLAST Results")
+        btn.imagePosition = .imageLeading
+        btn.controlSize = .small
+        btn.font = .systemFont(ofSize: 11)
+        btn.setContentHuggingPriority(.required, for: .horizontal)
+        btn.setAccessibilityLabel("Toggle BLAST Results Drawer")
+        return btn
+    }()
+
+    // MARK: - Action Bar State
+
+    /// The currently selected taxon node (for info text updates).
+    private var selectedTaxonNode: TaxonNode?
+
+    /// Total reads for percentage display in the action bar.
+    private var totalReadsForActionBar: Int = 0
 
     // MARK: - Split View State
 
@@ -250,8 +288,8 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             self.showBlastConfigPopover(for: node, relativeTo: self.sunburstView)
         }
 
-        actionBar.configure(totalReads: result.tree.totalReads)
-        actionBar.updateSelection(nil)
+        totalReadsForActionBar = result.tree.totalReads
+        updateActionBarSelection(nil)
         breadcrumbBar.update(zoomNode: nil)
 
         logger.info("Configured with \(result.tree.totalReads) reads, \(result.tree.speciesCount) species")
@@ -414,7 +452,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             guard let self, !self.suppressSelectionSync else { return }
             self.suppressSelectionSync = true
             self.taxonomyTableView.selectAndScrollTo(node: node)
-            self.actionBar.updateSelection(node)
+            self.updateActionBarSelection(node)
             self.suppressSelectionSync = false
         }
 
@@ -447,7 +485,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             guard let self, !self.suppressSelectionSync else { return }
             self.suppressSelectionSync = true
             self.sunburstView.selectedNode = node
-            self.actionBar.updateSelection(node)
+            self.updateActionBarSelection(node)
             self.suppressSelectionSync = false
         }
 
@@ -463,27 +501,33 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             self.breadcrumbBar.update(zoomNode: node)
         }
 
-        // Action bar extract -> present extraction sheet
-        actionBar.onExtractSequences = { [weak self] node, includeChildren in
-            guard let self else { return }
-            if self.classificationResult != nil {
-                self.presentExtractionSheet(for: node, includeChildren: includeChildren)
-            } else {
-                self.onExtractSequences?(node, includeChildren)
-            }
+        // Action bar BLAST verify -> show BLAST config for current selection
+        actionBar.onBlastVerify = { [weak self] in
+            guard let self, let node = self.selectedTaxonNode else { return }
+            self.showBlastConfigPopover(for: node, relativeTo: self.actionBar.blastButton)
         }
 
-        // Action bar collections toggle -> show/hide drawer
-        actionBar.onToggleCollections = { [weak self] in
+        // Action bar export -> show export menu
+        actionBar.onExport = { [weak self] in
             guard let self else { return }
-            self.toggleTaxaCollectionsDrawer()
+            let menu = self.buildExportMenu()
+            let point = NSPoint(x: self.actionBar.exportButton.bounds.minX, y: self.actionBar.exportButton.bounds.maxY)
+            menu.popUp(positioning: nil, at: point, in: self.actionBar.exportButton)
         }
 
-        // Action bar BLAST results toggle -> open drawer on BLAST tab
-        actionBar.onToggleBlastResults = { [weak self] in
-            guard let self else { return }
-            self.toggleBlastResultsTab()
+        // Action bar provenance -> show provenance popover
+        actionBar.onProvenance = { [weak self] sender in
+            self?.showProvenancePopover(relativeTo: sender)
         }
+
+        // Wire custom buttons
+        collectionsToggleButton.target = self
+        collectionsToggleButton.action = #selector(collectionsToggleTapped(_:))
+        actionBar.addCustomButton(collectionsToggleButton)
+
+        blastResultsToggleButton.target = self
+        blastResultsToggleButton.action = #selector(blastResultsToggleTapped(_:))
+        actionBar.addCustomButton(blastResultsToggleButton)
 
         NotificationCenter.default.addObserver(
             self,
@@ -543,23 +587,58 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             // First open: create drawer, open it, switch to BLAST tab
             toggleTaxaCollectionsDrawer()
             taxaCollectionsDrawerView?.switchToTab(.blastResults)
-            actionBar.setBlastResultsActive(true)
-            actionBar.setCollectionsDrawerOpen(false)
+            blastResultsToggleButton.state = .on
+            collectionsToggleButton.state = .off
         } else if !isTaxaCollectionsDrawerOpen {
             // Drawer exists but is closed: open and switch to BLAST tab
             toggleTaxaCollectionsDrawer()
             taxaCollectionsDrawerView?.switchToTab(.blastResults)
-            actionBar.setBlastResultsActive(true)
-            actionBar.setCollectionsDrawerOpen(false)
+            blastResultsToggleButton.state = .on
+            collectionsToggleButton.state = .off
         } else if taxaCollectionsDrawerView?.selectedTab == .blastResults {
             // Already open on BLAST tab: close the drawer
             toggleTaxaCollectionsDrawer()
-            actionBar.setBlastResultsActive(false)
+            blastResultsToggleButton.state = .off
         } else {
             // Drawer open on Collections tab: switch to BLAST tab
             taxaCollectionsDrawerView?.switchToTab(.blastResults)
-            actionBar.setBlastResultsActive(true)
-            actionBar.setCollectionsDrawerOpen(false)
+            blastResultsToggleButton.state = .on
+            collectionsToggleButton.state = .off
+        }
+    }
+
+    // MARK: - Custom Toggle Button Actions
+
+    @objc private func collectionsToggleTapped(_ sender: NSButton) {
+        toggleTaxaCollectionsDrawer()
+    }
+
+    @objc private func blastResultsToggleTapped(_ sender: NSButton) {
+        toggleBlastResultsTab()
+    }
+
+    // MARK: - Action Bar Selection Helper
+
+    /// Updates the unified action bar info text and BLAST button state from a taxon node.
+    private func updateActionBarSelection(_ node: TaxonNode?) {
+        selectedTaxonNode = node
+
+        if let node {
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .decimal
+            formatter.groupingSeparator = ","
+            let readStr = formatter.string(from: NSNumber(value: node.readsClade)) ?? "\(node.readsClade)"
+
+            let pct = totalReadsForActionBar > 0
+                ? Double(node.readsClade) / Double(totalReadsForActionBar) * 100
+                : 0
+            let pctStr = String(format: "%.1f%%", pct)
+
+            actionBar.updateInfoText("\(node.name) \u{2014} \(readStr) reads (\(pctStr))")
+            actionBar.setBlastEnabled(true)
+        } else {
+            actionBar.updateInfoText("Select a taxon to view details")
+            actionBar.setBlastEnabled(false)
         }
     }
 
@@ -1224,7 +1303,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     var testTableView: TaxonomyTableView { taxonomyTableView }
 
     /// Returns the action bar for testing.
-    var testActionBar: TaxonomyActionBar { actionBar }
+    var testActionBar: ClassifierActionBar { actionBar }
 
     /// Returns the split view for testing.
     var testSplitView: NSSplitView { splitView }

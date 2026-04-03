@@ -264,19 +264,25 @@ final class TaxaCollectionsDrawerTests: XCTestCase {
     }
 
     func testActionBarCollectionsButton() throws {
-        let actionBar = TaxonomyActionBar(frame: NSRect(x: 0, y: 0, width: 800, height: 36))
+        // The collections toggle is now a custom button managed by TaxonomyViewController.
+        // Verify the unified ClassifierActionBar API works with custom buttons.
+        let actionBar = ClassifierActionBar(frame: NSRect(x: 0, y: 0, width: 800, height: 36))
         actionBar.layoutSubtreeIfNeeded()
 
+        let collectionsButton = NSButton(title: "Collections", target: nil, action: nil)
+        collectionsButton.setButtonType(.pushOnPushOff)
+        actionBar.addCustomButton(collectionsButton)
+
         // Collections toggle should start off
-        XCTAssertFalse(actionBar.isCollectionsToggleOn)
+        XCTAssertEqual(collectionsButton.state, .off)
 
         // Simulate drawer open
-        actionBar.setCollectionsDrawerOpen(true)
-        XCTAssertTrue(actionBar.isCollectionsToggleOn)
+        collectionsButton.state = .on
+        XCTAssertEqual(collectionsButton.state, .on)
 
         // Simulate drawer close
-        actionBar.setCollectionsDrawerOpen(false)
-        XCTAssertFalse(actionBar.isCollectionsToggleOn)
+        collectionsButton.state = .off
+        XCTAssertEqual(collectionsButton.state, .off)
     }
 
     func testActionBarCallbackWired() throws {
@@ -286,10 +292,10 @@ final class TaxaCollectionsDrawerTests: XCTestCase {
         let result = makeDrawerTestResult()
         vc.configure(result: result)
 
-        // The action bar's onToggleCollections callback should be wired
-        // We can verify by checking that toggling works
+        // The collections toggle button is wired through the VC's target/action.
+        // Verify that toggling works via the public API.
         XCTAssertFalse(vc.testIsCollectionsDrawerOpen)
-        vc.testActionBar.onToggleCollections?()
+        vc.toggleTaxaCollectionsDrawer()
         XCTAssertTrue(vc.testIsCollectionsDrawerOpen)
     }
 

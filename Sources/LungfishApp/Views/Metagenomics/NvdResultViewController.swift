@@ -224,7 +224,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     private let searchField = NSSearchField()
     private let detailScrollView = NSScrollView()
     private let detailContentView = FlippedNvdContentView()
-    let actionBar = NvdActionBar()
+    let actionBar = ClassifierActionBar()
     private let groupingSegment = NSSegmentedControl(labels: ["By Sample", "By Taxon"], trackingMode: .selectOne, target: nil, action: nil)
 
     // MARK: - MiniBAM
@@ -509,7 +509,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             subtitleLabel.trailingAnchor.constraint(equalTo: detailContentView.trailingAnchor, constant: -16),
         ])
 
-        actionBar.updateSelection(nil)
+        actionBar.updateInfoText("Select a contig to view details")
+        actionBar.setBlastEnabled(false)
         resizeDetailContentToFit()
     }
 
@@ -522,7 +523,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         detailContentView.removeConstraints(detailContentView.constraints)
 
         buildContigDetailContent(hit)
-        actionBar.updateSelection(hit)
+        updateActionBarForHit(hit)
 
         DispatchQueue.main.async { [weak self] in
             self?.resizeDetailContentToFit()
@@ -1097,12 +1098,16 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     // MARK: - Callback Wiring
 
     private func wireCallbacks() {
+        actionBar.onBlastVerify = { [weak self] in
+            self?.blastVerifySelectedContig()
+        }
+
         actionBar.onExport = { [weak self] in
             self?.exportResults()
         }
 
-        actionBar.onBlastVerify = { [weak self] in
-            self?.blastVerifySelectedContig()
+        actionBar.onProvenance = { [weak self] sender in
+            self?.showProvenance(from: sender)
         }
 
         NotificationCenter.default.addObserver(
@@ -1458,6 +1463,32 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         if let url = URL(string: "https://pubmed.ncbi.nlm.nih.gov/?term=\(encodedName)") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    // MARK: - Action Bar Selection Helper
+
+    /// Updates the unified action bar info text from a BLAST hit.
+    private func updateActionBarForHit(_ hit: NvdBlastHit?) {
+        if let hit {
+            let displayName = NvdDataConverter.displayName(for: hit.qseqid, qlen: hit.qlen)
+            let classification = hit.adjustedTaxidName.isEmpty ? "Unclassified" : hit.adjustedTaxidName
+            actionBar.updateInfoText("\(displayName) \u{2014} \(classification)")
+            actionBar.setBlastEnabled(true)
+        } else {
+            actionBar.updateInfoText("Select a contig to view details")
+            actionBar.setBlastEnabled(false)
+        }
+    }
+
+    // MARK: - Provenance Popover
+
+    private func showProvenance(from button: NSButton) {
+        guard let manifest else { return }
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentSize = NSSize(width: 320, height: 260)
+        popover.contentViewController = NSHostingController(rootView: NvdProvenanceView(manifest: manifest))
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
     }
 
     // MARK: - Export
@@ -1873,99 +1904,3 @@ final class NvdSummaryBar: GenomicSummaryCardBar {
     }
 }
 
-// MARK: - NvdActionBar
-
-@MainActor
-final class NvdActionBar: NSView {
-
-    var onExport: (() -> Void)?
-    var onBlastVerify: (() -> Void)?
-
-    private let exportButton = NSButton(title: "Export", target: nil, action: nil)
-    private let blastButton = NSButton(title: "BLAST Verify", target: nil, action: nil)
-    let infoLabel = NSTextField(labelWithString: "")
-    private let separator = NSBox()
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        commonInit()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        commonInit()
-    }
-
-    private func commonInit() {
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(separator)
-
-        blastButton.translatesAutoresizingMaskIntoConstraints = false
-        blastButton.bezelStyle = .accessoryBarAction
-        blastButton.image = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: "BLAST Verify")
-        blastButton.imagePosition = .imageLeading
-        blastButton.target = self
-        blastButton.action = #selector(blastTapped(_:))
-        blastButton.isEnabled = false
-        blastButton.setContentHuggingPriority(.required, for: .horizontal)
-        addSubview(blastButton)
-
-        exportButton.translatesAutoresizingMaskIntoConstraints = false
-        exportButton.bezelStyle = .accessoryBarAction
-        exportButton.image = NSImage(systemSymbolName: "square.and.arrow.up", accessibilityDescription: "Export")
-        exportButton.imagePosition = .imageLeading
-        exportButton.target = self
-        exportButton.action = #selector(exportTapped(_:))
-        exportButton.setContentHuggingPriority(.required, for: .horizontal)
-        addSubview(exportButton)
-
-        infoLabel.translatesAutoresizingMaskIntoConstraints = false
-        infoLabel.font = .systemFont(ofSize: 11, weight: .regular)
-        infoLabel.textColor = .secondaryLabelColor
-        infoLabel.lineBreakMode = .byTruncatingTail
-        infoLabel.stringValue = "Select a contig to view details"
-        addSubview(infoLabel)
-
-        NSLayoutConstraint.activate([
-            separator.topAnchor.constraint(equalTo: topAnchor),
-            separator.leadingAnchor.constraint(equalTo: leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
-
-            blastButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            blastButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-            exportButton.leadingAnchor.constraint(equalTo: blastButton.trailingAnchor, constant: 6),
-            exportButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-            infoLabel.leadingAnchor.constraint(equalTo: exportButton.trailingAnchor, constant: 12),
-            infoLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            infoLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
-        ])
-
-        setAccessibilityRole(.toolbar)
-        setAccessibilityLabel("NVD Action Bar")
-    }
-
-    func updateSelection(_ hit: NvdBlastHit?) {
-        if let hit {
-            let displayName = NvdDataConverter.displayName(for: hit.qseqid, qlen: hit.qlen)
-            let classification = hit.adjustedTaxidName.isEmpty ? "Unclassified" : hit.adjustedTaxidName
-            infoLabel.stringValue = "\(displayName) \u{2014} \(classification)"
-            infoLabel.textColor = .labelColor
-            blastButton.isEnabled = true
-        } else {
-            infoLabel.stringValue = "Select a contig to view details"
-            infoLabel.textColor = .secondaryLabelColor
-            blastButton.isEnabled = false
-        }
-    }
-
-    @objc private func exportTapped(_ sender: NSButton) {
-        onExport?()
-    }
-
-    @objc private func blastTapped(_ sender: NSButton) {
-        onBlastVerify?()
-    }
-}

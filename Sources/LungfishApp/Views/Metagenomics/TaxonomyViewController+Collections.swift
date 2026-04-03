@@ -74,12 +74,12 @@ extension TaxonomyViewController: TaxaCollectionsDrawerDelegate {
         isTaxaCollectionsDrawerOpen = !isOpen
         UserDefaults.standard.set(isTaxaCollectionsDrawerOpen, forKey: Self.taxaDrawerOpenKey)
 
-        // Update the action bar toggle button states
-        actionBar.setCollectionsDrawerOpen(isTaxaCollectionsDrawerOpen)
+        // Update the toggle button states
+        collectionsToggleButton.state = isTaxaCollectionsDrawerOpen ? .on : .off
         if !isTaxaCollectionsDrawerOpen {
-            actionBar.setBlastResultsActive(false)
+            blastResultsToggleButton.state = .off
         } else if taxaCollectionsDrawerView?.selectedTab == .blastResults {
-            actionBar.setBlastResultsActive(true)
+            blastResultsToggleButton.state = .on
         }
 
         collectionsLogger.info("toggleTaxaCollectionsDrawer: Drawer now \(self.isTaxaCollectionsDrawerOpen ? "open" : "closed")")

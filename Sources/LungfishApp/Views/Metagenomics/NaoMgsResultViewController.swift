@@ -54,6 +54,9 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// Bundle manifest metadata.
     private var manifest: NaoMgsManifest?
 
+    /// Total hits for percentage display in the action bar.
+    private var naoMgsTotalHits: Int = 0
+
     /// URL of the NAO-MGS bundle directory.
     private var bundleURL: URL?
 
@@ -106,7 +109,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     private let refsFilterField = NSTextField()
     private let detailScrollView = NSScrollView()
     private let detailContentView = FlippedNaoMgsContentView()
-    let actionBar = NaoMgsActionBar()
+    let actionBar = ClassifierActionBar()
 
     // MARK: - MiniBAM
 
@@ -219,7 +222,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         // Update summary bar with cached counts
         let totalHits = manifest.hitCount
         let taxonCount = rows.count
-        actionBar.configure(totalHits: totalHits, taxonCount: taxonCount)
+        naoMgsTotalHits = totalHits
+        actionBar.updateInfoText("Select a taxon to view details")
 
         // Show loading indicator in the detail pane since database isn't ready
         showLoadingOverlay("Opening database…")
@@ -270,7 +274,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         // Update action bar
         let totalHits = (try? database.totalHitCount()) ?? manifest.hitCount
         let taxonCount = displayedRows.count
-        actionBar.configure(totalHits: totalHits, taxonCount: taxonCount)
+        naoMgsTotalHits = totalHits
+        actionBar.updateInfoText("Select a taxon to view details")
 
         // Auto-select top taxon so miniBAM panels are visible immediately.
         if displayedRows.isEmpty {
@@ -467,7 +472,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         selectedAccession = nil
 
         rebuildDetailContent()
-        actionBar.updateSelection(nil)
+        actionBar.updateInfoText("Select a taxon to view details")
+        actionBar.setBlastEnabled(false)
     }
 
     /// Shows the detail pane for the selected taxon row.
@@ -478,7 +484,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         selectedAccession = nil
         rebuildDetailContent()
         // Create a lightweight summary for the action bar
-        actionBar.updateSelectionRow(row, totalHits: (try? database?.totalHitCount(samples: Array(selectedSamples))) ?? 0)
+        updateActionBarForRow(row, totalHits: (try? database?.totalHitCount(samples: Array(selectedSamples))) ?? 0)
     }
 
     /// Stores accession selection from legacy list/table widgets.
@@ -1376,8 +1382,20 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     // MARK: - Callback Wiring
 
     private func wireCallbacks() {
+        // Action bar BLAST verify (NAO-MGS triggers BLAST via context menu)
+        actionBar.onBlastVerify = { [weak self] in
+            // NAO-MGS BLAST is triggered via the table context menu per-taxon;
+            // the action bar button is intentionally a no-op placeholder
+        }
+
+        // Action bar export
         actionBar.onExport = { [weak self] in
             self?.exportResults()
+        }
+
+        // Action bar provenance
+        actionBar.onProvenance = { [weak self] sender in
+            self?.showProvenance(from: sender)
         }
 
         NotificationCenter.default.addObserver(
@@ -1759,6 +1777,37 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         min(proposedMaximumPosition, splitView.bounds.width - 300)
     }
 
+    // MARK: - Action Bar Selection Helper
+
+    /// Updates the unified action bar info text from a taxon row.
+    private func updateActionBarForRow(_ row: NaoMgsTaxonSummaryRow, totalHits: Int) {
+        naoMgsTotalHits = totalHits
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.groupingSeparator = ","
+        let readStr = formatter.string(from: NSNumber(value: row.hitCount)) ?? "\(row.hitCount)"
+
+        let pct = totalHits > 0
+            ? Double(row.hitCount) / Double(totalHits) * 100
+            : 0
+        let pctStr = String(format: "%.1f%%", pct)
+
+        let displayName = row.name.isEmpty ? "Taxid \(row.taxId)" : row.name
+        actionBar.updateInfoText("\(displayName) \u{2014} \(readStr) hits (\(pctStr))")
+        actionBar.setBlastEnabled(true)
+    }
+
+    // MARK: - Provenance Popover
+
+    private func showProvenance(from button: NSButton) {
+        guard let manifest else { return }
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentSize = NSSize(width: 320, height: 220)
+        popover.contentViewController = NSHostingController(rootView: NaoMgsProvenanceView(manifest: manifest))
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
+    }
+
     // MARK: - Export
 
     public func exportResults() {
@@ -2018,118 +2067,6 @@ final class NaoMgsSummaryBar: GenomicSummaryCardBar {
             Card(label: "Samples", value: samplesLabel),
             Card(label: "Taxa", value: taxaLabel),
         ]
-    }
-}
-
-// MARK: - NaoMgsActionBar
-
-@MainActor
-final class NaoMgsActionBar: NSView {
-
-    var onExport: (() -> Void)?
-
-    private var totalHits: Int = 0
-
-    private let exportButton = NSButton(title: "Export", target: nil, action: nil)
-    let infoLabel = NSTextField(labelWithString: "")
-    private let separator = NSBox()
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        commonInit()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        commonInit()
-    }
-
-    private func commonInit() {
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(separator)
-
-        exportButton.translatesAutoresizingMaskIntoConstraints = false
-        exportButton.bezelStyle = .accessoryBarAction
-        exportButton.image = NSImage(systemSymbolName: "square.and.arrow.up", accessibilityDescription: "Export")
-        exportButton.imagePosition = .imageLeading
-        exportButton.target = self
-        exportButton.action = #selector(exportTapped(_:))
-        exportButton.setContentHuggingPriority(.required, for: .horizontal)
-        addSubview(exportButton)
-
-        infoLabel.translatesAutoresizingMaskIntoConstraints = false
-        infoLabel.font = .systemFont(ofSize: 11, weight: .regular)
-        infoLabel.textColor = .secondaryLabelColor
-        infoLabel.lineBreakMode = .byTruncatingTail
-        infoLabel.stringValue = "Select a taxon to view details"
-        addSubview(infoLabel)
-
-        NSLayoutConstraint.activate([
-            separator.topAnchor.constraint(equalTo: topAnchor),
-            separator.leadingAnchor.constraint(equalTo: leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
-
-            exportButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            exportButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-            infoLabel.leadingAnchor.constraint(equalTo: exportButton.trailingAnchor, constant: 12),
-            infoLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            infoLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
-        ])
-
-        setAccessibilityRole(.toolbar)
-        setAccessibilityLabel("NAO-MGS Action Bar")
-    }
-
-    func configure(totalHits: Int, taxonCount: Int) {
-        self.totalHits = totalHits
-    }
-
-    func updateSelection(_ summary: NaoMgsTaxonSummary?) {
-        if let summary {
-            let formatter = NumberFormatter()
-            formatter.numberStyle = .decimal
-            formatter.groupingSeparator = ","
-            let readStr = formatter.string(from: NSNumber(value: summary.hitCount)) ?? "\(summary.hitCount)"
-
-            let pct = totalHits > 0
-                ? Double(summary.hitCount) / Double(totalHits) * 100
-                : 0
-            let pctStr = String(format: "%.1f%%", pct)
-
-            infoLabel.stringValue = "\(summary.name) \u{2014} \(readStr) hits (\(pctStr))"
-            infoLabel.textColor = .labelColor
-        } else {
-            infoLabel.stringValue = "Select a taxon to view details"
-            infoLabel.textColor = .secondaryLabelColor
-        }
-    }
-
-    /// Updates the action bar from a database-backed row.
-    func updateSelectionRow(_ row: NaoMgsTaxonSummaryRow, totalHits: Int) {
-        self.totalHits = totalHits
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.groupingSeparator = ","
-        let readStr = formatter.string(from: NSNumber(value: row.hitCount)) ?? "\(row.hitCount)"
-
-        let pct = totalHits > 0
-            ? Double(row.hitCount) / Double(totalHits) * 100
-            : 0
-        let pctStr = String(format: "%.1f%%", pct)
-
-        let displayName = row.name.isEmpty ? "Taxid \(row.taxId)" : row.name
-        infoLabel.stringValue = "\(displayName) \u{2014} \(readStr) hits (\(pctStr))"
-        infoLabel.textColor = .labelColor
-    }
-
-    var infoText: String {
-        infoLabel.stringValue
-    }
-
-    @objc private func exportTapped(_ sender: NSButton) {
-        onExport?()
     }
 }
 

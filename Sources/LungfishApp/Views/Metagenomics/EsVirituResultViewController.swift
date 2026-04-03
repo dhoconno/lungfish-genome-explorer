@@ -83,7 +83,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     let splitView = NSSplitView()
     private let detailPane = EsVirituDetailPane()
     private let detectionTableView = ViralDetectionTableView()
-    let actionBar = EsVirituActionBar()
+    let actionBar = ClassifierActionBar()
     private var splitViewBottomConstraint: NSLayoutConstraint?
 
     // MARK: - Split View State
@@ -270,11 +270,8 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         detectionTableView.coverageWindowsByAccession = coverageLookup
         detectionTableView.result = result
 
-        // Update action bar
-        actionBar.configure(
-            totalReads: result.totalFilteredReads,
-            detectionCount: result.assemblies.count
-        )
+        // Update action bar info text
+        actionBar.updateInfoText("Select a virus to view details")
 
         let hasBam = self.bamURL != nil
         let hasBamIndex = self.bamIndexURL != nil
@@ -514,10 +511,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             guard let self else { return }
             if let assembly {
                 // Update action bar with selection info
-                self.actionBar.updateSelection(
-                    assemblyName: assembly.name,
-                    readCount: assembly.totalReads
-                )
+                self.updateActionBarForAssembly(name: assembly.name, readCount: assembly.totalReads)
 
                 self.showAssemblyDetail(assembly)
             } else {
@@ -537,10 +531,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         // Table detection selection -> action bar update
         detectionTableView.onDetectionSelected = { [weak self] detection in
             guard let self else { return }
-            self.actionBar.updateSelection(
-                assemblyName: detection.name,
-                readCount: detection.readCount
-            )
+            self.updateActionBarForAssembly(name: detection.name, readCount: detection.readCount)
 
             guard let assembly = self.resolveAssembly(for: detection) else {
                 logger.warning("Unable to resolve parent assembly for detection \(detection.accession, privacy: .public)")
@@ -564,14 +555,16 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             self?.onExtractAssemblyReads?(assembly)
         }
 
+        // Action bar BLAST verify (EsViritu triggers BLAST via table context menu,
+        // but the action bar button gives quick access to the table's BLAST flow)
+        actionBar.onBlastVerify = { [weak self] in
+            // EsViritu BLAST is triggered via the table context menu per-detection;
+            // the action bar button is intentionally a no-op placeholder
+        }
+
         // Action bar export
         actionBar.onExport = { [weak self] in
             self?.showExportMenu()
-        }
-
-        // Action bar re-run
-        actionBar.onReRun = { [weak self] in
-            self?.onReRun?()
         }
 
         // Action bar provenance
@@ -761,6 +754,21 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         ofSubviewAt dividerIndex: Int
     ) -> CGFloat {
         min(proposedMaximumPosition, splitView.bounds.width - 300)
+    }
+
+    // MARK: - Action Bar Selection Helper
+
+    /// Updates the unified action bar info text from assembly/detection selection.
+    private func updateActionBarForAssembly(name: String?, readCount: Int?) {
+        if let name, let count = readCount {
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .decimal
+            formatter.groupingSeparator = ","
+            let readStr = formatter.string(from: NSNumber(value: count)) ?? "\(count)"
+            actionBar.updateInfoText("\(name) \u{2014} \(readStr) reads")
+        } else {
+            actionBar.updateInfoText("Select a virus to view details")
+        }
     }
 
     // MARK: - Export
@@ -979,7 +987,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     var testDetectionTableView: ViralDetectionTableView { detectionTableView }
 
     /// Returns the action bar for testing.
-    var testActionBar: EsVirituActionBar { actionBar }
+    var testActionBar: ClassifierActionBar { actionBar }
 
     /// Returns the split view for testing.
     var testSplitView: NSSplitView { splitView }
@@ -1034,176 +1042,6 @@ final class EsVirituSummaryBar: GenomicSummaryCardBar {
         case "Top Virus": return "Top"
         default: return super.abbreviatedLabel(for: label)
         }
-    }
-}
-
-// MARK: - EsVirituActionBar
-
-/// A 36pt bottom bar for the EsViritu result view with export, re-run, and provenance controls.
-///
-/// ## Layout
-///
-/// ```
-/// [Export v] [Re-run]  |  Rift Valley fever virus -- 1,234 reads  | [Provenance]
-/// ```
-@MainActor
-final class EsVirituActionBar: NSView {
-
-    // MARK: - Callbacks
-
-    /// Called when the user clicks the export button.
-    var onExport: (() -> Void)?
-
-    /// Called when the user clicks the re-run button.
-    var onReRun: (() -> Void)?
-
-    /// Called when the user clicks the provenance button.
-    var onProvenance: ((Any) -> Void)?
-
-    // MARK: - State
-
-    private var totalReads: Int = 0
-    private var detectionCount: Int = 0
-
-    // MARK: - Subviews
-
-    private let exportButton = NSButton(
-        title: "Export",
-        target: nil,
-        action: nil
-    )
-    private let reRunButton = NSButton(
-        title: "Re-run",
-        target: nil,
-        action: nil
-    )
-    private let infoLabel = NSTextField(labelWithString: "")
-    private let provenanceButton = NSButton(
-        title: "",
-        target: nil,
-        action: nil
-    )
-    private let separator = NSBox()
-
-    // MARK: - Initialization
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        commonInit()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        commonInit()
-    }
-
-    private func commonInit() {
-        // Separator at top
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(separator)
-
-        // Export button (left)
-        exportButton.translatesAutoresizingMaskIntoConstraints = false
-        exportButton.bezelStyle = .accessoryBarAction
-        exportButton.image = NSImage(systemSymbolName: "square.and.arrow.up", accessibilityDescription: "Export")
-        exportButton.imagePosition = .imageLeading
-        exportButton.target = self
-        exportButton.action = #selector(exportTapped(_:))
-        exportButton.setContentHuggingPriority(.required, for: .horizontal)
-        addSubview(exportButton)
-
-        // Re-run button
-        reRunButton.translatesAutoresizingMaskIntoConstraints = false
-        reRunButton.bezelStyle = .accessoryBarAction
-        reRunButton.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Re-run")
-        reRunButton.imagePosition = .imageLeading
-        reRunButton.target = self
-        reRunButton.action = #selector(reRunTapped(_:))
-        reRunButton.setContentHuggingPriority(.required, for: .horizontal)
-        addSubview(reRunButton)
-
-        // Info label (center)
-        infoLabel.translatesAutoresizingMaskIntoConstraints = false
-        infoLabel.font = .systemFont(ofSize: 11, weight: .regular)
-        infoLabel.textColor = .secondaryLabelColor
-        infoLabel.lineBreakMode = .byTruncatingTail
-        infoLabel.stringValue = "Select a virus to view details"
-        addSubview(infoLabel)
-
-        // Provenance button (right)
-        provenanceButton.translatesAutoresizingMaskIntoConstraints = false
-        provenanceButton.bezelStyle = .accessoryBarAction
-        provenanceButton.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: "Provenance")
-        provenanceButton.imagePosition = .imageOnly
-        provenanceButton.target = self
-        provenanceButton.action = #selector(provenanceTapped(_:))
-        provenanceButton.setContentHuggingPriority(.required, for: .horizontal)
-        addSubview(provenanceButton)
-
-        NSLayoutConstraint.activate([
-            separator.topAnchor.constraint(equalTo: topAnchor),
-            separator.leadingAnchor.constraint(equalTo: leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
-
-            exportButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            exportButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-            reRunButton.leadingAnchor.constraint(equalTo: exportButton.trailingAnchor, constant: 6),
-            reRunButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-            infoLabel.leadingAnchor.constraint(equalTo: reRunButton.trailingAnchor, constant: 12),
-            infoLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            infoLabel.trailingAnchor.constraint(
-                lessThanOrEqualTo: provenanceButton.leadingAnchor, constant: -12
-            ),
-
-            provenanceButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            provenanceButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
-
-        setAccessibilityRole(.toolbar)
-        setAccessibilityLabel("EsViritu Action Bar")
-    }
-
-    // MARK: - Public API
-
-    /// Configures the action bar.
-    func configure(totalReads: Int, detectionCount: Int) {
-        self.totalReads = totalReads
-        self.detectionCount = detectionCount
-    }
-
-    /// Updates the info label with the selected virus details.
-    func updateSelection(assemblyName: String?, readCount: Int?) {
-        if let name = assemblyName, let count = readCount {
-            let formatter = NumberFormatter()
-            formatter.numberStyle = .decimal
-            formatter.groupingSeparator = ","
-            let readStr = formatter.string(from: NSNumber(value: count)) ?? "\(count)"
-            infoLabel.stringValue = "\(name) \u{2014} \(readStr) reads"
-            infoLabel.textColor = .labelColor
-        } else {
-            infoLabel.stringValue = "Select a virus to view details"
-            infoLabel.textColor = .secondaryLabelColor
-        }
-    }
-
-    /// Returns the info label text for testing.
-    var infoText: String { infoLabel.stringValue }
-
-    // MARK: - Actions
-
-    @objc private func exportTapped(_ sender: NSButton) {
-        onExport?()
-    }
-
-    @objc private func reRunTapped(_ sender: NSButton) {
-        onReRun?()
-    }
-
-    @objc private func provenanceTapped(_ sender: NSButton) {
-        onProvenance?(sender)
     }
 }
 

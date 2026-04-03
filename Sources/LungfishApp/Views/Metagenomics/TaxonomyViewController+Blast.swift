@@ -115,9 +115,9 @@ extension TaxonomyViewController {
         // Switch to BLAST Results tab
         taxaCollectionsDrawerView?.switchToTab(.blastResults)
 
-        // Update action bar button states
-        actionBar.setBlastResultsActive(true)
-        actionBar.setCollectionsDrawerOpen(false)
+        // Update toggle button states
+        blastResultsToggleButton.state = .on
+        collectionsToggleButton.state = .off
     }
 
     // MARK: - Testing Accessors

@@ -213,8 +213,8 @@ final class TaxonomyViewControllerTests: XCTestCase {
         XCTAssertEqual(vc.testTableView.tree?.totalReads, 10000)
 
         // Verify action bar is configured with total reads
-        XCTAssertFalse(vc.testActionBar.isExtractEnabled)
-        XCTAssertTrue(vc.testActionBar.infoText.contains("Select a taxon"))
+        XCTAssertFalse(vc.testActionBar.blastButton.isEnabled)
+        XCTAssertTrue(vc.testActionBar.infoLabel.stringValue.contains("Select a taxon"))
 
         // Verify breadcrumb is at root
         XCTAssertTrue(vc.testBreadcrumbBar.isAtRoot)
@@ -356,8 +356,8 @@ final class TaxonomyViewControllerTests: XCTestCase {
         // which is updated in the same callback.
 
         // The action bar should show E. coli info
-        XCTAssertTrue(vc.testActionBar.infoText.contains("Escherichia coli"))
-        XCTAssertTrue(vc.testActionBar.isExtractEnabled)
+        XCTAssertTrue(vc.testActionBar.infoLabel.stringValue.contains("Escherichia coli"))
+        XCTAssertTrue(vc.testActionBar.blastButton.isEnabled)
     }
 
     // MARK: - Selection Sync: Table -> Sunburst
@@ -376,62 +376,45 @@ final class TaxonomyViewControllerTests: XCTestCase {
         XCTAssertEqual(vc.testSunburstView.selectedNode?.taxId, 2157)
 
         // The action bar should reflect the selection
-        XCTAssertTrue(vc.testActionBar.infoText.contains("Archaea"))
+        XCTAssertTrue(vc.testActionBar.infoLabel.stringValue.contains("Archaea"))
     }
 
     // MARK: - Action Bar
 
     func testActionBarUpdatesOnSelection() throws {
-        let bar = TaxonomyActionBar(frame: NSRect(x: 0, y: 0, width: 600, height: 36))
-        bar.configure(totalReads: 10000)
+        let vc = TaxonomyViewController()
+        _ = vc.view
 
-        // Initially disabled
-        XCTAssertFalse(bar.isExtractEnabled)
-        XCTAssertTrue(bar.infoText.contains("Select a taxon"))
+        let result = makeTestResult()
+        vc.configure(result: result)
 
-        // Select E. coli
-        let ecoli = TaxonNode(
-            taxId: 562, name: "Escherichia coli", rank: .species, depth: 7,
-            readsDirect: 1000, readsClade: 1000, fractionClade: 0.1, fractionDirect: 0.1,
-            parentTaxId: 561
-        )
-        bar.updateSelection(ecoli)
+        // Initially shows placeholder
+        XCTAssertFalse(vc.testActionBar.blastButton.isEnabled)
+        XCTAssertTrue(vc.testActionBar.infoLabel.stringValue.contains("Select a taxon"))
 
-        XCTAssertTrue(bar.isExtractEnabled)
-        XCTAssertTrue(bar.infoText.contains("Escherichia coli"))
-        XCTAssertTrue(bar.infoText.contains("1,000"))
-        XCTAssertTrue(bar.infoText.contains("10.0%"))
+        // Simulate sunburst selecting E. coli
+        let ecoli = result.tree.node(taxId: 562)!
+        vc.testSunburstView.onNodeSelected?(ecoli)
 
-        // Clear selection
-        bar.updateSelection(nil)
-        XCTAssertFalse(bar.isExtractEnabled)
-        XCTAssertTrue(bar.infoText.contains("Select a taxon"))
+        XCTAssertTrue(vc.testActionBar.blastButton.isEnabled)
+        XCTAssertTrue(vc.testActionBar.infoLabel.stringValue.contains("Escherichia coli"))
+        XCTAssertTrue(vc.testActionBar.infoLabel.stringValue.contains("1,000"))
     }
 
-    func testActionBarExtractCallback() throws {
-        let bar = TaxonomyActionBar(frame: NSRect(x: 0, y: 0, width: 600, height: 36))
-        bar.configure(totalReads: 10000)
+    func testActionBarCallbacks() throws {
+        let bar = ClassifierActionBar(frame: NSRect(x: 0, y: 0, width: 600, height: 36))
 
-        let ecoli = TaxonNode(
-            taxId: 562, name: "Escherichia coli", rank: .species, depth: 7,
-            readsDirect: 1000, readsClade: 1000, fractionClade: 0.1, fractionDirect: 0.1,
-            parentTaxId: 561
-        )
-        bar.updateSelection(ecoli)
+        var blastCalled = false
+        var exportCalled = false
+        bar.onBlastVerify = { blastCalled = true }
+        bar.onExport = { exportCalled = true }
 
-        var extractedNode: TaxonNode?
-        var extractedIncludeChildren: Bool?
-        bar.onExtractSequences = { node, includeChildren in
-            extractedNode = node
-            extractedIncludeChildren = includeChildren
-        }
+        // Directly invoke the callbacks to verify wiring
+        bar.onBlastVerify?()
+        bar.onExport?()
 
-        // Directly invoke the callback to verify wiring,
-        // since NSButton.performClick doesn't work reliably in unit tests
-        bar.onExtractSequences?(ecoli, true)
-
-        XCTAssertEqual(extractedNode?.taxId, 562)
-        XCTAssertEqual(extractedIncludeChildren, true)
+        XCTAssertTrue(blastCalled)
+        XCTAssertTrue(exportCalled)
     }
 
     // MARK: - Context Menu
@@ -614,8 +597,8 @@ final class TaxonomyViewControllerTests: XCTestCase {
         let ecoli = result.tree.node(taxId: 562)!
         vc.testSunburstView.onNodeSelected?(ecoli)
 
-        // The action bar's callback should chain to the VC's callback
-        vc.testActionBar.onExtractSequences?(ecoli, true)
+        // Trigger the extraction via the VC's existing extract callback
+        vc.onExtractSequences?(ecoli, true)
 
         XCTAssertEqual(extractedNode?.taxId, 562)
         XCTAssertEqual(extractedIncludeChildren, true)

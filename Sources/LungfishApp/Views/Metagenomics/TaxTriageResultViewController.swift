@@ -142,7 +142,37 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     private var miniBAMController: MiniBAMViewController?
     private let organismTableView = TaxTriageOrganismTableView()
     private let batchOverviewView = TaxTriageBatchOverviewView()
-    let actionBar = TaxTriageActionBar()
+    let actionBar = ClassifierActionBar()
+
+    // MARK: - Custom Action Bar Buttons
+
+    private let openReportButton: NSButton = {
+        let btn = NSButton()
+        btn.title = "Open Report"
+        btn.image = NSImage(systemSymbolName: "arrow.up.forward.square", accessibilityDescription: "Open Report")
+        btn.bezelStyle = .accessoryBarAction
+        btn.imagePosition = .imageLeading
+        btn.controlSize = .small
+        btn.font = .systemFont(ofSize: 11)
+        btn.setContentHuggingPriority(.required, for: .horizontal)
+        return btn
+    }()
+
+    private let relatedAnalysesButton: NSButton = {
+        let btn = NSButton()
+        btn.title = "Related"
+        btn.image = NSImage(systemSymbolName: "link", accessibilityDescription: "Related Analyses")
+        btn.bezelStyle = .accessoryBarAction
+        btn.imagePosition = .imageLeading
+        btn.controlSize = .small
+        btn.font = .systemFont(ofSize: 11)
+        btn.setContentHuggingPriority(.required, for: .horizontal)
+        return btn
+    }()
+
+    /// Cached list of related analysis items: (displayLabel, analysisType, bundleURL).
+    private var relatedAnalysisItems: [(String, String, URL)]?
+
     private let blastDrawer = BlastResultsDrawerTab()
     private var blastDrawerHeightConstraint: NSLayoutConstraint?
     private var splitViewBottomConstraint: NSLayoutConstraint?
@@ -551,11 +581,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         miniBAMController?.view.isHidden = (bamURL == nil || bamIndexURL == nil)
 
-        // Update action bar
-        actionBar.configure(
-            organismCount: mergedRows.count,
-            sampleCount: result.config.samples.count
-        )
+        // Update action bar info text
+        actionBar.updateInfoText("Select an organism to view details")
 
         scheduleDeduplicatedReadCountComputation(for: mergedRows)
 
@@ -1427,8 +1454,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
 
         if normalizedOrganismName(selectedOrganismName ?? "") == key {
-            actionBar.updateSelection(
-                organismName: selectedOrganismName,
+            updateActionBarForOrganism(
+                name: selectedOrganismName,
                 readCount: selectedReadCount,
                 uniqueReadCount: uniqueReads
             )
@@ -1695,8 +1722,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             guard let self else { return }
             self.selectedOrganismName = row?.organism
             self.selectedReadCount = row?.reads
-            self.actionBar.updateSelection(
-                organismName: row?.organism,
+            self.updateActionBarForOrganism(
+                name: row?.organism,
                 readCount: row?.reads,
                 uniqueReadCount: row?.uniqueReads
             )
@@ -1750,14 +1777,15 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self.onBlastVerification?(organism, readCount, rowAccessions, self.bamURL, self.bamIndexURL)
         }
 
+        // Action bar BLAST verify (TaxTriage triggers BLAST via table context menu)
+        actionBar.onBlastVerify = { [weak self] in
+            // TaxTriage BLAST is triggered via the table context menu per-organism;
+            // the action bar button is intentionally a no-op placeholder
+        }
+
         // Action bar export
         actionBar.onExport = { [weak self] in
             self?.showExportMenu()
-        }
-
-        // Action bar re-run
-        actionBar.onReRun = { [weak self] in
-            self?.onReRun?()
         }
 
         // Action bar provenance
@@ -1765,15 +1793,16 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self?.showProvenancePopover(relativeTo: sender)
         }
 
-        // Action bar open report externally
-        actionBar.onOpenExternally = { [weak self] in
-            self?.openReportExternally()
-        }
+        // Custom button: Open Report
+        openReportButton.target = self
+        openReportButton.action = #selector(openExternalTapped)
+        actionBar.addCustomButton(openReportButton)
 
-        // Action bar related analyses navigation
-        actionBar.onRelatedAnalysis = { [weak self] analysisType, url in
-            self?.onRelatedAnalysis?(analysisType, url)
-        }
+        // Custom button: Related analyses (hidden until discoveries are made)
+        relatedAnalysesButton.target = self
+        relatedAnalysesButton.action = #selector(relatedAnalysesTapped(_:))
+        relatedAnalysesButton.isHidden = true
+        actionBar.addCustomButton(relatedAnalysesButton)
     }
 
     // MARK: - Negative Control Helpers
@@ -1845,7 +1874,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             }
         }
 
-        actionBar.configureRelatedAnalyses(items: items)
+        relatedAnalysisItems = items
+        relatedAnalysesButton.isHidden = items.isEmpty
         if !items.isEmpty {
             logger.info("Discovered \(items.count) related analyses in source bundles")
         }
@@ -1876,6 +1906,51 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         ofSubviewAt dividerIndex: Int
     ) -> CGFloat {
         min(proposedMaximumPosition, splitView.bounds.width - 300)
+    }
+
+    // MARK: - Action Bar Selection Helper
+
+    /// Updates the unified action bar info text from organism selection.
+    private func updateActionBarForOrganism(name: String?, readCount: Int?, uniqueReadCount: Int?) {
+        if let name, let count = readCount {
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .decimal
+            formatter.groupingSeparator = ","
+            let readStr = formatter.string(from: NSNumber(value: count)) ?? "\(count)"
+            if let uniqueReadCount {
+                let uniqueStr = formatter.string(from: NSNumber(value: uniqueReadCount)) ?? "\(uniqueReadCount)"
+                actionBar.updateInfoText("\(name) \u{2014} \(readStr) reads (\(uniqueStr) unique)")
+            } else {
+                actionBar.updateInfoText("\(name) \u{2014} \(readStr) reads")
+            }
+        } else {
+            actionBar.updateInfoText("Select an organism to view details")
+        }
+    }
+
+    // MARK: - Custom Button Actions
+
+    @objc private func openExternalTapped() {
+        openReportExternally()
+    }
+
+    @objc private func relatedAnalysesTapped(_ sender: NSButton) {
+        guard let items = relatedAnalysisItems, !items.isEmpty else { return }
+
+        let menu = NSMenu()
+        for (label, analysisType, bundleURL) in items {
+            let menuItem = NSMenuItem(title: label, action: nil, keyEquivalent: "")
+            menuItem.representedObject = (analysisType, bundleURL)
+            menuItem.target = self
+            menuItem.action = #selector(relatedMenuItemSelected(_:))
+            menu.addItem(menuItem)
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.maxY), in: sender)
+    }
+
+    @objc private func relatedMenuItemSelected(_ sender: NSMenuItem) {
+        guard let tuple = sender.representedObject as? (String, URL) else { return }
+        onRelatedAnalysis?(tuple.0, tuple.1)
     }
 
     // MARK: - Export
@@ -2125,7 +2200,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     var testOrganismTableView: TaxTriageOrganismTableView { organismTableView }
 
     /// Returns the action bar for testing.
-    var testActionBar: TaxTriageActionBar { actionBar }
+    var testActionBar: ClassifierActionBar { actionBar }
 
     /// Returns the split view for testing.
     var testSplitView: NSSplitView { splitView }
@@ -2740,252 +2815,6 @@ final class TaxTriageSummaryBar: GenomicSummaryCardBar {
         case "Samples": return "Samp."
         default: return super.abbreviatedLabel(for: label)
         }
-    }
-}
-
-
-// MARK: - TaxTriageActionBar
-
-/// A 36pt bottom bar for the TaxTriage result view with export, re-run, open externally, and provenance controls.
-///
-/// ## Layout
-///
-/// ```
-/// [Export v] [Re-run] [Open Report]  |  E. coli -- 12,345 reads  | [Provenance]
-/// ```
-@MainActor
-final class TaxTriageActionBar: NSView {
-
-    // MARK: - Callbacks
-
-    /// Called when the user clicks the export button.
-    var onExport: (() -> Void)?
-
-    /// Called when the user clicks the re-run button.
-    var onReRun: (() -> Void)?
-
-    /// Called when the user clicks the provenance button.
-    var onProvenance: ((Any) -> Void)?
-
-    /// Called when the user clicks the open externally button.
-    var onOpenExternally: (() -> Void)?
-
-    /// Called when the user selects a related analysis to navigate to.
-    /// Parameter: (analysisType, bundleURL) where analysisType is "kraken2" or "esviritu".
-    var onRelatedAnalysis: ((String, URL) -> Void)?
-
-    // MARK: - Subviews
-
-    private let exportButton = NSButton(
-        title: "Export",
-        target: nil,
-        action: nil
-    )
-    private let reRunButton = NSButton(
-        title: "Re-run",
-        target: nil,
-        action: nil
-    )
-    private let openExternalButton = NSButton(
-        title: "Open Report",
-        target: nil,
-        action: nil
-    )
-    private let relatedButton = NSButton(
-        title: "Related",
-        target: nil,
-        action: nil
-    )
-    private let infoLabel = NSTextField(labelWithString: "")
-    private let provenanceButton = NSButton(
-        title: "",
-        target: nil,
-        action: nil
-    )
-    private let separator = NSBox()
-
-    // MARK: - Initialization
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        commonInit()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        commonInit()
-    }
-
-    private func commonInit() {
-        // Separator at top
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(separator)
-
-        // Export button (left)
-        exportButton.translatesAutoresizingMaskIntoConstraints = false
-        exportButton.bezelStyle = .accessoryBarAction
-        exportButton.image = NSImage(systemSymbolName: "square.and.arrow.up", accessibilityDescription: "Export")
-        exportButton.imagePosition = .imageLeading
-        exportButton.target = self
-        exportButton.action = #selector(exportTapped(_:))
-        exportButton.setContentHuggingPriority(.required, for: .horizontal)
-        addSubview(exportButton)
-
-        // Re-run button
-        reRunButton.translatesAutoresizingMaskIntoConstraints = false
-        reRunButton.bezelStyle = .accessoryBarAction
-        reRunButton.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Re-run")
-        reRunButton.imagePosition = .imageLeading
-        reRunButton.target = self
-        reRunButton.action = #selector(reRunTapped(_:))
-        reRunButton.setContentHuggingPriority(.required, for: .horizontal)
-        addSubview(reRunButton)
-
-        // Open report externally button
-        openExternalButton.translatesAutoresizingMaskIntoConstraints = false
-        openExternalButton.bezelStyle = .accessoryBarAction
-        openExternalButton.image = NSImage(systemSymbolName: "arrow.up.forward.square", accessibilityDescription: "Open Report")
-        openExternalButton.imagePosition = .imageLeading
-        openExternalButton.target = self
-        openExternalButton.action = #selector(openExternalTapped(_:))
-        openExternalButton.setContentHuggingPriority(.required, for: .horizontal)
-        addSubview(openExternalButton)
-
-        // Related analyses button (hidden by default, shown when related results exist)
-        relatedButton.translatesAutoresizingMaskIntoConstraints = false
-        relatedButton.bezelStyle = .accessoryBarAction
-        relatedButton.image = NSImage(systemSymbolName: "link", accessibilityDescription: "Related Analyses")
-        relatedButton.imagePosition = .imageLeading
-        relatedButton.target = self
-        relatedButton.action = #selector(relatedTapped(_:))
-        relatedButton.setContentHuggingPriority(.required, for: .horizontal)
-        relatedButton.isHidden = true
-        addSubview(relatedButton)
-
-        // Info label (center)
-        infoLabel.translatesAutoresizingMaskIntoConstraints = false
-        infoLabel.font = .systemFont(ofSize: 11, weight: .regular)
-        infoLabel.textColor = .secondaryLabelColor
-        infoLabel.lineBreakMode = .byTruncatingTail
-        infoLabel.stringValue = "Select an organism to view details"
-        addSubview(infoLabel)
-
-        // Provenance button (right)
-        provenanceButton.translatesAutoresizingMaskIntoConstraints = false
-        provenanceButton.bezelStyle = .accessoryBarAction
-        provenanceButton.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: "Provenance")
-        provenanceButton.imagePosition = .imageOnly
-        provenanceButton.target = self
-        provenanceButton.action = #selector(provenanceTapped(_:))
-        provenanceButton.setContentHuggingPriority(.required, for: .horizontal)
-        addSubview(provenanceButton)
-
-        NSLayoutConstraint.activate([
-            separator.topAnchor.constraint(equalTo: topAnchor),
-            separator.leadingAnchor.constraint(equalTo: leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
-
-            exportButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            exportButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-            reRunButton.leadingAnchor.constraint(equalTo: exportButton.trailingAnchor, constant: 6),
-            reRunButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-            openExternalButton.leadingAnchor.constraint(equalTo: reRunButton.trailingAnchor, constant: 6),
-            openExternalButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-            relatedButton.leadingAnchor.constraint(equalTo: openExternalButton.trailingAnchor, constant: 6),
-            relatedButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-            infoLabel.leadingAnchor.constraint(equalTo: relatedButton.trailingAnchor, constant: 12),
-            infoLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            infoLabel.trailingAnchor.constraint(
-                lessThanOrEqualTo: provenanceButton.leadingAnchor, constant: -12
-            ),
-
-            provenanceButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            provenanceButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
-
-        setAccessibilityRole(.toolbar)
-        setAccessibilityLabel("TaxTriage Action Bar")
-    }
-
-    // MARK: - Public API
-
-    /// Configures the action bar with overall result metadata.
-    func configure(organismCount: Int, sampleCount: Int) {
-        // Reserved for future use
-    }
-
-    /// Updates the info label with the selected organism details.
-    func updateSelection(organismName: String?, readCount: Int?, uniqueReadCount: Int?) {
-        if let name = organismName, let count = readCount {
-            let formatter = NumberFormatter()
-            formatter.numberStyle = .decimal
-            formatter.groupingSeparator = ","
-            let readStr = formatter.string(from: NSNumber(value: count)) ?? "\(count)"
-            if let uniqueReadCount {
-                let uniqueStr = formatter.string(from: NSNumber(value: uniqueReadCount)) ?? "\(uniqueReadCount)"
-                infoLabel.stringValue = "\(name) \u{2014} \(readStr) reads (\(uniqueStr) unique)"
-            } else {
-                infoLabel.stringValue = "\(name) \u{2014} \(readStr) reads"
-            }
-            infoLabel.textColor = .labelColor
-        } else {
-            infoLabel.stringValue = "Select an organism to view details"
-            infoLabel.textColor = .secondaryLabelColor
-        }
-    }
-
-    /// Returns the info label text for testing.
-    var infoText: String { infoLabel.stringValue }
-
-    // MARK: - Actions
-
-    @objc private func exportTapped(_ sender: NSButton) {
-        onExport?()
-    }
-
-    @objc private func reRunTapped(_ sender: NSButton) {
-        onReRun?()
-    }
-
-    @objc private func openExternalTapped(_ sender: NSButton) {
-        onOpenExternally?()
-    }
-
-    @objc private func provenanceTapped(_ sender: NSButton) {
-        onProvenance?(sender)
-    }
-
-    @objc private func relatedTapped(_ sender: NSButton) {
-        guard let items = relatedAnalysisItems, !items.isEmpty else { return }
-
-        let menu = NSMenu()
-        for (label, analysisType, bundleURL) in items {
-            let menuItem = NSMenuItem(title: label, action: nil, keyEquivalent: "")
-            menuItem.representedObject = (analysisType, bundleURL)
-            menuItem.target = self
-            menuItem.action = #selector(relatedMenuItemSelected(_:))
-            menu.addItem(menuItem)
-        }
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.maxY), in: sender)
-    }
-
-    @objc private func relatedMenuItemSelected(_ sender: NSMenuItem) {
-        guard let tuple = sender.representedObject as? (String, URL) else { return }
-        onRelatedAnalysis?(tuple.0, tuple.1)
-    }
-
-    /// Cached list of related analysis items: (displayLabel, analysisType, bundleURL).
-    private var relatedAnalysisItems: [(String, String, URL)]?
-
-    /// Configures the related analyses button based on discovered results in source bundles.
-    func configureRelatedAnalyses(items: [(String, String, URL)]) {
-        relatedAnalysisItems = items
-        relatedButton.isHidden = items.isEmpty
     }
 }
 
