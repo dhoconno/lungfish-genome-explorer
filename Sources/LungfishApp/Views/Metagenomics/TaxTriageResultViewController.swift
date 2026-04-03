@@ -243,6 +243,55 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             name: .metagenomicsSampleSelectionChanged,
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleLayoutSwapRequested),
+            name: .metagenomicsLayoutSwapRequested,
+            object: nil
+        )
+
+        applyLayoutPreference()
+    }
+
+    @objc private func handleLayoutSwapRequested(_ notification: Notification) {
+        applyLayoutPreference()
+    }
+
+    /// Swaps the split view pane order based on the persisted layout preference.
+    private func applyLayoutPreference() {
+        let tableOnLeft = UserDefaults.standard.bool(forKey: "metagenomicsTableOnLeft")
+        guard splitView.arrangedSubviews.count == 2,
+              let table = organismTableView.superview else { return }
+        let detail = leftPaneContainer
+
+        let currentTableIsFirst = (splitView.arrangedSubviews[0] === table)
+        guard tableOnLeft != currentTableIsFirst else { return }
+
+        let totalWidth = max(splitView.bounds.width, 1)
+        let leftRatio = splitView.arrangedSubviews[0].frame.width / totalWidth
+
+        splitView.removeArrangedSubview(detail)
+        splitView.removeArrangedSubview(table)
+        detail.removeFromSuperview()
+        table.removeFromSuperview()
+
+        if tableOnLeft {
+            splitView.addArrangedSubview(table)
+            splitView.addArrangedSubview(detail)
+        } else {
+            splitView.addArrangedSubview(detail)
+            splitView.addArrangedSubview(table)
+        }
+
+        let tableIndex = tableOnLeft ? 0 : 1
+        let detailIndex = tableOnLeft ? 1 : 0
+        splitView.setHoldingPriority(.defaultLow, forSubviewAt: tableIndex)
+        splitView.setHoldingPriority(.defaultHigh, forSubviewAt: detailIndex)
+
+        let newPosition = round(totalWidth * (1.0 - leftRatio))
+        splitView.setPosition(newPosition, ofDividerAt: 0)
+        splitView.adjustSubviews()
     }
 
     // MARK: - Keyboard Shortcuts

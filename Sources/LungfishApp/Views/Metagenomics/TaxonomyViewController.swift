@@ -187,6 +187,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         setupActionBar()
         layoutSubviews()
         wireCallbacks()
+        applyLayoutPreference()
     }
 
     public override func viewDidLayout() {
@@ -256,8 +257,10 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         logger.info("Configured with \(result.tree.totalReads) reads, \(result.tree.speciesCount) species")
 
         // Build single-sample picker entry from classification result
-        let sampleName = result.config.inputFiles.first?
-            .deletingPathExtension().lastPathComponent ?? "sample"
+        let sampleName = result.config.sampleDisplayName
+            ?? result.config.inputFiles.first?
+                .deletingPathExtension().lastPathComponent
+            ?? "sample"
         sampleEntries = [Kraken2SampleEntry(
             id: sampleName,
             displayName: sampleName,
@@ -481,6 +484,53 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             guard let self else { return }
             self.toggleBlastResultsTab()
         }
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleLayoutSwapRequested),
+            name: .metagenomicsLayoutSwapRequested,
+            object: nil
+        )
+    }
+
+    @objc private func handleLayoutSwapRequested(_ notification: Notification) {
+        applyLayoutPreference()
+    }
+
+    /// Swaps the split view pane order based on the persisted layout preference.
+    private func applyLayoutPreference() {
+        let tableOnLeft = UserDefaults.standard.bool(forKey: "metagenomicsTableOnLeft")
+        guard splitView.arrangedSubviews.count == 2,
+              let detail = sunburstView.superview,
+              let table = taxonomyTableView.superview else { return }
+
+        let currentTableIsFirst = (splitView.arrangedSubviews[0] === table)
+        guard tableOnLeft != currentTableIsFirst else { return }
+
+        let totalWidth = max(splitView.bounds.width, 1)
+        let leftRatio = splitView.arrangedSubviews[0].frame.width / totalWidth
+
+        splitView.removeArrangedSubview(detail)
+        splitView.removeArrangedSubview(table)
+        detail.removeFromSuperview()
+        table.removeFromSuperview()
+
+        if tableOnLeft {
+            splitView.addArrangedSubview(table)
+            splitView.addArrangedSubview(detail)
+        } else {
+            splitView.addArrangedSubview(detail)
+            splitView.addArrangedSubview(table)
+        }
+
+        let tableIndex = tableOnLeft ? 0 : 1
+        let detailIndex = tableOnLeft ? 1 : 0
+        splitView.setHoldingPriority(.defaultLow, forSubviewAt: tableIndex)
+        splitView.setHoldingPriority(.defaultHigh, forSubviewAt: detailIndex)
+
+        let newPosition = round(totalWidth * (1.0 - leftRatio))
+        splitView.setPosition(newPosition, ofDividerAt: 0)
+        splitView.adjustSubviews()
     }
 
     /// Toggles the BLAST results tab in the taxa collections drawer.
