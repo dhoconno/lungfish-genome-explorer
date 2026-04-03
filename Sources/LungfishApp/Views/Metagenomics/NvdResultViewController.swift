@@ -853,19 +853,19 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         outlineView.rowHeight = 22
         outlineView.autoresizesOutlineColumn = false
 
-        // Columns
+        // Columns — Sample first, then Contig (which is the outline column with disclosure triangles)
+        let sampleCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("sampleId"))
+        sampleCol.title = "Sample"
+        sampleCol.width = 140
+        sampleCol.minWidth = 80
+        outlineView.addTableColumn(sampleCol)
+
         let contigCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("contig"))
         contigCol.title = "Contig"
         contigCol.width = 160
         contigCol.minWidth = 100
         outlineView.addTableColumn(contigCol)
         outlineView.outlineTableColumn = contigCol
-
-        let sampleCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("sampleId"))
-        sampleCol.title = "Sample"
-        sampleCol.width = 120
-        sampleCol.minWidth = 80
-        outlineView.addTableColumn(sampleCol)
 
         let lengthCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("length"))
         lengthCol.title = "Length"

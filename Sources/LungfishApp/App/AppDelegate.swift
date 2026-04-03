@@ -4017,8 +4017,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     let fastaRelPath = "fasta/\(sampleId).human_virus.fasta"
                     let meta = NvdSampleMetadata(
                         sampleId: sampleId,
-                        bamPath: bundleDir.appendingPathComponent(bamRelPath).path,
-                        fastaPath: bundleDir.appendingPathComponent(fastaRelPath).path,
+                        bamPath: bamRelPath,
+                        fastaPath: fastaRelPath,
                         totalReads: perSampleTotalReads[sampleId] ?? 0,
                         contigCount: perSampleContigs[sampleId]?.count ?? 0,
                         hitCount: perSampleHits[sampleId] ?? 0
