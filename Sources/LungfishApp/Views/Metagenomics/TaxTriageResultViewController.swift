@@ -1900,6 +1900,16 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     private func presentExtractionSheet(items: [String], source: String, suggestedName: String) {
         guard let window = view.window else { return }
 
+        let rows = organismTableView.selectedTableRows()
+        let accessions: [String] = rows.flatMap { row in
+            self.accessions(for: row) ?? []
+        }
+        let capturedBamURL = self.bamURL
+        let capturedProjectURL = taxTriageResult?.outputDirectory
+            .deletingLastPathComponent()  // derivatives/
+            .deletingLastPathComponent()  // bundle.lungfishfastq/
+            .deletingLastPathComponent()  // project/
+
         let sheet = ClassifierExtractionSheet(
             selectedItems: items,
             sourceDescription: source,
@@ -1907,7 +1917,76 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             onExtract: { [weak window] outputName in
                 guard let window else { return }
                 if let attached = window.attachedSheet { window.endSheet(attached) }
-                logger.info("Extract FASTQ confirmed: \(outputName, privacy: .public) from TaxTriage")
+
+                guard let bamURL = capturedBamURL else {
+                    let alert = NSAlert()
+                    alert.messageText = "BAM File Not Available"
+                    alert.informativeText = "TaxTriage BAM file is not available for read extraction."
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: "OK")
+                    alert.beginSheetModal(for: window)
+                    return
+                }
+
+                let opID = OperationCenter.shared.start(
+                    title: "Extract \(outputName)",
+                    detail: "Extracting reads from TaxTriage BAM\u{2026}",
+                    operationType: .taxonomyExtraction,
+                    cliCommand: "# samtools view + fastq extraction via ReadExtractionService"
+                )
+
+                let task = Task.detached {
+                    do {
+                        let tempDir = FileManager.default.temporaryDirectory
+                            .appendingPathComponent("taxtriage-extract-\(UUID().uuidString)")
+
+                        let config = BAMRegionExtractionConfig(
+                            bamURL: bamURL,
+                            regions: accessions,
+                            fallbackToAll: true,
+                            outputDirectory: tempDir,
+                            outputBaseName: outputName
+                        )
+                        let service = ReadExtractionService()
+                        let result = try await service.extractByBAMRegion(
+                            config: config,
+                            progress: { fraction, message in
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        OperationCenter.shared.update(id: opID, progress: fraction * 0.8, detail: message)
+                                    }
+                                }
+                            }
+                        )
+
+                        let metadata = ExtractionMetadata(
+                            sourceDescription: bamURL.deletingPathExtension().lastPathComponent,
+                            toolName: "TaxTriage",
+                            parameters: ["regions": accessions.joined(separator: ",")]
+                        )
+                        let bundleDir = capturedProjectURL ?? tempDir
+                        let bundleURL = try await service.createBundle(from: result, metadata: metadata, in: bundleDir)
+
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.complete(id: opID, detail: "Created \(bundleURL.lastPathComponent)")
+                                if let appDelegate = NSApp.delegate as? AppDelegate {
+                                    if let sidebar = appDelegate.mainWindowController?.mainSplitViewController?.sidebarController {
+                                        sidebar.reloadFromFilesystem()
+                                    }
+                                }
+                            }
+                        }
+                    } catch {
+                        let errorDesc = error.localizedDescription
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.fail(id: opID, detail: errorDesc)
+                            }
+                        }
+                    }
+                }
+                OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
             },
             onCancel: { [weak window] in
                 guard let window else { return }

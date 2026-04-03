@@ -139,68 +139,33 @@ public actor TaxonomyExtractionPipeline {
         logger.info("Found \(matchCount, privacy: .public) matching reads")
         progress?(0.30, "Extracting \(matchCount) reads...")
 
-        // Phase 3: Filter each FASTQ file using seqkit grep (0.30 -- 0.95)
-        // seqkit grep is 10-50x faster than line-by-line Swift FASTQ parsing
-        // because it uses optimized C I/O and handles .gz natively.
+        // Phase 3: Filter each FASTQ file using ReadExtractionService (0.30 -- 0.95)
+        // ReadExtractionService delegates to seqkit grep, which is 10-50x faster than
+        // line-by-line Swift FASTQ parsing because it uses optimized C I/O and handles .gz natively.
         try Task.checkCancellation()
 
-        // Write matching read IDs to a temp file for seqkit grep -f
-        let readIdFile = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lungfish-extract-\(UUID().uuidString).ids")
-        let readIdText = matchingReadIds.joined(separator: "\n")
-        try readIdText.write(to: readIdFile, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: readIdFile) }
+        let outputDir = config.outputFile.deletingLastPathComponent()
+        let baseName = config.outputFile.deletingPathExtension().lastPathComponent
 
-        let fileCount = config.sourceFiles.count
-        var totalExtracted = 0
-        var outputURLs: [URL] = []
+        let extractionConfig = ReadIDExtractionConfig(
+            sourceFASTQs: config.sourceFiles,
+            readIDs: matchingReadIds,
+            keepReadPairs: config.keepReadPairs,
+            outputDirectory: outputDir,
+            outputBaseName: baseName
+        )
 
-        let toolRunner = NativeToolRunner.shared
-
-        for (index, (source, output)) in zip(config.sourceFiles, config.outputFiles).enumerated() {
-            try Task.checkCancellation()
-
-            let fileLabel = fileCount > 1 ? " (file \(index + 1)/\(fileCount))" : ""
-            let overallFraction = 0.30 + 0.65 * (Double(index + 1) / Double(fileCount))
-            progress?(min(overallFraction, 0.90), "Extracting reads\(fileLabel) with seqkit...")
-
-            // Create output directory if needed
-            let outputDir = output.deletingLastPathComponent()
-            if !FileManager.default.fileExists(atPath: outputDir.path) {
-                try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+        let service = ReadExtractionService(toolRunner: NativeToolRunner.shared)
+        let extractionResult = try await service.extractByReadIDs(
+            config: extractionConfig,
+            progress: { fraction, message in
+                // Map service progress (0..1) into our pipeline range (0.30..0.95)
+                progress?(0.30 + fraction * 0.65, message)
             }
+        )
 
-            // Run: seqkit grep -f read_ids.txt input.fastq.gz -o output.fastq
-            // seqkit handles .gz decompression automatically
-            let seqkitArgs = [
-                "grep",
-                "-f", readIdFile.path,
-                source.path,
-                "-o", output.path,
-                "--threads", "4",
-            ]
-
-            let result = try await toolRunner.run(
-                .seqkit,
-                arguments: seqkitArgs,
-                timeout: 7200  // 2 hour timeout for large files
-            )
-
-            if result.exitCode != 0 {
-                logger.error("seqkit grep failed: \(result.stderr, privacy: .public)")
-                throw TaxonomyExtractionError.outputWriteFailed(
-                    output,
-                    "seqkit grep failed (exit \(result.exitCode)): \(result.stderr)"
-                )
-            }
-
-            // Count extracted reads from seqkit output
-            // seqkit grep doesn't report count, so estimate from file existence
-            let extractedCount = matchCount  // Upper bound; actual may be less if some IDs not in this file
-            totalExtracted += extractedCount
-            outputURLs.append(output)
-            logger.info("Extracted reads to \(output.lastPathComponent, privacy: .public) via seqkit grep")
-        }
+        let totalExtracted = extractionResult.readCount
+        let outputURLs = extractionResult.fastqURLs
 
         // Phase 4: Provenance recording (0.95 -- 1.00)
         progress?(0.95, "Recording provenance...")

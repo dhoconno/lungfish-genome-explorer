@@ -5,6 +5,7 @@
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 import SwiftUI
 import os.log
 
@@ -1218,6 +1219,46 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     private func presentExtractionSheet(items: [String], source: String, suggestedName: String) {
         guard let window = view.window else { return }
 
+        // Collect contig names from the current selection for BAM region extraction.
+        let selectedIndexes = outlineView.selectedRowIndexes
+        var contigNames: [String] = []
+        var sampleId: String?
+        for row in selectedIndexes {
+            guard let item = outlineView.item(atRow: row) as? NvdOutlineItem else { continue }
+            switch item {
+            case .contig(let sid, let qseqid):
+                contigNames.append(qseqid)
+                if sampleId == nil { sampleId = sid }
+            case .childHit(let sid, let qseqid, _):
+                contigNames.append(qseqid)
+                if sampleId == nil { sampleId = sid }
+            case .taxonGroup:
+                break
+            }
+        }
+
+        // Freeze contig names for capture in the extraction closure.
+        let frozenContigNames = contigNames
+
+        // Resolve BAM URL from the database for the first selected sample.
+        var capturedBamURL: URL?
+        if let db = database, let bundleURL, let sid = sampleId {
+            if let bamRelPath = try? db.bamPath(forSample: sid) {
+                let bamURL = bundleURL.appendingPathComponent(bamRelPath)
+                if FileManager.default.fileExists(atPath: bamURL.path) {
+                    capturedBamURL = bamURL
+                }
+            }
+        }
+
+        let frozenBamURL = capturedBamURL
+
+        // Derive project URL from bundleURL.
+        let capturedProjectURL = bundleURL?
+            .deletingLastPathComponent()  // derivatives/ or bundle root
+            .deletingLastPathComponent()  // bundle.lungfishfastq/
+            .deletingLastPathComponent()  // project/
+
         let sheet = ClassifierExtractionSheet(
             selectedItems: items,
             sourceDescription: source,
@@ -1225,7 +1266,76 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             onExtract: { [weak window] outputName in
                 guard let window else { return }
                 if let attached = window.attachedSheet { window.endSheet(attached) }
-                logger.info("Extract FASTQ confirmed: \(outputName, privacy: .public) from NVD")
+
+                guard let bamURL = frozenBamURL else {
+                    let alert = NSAlert()
+                    alert.messageText = "BAM File Not Available"
+                    alert.informativeText = "NVD BAM file is not available for read extraction."
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: "OK")
+                    alert.beginSheetModal(for: window)
+                    return
+                }
+
+                let opID = OperationCenter.shared.start(
+                    title: "Extract \(outputName)",
+                    detail: "Extracting reads from NVD BAM\u{2026}",
+                    operationType: .taxonomyExtraction,
+                    cliCommand: "# samtools view + fastq extraction via ReadExtractionService"
+                )
+
+                let task = Task.detached {
+                    do {
+                        let tempDir = FileManager.default.temporaryDirectory
+                            .appendingPathComponent("nvd-extract-\(UUID().uuidString)")
+
+                        let config = BAMRegionExtractionConfig(
+                            bamURL: bamURL,
+                            regions: frozenContigNames,
+                            fallbackToAll: false,
+                            outputDirectory: tempDir,
+                            outputBaseName: outputName
+                        )
+                        let service = ReadExtractionService()
+                        let result = try await service.extractByBAMRegion(
+                            config: config,
+                            progress: { fraction, message in
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        OperationCenter.shared.update(id: opID, progress: fraction * 0.8, detail: message)
+                                    }
+                                }
+                            }
+                        )
+
+                        let metadata = ExtractionMetadata(
+                            sourceDescription: bamURL.deletingPathExtension().lastPathComponent,
+                            toolName: "NVD",
+                            parameters: ["contigs": frozenContigNames.joined(separator: ",")]
+                        )
+                        let bundleDir = capturedProjectURL ?? tempDir
+                        let createdBundleURL = try await service.createBundle(from: result, metadata: metadata, in: bundleDir)
+
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.complete(id: opID, detail: "Created \(createdBundleURL.lastPathComponent)")
+                                if let appDelegate = NSApp.delegate as? AppDelegate {
+                                    if let sidebar = appDelegate.mainWindowController?.mainSplitViewController?.sidebarController {
+                                        sidebar.reloadFromFilesystem()
+                                    }
+                                }
+                            }
+                        }
+                    } catch {
+                        let errorDesc = error.localizedDescription
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.fail(id: opID, detail: errorDesc)
+                            }
+                        }
+                    }
+                }
+                OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
             },
             onCancel: { [weak window] in
                 guard let window else { return }

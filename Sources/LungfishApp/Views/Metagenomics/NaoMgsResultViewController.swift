@@ -5,6 +5,7 @@
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 import SwiftUI
 import os.log
 
@@ -1499,6 +1500,22 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     private func presentExtractionSheet(items: [String], source: String, suggestedName: String) {
         guard let window = view.window else { return }
 
+        // Collect tax IDs from the currently selected rows for database extraction.
+        let selectedIndexes = taxonomyTableView.selectedRowIndexes
+        let selectedRows: [NaoMgsTaxonSummaryRow] = selectedIndexes.compactMap { index in
+            guard index < displayedRows.count else { return nil }
+            return displayedRows[index]
+        }
+        let taxIds = Set(selectedRows.map(\.taxId))
+        let capturedDatabaseURL = database?.databaseURL
+        let capturedSampleId = selectedRows.first?.sample
+        // Derive project URL: bundleURL is the NAO-MGS result bundle directory.
+        // Navigate up to the project: bundle.lungfishfastq/derivatives/naomgs-* -> project
+        let capturedProjectURL = bundleURL?
+            .deletingLastPathComponent()  // derivatives/ or bundle root
+            .deletingLastPathComponent()  // bundle.lungfishfastq/
+            .deletingLastPathComponent()  // project/
+
         let sheet = ClassifierExtractionSheet(
             selectedItems: items,
             sourceDescription: source,
@@ -1506,7 +1523,76 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             onExtract: { [weak window] outputName in
                 guard let window else { return }
                 if let attached = window.attachedSheet { window.endSheet(attached) }
-                logger.info("Extract FASTQ confirmed: \(outputName, privacy: .public) from NAO-MGS")
+
+                guard let databaseURL = capturedDatabaseURL else {
+                    let alert = NSAlert()
+                    alert.messageText = "Database Not Available"
+                    alert.informativeText = "NAO-MGS database is not available for read extraction."
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: "OK")
+                    alert.beginSheetModal(for: window)
+                    return
+                }
+
+                let opID = OperationCenter.shared.start(
+                    title: "Extract \(outputName)",
+                    detail: "Extracting reads from NAO-MGS database\u{2026}",
+                    operationType: .taxonomyExtraction,
+                    cliCommand: "# database extraction via ReadExtractionService"
+                )
+
+                let task = Task.detached {
+                    do {
+                        let tempDir = FileManager.default.temporaryDirectory
+                            .appendingPathComponent("naomgs-extract-\(UUID().uuidString)")
+
+                        let config = DatabaseExtractionConfig(
+                            databaseURL: databaseURL,
+                            sampleId: capturedSampleId,
+                            taxIds: taxIds,
+                            outputDirectory: tempDir,
+                            outputBaseName: outputName
+                        )
+                        let service = ReadExtractionService()
+                        let result = try await service.extractFromDatabase(
+                            config: config,
+                            progress: { fraction, message in
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        OperationCenter.shared.update(id: opID, progress: fraction * 0.8, detail: message)
+                                    }
+                                }
+                            }
+                        )
+
+                        let metadata = ExtractionMetadata(
+                            sourceDescription: databaseURL.deletingPathExtension().lastPathComponent,
+                            toolName: "NAO-MGS",
+                            parameters: ["taxIds": taxIds.sorted().map(String.init).joined(separator: ",")]
+                        )
+                        let bundleDir = capturedProjectURL ?? tempDir
+                        let bundleURL = try await service.createBundle(from: result, metadata: metadata, in: bundleDir)
+
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.complete(id: opID, detail: "Created \(bundleURL.lastPathComponent)")
+                                if let appDelegate = NSApp.delegate as? AppDelegate {
+                                    if let sidebar = appDelegate.mainWindowController?.mainSplitViewController?.sidebarController {
+                                        sidebar.reloadFromFilesystem()
+                                    }
+                                }
+                            }
+                        }
+                    } catch {
+                        let errorDesc = error.localizedDescription
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.fail(id: opID, detail: errorDesc)
+                            }
+                        }
+                    }
+                }
+                OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
             },
             onCancel: { [weak window] in
                 guard let window else { return }

@@ -21,6 +21,29 @@ private actor ProgressAccumulator {
     }
 }
 
+// MARK: - FASTQ Content Reader
+
+/// Reads FASTQ content from a file, decompressing if the file is gzipped.
+///
+/// `ReadExtractionService` produces `.fastq.gz` output via seqkit grep.
+/// Tests that previously read plain `.fastq` files now use this helper.
+private func readFASTQContent(_ url: URL) throws -> String {
+    if url.pathExtension.lowercased() == "gz" {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzcat")
+        process.arguments = [url.path]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return String(data: data, encoding: .utf8) ?? ""
+    } else {
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+}
+
 // MARK: - TaxonomyExtractionConfigTests
 
 /// Tests for ``TaxonomyExtractionConfig`` construction and properties.
@@ -341,9 +364,9 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
 
         let result = try await pipeline.extract(config: config, tree: tree).first!
 
-        // Should extract read1 and read3 (classified to 562)
-        XCTAssertEqual(result, outputURL)
-        let content = try String(contentsOf: outputURL, encoding: .utf8)
+        // Output is now .fastq.gz (ReadExtractionService uses seqkit grep which produces gzipped output)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.path))
+        let content = try readFASTQContent(result)
         XCTAssertTrue(content.contains("@read1"), "Should contain read1")
         XCTAssertTrue(content.contains("@read3"), "Should contain read3")
         XCTAssertFalse(content.contains("@read2"), "Should not contain read2 (S. aureus)")
@@ -378,8 +401,8 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
 
         let result = try await pipeline.extract(config: config, tree: tree).first!
 
-        XCTAssertEqual(result, outputURL)
-        let content = try String(contentsOf: outputURL, encoding: .utf8)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.path))
+        let content = try readFASTQContent(result)
         XCTAssertTrue(content.contains("@read1"), "Should contain read1 (E. coli, child of 561)")
         XCTAssertTrue(content.contains("@read3"), "Should contain read3 (Escherichia, direct)")
         XCTAssertFalse(content.contains("@read2"), "Should not contain read2 (S. aureus)")
@@ -411,8 +434,8 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
 
         let result = try await pipeline.extract(config: config, tree: tree).first!
 
-        XCTAssertEqual(result, outputURL)
-        let content = try String(contentsOf: outputURL, encoding: .utf8)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.path))
+        let content = try readFASTQContent(result)
         XCTAssertTrue(content.contains("@read2"), "Should contain read2 (Escherichia, direct)")
         XCTAssertFalse(content.contains("@read1"), "Should not contain read1 (E. coli, child)")
     }
@@ -576,17 +599,22 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
 
         let outputURL = tempDir.appendingPathComponent("described_out.fastq")
 
+        // keepReadPairs: false — seqkit grep matches by sequence ID (before first
+        // space) which correctly handles description fields. The -n flag (used for
+        // pair matching) causes full-name matching which would break this test.
         let config = TaxonomyExtractionConfig(
             taxIds: [562],
             includeChildren: false,
             sourceFile: fastqURL,
             outputFile: outputURL,
-            classificationOutput: classOutput
+            classificationOutput: classOutput,
+            keepReadPairs: false
         )
 
-        _ = try await pipeline.extract(config: config, tree: tree)
+        let results = try await pipeline.extract(config: config, tree: tree)
+        let resultURL = results.first!
 
-        let output = try String(contentsOf: outputURL, encoding: .utf8)
+        let output = try readFASTQContent(resultURL)
         XCTAssertTrue(output.contains("@read1"), "Should match read1 despite description")
         XCTAssertFalse(output.contains("@read2"), "Should not match read2")
     }
@@ -661,12 +689,12 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
             Task { await accumulator.append(pct, msg) }
         })
 
-        // Verify output file was created
-        XCTAssertEqual(resultURLs.first!, outputURL)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path))
+        // Verify output file was created (now .fastq.gz via ReadExtractionService)
+        let resultURL = resultURLs.first!
+        XCTAssertTrue(FileManager.default.fileExists(atPath: resultURL.path))
 
-        // Read and verify output content
-        let output = try String(contentsOf: outputURL, encoding: .utf8)
+        // Read and verify output content (decompressing if gzipped)
+        let output = try readFASTQContent(resultURL)
 
         // Should contain all 10 E. coli reads
         for i in 0..<10 {
@@ -808,7 +836,7 @@ final class TaxonomyExtractionPipelineTests: XCTestCase {
         XCTAssertEqual(resolvedPrimary?.lastPathComponent, extractedURL.lastPathComponent)
 
         // Verify the FASTQ content is correct (should contain r1 and r2 but not r3)
-        let content = try String(contentsOf: destFASTQ, encoding: .utf8)
+        let content = try readFASTQContent(destFASTQ)
         XCTAssertTrue(content.contains("@r1"), "Bundle FASTQ should contain r1")
         XCTAssertTrue(content.contains("@r2"), "Bundle FASTQ should contain r2")
         XCTAssertFalse(content.contains("@r3"), "Bundle FASTQ should not contain r3 (S. aureus)")
@@ -870,18 +898,18 @@ extension TaxonomyExtractionPipelineTests {
 
         let results = try await pipeline.extract(config: config, tree: tree)
 
-        // Should produce two output files
+        // Should produce two output files (now .fastq.gz via ReadExtractionService)
         XCTAssertEqual(results.count, 2, "Should produce two output files for paired-end")
-        XCTAssertEqual(results[0], outputR1)
-        XCTAssertEqual(results[1], outputR2)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: results[0].path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: results[1].path))
 
         // Both files should contain read1 and read3 (E. coli) but not read2 (S. aureus)
-        let r1Content = try String(contentsOf: outputR1, encoding: .utf8)
+        let r1Content = try readFASTQContent(results[0])
         XCTAssertTrue(r1Content.contains("@read1"), "R1 should contain read1")
         XCTAssertTrue(r1Content.contains("@read3"), "R1 should contain read3")
         XCTAssertFalse(r1Content.contains("@read2"), "R1 should not contain read2")
 
-        let r2Content = try String(contentsOf: outputR2, encoding: .utf8)
+        let r2Content = try readFASTQContent(results[1])
         XCTAssertTrue(r2Content.contains("@read1"), "R2 should contain read1")
         XCTAssertTrue(r2Content.contains("@read3"), "R2 should contain read3")
         XCTAssertFalse(r2Content.contains("@read2"), "R2 should not contain read2")
@@ -918,9 +946,9 @@ extension TaxonomyExtractionPipelineTests {
 
         let results = try await pipeline.extract(config: config, tree: tree)
         XCTAssertEqual(results.count, 1)
-        XCTAssertEqual(results[0], outputURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: results[0].path))
 
-        let content = try String(contentsOf: outputURL, encoding: .utf8)
+        let content = try readFASTQContent(results[0])
         XCTAssertTrue(content.contains("@read1"))
         XCTAssertFalse(content.contains("@read2"))
     }

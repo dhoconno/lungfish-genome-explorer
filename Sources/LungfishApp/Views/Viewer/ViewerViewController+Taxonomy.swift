@@ -172,19 +172,48 @@ extension ViewerViewController {
                         }
                     )
 
-                    // Use nonisolated(unsafe) captures for values that need
-                    // to cross the isolation boundary into the @Sendable closure.
-                    // This is safe because the closure executes on the main run
-                    // loop and immediately enters MainActor.assumeIsolated.
+                    // Create a bundle from the extracted reads using ReadExtractionService.
+                    let service = ReadExtractionService()
+                    let extractionResult = ExtractionResult(
+                        fastqURLs: outputURLs,
+                        readCount: 0, // actual count tracked by service
+                        pairedEnd: config.isPairedEnd
+                    )
+                    let metadata = ExtractionMetadata(
+                        sourceDescription: config.sourceFile.deletingPathExtension().lastPathComponent,
+                        toolName: "Kraken2",
+                        parameters: [
+                            "taxIds": config.taxIds.sorted().map(String.init).joined(separator: ","),
+                            "includeChildren": "\(config.includeChildren)",
+                        ]
+                    )
+                    let parentDir = outputURLs[0].deletingLastPathComponent()
+                    let bundleURL = try await service.createBundle(
+                        from: extractionResult,
+                        metadata: metadata,
+                        in: parentDir
+                    )
+
+                    nonisolated(unsafe) let capturedBundleURL = bundleURL
                     nonisolated(unsafe) let capturedConfig = config
-                    nonisolated(unsafe) let capturedOutputURL = outputURLs[0]
                     scheduleTaxonomyOnMainRunLoop {
                         MainActor.assumeIsolated {
-                            createExtractedFASTQBundleOnMainThread(
-                                from: capturedOutputURL,
-                                config: capturedConfig,
-                                operationID: opID
+                            writeTaxonomyExtractionProvenance(config: capturedConfig, bundleURL: capturedBundleURL)
+                            OperationCenter.shared.complete(
+                                id: opID,
+                                detail: "Extracted to \(capturedBundleURL.lastPathComponent)",
+                                bundleURLs: [capturedBundleURL]
                             )
+                            if let appDelegate = NSApp.delegate as? AppDelegate {
+                                if let sidebar = appDelegate.mainWindowController?.mainSplitViewController?.sidebarController {
+                                    sidebar.reloadFromFilesystem()
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                        MainActor.assumeIsolated {
+                                            _ = sidebar.selectItem(forURL: capturedBundleURL)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 } catch {
@@ -443,79 +472,9 @@ extension ViewerViewController {
     }
 }
 
-// MARK: - Bundle Creation (MainActor free function)
-
-/// Creates a `.lungfishfastq` bundle from an extracted FASTQ file.
-///
-/// Called from `MainActor.assumeIsolated` inside `scheduleTaxonomyOnMainRunLoop`.
-/// This is a module-level function to avoid capturing `@MainActor`-isolated `self`
-/// across isolation boundaries in `Task.detached`.
-///
-/// The function accesses `OperationCenter.shared`, `NSApp.delegate`, and sidebar
-/// methods, all of which require `@MainActor` isolation. Since it is called inside
-/// `MainActor.assumeIsolated`, those accesses are safe.
-private func createExtractedFASTQBundleOnMainThread(
-    from outputURL: URL,
-    config: TaxonomyExtractionConfig,
-    operationID: UUID
-) {
-    // We are inside MainActor.assumeIsolated, so all @MainActor calls are valid.
-    // Use assumeIsolated to satisfy the compiler's static checking.
-    MainActor.assumeIsolated {
-        let fm = FileManager.default
-
-        let baseName = FASTQBundle.deriveBaseName(from: outputURL)
-        let bundleName = "\(baseName).\(FASTQBundle.directoryExtension)"
-
-        let parentDir = outputURL.deletingLastPathComponent()
-        let bundleURL = parentDir.appendingPathComponent(bundleName)
-
-        do {
-            try fm.createDirectory(at: bundleURL, withIntermediateDirectories: true)
-
-            let destFASTQ = bundleURL.appendingPathComponent(outputURL.lastPathComponent)
-            try fm.moveItem(at: outputURL, to: destFASTQ)
-
-            var metadata = PersistedFASTQMetadata()
-            metadata.downloadSource = "taxonomy-extraction"
-            metadata.downloadDate = Date()
-            FASTQMetadataStore.save(metadata, for: destFASTQ)
-
-            writeTaxonomyExtractionProvenance(config: config, bundleURL: bundleURL)
-
-            taxonomyLogger.info("createExtractedFASTQBundle: Created \(bundleURL.lastPathComponent)")
-
-            OperationCenter.shared.complete(
-                id: operationID,
-                detail: "Extracted to \(bundleName)",
-                bundleURLs: [bundleURL]
-            )
-
-            // Do NOT call importReadyBundles — that triggers full FASTQ ingestion
-            // (including clumpify) which is inappropriate for extracted reads.
-            // Instead, just refresh the sidebar to pick up the new bundle directory.
-            if let appDelegate = NSApp.delegate as? AppDelegate {
-                if let sidebar = appDelegate.mainWindowController?.mainSplitViewController?.sidebarController {
-                    sidebar.reloadFromFilesystem()
-                    // Select the new bundle after a brief delay for the filesystem notification to propagate
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        MainActor.assumeIsolated {
-                            _ = sidebar.selectItem(forURL: bundleURL)
-                        }
-                    }
-                }
-            }
-
-        } catch {
-            taxonomyLogger.error("createExtractedFASTQBundle: Failed: \(error.localizedDescription, privacy: .public)")
-            OperationCenter.shared.fail(
-                id: operationID,
-                detail: "Bundle creation failed: \(error.localizedDescription)"
-            )
-            showTaxonomyExtractionErrorAlert(error.localizedDescription)
-        }
-    }
-}
+// MARK: - Bundle Creation
+// Bundle creation now handled by ReadExtractionService.createBundle() called inline
+// in the extraction Task.detached block above.
 
 /// Presents an error alert for a failed taxonomy extraction.
 ///

@@ -698,13 +698,84 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
                     return
                 }
 
-                Task { @MainActor in
-                    await self.runBamExtractionPipeline(
-                        bamURL: bamURL,
-                        regions: accessions,
-                        outputName: outputName
-                    )
+                // Derive project directory from the EsViritu output directory:
+                // outputDirectory / derivatives / bundle.lungfishfastq / project
+                let projectURL = self.esVirituConfig?.outputDirectory
+                    .deletingLastPathComponent()  // derivatives/
+                    .deletingLastPathComponent()  // bundle.lungfishfastq/
+                    .deletingLastPathComponent()  // project/
+
+                let opID = OperationCenter.shared.start(
+                    title: "Extract \(outputName)",
+                    detail: "Extracting reads from EsViritu BAM\u{2026}",
+                    operationType: .taxonomyExtraction,
+                    cliCommand: "# samtools view + fastq extraction via ReadExtractionService"
+                )
+                OperationCenter.shared.log(id: opID, level: .info, message: "Extracting reads for regions: \(accessions.joined(separator: ", "))")
+
+                let capturedAccessions = accessions
+                let task = Task.detached {
+                    do {
+                        let tempDir = FileManager.default.temporaryDirectory
+                            .appendingPathComponent("esviritu-extract-\(UUID().uuidString)")
+
+                        let config = BAMRegionExtractionConfig(
+                            bamURL: bamURL,
+                            regions: capturedAccessions,
+                            fallbackToAll: true,
+                            outputDirectory: tempDir,
+                            outputBaseName: outputName
+                        )
+                        let service = ReadExtractionService()
+                        let result = try await service.extractByBAMRegion(
+                            config: config,
+                            progress: { fraction, message in
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        OperationCenter.shared.update(id: opID, progress: fraction * 0.8, detail: message)
+                                        OperationCenter.shared.log(id: opID, level: .info, message: message)
+                                    }
+                                }
+                            }
+                        )
+
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.update(id: opID, progress: 0.85, detail: "Creating FASTQ bundle\u{2026}")
+                            }
+                        }
+
+                        let metadata = ExtractionMetadata(
+                            sourceDescription: bamURL.deletingPathExtension().lastPathComponent,
+                            toolName: "EsViritu",
+                            parameters: ["regions": capturedAccessions.joined(separator: ",")]
+                        )
+                        let bundleDir = projectURL ?? tempDir
+                        let bundleURL = try await service.createBundle(from: result, metadata: metadata, in: bundleDir)
+
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.complete(id: opID, detail: "Created \(bundleURL.lastPathComponent)")
+                                OperationCenter.shared.log(id: opID, level: .info, message: "Bundle created at \(bundleURL.path)")
+
+                                if let appDelegate = NSApp.delegate as? AppDelegate {
+                                    if let sidebar = appDelegate.mainWindowController?.mainSplitViewController?.sidebarController {
+                                        sidebar.reloadFromFilesystem()
+                                    }
+                                }
+                            }
+                        }
+                    } catch {
+                        let errorDesc = error.localizedDescription
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.fail(id: opID, detail: errorDesc)
+                                OperationCenter.shared.log(id: opID, level: .error, message: "Extraction failed: \(errorDesc)")
+                            }
+                        }
+                    }
                 }
+                OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
             },
             onCancel: { [weak window] in
                 guard let window else { return }
@@ -722,205 +793,8 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         window.beginSheet(panel)
     }
 
-    // MARK: - BAM Extraction Pipeline
-
-    /// Extracts reads from the EsViritu BAM for the given reference accessions
-    /// and creates a new FASTQ bundle in the project.
-    ///
-    /// Pipeline:
-    /// 1. `samtools view -b -o extracted.bam BAM region1 region2 ...`
-    /// 2. `samtools fastq -0 output.fastq extracted.bam`
-    /// 3. Create a `.lungfishfastq` bundle containing the output FASTQ.
-    ///
-    /// Progress is reported via ``OperationCenter``.
-    private func runBamExtractionPipeline(
-        bamURL: URL,
-        regions: [String],
-        outputName: String
-    ) async {
-        let opID = OperationCenter.shared.start(
-            title: "Extract \(outputName)",
-            detail: "Extracting reads from EsViritu BAM\u{2026}",
-            operationType: .taxonomyExtraction,
-            cliCommand: "# samtools view + fastq extraction"
-        )
-        OperationCenter.shared.log(id: opID, level: .info, message: "Extracting reads for regions: \(regions.joined(separator: ", "))")
-
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("esviritu-extract-\(UUID().uuidString)")
-        do {
-            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        } catch {
-            OperationCenter.shared.fail(id: opID, detail: "Failed to create temp directory: \(error.localizedDescription)")
-            return
-        }
-
-        let extractedBAM = tempDir.appendingPathComponent("extracted.bam")
-        let outputFASTQ = tempDir.appendingPathComponent("\(outputName).fastq")
-
-        defer {
-            try? FileManager.default.removeItem(at: tempDir)
-        }
-
-        do {
-            let runner = NativeToolRunner.shared
-
-            // Step 1: Validate regions against BAM header, then extract
-            OperationCenter.shared.update(id: opID, progress: 0.05, detail: "Checking BAM reference names\u{2026}")
-
-            // Read BAM header to get all @SQ reference names
-            let headerResult = try await runner.run(.samtools, arguments: ["view", "-H", bamURL.path])
-            let bamRefNames: [String] = headerResult.stdout.split(separator: "\n")
-                .filter { $0.hasPrefix("@SQ") }
-                .compactMap { line in
-                    line.split(separator: "\t")
-                        .first(where: { $0.hasPrefix("SN:") })
-                        .map { String($0.dropFirst(3)) }
-                }
-            let bamRefNameSet = Set(bamRefNames)
-
-            logger.info("BAM contains \(bamRefNames.count) references: \(bamRefNames.prefix(5).joined(separator: ", "))\(bamRefNames.count > 5 ? "..." : "")")
-            OperationCenter.shared.log(id: opID, level: .info,
-                message: "BAM has \(bamRefNames.count) @SQ references: \(bamRefNames.prefix(5).joined(separator: ", "))\(bamRefNames.count > 5 ? "..." : "")")
-
-            // Multi-strategy matching: try progressively fuzzier approaches
-            var matchedRegions: [String] = []
-
-            // Strategy A: exact match (accession matches @SQ name exactly)
-            matchedRegions = regions.filter { bamRefNameSet.contains($0) }
-            if !matchedRegions.isEmpty {
-                OperationCenter.shared.log(id: opID, level: .info,
-                    message: "Exact match: \(matchedRegions.count)/\(regions.count) regions matched")
-            }
-
-            // Strategy B: prefix match (accession is prefix of @SQ name, or vice versa)
-            if matchedRegions.isEmpty {
-                for region in regions {
-                    for ref in bamRefNames {
-                        if ref.hasPrefix(region) || region.hasPrefix(ref) {
-                            matchedRegions.append(ref)
-                            break
-                        }
-                    }
-                }
-                if !matchedRegions.isEmpty {
-                    OperationCenter.shared.log(id: opID, level: .info,
-                        message: "Prefix match: \(matchedRegions.count)/\(regions.count) regions matched")
-                }
-            }
-
-            // Strategy C: contains match (accession appears anywhere in @SQ name, or vice versa)
-            if matchedRegions.isEmpty {
-                for region in regions {
-                    for ref in bamRefNames {
-                        if ref.contains(region) || region.contains(ref) {
-                            matchedRegions.append(ref)
-                            break
-                        }
-                    }
-                }
-                if !matchedRegions.isEmpty {
-                    OperationCenter.shared.log(id: opID, level: .info,
-                        message: "Contains match: \(matchedRegions.count)/\(regions.count) regions matched")
-                }
-            }
-
-            // Strategy D: no region filter -- extract ALL reads from the BAM
-            // EsViritu BAMs are pre-filtered to virus alignments, so this is still useful.
-            let extractAllReads = matchedRegions.isEmpty
-
-            if extractAllReads {
-                logger.warning("No region match found in BAM. Extracting ALL reads (BAM is pre-filtered to virus alignments)")
-                OperationCenter.shared.log(id: opID, level: .warning,
-                    message: "Could not match regions to BAM references. Extracting all reads from \(bamRefNames.count) references.")
-                OperationCenter.shared.update(id: opID, progress: 0.1, detail: "Extracting all reads from BAM\u{2026}")
-                OperationCenter.shared.log(id: opID, level: .info, message: "Running samtools fastq on full BAM (no region filter)")
-
-                let fastqArgs = ["fastq", "-0", outputFASTQ.path, bamURL.path]
-                let fastqResult = try await runner.run(.samtools, arguments: fastqArgs)
-                guard fastqResult.isSuccess else {
-                    throw NativeToolError.executionFailed("samtools fastq", fastqResult.exitCode, fastqResult.stderr)
-                }
-            } else {
-                let unmatchedRegions = regions.filter { region in
-                    !matchedRegions.contains(where: { $0 == region })
-                }
-                if !unmatchedRegions.isEmpty {
-                    logger.warning("Regions not found in BAM: \(unmatchedRegions.joined(separator: ", "), privacy: .public)")
-                    OperationCenter.shared.log(id: opID, level: .warning,
-                        message: "Skipping \(unmatchedRegions.count) unmatched region(s): \(unmatchedRegions.joined(separator: ", "))")
-                }
-
-                OperationCenter.shared.update(id: opID, progress: 0.1, detail: "Extracting alignments from BAM\u{2026}")
-                OperationCenter.shared.log(id: opID, level: .info, message: "Running samtools view for \(matchedRegions.count) regions: \(matchedRegions.joined(separator: ", "))")
-
-                var viewArgs = ["view", "-b", "-o", extractedBAM.path, bamURL.path]
-                viewArgs.append(contentsOf: matchedRegions)
-                let viewResult = try await runner.run(.samtools, arguments: viewArgs)
-                guard viewResult.isSuccess else {
-                    throw NativeToolError.executionFailed("samtools view", viewResult.exitCode, viewResult.stderr)
-                }
-
-                // Convert extracted BAM to FASTQ
-                OperationCenter.shared.update(id: opID, progress: 0.5, detail: "Converting to FASTQ\u{2026}")
-                OperationCenter.shared.log(id: opID, level: .info, message: "Running samtools fastq")
-
-                let fastqArgs = ["fastq", "-0", outputFASTQ.path, extractedBAM.path]
-                let fastqResult = try await runner.run(.samtools, arguments: fastqArgs)
-                guard fastqResult.isSuccess else {
-                    throw NativeToolError.executionFailed("samtools fastq", fastqResult.exitCode, fastqResult.stderr)
-                }
-            }
-
-            // Verify output exists and is non-empty
-            let attrs = try FileManager.default.attributesOfItem(atPath: outputFASTQ.path)
-            let fileSize = (attrs[.size] as? Int) ?? 0
-            guard fileSize > 0 else {
-                OperationCenter.shared.fail(id: opID, detail: "Extraction produced an empty FASTQ (no reads matched the selected regions)")
-                return
-            }
-
-            // Step 3: Create a .lungfishfastq bundle in the project directory
-            OperationCenter.shared.update(id: opID, progress: 0.8, detail: "Creating FASTQ bundle\u{2026}")
-            OperationCenter.shared.log(id: opID, level: .info, message: "Creating bundle: \(outputName).lungfishfastq")
-
-            // Derive project directory from the EsViritu output directory:
-            // outputDirectory / derivatives / bundle.lungfishfastq / project
-            let projectURL = esVirituConfig?.outputDirectory
-                .deletingLastPathComponent()  // derivatives/
-                .deletingLastPathComponent()  // bundle.lungfishfastq/
-                .deletingLastPathComponent()  // project/
-
-            guard let projectURL else {
-                OperationCenter.shared.fail(id: opID, detail: "Cannot determine project directory")
-                return
-            }
-
-            let bundleURL = projectURL.appendingPathComponent("\(outputName).lungfishfastq")
-            try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
-
-            // Move the FASTQ into the bundle
-            let destFASTQ = bundleURL.appendingPathComponent("\(outputName).fastq")
-            try FileManager.default.moveItem(at: outputFASTQ, to: destFASTQ)
-
-            OperationCenter.shared.complete(id: opID, detail: "Created \(outputName).lungfishfastq")
-            OperationCenter.shared.log(id: opID, level: .info, message: "Bundle created at \(bundleURL.path)")
-
-            logger.info("BAM extraction complete: \(bundleURL.path, privacy: .public)")
-
-            // Refresh sidebar to pick up new extracted bundle
-            if let appDelegate = NSApp.delegate as? AppDelegate {
-                if let sidebar = appDelegate.mainWindowController?.mainSplitViewController?.sidebarController {
-                    sidebar.reloadFromFilesystem()
-                }
-            }
-
-        } catch {
-            logger.error("BAM extraction failed: \(error.localizedDescription, privacy: .public)")
-            OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
-            OperationCenter.shared.log(id: opID, level: .error, message: "Extraction failed: \(error.localizedDescription)")
-        }
-    }
+    // BAM extraction pipeline now handled by ReadExtractionService.extractByBAMRegion()
+    // called inline in the presentExtractionSheet onExtract callback above.
 
     @objc private func handleLayoutSwapRequested(_ notification: Notification) {
         applyLayoutPreference()
