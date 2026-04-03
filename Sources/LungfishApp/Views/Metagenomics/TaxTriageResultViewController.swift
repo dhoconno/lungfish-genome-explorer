@@ -173,6 +173,39 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// The most recent BLAST verification result, if any.
     public private(set) var lastBlastResult: BlastVerificationResult?
 
+    // MARK: - Inspector Sample Picker
+
+    /// TaxTriage sample entry for the unified picker.
+    public struct TaxTriageSampleEntry: ClassifierSampleEntry {
+        public let id: String
+        public let displayName: String
+        public let organismCount: Int
+
+        public var metricLabel: String { "organisms" }
+        public var metricValue: String {
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .decimal
+            return formatter.string(from: NSNumber(value: organismCount)) ?? "\(organismCount)"
+        }
+    }
+
+    /// Observable state shared with the Inspector sample picker.
+    public var samplePickerState: ClassifierSamplePickerState!
+
+    /// Sample entries for the unified picker.
+    public var sampleEntries: [TaxTriageSampleEntry] = []
+
+    /// Common prefix stripped from sample display names.
+    public var strippedPrefix: String = ""
+
+    // MARK: - Organism Search
+
+    /// Current organism search text for filtering.
+    private var organismSearchText: String = ""
+
+    /// Debounce work item for organism search field changes.
+    private var organismFilterWorkItem: DispatchWorkItem?
+
     // MARK: - Split View State
 
     /// Whether the initial divider position has been applied.
@@ -196,12 +229,20 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         setupSummaryBar()
         setupSampleFilterControl()
+        setupOrganismSearchField()
         setupSplitView()
         setupMiniBAMViewer()
         setupBlastDrawer()
         setupActionBar()
         layoutSubviews()
         wireCallbacks()
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleInspectorSampleSelectionChanged),
+            name: .metagenomicsSampleSelectionChanged,
+            object: nil
+        )
     }
 
     // MARK: - Keyboard Shortcuts
@@ -473,6 +514,17 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         discoverRelatedAnalyses()
 
         logger.info("Configured with \(mergedRows.count) organisms, \(result.metricsFiles.count) metrics files, \(result.kronaFiles.count) Krona files")
+
+        // Build sample picker entries for the Inspector.
+        let sampleNames = sampleIds
+        let prefix = ClassifierSamplePickerView.commonPrefix(of: sampleNames)
+        strippedPrefix = prefix
+        sampleEntries = sampleIds.map { sampleId in
+            let count = metrics.filter { $0.sample == sampleId }.count
+            let display = prefix.isEmpty ? sampleId : String(sampleId.dropFirst(prefix.count))
+            return TaxTriageSampleEntry(id: sampleId, displayName: display, organismCount: count)
+        }
+        samplePickerState = ClassifierSamplePickerState(allSamples: Set(sampleIds))
     }
 
     // MARK: - Sample Extraction
@@ -651,11 +703,50 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         applyCurrentSampleFilter()
     }
 
+    // MARK: - Setup: Organism Search Field
+
+    private lazy var organismSearchField: NSSearchField = {
+        let field = NSSearchField()
+        field.placeholderString = "Filter organisms\u{2026}"
+        field.controlSize = .small
+        field.font = .systemFont(ofSize: 11)
+        field.translatesAutoresizingMaskIntoConstraints = false
+        field.widthAnchor.constraint(greaterThanOrEqualToConstant: 140).isActive = true
+        field.target = self
+        field.action = #selector(organismSearchAction)
+        return field
+    }()
+
+    private func setupOrganismSearchField() {
+        organismSearchField.isHidden = true
+        view.addSubview(organismSearchField)
+    }
+
+    @objc private func organismSearchAction(_ sender: NSSearchField) {
+        organismFilterWorkItem?.cancel()
+        let query = sender.stringValue
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                self.organismSearchText = query
+                self.applyCurrentSampleFilter()
+            }
+        }
+        organismFilterWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: workItem)
+    }
+
+    @objc private func handleInspectorSampleSelectionChanged() {
+        guard samplePickerState != nil else { return }
+        applyCurrentSampleFilter()
+    }
+
     /// Rebuilds the sample filter segments from the discovered sample IDs.
     private func rebuildSampleFilterSegments() {
         let ids = sampleIds
         if ids.count <= 1 {
             sampleFilterControl.isHidden = true
+            organismSearchField.isHidden = true
             sampleFilterHeightConstraint?.constant = 0
             sampleFilterTopSpacingConstraint?.constant = 0
             sampleFilterBottomSpacingConstraint?.constant = 0
@@ -679,6 +770,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
         sampleFilterControl.selectedSegment = selectedSampleIndex
         sampleFilterControl.isHidden = false
+        organismSearchField.isHidden = false
         sampleFilterHeightConstraint?.constant = 24
         sampleFilterTopSpacingConstraint?.constant = 4
         sampleFilterBottomSpacingConstraint?.constant = 4
@@ -772,11 +864,19 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             )
         }
 
-        organismTableView.rows = filteredRows
+        // Apply organism name text filter if active
+        var displayRows = filteredRows
+        if !organismSearchText.isEmpty {
+            displayRows = displayRows.filter {
+                $0.organism.localizedCaseInsensitiveContains(organismSearchText)
+            }
+        }
+
+        organismTableView.rows = displayRows
         summaryBar.update(
-            organismCount: filteredRows.count,
+            organismCount: displayRows.count,
             runtime: taxTriageResult?.runtime ?? 0,
-            highConfidenceCount: filteredRows.filter { $0.tassScore >= 0.8 }.count,
+            highConfidenceCount: displayRows.filter { $0.tassScore >= 0.8 }.count,
             sampleCount: selectedSampleIndex == 0
                 ? (taxTriageResult?.config.samples.count ?? 1)
                 : 1
@@ -1512,6 +1612,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             filterTop,
             sampleFilterControl.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             filterHeight,
+
+            // Organism search field (right-aligned on the same row as sample filter)
+            organismSearchField.centerYAnchor.constraint(equalTo: sampleFilterControl.centerYAnchor),
+            organismSearchField.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
+            organismSearchField.widthAnchor.constraint(lessThanOrEqualToConstant: 200),
 
             // Action bar (bottom, fixed height)
             actionBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),

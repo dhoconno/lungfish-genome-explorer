@@ -75,6 +75,31 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     /// The taxonomy tree extracted from the result.
     var tree: TaxonTree?
 
+    // MARK: - Inspector Sample Picker
+
+    /// Kraken2 sample entry for the unified picker.
+    public struct Kraken2SampleEntry: ClassifierSampleEntry {
+        public let id: String
+        public let displayName: String
+        public let classifiedReads: Int
+
+        public var metricLabel: String { "reads" }
+        public var metricValue: String {
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .decimal
+            return formatter.string(from: NSNumber(value: classifiedReads)) ?? "\(classifiedReads)"
+        }
+    }
+
+    /// Observable state shared with the Inspector sample picker.
+    public var samplePickerState: ClassifierSamplePickerState!
+
+    /// Sample entries for the unified picker (single entry for Kraken2).
+    public var sampleEntries: [Kraken2SampleEntry] = []
+
+    /// Common prefix stripped from sample display names (empty for single-sample).
+    public var strippedPrefix: String = ""
+
     // MARK: - Child Views
 
     private let summaryBar = TaxonomySummaryBar()
@@ -222,6 +247,16 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
 
         logger.info("Configured with \(result.tree.totalReads) reads, \(result.tree.speciesCount) species")
 
+        // Build single-sample picker entry from classification result
+        let sampleName = result.config.inputFiles.first?
+            .deletingPathExtension().lastPathComponent ?? "sample"
+        sampleEntries = [Kraken2SampleEntry(
+            id: sampleName,
+            displayName: sampleName,
+            classifiedReads: result.tree.classifiedReads
+        )]
+        strippedPrefix = ""
+        samplePickerState = ClassifierSamplePickerState(allSamples: Set([sampleName]))
     }
 
     /// Presents the extraction sheet for the given node.

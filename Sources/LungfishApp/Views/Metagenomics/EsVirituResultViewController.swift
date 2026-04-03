@@ -96,6 +96,31 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     /// Prevents infinite feedback loops when syncing selection between views.
     private var suppressSelectionSync = false
 
+    // MARK: - Inspector Sample Picker
+
+    /// EsViritu sample entry for the unified picker.
+    public struct EsVirituSampleEntry: ClassifierSampleEntry {
+        public let id: String
+        public let displayName: String
+        public let detectedVirusCount: Int
+
+        public var metricLabel: String { "viruses" }
+        public var metricValue: String {
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .decimal
+            return formatter.string(from: NSNumber(value: detectedVirusCount)) ?? "\(detectedVirusCount)"
+        }
+    }
+
+    /// Observable state shared with the Inspector sample picker.
+    public var samplePickerState: ClassifierSamplePickerState!
+
+    /// Sample entries for the unified picker (single entry for EsViritu).
+    public var sampleEntries: [EsVirituSampleEntry] = []
+
+    /// Common prefix stripped from sample display names (empty for single-sample).
+    public var strippedPrefix: String = ""
+
     // MARK: - Callbacks
 
     /// Called when the user requests BLAST verification for a detection.
@@ -258,6 +283,16 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         if let bamURL, let bamIndexURL {
             scheduleUniqueReadComputation(assemblies: result.assemblies, bamURL: bamURL, bamIndexURL: bamIndexURL)
         }
+
+        // Build single-sample picker entry from EsViritu result
+        let sampleName = result.sampleId
+        sampleEntries = [EsVirituSampleEntry(
+            id: sampleName,
+            displayName: sampleName,
+            detectedVirusCount: result.assemblies.count
+        )]
+        strippedPrefix = ""
+        samplePickerState = ClassifierSamplePickerState(allSamples: Set([sampleName]))
     }
 
     // MARK: - Background Unique Read Computation

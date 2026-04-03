@@ -1709,6 +1709,16 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         do {
             let result = try ClassificationResult.load(from: url)
             viewerController.displayTaxonomyResult(result)
+
+            // Wire sample picker state to Inspector for embedded sample selector
+            if let taxonomyVC = viewerController.taxonomyViewController {
+                self.inspectorController?.updateClassifierSampleState(
+                    pickerState: taxonomyVC.samplePickerState,
+                    entries: taxonomyVC.sampleEntries,
+                    strippedPrefix: taxonomyVC.strippedPrefix
+                )
+            }
+
             logger.info("displayClassificationResult: Loaded \(result.tree.totalReads) reads, \(result.tree.speciesCount) species")
         } catch {
             logger.error("displayClassificationResult: Failed - \(error.localizedDescription, privacy: .public)")
@@ -1765,6 +1775,16 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             )
 
             viewerController.displayEsVirituResult(ioResult, config: pipelineResult.config)
+
+            // Wire sample picker state to Inspector for embedded sample selector
+            if let esVirituVC = viewerController.esVirituViewController {
+                self.inspectorController?.updateClassifierSampleState(
+                    pickerState: esVirituVC.samplePickerState,
+                    entries: esVirituVC.sampleEntries,
+                    strippedPrefix: esVirituVC.strippedPrefix
+                )
+            }
+
             logger.info("displayEsVirituResult: Loaded \(detections.count) detections, \(assemblies.count) assemblies")
         } catch {
             logger.error("displayEsVirituResult: Failed - \(error.localizedDescription, privacy: .public)")
@@ -1791,6 +1811,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         // Prefer the persisted sidecar so view parsing matches pipeline-time discovery.
         if let persisted = try? TaxTriageResult.load(from: url) {
             viewerController.displayTaxTriageResult(persisted, config: persisted.config, sampleId: sampleId)
+            wireTaxTriageInspector()
             return
         }
 
@@ -1847,6 +1868,18 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         )
 
         viewerController.displayTaxTriageResult(result, config: nil, sampleId: sampleId)
+        wireTaxTriageInspector()
+    }
+
+    /// Wires the TaxTriage sample picker state to the Inspector.
+    private func wireTaxTriageInspector() {
+        if let taxTriageVC = viewerController.taxTriageViewController {
+            self.inspectorController?.updateClassifierSampleState(
+                pickerState: taxTriageVC.samplePickerState,
+                entries: taxTriageVC.sampleEntries,
+                strippedPrefix: taxTriageVC.strippedPrefix
+            )
+        }
     }
 
     /// Displays a NAO-MGS surveillance result from its bundle directory.
