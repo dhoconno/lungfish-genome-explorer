@@ -165,20 +165,64 @@ private func matchRegionsToBAM(
 
 All tools that extract from BAM (EsViritu, TaxTriage, NVD, mappers, assemblers) benefit from this single, well-tested matching logic.
 
-### CLI Integration
+### CLI Integration (REQUIRED)
+
+**Every extraction capability must be CLI-backed.** The GUI calls the same `ReadExtractionService` that the CLI uses. No GUI-only features.
+
+#### Command Structure
 
 ```
-lungfish extract reads \
-    --by-id --ids read-ids.txt --source input.fastq -o output.fastq
+lungfish extract reads --by-id \
+    --ids read-ids.txt \
+    --source input.fastq \
+    [--source-r2 input_R2.fastq] \
+    [--keep-read-pairs | --no-keep-read-pairs] \
+    -o output.fastq
 
-lungfish extract reads \
-    --by-region --bam aligned.bam --region NC_005831.2 -o output.fastq
+lungfish extract reads --by-region \
+    --bam aligned.bam \
+    --region NC_005831.2 [--region NC_001477.1 ...] \
+    -o output.fastq
 
-lungfish extract reads \
-    --by-db --database results.naomgs.db --sample S1 --taxid 12345 -o output.fastq
+lungfish extract reads --by-db \
+    --database results.naomgs.db \
+    --sample S1 \
+    --taxid 12345 [--taxid 67890 ...] \
+    [--accession GCF_000870785.1 ...] \
+    [--max-reads 10000] \
+    -o output.fastq
 ```
 
-All three strategies exposed as CLI subcommands under `lungfish extract reads`.
+All three strategies exposed as subcommands under `lungfish extract reads`. Each uses the same `ReadExtractionService` actor as the GUI.
+
+#### CLI-GUI Parity Rule
+
+The Operations Panel log for every GUI extraction must show the equivalent CLI command that would reproduce the same result. Pattern:
+
+```
+lungfish extract reads --by-region --bam /path/to/sample.bam --region NC_005831.2 -o /path/to/output.fastq
+```
+
+This replaces all `"(CLI command not yet available — use GUI)"` placeholders. If a GUI action cannot be expressed as a CLI command, that is a design bug that must be fixed before shipping.
+
+#### Existing `lungfish conda extract` Migration
+
+The existing `CondaExtractCommand` (Kraken2-specific) is superseded by `lungfish extract reads --by-id`. The old command should remain as a deprecated alias that delegates to the new command, with a deprecation warning printed to stderr.
+
+#### Bundle Creation via CLI
+
+```
+lungfish extract reads --by-region --bam sample.bam --region NC_005831.2 \
+    -o output.fastq \
+    --bundle                         # Wrap output in a .lungfishfastq bundle
+    --bundle-name "sample_virus_extract"  # Optional display name
+```
+
+The `--bundle` flag triggers `ReadExtractionService.createBundle()`. Without it, the CLI outputs raw FASTQ files (useful for pipelines). The GUI always uses `--bundle` implicitly.
+
+#### File
+
+- Create: `Sources/LungfishCLI/Commands/ExtractReadsCommand.swift` — ArgumentParser command with 3 strategy subcommands
 
 ### Bundle and Display Naming
 
@@ -248,6 +292,11 @@ These remain in their respective VCs/pipelines. Only the common extraction, matc
 - Changing how tools produce their output (BAM, TSV, SQLite) — those stay as-is
 - Changing the sidebar discovery mechanism
 - Refactoring FASTQDerivativeService internals (the resolver wraps it, doesn't replace it)
+
+## Hard Requirements
+
+- **CLI parity:** Every extraction operation available in the GUI MUST have a CLI equivalent. The GUI and CLI share the same `ReadExtractionService` actor.
+- **Reproducible CLI commands:** The Operations Panel MUST log the CLI command for every extraction. No "(CLI command not yet available)" placeholders.
 
 ## Testing
 

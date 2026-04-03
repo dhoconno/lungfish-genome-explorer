@@ -22,6 +22,7 @@
 | `Tests/LungfishWorkflowTests/Extraction/BAMRegionMatcherTests.swift` | Unit tests for BAM matching strategies |
 | `Tests/LungfishWorkflowTests/Extraction/FASTQSourceResolverTests.swift` | Unit tests for FASTQ resolution |
 | `Tests/LungfishWorkflowTests/Extraction/ReadExtractionServiceTests.swift` | Integration tests for extraction + bundling |
+| `Sources/LungfishCLI/Commands/ExtractReadsCommand.swift` | CLI `lungfish extract reads` with 3 strategy subcommands |
 
 ### Modified Files
 | File | Changes |
@@ -1237,7 +1238,208 @@ git commit -m "refactor: use FASTQSourceResolver for all input file materializat
 
 ---
 
-## Task 9: Final Build and Test Verification
+## Task 9: CLI `lungfish extract reads` Command
+
+**Files:**
+- Create: `Sources/LungfishCLI/Commands/ExtractReadsCommand.swift`
+- Modify: `Sources/LungfishCLI/Commands/CondaExtractCommand.swift` (deprecation alias)
+
+- [ ] **Step 1: Read existing CLI command patterns**
+
+Read `Sources/LungfishCLI/Commands/CondaExtractCommand.swift` and one other command (e.g., `ClassifyCommand.swift` or `FastqCommand.swift`) to understand:
+- How ArgumentParser commands are structured (imports, GlobalOptions, @Argument/@Option/@Flag)
+- How they invoke workflow services
+- How they're registered in the parent command
+
+- [ ] **Step 2: Create ExtractReadsCommand.swift**
+
+Create `Sources/LungfishCLI/Commands/ExtractReadsCommand.swift` with three strategy modes:
+
+```swift
+// ExtractReadsCommand.swift — CLI command for universal read extraction
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
+import ArgumentParser
+import Foundation
+import LungfishWorkflow
+
+struct ExtractReadsCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "reads",
+        abstract: "Extract reads from classification results, BAM alignments, or databases"
+    )
+
+    // Strategy selection (mutually exclusive)
+    @Flag(name: .long, help: "Extract by read ID list (Kraken2 pattern)")
+    var byId = false
+
+    @Flag(name: .long, help: "Extract by BAM region (EsViritu/TaxTriage/mapper pattern)")
+    var byRegion = false
+
+    @Flag(name: .long, help: "Extract from SQLite database (NAO-MGS pattern)")
+    var byDb = false
+
+    // Read ID strategy options
+    @Option(name: .long, help: "File containing read IDs (one per line)")
+    var ids: String?
+
+    @Option(name: .long, help: "Source FASTQ file")
+    var source: [String] = []
+
+    @Flag(name: .long, inversion: .prefixedNo, help: "Keep read pairs (extract both mates)")
+    var keepReadPairs = true
+
+    // BAM region strategy options
+    @Option(name: .long, help: "BAM file for region extraction")
+    var bam: String?
+
+    @Option(name: .long, help: "Region to extract (repeatable)")
+    var region: [String] = []
+
+    // Database strategy options
+    @Option(name: .long, help: "SQLite database path")
+    var database: String?
+
+    @Option(name: .long, help: "Sample ID for database query")
+    var sample: String?
+
+    @Option(name: .long, help: "Taxonomy ID (repeatable)")
+    var taxid: [Int] = []
+
+    @Option(name: .long, help: "Accession filter (repeatable)")
+    var accession: [String] = []
+
+    @Option(name: .long, help: "Maximum reads to extract")
+    var maxReads: Int?
+
+    // Common options
+    @Option(name: .shortAndLong, help: "Output FASTQ file path")
+    var output: String
+
+    @Flag(name: .long, help: "Wrap output in a .lungfishfastq bundle")
+    var bundle = false
+
+    @Option(name: .long, help: "Display name for the output bundle")
+    var bundleName: String?
+
+    mutating func run() async throws {
+        let service = ReadExtractionService()
+        let outputURL = URL(fileURLWithPath: output)
+        let outputDir = outputURL.deletingLastPathComponent()
+        let baseName = outputURL.deletingPathExtension().lastPathComponent
+
+        let result: ExtractionResult
+
+        if byId {
+            guard let idsPath = ids else {
+                throw ValidationError("--ids is required for --by-id extraction")
+            }
+            guard !source.isEmpty else {
+                throw ValidationError("--source is required for --by-id extraction")
+            }
+            let idData = try String(contentsOfFile: idsPath, encoding: .utf8)
+            let readIDs = Set(idData.split(separator: "\n").map(String.init))
+            let config = ReadIDExtractionConfig(
+                sourceFASTQs: source.map { URL(fileURLWithPath: $0) },
+                readIDs: readIDs,
+                keepReadPairs: keepReadPairs,
+                outputDirectory: outputDir,
+                outputBaseName: baseName
+            )
+            result = try await service.extractByReadIDs(config) { progress, msg in
+                print("[\(Int(progress * 100))%] \(msg)")
+            }
+
+        } else if byRegion {
+            guard let bamPath = bam else {
+                throw ValidationError("--bam is required for --by-region extraction")
+            }
+            guard !region.isEmpty else {
+                throw ValidationError("--region is required for --by-region extraction")
+            }
+            let config = BAMRegionExtractionConfig(
+                bamURL: URL(fileURLWithPath: bamPath),
+                regions: region,
+                outputDirectory: outputDir,
+                outputBaseName: baseName
+            )
+            result = try await service.extractByBAMRegion(config) { progress, msg in
+                print("[\(Int(progress * 100))%] \(msg)")
+            }
+
+        } else if byDb {
+            guard let dbPath = database else {
+                throw ValidationError("--database is required for --by-db extraction")
+            }
+            guard let sampleId = sample else {
+                throw ValidationError("--sample is required for --by-db extraction")
+            }
+            guard !taxid.isEmpty else {
+                throw ValidationError("--taxid is required for --by-db extraction")
+            }
+            let config = DatabaseExtractionConfig(
+                databaseURL: URL(fileURLWithPath: dbPath),
+                sampleId: sampleId,
+                taxIds: taxid,
+                accessions: accession,
+                maxReads: maxReads,
+                outputDirectory: outputDir,
+                outputBaseName: baseName
+            )
+            result = try await service.extractFromDatabase(config) { progress, msg in
+                print("[\(Int(progress * 100))%] \(msg)")
+            }
+
+        } else {
+            throw ValidationError("Specify one of --by-id, --by-region, or --by-db")
+        }
+
+        print("Extracted \(result.readCount) reads to \(result.fastqURLs.map(\.lastPathComponent).joined(separator: ", "))")
+
+        if bundle {
+            let name = bundleName ?? baseName
+            let bundleURL = try service.createBundle(
+                from: result,
+                sourceName: name,
+                selectionDescription: "extract",
+                parentDirectory: outputDir,
+                metadata: ExtractionMetadata(sourceDescription: "CLI extraction", toolName: "lungfish extract reads")
+            )
+            print("Created bundle: \(bundleURL.lastPathComponent)")
+        }
+    }
+}
+```
+
+Register this command under the appropriate parent (read the CLI structure to find where `extract` or similar commands are registered).
+
+- [ ] **Step 3: Update CondaExtractCommand with deprecation warning**
+
+In `CondaExtractCommand.swift`, add at the start of `run()`:
+
+```swift
+FileHandle.standardError.write(Data("WARNING: 'lungfish conda extract' is deprecated. Use 'lungfish extract reads --by-id' instead.\n".utf8))
+```
+
+- [ ] **Step 4: Update all GUI Operations Panel log messages to show real CLI commands**
+
+In each classifier's extraction callback, replace any `"(CLI command not yet available)"` or placeholder CLI strings with the actual `lungfish extract reads` command. Search across all VCs for these patterns and fix them.
+
+- [ ] **Step 5: Build and verify**
+
+Run: `swift build --build-tests 2>&1 | tail -10`
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add -A
+git commit -m "feat: add CLI 'lungfish extract reads' command with 3 strategies, deprecate conda extract"
+```
+
+---
+
+## Task 10: Final Build and Test Verification
 
 - [ ] **Step 1: Full build**
 
@@ -1259,3 +1461,10 @@ Search for patterns that should have been migrated:
 grep -rn "samtools.*fastq\|seqkit.*grep" Sources/LungfishApp/ --include="*.swift" | grep -v "//.*samtools\|//.*seqkit"
 ```
 Expected: No results in LungfishApp (all extraction via service in LungfishWorkflow)
+
+- [ ] **Step 5: Verify no "(CLI command not yet available)" placeholders**
+
+```bash
+grep -rn "not yet available\|CLI command not" Sources/ --include="*.swift"
+```
+Expected: No results (all operations have real CLI commands)
