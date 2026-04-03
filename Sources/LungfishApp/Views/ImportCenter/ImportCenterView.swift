@@ -175,14 +175,23 @@ private struct ImportCardView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             // Icon
-            Image(systemName: card.sfSymbol)
-                .font(.system(size: 28))
-                .foregroundStyle(Color.lungfishOrangeFallback)
-                .frame(width: 44, height: 44)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.lungfishOrangeFallback.opacity(0.1))
-                )
+            Group {
+                if let customImage = card.customImage {
+                    Image(nsImage: customImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 28, height: 28)
+                } else {
+                    Image(systemName: card.sfSymbol)
+                        .font(.system(size: 28))
+                        .foregroundStyle(Color.lungfishOrangeFallback)
+                }
+            }
+            .frame(width: 44, height: 44)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.lungfishOrangeFallback.opacity(0.1))
+            )
 
             // Text content
             VStack(alignment: .leading, spacing: 4) {

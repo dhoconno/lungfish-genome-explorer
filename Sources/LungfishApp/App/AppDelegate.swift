@@ -4026,7 +4026,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     sampleMetadataList.append(meta)
                 }
 
-                let dbURL = bundleDir.appendingPathComponent("nvd_results.db")
+                let dbURL = bundleDir.appendingPathComponent("hits.sqlite")
                 try NvdDatabase.create(
                     at: dbURL,
                     hits: parseResult.hits,
