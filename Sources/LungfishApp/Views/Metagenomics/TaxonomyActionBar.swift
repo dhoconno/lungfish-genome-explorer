@@ -32,6 +32,9 @@ final class TaxonomyActionBar: NSView {
     /// Called when the user clicks the Collections toggle button.
     var onToggleCollections: (() -> Void)?
 
+    /// Called when the user clicks the BLAST Results toggle button.
+    var onToggleBlastResults: (() -> Void)?
+
     // MARK: - State
 
     /// The currently selected taxon node.
@@ -44,6 +47,11 @@ final class TaxonomyActionBar: NSView {
 
     private let collectionsButton = NSButton(
         title: "Collections",
+        target: nil,
+        action: nil
+    )
+    private let blastResultsButton = NSButton(
+        title: "BLAST Results",
         target: nil,
         action: nil
     )
@@ -85,6 +93,18 @@ final class TaxonomyActionBar: NSView {
         collectionsButton.setAccessibilityLabel("Toggle Taxa Collections Drawer")
         addSubview(collectionsButton)
 
+        // BLAST Results toggle button (left side, after Collections)
+        blastResultsButton.translatesAutoresizingMaskIntoConstraints = false
+        blastResultsButton.bezelStyle = .accessoryBarAction
+        blastResultsButton.setButtonType(.pushOnPushOff)
+        blastResultsButton.image = NSImage(systemSymbolName: "bolt.circle", accessibilityDescription: "BLAST Results")
+        blastResultsButton.imagePosition = .imageLeading
+        blastResultsButton.target = self
+        blastResultsButton.action = #selector(blastResultsToggleTapped(_:))
+        blastResultsButton.setContentHuggingPriority(.required, for: .horizontal)
+        blastResultsButton.setAccessibilityLabel("Toggle BLAST Results Drawer")
+        addSubview(blastResultsButton)
+
         // Info label (center)
         infoLabel.translatesAutoresizingMaskIntoConstraints = false
         infoLabel.font = .systemFont(ofSize: 11, weight: .regular)
@@ -110,7 +130,10 @@ final class TaxonomyActionBar: NSView {
             collectionsButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             collectionsButton.centerYAnchor.constraint(equalTo: centerYAnchor),
 
-            infoLabel.leadingAnchor.constraint(equalTo: collectionsButton.trailingAnchor, constant: 12),
+            blastResultsButton.leadingAnchor.constraint(equalTo: collectionsButton.trailingAnchor, constant: 4),
+            blastResultsButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            infoLabel.leadingAnchor.constraint(equalTo: blastResultsButton.trailingAnchor, constant: 12),
             infoLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             infoLabel.trailingAnchor.constraint(
                 lessThanOrEqualTo: extractButton.leadingAnchor, constant: -12
@@ -169,6 +192,15 @@ final class TaxonomyActionBar: NSView {
         collectionsButton.state = isOpen ? .on : .off
     }
 
+    /// Updates the BLAST results button visual state to reflect drawer tab state.
+    ///
+    /// When the drawer is open on the BLAST tab the button appears pressed.
+    ///
+    /// - Parameter isOn: Whether the BLAST results tab is currently active.
+    func setBlastResultsActive(_ isOn: Bool) {
+        blastResultsButton.state = isOn ? .on : .off
+    }
+
     /// Returns the current info label text (for testing).
     var infoText: String {
         infoLabel.stringValue
@@ -193,5 +225,9 @@ final class TaxonomyActionBar: NSView {
 
     @objc private func collectionsToggleTapped(_ sender: NSButton) {
         onToggleCollections?()
+    }
+
+    @objc private func blastResultsToggleTapped(_ sender: NSButton) {
+        onToggleBlastResults?()
     }
 }

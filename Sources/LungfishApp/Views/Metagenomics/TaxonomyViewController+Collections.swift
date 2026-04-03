@@ -74,8 +74,13 @@ extension TaxonomyViewController: TaxaCollectionsDrawerDelegate {
         isTaxaCollectionsDrawerOpen = !isOpen
         UserDefaults.standard.set(isTaxaCollectionsDrawerOpen, forKey: Self.taxaDrawerOpenKey)
 
-        // Update the action bar toggle button state
+        // Update the action bar toggle button states
         actionBar.setCollectionsDrawerOpen(isTaxaCollectionsDrawerOpen)
+        if !isTaxaCollectionsDrawerOpen {
+            actionBar.setBlastResultsActive(false)
+        } else if taxaCollectionsDrawerView?.selectedTab == .blastResults {
+            actionBar.setBlastResultsActive(true)
+        }
 
         collectionsLogger.info("toggleTaxaCollectionsDrawer: Drawer now \(self.isTaxaCollectionsDrawerOpen ? "open" : "closed")")
 
@@ -132,6 +137,9 @@ extension TaxonomyViewController: TaxaCollectionsDrawerDelegate {
         taxaCollectionsDrawerBottomConstraint = bottomConstraint
         taxaCollectionsDrawerHeightConstraint = heightConstraint
         isTaxaCollectionsDrawerOpen = false
+
+        // Wire BLAST drawer tab callbacks (rerun, open in browser, cancel)
+        wireBlastDrawerCallbacks()
 
         // Set initial tree for match status
         drawer.setTree(tree)

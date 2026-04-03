@@ -22,6 +22,7 @@ extension TaxonomyViewController {
     ///
     /// - Parameter result: The BLAST verification result to display.
     func showBlastResults(_ result: BlastVerificationResult) {
+        lastBlastResult = result
         ensureDrawerOpenOnBlastTab()
 
         // Switch to BLAST tab and show results
@@ -68,6 +69,35 @@ extension TaxonomyViewController {
         blastVCLogger.error("BLAST verification failed: \(message, privacy: .public)")
     }
 
+    // MARK: - Drawer Callback Wiring
+
+    /// Wires the BLAST results tab callbacks (rerun, open in browser, cancel).
+    ///
+    /// Called from ``configureTaxaCollectionsDrawer()`` after the drawer is
+    /// created. The callbacks route through the same ``onBlastVerification``
+    /// path used by the initial BLAST request.
+    func wireBlastDrawerCallbacks() {
+        guard let drawer = taxaCollectionsDrawerView else { return }
+        let blastTab = drawer.blastResultsTab
+
+        blastTab.onRerunBlast = { [weak self] in
+            guard let self,
+                  let node = self.lastBlastNode,
+                  let result = self.lastBlastResult else { return }
+            self.onBlastVerification?(node, result.totalReads)
+        }
+
+        blastTab.onOpenInBrowser = { url in
+            NSWorkspace.shared.open(url)
+        }
+
+        blastTab.onCancelBlast = {
+            // Cancel is handled via OperationCenter cancel callback;
+            // the drawer's cancel button is informational only.
+            blastVCLogger.info("BLAST cancel requested from drawer")
+        }
+    }
+
     // MARK: - Private Helpers
 
     /// Ensures the drawer is created and open, with the BLAST tab selected.
@@ -84,6 +114,10 @@ extension TaxonomyViewController {
 
         // Switch to BLAST Results tab
         taxaCollectionsDrawerView?.switchToTab(.blastResults)
+
+        // Update action bar button states
+        actionBar.setBlastResultsActive(true)
+        actionBar.setCollectionsDrawerOpen(false)
     }
 
     // MARK: - Testing Accessors

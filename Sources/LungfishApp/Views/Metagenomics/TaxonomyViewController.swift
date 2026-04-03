@@ -150,6 +150,14 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     ///   - readCount: The number of reads to submit to BLAST.
     public var onBlastVerification: ((TaxonNode, Int) -> Void)?
 
+    // MARK: - BLAST State
+
+    /// The last-received BLAST verification result, for re-run support.
+    var lastBlastResult: BlastVerificationResult?
+
+    /// The taxon node that was last sent to BLAST, for re-run support.
+    var lastBlastNode: TaxonNode?
+
     // MARK: - Taxa Collections Drawer
 
     /// The taxa collections drawer view, created lazily on first toggle.
@@ -466,6 +474,42 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         actionBar.onToggleCollections = { [weak self] in
             guard let self else { return }
             self.toggleTaxaCollectionsDrawer()
+        }
+
+        // Action bar BLAST results toggle -> open drawer on BLAST tab
+        actionBar.onToggleBlastResults = { [weak self] in
+            guard let self else { return }
+            self.toggleBlastResultsTab()
+        }
+    }
+
+    /// Toggles the BLAST results tab in the taxa collections drawer.
+    ///
+    /// If the drawer is closed, opens it and switches to the BLAST tab.
+    /// If the drawer is open on the BLAST tab, closes it.
+    /// If the drawer is open on another tab, switches to the BLAST tab.
+    private func toggleBlastResultsTab() {
+        if taxaCollectionsDrawerView == nil {
+            // First open: create drawer, open it, switch to BLAST tab
+            toggleTaxaCollectionsDrawer()
+            taxaCollectionsDrawerView?.switchToTab(.blastResults)
+            actionBar.setBlastResultsActive(true)
+            actionBar.setCollectionsDrawerOpen(false)
+        } else if !isTaxaCollectionsDrawerOpen {
+            // Drawer exists but is closed: open and switch to BLAST tab
+            toggleTaxaCollectionsDrawer()
+            taxaCollectionsDrawerView?.switchToTab(.blastResults)
+            actionBar.setBlastResultsActive(true)
+            actionBar.setCollectionsDrawerOpen(false)
+        } else if taxaCollectionsDrawerView?.selectedTab == .blastResults {
+            // Already open on BLAST tab: close the drawer
+            toggleTaxaCollectionsDrawer()
+            actionBar.setBlastResultsActive(false)
+        } else {
+            // Drawer open on Collections tab: switch to BLAST tab
+            taxaCollectionsDrawerView?.switchToTab(.blastResults)
+            actionBar.setBlastResultsActive(true)
+            actionBar.setCollectionsDrawerOpen(false)
         }
     }
 
@@ -814,6 +858,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             readsClade: node.readsClade
         ) { [weak self, weak popover] readCount in
             popover?.performClose(nil)
+            self?.lastBlastNode = node
             self?.onBlastVerification?(node, readCount)
         }
 
