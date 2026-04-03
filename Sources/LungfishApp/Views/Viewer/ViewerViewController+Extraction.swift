@@ -333,7 +333,7 @@ extension SequenceViewerView {
     }
 
     func createExtractionBundle(
-        from result: ExtractionResult,
+        from result: LungfishCore.ExtractionResult,
         bundleName: String,
         concatenateExons: Bool = false,
         sampleFilter: Set<String>? = nil

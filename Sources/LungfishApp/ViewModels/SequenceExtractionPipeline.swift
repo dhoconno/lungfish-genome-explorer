@@ -62,7 +62,7 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
     ///   - progressHandler: Optional progress callback (fraction, message).
     /// - Returns: URL of the created `.lungfishref` bundle.
     public func buildBundle(
-        from result: ExtractionResult,
+        from result: LungfishCore.ExtractionResult,
         outputDirectory: URL,
         sourceBundleName: String? = nil,
         desiredBundleName: String? = nil,
