@@ -144,7 +144,7 @@ final class ClassifierActionBar: NSView {
 |-----------|----------------|---------|
 | **Kraken2** | Collections toggle | — |
 | **EsViritu** | — | Re-run button |
-| **TaxTriage** | Re-run, Open Report | — |
+| **TaxTriage** | Open Report | Re-run button |
 | **NAO-MGS** | — | — |
 | **NVD** | — | — |
 
