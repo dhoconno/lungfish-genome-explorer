@@ -318,6 +318,8 @@ final class AboutWindowController: NSWindowController {
              "https://github.com/jhuapl-bio/taxtriage"),
             ("Nextflow", "Di Tommaso P, Chatzou M, Floden EW, et al.", "Apache 2.0",
              "https://github.com/nextflow-io/nextflow"),
+            ("NVD", "O'Connor DH, Ramuta MD, et al.", "MIT",
+             "https://github.com/dholab/nvd"),
         ])
 
         appendHeading("Alignment")
