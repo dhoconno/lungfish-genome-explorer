@@ -823,6 +823,24 @@ public class InspectorViewController: NSViewController {
         viewModel.documentSectionViewModel.sampleStrippedPrefix = strippedPrefix
     }
 
+    /// Updates the NVD manifest in the Document section.
+    ///
+    /// - Parameter manifest: The NVD manifest, or nil to clear
+    public func updateNvdManifest(_ manifest: NvdManifest?) {
+        viewModel.documentSectionViewModel.updateNvdManifest(manifest)
+    }
+
+    /// Wires the shared NVD sample picker state for the Inspector-embedded sample selector.
+    func updateNvdSampleState(
+        pickerState: NvdSamplePickerState,
+        entries: [NvdSampleEntry],
+        strippedPrefix: String
+    ) {
+        viewModel.documentSectionViewModel.nvdSamplePickerState = pickerState
+        viewModel.documentSectionViewModel.nvdSampleEntries = entries
+        viewModel.documentSectionViewModel.nvdSampleStrippedPrefix = strippedPrefix
+    }
+
     /// Injects the shared AI assistant service used by the embedded inspector tab.
     public func setAIAssistantService(_ service: AIAssistantService) {
         viewModel.aiAssistantService = service
@@ -1473,6 +1491,10 @@ private struct MetagenomicsResultSummarySection: View {
                 naoMgsSection(naoManifest)
             }
 
+            if let nvdManifest = viewModel.nvdManifest {
+                nvdSection(nvdManifest)
+            }
+
             if viewModel.hasAnyContent {
                 Text("See the viewer for detailed results. Use the bottom drawer for BLAST verification and sample navigation.")
                     .font(.caption)
@@ -1523,6 +1545,26 @@ private struct MetagenomicsResultSummarySection: View {
                     NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil)
                 }
             }
+
+            if let pickerState = viewModel.nvdSamplePickerState, !viewModel.nvdSampleEntries.isEmpty {
+                Divider()
+                    .padding(.vertical, 4)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Sample Filter")
+                        .font(.caption.weight(.semibold))
+
+                    NvdSamplePickerView(
+                        samples: viewModel.nvdSampleEntries,
+                        pickerState: pickerState,
+                        strippedPrefix: viewModel.nvdSampleStrippedPrefix,
+                        isInline: true
+                    )
+                }
+                .onChange(of: pickerState.selectedSamples) { _, _ in
+                    NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil)
+                }
+            }
         }
     }
 
@@ -1552,6 +1594,32 @@ private struct MetagenomicsResultSummarySection: View {
             if !manifest.fetchedAccessions.isEmpty {
                 metadataRow("References", value: "\(manifest.fetchedAccessions.count) fetched")
             }
+        }
+    }
+
+    @ViewBuilder
+    private func nvdSection(_ manifest: NvdManifest) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("NVD Result")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.primary)
+
+            metadataRow("Experiment", value: manifest.experiment)
+            metadataRow("Samples", value: "\(manifest.sampleCount)")
+            metadataRow("Contigs", value: "\(manifest.contigCount)")
+            metadataRow("BLAST Hits", value: "\(manifest.hitCount)")
+            if let blastDbVersion = manifest.blastDbVersion {
+                metadataRow("BLAST DB", value: blastDbVersion)
+            }
+            if let runId = manifest.snakemakeRunId {
+                metadataRow("Run ID", value: runId)
+            }
+            metadataRow("Imported", value: {
+                let formatter = DateFormatter()
+                formatter.dateStyle = .medium
+                formatter.timeStyle = .short
+                return formatter.string(from: manifest.importDate)
+            }())
         }
     }
 
@@ -1603,6 +1671,7 @@ extension SidebarItemType: CustomStringConvertible {
         case .esvirituResult: return "Viral Detection Result"
         case .taxTriageResult: return "Comprehensive Triage Result"
         case .naoMgsResult: return "NAO-MGS Surveillance Result"
+        case .nvdResult: return "NVD Classification Result"
         }
     }
 }

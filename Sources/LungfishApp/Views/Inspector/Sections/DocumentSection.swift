@@ -95,6 +95,16 @@ public final class DocumentSectionViewModel {
         self.naoMgsManifest = manifest
     }
 
+    // MARK: - NVD Metadata
+
+    /// NVD manifest when displaying an NVD result bundle.
+    var nvdManifest: NvdManifest?
+
+    /// Updates the view model with NVD manifest data.
+    func updateNvdManifest(_ manifest: NvdManifest?) {
+        self.nvdManifest = manifest
+    }
+
     // MARK: - Layout Preferences
     /// When true, taxonomy table is on the left instead of the default right.
     var isTableOnLeft: Bool = UserDefaults.standard.bool(forKey: "metagenomicsTableOnLeft")
@@ -107,9 +117,18 @@ public final class DocumentSectionViewModel {
     /// Common prefix stripped from sample display names.
     var sampleStrippedPrefix: String = ""
 
-    /// Whether any content is available for display (bundle, FASTQ, SRA, or NAO-MGS metadata).
+    // MARK: - NVD Sample Picker State
+
+    /// Shared NVD sample picker state for Inspector-embedded sample selector.
+    var nvdSamplePickerState: NvdSamplePickerState?
+    /// NVD sample entries for the picker view.
+    var nvdSampleEntries: [NvdSampleEntry] = []
+    /// Common prefix stripped from NVD sample display names.
+    var nvdSampleStrippedPrefix: String = ""
+
+    /// Whether any content is available for display (bundle, FASTQ, SRA, NAO-MGS, or NVD metadata).
     var hasAnyContent: Bool {
-        manifest != nil || fastqStatistics != nil || sraRunInfo != nil || enaReadRecord != nil || naoMgsManifest != nil
+        manifest != nil || fastqStatistics != nil || sraRunInfo != nil || enaReadRecord != nil || naoMgsManifest != nil || nvdManifest != nil
     }
 }
 

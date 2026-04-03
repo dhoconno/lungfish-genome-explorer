@@ -1,5 +1,5 @@
-// ViewerViewController+NaoMgs.swift - NAO-MGS result display extension
-// Copyright (c) 2025 Lungfish Contributors
+// ViewerViewController+Nvd.swift - NVD result display extension
+// Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
 import AppKit
@@ -7,23 +7,23 @@ import LungfishCore
 import LungfishIO
 import os.log
 
-private let naoMgsDisplayLogger = Logger(subsystem: "com.lungfish", category: "NaoMgsDisplay")
+private let nvdDisplayLogger = Logger(subsystem: "com.lungfish", category: "NvdDisplay")
 
-// MARK: - ViewerViewController NAO-MGS Display Extension
+// MARK: - ViewerViewController NVD Display Extension
 
 extension ViewerViewController {
 
-    /// Displays the NAO-MGS result viewer in place of the normal sequence viewer.
+    /// Displays the NVD result viewer in place of the normal sequence viewer.
     ///
     /// Hides all other overlay views (FASTQ, VCF, FASTA, QuickLook, other
     /// metagenomics viewers) and adds the pre-configured
-    /// `NaoMgsResultViewController` as a child view controller filling the
+    /// `NvdResultViewController` as a child view controller filling the
     /// content area.
     ///
-    /// Follows the exact same child-VC pattern as ``displayTaxonomyResult(_:)``.
+    /// Follows the exact same child-VC pattern as ``displayNaoMgsResult(_:)``.
     ///
-    /// - Parameter controller: A pre-configured `NaoMgsResultViewController`.
-    public func displayNaoMgsResult(_ controller: NaoMgsResultViewController) {
+    /// - Parameter controller: A pre-configured `NvdResultViewController`.
+    public func displayNvdResult(_ controller: NvdResultViewController) {
         hideQuickLookPreview()
         hideFASTQDatasetView()
         hideVCFDatasetView()
@@ -38,19 +38,20 @@ extension ViewerViewController {
         addChild(controller)
 
         // Wire BLAST verification callback.
-        controller.onBlastVerification = { [weak controller] summary, readCount, reads in
-            let selectedReadCount = min(50, max(1, readCount))
-            let taxonName = summary.name.isEmpty ? "Taxid \(summary.taxId)" : summary.name
-            naoMgsDisplayLogger.info(
-                "BLAST verification requested for \(taxonName, privacy: .public), readCount=\(selectedReadCount, privacy: .public), availableReads=\(reads.count, privacy: .public)"
+        // NVD submits a single contig sequence rather than multiple reads.
+        controller.onBlastVerification = { [weak controller] hit, sequence in
+            let contigName = NvdDataConverter.displayName(for: hit.qseqid, qlen: hit.qlen)
+            let taxIdInt = Int(hit.adjustedTaxid) ?? 0
+            nvdDisplayLogger.info(
+                "BLAST verification requested for \(contigName, privacy: .public), taxId=\(taxIdInt, privacy: .public)"
             )
 
             let blastCliCmd = OperationCenter.buildCLICommand(
                 subcommand: "blast verify",
-                args: ["--taxid", "\(summary.taxId)"]
+                args: ["--taxid", "\(taxIdInt)"]
             )
             let opID = OperationCenter.shared.start(
-                title: "BLAST \(taxonName)",
+                title: "BLAST \(contigName)",
                 detail: "Preparing BLAST verification\u{2026}",
                 operationType: .blastVerification,
                 cliCommand: blastCliCmd
@@ -60,33 +61,20 @@ extension ViewerViewController {
             let task = Task.detached {
                 do {
                     let blastService = BlastService.shared
-                    let allReads = reads.compactMap { hit -> (id: String, sequence: String)? in
-                        let sequence = hit.readSequence.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !sequence.isEmpty else { return nil }
-                        return (id: hit.seqId, sequence: sequence)
-                    }
 
-                    guard !allReads.isEmpty else {
+                    let trimmedSequence = sequence.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmedSequence.isEmpty else {
                         throw BlastServiceError.noSequences
                     }
 
-                    let longestCount = min(5, selectedReadCount / 4)
-                    let strategy = SubsampleStrategy.mixed(
-                        longest: longestCount,
-                        random: selectedReadCount - longestCount
-                    )
-                    let subsampled = blastService.subsampleReads(from: allReads, strategy: strategy)
-
-                    guard !subsampled.isEmpty else {
-                        throw BlastServiceError.noSequences
-                    }
+                    let sequences: [(id: String, sequence: String)] = [(id: hit.qseqid, sequence: trimmedSequence)]
 
                     let request = BlastVerificationRequest(
-                        taxonName: taxonName,
-                        taxId: summary.taxId,
-                        sequences: subsampled,
+                        taxonName: contigName,
+                        taxId: taxIdInt,
+                        sequences: sequences,
                         database: "core_nt",
-                        entrezQuery: "txid\(summary.taxId)[Organism:exp]"
+                        entrezQuery: nil  // No entrez filter for NVD
                     )
 
                     DispatchQueue.main.async {
@@ -94,7 +82,7 @@ extension ViewerViewController {
                             OperationCenter.shared.update(
                                 id: opID,
                                 progress: 0.1,
-                                detail: "Submitting \(request.sequences.count) reads to NCBI BLAST\u{2026}"
+                                detail: "Submitting contig to NCBI BLAST\u{2026}"
                             )
                             blastController?.showBlastLoading(phase: .submitting, requestId: nil)
                         }
@@ -147,7 +135,7 @@ extension ViewerViewController {
             OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
         }
 
-        // Hide normal genomic viewer components (same pattern as Taxonomy/EsViritu/TaxTriage).
+        // Hide normal genomic viewer components (same pattern as Taxonomy/EsViritu/TaxTriage/NAO-MGS).
         enhancedRulerView.isHidden = true
         viewerView.isHidden = true
         headerView.isHidden = true
@@ -168,19 +156,20 @@ extension ViewerViewController {
         ])
     }
 
-    /// Hides the NAO-MGS result viewer if one is displayed and restores normal viewer components.
-    public func hideNaoMgsView() {
-        for child in children where child is NaoMgsResultViewController {
+    /// Hides the NVD result viewer if one is displayed and restores normal viewer components.
+    public func hideNvdView() {
+        for child in children where child is NvdResultViewController {
             child.view.removeFromSuperview()
             child.removeFromParent()
         }
 
         // Restore normal viewer components (only if no other metagenomics viewer is active).
-        // hideTaxonomyView / hideEsVirituView / hideTaxTriageView each restore these too,
-        // so this guard prevents double-restore when switching between metagenomics results.
+        // hideTaxonomyView / hideEsVirituView / hideTaxTriageView / hideNaoMgsView each restore
+        // these too, so this guard prevents double-restore when switching between metagenomics results.
         guard taxonomyViewController == nil,
               esVirituViewController == nil,
-              taxTriageViewController == nil else { return }
+              taxTriageViewController == nil,
+              !children.contains(where: { $0 is NaoMgsResultViewController }) else { return }
 
         enhancedRulerView.isHidden = false
         viewerView.isHidden = false

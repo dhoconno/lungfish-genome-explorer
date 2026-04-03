@@ -922,6 +922,10 @@ public class SidebarViewController: NSViewController {
                 // Scan for NAO-MGS result bundles (naomgs-XXXXXXXX/).
                 let naoMgsChildren = collectNaoMgsResults(in: scanDir)
                 item.children.append(contentsOf: naoMgsChildren)
+
+                // Scan for NVD result bundles (nvd-XXXXXXXX/).
+                let nvdChildren = collectNvdResults(in: scanDir)
+                item.children.append(contentsOf: nvdChildren)
             }
 
             // Scan for extracted read bundles (.lungfishfastq) at the top level.
@@ -1002,6 +1006,11 @@ public class SidebarViewController: NSViewController {
             // FASTQ bundles, NAO-MGS bundles are standalone in Imports/.
             let naoMgsItems = collectNaoMgsResults(in: url)
             item.children.append(contentsOf: naoMgsItems)
+
+            // Scan for NVD result bundles at this directory level.
+            // Like NAO-MGS, NVD bundles are standalone in Imports/ or Downloads/.
+            let nvdItems = collectNvdResults(in: url)
+            item.children.append(contentsOf: nvdItems)
         }
 
         return item
@@ -1073,6 +1082,12 @@ public class SidebarViewController: NSViewController {
 
         // NAO-MGS result bundles
         if name.hasPrefix("naomgs-") {
+            let sidecar = url.appendingPathComponent("manifest.json")
+            if fm.fileExists(atPath: sidecar.path) { return true }
+        }
+
+        // NVD result bundles
+        if name.hasPrefix("nvd-") {
             let sidecar = url.appendingPathComponent("manifest.json")
             if fm.fileExists(atPath: sidecar.path) { return true }
         }
@@ -1659,6 +1674,67 @@ public class SidebarViewController: NSViewController {
             return "NAO-MGS"
         }
         return "NAO-MGS: \(manifest.sampleName)"
+    }
+
+    /// Collects NVD result bundles from inside a directory.
+    ///
+    /// Scans for `nvd-*` directories that contain a `manifest.json` sidecar,
+    /// builds a sidebar item for each one using the experiment name from the manifest.
+    ///
+    /// - Parameter bundleURL: Directory to scan (typically a FASTQ bundle or Imports/).
+    /// - Returns: Array of `SidebarItem` nodes for NVD result bundles.
+    private func collectNvdResults(in bundleURL: URL) -> [SidebarItem] {
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(
+            at: bundleURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+
+        var results: [SidebarItem] = []
+
+        for childURL in contents {
+            guard childURL.lastPathComponent.hasPrefix("nvd-") else { continue }
+            guard !OperationMarker.isInProgress(childURL) else { continue }
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: childURL.path, isDirectory: &isDir), isDir.boolValue else { continue }
+
+            // Require a manifest.json sidecar
+            let manifestURL = childURL.appendingPathComponent("manifest.json")
+            guard fm.fileExists(atPath: manifestURL.path) else { continue }
+
+            // Read the manifest for display title
+            let title = nvdResultTitle(for: childURL)
+
+            let item = SidebarItem(
+                title: title,
+                type: .nvdResult,
+                customImage: TextBadgeIcon.image(text: "Nvd", size: NSSize(width: 16, height: 16)),
+                children: [],
+                url: childURL
+            )
+            results.append(item)
+        }
+
+        return results.sorted {
+            $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+        }
+    }
+
+    /// Derives a display title for an NVD result bundle from its manifest.
+    ///
+    /// Falls back to "NVD" if the manifest cannot be read.
+    private func nvdResultTitle(for directory: URL) -> String {
+        let manifestURL = directory.appendingPathComponent("manifest.json")
+        guard let data = try? Data(contentsOf: manifestURL) else {
+            return "NVD"
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let manifest = try? decoder.decode(NvdManifest.self, from: data) else {
+            return "NVD"
+        }
+        return "NVD: \(manifest.experiment)"
     }
 
     /// Counts the total number of items in a tree.
@@ -2832,6 +2908,7 @@ public enum SidebarItemType {
     case esvirituResult        // EsViritu viral detection result folder
     case taxTriageResult       // TaxTriage comprehensive triage result folder
     case naoMgsResult          // NAO-MGS surveillance result bundle
+    case nvdResult             // NVD (Novel Virus Diagnostics) result bundle
 
     var tintColor: NSColor {
         switch self {
@@ -2852,6 +2929,7 @@ public enum SidebarItemType {
         case .esvirituResult: return .lungfishOrange
         case .taxTriageResult: return .lungfishOrange
         case .naoMgsResult: return .lungfishOrange
+        case .nvdResult: return .lungfishOrange
         }
     }
 

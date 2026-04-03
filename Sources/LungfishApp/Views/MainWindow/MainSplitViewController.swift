@@ -1629,6 +1629,12 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             return
         }
 
+        // NVD result bundles
+        if item.type == .nvdResult, let url = item.url {
+            displayNvdResultFromSidebar(at: url)
+            return
+        }
+
         // Genomics files - check cache first
         if let url = item.url {
             displayGenomicsFile(url: url)
@@ -1922,6 +1928,96 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                         logger.error("displayNaoMgsResult: Failed - \(error.localizedDescription, privacy: .public)")
                         let alert = NSAlert()
                         alert.messageText = "Failed to Load NAO-MGS Result"
+                        alert.informativeText = error.localizedDescription
+                        alert.alertStyle = .warning
+                        alert.addButton(withTitle: "OK")
+                        if let window = self.view.window ?? NSApp.keyWindow {
+                            alert.beginSheetModal(for: window)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Displays an NVD result from its bundle directory.
+    ///
+    /// Two-phase loading: manifest first (fast) for instant contig list,
+    /// then SQLite database (slower) for full detail queries.
+    ///
+    /// - Parameter url: The `nvd-*` bundle directory.
+    private func displayNvdResultFromSidebar(at url: URL) {
+        logger.info("displayNvdResult: Opening '\(url.lastPathComponent, privacy: .public)'")
+
+        // Show a placeholder immediately so the user gets feedback while we load.
+        let placeholderVC = NvdResultViewController()
+        viewerController.displayNvdResult(placeholderVC)
+
+        // Two-phase load: manifest first (fast) for instant contig list,
+        // then SQLite database (slower) for detail queries.
+        let bundleURL = url
+        Task {
+            do {
+                let fm = FileManager.default
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+
+                // Phase 1: Read manifest (fast — small JSON file).
+                let manifestURL = bundleURL.appendingPathComponent("manifest.json")
+                guard fm.fileExists(atPath: manifestURL.path) else {
+                    throw NSError(domain: "NvdDisplay", code: 1,
+                                  userInfo: [NSLocalizedDescriptionKey: "manifest.json not found in NVD bundle"])
+                }
+                let manifestData = try Data(contentsOf: manifestURL)
+                let manifest = try decoder.decode(NvdManifest.self, from: manifestData)
+
+                // If manifest has cached contig rows, show them immediately.
+                if let cachedRows = manifest.cachedTopContigs, !cachedRows.isEmpty {
+                    DispatchQueue.main.async { [weak self] in
+                        MainActor.assumeIsolated {
+                            guard let self else { return }
+                            placeholderVC.configureWithCachedRows(cachedRows, manifest: manifest, bundleURL: bundleURL)
+                            self.inspectorController?.updateNvdManifest(manifest)
+                            logger.info("displayNvdResult: Showing \(cachedRows.count) cached contig rows instantly")
+                        }
+                    }
+                }
+
+                // Phase 2: Open SQLite database (slower — full file I/O + SQLite init).
+                let dbURL = bundleURL.appendingPathComponent("hits.sqlite")
+                guard fm.fileExists(atPath: dbURL.path) else {
+                    throw NSError(domain: "NvdDisplay", code: 2,
+                                  userInfo: [NSLocalizedDescriptionKey: "hits.sqlite not found — bundle may need re-import"])
+                }
+                let database = try NvdDatabase(at: dbURL)
+
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        // Full configure with database — enables detail queries, filtering, BLAST.
+                        placeholderVC.configure(database: database, manifest: manifest, bundleURL: bundleURL)
+
+                        // Update inspector with NVD manifest info
+                        self.inspectorController?.updateNvdManifest(manifest)
+
+                        // Wire sample picker state to Inspector for embedded sample selector
+                        self.inspectorController?.updateNvdSampleState(
+                            pickerState: placeholderVC.samplePickerState,
+                            entries: placeholderVC.sampleEntries,
+                            strippedPrefix: placeholderVC.strippedPrefix
+                        )
+
+                        let totalHits = (try? database.totalHitCount()) ?? manifest.hitCount
+                        logger.info("displayNvdResult: Configured with database, \(totalHits) hits")
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        logger.error("displayNvdResult: Failed - \(error.localizedDescription, privacy: .public)")
+                        let alert = NSAlert()
+                        alert.messageText = "Failed to Load NVD Result"
                         alert.informativeText = error.localizedDescription
                         alert.alertStyle = .warning
                         alert.addButton(withTitle: "OK")

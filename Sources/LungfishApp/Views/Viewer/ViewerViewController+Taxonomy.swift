@@ -79,6 +79,7 @@ extension ViewerViewController {
         hideEsVirituView()
         hideTaxTriageView()
         hideNaoMgsView()
+        hideNvdView()
         contentMode = .metagenomics
 
         let controller = TaxonomyViewController()
