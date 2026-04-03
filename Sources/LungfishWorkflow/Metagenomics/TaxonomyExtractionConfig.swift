@@ -75,6 +75,15 @@ public struct TaxonomyExtractionConfig: Sendable, Equatable {
     /// determine which reads to extract.
     public let classificationOutput: URL
 
+    /// Whether to extract both mates of a read pair when either is classified.
+    ///
+    /// When `true` (the default), paired-end suffixes (`/1`, `/2`) are stripped
+    /// from read IDs before matching so that both mates are extracted whenever
+    /// either mate is classified. When `false`, only reads whose exact IDs
+    /// appear in the Kraken2 output are extracted -- if only `read123/1` is
+    /// classified, `read123/2` is not included.
+    public let keepReadPairs: Bool
+
     /// Creates a taxonomy extraction configuration for paired-end or multi-file input.
     ///
     /// - Parameters:
@@ -88,13 +97,15 @@ public struct TaxonomyExtractionConfig: Sendable, Equatable {
         includeChildren: Bool,
         sourceFiles: [URL],
         outputFiles: [URL],
-        classificationOutput: URL
+        classificationOutput: URL,
+        keepReadPairs: Bool = true
     ) {
         self.taxIds = taxIds
         self.includeChildren = includeChildren
         self.sourceFiles = sourceFiles
         self.outputFiles = outputFiles
         self.classificationOutput = classificationOutput
+        self.keepReadPairs = keepReadPairs
     }
 
     /// Creates a taxonomy extraction configuration for a single input file.
@@ -114,13 +125,15 @@ public struct TaxonomyExtractionConfig: Sendable, Equatable {
         includeChildren: Bool,
         sourceFile: URL,
         outputFile: URL,
-        classificationOutput: URL
+        classificationOutput: URL,
+        keepReadPairs: Bool = true
     ) {
         self.taxIds = taxIds
         self.includeChildren = includeChildren
         self.sourceFiles = [sourceFile]
         self.outputFiles = [outputFile]
         self.classificationOutput = classificationOutput
+        self.keepReadPairs = keepReadPairs
     }
 
     // MARK: - Backward-Compatible Accessors

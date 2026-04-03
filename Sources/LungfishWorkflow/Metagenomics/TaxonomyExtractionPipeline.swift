@@ -127,6 +127,7 @@ public actor TaxonomyExtractionPipeline {
         let matchingReadIds = try buildReadIdSet(
             classificationURL: config.classificationOutput,
             targetTaxIds: targetTaxIds,
+            keepReadPairs: config.keepReadPairs,
             progress: progress
         )
 
@@ -363,6 +364,7 @@ public actor TaxonomyExtractionPipeline {
     private func buildReadIdSet(
         classificationURL: URL,
         targetTaxIds: Set<Int>,
+        keepReadPairs: Bool = true,
         progress: (@Sendable (Double, String) -> Void)?
     ) throws -> Set<String> {
         guard let fileHandle = FileHandle(forReadingAtPath: classificationURL.path) else {
@@ -416,10 +418,13 @@ public actor TaxonomyExtractionPipeline {
                     let taxIdStr = columns[2].trimmingCharacters(in: .whitespaces)
                     guard let taxId = Int(taxIdStr), targetTaxIds.contains(taxId) else { continue }
 
-                    // Column 1: read ID (strip /1 or /2 paired-end suffix for matching)
+                    // Column 1: read ID
                     var readId = String(columns[1].trimmingCharacters(in: .whitespaces))
-                    if readId.hasSuffix("/1") || readId.hasSuffix("/2") {
-                        readId = String(readId.dropLast(2))
+                    if keepReadPairs {
+                        // Strip /1 or /2 paired-end suffix so both mates match
+                        if readId.hasSuffix("/1") || readId.hasSuffix("/2") {
+                            readId = String(readId.dropLast(2))
+                        }
                     }
                     matchingReadIds.insert(readId)
                 }
@@ -442,8 +447,10 @@ public actor TaxonomyExtractionPipeline {
                 let taxIdStr = columns[2].trimmingCharacters(in: .whitespaces)
                 guard let taxId = Int(taxIdStr), targetTaxIds.contains(taxId) else { continue }
                 var readId = String(columns[1].trimmingCharacters(in: .whitespaces))
-                if readId.hasSuffix("/1") || readId.hasSuffix("/2") {
-                    readId = String(readId.dropLast(2))
+                if keepReadPairs {
+                    if readId.hasSuffix("/1") || readId.hasSuffix("/2") {
+                        readId = String(readId.dropLast(2))
+                    }
                 }
                 matchingReadIds.insert(readId)
             }

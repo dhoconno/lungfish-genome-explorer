@@ -62,6 +62,9 @@ struct ExtractSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("kreport"), help: "Kreport file for taxonomy tree (required with --include-children)")
     var kreportFile: String?
 
+    @Flag(name: .customLong("no-read-pairs"), help: "Extract only exact read IDs (don't pair /1 and /2 mates)")
+    var noReadPairs: Bool = false
+
     @OptionGroup var globalOptions: GlobalOptions
 
     // MARK: - Validation
@@ -138,7 +141,8 @@ struct ExtractSubcommand: AsyncParsableCommand {
             includeChildren: includeChildren,
             sourceFiles: sourceURLs,
             outputFiles: outputURLs,
-            classificationOutput: krakenOutputURL
+            classificationOutput: krakenOutputURL,
+            keepReadPairs: !noReadPairs
         )
 
         // Print configuration
@@ -149,6 +153,7 @@ struct ExtractSubcommand: AsyncParsableCommand {
             ("Output files", outputURLs.map(\.lastPathComponent).joined(separator: ", ")),
             ("Tax IDs", parsedTaxIds.sorted().map(String.init).joined(separator: ", ")),
             ("Include children", includeChildren ? "yes" : "no"),
+            ("Keep read pairs", config.keepReadPairs ? "yes" : "no"),
             ("Kraken output", krakenOutputURL.lastPathComponent),
         ]))
         print("")

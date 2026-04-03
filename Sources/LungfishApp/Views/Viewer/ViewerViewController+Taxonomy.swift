@@ -123,10 +123,24 @@ extension ViewerViewController {
 
             // Register the operation in OperationCenter for the operations panel.
             let extractCliCmd: String = {
-                var args = ["--kreport", config.classificationOutput.path]
-                args += config.taxIds.sorted().map { "--taxid \($0)" }.flatMap { $0.split(separator: " ").map(String.init) }
-                args += config.sourceFiles.map(\.path)
-                return "# " + OperationCenter.buildCLICommand(subcommand: "extract", args: args) + " (CLI command not yet available \u{2014} use GUI)"
+                var args = ["extract"]
+                args += ["--kraken-output", config.classificationOutput.path]
+                for taxId in config.taxIds.sorted() {
+                    args += ["--taxid", "\(taxId)"]
+                }
+                if config.includeChildren {
+                    args += ["--include-children"]
+                }
+                if !config.keepReadPairs {
+                    args += ["--no-read-pairs"]
+                }
+                for source in config.sourceFiles {
+                    args += ["--source", source.path]
+                }
+                for output in config.outputFiles {
+                    args += ["--output", output.path]
+                }
+                return OperationCenter.buildCLICommand(subcommand: "conda", args: args)
             }()
             let opID = OperationCenter.shared.start(
                 title: "Extract \(taxonLabel)",
@@ -196,7 +210,7 @@ extension ViewerViewController {
         // When the user clicks "Extract" on a collection, run the batch pipeline
         // using the same Task.detached + OperationCenter pattern.
         controller.onBatchExtract = { collection, classResult in
-            let batchExtractCliCmd = "# lungfish extract --collection \(collection.name) (CLI command not yet available \u{2014} use GUI)"
+            let batchExtractCliCmd = "# Batch extraction for collection '\(collection.name)' \u{2014} run individual 'lungfish conda extract' commands per taxon"
             let opID = OperationCenter.shared.start(
                 title: "Extract \(collection.name)",
                 detail: "Preparing batch extraction\u{2026}",

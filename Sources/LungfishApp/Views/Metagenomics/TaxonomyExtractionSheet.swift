@@ -62,6 +62,7 @@ struct TaxonomyExtractionSheet: View {
     // MARK: - State
 
     @State private var includeChildren: Bool
+    @State private var keepReadPairs: Bool
     @State private var outputName: String
 
     // MARK: - Callbacks
@@ -121,6 +122,7 @@ struct TaxonomyExtractionSheet: View {
         }
 
         _includeChildren = State(initialValue: initialIncludeChildren)
+        _keepReadPairs = State(initialValue: true)
         _outputName = State(initialValue: "\(cleanStem)_\(taxonSuffix).fastq")
     }
 
@@ -231,6 +233,15 @@ struct TaxonomyExtractionSheet: View {
                         .padding(.leading, 20)
                 }
 
+                // Keep read pairs toggle
+                Toggle("Keep read pairs", isOn: $keepReadPairs)
+                    .toggleStyle(.checkbox)
+
+                Text("Extract both mates when either is classified")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 20)
+
                 Divider()
                     .padding(.vertical, 4)
 
@@ -320,7 +331,8 @@ struct TaxonomyExtractionSheet: View {
                 includeChildren: includeChildren,
                 sourceFiles: sourceURLs,
                 outputFiles: outputURLs,
-                classificationOutput: classificationOutputURL
+                classificationOutput: classificationOutputURL,
+                keepReadPairs: keepReadPairs
             )
             onExtract?(config)
         } else {
@@ -334,7 +346,8 @@ struct TaxonomyExtractionSheet: View {
                 includeChildren: includeChildren,
                 sourceFile: sourceURLs[0],
                 outputFile: outputURL,
-                classificationOutput: classificationOutputURL
+                classificationOutput: classificationOutputURL,
+                keepReadPairs: keepReadPairs
             )
             onExtract?(config)
         }
