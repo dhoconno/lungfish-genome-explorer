@@ -206,6 +206,16 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     /// Observable state shared with the SwiftUI sample picker popover and Inspector.
     public var samplePickerState: ClassifierSamplePickerState!
 
+    /// Sample metadata for dynamic column display in the outline view.
+    var sampleMetadataStore: SampleMetadataStore? {
+        didSet {
+            updateMetadataColumnsForCurrentSamples()
+        }
+    }
+
+    /// Controller for dynamic sample metadata columns (from imported CSV/TSV).
+    private let metadataColumnController = MetadataColumnController()
+
     // MARK: - Callbacks
 
     /// Called when the user confirms BLAST verification for a contig.
@@ -1033,6 +1043,14 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         outlineScrollView.drawsBackground = true
 
         outlineView.setAccessibilityLabel("NVD Contig Outline")
+
+        // Install metadata column controller for dynamic sample metadata columns.
+        metadataColumnController.standardColumnNames = [
+            "Sample", "Contig", "Length", "Classification", "Rank",
+            "Accession", "Subject", "% Identity", "E-value", "Bitscore",
+            "Mapped Reads", "Reads/Billion", "Aln Length",
+        ]
+        metadataColumnController.install(on: outlineView)
     }
 
     private func setupFilterBar(in container: NSView) {
@@ -1234,6 +1252,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         guard newSelection != selectedSamples else { return }
         selectedSamples = newSelection
         updateSampleFilterButtonTitle()
+        updateMetadataColumnsForCurrentSamples()
         reloadOutlineData()
         summaryBar.update(
             experiment: manifest?.experiment ?? "",
@@ -1323,6 +1342,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
         selectedSamples = newSelection
         updateSampleFilterButtonTitle()
+        updateMetadataColumnsForCurrentSamples()
         reloadOutlineData()
         summaryBar.update(
             experiment: manifest?.experiment ?? "",
@@ -1644,6 +1664,21 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
     }
 
+    // MARK: - Metadata Column Updates
+
+    /// Updates metadata columns for the current sample selection.
+    private func updateMetadataColumnsForCurrentSamples() {
+        let isMulti = selectedSamples.count > 1
+        let sampleId: String?
+        if selectedSamples.count == 1 {
+            sampleId = selectedSamples.first
+        } else {
+            sampleId = nil
+        }
+        metadataColumnController.isMultiSampleMode = isMulti
+        metadataColumnController.update(store: sampleMetadataStore, sampleId: sampleId)
+    }
+
     // MARK: - Export
 
     public func exportResults() {
@@ -1659,10 +1694,22 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             guard response == .OK, let url = savePanel.url, let self else { return }
 
             var lines: [String] = []
-            lines.append("sample_id\tcontig\tlength\tclassification\trank\taccession\tsubject\tpident\tevalue\tbitscore\tmapped_reads\treads_per_billion")
+            var header = "sample_id\tcontig\tlength\tclassification\trank\taccession\tsubject\tpident\tevalue\tbitscore\tmapped_reads\treads_per_billion"
+            // Append visible metadata column headers
+            let metaHeaders = self.metadataColumnController.exportHeaders
+            if !metaHeaders.isEmpty {
+                header += "\t" + metaHeaders.joined(separator: "\t")
+            }
+            lines.append(header)
 
             for hit in self.displayedContigs {
-                lines.append("\(hit.sampleId)\t\(hit.qseqid)\t\(hit.qlen)\t\(hit.adjustedTaxidName)\t\(hit.adjustedTaxidRank)\t\(hit.sseqid)\t\(hit.stitle)\t\(String(format: "%.2f", hit.pident))\t\(hit.evalue)\t\(String(format: "%.1f", hit.bitscore))\t\(hit.mappedReads)\t\(String(format: "%.0f", hit.readsPerBillion))")
+                var line = "\(hit.sampleId)\t\(hit.qseqid)\t\(hit.qlen)\t\(hit.adjustedTaxidName)\t\(hit.adjustedTaxidRank)\t\(hit.sseqid)\t\(hit.stitle)\t\(String(format: "%.2f", hit.pident))\t\(hit.evalue)\t\(String(format: "%.1f", hit.bitscore))\t\(hit.mappedReads)\t\(String(format: "%.0f", hit.readsPerBillion))"
+                // Append metadata values for this hit's sample
+                let metaValues = self.metadataColumnController.exportValues(for: hit.sampleId)
+                if !metaValues.isEmpty {
+                    line += "\t" + metaValues.joined(separator: "\t")
+                }
+                lines.append(line)
             }
 
             let content = lines.joined(separator: "\n") + "\n"
@@ -1794,6 +1841,12 @@ extension NvdResultViewController {
 
     public func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
         guard let outlineItem = item as? NvdOutlineItem else { return nil }
+
+        // Check for dynamic metadata columns first
+        if let tableColumn, let cell = metadataColumnController.cellForColumn(tableColumn) {
+            return cell
+        }
+
         let identifier = tableColumn?.identifier ?? NSUserInterfaceItemIdentifier("default")
 
         let cellView = outlineView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView

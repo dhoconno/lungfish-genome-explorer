@@ -264,6 +264,13 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Common prefix stripped from sample display names.
     public var strippedPrefix: String = ""
 
+    /// Sample metadata for dynamic column display in the organism table.
+    var sampleMetadataStore: SampleMetadataStore? {
+        didSet {
+            updateMetadataColumnsForCurrentSample()
+        }
+    }
+
     // MARK: - Organism Search
 
     /// Current organism search text for filtering.
@@ -902,6 +909,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Filters table rows to the currently selected sample and refreshes the table.
     private func applyCurrentSampleFilter() {
         let showBatchOverview = selectedSampleIndex == 0 && sampleIds.count > 1
+
+        // Update metadata columns for the new sample selection
+        updateMetadataColumnsForCurrentSample()
 
         // Toggle between batch overview and per-sample organism table
         batchOverviewView.isHidden = !showBatchOverview
@@ -2240,10 +2250,13 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     func buildDelimitedExport(separator: String) -> String {
         var lines: [String] = []
 
-        let headers = [
+        var headers = [
             "Organism", "TASS Score", "Reads", "Unique Reads", "Coverage", "Confidence",
             "Tax ID", "Rank", "Abundance",
         ]
+        // Append visible metadata column headers
+        let metaHeaders = organismTableView.metadataColumns.exportHeaders
+        headers.append(contentsOf: metaHeaders)
         lines.append(headers.joined(separator: separator))
 
         for row in organismTableView.rows {
@@ -2257,6 +2270,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             fields.append(row.taxId.map { "\($0)" } ?? "")
             fields.append(row.rank ?? "")
             fields.append(row.abundance.map { String(format: "%.6f", $0) } ?? "")
+
+            // Append visible metadata column values
+            let metaValues = organismTableView.metadataColumns.exportValues
+            for value in metaValues {
+                fields.append(escapeField(value, separator: separator))
+            }
             lines.append(fields.joined(separator: separator))
         }
 
@@ -2271,6 +2290,23 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             return "\"\(escaped)\""
         }
         return value
+    }
+
+    // MARK: - Metadata Column Updates
+
+    /// Updates the organism table's metadata columns for the currently selected sample.
+    private func updateMetadataColumnsForCurrentSample() {
+        let isMultiSample = selectedSampleIndex == 0 && sampleIds.count > 1
+        let currentId: String?
+        if selectedSampleIndex > 0, selectedSampleIndex <= sampleIds.count {
+            currentId = sampleIds[selectedSampleIndex - 1]
+        } else if sampleIds.count == 1 {
+            currentId = sampleIds.first
+        } else {
+            currentId = nil
+        }
+        organismTableView.metadataColumns.isMultiSampleMode = isMultiSample
+        organismTableView.metadataColumns.update(store: sampleMetadataStore, sampleId: currentId)
     }
 
     // MARK: - Open Externally
@@ -2438,6 +2474,11 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
         static let confidence = NSUserInterfaceItemIdentifier("confidence")
     }
 
+    // MARK: - Metadata Columns
+
+    /// Controller for dynamic sample metadata columns (from imported CSV/TSV).
+    let metadataColumns = MetadataColumnController()
+
     // MARK: - Data
 
     /// The rows to display, sorted by the active sort descriptor.
@@ -2593,6 +2634,12 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
 
         setAccessibilityRole(.table)
         setAccessibilityLabel("TaxTriage organism identifications")
+
+        // Install metadata column controller for dynamic sample metadata columns.
+        metadataColumns.standardColumnNames = [
+            "Organism", "TASS Score", "Reads", "Unique Reads", "Coverage", "Confidence",
+        ]
+        metadataColumns.install(on: tableView)
     }
 
     private func setupContextMenu() {
@@ -2870,6 +2917,10 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
             return cell
 
         default:
+            // Check for dynamic metadata columns
+            if let cell = metadataColumns.cellForColumn(column) {
+                return cell
+            }
             return nil
         }
     }

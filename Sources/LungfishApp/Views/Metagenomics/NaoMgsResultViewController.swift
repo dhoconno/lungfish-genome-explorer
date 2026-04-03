@@ -202,6 +202,16 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// Observable state shared with the SwiftUI sample picker popover and Inspector.
     var samplePickerState: ClassifierSamplePickerState!
 
+    /// Sample metadata for dynamic column display in the taxonomy table.
+    var sampleMetadataStore: SampleMetadataStore? {
+        didSet {
+            updateMetadataColumnsForCurrentSamples()
+        }
+    }
+
+    /// Controller for dynamic sample metadata columns (from imported CSV/TSV).
+    private let metadataColumnController = MetadataColumnController()
+
     // MARK: - Selection Sync
 
     /// Prevents infinite feedback loops when syncing selection between views.
@@ -487,6 +497,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         selectedSamples = newSelection
         updateSampleFilterButtonTitle()
         updateSampleColumnVisibility()
+        updateMetadataColumnsForCurrentSamples()
         reloadTaxonomyTable()
         summaryBar.update(
             database: database,
@@ -1305,6 +1316,12 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         taxonomyTableScrollView.drawsBackground = true
 
         taxonomyTableView.setAccessibilityLabel("NAO-MGS Taxonomy Table")
+
+        // Install metadata column controller for dynamic sample metadata columns.
+        metadataColumnController.standardColumnNames = [
+            "Sample", "Taxon", "Hits", "Unique Reads", "Refs",
+        ]
+        metadataColumnController.install(on: taxonomyTableView)
     }
 
     private func setupTaxonomyFilterBar(in container: NSView) {
@@ -1517,6 +1534,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         selectedSamples = newSelection
         updateSampleFilterButtonTitle()
         updateSampleColumnVisibility()
+        updateMetadataColumnsForCurrentSamples()
         reloadTaxonomyTable()
         if let database, let manifest {
             summaryBar.update(database: database, manifest: manifest, selectedSamples: Array(newSelection))
@@ -1927,6 +1945,21 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
     }
 
+    // MARK: - Metadata Column Updates
+
+    /// Updates metadata columns for the current sample selection.
+    private func updateMetadataColumnsForCurrentSamples() {
+        let isMulti = selectedSamples.count > 1
+        let sampleId: String?
+        if selectedSamples.count == 1 {
+            sampleId = selectedSamples.first
+        } else {
+            sampleId = nil
+        }
+        metadataColumnController.isMultiSampleMode = isMulti
+        metadataColumnController.update(store: sampleMetadataStore, sampleId: sampleId)
+    }
+
     // MARK: - Export
 
     public func exportResults() {
@@ -1942,10 +1975,22 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             guard response == .OK, let url = savePanel.url, let self else { return }
 
             var lines: [String] = []
-            lines.append("sample\ttaxon_id\tname\thit_count\tunique_read_count\tpcr_duplicate_count\tavg_identity\tavg_bit_score\tavg_edit_distance\taccession_count")
+            var header = "sample\ttaxon_id\tname\thit_count\tunique_read_count\tpcr_duplicate_count\tavg_identity\tavg_bit_score\tavg_edit_distance\taccession_count"
+            // Append visible metadata column headers
+            let metaHeaders = self.metadataColumnController.exportHeaders
+            if !metaHeaders.isEmpty {
+                header += "\t" + metaHeaders.joined(separator: "\t")
+            }
+            lines.append(header)
 
             for row in self.displayedRows {
-                lines.append("\(row.sample)\t\(row.taxId)\t\(row.name)\t\(row.hitCount)\t\(row.uniqueReadCount)\t\(row.pcrDuplicateCount)\t\(String(format: "%.2f", row.avgIdentity))\t\(String(format: "%.1f", row.avgBitScore))\t\(String(format: "%.1f", row.avgEditDistance))\t\(row.accessionCount)")
+                var line = "\(row.sample)\t\(row.taxId)\t\(row.name)\t\(row.hitCount)\t\(row.uniqueReadCount)\t\(row.pcrDuplicateCount)\t\(String(format: "%.2f", row.avgIdentity))\t\(String(format: "%.1f", row.avgBitScore))\t\(String(format: "%.1f", row.avgEditDistance))\t\(row.accessionCount)"
+                // Append metadata values for this row's sample
+                let metaValues = self.metadataColumnController.exportValues(for: row.sample)
+                if !metaValues.isEmpty {
+                    line += "\t" + metaValues.joined(separator: "\t")
+                }
+                lines.append(line)
             }
 
             let content = lines.joined(separator: "\n") + "\n"
@@ -2039,10 +2084,15 @@ extension NaoMgsResultViewController: NSTableViewDataSource {
 extension NaoMgsResultViewController: NSTableViewDelegate {
 
     public func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard row < displayedRows.count else { return nil }
+        guard row < displayedRows.count, let tableColumn else { return nil }
+
+        // Check for dynamic metadata columns first
+        if let cell = metadataColumnController.cellForColumn(tableColumn) {
+            return cell
+        }
 
         let summaryRow = displayedRows[row]
-        let identifier = tableColumn?.identifier ?? NSUserInterfaceItemIdentifier("default")
+        let identifier = tableColumn.identifier
 
         let cellView = tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView
             ?? makeCellView(identifier: identifier)

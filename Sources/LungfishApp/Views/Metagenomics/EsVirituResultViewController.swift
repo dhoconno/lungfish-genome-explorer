@@ -157,6 +157,15 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     /// Common prefix stripped from sample display names (empty for single-sample).
     public var strippedPrefix: String = ""
 
+    /// Sample metadata for dynamic column display in the detection table.
+    var sampleMetadataStore: SampleMetadataStore? {
+        didSet {
+            // EsViritu is single-sample: use the first (only) sample entry's ID.
+            let sampleId = sampleEntries.first?.id
+            detectionTableView.metadataColumns.update(store: sampleMetadataStore, sampleId: sampleId)
+        }
+    }
+
     // MARK: - Callbacks
 
     /// Called when the user requests BLAST verification for a detection.
@@ -1168,17 +1177,23 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     func buildDelimitedExport(result: LungfishIO.EsVirituResult, separator: String) -> String {
         var lines: [String] = []
 
-        let headers = [
+        var headers = [
             "Sample ID", "Virus Name", "Accession", "Assembly", "Kingdom", "Phylum",
             "Class", "Order", "Family", "Genus", "Species", "Subspecies",
             "Read Count", "RPKMF", "Coverage", "Identity", "Covered Bases",
             "Nucleotide Diversity", "Assembly Length", "Filtered Reads",
             "Segment", "Length",
         ]
+        // Append visible metadata column headers
+        let metaHeaders = detectionTableView.metadataColumns.exportHeaders
+        headers.append(contentsOf: metaHeaders)
         lines.append(headers.joined(separator: separator))
 
+        // Metadata values (constant per sample for all rows in single-sample EsViritu)
+        let metaValues = detectionTableView.metadataColumns.exportValues
+
         for detection in result.detections {
-            let row = [
+            var row = [
                 escapeField(detection.sampleId, separator: separator),
                 escapeField(detection.name, separator: separator),
                 detection.accession,
@@ -1202,6 +1217,9 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
                 detection.segment ?? "",
                 "\(detection.length)",
             ]
+            for value in metaValues {
+                row.append(escapeField(value, separator: separator))
+            }
             lines.append(row.joined(separator: separator))
         }
 

@@ -224,6 +224,11 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
 
     // MARK: - Subviews
 
+    // MARK: - Metadata Columns
+
+    /// Controller for dynamic sample metadata columns (from imported CSV/TSV).
+    let metadataColumns = MetadataColumnController()
+
     private let scrollView = NSScrollView()
     private let outlineView = NSOutlineView()
     private let searchField = NSSearchField()
@@ -354,6 +359,12 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         outlineView.allowsMultipleSelection = true
         outlineView.headerView = NSTableHeaderView()
         outlineView.indentationPerLevel = 16
+
+        // Install metadata column controller for dynamic sample metadata columns.
+        metadataColumns.standardColumnNames = [
+            "Virus Name", "Family", "Reads", "Unique Reads", "RPKMF", "Coverage", "Identity", "Segment",
+        ]
+        metadataColumns.install(on: outlineView)
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.documentView = outlineView
@@ -883,6 +894,11 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     ) -> NSView? {
         guard let column = tableColumn else { return nil }
         let colID = column.identifier.rawValue
+
+        // Check for dynamic metadata columns first (same value for all rows in single-sample)
+        if let cell = metadataColumns.cellForColumn(column) {
+            return cell
+        }
 
         if let assemblyItem = item as? ViralAssemblyItem {
             return cellForAssembly(assemblyItem.assembly, columnID: colID)

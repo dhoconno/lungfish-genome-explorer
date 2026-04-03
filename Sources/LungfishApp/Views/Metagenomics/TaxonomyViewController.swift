@@ -100,6 +100,15 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     /// Common prefix stripped from sample display names (empty for single-sample).
     public var strippedPrefix: String = ""
 
+    /// Sample metadata for dynamic column display in the taxonomy table.
+    var sampleMetadataStore: SampleMetadataStore? {
+        didSet {
+            // Kraken2 is single-sample: use the first (only) sample entry's ID.
+            let sampleId = sampleEntries.first?.id
+            taxonomyTableView.metadataColumns.update(store: sampleMetadataStore, sampleId: sampleId)
+        }
+    }
+
     // MARK: - Child Views
 
     private let summaryBar = TaxonomySummaryBar()
@@ -1218,8 +1227,14 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         var lines: [String] = []
 
         // Header
-        let headers = ["Name", "Rank", "Reads (Clade)", "Reads (Direct)", "Clade %", "Direct %"]
+        var headers = ["Name", "Rank", "Reads (Clade)", "Reads (Direct)", "Clade %", "Direct %"]
+        // Append visible metadata column headers
+        let metaHeaders = taxonomyTableView.metadataColumns.exportHeaders
+        headers.append(contentsOf: metaHeaders)
         lines.append(headers.joined(separator: separator))
+
+        // Metadata values (constant per sample for all rows)
+        let metaValues = taxonomyTableView.metadataColumns.exportValues
 
         // Depth-first traversal
         let allNodes = tree.allNodes()
@@ -1235,7 +1250,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             let name = escapeField(node.name, separator: separator)
             let rank = escapeField(node.rank.displayName, separator: separator)
 
-            let row = [
+            var row = [
                 name,
                 rank,
                 "\(node.readsClade)",
@@ -1243,6 +1258,9 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
                 cladePercent,
                 directPercent,
             ]
+            for value in metaValues {
+                row.append(escapeField(value, separator: separator))
+            }
             lines.append(row.joined(separator: separator))
         }
 
@@ -1251,7 +1269,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             let cladePercent = tree.totalReads > 0
                 ? String(format: "%.4f", Double(unclassified.readsClade) / Double(tree.totalReads) * 100)
                 : "0.0000"
-            let row = [
+            var row = [
                 escapeField(unclassified.name, separator: separator),
                 escapeField(unclassified.rank.displayName, separator: separator),
                 "\(unclassified.readsClade)",
@@ -1259,6 +1277,9 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
                 cladePercent,
                 cladePercent,
             ]
+            for value in metaValues {
+                row.append(escapeField(value, separator: separator))
+            }
             lines.append(row.joined(separator: separator))
         }
 

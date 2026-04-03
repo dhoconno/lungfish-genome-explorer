@@ -43,6 +43,11 @@ import LungfishIO
 @MainActor
 public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuItemValidation {
 
+    // MARK: - Metadata Columns
+
+    /// Controller for dynamic sample metadata columns (from imported CSV/TSV).
+    let metadataColumns = MetadataColumnController()
+
     // MARK: - Data Properties
 
     /// The taxonomy tree to display.
@@ -227,6 +232,12 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
 
         // Wire the outline view's keyboard handler to this table view
         outlineView.taxonomyTableView = self
+
+        // Install metadata column controller for dynamic sample metadata columns.
+        metadataColumns.standardColumnNames = [
+            "Taxon Name", "Rank", "Reads", "Direct", "%",
+        ]
+        metadataColumns.install(on: outlineView)
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.documentView = outlineView
@@ -693,6 +704,10 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         case ColumnID.percent:
             return makePercentCell(for: node)
         default:
+            // Check for dynamic metadata columns
+            if let cell = metadataColumns.cellForColumn(column) {
+                return cell
+            }
             return nil
         }
     }
