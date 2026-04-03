@@ -67,12 +67,6 @@ struct NaoMgsCommand: AsyncParsableCommand {
         var outputDir: String?
 
         @Option(
-            name: .customLong("min-identity"),
-            help: "Minimum percent identity filter (0-100, default: 0)"
-        )
-        var minIdentity: Double = 0
-
-        @Option(
             name: .customLong("min-bitscore"),
             help: "Minimum bit score filter (default: 0)"
         )
@@ -112,9 +106,6 @@ struct NaoMgsCommand: AsyncParsableCommand {
 
             // Apply filters
             var filteredHits = result.virusHits
-            if minIdentity > 0 {
-                filteredHits = filteredHits.filter { $0.percentIdentity >= minIdentity }
-            }
             if minBitScore > 0 {
                 filteredHits = filteredHits.filter { $0.bitScore >= minBitScore }
             }

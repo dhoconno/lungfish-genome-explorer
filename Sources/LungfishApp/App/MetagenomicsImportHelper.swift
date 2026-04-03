@@ -60,7 +60,6 @@ public enum MetagenomicsImportHelper {
         let preferredName = value(for: "--name", in: arguments)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedName = preferredName?.isEmpty == true ? nil : preferredName
-        let minIdentity = Double(value(for: "--min-identity", in: arguments) ?? "") ?? 0
         let fetchReferences = boolValue(
             for: "--fetch-references",
             in: arguments,
@@ -222,7 +221,6 @@ public enum MetagenomicsImportHelper {
                         inputURL: inputURL,
                         outputDirectory: outputDirectory,
                         sampleName: nil,
-                        minIdentity: minIdentity,
                         fetchReferences: fetchReferences,
                         preferredName: normalizedName
                     ) { progress, message in

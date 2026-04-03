@@ -1023,12 +1023,6 @@ extension ImportCommand {
         )
         var outputDir: String?
 
-        @Option(
-            name: .customLong("min-identity"),
-            help: "Minimum percent identity filter (0-100, default: 0)"
-        )
-        var minIdentity: Double = 0
-
         @Flag(
             name: .customLong("fetch-references"),
             inversion: .prefixedNo,
@@ -1060,7 +1054,6 @@ extension ImportCommand {
                     inputURL: inputURL,
                     outputDirectory: outputDirectory,
                     sampleName: sampleName,
-                    minIdentity: minIdentity,
                     fetchReferences: fetchReferences,
                     preferredName: sampleName
                 ) { progress, message in

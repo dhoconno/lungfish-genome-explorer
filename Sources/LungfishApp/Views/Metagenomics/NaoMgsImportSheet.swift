@@ -49,8 +49,8 @@ struct NaoMgsImportSheet: View {
     /// The FASTQ bundle URL that triggered this import (for context display).
     let datasetURL: URL?
 
-    /// Called when the user clicks Run. Parameters: (results URL, min identity).
-    var onImport: ((URL, Double) -> Void)?
+    /// Called when the user clicks Run. Parameter: results URL.
+    var onImport: ((URL) -> Void)?
 
     /// Called when the user clicks Cancel.
     var onCancel: (() -> Void)?
@@ -58,7 +58,6 @@ struct NaoMgsImportSheet: View {
     // MARK: - State
 
     @State private var selectedPath: URL? = nil
-    @State private var minIdentity: Double = 0
     @State private var isScanning: Bool = false
     @State private var linesScanned: Int = 0
     @State private var scanError: String? = nil
@@ -103,11 +102,6 @@ struct NaoMgsImportSheet: View {
 
                     // Preview
                     previewSection
-
-                    Divider()
-
-                    // Options
-                    optionsSection
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
@@ -248,36 +242,6 @@ struct NaoMgsImportSheet: View {
         }
     }
 
-    // MARK: - Options
-
-    private var optionsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Options")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Min % identity:")
-                        .font(.system(size: 12))
-                        .frame(width: 100, alignment: .trailing)
-                    Slider(value: $minIdentity, in: 0...100, step: 5)
-                        .frame(maxWidth: 180)
-                    Text(String(format: "%.0f%%", minIdentity))
-                        .font(.system(size: 12, design: .monospaced))
-                        .frame(width: 40)
-                }
-                Text(minIdentity > 0
-                     ? "Exclude virus hits below \(Int(minIdentity))% sequence identity."
-                     : "Import all virus hits regardless of sequence identity.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-                    .padding(.leading, 104)
-            }
-            .help("Filter virus hits by BLAST percent identity. Higher values keep only closely matching hits; 0% imports everything.")
-        }
-    }
-
     // MARK: - Action Buttons
 
     private var actionButtons: some View {
@@ -384,7 +348,7 @@ struct NaoMgsImportSheet: View {
     /// Triggers the import callback with the current configuration.
     private func performImport() {
         guard let url = selectedPath else { return }
-        onImport?(url, minIdentity)
+        onImport?(url)
     }
 
     // MARK: - Formatting

@@ -1190,19 +1190,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         )
     }
 
-    private func importNaoMgsResultFromURL(
-        _ url: URL,
-        minIdentity: Double
-    ) {
+    private func importNaoMgsResultFromURL(_ url: URL) {
         importClassifierResultFromURL(
             url,
             kind: .naomgs,
             operationTitle: "NAO-MGS Import",
             missingProjectMessage: "Please open a project before importing NAO-MGS results.",
-            naoMgsOptions: .init(
-                minIdentity: minIdentity,
-                fetchReferences: true
-            )
+            naoMgsOptions: .init(fetchReferences: true)
         )
     }
 
@@ -1236,8 +1230,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
         if kind == .naomgs {
             let options = naoMgsOptions ?? .init()
-            let identityFloor = max(0, min(100, options.minIdentity))
-            cliArgs.append(contentsOf: ["--min-identity", String(identityFloor)])
             cliArgs.append(contentsOf: ["--fetch-references", options.fetchReferences ? "true" : "false"])
         }
 
@@ -3869,12 +3861,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         wizardPanel.isReleasedWhenClosed = false
 
         var sheet = NaoMgsImportSheet(datasetURL: nil)
-        sheet.onImport = { [weak self] (resultsDir: URL, minIdentity: Double) in
+        sheet.onImport = { [weak self] (resultsDir: URL) in
             window.endSheet(wizardPanel)
-            self?.importNaoMgsResultFromURL(
-                resultsDir,
-                minIdentity: minIdentity
-            )
+            self?.importNaoMgsResultFromURL(resultsDir)
         }
         sheet.onCancel = {
             window.endSheet(wizardPanel)
