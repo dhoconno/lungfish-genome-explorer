@@ -499,7 +499,7 @@ final class ExtractCommandTests: XCTestCase {
         let outputURL = tempDir.appendingPathComponent("region.fasta")
 
         // Extract bases 4-9 (1-based inclusive): "CCCGGG"
-        var command = try ExtractCommand.parse([
+        var command = try ExtractSequenceSubcommand.parse([
             fastaURL.path,
             "chr1:4-9",
             "--output", outputURL.path,
@@ -522,7 +522,7 @@ final class ExtractCommandTests: XCTestCase {
         let outputURL = tempDir.appendingPathComponent("rc.fasta")
 
         // Extract all 8 bases and reverse complement
-        var command = try ExtractCommand.parse([
+        var command = try ExtractSequenceSubcommand.parse([
             fastaURL.path,
             "seq1:1-8",
             "--reverse-complement",
@@ -546,7 +546,7 @@ final class ExtractCommandTests: XCTestCase {
         let outputURL = tempDir.appendingPathComponent("flanked.fasta")
 
         // Extract bases 7-9 (1-based) = "GGG" with 3 bases flanking = "CCCGGGTTT"
-        var command = try ExtractCommand.parse([
+        var command = try ExtractSequenceSubcommand.parse([
             fastaURL.path,
             "chr1:7-9",
             "--flank", "3",
@@ -569,7 +569,7 @@ final class ExtractCommandTests: XCTestCase {
 
         let outputURL = tempDir.appendingPathComponent("chr2_region.fasta")
 
-        var command = try ExtractCommand.parse([
+        var command = try ExtractSequenceSubcommand.parse([
             fastaURL.path,
             "chr2:1-3",
             "--output", outputURL.path,
@@ -588,7 +588,7 @@ final class ExtractCommandTests: XCTestCase {
         let writer = FASTAWriter(url: fastaURL)
         try writer.write([seq])
 
-        var command = try ExtractCommand.parse([
+        var command = try ExtractSequenceSubcommand.parse([
             fastaURL.path,
             "seq1:1-100",
             "-q",
@@ -609,7 +609,7 @@ final class ExtractCommandTests: XCTestCase {
         let writer = FASTAWriter(url: fastaURL)
         try writer.write([seq])
 
-        var command = try ExtractCommand.parse([
+        var command = try ExtractSequenceSubcommand.parse([
             fastaURL.path,
             "chrX:1-4",
             "-q",
@@ -630,7 +630,7 @@ final class ExtractCommandTests: XCTestCase {
         let writer = FASTAWriter(url: fastaURL)
         try writer.write([seq])
 
-        var command = try ExtractCommand.parse([
+        var command = try ExtractSequenceSubcommand.parse([
             fastaURL.path,
             "invalid_format",
             "-q",

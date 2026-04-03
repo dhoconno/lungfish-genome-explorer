@@ -7,10 +7,31 @@ import Foundation
 import LungfishCore
 import LungfishIO
 
-/// Extract subsequences from FASTA files by region
+/// Extract data from genomic files — subsequences from FASTA or reads from FASTQ/BAM/database.
 struct ExtractCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "extract",
+        abstract: "Extract subsequences or reads from genomic files",
+        discussion: """
+            Subcommands:
+              sequence  Extract subsequences from FASTA files by region
+              reads     Extract reads from FASTQ, BAM, or database sources
+            """,
+        subcommands: [
+            ExtractSequenceSubcommand.self,
+            ExtractReadsSubcommand.self,
+        ],
+        defaultSubcommand: ExtractSequenceSubcommand.self
+    )
+}
+
+/// Extract subsequences from FASTA files by region.
+///
+/// This subcommand is also the default when running `lungfish extract` directly
+/// to preserve backward compatibility.
+struct ExtractSequenceSubcommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "sequence",
         abstract: "Extract subsequences from FASTA files",
         discussion: """
             Extract a subsequence from a FASTA file by specifying a region in the
@@ -22,10 +43,10 @@ struct ExtractCommand: AsyncParsableCommand {
             that sequence is used.
 
             Examples:
-              lungfish extract genome.fasta chr1:1000-2000
-              lungfish extract genome.fasta chr1:1000-2000 --reverse-complement
-              lungfish extract genome.fasta chr1:1-500 --flank 100
-              lungfish extract genome.fasta seq1:1-100 -o region.fasta
+              lungfish extract sequence genome.fasta chr1:1000-2000
+              lungfish extract sequence genome.fasta chr1:1000-2000 --reverse-complement
+              lungfish extract sequence genome.fasta chr1:1-500 --flank 100
+              lungfish extract sequence genome.fasta seq1:1-100 -o region.fasta
             """
     )
 

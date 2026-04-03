@@ -87,6 +87,8 @@ struct ExtractSubcommand: AsyncParsableCommand {
     // MARK: - Execution
 
     func run() async throws {
+        FileHandle.standardError.write(Data("WARNING: 'lungfish conda extract' is deprecated. Use 'lungfish extract reads --by-id' instead.\n".utf8))
+
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
         // Parse tax IDs (support both comma-separated and repeated flags)

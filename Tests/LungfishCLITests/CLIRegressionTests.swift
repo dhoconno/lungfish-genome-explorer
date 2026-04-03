@@ -409,7 +409,7 @@ final class ExtractCommandRegressionTests: XCTestCase {
     }
 
     func testParsingMinimalArguments() throws {
-        let cmd = try ExtractCommand.parse(["genome.fasta", "chr1:1000-2000"])
+        let cmd = try ExtractSequenceSubcommand.parse(["genome.fasta", "chr1:1000-2000"])
         XCTAssertEqual(cmd.input, "genome.fasta")
         XCTAssertEqual(cmd.region, "chr1:1000-2000")
         XCTAssertFalse(cmd.reverseComplement)
@@ -418,17 +418,17 @@ final class ExtractCommandRegressionTests: XCTestCase {
     }
 
     func testParsingWithReverseComplement() throws {
-        let cmd = try ExtractCommand.parse(["g.fa", "chr1:1-100", "--reverse-complement"])
+        let cmd = try ExtractSequenceSubcommand.parse(["g.fa", "chr1:1-100", "--reverse-complement"])
         XCTAssertTrue(cmd.reverseComplement)
     }
 
     func testParsingWithFlank() throws {
-        let cmd = try ExtractCommand.parse(["g.fa", "chr1:1-100", "--flank", "50"])
+        let cmd = try ExtractSequenceSubcommand.parse(["g.fa", "chr1:1-100", "--flank", "50"])
         XCTAssertEqual(cmd.flank, 50)
     }
 
     func testParsingWithFlank5And3() throws {
-        let cmd = try ExtractCommand.parse(["g.fa", "chr1:1-100", "--flank-5", "10", "--flank-3", "20"])
+        let cmd = try ExtractSequenceSubcommand.parse(["g.fa", "chr1:1-100", "--flank-5", "10", "--flank-3", "20"])
         XCTAssertEqual(cmd.flank5, 10)
         XCTAssertEqual(cmd.flank3, 20)
     }

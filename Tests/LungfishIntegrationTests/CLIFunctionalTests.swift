@@ -150,7 +150,7 @@ final class CLIFunctionalTests: XCTestCase {
     func testExtractSubsequenceFromFASTA() async throws {
         let outputPath = tempDirectory.appendingPathComponent("region.fasta").path
 
-        var command = try ExtractCommand.parse([
+        var command = try ExtractSequenceSubcommand.parse([
             TestFixtures.sarscov2.reference.path,
             "MT192765.1:100-200",
             "--output", outputPath,
@@ -178,7 +178,7 @@ final class CLIFunctionalTests: XCTestCase {
     func testExtractReverseComplement() async throws {
         let outputPath = tempDirectory.appendingPathComponent("rc.fasta").path
 
-        var command = try ExtractCommand.parse([
+        var command = try ExtractSequenceSubcommand.parse([
             TestFixtures.sarscov2.reference.path,
             "MT192765.1:1-50",
             "--reverse-complement",
@@ -198,7 +198,7 @@ final class CLIFunctionalTests: XCTestCase {
     func testExtractWithFlanking() async throws {
         let outputPath = tempDirectory.appendingPathComponent("flanked.fasta").path
 
-        var command = try ExtractCommand.parse([
+        var command = try ExtractSequenceSubcommand.parse([
             TestFixtures.sarscov2.reference.path,
             "MT192765.1:500-600",
             "--flank", "10",
@@ -459,7 +459,7 @@ final class CLIFunctionalTests: XCTestCase {
     func testExtractOutOfRangeThrows() async throws {
         let outputPath = tempDirectory.appendingPathComponent("bad_range.fasta").path
 
-        var command = try ExtractCommand.parse([
+        var command = try ExtractSequenceSubcommand.parse([
             TestFixtures.sarscov2.reference.path,
             "MT192765.1:30000-40000",
             "--output", outputPath,
@@ -477,7 +477,7 @@ final class CLIFunctionalTests: XCTestCase {
     func testExtractBadChromosomeThrows() async throws {
         let outputPath = tempDirectory.appendingPathComponent("bad_chrom.fasta").path
 
-        var command = try ExtractCommand.parse([
+        var command = try ExtractSequenceSubcommand.parse([
             TestFixtures.sarscov2.reference.path,
             "chr1:100-200",
             "--output", outputPath,
