@@ -463,7 +463,7 @@ public final class NvdDatabase: @unchecked Sendable {
                adjusted_taxid_rank, hit_rank, reads_per_billion
         FROM blast_hits
         WHERE hit_rank = 1 AND sample_id IN (\(placeholders))
-        ORDER BY sample_id, qseqid
+        ORDER BY qlen DESC
         """
 
         var stmt: OpaquePointer?
@@ -589,8 +589,8 @@ public final class NvdDatabase: @unchecked Sendable {
         FROM blast_hits
         WHERE hit_rank = 1
           AND sample_id IN (\(placeholders))
-          AND (adjusted_taxid_name LIKE ? OR sseqid LIKE ? OR qseqid LIKE ?)
-        ORDER BY sample_id, qseqid
+          AND (adjusted_taxid_name LIKE ? OR stitle LIKE ? OR sseqid LIKE ? OR qseqid LIKE ?)
+        ORDER BY qlen DESC
         """
 
         var stmt: OpaquePointer?
@@ -608,6 +608,7 @@ public final class NvdDatabase: @unchecked Sendable {
         nvdBindText(stmt, baseIndex,     likePattern)
         nvdBindText(stmt, baseIndex + 1, likePattern)
         nvdBindText(stmt, baseIndex + 2, likePattern)
+        nvdBindText(stmt, baseIndex + 3, likePattern)
 
         return try collectHits(stmt: stmt)
     }

@@ -148,6 +148,7 @@ public final class ProjectUniversalSearchIndex {
             var esVirituDirs: [URL] = []
             var taxTriageDirs: [URL] = []
             var naoMgsDirs: [URL] = []
+            var nvdDirs: [URL] = []
             var manifestFiles: [URL] = []
 
             collectProjectArtifacts(
@@ -157,6 +158,7 @@ public final class ProjectUniversalSearchIndex {
                 esVirituDirs: &esVirituDirs,
                 taxTriageDirs: &taxTriageDirs,
                 naoMgsDirs: &naoMgsDirs,
+                nvdDirs: &nvdDirs,
                 manifestFiles: &manifestFiles
             )
 
@@ -207,6 +209,15 @@ public final class ProjectUniversalSearchIndex {
 
             for url in naoMgsDirs.sorted(by: pathCompare) {
                 try indexNaoMgsResult(
+                    at: url,
+                    entityCount: &entityCount,
+                    attributeCount: &attributeCount,
+                    perKindCounts: &perKindCounts
+                )
+            }
+
+            for url in nvdDirs.sorted(by: pathCompare) {
+                try indexNvdResult(
                     at: url,
                     entityCount: &entityCount,
                     attributeCount: &attributeCount,
@@ -403,6 +414,7 @@ public final class ProjectUniversalSearchIndex {
         esVirituDirs: inout [URL],
         taxTriageDirs: inout [URL],
         naoMgsDirs: inout [URL],
+        nvdDirs: inout [URL],
         manifestFiles: inout [URL]
     ) {
         let fm = FileManager.default
@@ -430,7 +442,8 @@ public final class ProjectUniversalSearchIndex {
                         classificationDirs: &classificationDirs,
                         esVirituDirs: &esVirituDirs,
                         taxTriageDirs: &taxTriageDirs,
-                        naoMgsDirs: &naoMgsDirs
+                        naoMgsDirs: &naoMgsDirs,
+                        nvdDirs: &nvdDirs
                     )
                     continue
                 }
@@ -465,6 +478,12 @@ public final class ProjectUniversalSearchIndex {
                     continue
                 }
 
+                if fileName.hasPrefix("nvd-") && hasFile("hits.sqlite", in: url) {
+                    nvdDirs.append(url)
+                    enumerator.skipDescendants()
+                    continue
+                }
+
                 continue
             }
 
@@ -481,7 +500,8 @@ public final class ProjectUniversalSearchIndex {
         classificationDirs: inout [URL],
         esVirituDirs: inout [URL],
         taxTriageDirs: inout [URL],
-        naoMgsDirs: inout [URL]
+        naoMgsDirs: inout [URL],
+        nvdDirs: inout [URL]
     ) {
         let fm = FileManager.default
         guard let contents = try? fm.contentsOfDirectory(
@@ -503,6 +523,8 @@ public final class ProjectUniversalSearchIndex {
                 taxTriageDirs.append(url)
             } else if name.hasPrefix("naomgs-") && hasFile("manifest.json", in: url) {
                 naoMgsDirs.append(url)
+            } else if name.hasPrefix("nvd-") && hasFile("hits.sqlite", in: url) {
+                nvdDirs.append(url)
             }
         }
     }
@@ -1430,6 +1452,123 @@ public final class ProjectUniversalSearchIndex {
             try insertOrganismAttributes(
                 entityID: childId,
                 keys: ["organism", "taxon", "virus_name"],
+                name: taxonName,
+                includeOriginal: false,
+                attributeCount: &attributeCount
+            )
+        }
+    }
+
+    private func indexNvdResult(
+        at resultURL: URL,
+        entityCount: inout Int,
+        attributeCount: inout Int,
+        perKindCounts: inout [String: Int]
+    ) throws {
+        let relPath = relativePath(for: resultURL)
+        let dbURL = resultURL.appendingPathComponent("hits.sqlite")
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: dbURL.path) else { return }
+
+        guard let db = try? NvdDatabase(at: dbURL) else { return }
+
+        let title = resultURL.lastPathComponent
+
+        // Collect all samples and a count of hits
+        let samples: [NvdSampleMetadata] = (try? db.allSamples()) ?? []
+        let sampleIds = samples.map { $0.sampleId }
+        let hitCount = (try? db.totalHitCount(samples: sampleIds.isEmpty ? nil : sampleIds)) ?? 0
+
+        // Collect distinct taxon groups
+        let taxonGroups: [NvdTaxonGroup] = sampleIds.isEmpty
+            ? []
+            : ((try? db.taxonGroups(forSamples: sampleIds)) ?? [])
+
+        let taxonNames = taxonGroups.map { $0.adjustedTaxidName }.filter { !$0.isEmpty }
+
+        var attributes: [String: Any] = [
+            "hit_count": hitCount,
+            "sample_count": samples.count,
+        ]
+        if let topTaxon = taxonNames.first {
+            attributes["top_taxon"] = topTaxon
+            attributes["taxon"] = topTaxon
+        }
+        if !taxonNames.isEmpty {
+            attributes["detected_organisms"] = taxonNames.prefix(200).joined(separator: " | ")
+            let allAliases = taxonNames.prefix(200).flatMap { organismAliases(for: $0) }
+            if !allAliases.isEmpty {
+                attributes["detected_organism_aliases"] = allAliases.joined(separator: " ")
+            }
+        }
+
+        let row = entityRow(
+            id: "nvd_result:\(relPath)",
+            kind: "nvd_result",
+            title: title,
+            subtitle: "NVD: \(hitCount) hits, \(taxonGroups.count) taxa",
+            format: "nvd",
+            url: resultURL
+        )
+
+        try insertEntity(
+            row,
+            attributes: attributes,
+            entityCount: &entityCount,
+            attributeCount: &attributeCount,
+            perKindCounts: &perKindCounts
+        )
+
+        // Insert organism name attributes on parent entity
+        let uniqueTaxonNames = Array(Set(taxonNames))
+        for name in uniqueTaxonNames {
+            try insertOrganismAttributes(
+                entityID: row.id,
+                keys: ["organism", "taxon"],
+                name: name,
+                includeOriginal: true,
+                attributeCount: &attributeCount
+            )
+        }
+
+        // Index child entities for each distinct taxon
+        for taxon in taxonGroups.prefix(400) {
+            let taxonName = taxon.adjustedTaxidName
+            guard !taxonName.isEmpty else { continue }
+            let taxonComponent = stableIdentifierComponent(taxonName)
+            let childId = "nvd_taxon:\(relPath):\(taxonComponent)"
+
+            var taxonAttrs: [String: Any] = [
+                "taxon": taxonName,
+                "organism": taxonName,
+                "contig_count": taxon.contigCount,
+                "mapped_reads": taxon.totalMappedReads,
+            ]
+            let aliases = organismAliases(for: taxonName)
+            if !aliases.isEmpty {
+                taxonAttrs["search_aliases"] = aliases.joined(separator: " ")
+            }
+
+            let childRow = entityRow(
+                id: childId,
+                kind: "nvd_taxon",
+                title: taxonName,
+                subtitle: "\(taxon.contigCount) contigs, \(taxon.totalMappedReads) mapped reads",
+                format: "nvd",
+                url: resultURL
+            )
+
+            try insertEntity(
+                childRow,
+                attributes: taxonAttrs,
+                entityCount: &entityCount,
+                attributeCount: &attributeCount,
+                perKindCounts: &perKindCounts
+            )
+
+            try insertOrganismAttributes(
+                entityID: childId,
+                keys: ["organism", "taxon"],
                 name: taxonName,
                 includeOriginal: false,
                 attributeCount: &attributeCount

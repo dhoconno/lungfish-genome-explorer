@@ -398,12 +398,17 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         // Load taxon groups if in byTaxon mode
         if groupingMode == .byTaxon {
             do {
-                taxonGroups = try database.taxonGroups(forSamples: samples)
-                // Build taxon -> contigs mapping
+                var allGroups = try database.taxonGroups(forSamples: samples)
+                // Build taxon -> contigs mapping from filtered contigs
                 taxonContigs.removeAll()
                 for contig in displayedContigs {
                     taxonContigs[contig.adjustedTaxidName, default: []].append(contig)
                 }
+                // Filter taxon groups to only include those with matching contigs
+                if !searchQuery.isEmpty {
+                    allGroups = allGroups.filter { taxonContigs[$0.adjustedTaxidName] != nil }
+                }
+                taxonGroups = allGroups
             } catch {
                 logger.error("Failed to fetch taxon groups: \(error.localizedDescription, privacy: .public)")
                 taxonGroups = []
@@ -855,6 +860,12 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         contigCol.minWidth = 100
         outlineView.addTableColumn(contigCol)
         outlineView.outlineTableColumn = contigCol
+
+        let sampleCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("sampleId"))
+        sampleCol.title = "Sample"
+        sampleCol.width = 120
+        sampleCol.minWidth = 80
+        outlineView.addTableColumn(sampleCol)
 
         let lengthCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("length"))
         lengthCol.title = "Length"
@@ -1619,6 +1630,11 @@ extension NvdResultViewController {
             textField?.font = isChild
                 ? .systemFont(ofSize: 10, weight: .regular)
                 : .systemFont(ofSize: 11, weight: .medium)
+            textField?.alphaValue = childAlpha
+            textField?.alignment = .left
+        case "sampleId":
+            textField?.stringValue = hit.sampleId
+            textField?.font = .systemFont(ofSize: 10)
             textField?.alphaValue = childAlpha
             textField?.alignment = .left
         case "length":
