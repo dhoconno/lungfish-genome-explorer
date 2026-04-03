@@ -1942,11 +1942,38 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 guard let bamURL = capturedBamURL else {
                     let alert = NSAlert()
                     alert.messageText = "BAM File Not Available"
-                    alert.informativeText = "TaxTriage BAM file is not available for read extraction."
+                    alert.informativeText = "TaxTriage BAM file is not available for read extraction. The pipeline may not have produced alignment output."
                     alert.alertStyle = .warning
                     alert.addButton(withTitle: "OK")
                     alert.beginSheetModal(for: window)
                     return
+                }
+
+                // Pre-flight: verify the BAM file exists and is non-empty.
+                let fm = FileManager.default
+                guard fm.fileExists(atPath: bamURL.path) else {
+                    let alert = NSAlert()
+                    alert.messageText = "BAM File Not Found"
+                    alert.informativeText = "The TaxTriage BAM file no longer exists at:\n\(bamURL.lastPathComponent)\n\nIt may have been moved or deleted."
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: "OK")
+                    alert.beginSheetModal(for: window)
+                    return
+                }
+
+                let bamSize = (try? fm.attributesOfItem(atPath: bamURL.path)[.size] as? UInt64) ?? 0
+                if bamSize == 0 {
+                    let alert = NSAlert()
+                    alert.messageText = "BAM File Is Empty"
+                    alert.informativeText = "The TaxTriage BAM file is empty (0 bytes). The pipeline may have failed to produce alignment data."
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: "OK")
+                    alert.beginSheetModal(for: window)
+                    return
+                }
+
+                if accessions.isEmpty {
+                    logger.warning("TaxTriage extraction: no accessions resolved for selected organisms; extraction will use fallback (all reads)")
                 }
 
                 let opID = OperationCenter.shared.start(
@@ -2004,11 +2031,28 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                                 }
                             }
                         }
+                    } catch let error as LungfishWorkflow.ExtractionError {
+                        let detail: String
+                        switch error {
+                        case .emptyExtraction:
+                            detail = "No reads found for the selected organisms. The BAM may use different reference names than the accession mappings."
+                        case .noMatchingRegions(let regions):
+                            detail = "None of the resolved accessions (\(regions.prefix(3).joined(separator: ", "))) matched BAM reference names."
+                        default:
+                            detail = error.localizedDescription
+                        }
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.fail(id: opID, detail: detail)
+                                OperationCenter.shared.log(id: opID, level: .error, message: "Extraction failed: \(detail)")
+                            }
+                        }
                     } catch {
                         let errorDesc = error.localizedDescription
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
                                 OperationCenter.shared.fail(id: opID, detail: errorDesc)
+                                OperationCenter.shared.log(id: opID, level: .error, message: "Extraction failed: \(errorDesc)")
                             }
                         }
                     }

@@ -245,14 +245,39 @@ public actor ReadExtractionService {
         let outputURL = config.outputDirectory.appendingPathComponent(outputName)
 
         if useFallback {
-            // Extract all reads: samtools fastq -0 output.fastq bam.bam
-            let result = try await toolRunner.run(
-                .samtools,
-                arguments: ["fastq", "-0", outputURL.path, config.bamURL.path],
-                timeout: 7200
-            )
-            guard result.isSuccess else {
-                throw ExtractionError.samtoolsFailed(result.stderr)
+            if config.deduplicateReads {
+                // Deduplicate fallback: samtools view -b -F 1024 -> temp BAM -> samtools fastq
+                let fallbackTempDir = fm.temporaryDirectory.appendingPathComponent("lungfish-bam-dedup-\(UUID().uuidString)")
+                try fm.createDirectory(at: fallbackTempDir, withIntermediateDirectories: true)
+                defer { try? fm.removeItem(at: fallbackTempDir) }
+
+                let dedupBAM = fallbackTempDir.appendingPathComponent("dedup.bam")
+                let dedupViewResult = try await toolRunner.run(
+                    .samtools,
+                    arguments: ["view", "-b", "-F", "1024", "-o", dedupBAM.path, config.bamURL.path],
+                    timeout: 7200
+                )
+                guard dedupViewResult.isSuccess else {
+                    throw ExtractionError.samtoolsFailed(dedupViewResult.stderr)
+                }
+                let dedupFastqResult = try await toolRunner.run(
+                    .samtools,
+                    arguments: ["fastq", "-0", outputURL.path, dedupBAM.path],
+                    timeout: 7200
+                )
+                guard dedupFastqResult.isSuccess else {
+                    throw ExtractionError.samtoolsFailed(dedupFastqResult.stderr)
+                }
+            } else {
+                // Extract all reads: samtools fastq -0 output.fastq bam.bam
+                let result = try await toolRunner.run(
+                    .samtools,
+                    arguments: ["fastq", "-0", outputURL.path, config.bamURL.path],
+                    timeout: 7200
+                )
+                guard result.isSuccess else {
+                    throw ExtractionError.samtoolsFailed(result.stderr)
+                }
             }
         } else {
             // First extract matching regions to a temporary BAM
@@ -262,8 +287,12 @@ public actor ReadExtractionService {
 
             let tempBAM = tempDir.appendingPathComponent("extracted.bam")
 
-            // samtools view -b -o extracted.bam bam.bam region1 region2 ...
-            var viewArgs = ["view", "-b", "-o", tempBAM.path, config.bamURL.path]
+            // samtools view -b [-F 1024] -o extracted.bam bam.bam region1 region2 ...
+            var viewArgs = ["view", "-b"]
+            if config.deduplicateReads {
+                viewArgs.append(contentsOf: ["-F", "1024"])
+            }
+            viewArgs.append(contentsOf: ["-o", tempBAM.path, config.bamURL.path])
             viewArgs.append(contentsOf: matchResult.matchedRegions)
 
             let viewResult = try await toolRunner.run(

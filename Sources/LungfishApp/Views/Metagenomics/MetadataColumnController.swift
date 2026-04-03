@@ -55,11 +55,15 @@ final class MetadataColumnController {
     /// Set of metadata column names currently toggled visible by the user.
     private(set) var visibleColumns: Set<String> = []
 
-    /// Whether metadata columns should be hidden (e.g., in "All Samples" mode).
+    /// Whether multiple samples are currently being viewed.
+    ///
+    /// Metadata columns are always available regardless of this flag.
+    /// In multi-sample mode each row shows the metadata value for its
+    /// respective sample (via ``cellForColumn(_:sampleId:)``).
     var isMultiSampleMode: Bool = false {
         didSet {
             if isMultiSampleMode != oldValue {
-                refreshColumns()
+                rebuildHeaderMenu()
             }
         }
     }
@@ -123,8 +127,8 @@ final class MetadataColumnController {
             tableView.removeTableColumn(col)
         }
 
-        // Don't add metadata columns in multi-sample mode or when store is nil
-        guard !isMultiSampleMode, let store else { return }
+        // Only need a store to add metadata columns
+        guard let store else { return }
 
         // Add visible metadata columns in the order they appear in the store
         for colName in store.columnNames where visibleColumns.contains(colName) {
@@ -167,26 +171,16 @@ final class MetadataColumnController {
             header.isEnabled = false
             menu.addItem(header)
 
-            if isMultiSampleMode {
-                let note = NSMenuItem(
-                    title: "  (hidden in multi-sample view)",
-                    action: nil,
+            for colName in store.columnNames {
+                let item = NSMenuItem(
+                    title: colName,
+                    action: #selector(toggleMetadataColumn(_:)),
                     keyEquivalent: ""
                 )
-                note.isEnabled = false
-                menu.addItem(note)
-            } else {
-                for colName in store.columnNames {
-                    let item = NSMenuItem(
-                        title: colName,
-                        action: #selector(toggleMetadataColumn(_:)),
-                        keyEquivalent: ""
-                    )
-                    item.target = self
-                    item.representedObject = colName
-                    item.state = visibleColumns.contains(colName) ? .on : .off
-                    menu.addItem(item)
-                }
+                item.target = self
+                item.representedObject = colName
+                item.state = visibleColumns.contains(colName) ? .on : .off
+                menu.addItem(item)
             }
         }
 
@@ -218,12 +212,25 @@ final class MetadataColumnController {
     /// - Parameter column: The table column to check.
     /// - Returns: A configured NSTextField cell, or nil if not a metadata column.
     func cellForColumn(_ column: NSTableColumn) -> NSView? {
+        return cellForColumn(column, sampleId: currentSampleId)
+    }
+
+    /// Returns a cell view for a metadata column using a specific sample ID.
+    ///
+    /// In multi-sample mode, callers should pass the row's sample ID so each
+    /// row displays the correct metadata value for its respective sample.
+    ///
+    /// - Parameters:
+    ///   - column: The table column to check.
+    ///   - sampleId: The sample ID to look up metadata for.
+    /// - Returns: A configured NSTextField cell, or nil if not a metadata column.
+    func cellForColumn(_ column: NSTableColumn, sampleId: String?) -> NSView? {
         let rawID = column.identifier.rawValue
         guard rawID.hasPrefix(metadataColumnPrefix) else { return nil }
 
         let metaColName = String(rawID.dropFirst(metadataColumnPrefix.count))
         let value: String
-        if let sampleId = currentSampleId,
+        if let sampleId,
            let record = store?.records[sampleId],
            let val = record[metaColName] {
             value = val
@@ -244,13 +251,13 @@ final class MetadataColumnController {
 
     /// Returns the header names for visible metadata columns (in store order).
     var exportHeaders: [String] {
-        guard !isMultiSampleMode, let store else { return [] }
+        guard let store else { return [] }
         return store.columnNames.filter { visibleColumns.contains($0) }
     }
 
     /// Returns the values for visible metadata columns for the current sample.
     var exportValues: [String] {
-        guard !isMultiSampleMode, let store, let sampleId = currentSampleId else { return [] }
+        guard let store, let sampleId = currentSampleId else { return [] }
         return store.columnNames.compactMap { colName in
             guard visibleColumns.contains(colName) else { return nil }
             return store.records[sampleId]?[colName] ?? ""
@@ -264,7 +271,7 @@ final class MetadataColumnController {
     /// - Parameter sampleId: The sample ID to look up values for.
     /// - Returns: Array of metadata values in the same order as ``exportHeaders``.
     func exportValues(for sampleId: String) -> [String] {
-        guard !isMultiSampleMode, let store else { return [] }
+        guard let store else { return [] }
         return store.columnNames.compactMap { colName in
             guard visibleColumns.contains(colName) else { return nil }
             return store.records[sampleId]?[colName] ?? ""
@@ -273,6 +280,6 @@ final class MetadataColumnController {
 
     /// Returns whether any metadata columns are currently visible.
     var hasVisibleColumns: Bool {
-        !isMultiSampleMode && !visibleColumns.isEmpty && store != nil
+        !visibleColumns.isEmpty && store != nil
     }
 }

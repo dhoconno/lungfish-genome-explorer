@@ -1565,12 +1565,35 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                             }
                         )
 
+                        // Determine output directory: prefer the project directory so the
+                        // bundle appears in the sidebar. If capturedProjectURL is nil (e.g.
+                        // bundleURL was not set during configure), fall back to the parent
+                        // of the database file so the bundle is at least discoverable.
+                        let bundleDir: URL
+                        if let projectURL = capturedProjectURL {
+                            bundleDir = projectURL
+                        } else {
+                            // Fallback: place bundle next to the database file's enclosing bundle
+                            bundleDir = databaseURL
+                                .deletingLastPathComponent()  // naomgs-*/
+                                .deletingLastPathComponent()  // derivatives/
+                                .deletingLastPathComponent()  // bundle.lungfishfastq/
+                                .deletingLastPathComponent()  // project/
+                            logger.warning("NAO-MGS extraction: bundleURL was nil; derived project path from database URL: \(bundleDir.path, privacy: .public)")
+                        }
+
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.update(id: opID, progress: 0.85, detail: "Creating FASTQ bundle\u{2026}")
+                                OperationCenter.shared.log(id: opID, level: .info, message: "Creating bundle in \(bundleDir.path)")
+                            }
+                        }
+
                         let metadata = ExtractionMetadata(
                             sourceDescription: databaseURL.deletingPathExtension().lastPathComponent,
                             toolName: "NAO-MGS",
                             parameters: ["taxIds": taxIds.sorted().map(String.init).joined(separator: ",")]
                         )
-                        let bundleDir = capturedProjectURL ?? tempDir
                         let bundleURL = try await service.createBundle(
                             from: result,
                             sourceName: capturedSampleId ?? "NAO-MGS",
@@ -1582,6 +1605,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
                                 OperationCenter.shared.complete(id: opID, detail: "Created \(bundleURL.lastPathComponent)")
+                                OperationCenter.shared.log(id: opID, level: .info, message: "Bundle created at \(bundleURL.path)")
                                 if let appDelegate = NSApp.delegate as? AppDelegate {
                                     if let sidebar = appDelegate.mainWindowController?.mainSplitViewController?.sidebarController {
                                         sidebar.reloadFromFilesystem()
@@ -1589,11 +1613,28 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                                 }
                             }
                         }
+                    } catch let error as LungfishWorkflow.ExtractionError {
+                        let detail: String
+                        switch error {
+                        case .emptyExtraction:
+                            detail = "No reads found in the database for the selected taxa (taxIds: \(taxIds.sorted().prefix(5).map(String.init).joined(separator: ", ")))"
+                        case .databaseQueryFailed(let reason):
+                            detail = "Database query failed: \(reason)"
+                        default:
+                            detail = error.localizedDescription
+                        }
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.fail(id: opID, detail: detail)
+                                OperationCenter.shared.log(id: opID, level: .error, message: "Extraction failed: \(detail)")
+                            }
+                        }
                     } catch {
                         let errorDesc = error.localizedDescription
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
                                 OperationCenter.shared.fail(id: opID, detail: errorDesc)
+                                OperationCenter.shared.log(id: opID, level: .error, message: "Extraction failed: \(errorDesc)")
                             }
                         }
                     }

@@ -107,6 +107,14 @@ public struct BAMRegionExtractionConfig: Sendable {
     /// Base name for the output file(s), without extension.
     public let outputBaseName: String
 
+    /// When `true`, passes `-F 1024` to `samtools view` to exclude PCR/optical
+    /// duplicate-flagged reads, yielding only unique alignments.
+    ///
+    /// Defaults to `true` because classifier BAMs (EsViritu, TaxTriage) often
+    /// contain duplicates that inflate read counts relative to the unique-read
+    /// counts shown in the taxonomy table.
+    public let deduplicateReads: Bool
+
     /// Creates a BAM region extraction configuration.
     ///
     /// - Parameters:
@@ -115,18 +123,21 @@ public struct BAMRegionExtractionConfig: Sendable {
     ///   - fallbackToAll: Extract all reads when `regions` is empty (default: `false`).
     ///   - outputDirectory: Directory for output files.
     ///   - outputBaseName: Base name for output files, without extension.
+    ///   - deduplicateReads: Exclude PCR duplicate-flagged reads (default: `true`).
     public init(
         bamURL: URL,
         regions: [String],
         fallbackToAll: Bool = false,
         outputDirectory: URL,
-        outputBaseName: String
+        outputBaseName: String,
+        deduplicateReads: Bool = true
     ) {
         self.bamURL = bamURL
         self.regions = regions
         self.fallbackToAll = fallbackToAll
         self.outputDirectory = outputDirectory
         self.outputBaseName = outputBaseName
+        self.deduplicateReads = deduplicateReads
     }
 }
 
