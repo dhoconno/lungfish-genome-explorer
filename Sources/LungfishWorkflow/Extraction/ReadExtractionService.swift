@@ -68,8 +68,10 @@ public actor ReadExtractionService {
         try fm.createDirectory(at: config.outputDirectory, withIntermediateDirectories: true)
 
         // Write read IDs to a temporary file for seqkit grep -f
-        let tempDir = fm.temporaryDirectory.appendingPathComponent("lungfish-extract-\(UUID().uuidString)")
-        try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let tempDir = try ProjectTempDirectory.createFromContext(
+            prefix: "lungfish-extract-",
+            contextURL: config.outputDirectory
+        )
         defer { try? fm.removeItem(at: tempDir) }
 
         let readIDFile = tempDir.appendingPathComponent("read_ids.txt")
@@ -249,8 +251,10 @@ public actor ReadExtractionService {
         if useFallback {
             if config.deduplicateReads {
                 // Deduplicate fallback: samtools view -b -F 1024 -> temp BAM -> samtools fastq
-                let fallbackTempDir = fm.temporaryDirectory.appendingPathComponent("lungfish-bam-dedup-\(UUID().uuidString)")
-                try fm.createDirectory(at: fallbackTempDir, withIntermediateDirectories: true)
+                let fallbackTempDir = try ProjectTempDirectory.createFromContext(
+                    prefix: "lungfish-bam-dedup-",
+                    contextURL: config.outputDirectory
+                )
                 defer { try? fm.removeItem(at: fallbackTempDir) }
 
                 let dedupBAM = fallbackTempDir.appendingPathComponent("dedup.bam")
@@ -283,8 +287,10 @@ public actor ReadExtractionService {
             }
         } else {
             // First extract matching regions to a temporary BAM
-            let tempDir = fm.temporaryDirectory.appendingPathComponent("lungfish-bam-extract-\(UUID().uuidString)")
-            try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            let tempDir = try ProjectTempDirectory.createFromContext(
+                prefix: "lungfish-bam-extract-",
+                contextURL: config.outputDirectory
+            )
             defer { try? fm.removeItem(at: tempDir) }
 
             let tempBAM = tempDir.appendingPathComponent("extracted.bam")
