@@ -2425,7 +2425,7 @@ struct TaxTriageTableRow: Equatable {
 /// Columns: Organism, TASS Score, Reads, Coverage, Confidence (color bar).
 /// All columns are sortable and user-resizable.
 @MainActor
-final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableViewDelegate {
+final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSMenuItemValidation {
 
     // MARK: - Column Identifiers
 
@@ -2675,6 +2675,16 @@ final class TaxTriageOrganismTableView: NSView, NSTableViewDataSource, NSTableVi
     private func rowSelectionKey(for row: TaxTriageTableRow) -> String {
         let tax = row.taxId.map(String.init) ?? "-"
         return "\(tax)|\(row.organism.lowercased())"
+    }
+
+    // MARK: - Menu Item Validation
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(contextBlastAction(_:)) {
+            // BLAST requires exactly one selected row
+            return tableView.clickedRow >= 0 && tableView.selectedRowIndexes.count <= 1
+        }
+        return true
     }
 
     @objc private func contextBlastAction(_ sender: Any) {

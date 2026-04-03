@@ -71,6 +71,14 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
     /// instead of showing "materialized".
     public var sampleDisplayName: String?
 
+    /// Original source FASTQ URLs before materialization.
+    ///
+    /// When classification runs on a materialized virtual FASTQ, the original
+    /// bundle URLs are preserved here for later extraction operations. This allows
+    /// ``TaxonomyExtractionPipeline`` to locate a valid source FASTQ even after
+    /// the materialized temp file has been deleted.
+    public var originalInputFiles: [URL]?
+
     /// One or two FASTQ input files.
     ///
     /// For paired-end data, supply exactly two files (R1, R2). For single-end,

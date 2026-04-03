@@ -1477,8 +1477,9 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     private func populateContextMenu(_ menu: NSMenu, for hit: NvdBlastHit) {
         menu.removeAllItems()
 
-        // BLAST Verify
-        if onBlastVerification != nil, database != nil {
+        // BLAST Verify (single selection only)
+        if onBlastVerification != nil, database != nil,
+           outlineView.selectedRowIndexes.count <= 1 {
             let blastItem = NSMenuItem(
                 title: "BLAST Verify Sequence",
                 action: #selector(contextBlastVerify(_:)),

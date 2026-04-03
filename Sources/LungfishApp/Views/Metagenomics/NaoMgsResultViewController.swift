@@ -1635,8 +1635,9 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     private func populateContextMenu(_ menu: NSMenu, for row: NaoMgsTaxonSummaryRow) {
         menu.removeAllItems()
 
-        // BLAST verification items
-        if database != nil, onBlastVerification != nil {
+        // BLAST verification items (single selection only)
+        if database != nil, onBlastVerification != nil,
+           taxonomyTableView.selectedRowIndexes.count <= 1 {
             let uniqueCount = row.uniqueReadCount
             if uniqueCount > 0 {
                 // Smart BLAST count options

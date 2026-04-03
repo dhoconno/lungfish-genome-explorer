@@ -4743,6 +4743,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         .deletingPathExtension().lastPathComponent
                     resolvedConfig.sampleDisplayName = bundleName
                 }
+                // Preserve original input files before materialization replaces them,
+                // so extraction can locate a valid source FASTQ after the materialized
+                // temp file is deleted.
+                if resolvedConfig.originalInputFiles == nil {
+                    resolvedConfig.originalInputFiles = config.inputFiles
+                }
                 resolvedConfig.inputFiles = resolvedFiles
 
                 let progressCallback: @Sendable (Double, String) -> Void = { progress, message in

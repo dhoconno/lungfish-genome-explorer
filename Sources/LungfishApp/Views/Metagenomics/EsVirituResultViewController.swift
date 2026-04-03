@@ -756,12 +756,39 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         do {
             let runner = NativeToolRunner.shared
 
-            // Step 1: samtools view to extract alignments for selected regions
+            // Step 1: Validate regions against BAM header, then extract
+            OperationCenter.shared.update(id: opID, progress: 0.05, detail: "Checking BAM reference names\u{2026}")
+
+            // Read BAM header to verify region names match @SQ lines
+            let headerResult = try await runner.run(.samtools, arguments: ["view", "-H", bamURL.path])
+            let bamRefNames: Set<String> = {
+                var refs = Set<String>()
+                for line in headerResult.stdout.split(separator: "\n") where line.hasPrefix("@SQ") {
+                    for field in line.split(separator: "\t") where field.hasPrefix("SN:") {
+                        refs.insert(String(field.dropFirst(3)))
+                    }
+                }
+                return refs
+            }()
+
+            let matchedRegions = regions.filter { bamRefNames.contains($0) }
+            let unmatchedRegions = regions.filter { !bamRefNames.contains($0) }
+            if !unmatchedRegions.isEmpty {
+                logger.warning("Regions not found in BAM: \(unmatchedRegions.joined(separator: ", "), privacy: .public)")
+                OperationCenter.shared.log(id: opID, level: .warning,
+                    message: "Skipping \(unmatchedRegions.count) region(s) not in BAM header: \(unmatchedRegions.joined(separator: ", "))")
+            }
+
+            guard !matchedRegions.isEmpty else {
+                OperationCenter.shared.fail(id: opID, detail: "None of the selected regions (\(regions.joined(separator: ", "))) match reference names in the BAM file")
+                return
+            }
+
             OperationCenter.shared.update(id: opID, progress: 0.1, detail: "Extracting alignments from BAM\u{2026}")
-            OperationCenter.shared.log(id: opID, level: .info, message: "Running samtools view for \(regions.count) regions")
+            OperationCenter.shared.log(id: opID, level: .info, message: "Running samtools view for \(matchedRegions.count) regions")
 
             var viewArgs = ["view", "-b", "-o", extractedBAM.path, bamURL.path]
-            viewArgs.append(contentsOf: regions)
+            viewArgs.append(contentsOf: matchedRegions)
             let viewResult = try await runner.run(.samtools, arguments: viewArgs)
             guard viewResult.isSuccess else {
                 throw NativeToolError.executionFailed("samtools view", viewResult.exitCode, viewResult.stderr)

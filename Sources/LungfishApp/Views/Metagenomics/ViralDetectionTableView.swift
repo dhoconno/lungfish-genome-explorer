@@ -44,7 +44,7 @@ import SwiftUI
 /// }
 /// ```
 @MainActor
-public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate {
+public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuItemValidation {
 
     // MARK: - Item Wrappers
 
@@ -122,16 +122,21 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         }
     }
 
-    /// Returns the assembly accessions for all selected rows.
+    /// Returns the contig-level GenBank accessions for all selected rows.
     ///
-    /// For assembly rows, returns the assembly accession directly.
-    /// For detection (contig) rows, returns the parent assembly accession.
+    /// For assembly rows, expands to all constituent contig accessions so the
+    /// returned values match BAM @SQ reference names (which use GenBank contig
+    /// accessions, not GCF assembly accessions).
+    /// For detection (contig) rows, returns the contig accession directly.
     public func selectedAssemblyAccessions() -> [String] {
         var accessions: [String] = []
         for row in outlineView.selectedRowIndexes {
             guard let item = outlineView.item(atRow: row) else { continue }
             if let assemblyItem = item as? ViralAssemblyItem {
-                accessions.append(assemblyItem.assembly.assembly)
+                // Expand assembly to its constituent contig accessions so they
+                // match the BAM reference names (GenBank accessions, not GCF).
+                let contigAccessions = assemblyItem.assembly.contigs.map(\.accession)
+                accessions.append(contentsOf: contigAccessions)
             } else if let detectionItem = item as? ViralDetectionItem {
                 accessions.append(detectionItem.detection.accession)
             }
@@ -599,6 +604,16 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
                      keyEquivalent: "")
 
         return menu
+    }
+
+    // MARK: - Menu Item Validation
+
+    public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(contextBlastVerify(_:)) {
+            // BLAST Verify requires exactly one selected row
+            return outlineView.clickedRow >= 0 && outlineView.selectedRowIndexes.count <= 1
+        }
+        return true
     }
 
     // MARK: - Context Menu Actions

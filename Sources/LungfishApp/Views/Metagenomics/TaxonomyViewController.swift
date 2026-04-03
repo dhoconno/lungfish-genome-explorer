@@ -359,10 +359,34 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             return
         }
 
+        // Resolve the source FASTQ for extraction. The config's inputFiles may
+        // point to a materialized temp file that no longer exists. Try in order:
+        // 1. originalInputFiles (preserved before materialization)
+        // 2. The enclosing FASTQ bundle (output dir is inside bundle/derivatives/)
+        // 3. Fall back to config.inputFiles (may work if not materialized)
+        let sourceURL: URL = {
+            // Check originalInputFiles first (set during materialization)
+            if let original = result.config.originalInputFiles?.first,
+               FileManager.default.fileExists(atPath: original.path) {
+                // The original may be a .lungfishfastq bundle; resolve its payload
+                return FASTQBundle.resolvePrimaryFASTQURL(for: original) ?? original
+            }
+            // Walk up from outputDirectory (classification-xxx/) to find the bundle:
+            // outputDirectory = bundle.lungfishfastq/derivatives/classification-xxx/
+            let derivativesDir = result.config.outputDirectory.deletingLastPathComponent()
+            let bundleDir = derivativesDir.deletingLastPathComponent()
+            if FASTQBundle.isBundleURL(bundleDir),
+               let resolved = FASTQBundle.resolvePrimaryFASTQURL(for: bundleDir) {
+                return resolved
+            }
+            // Last resort: use config.inputFiles directly
+            return result.config.inputFiles.first ?? URL(fileURLWithPath: "/dev/null")
+        }()
+
         let sheet = TaxonomyExtractionSheet(
             selectedNodes: [node],
             tree: result.tree,
-            sourceURL: result.config.inputFiles.first ?? URL(fileURLWithPath: "/dev/null"),
+            sourceURL: sourceURL,
             classificationOutputURL: result.outputURL,
             initialIncludeChildren: includeChildren,
             onExtract: { [weak self, weak window] config in
@@ -533,6 +557,10 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         // Table selection -> sunburst sync
         taxonomyTableView.onNodeSelected = { [weak self] node in
             guard let self, !self.suppressSelectionSync else { return }
+            // Guard against intermediate selection notifications during Cmd+Click:
+            // if the table already has multiple rows selected, defer to the
+            // multi-selection callback instead.
+            if self.taxonomyTableView.outlineView.selectedRowIndexes.count > 1 { return }
             self.suppressSelectionSync = true
             self.sunburstView.selectedNode = node
             self.hideMultiSelectionPlaceholder()
@@ -543,7 +571,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
 
         // Table multi-selection -> placeholder + action bar update
         taxonomyTableView.onMultipleNodesSelected = { [weak self] count in
-            guard let self else { return }
+            guard let self, !self.suppressSelectionSync else { return }
             self.suppressSelectionSync = true
             self.sunburstView.selectedNode = nil
             self.showMultiSelectionPlaceholder(count: count)

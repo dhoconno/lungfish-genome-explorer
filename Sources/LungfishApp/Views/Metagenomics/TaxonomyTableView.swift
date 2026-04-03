@@ -41,7 +41,7 @@ import LungfishIO
 /// }
 /// ```
 @MainActor
-public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate {
+public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuItemValidation {
 
     // MARK: - Data Properties
 
@@ -543,6 +543,16 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
                      keyEquivalent: "")
 
         return menu
+    }
+
+    // MARK: - Menu Item Validation
+
+    public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(contextBlastReads(_:)) {
+            // BLAST requires exactly one selected row
+            return outlineView.clickedRow >= 0 && outlineView.selectedRowIndexes.count <= 1
+        }
+        return true
     }
 
     @objc private func contextExtractReads(_ sender: Any?) {

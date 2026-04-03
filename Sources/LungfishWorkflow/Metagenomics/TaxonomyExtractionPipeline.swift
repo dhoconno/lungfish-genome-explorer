@@ -286,11 +286,16 @@ public actor TaxonomyExtractionPipeline {
                 .replacingOccurrences(of: "/", with: "-")
             let outputFile = outputDirectory.appendingPathComponent("\(safeName)_taxid\(target.taxId).fastq")
 
-            // Build config for this single target
+            // Build config for this single target.
+            // Prefer originalInputFiles (preserved before materialization) to avoid
+            // referencing a deleted temp file.
+            let sourceFile = classificationResult.config.originalInputFiles?.first
+                ?? classificationResult.config.inputFiles.first
+                ?? URL(fileURLWithPath: "/dev/null")
             let config = TaxonomyExtractionConfig(
                 taxIds: Set([target.taxId]),
                 includeChildren: target.includeChildren,
-                sourceFile: classificationResult.config.inputFiles.first ?? URL(fileURLWithPath: "/dev/null"),
+                sourceFile: sourceFile,
                 outputFile: outputFile,
                 classificationOutput: classificationResult.outputURL
             )
