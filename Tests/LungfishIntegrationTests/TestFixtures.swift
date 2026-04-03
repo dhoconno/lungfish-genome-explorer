@@ -110,6 +110,26 @@ public enum TestFixtures {
         }
     }
 
+    /// NVD (Novel Virus Diagnostics) test dataset.
+    ///
+    /// Minimal blast_concatenated.csv with 10 rows covering 3 samples,
+    /// designed to test hit ranking, reads-per-billion, and quoted stitle parsing.
+    public enum nvd {
+        private static let dir = "nvd"
+
+        /// blast_concatenated.csv with 10 rows (SampleA×8, SampleB×1, SampleC×1).
+        public static var blastConcatenatedCSV: URL { fixture("test_blast_concatenated.csv") }
+
+        private static func fixture(_ name: String) -> URL {
+            let url = fixturesBaseURL.appendingPathComponent(dir).appendingPathComponent(name)
+            precondition(
+                FileManager.default.fileExists(atPath: url.path),
+                "Test fixture missing: \(dir)/\(name). Run from a test target with .copy(\"Fixtures\") in Package.swift."
+            )
+            return url
+        }
+    }
+
     // MARK: - Base URL Resolution
 
     /// Resolves the Fixtures directory from the test bundle or source tree.
