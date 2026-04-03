@@ -1508,6 +1508,7 @@ extension InspectorTab {
 /// otherwise shows a "No result information" placeholder.
 private struct MetagenomicsResultSummarySection: View {
     @Bindable var viewModel: DocumentSectionViewModel
+    @State private var isSamplesExpanded = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1555,50 +1556,56 @@ private struct MetagenomicsResultSummarySection: View {
                 }
             }
 
-            if let pickerState = viewModel.classifierPickerState,
-               !viewModel.classifierSampleEntries.isEmpty {
-                Divider()
-                    .padding(.vertical, 4)
+            Divider()
+                .padding(.vertical, 4)
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Sample Filter")
-                        .font(.caption.weight(.semibold))
+            DisclosureGroup("Samples & Metadata", isExpanded: $isSamplesExpanded) {
+                if let pickerState = viewModel.classifierPickerState,
+                   !viewModel.classifierSampleEntries.isEmpty {
+                    Divider()
+                        .padding(.vertical, 4)
 
-                    ClassifierSamplePickerView(
-                        samples: viewModel.classifierSampleEntries,
-                        pickerState: pickerState,
-                        strippedPrefix: viewModel.classifierStrippedPrefix,
-                        isInline: true
-                    )
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Sample Filter")
+                            .font(.caption.weight(.semibold))
+
+                        ClassifierSamplePickerView(
+                            samples: viewModel.classifierSampleEntries,
+                            pickerState: pickerState,
+                            strippedPrefix: viewModel.classifierStrippedPrefix,
+                            isInline: true
+                        )
+                    }
+                    .onChange(of: pickerState.selectedSamples) { _, _ in
+                        NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil)
+                    }
                 }
-                .onChange(of: pickerState.selectedSamples) { _, _ in
-                    NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil)
+
+                // Import Metadata button (when no metadata loaded yet)
+                if viewModel.sampleMetadataStore == nil {
+                    Divider().padding(.vertical, 4)
+                    Button("Import Metadata\u{2026}") {
+                        NotificationCenter.default.post(
+                            name: .metagenomicsMetadataImportRequested,
+                            object: nil
+                        )
+                    }
+                    .controlSize(.small)
+                }
+
+                // Sample Metadata section
+                if let metadataStore = viewModel.sampleMetadataStore {
+                    Divider().padding(.vertical, 4)
+                    SampleMetadataSection(store: metadataStore)
+                }
+
+                // Attachments section
+                if let attachmentStore = viewModel.bundleAttachmentStore {
+                    Divider().padding(.vertical, 4)
+                    AttachmentsSection(store: attachmentStore)
                 }
             }
-
-            // Import Metadata button (when no metadata loaded yet)
-            if viewModel.sampleMetadataStore == nil {
-                Divider().padding(.vertical, 4)
-                Button("Import Metadata\u{2026}") {
-                    NotificationCenter.default.post(
-                        name: .metagenomicsMetadataImportRequested,
-                        object: nil
-                    )
-                }
-                .controlSize(.small)
-            }
-
-            // Sample Metadata section
-            if let metadataStore = viewModel.sampleMetadataStore {
-                Divider().padding(.vertical, 4)
-                SampleMetadataSection(store: metadataStore)
-            }
-
-            // Attachments section
-            if let attachmentStore = viewModel.bundleAttachmentStore {
-                Divider().padding(.vertical, 4)
-                AttachmentsSection(store: attachmentStore)
-            }
+            .font(.caption.weight(.semibold))
         }
     }
 

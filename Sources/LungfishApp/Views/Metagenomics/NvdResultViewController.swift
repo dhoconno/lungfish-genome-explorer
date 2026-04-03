@@ -1497,6 +1497,19 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         copyContig.representedObject = hit.qseqid
         menu.addItem(copyContig)
 
+        // Copy Contig Sequence (FASTA format)
+        let copySeq = NSMenuItem(title: "Copy Contig Sequence", action: #selector(contextCopyContigSequence(_:)), keyEquivalent: "")
+        copySeq.target = self
+        copySeq.representedObject = hit
+        // Disable if no FASTA file available for this sample
+        if let database, let bundleURL {
+            let hasFasta = (try? database.fastaPath(forSample: hit.sampleId)) != nil
+            copySeq.isEnabled = hasFasta
+        } else {
+            copySeq.isEnabled = false
+        }
+        menu.addItem(copySeq)
+
         // Copy Accession
         if !hit.sseqid.isEmpty {
             let copyAcc = NSMenuItem(title: "Copy Accession", action: #selector(contextCopyAccession(_:)), keyEquivalent: "")
@@ -1536,6 +1549,22 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             onBlastVerification?(hit, sequence)
         } catch {
             logger.error("Context BLAST verify failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    @objc private func contextCopyContigSequence(_ sender: NSMenuItem) {
+        guard let hit = sender.representedObject as? NvdBlastHit,
+              let bundleURL, let database else { return }
+
+        do {
+            guard let fastaRelPath = try database.fastaPath(forSample: hit.sampleId) else { return }
+            let fastaURL = bundleURL.appendingPathComponent(fastaRelPath)
+            guard let sequence = NvdDataConverter.extractContigSequence(from: fastaURL, contigName: hit.qseqid) else { return }
+            let fastaText = ">\(hit.qseqid)\n\(sequence)\n"
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(fastaText, forType: .string)
+        } catch {
+            logger.error("Copy contig sequence failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
