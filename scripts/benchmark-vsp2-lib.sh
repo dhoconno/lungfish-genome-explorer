@@ -26,7 +26,7 @@ REFORMAT="${BBTOOLS_DIR}/reformat.sh"
 BBDUK="${BBTOOLS_DIR}/bbduk.sh"
 
 SCRUBBER_DIR="${TOOLS_DIR}/scrubber"
-SCRUB="${SCRUBBER_DIR}/bin/aligns_to"   # scrub.sh wrapper lives alongside
+SCRUB_SH="${SCRUBBER_DIR}/scripts/scrub.sh"
 
 JRE_BIN="${TOOLS_DIR}/jre/bin"
 

@@ -143,12 +143,11 @@ EOF
             log_info "  OK: ${bin}"
         fi
     done
-    local scrub_bin="${SCRUBBER_DIR}/scripts/scrub.sh"
-    if [[ ! -f "$scrub_bin" ]]; then
-        log_info "  MISSING scrub.sh: ${scrub_bin}"
+    if [[ ! -f "$SCRUB_SH" ]]; then
+        log_info "  MISSING scrub.sh: ${SCRUB_SH}"
         tools_ok=0
     else
-        log_info "  OK: ${scrub_bin}"
+        log_info "  OK: ${SCRUB_SH}"
     fi
     if [[ "$tools_ok" -eq 0 ]]; then
         log_info "WARNING: one or more bundled tools are missing"
@@ -259,10 +258,8 @@ cmd_scrub() {
     workdir=$(ensure_workdir "b2-scrub")
     log_info "Working directory: ${workdir}"
 
-    local scrub_sh="${SCRUBBER_DIR}/scripts/scrub.sh"
-
-    if [[ ! -f "$scrub_sh" ]]; then
-        log_info "ERROR: scrub.sh not found at ${scrub_sh}"
+    if [[ ! -f "$SCRUB_SH" ]]; then
+        log_info "ERROR: scrub.sh not found at ${SCRUB_SH}"
         exit 1
     fi
     if [[ ! -f "$SCRUBBER_DB" ]]; then
@@ -286,59 +283,84 @@ cmd_scrub() {
     # -----------------------------------------------------------------------
     # STAT (sra-human-scrubber)
     # Requires plain-text interleaved input; output is also interleaved.
+    # Timing covers the full pipeline cost: interleave + scrub + compress.
+    # Deacon operates directly on paired gz, so including these steps
+    # in STAT's wall time gives an apples-to-apples comparison.
     # -----------------------------------------------------------------------
-    log_info "STAT: interleaving input..."
-    "$REFORMAT" \
-        in="$R1" in2="$R2" \
-        out="${workdir}/stat_interleaved.fq" \
-        2>/dev/null
+    local stat_dir="${workdir}/stat"
+    mkdir -p "$stat_dir"
 
-    log_info "STAT: timed scrub run..."
-    run_timed "${workdir}/stat.time" \
-        bash "$scrub_sh" \
-            -i "${workdir}/stat_interleaved.fq" \
-            -o "${workdir}/stat_scrubbed.fq" \
+    for run in 1 2; do
+        log_info "  STAT run ${run}/2..."
+        local t_start t_end
+        t_start=$(date +%s)
+
+        log_info "  STAT [${run}/2]: interleaving input..."
+        "$REFORMAT" \
+            in="$R1" in2="$R2" \
+            out="${stat_dir}/interleaved.fq" \
+            2>/dev/null
+
+        log_info "  STAT [${run}/2]: scrubbing..."
+        bash "$SCRUB_SH" \
+            -i "${stat_dir}/interleaved.fq" \
+            -o "${stat_dir}/scrubbed.fq" \
             -d "$SCRUBBER_DB" \
             -p "$THREADS" \
             -s -x
 
-    log_info "STAT: compressing output..."
-    "$PIGZ" -p "$THREADS" -4 \
-        "${workdir}/stat_scrubbed.fq"
+        log_info "  STAT [${run}/2]: compressing..."
+        "$PIGZ" -p "$THREADS" -4 -f "${stat_dir}/scrubbed.fq"
+        # pigz -f allows overwrite on run 2
 
-    # Remove intermediate plain-text files
-    rm -f "${workdir}/stat_interleaved.fq"
+        rm -f "${stat_dir}/interleaved.fq"
 
+        t_end=$(date +%s)
+        local t_wall=$(( t_end - t_start ))
+        printf "%s real\n" "$t_wall" > "${stat_dir}/timing_run${run}.txt"
+    done
+    cp "${stat_dir}/timing_run2.txt" "${stat_dir}/timing.txt"
+
+    # Parse wall time from the synthetic timing file (integer seconds from date +%s)
     local stat_wall stat_rss stat_cpu
-    read -r stat_wall stat_rss stat_cpu < <(parse_timing "${workdir}/stat.time")
+    stat_wall=$(awk '/real/{print $1}' "${stat_dir}/timing.txt")
+    stat_rss="N/A"
+    stat_cpu="N/A"
+
     # scrubbed output is interleaved; seqkit will count all records
     local stat_reads_out
-    stat_reads_out=$("$SEQKIT" stats --tabular "${workdir}/stat_scrubbed.fq.gz" 2>/dev/null \
+    stat_reads_out=$("$SEQKIT" stats --tabular "${stat_dir}/scrubbed.fq.gz" 2>/dev/null \
         | tail -n1 | awk '{print $4}')
     write_result_row "$results_tsv" "stat_scrubber" \
         "$stat_wall" "$stat_rss" "$stat_cpu" \
         "$reads_in" "$stat_reads_out"
-    log_done "STAT: wall=${stat_wall}s  rss=${stat_rss}MB  reads_out=${stat_reads_out}"
+    log_done "STAT: wall=${stat_wall}s  reads_out=${stat_reads_out}"
 
     # -----------------------------------------------------------------------
     # Deacon
     # -----------------------------------------------------------------------
-    log_info "Deacon: timed scrub run..."
+    local deacon_dir="${workdir}/deacon"
+    mkdir -p "$deacon_dir"
+
     # run_timed uses /usr/bin/time -l which cannot exec shell functions;
     # pass the full conda run command directly as an executable invocation.
-    run_timed "${workdir}/deacon.time" \
-        "$CONDA" run --no-banner -n "$DEACON_ENV" deacon filter \
-            -d "$DEACON_DB" \
-            "$R1" "$R2" \
-            -o "${workdir}/deacon.R1.fq.gz" \
-            -O "${workdir}/deacon.R2.fq.gz" \
-            -t "$THREADS"
+    for run in 1 2; do
+        log_info "  Deacon run ${run}/2..."
+        run_timed "${deacon_dir}/timing_run${run}.txt" \
+            "$CONDA" run --no-banner -n "$DEACON_ENV" deacon filter \
+                -d "$DEACON_DB" \
+                "$R1" "$R2" \
+                -o "${deacon_dir}/deacon.R1.fq.gz" \
+                -O "${deacon_dir}/deacon.R2.fq.gz" \
+                -t "$THREADS"
+    done
+    cp "${deacon_dir}/timing_run2.txt" "${deacon_dir}/timing.txt"
 
     local deacon_wall deacon_rss deacon_cpu
-    read -r deacon_wall deacon_rss deacon_cpu < <(parse_timing "${workdir}/deacon.time")
+    read -r deacon_wall deacon_rss deacon_cpu < <(parse_timing "${deacon_dir}/timing.txt")
     local deacon_reads_out
     deacon_reads_out=$(count_reads_paired \
-        "${workdir}/deacon.R1.fq.gz" "${workdir}/deacon.R2.fq.gz")
+        "${deacon_dir}/deacon.R1.fq.gz" "${deacon_dir}/deacon.R2.fq.gz")
     write_result_row "$results_tsv" "deacon" \
         "$deacon_wall" "$deacon_rss" "$deacon_cpu" \
         "$reads_in" "$deacon_reads_out"
@@ -380,30 +402,36 @@ cmd_merge() {
     # -----------------------------------------------------------------------
     # bbmerge — requires interleaved input
     # -----------------------------------------------------------------------
+    local bbmerge_dir="${workdir}/bbmerge"
+    mkdir -p "$bbmerge_dir"
+
     log_info "bbmerge: interleaving input..."
     "$REFORMAT" \
         in="$R1" in2="$R2" \
-        out="${workdir}/bbmerge_interleaved.fq.gz" \
+        out="${bbmerge_dir}/interleaved.fq.gz" \
         2>/dev/null
 
-    log_info "bbmerge: timed run..."
-    run_timed "${workdir}/bbmerge.time" \
-        "$BBMERGE" \
-            in="${workdir}/bbmerge_interleaved.fq.gz" \
-            out="${workdir}/bbmerge_merged.fq.gz" \
-            outu="${workdir}/bbmerge_unmerged.fq.gz" \
-            minoverlap=15 \
-            "-Xmx${HEAP_GB}g" threads="$THREADS" ow=t
+    for run in 1 2; do
+        log_info "  bbmerge run ${run}/2..."
+        run_timed "${bbmerge_dir}/timing_run${run}.txt" \
+            "$BBMERGE" \
+                in="${bbmerge_dir}/interleaved.fq.gz" \
+                out="${bbmerge_dir}/merged.fq.gz" \
+                outu="${bbmerge_dir}/unmerged.fq.gz" \
+                minoverlap=15 \
+                "-Xmx${HEAP_GB}g" threads="$THREADS" ow=t
+    done
+    cp "${bbmerge_dir}/timing_run2.txt" "${bbmerge_dir}/timing.txt"
 
     # Clean interleaved intermediate
-    rm -f "${workdir}/bbmerge_interleaved.fq.gz"
+    rm -f "${bbmerge_dir}/interleaved.fq.gz"
 
     local bbmerge_wall bbmerge_rss bbmerge_cpu
-    read -r bbmerge_wall bbmerge_rss bbmerge_cpu < <(parse_timing "${workdir}/bbmerge.time")
+    read -r bbmerge_wall bbmerge_rss bbmerge_cpu < <(parse_timing "${bbmerge_dir}/timing.txt")
     local bbmerge_merged bbmerge_unmerged bbmerge_pct
-    bbmerge_merged=$("$SEQKIT" stats --tabular "${workdir}/bbmerge_merged.fq.gz" 2>/dev/null \
+    bbmerge_merged=$("$SEQKIT" stats --tabular "${bbmerge_dir}/merged.fq.gz" 2>/dev/null \
         | tail -n1 | awk '{print $4}')
-    bbmerge_unmerged=$("$SEQKIT" stats --tabular "${workdir}/bbmerge_unmerged.fq.gz" 2>/dev/null \
+    bbmerge_unmerged=$("$SEQKIT" stats --tabular "${bbmerge_dir}/unmerged.fq.gz" 2>/dev/null \
         | tail -n1 | awk '{print $4}')
     bbmerge_pct=$(awk "BEGIN { total=${reads_in}+0; if (total>0) printf \"%.2f\", ${bbmerge_merged}*100/total; else print \"N/A\" }")
     printf "bbmerge\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
@@ -415,27 +443,34 @@ cmd_merge() {
     # -----------------------------------------------------------------------
     # fastp --merge
     # -----------------------------------------------------------------------
-    log_info "fastp: timed merge run..."
-    run_timed "${workdir}/fastp_merge.time" \
-        "$FASTP" \
-            -i "$R1" -I "$R2" \
-            --merge \
-            --merged_out "${workdir}/fastp_merged.fq.gz" \
-            --out1 "${workdir}/fastp_unmerged.R1.fq.gz" \
-            --out2 "${workdir}/fastp_unmerged.R2.fq.gz" \
-            --overlap_len_require 15 \
-            -A -G -Q -L \
-            -j "${workdir}/fastp_merge.json" -h /dev/null \
-            -w "$THREADS"
+    local fastp_dir="${workdir}/fastp"
+    mkdir -p "$fastp_dir"
+
+    for run in 1 2; do
+        log_info "  fastp merge run ${run}/2..."
+        run_timed "${fastp_dir}/timing_run${run}.txt" \
+            "$FASTP" \
+                -i "$R1" -I "$R2" \
+                --merge \
+                --merged_out "${fastp_dir}/merged.fq.gz" \
+                --out1 "${fastp_dir}/unmerged.R1.fq.gz" \
+                --out2 "${fastp_dir}/unmerged.R2.fq.gz" \
+                --overlap_len_require 15 \
+                -A -G -Q -L \
+                -j "${fastp_dir}/fastp_merge.json" -h /dev/null \
+                -w "$THREADS"
+    done
+    cp "${fastp_dir}/timing_run2.txt" "${fastp_dir}/timing.txt"
 
     local fastp_wall fastp_rss fastp_cpu
-    read -r fastp_wall fastp_rss fastp_cpu < <(parse_timing "${workdir}/fastp_merge.time")
+    read -r fastp_wall fastp_rss fastp_cpu < <(parse_timing "${fastp_dir}/timing.txt")
     local fastp_merged fastp_unmerged fastp_pct
-    fastp_merged=$("$SEQKIT" stats --tabular "${workdir}/fastp_merged.fq.gz" 2>/dev/null \
+    fastp_merged=$("$SEQKIT" stats --tabular "${fastp_dir}/merged.fq.gz" 2>/dev/null \
         | tail -n1 | awk '{print $4}')
-    fastp_unmerged_r1=$("$SEQKIT" stats --tabular "${workdir}/fastp_unmerged.R1.fq.gz" 2>/dev/null \
+    local fastp_unmerged_r1 fastp_unmerged_r2
+    fastp_unmerged_r1=$("$SEQKIT" stats --tabular "${fastp_dir}/unmerged.R1.fq.gz" 2>/dev/null \
         | tail -n1 | awk '{print $4}')
-    fastp_unmerged_r2=$("$SEQKIT" stats --tabular "${workdir}/fastp_unmerged.R2.fq.gz" 2>/dev/null \
+    fastp_unmerged_r2=$("$SEQKIT" stats --tabular "${fastp_dir}/unmerged.R2.fq.gz" 2>/dev/null \
         | tail -n1 | awk '{print $4}')
     fastp_unmerged=$(( fastp_unmerged_r1 + fastp_unmerged_r2 ))
     fastp_pct=$(awk "BEGIN { total=${reads_in}+0; if (total>0) printf \"%.2f\", ${fastp_merged}*100/total; else print \"N/A\" }")
@@ -476,8 +511,6 @@ cmd_e2e() {
     local results_tsv="${workdir}/results.tsv"
     printf "pipeline\ttotal_sec\treads_in\treads_out\tpct_retained\n" > "$results_tsv"
 
-    local scrub_sh="${SCRUBBER_DIR}/scripts/scrub.sh"
-
     # -----------------------------------------------------------------------
     # Pipeline A — current stack
     # Steps: clumpify dedup → fastp adapter+quality trim →
@@ -515,7 +548,7 @@ cmd_e2e() {
         2>/dev/null
     rm -f "${a}/trimmed.R1.fq.gz" "${a}/trimmed.R2.fq.gz"
 
-    bash "$scrub_sh" \
+    bash "$SCRUB_SH" \
         -i "${a}/interleaved.fq" \
         -o "${a}/scrubbed.fq" \
         -d "$SCRUBBER_DB" \
