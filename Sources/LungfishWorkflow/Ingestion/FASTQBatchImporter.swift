@@ -386,23 +386,67 @@ public enum FASTQBatchImporter {
         let originalBytes = fileSizeSum([pair.r1] + (pair.r2.map { [$0] } ?? []))
 
         do {
-            // Step 1: Run ingestion pipeline (clumpify + compress)
             let outputDir = config.projectDirectory
                 .appendingPathComponent("Imports")
             try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
 
+            // Create a temp workspace on the same volume for intermediate files
+            let workspace: URL
+            do {
+                workspace = try FileManager.default.url(
+                    for: .itemReplacementDirectory, in: .userDomainMask,
+                    appropriateFor: pair.r1, create: true
+                )
+            } catch {
+                workspace = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("fastq-import-\(UUID().uuidString)")
+                try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+            }
+            defer { try? FileManager.default.removeItem(at: workspace) }
+
+            // Step 1: Apply recipe if provided (BEFORE clumpify — recipe changes the
+            // read population, so k-mer grouping must be computed on the final reads)
+            var recipeOutputFASTQ: URL? = nil
+            var isPairedAfterRecipe = pair.r2 != nil
+            if let recipe = config.recipe, !recipe.steps.isEmpty {
+                recipeOutputFASTQ = try await applyRecipe(
+                    recipe: recipe,
+                    inputR1: pair.r1,
+                    inputR2: pair.r2,
+                    workspace: workspace,
+                    pair: pair,
+                    config: config,
+                    log: log
+                )
+                // After VSP2 recipe, output is interleaved (PE merge step produces mixed reads)
+                isPairedAfterRecipe = true
+            }
+
+            // Step 2: Clumpify + compress (on recipe output, or raw input if no recipe)
+            let clumpifyInput: [URL]
+            let clumpifyPairingMode: FASTQIngestionConfig.PairingMode
+            if let recipeOutput = recipeOutputFASTQ {
+                clumpifyInput = [recipeOutput]
+                clumpifyPairingMode = isPairedAfterRecipe ? .interleaved : .singleEnd
+            } else {
+                clumpifyInput = pair.r2 != nil ? [pair.r1, pair.r2!] : [pair.r1]
+                clumpifyPairingMode = pair.r2 != nil ? .pairedEnd : .singleEnd
+            }
+
             let ingestionConfig = FASTQIngestionConfig(
-                inputFiles: pair.r2 != nil ? [pair.r1, pair.r2!] : [pair.r1],
-                pairingMode: pair.r2 != nil ? .pairedEnd : .singleEnd,
-                outputDirectory: outputDir,
+                inputFiles: clumpifyInput,
+                pairingMode: clumpifyPairingMode,
+                outputDirectory: workspace,
                 threads: config.threads,
-                deleteOriginals: false,
+                deleteOriginals: true,
                 qualityBinning: config.qualityBinning
             )
 
-            let pipelineStepName = "Clumpify + Compress"
-            log?(.stepStart(sample: pair.sampleName, step: pipelineStepName, stepIndex: 0, totalSteps: 1))
-            let stepStart = Date()
+            let totalSteps = (config.recipe?.steps.count ?? 0) + 1
+            let clumpifyStepIndex = totalSteps
+            log?(.stepStart(sample: pair.sampleName, step: "Clumpify + Compress", stepIndex: clumpifyStepIndex, totalSteps: totalSteps))
+            printProgress("  \u{2192} Clumpify + compress...")
+            let clumpifyStart = Date()
 
             let pipeline = FASTQIngestionPipeline()
             let ingestionResult = try await pipeline.run(config: ingestionConfig, progress: { _, msg in
@@ -411,22 +455,12 @@ public enum FASTQBatchImporter {
 
             log?(.stepComplete(
                 sample: pair.sampleName,
-                step: pipelineStepName,
-                durationSeconds: Date().timeIntervalSince(stepStart)
+                step: "Clumpify + Compress",
+                durationSeconds: Date().timeIntervalSince(clumpifyStart)
             ))
+            printProgress("  \u{2192} Clumpify + compress... done (\(Int(Date().timeIntervalSince(clumpifyStart)))s)")
 
-            // Step 2: Apply recipe if provided
-            var finalFASTQURL = ingestionResult.outputFile
-            if let recipe = config.recipe, !recipe.steps.isEmpty {
-                finalFASTQURL = try await applyRecipe(
-                    recipe: recipe,
-                    inputFASTQ: finalFASTQURL,
-                    isPaired: ingestionResult.pairingMode == .interleaved,
-                    pair: pair,
-                    config: config,
-                    log: log
-                )
-            }
+            let finalFASTQURL = ingestionResult.outputFile
 
             // Step 3: Build bundle directory
             let bundleURL = outputDir.appendingPathComponent(
@@ -491,35 +525,168 @@ public enum FASTQBatchImporter {
 
     // MARK: - Recipe Execution
 
-    /// Applies all recipe steps to an input FASTQ file, returning the final output URL.
+    /// Applies all recipe steps to paired-end FASTQ inputs, returning the final output URL.
     ///
     /// For the VSP2 delayed-interleave pattern, paired-prefix steps (deduplicate,
-    /// adapterTrim, qualityTrim) run on the already-interleaved post-ingestion file,
-    /// then humanReadScrub, pairedEndMerge, and lengthFilter are applied in sequence.
+    /// adapterTrim, qualityTrim) run on SEPARATE R1/R2 files first (preserving pairing
+    /// without interleaving overhead), then interleaves the result for the remaining
+    /// steps (humanReadScrub, pairedEndMerge, lengthFilter).
     private static func applyRecipe(
         recipe: ProcessingRecipe,
-        inputFASTQ: URL,
-        isPaired: Bool,
+        inputR1: URL,
+        inputR2: URL?,
+        workspace: URL,
         pair: SamplePair,
         config: ImportConfig,
         log: (@Sendable (ImportLogEvent) -> Void)?
     ) async throws -> URL {
         let runner = NativeToolRunner.shared
-        let workspace = try createIngestionWorkspace(anchoredAt: config.projectDirectory)
-        defer { try? FileManager.default.removeItem(at: workspace) }
 
-        var currentURL = inputFASTQ
-        var currentIsInterleaved = isPaired
+        // Determine which prefix steps can run on split R1/R2 files
+        let pairedPrefixKinds: Set<FASTQDerivativeOperationKind> = [.deduplicate, .adapterTrim, .qualityTrim]
+        var currentR1 = inputR1
+        var currentR2 = inputR2
+        var previousR1: URL? = nil
+        var previousR2: URL? = nil
+        var consumedPairedSteps = 0
+
         let steps = recipe.steps
         let totalSteps = steps.count
 
-        for (stepIndex, step) in steps.enumerated() {
+        // Phase 1: Run paired-prefix steps on separate R1/R2 files
+        if let r2 = currentR2 {
+            for (stepIndex, step) in steps.enumerated() {
+                guard pairedPrefixKinds.contains(step.kind) else { break }
+
+                let stepName = step.shortLabel
+                log?(.stepStart(sample: pair.sampleName, step: stepName, stepIndex: stepIndex + 1, totalSteps: totalSteps))
+                printProgress("  \u{2192} \(step.displaySummary)...")
+                let stepStart = Date()
+
+                let outR1 = workspace.appendingPathComponent("step_\(stepIndex)_R1.fastq")
+                let outR2 = workspace.appendingPathComponent("step_\(stepIndex)_R2.fastq")
+                let env = await bbToolsEnvironment()
+                let physicalMemoryGB = Int(ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024))
+                let heapGB = max(4, min(31, physicalMemoryGB * 60 / 100))
+
+                switch step.kind {
+                case .deduplicate:
+                    var args = [
+                        "in1=\(currentR1.path)", "in2=\(r2.path)",
+                        "out1=\(outR1.path)", "out2=\(outR2.path)",
+                        "-Xmx\(heapGB)g", "dedupe=t",
+                        "subs=\(step.deduplicateSubstitutions ?? 0)", "ow=t",
+                    ]
+                    if step.deduplicateOptical == true {
+                        args += ["optical=t", "dupedist=\(step.deduplicateOpticalDistance ?? 2500)"]
+                    }
+                    let result = try await runner.run(.clumpify, arguments: args, environment: env, timeout: 3600)
+                    guard result.isSuccess else {
+                        throw BatchImportError.unknownRecipe("paired dedup failed: \(String(result.stderr.suffix(500)))")
+                    }
+
+                case .adapterTrim:
+                    var args = [
+                        "-i", currentR1.path, "-I", currentR2!.path,
+                        "-o", outR1.path, "-O", outR2.path,
+                        "-w", String(config.threads),
+                        "--disable_quality_filtering", "--disable_length_filtering",
+                        "--json", "/dev/null", "--html", "/dev/null",
+                    ]
+                    if let seq = step.adapterSequence { args += ["--adapter_sequence", seq] }
+                    if let seqR2 = step.adapterSequenceR2 { args += ["--adapter_sequence_r2", seqR2] }
+                    let result = try await runner.run(.fastp, arguments: args, timeout: 3600)
+                    guard result.isSuccess else {
+                        throw BatchImportError.unknownRecipe("paired adapter trim failed: \(String(result.stderr.suffix(500)))")
+                    }
+
+                case .qualityTrim:
+                    var args = [
+                        "-i", currentR1.path, "-I", currentR2!.path,
+                        "-o", outR1.path, "-O", outR2.path,
+                        "-w", String(config.threads),
+                        "-W", String(step.windowSize ?? 4),
+                        "-M", String(step.qualityThreshold ?? 20),
+                        "--disable_adapter_trimming", "--disable_quality_filtering",
+                        "--disable_length_filtering",
+                        "--json", "/dev/null", "--html", "/dev/null",
+                    ]
+                    switch step.qualityTrimMode ?? .cutRight {
+                    case .cutRight: args.append("--cut_right")
+                    case .cutFront: args.append("--cut_front")
+                    case .cutTail: args.append("--cut_tail")
+                    case .cutBoth: args += ["--cut_front", "--cut_right"]
+                    }
+                    let result = try await runner.run(.fastp, arguments: args, timeout: 3600)
+                    guard result.isSuccess else {
+                        throw BatchImportError.unknownRecipe("paired quality trim failed: \(String(result.stderr.suffix(500)))")
+                    }
+
+                default:
+                    break
+                }
+
+                let duration = Date().timeIntervalSince(stepStart)
+                log?(.stepComplete(sample: pair.sampleName, step: stepName, durationSeconds: duration))
+                printProgress("  \u{2192} \(step.displaySummary)... done (\(Int(duration))s)")
+
+                // CRITICAL: Clean up previous step's intermediate files
+                if let prev1 = previousR1 { try? FileManager.default.removeItem(at: prev1) }
+                if let prev2 = previousR2 { try? FileManager.default.removeItem(at: prev2) }
+
+                previousR1 = outR1
+                previousR2 = outR2
+                currentR1 = outR1
+                currentR2 = outR2
+                consumedPairedSteps += 1
+            }
+        }
+
+        // Phase 2: Interleave if we have remaining steps that need it
+        let remainingSteps = Array(steps.dropFirst(consumedPairedSteps))
+
+        var currentURL: URL
+        var currentIsInterleaved: Bool
+
+        if !remainingSteps.isEmpty, let r2 = currentR2 {
+            // Interleave for the remaining steps
+            let interleavedURL = workspace.appendingPathComponent("interleaved_for_remaining.fastq")
+            try await interleavePairedInput(r1: currentR1, r2: r2, output: interleavedURL)
+            // Clean up last paired intermediates
+            if let prev1 = previousR1 { try? FileManager.default.removeItem(at: prev1) }
+            if let prev2 = previousR2 { try? FileManager.default.removeItem(at: prev2) }
+            currentURL = interleavedURL
+            currentIsInterleaved = true
+        } else if consumedPairedSteps > 0, let r2 = currentR2 {
+            // All steps were paired-prefix — interleave the final result
+            let interleavedURL = workspace.appendingPathComponent("final_interleaved.fastq")
+            try await interleavePairedInput(r1: currentR1, r2: r2, output: interleavedURL)
+            if let prev1 = previousR1 { try? FileManager.default.removeItem(at: prev1) }
+            if let prev2 = previousR2 { try? FileManager.default.removeItem(at: prev2) }
+            return interleavedURL
+        } else if let r2 = inputR2 {
+            // No paired prefix steps consumed, interleave the raw inputs
+            let interleavedURL = workspace.appendingPathComponent("interleaved_raw.fastq")
+            try await interleavePairedInput(r1: inputR1, r2: r2, output: interleavedURL)
+            currentURL = interleavedURL
+            currentIsInterleaved = true
+        } else {
+            currentURL = inputR1
+            currentIsInterleaved = false
+        }
+
+        // Phase 3: Run remaining steps on interleaved file
+        guard !remainingSteps.isEmpty else { return currentURL }
+
+        for (relIndex, step) in remainingSteps.enumerated() {
+            let absIndex = consumedPairedSteps + relIndex
             let stepName = step.shortLabel
-            log?(.stepStart(sample: pair.sampleName, step: stepName, stepIndex: stepIndex, totalSteps: totalSteps))
+            log?(.stepStart(sample: pair.sampleName, step: stepName, stepIndex: absIndex + 1, totalSteps: totalSteps))
+            printProgress("  \u{2192} \(step.displaySummary)...")
             let stepStart = Date()
 
             let outputURL = workspace.appendingPathComponent(
-                "step_\(stepIndex)_\(pair.sampleName).fastq.gz"
+                "step_\(absIndex)_\(pair.sampleName).fastq.gz"
             )
 
             switch step.kind {
@@ -540,7 +707,7 @@ public enum FASTQBatchImporter {
 
             case .adapterTrim:
                 // Run fastp adapter trim
-                let r2OutputURL = workspace.appendingPathComponent("step_\(stepIndex)_\(pair.sampleName)_R2.fastq.gz")
+                let r2OutputURL = workspace.appendingPathComponent("step_\(absIndex)_\(pair.sampleName)_R2.fastq.gz")
                 var args = ["-i", currentURL.path, "-o", outputURL.path,
                             "-w", String(config.threads), "--json", "/dev/null", "--html", "/dev/null"]
                 if currentIsInterleaved {
@@ -553,7 +720,7 @@ public enum FASTQBatchImporter {
                 }
                 // If interleaved, re-interleave R1+R2 outputs
                 if currentIsInterleaved && FileManager.default.fileExists(atPath: r2OutputURL.path) {
-                    let interleavedURL = workspace.appendingPathComponent("step_\(stepIndex)_\(pair.sampleName)_il.fastq.gz")
+                    let interleavedURL = workspace.appendingPathComponent("step_\(absIndex)_\(pair.sampleName)_il.fastq.gz")
                     try await interleavePairedInput(r1: outputURL, r2: r2OutputURL, output: interleavedURL)
                     try? FileManager.default.removeItem(at: outputURL)
                     try? FileManager.default.removeItem(at: r2OutputURL)
@@ -563,7 +730,7 @@ public enum FASTQBatchImporter {
             case .qualityTrim:
                 let threshold = step.qualityThreshold ?? 20
                 let window = step.windowSize ?? 4
-                let r2OutputURL = workspace.appendingPathComponent("step_\(stepIndex)_\(pair.sampleName)_R2.fastq.gz")
+                let r2OutputURL = workspace.appendingPathComponent("step_\(absIndex)_\(pair.sampleName)_R2.fastq.gz")
                 var args = ["-i", currentURL.path, "-o", outputURL.path,
                             "-w", String(config.threads),
                             "-W", String(window), "-M", String(threshold),
@@ -579,7 +746,7 @@ public enum FASTQBatchImporter {
                     throw BatchImportError.unknownRecipe("fastp quality trim failed: \(result.stderr.suffix(500))")
                 }
                 if currentIsInterleaved && FileManager.default.fileExists(atPath: r2OutputURL.path) {
-                    let interleavedURL = workspace.appendingPathComponent("step_\(stepIndex)_\(pair.sampleName)_il.fastq.gz")
+                    let interleavedURL = workspace.appendingPathComponent("step_\(absIndex)_\(pair.sampleName)_il.fastq.gz")
                     try await interleavePairedInput(r1: outputURL, r2: r2OutputURL, output: interleavedURL)
                     try? FileManager.default.removeItem(at: outputURL)
                     try? FileManager.default.removeItem(at: r2OutputURL)
@@ -615,7 +782,7 @@ public enum FASTQBatchImporter {
                 defer { if let t = decompTemp { try? FileManager.default.removeItem(at: t) } }
 
                 // scrub.sh writes plain FASTQ, not gzip — we'll compress after
-                let scrubOutputURL = workspace.appendingPathComponent("step_\(stepIndex)_\(pair.sampleName).fastq")
+                let scrubOutputURL = workspace.appendingPathComponent("step_\(absIndex)_\(pair.sampleName).fastq")
                 var scriptArgs = [scrubSh.path,
                     "-i", inputForScrub.path,
                     "-o", scrubOutputURL.path,
@@ -650,9 +817,9 @@ public enum FASTQBatchImporter {
             case .pairedEndMerge:
                 let strictness = step.mergeStrictness ?? .normal
                 let minOverlap = step.mergeMinOverlap ?? 12
-                let mergedURL = workspace.appendingPathComponent("step_\(stepIndex)_merged.fastq")
-                let unmergedR1URL = workspace.appendingPathComponent("step_\(stepIndex)_unmerged_R1.fastq")
-                let unmergedR2URL = workspace.appendingPathComponent("step_\(stepIndex)_unmerged_R2.fastq")
+                let mergedURL = workspace.appendingPathComponent("step_\(absIndex)_merged.fastq")
+                let unmergedR1URL = workspace.appendingPathComponent("step_\(absIndex)_unmerged_R1.fastq")
+                let unmergedR2URL = workspace.appendingPathComponent("step_\(absIndex)_unmerged_R2.fastq")
 
                 var args = [
                     "in=\(currentURL.path)",
@@ -675,10 +842,10 @@ public enum FASTQBatchImporter {
                 let hasUnmergedR2 = FileManager.default.fileExists(atPath: unmergedR2URL.path)
                 let hasMerged = FileManager.default.fileExists(atPath: mergedURL.path)
 
-                let combinedURL = workspace.appendingPathComponent("step_\(stepIndex)_combined.fastq")
+                let combinedURL = workspace.appendingPathComponent("step_\(absIndex)_combined.fastq")
 
                 if hasUnmergedR1 && hasUnmergedR2 {
-                    let interleavedUnmergedURL = workspace.appendingPathComponent("step_\(stepIndex)_unmerged_il.fastq")
+                    let interleavedUnmergedURL = workspace.appendingPathComponent("step_\(absIndex)_unmerged_il.fastq")
                     try await interleavePairedInput(r1: unmergedR1URL, r2: unmergedR2URL, output: interleavedUnmergedURL)
                     // Cat interleaved unmerged + merged into combined
                     var catParts: [URL] = [interleavedUnmergedURL]
@@ -742,16 +909,12 @@ public enum FASTQBatchImporter {
             }
 
             // Delete the previous intermediate file and advance current pointer
-            if currentURL != inputFASTQ {
-                try? FileManager.default.removeItem(at: currentURL)
-            }
+            try? FileManager.default.removeItem(at: currentURL)
             currentURL = outputURL
 
-            log?(.stepComplete(
-                sample: pair.sampleName,
-                step: stepName,
-                durationSeconds: Date().timeIntervalSince(stepStart)
-            ))
+            let duration = Date().timeIntervalSince(stepStart)
+            log?(.stepComplete(sample: pair.sampleName, step: stepName, durationSeconds: duration))
+            printProgress("  \u{2192} \(step.displaySummary)... done (\(Int(duration))s)")
         }
 
         return currentURL
