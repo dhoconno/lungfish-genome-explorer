@@ -25,7 +25,7 @@ CONDA="${HOME}/miniforge3/bin/conda"
 DEACON_ENV="deacon-bench"
 
 run_deacon() {
-    "$CONDA" run --no-banner -n "$DEACON_ENV" deacon "$@"
+    "$CONDA" run -n "$DEACON_ENV" deacon "$@"
 }
 
 # ---------------------------------------------------------------------------
@@ -347,7 +347,7 @@ cmd_scrub() {
     for run in 1 2; do
         log_info "  Deacon run ${run}/2..."
         run_timed "${deacon_dir}/timing_run${run}.txt" \
-            "$CONDA" run --no-banner -n "$DEACON_ENV" deacon filter \
+            "$CONDA" run -n "$DEACON_ENV" deacon filter \
                 -d "$DEACON_DB" \
                 "$R1" "$R2" \
                 -o "${deacon_dir}/deacon.R1.fq.gz" \
