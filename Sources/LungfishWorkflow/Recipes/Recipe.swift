@@ -149,6 +149,32 @@ public struct Recipe: Codable, Sendable, Identifiable, Equatable {
              platforms, requiredInput, qualityBinning, steps
     }
 
+    // MARK: Memberwise initialiser (for tests and programmatic construction)
+
+    public init(
+        formatVersion: Int = 1,
+        id: String,
+        name: String,
+        description: String? = nil,
+        author: String? = nil,
+        tags: [String] = [],
+        platforms: [SequencingPlatform] = [.illumina],
+        requiredInput: InputRequirement = .any,
+        qualityBinning: QualityBinningScheme? = nil,
+        steps: [RecipeStep]
+    ) {
+        self.formatVersion  = formatVersion
+        self.id             = id
+        self.name           = name
+        self.description    = description
+        self.author         = author
+        self.tags           = tags
+        self.platforms      = platforms
+        self.requiredInput  = requiredInput
+        self.qualityBinning = qualityBinning
+        self.steps          = steps
+    }
+
     // MARK: Custom decoder (tags defaults to [])
 
     public init(from decoder: any Decoder) throws {
