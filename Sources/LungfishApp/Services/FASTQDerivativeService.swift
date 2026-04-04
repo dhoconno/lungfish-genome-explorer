@@ -500,7 +500,7 @@ public actor FASTQDerivativeService {
             throw FASTQDerivativeError.derivedManifestMissing
         }
 
-        let tempDir = try makeTemporaryDirectory(prefix: "fastq-export-")
+        let tempDir = try makeTemporaryDirectory(prefix: "fastq-export-", contextURL: bundleURL)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         progress?("Materializing dataset...")
@@ -524,7 +524,7 @@ public actor FASTQDerivativeService {
             throw FASTQDerivativeError.sourceMustBeBundle
         }
 
-        let tempDir = try makeTemporaryDirectory(prefix: "fastq-derive-")
+        let tempDir = try makeTemporaryDirectory(prefix: "fastq-derive-", contextURL: sourceBundleURL)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         progress?("Resolving source dataset...")
@@ -2153,10 +2153,10 @@ public actor FASTQDerivativeService {
         let extractTarget: URL
         var orientTempDir: URL?
         if needsOrientation {
-            let tempDir = fm.temporaryDirectory.appendingPathComponent(
-                "lungfish-virtual-orient-\(UUID().uuidString)", isDirectory: true
+            let tempDir = try ProjectTempDirectory.createFromContext(
+                prefix: "lungfish-virtual-orient-",
+                contextURL: rootFASTQURL
             )
-            try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
             orientTempDir = tempDir
             extractTarget = tempDir.appendingPathComponent("pre-orient.fastq")
         } else {
@@ -2180,11 +2180,13 @@ public actor FASTQDerivativeService {
                 from: trimPositionsURL,
                 selectedReadIDsFile: readIDListURL
             ) {
-                let filteredTrimURL = fm.temporaryDirectory.appendingPathComponent(
-                    "lungfish-demux-trim-\(UUID().uuidString).tsv"
+                let filteredTrimDir = try ProjectTempDirectory.createFromContext(
+                    prefix: "lungfish-demux-trim-",
+                    contextURL: rootFASTQURL
                 )
+                let filteredTrimURL = filteredTrimDir.appendingPathComponent("trim-positions.tsv")
                 try filteredTrimContent.write(to: filteredTrimURL, atomically: true, encoding: .utf8)
-                defer { try? fm.removeItem(at: filteredTrimURL) }
+                defer { try? fm.removeItem(at: filteredTrimDir) }
                 try await extractAndTrimReads(
                     fromRootFASTQ: rootFASTQURL,
                     readIDsFile: readIDListURL,
@@ -2227,10 +2229,10 @@ public actor FASTQDerivativeService {
         let extractTarget: URL
         var orientTempDir: URL?
         if needsOrientation {
-            let tempDir = fm.temporaryDirectory.appendingPathComponent(
-                "lungfish-fasta-orient-\(UUID().uuidString)", isDirectory: true
+            let tempDir = try ProjectTempDirectory.createFromContext(
+                prefix: "lungfish-fasta-orient-",
+                contextURL: rootFASTAURL
             )
-            try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
             orientTempDir = tempDir
             extractTarget = tempDir.appendingPathComponent("pre-orient.fasta")
         } else {
@@ -2254,11 +2256,13 @@ public actor FASTQDerivativeService {
                 from: trimPositionsURL,
                 selectedReadIDsFile: readIDListURL
             ) {
-                let filteredTrimURL = fm.temporaryDirectory.appendingPathComponent(
-                    "lungfish-fasta-demux-trim-\(UUID().uuidString).tsv"
+                let filteredTrimDir = try ProjectTempDirectory.createFromContext(
+                    prefix: "lungfish-fasta-demux-trim-",
+                    contextURL: rootFASTAURL
                 )
+                let filteredTrimURL = filteredTrimDir.appendingPathComponent("trim-positions.tsv")
                 try filteredTrimContent.write(to: filteredTrimURL, atomically: true, encoding: .utf8)
-                defer { try? fm.removeItem(at: filteredTrimURL) }
+                defer { try? fm.removeItem(at: filteredTrimDir) }
                 try await extractAndTrimFASTAReads(
                     fromRootFASTA: rootFASTAURL,
                     readIDsFile: readIDListURL,
@@ -2399,8 +2403,10 @@ public actor FASTQDerivativeService {
         outputFASTQ: URL
     ) async throws {
         let fm = FileManager.default
-        let tempDir = fm.temporaryDirectory.appendingPathComponent("lungfish-trim-\(UUID().uuidString)", isDirectory: true)
-        try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let tempDir = try ProjectTempDirectory.createFromContext(
+            prefix: "lungfish-trim-",
+            contextURL: rootFASTQ
+        )
         defer { try? fm.removeItem(at: tempDir) }
 
         // Step 1: Extract reads by ID into temp file
@@ -2504,8 +2510,10 @@ public actor FASTQDerivativeService {
         outputFASTA: URL
     ) async throws {
         let fm = FileManager.default
-        let tempDir = fm.temporaryDirectory.appendingPathComponent("lungfish-fasta-trim-\(UUID().uuidString)", isDirectory: true)
-        try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let tempDir = try ProjectTempDirectory.createFromContext(
+            prefix: "lungfish-fasta-trim-",
+            contextURL: rootFASTA
+        )
         defer { try? fm.removeItem(at: tempDir) }
 
         // Step 1: Extract reads by ID using seqkit grep (works on FASTA too)
@@ -2651,8 +2659,10 @@ public actor FASTQDerivativeService {
 
         let reader = try FASTAReader(url: rootFASTA)
         let fm = FileManager.default
-        let tempDir = fm.temporaryDirectory.appendingPathComponent("lungfish-fasta-postrim-\(UUID().uuidString)")
-        try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let tempDir = try ProjectTempDirectory.createFromContext(
+            prefix: "lungfish-fasta-postrim-",
+            contextURL: rootFASTA
+        )
         defer { try? fm.removeItem(at: tempDir) }
 
         let plainURL = tempDir.appendingPathComponent("trimmed.fasta")
@@ -3642,9 +3652,10 @@ public actor FASTQDerivativeService {
             }
         case .literal:
             // Write literal sequences to a temp FASTA for bbduk
-            let tmpDir = FileManager.default.temporaryDirectory
-                .appendingPathComponent("bbduk-primer-\(UUID().uuidString)", isDirectory: true)
-            try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+            let tmpDir = try ProjectTempDirectory.createFromContext(
+                prefix: "bbduk-primer-",
+                contextURL: sourceBundleURL
+            )
             let tmpFasta = tmpDir.appendingPathComponent("primers.fasta")
             var fastaContent = ""
             if let fwd = configuration.forwardSequence {
@@ -3898,7 +3909,7 @@ public actor FASTQDerivativeService {
         outputFASTQ: URL,
         searchArgs: [String]
     ) async throws {
-        let tempDir = try makeTemporaryDirectory(prefix: "pe-search-")
+        let tempDir = try makeTemporaryDirectory(prefix: "pe-search-", contextURL: sourceFASTQ)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         // Step 1: Run the search to find matching reads
@@ -4384,10 +4395,11 @@ public actor FASTQDerivativeService {
         return candidate
     }
 
-    private func makeTemporaryDirectory(prefix: String) throws -> URL {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(prefix)\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
+    private func makeTemporaryDirectory(prefix: String, contextURL: URL? = nil) throws -> URL {
+        if let contextURL {
+            return try ProjectTempDirectory.createFromContext(prefix: prefix, contextURL: contextURL)
+        }
+        return try ProjectTempDirectory.create(prefix: prefix, in: nil)
     }
 
     private func uniqueDirectoryURL(startingAt initialURL: URL) -> URL {
