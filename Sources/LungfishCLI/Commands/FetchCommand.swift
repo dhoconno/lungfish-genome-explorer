@@ -5,6 +5,7 @@
 import ArgumentParser
 import Foundation
 import LungfishCore
+import LungfishIO
 import LungfishWorkflow
 
 /// Fetch sequences from remote databases
@@ -950,8 +951,7 @@ struct GenomeSubcommand: AsyncParsableCommand {
         let genomeFileInfo = try await ncbiService.getGenomeFileInfo(for: summary)
 
         // Create a temp directory for downloads
-        let tempDir = outputURL.appendingPathComponent(".lungfish-temp-\(UUID().uuidString)")
-        try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let tempDir = try ProjectTempDirectory.createFromContext(prefix: ".lungfish-temp-", contextURL: outputURL)
 
         defer {
             // Clean up temp directory

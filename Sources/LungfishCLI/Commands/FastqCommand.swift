@@ -513,8 +513,10 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
         guard minOverlap > 0 else { throw ValidationError("--min-overlap must be > 0") }
         let runner = NativeToolRunner.shared
 
-        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("bbmerge-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let tempDir = try ProjectTempDirectory.createFromContext(
+            prefix: "bbmerge-",
+            contextURL: URL(fileURLWithPath: output.output)
+        )
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let mergedURL = tempDir.appendingPathComponent("merged.fastq")
@@ -572,8 +574,10 @@ struct FastqRepairSubcommand: AsyncParsableCommand {
         try output.validateOutput()
         let runner = NativeToolRunner.shared
 
-        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("bbrepair-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let tempDir = try ProjectTempDirectory.createFromContext(
+            prefix: "bbrepair-",
+            contextURL: URL(fileURLWithPath: output.output)
+        )
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let repairedURL = tempDir.appendingPathComponent("repaired.fastq")

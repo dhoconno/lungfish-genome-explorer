@@ -481,9 +481,10 @@ extension ImportCommand {
                 print(formatter.info("Preparing reference input..."))
             }
 
-            let tempDirectory = FileManager.default.temporaryDirectory
-                .appendingPathComponent("lungfish-cli-ref-import-\(UUID().uuidString)", isDirectory: true)
-            try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+            let tempDirectory = try ProjectTempDirectory.createFromContext(
+                prefix: "lungfish-cli-ref-import-",
+                contextURL: outputDirectory
+            )
             defer { try? FileManager.default.removeItem(at: tempDirectory) }
 
             let buildInputs = try await prepareBuildInputs(
