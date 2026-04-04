@@ -748,7 +748,7 @@ public class MainSplitViewController: NSSplitViewController {
         }
 
         // Auto-detect platform from the first R1 file
-        let detectedPlatform = SequencingPlatform.detect(fromFASTQ: pairs[0].r1) ?? .unknown
+        let detectedPlatform = LungfishIO.SequencingPlatform.detect(fromFASTQ: pairs[0].r1) ?? .unknown
 
         FASTQImportConfigSheet.present(
             on: window,

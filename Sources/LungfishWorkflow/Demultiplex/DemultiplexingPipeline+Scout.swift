@@ -30,7 +30,7 @@ extension DemultiplexingPipeline {
         inputURL: URL,
         kit: BarcodeKitDefinition,
         adapterContext: (any PlatformAdapterContext)? = nil,
-        sourcePlatform: SequencingPlatform? = nil,
+        sourcePlatform: LungfishIO.SequencingPlatform? = nil,
         errorRate: Double? = nil,
         minimumOverlap: Int? = nil,
         searchReverseComplement: Bool? = nil,
@@ -428,7 +428,7 @@ extension DemultiplexingPipeline {
 
         static func compute(
             kit: BarcodeKitDefinition,
-            sourcePlatform: SequencingPlatform?,
+            sourcePlatform: LungfishIO.SequencingPlatform?,
             configuredErrorRate: Double? = nil,
             configuredMinimumOverlap: Int? = nil,
             useNoIndels: Bool = false

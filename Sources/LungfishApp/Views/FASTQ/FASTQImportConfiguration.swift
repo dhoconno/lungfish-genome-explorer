@@ -6,14 +6,15 @@ import Foundation
 import LungfishIO
 import LungfishWorkflow
 
+
 /// User-configured settings for FASTQ file import, captured by the import config sheet.
 public struct FASTQImportConfiguration: Sendable {
     /// Input files for this sample. [R1] for single-end, [R1, R2] for paired-end.
     public let inputFiles: [URL]
     /// Platform auto-detected from the FASTQ header.
-    public let detectedPlatform: SequencingPlatform
+    public let detectedPlatform: LungfishIO.SequencingPlatform
     /// Platform confirmed or overridden by the user.
-    public let confirmedPlatform: SequencingPlatform
+    public let confirmedPlatform: LungfishIO.SequencingPlatform
     /// Pairing mode selected by the user.
     public let pairingMode: FASTQIngestionConfig.PairingMode
     /// Quality score binning scheme.

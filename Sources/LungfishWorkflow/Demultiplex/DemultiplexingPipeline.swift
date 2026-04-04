@@ -83,7 +83,7 @@ public struct DemultiplexConfig: Sendable {
     /// The platform that generated the FASTQ reads (may differ from the barcode kit's platform).
     /// When set and different from the kit's platform, the effective error rate is
     /// max(config.errorRate, sourcePlatform.recommendedErrorRate).
-    public var sourcePlatform: SequencingPlatform?
+    public var sourcePlatform: LungfishIO.SequencingPlatform?
 
     /// Root bundle URL for writing derived manifests in virtual demux bundles.
     /// When set, each per-barcode bundle will contain a derived-manifest.json
@@ -166,7 +166,7 @@ public struct DemultiplexConfig: Sendable {
         threads: Int = 4,
         adapterContext: (any PlatformAdapterContext)? = nil,
         sampleAssignments: [FASTQSampleBarcodeAssignment] = [],
-        sourcePlatform: SequencingPlatform? = nil,
+        sourcePlatform: LungfishIO.SequencingPlatform? = nil,
         rootBundleURL: URL? = nil,
         rootFASTQFilename: String? = nil,
         inputPairingMode: IngestionMetadata.PairingMode? = nil,

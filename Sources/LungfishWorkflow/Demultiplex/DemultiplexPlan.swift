@@ -72,7 +72,7 @@ public struct DemultiplexStep: Codable, Sendable, Equatable, Identifiable {
     /// The platform that generated the reads being demuxed (may differ from the kit's platform).
     /// When set and different from the kit's platform, the effective error rate is elevated
     /// to account for the source platform's error characteristics.
-    public var sourcePlatform: SequencingPlatform?
+    public var sourcePlatform: LungfishIO.SequencingPlatform?
 
     public init(
         id: UUID = UUID(),
@@ -91,7 +91,7 @@ public struct DemultiplexStep: Codable, Sendable, Equatable, Identifiable {
         unassignedDisposition: UnassignedDisposition = .keep,
         sampleAssignments: [FASTQSampleBarcodeAssignment] = [],
         ordinal: Int = 0,
-        sourcePlatform: SequencingPlatform? = nil
+        sourcePlatform: LungfishIO.SequencingPlatform? = nil
     ) {
         self.id = id
         self.label = label

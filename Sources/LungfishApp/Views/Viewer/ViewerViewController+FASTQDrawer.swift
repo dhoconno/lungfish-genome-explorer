@@ -122,7 +122,7 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
         }
 
         let pipeline = DemultiplexingPipeline()
-        let detectedPlatform = SequencingPlatform.detect(fromFASTQ: FASTQBundle.resolvePrimaryFASTQURL(for: fastqURL) ?? fastqURL)
+        let detectedPlatform = LungfishIO.SequencingPlatform.detect(fromFASTQ: FASTQBundle.resolvePrimaryFASTQURL(for: fastqURL) ?? fastqURL)
         fastqDrawerLogger.info("Starting barcode scout for \(fastqURL.lastPathComponent, privacy: .public) with kit \(step.barcodeKitID, privacy: .public), detected platform: \(detectedPlatform?.displayName ?? "unknown", privacy: .public)")
 
         drawer.updateScoutStatus("Scouting barcodes...")

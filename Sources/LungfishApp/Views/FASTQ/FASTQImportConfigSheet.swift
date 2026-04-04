@@ -6,6 +6,7 @@ import AppKit
 import LungfishIO
 import LungfishWorkflow
 
+
 /// Callback invoked when the user clicks "Import" with configured settings.
 public typealias FASTQImportCompletion = @MainActor (
     _ configuration: FASTQImportConfiguration
@@ -24,7 +25,7 @@ public final class FASTQImportConfigSheet: NSViewController {
     // MARK: - State
 
     private let pairs: [FASTQFilePair]
-    private let detectedPlatform: SequencingPlatform
+    private let detectedPlatform: LungfishIO.SequencingPlatform
     private let onImport: FASTQImportCompletion?
     private let onCancel: (() -> Void)?
     private var allRecipes: [ProcessingRecipe] = []
@@ -50,7 +51,7 @@ public final class FASTQImportConfigSheet: NSViewController {
 
     public init(
         pairs: [FASTQFilePair],
-        detectedPlatform: SequencingPlatform,
+        detectedPlatform: LungfishIO.SequencingPlatform,
         onImport: FASTQImportCompletion? = nil,
         onCancel: (() -> Void)? = nil
     ) {
@@ -107,7 +108,7 @@ public final class FASTQImportConfigSheet: NSViewController {
         }
 
         // Platform popup
-        let platformNames: [(SequencingPlatform, String)] = [
+        let platformNames: [(LungfishIO.SequencingPlatform, String)] = [
             (.illumina, "Illumina"),
             (.oxfordNanopore, "Oxford Nanopore"),
             (.pacbio, "PacBio"),
@@ -293,15 +294,15 @@ public final class FASTQImportConfigSheet: NSViewController {
 
     // MARK: - Platform Defaults
 
-    private func defaultBinningIndex(for platform: SequencingPlatform) -> Int {
+    private func defaultBinningIndex(for platform: LungfishIO.SequencingPlatform) -> Int {
         switch platform {
         case .illumina, .element, .mgi: return 0  // illumina4
         case .oxfordNanopore, .pacbio, .ultima, .unknown: return 2  // none
         }
     }
 
-    private func selectedPlatform() -> SequencingPlatform {
-        let platforms: [SequencingPlatform] = [.illumina, .oxfordNanopore, .pacbio, .element, .ultima, .mgi, .unknown]
+    private func selectedPlatform() -> LungfishIO.SequencingPlatform {
+        let platforms: [LungfishIO.SequencingPlatform] = [.illumina, .oxfordNanopore, .pacbio, .element, .ultima, .mgi, .unknown]
         let idx = platformPopup.indexOfSelectedItem
         return idx >= 0 && idx < platforms.count ? platforms[idx] : .unknown
     }
@@ -463,7 +464,7 @@ public final class FASTQImportConfigSheet: NSViewController {
     public static func present(
         on window: NSWindow,
         pairs: [FASTQFilePair],
-        detectedPlatform: SequencingPlatform,
+        detectedPlatform: LungfishIO.SequencingPlatform,
         onImport: FASTQImportCompletion? = nil,
         onCancel: (() -> Void)? = nil
     ) {
