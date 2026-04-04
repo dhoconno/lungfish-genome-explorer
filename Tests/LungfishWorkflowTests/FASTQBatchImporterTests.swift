@@ -315,6 +315,64 @@ final class FASTQBatchImporterTests: XCTestCase {
         XCTAssertNil(pair.r2)
     }
 
+    // MARK: - runBatchImport (fast path — skips all samples)
+
+    func testRunBatchImportSkipsAllExistingBundles() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQBatchImporterTests-run-\(UUID().uuidString)")
+        let importsDir = tmpDir.appendingPathComponent("Imports")
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        // Pre-create bundles for all samples so they should all be skipped
+        let sampleNames = ["Alpha", "Beta", "Gamma"]
+        for name in sampleNames {
+            let bundleURL = importsDir.appendingPathComponent("\(name).lungfishfastq")
+            try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        }
+
+        let pairs = sampleNames.map { name in
+            SamplePair(sampleName: name, r1: URL(fileURLWithPath: "/dev/null"), r2: nil)
+        }
+
+        let config = FASTQBatchImporter.ImportConfig(projectDirectory: tmpDir, recipe: nil)
+
+        // Collect skip events using a Sendable-safe approach
+        actor EventCollector {
+            var events: [ImportLogEvent] = []
+            func add(_ e: ImportLogEvent) { events.append(e) }
+        }
+        let collector = EventCollector()
+
+        let result = await FASTQBatchImporter.runBatchImport(pairs: pairs, config: config) { event in
+            Task { await collector.add(event) }
+        }
+
+        XCTAssertEqual(result.skipped, 3)
+        XCTAssertEqual(result.completed, 0)
+        XCTAssertEqual(result.failed, 0)
+        XCTAssertTrue(result.errors.isEmpty)
+
+        // Give actor tasks a moment to flush
+        try await Task.sleep(nanoseconds: 10_000_000)
+        let logEvents = await collector.events
+        let skipEvents = logEvents.compactMap { event -> String? in
+            if case .sampleSkip(let sample, _) = event { return sample } else { return nil }
+        }
+        XCTAssertEqual(Set(skipEvents), Set(sampleNames))
+    }
+
+    func testRunBatchImportEmptyPairsReturnsZeros() async {
+        let config = FASTQBatchImporter.ImportConfig(
+            projectDirectory: URL(fileURLWithPath: "/tmp"),
+            recipe: nil
+        )
+        let result = await FASTQBatchImporter.runBatchImport(pairs: [], config: config, log: nil)
+        XCTAssertEqual(result.completed, 0)
+        XCTAssertEqual(result.skipped, 0)
+        XCTAssertEqual(result.failed, 0)
+        XCTAssertTrue(result.errors.isEmpty)
+    }
+
     // MARK: - Helpers
 
     private func makeURLs(_ names: [String]) -> [URL] {
