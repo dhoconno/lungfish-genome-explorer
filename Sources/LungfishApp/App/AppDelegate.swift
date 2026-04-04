@@ -292,6 +292,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// Last applied temp retention setting in hours.
     private var lastAppliedTempRetentionHours: Int = 24
 
+    /// Repeating timer that cleans stale project temp directories (>24 h old) every 4 hours.
+    private var projectTempCleanupTimer: Timer?
+
     private struct VCFImportHelperEvent: Decodable {
         let event: String
         let progress: Double?
@@ -470,6 +473,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             debugLog("openProject: Failed via DocumentManager, falling back to filesystem sidebar: \(error.localizedDescription)")
             controller.mainSplitViewController?.sidebarController.openProject(at: projectURL)
         }
+
+        // Clean project temp files on open and start periodic stale-file cleanup.
+        cleanProjectTempOnOpen(projectURL)
     }
 
     private func showMainWindowWithProject(_ projectURL: URL) {
@@ -507,6 +513,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     public func applicationWillTerminate(_ notification: Notification) {
         // Save application state
         saveApplicationState()
+
+        // Stop periodic project temp cleanup timer.
+        projectTempCleanupTimer?.invalidate()
+        projectTempCleanupTimer = nil
 
         // Clean up any temp files created during this session
         // Note: This is synchronous since we're terminating
@@ -692,6 +702,177 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             await TempFileManager.shared.setMaxAge(hours: retentionHours)
             // Apply reduced retention immediately instead of waiting for restart.
             await TempFileManager.shared.cleanupOnLaunch()
+        }
+    }
+
+    // MARK: - Project Temp Cleanup
+
+    /// Cleans the project `.tmp/` directory when a project is opened and starts a
+    /// periodic timer that removes stale (>24 h) subdirectories every 4 hours.
+    private func cleanProjectTempOnOpen(_ projectURL: URL) {
+        // Remove the entire .tmp/ directory left from previous sessions.
+        do {
+            try ProjectTempDirectory.cleanAll(in: projectURL)
+            debugLog("cleanProjectTempOnOpen: cleaned project temp files")
+        } catch {
+            debugLog("cleanProjectTempOnOpen: failed to clean project temp: \(error.localizedDescription)")
+        }
+
+        // Invalidate any previous timer (e.g. switching projects).
+        projectTempCleanupTimer?.invalidate()
+
+        // Schedule periodic stale-file cleanup every 4 hours.
+        projectTempCleanupTimer = Timer.scheduledTimer(
+            withTimeInterval: 4 * 60 * 60,
+            repeats: true
+        ) { [weak self] _ in
+            guard let self else { return }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self.cleanStaleProjectTemp(projectURL)
+                }
+            }
+        }
+
+#if DEBUG
+        // In debug builds, scan for escaped temp dirs every 5 minutes.
+        Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            self?.debugScanForEscapedTempDirs()
+        }
+#endif
+    }
+
+    /// Removes subdirectories inside the project `.tmp/` folder that are older than 24 hours.
+    private func cleanStaleProjectTemp(_ projectURL: URL) {
+        do {
+            try ProjectTempDirectory.cleanStale(in: projectURL, olderThan: 24 * 60 * 60)
+            debugLog("cleanStaleProjectTemp: cleaned stale project temp files")
+        } catch {
+            debugLog("cleanStaleProjectTemp: failed: \(error.localizedDescription)")
+        }
+    }
+
+#if DEBUG
+    /// Scans system temp for lungfish-* directories that should be in project .tmp/.
+    /// Called periodically in debug builds to catch regressions.
+    private func debugScanForEscapedTempDirs() {
+        let systemTemp = FileManager.default.temporaryDirectory
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(
+            at: systemTemp,
+            includingPropertiesForKeys: [.creationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        // Only check directories created in the last hour (current session)
+        let oneHourAgo = Date().addingTimeInterval(-3600)
+
+        let escapedPrefixes = [
+            "lungfish-extract-", "lungfish-bam-", "lungfish-genbank-",
+            "lungfish-genome-", "lungfish-batch-", "lungfish-spades-",
+            "lungfish-classify-", "lungfish-esviritu-", "lungfish-taxtriage-",
+            "lungfish-minimap2-", "lungfish-orient-", "lungfish-trim-",
+            "lungfish-fasta-", "lungfish-demux-", "lungfish-scout-",
+            "lungfish-bbtools-", "lungfish-fastq-ingest-", "lungfish-ref-",
+            "lungfish-assembly-", "lungfish-sequence-",
+            "esviritu-", "taxtriage-", "naomgs-extract-", "nvd-extract-",
+            "bbmerge-", "bbrepair-", "bbduk-primer-",
+            "export-", "vcf-import-"
+        ]
+
+        for item in contents {
+            let name = item.lastPathComponent
+            let matchesPrefix = escapedPrefixes.contains { name.hasPrefix($0) }
+            guard matchesPrefix else { continue }
+
+            // Check if it was created recently (this session)
+            let attrs = try? item.resourceValues(forKeys: [.creationDateKey])
+            guard let created = attrs?.creationDate, created > oneHourAgo else { continue }
+
+            appDelegateLogger.warning("DEBUG: Found escaped temp dir in system temp: \(name, privacy: .public). Should be in project .tmp/")
+            assertionFailure("Escaped temp dir found in system temp: \(name). Use ProjectTempDirectory.createFromContext() instead.")
+        }
+    }
+#endif
+
+    /// Clears all project temporary files after user confirmation.
+    ///
+    /// Shows an alert with the current disk usage, then removes the entire `.tmp/` directory
+    /// on confirmation. Called from the File > Clear Temporary Files menu item.
+    @objc func clearProjectTempFiles(_ sender: Any?) {
+        guard let projectURL = mainWindowController?.mainSplitViewController?.sidebarController?.currentProjectURL else {
+            let alert = NSAlert()
+            alert.messageText = "No Project Open"
+            alert.informativeText = "Please open a project before clearing temporary files."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.applyLungfishBranding()
+            if let window = mainWindowController?.window ?? NSApp.keyWindow {
+                alert.beginSheetModal(for: window)
+            }
+            return
+        }
+
+        let usageBytes = ProjectTempDirectory.diskUsage(in: projectURL)
+        let sizeString = Self.formatBytes(usageBytes)
+        let projectName = projectURL.deletingPathExtension().lastPathComponent
+
+        let alert = NSAlert()
+        alert.messageText = "Clear Temporary Files"
+        if usageBytes == 0 {
+            alert.informativeText = "There are no temporary files in \"\(projectName)\"."
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "OK")
+        } else {
+            alert.informativeText = "Remove \(sizeString) of temporary files from \"\(projectName)\"?"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Clear")
+            alert.addButton(withTitle: "Cancel")
+        }
+        alert.applyLungfishBranding()
+
+        guard let window = mainWindowController?.window ?? NSApp.keyWindow else { return }
+
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn, usageBytes > 0 else { return }
+
+            do {
+                try ProjectTempDirectory.cleanAll(in: projectURL)
+                debugLog("clearProjectTempFiles: removed \(sizeString) of temp files")
+
+                let doneAlert = NSAlert()
+                doneAlert.messageText = "Temporary Files Cleared"
+                doneAlert.informativeText = "Removed \(sizeString) of temporary files."
+                doneAlert.alertStyle = .informational
+                doneAlert.addButton(withTitle: "OK")
+                doneAlert.applyLungfishBranding()
+                doneAlert.beginSheetModal(for: window)
+            } catch {
+                debugLog("clearProjectTempFiles: failed: \(error.localizedDescription)")
+
+                let errorAlert = NSAlert()
+                errorAlert.messageText = "Failed to Clear Temporary Files"
+                errorAlert.informativeText = error.localizedDescription
+                errorAlert.alertStyle = .critical
+                errorAlert.addButton(withTitle: "OK")
+                errorAlert.applyLungfishBranding()
+                errorAlert.beginSheetModal(for: window)
+            }
+            _ = self  // prevent unused capture warning
+        }
+    }
+
+    /// Formats a byte count for display: <1 MB shows KB, <1 GB shows MB, else GB.
+    static func formatBytes(_ bytes: UInt64) -> String {
+        let kb = Double(bytes) / 1_024
+        let mb = kb / 1_024
+        let gb = mb / 1_024
+        if mb < 1 {
+            return String(format: "%.0f KB", kb)
+        } else if gb < 1 {
+            return String(format: "%.1f MB", mb)
+        } else {
+            return String(format: "%.2f GB", gb)
         }
     }
 
@@ -3371,6 +3552,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // "Clear Completed" needs finished items
         if menuItem.action == #selector(clearCompletedOperations(_:)) {
             return OperationCenter.shared.items.contains { $0.state != .running }
+        }
+
+        // "Clear Temporary Files..." requires an open project
+        if menuItem.action == #selector(clearProjectTempFiles(_:)) {
+            return mainWindowController?.mainSplitViewController?.sidebarController?.currentProjectURL != nil
         }
 
         return true

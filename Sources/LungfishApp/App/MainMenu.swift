@@ -333,6 +333,15 @@ public final class MainMenu {
         exportItem.submenu = exportMenu
         fileMenu.addItem(exportItem)
 
+        fileMenu.addItem(.separator())
+
+        // Clear Temporary Files
+        fileMenu.addItem(
+            withTitle: "Clear Temporary Files\u{2026}",
+            action: #selector(AppDelegate.clearProjectTempFiles(_:)),
+            keyEquivalent: ""
+        )
+
         fileMenuItem.submenu = fileMenu
         return fileMenuItem
     }
