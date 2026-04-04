@@ -441,6 +441,30 @@ public enum FASTQBatchImporter {
                 try FileManager.default.moveItem(at: finalFASTQURL, to: bundleFASTQURL)
             }
 
+            // Write ingestion metadata sidecar
+            let pairingMeta: IngestionMetadata.PairingMode = pair.r2 != nil ? .interleaved : .singleEnd
+            let ingestion = IngestionMetadata(
+                isClumpified: ingestionResult.wasClumpified,
+                isCompressed: true,
+                pairingMode: pairingMeta,
+                qualityBinning: ingestionResult.qualityBinning.rawValue,
+                originalFilenames: [pair.r1.lastPathComponent] + (pair.r2.map { [$0.lastPathComponent] } ?? []),
+                ingestionDate: Date(),
+                originalSizeBytes: ingestionResult.originalSizeBytes
+            )
+            var metadata = PersistedFASTQMetadata()
+            metadata.ingestion = ingestion
+            let stepResults: [RecipeStepResult] = []
+            if let recipe = config.recipe, !stepResults.isEmpty {
+                metadata.ingestion?.recipeApplied = RecipeAppliedInfo(
+                    recipeID: recipe.id.uuidString,
+                    recipeName: recipe.name,
+                    appliedDate: Date(),
+                    stepResults: stepResults
+                )
+            }
+            FASTQMetadataStore.save(metadata, for: bundleFASTQURL)
+
             // Write per-sample log if logDirectory is set
             if let logDir = config.logDirectory {
                 writePerSampleLog(pair: pair, bundleURL: bundleURL, logDir: logDir)
