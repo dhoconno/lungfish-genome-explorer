@@ -576,6 +576,7 @@ public enum FASTQBatchImporter {
                         "out1=\(outR1.path)", "out2=\(outR2.path)",
                         "-Xmx\(heapGB)g", "dedupe=t",
                         "subs=\(step.deduplicateSubstitutions ?? 0)", "ow=t",
+                        "threads=\(config.threads)",
                     ]
                     if step.deduplicateOptical == true {
                         args += ["optical=t", "dupedist=\(step.deduplicateOpticalDistance ?? 2500)"]
@@ -827,6 +828,7 @@ public enum FASTQBatchImporter {
                     "outu1=\(unmergedR1URL.path)",
                     "outu2=\(unmergedR2URL.path)",
                     "minoverlap=\(minOverlap)",
+                    "threads=\(config.threads)",
                 ]
                 if strictness == .strict { args.append("strict=t") }
 
@@ -881,6 +883,7 @@ public enum FASTQBatchImporter {
                     if let m = minLen { args.append("minlen=\(m)") }
                     if let m = maxLen { args.append("maxlen=\(m)") }
                     args.append("interleaved=t")
+                    args.append("threads=\(config.threads)")
                     let env = await bbToolsEnvironment()
                     let result = try await runner.run(.bbduk, arguments: args, environment: env, timeout: 1800)
                     guard result.isSuccess else {
