@@ -8,6 +8,9 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
+// Disambiguate the two SequencingPlatform types that exist in LungfishIO and LungfishWorkflow.
+private typealias WorkflowPlatform = LungfishWorkflow.SequencingPlatform
+
 // MARK: - FASTQ Import Subcommand
 
 extension ImportCommand {
@@ -68,6 +71,30 @@ extension ImportCommand {
         )
         var dryRun: Bool = false
 
+        @Option(
+            name: .customLong("platform"),
+            help: "Sequencing platform: illumina, ont, pacbio, ultima (default: auto-detect)"
+        )
+        var platform: String?
+
+        @Flag(
+            name: .customLong("no-optimize-storage"),
+            help: "Skip read reordering for storage optimization"
+        )
+        var noOptimizeStorage: Bool = false
+
+        @Option(
+            name: .customLong("compression"),
+            help: "Compression level: fast, balanced, maximum (default: balanced)"
+        )
+        var compression: String = "balanced"
+
+        @Flag(
+            name: .customLong("force"),
+            help: "Reimport samples even if bundle already exists"
+        )
+        var force: Bool = false
+
         @OptionGroup var globalOptions: GlobalOptions
 
         /// Thread count sourced from the shared `--threads` / `-t` global option.
@@ -125,17 +152,43 @@ extension ImportCommand {
                 return
             }
 
+            // MARK: Resolve platform
+
+            let resolvedPlatform: WorkflowPlatform
+            if let platformStr = platform {
+                guard let p = WorkflowPlatform(rawValue: platformStr.lowercased()) else {
+                    print(formatter.error(
+                        "Unknown platform '\(platformStr)'. Valid: illumina, ont, pacbio, ultima"
+                    ))
+                    throw ExitCode.failure
+                }
+                resolvedPlatform = p
+            } else {
+                // Auto-detect from first FASTQ header; fall back to .illumina
+                resolvedPlatform = detectPlatformFromPairs(pairs) ?? .illumina
+                if !globalOptions.quiet {
+                    print(formatter.info("Platform: \(resolvedPlatform.displayName) (auto-detected)"))
+                }
+            }
+
             // MARK: Resolve recipe
 
-            let resolvedRecipe: ProcessingRecipe?
-            if recipe.lowercased() == "none" {
-                resolvedRecipe = nil
-            } else {
-                do {
-                    resolvedRecipe = try FASTQBatchImporter.resolveRecipe(named: recipe)
-                } catch let batchError as BatchImportError {
-                    print(formatter.error(batchError.errorDescription ?? batchError.localizedDescription))
-                    throw ExitCode.failure
+            var newRecipe: Recipe? = nil
+            var oldRecipe: ProcessingRecipe? = nil
+            if recipe.lowercased() != "none" {
+                // Search RecipeRegistryV2 by exact ID first, then by substring
+                if let r = RecipeRegistryV2.allRecipes().first(where: {
+                    $0.id == recipe || $0.id.contains(recipe.lowercased())
+                }) {
+                    newRecipe = r
+                } else {
+                    // Fall back to legacy recipe system (wgs, amplicon, hifi, etc.)
+                    do {
+                        oldRecipe = try FASTQBatchImporter.resolveRecipe(named: recipe)
+                    } catch let batchError as BatchImportError {
+                        print(formatter.error(batchError.errorDescription ?? batchError.localizedDescription))
+                        throw ExitCode.failure
+                    }
                 }
             }
 
@@ -154,6 +207,15 @@ extension ImportCommand {
                 throw ExitCode.failure
             }
 
+            // MARK: Resolve compression level
+
+            guard let compLevel = CompressionLevel(rawValue: compression.lowercased()) else {
+                print(formatter.error(
+                    "Unknown compression '\(compression)'. Valid: fast, balanced, maximum"
+                ))
+                throw ExitCode.failure
+            }
+
             // MARK: Build config
 
             let projectURL = URL(fileURLWithPath: project)
@@ -162,10 +224,15 @@ extension ImportCommand {
 
             let config = FASTQBatchImporter.ImportConfig(
                 projectDirectory: projectURL,
-                recipe: resolvedRecipe,
+                platform: resolvedPlatform,
+                recipe: oldRecipe,
+                newRecipe: newRecipe,
                 qualityBinning: binningScheme,
+                optimizeStorage: !noOptimizeStorage,
+                compressionLevel: compLevel,
                 threads: threadCount,
-                logDirectory: logDirURL
+                logDirectory: logDirURL,
+                forceReimport: force
             )
 
             // MARK: Run import
@@ -204,6 +271,46 @@ extension ImportCommand {
                 }
                 throw ExitCode.failure
             }
+        }
+
+        // MARK: - Platform auto-detection
+
+        /// Reads the first FASTQ header from the first pair's R1 file and attempts
+        /// platform detection. Supports both plain and gzip-compressed files.
+        private func detectPlatformFromPairs(_ pairs: [SamplePair]) -> WorkflowPlatform? {
+            guard let first = pairs.first else { return nil }
+
+            let r1 = first.r1
+            let isGzipped = r1.pathExtension.lowercased() == "gz"
+
+            let header: String
+            if isGzipped {
+                // Use gunzip -c and read only the first 1 KB to avoid blocking
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/gunzip")
+                process.arguments = ["-c", r1.path]
+                let pipe = Pipe()
+                process.standardOutput = pipe
+                process.standardError = Pipe() // suppress error output
+                do {
+                    try process.run()
+                } catch {
+                    return nil
+                }
+                let data = pipe.fileHandleForReading.readData(ofLength: 1024)
+                process.terminate()
+                header = String(data: data, encoding: .utf8)?
+                    .components(separatedBy: "\n").first ?? ""
+            } else {
+                // Plain text — just open and read the first line
+                guard let handle = FileHandle(forReadingAtPath: r1.path) else { return nil }
+                let data = handle.readData(ofLength: 512)
+                try? handle.close()
+                header = String(data: data, encoding: .utf8)?
+                    .components(separatedBy: "\n").first ?? ""
+            }
+
+            return WorkflowPlatform.detect(fromFASTQHeader: header)
         }
     }
 }
