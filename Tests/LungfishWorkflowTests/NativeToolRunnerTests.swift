@@ -384,4 +384,55 @@ final class NativeToolRunnerTests: XCTestCase {
         XCTAssertTrue(error.errorDescription!.contains("bgzip"))
         XCTAssertTrue(error.errorDescription!.contains("300"))
     }
+
+    // MARK: - Bounded stderr capture (TailBuffer)
+
+    /// Verifies that maxStderrBytes caps the captured stderr to at most that many bytes.
+    /// Generates ~128 KB of stderr via bash and passes maxStderrBytes: 65536 (64 KB).
+    func testMaxStderrBytesTruncatesLargeStderr() async throws {
+        let runner = NativeToolRunner()
+        let bash = URL(fileURLWithPath: "/bin/bash")
+        // Write a line that is ~100 bytes, repeated 1400 times ≈ 140 KB to stderr.
+        let script = """
+        for i in $(seq 1 1400); do
+            printf '%s\\n' "STDERR_LINE_$(printf '%090d' $i)" >&2
+        done
+        """
+        let maxBytes = 65_536
+        let result = try await runner.runProcess(
+            executableURL: bash,
+            arguments: ["-c", script],
+            maxStderrBytes: maxBytes
+        )
+        XCTAssertEqual(result.exitCode, 0, "bash script should exit 0")
+        let capturedBytes = result.stderr.utf8.count
+        XCTAssertLessThanOrEqual(
+            capturedBytes,
+            maxBytes,
+            "Captured stderr (\(capturedBytes) bytes) should be ≤ maxStderrBytes (\(maxBytes))"
+        )
+        // Also verify we captured something non-trivial (the tail, not silence)
+        XCTAssertGreaterThan(capturedBytes, 0, "Should have captured some stderr tail")
+        XCTAssertTrue(result.stderr.contains("STDERR_LINE_"), "Tail should contain recognizable output")
+    }
+
+    /// Verifies that without maxStderrBytes the full stderr is captured (regression guard).
+    func testWithoutMaxStderrBytesCapturesFullStderr() async throws {
+        let runner = NativeToolRunner()
+        let bash = URL(fileURLWithPath: "/bin/bash")
+        // Write exactly 10 lines of known content to stderr.
+        let script = """
+        for i in $(seq 1 10); do
+            printf 'LINE_%d\\n' $i >&2
+        done
+        """
+        let result = try await runner.runProcess(
+            executableURL: bash,
+            arguments: ["-c", script]
+        )
+        XCTAssertEqual(result.exitCode, 0)
+        for i in 1...10 {
+            XCTAssertTrue(result.stderr.contains("LINE_\(i)"), "Full capture should include LINE_\(i)")
+        }
+    }
 }

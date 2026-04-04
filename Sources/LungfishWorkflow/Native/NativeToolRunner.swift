@@ -74,6 +74,30 @@ private final class DataBox: @unchecked Sendable {
     var value = Data()
 }
 
+// MARK: - TailBuffer
+
+/// Ring buffer that retains only the last `capacity` bytes of appended data.
+/// Used to bound stderr capture for long-running tools like BBTools.
+private final class TailBuffer: @unchecked Sendable {
+    private let capacity: Int
+    private var buffer: Data
+
+    init(capacity: Int) {
+        self.capacity = capacity
+        self.buffer = Data()
+        self.buffer.reserveCapacity(capacity)
+    }
+
+    func append(_ chunk: Data) {
+        buffer.append(chunk)
+        if buffer.count > capacity {
+            buffer = buffer.suffix(capacity)
+        }
+    }
+
+    var data: Data { buffer }
+}
+
 // MARK: - NativeTool
 
 /// Represents a native bioinformatics tool bundled with the app.
@@ -452,7 +476,8 @@ public actor NativeToolRunner {
         workingDirectory: URL? = nil,
         environment: [String: String]? = nil,
         timeout: TimeInterval? = nil,
-        toolName: String? = nil
+        toolName: String? = nil,
+        maxStderrBytes: Int? = nil
     ) async throws -> NativeToolResult {
         let name = toolName ?? executableURL.lastPathComponent
         let actualTimeout = timeout ?? defaultTimeout
@@ -506,7 +531,18 @@ public actor NativeToolRunner {
                 }
                 drainGroup.enter()
                 DispatchQueue.global().async {
-                    stderrBox.value = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                    if let maxBytes = maxStderrBytes {
+                        let tailBuf = TailBuffer(capacity: maxBytes)
+                        let handle = stderrPipe.fileHandleForReading
+                        while true {
+                            let chunk = handle.availableData
+                            if chunk.isEmpty { break }
+                            tailBuf.append(chunk)
+                        }
+                        stderrBox.value = tailBuf.data
+                    } else {
+                        stderrBox.value = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                    }
                     drainGroup.leave()
                 }
 
