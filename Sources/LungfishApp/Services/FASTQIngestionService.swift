@@ -840,7 +840,7 @@ public enum FASTQIngestionService {
         let runner = NativeToolRunner.shared
         let threadCount = max(1, ProcessInfo.processInfo.activeProcessorCount)
         let physicalMemoryGB = Int(ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024))
-        let heapGB = max(4, min(31, physicalMemoryGB * 80 / 100))
+        let heapGB = max(4, min(31, physicalMemoryGB * 60 / 100))
 
         var currentR1 = r1
         var currentR2 = r2
