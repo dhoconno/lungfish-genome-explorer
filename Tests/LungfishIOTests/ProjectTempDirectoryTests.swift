@@ -180,6 +180,140 @@ final class ProjectTempDirectoryTests: XCTestCase {
         XCTAssertEqual(usage, 0, "Disk usage should be 0 when .tmp/ does not exist")
     }
 
+    // MARK: - TempScopePolicy
+
+    func testRequireProjectContextThrowsWithoutProject() throws {
+        let unrelated = testRoot.appendingPathComponent("not-a-project", isDirectory: true)
+        try FileManager.default.createDirectory(at: unrelated, withIntermediateDirectories: true)
+
+        XCTAssertThrowsError(
+            try ProjectTempDirectory.create(
+                prefix: "test-", contextURL: unrelated, policy: .requireProjectContext
+            )
+        ) { error in
+            guard case ProjectTempError.projectContextRequired = error else {
+                XCTFail("Expected projectContextRequired error, got \(error)")
+                return
+            }
+        }
+    }
+
+    func testRequireProjectContextThrowsWithNilContext() throws {
+        XCTAssertThrowsError(
+            try ProjectTempDirectory.create(
+                prefix: "test-", contextURL: nil, policy: .requireProjectContext
+            )
+        ) { error in
+            guard case ProjectTempError.projectContextRequired = error else {
+                XCTFail("Expected projectContextRequired error, got \(error)")
+                return
+            }
+        }
+    }
+
+    func testRequireProjectContextSucceedsWithProject() throws {
+        let projectDir = testRoot.appendingPathComponent("myproject.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        let created = try ProjectTempDirectory.create(
+            prefix: "req-", contextURL: projectDir, policy: .requireProjectContext
+        )
+        let tmpRoot = ProjectTempDirectory.tempRoot(for: projectDir)
+        XCTAssertTrue(created.standardizedFileURL.path.hasPrefix(tmpRoot.standardizedFileURL.path))
+    }
+
+    func testPreferProjectContextFallsBackToSystemTemp() throws {
+        let unrelated = testRoot.appendingPathComponent("not-a-project", isDirectory: true)
+        try FileManager.default.createDirectory(at: unrelated, withIntermediateDirectories: true)
+
+        let created = try ProjectTempDirectory.create(
+            prefix: "pref-", contextURL: unrelated, policy: .preferProjectContext
+        )
+        defer { try? FileManager.default.removeItem(at: created) }
+        XCTAssertFalse(created.path.contains(".lungfish"))
+    }
+
+    func testPreferProjectContextUsesProjectWhenAvailable() throws {
+        let projectDir = testRoot.appendingPathComponent("myproject.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        let created = try ProjectTempDirectory.create(
+            prefix: "pref-", contextURL: projectDir, policy: .preferProjectContext
+        )
+        let tmpRoot = ProjectTempDirectory.tempRoot(for: projectDir)
+        XCTAssertTrue(created.standardizedFileURL.path.hasPrefix(tmpRoot.standardizedFileURL.path))
+    }
+
+    func testSystemOnlyAlwaysUsesSystemTemp() throws {
+        let projectDir = testRoot.appendingPathComponent("myproject.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        let created = try ProjectTempDirectory.create(
+            prefix: "sys-", contextURL: projectDir, policy: .systemOnly
+        )
+        defer { try? FileManager.default.removeItem(at: created) }
+        // Even with a valid project context, systemOnly uses system temp
+        XCTAssertFalse(created.path.contains(".lungfish"))
+    }
+
+    // MARK: - Provenance Marker
+
+    func testMarkerIsWrittenOnCreate() throws {
+        let projectDir = testRoot.appendingPathComponent("myproject.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        let created = try ProjectTempDirectory.create(
+            prefix: "marker-", contextURL: projectDir, policy: .requireProjectContext
+        )
+        let markerURL = created.appendingPathComponent(ProjectTempDirectory.TempOriginMarker.fileName)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: markerURL.path), "Marker file should exist")
+    }
+
+    func testMarkerContainsCorrectMetadata() throws {
+        let projectDir = testRoot.appendingPathComponent("myproject.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        let created = try ProjectTempDirectory.create(
+            prefix: "meta-", contextURL: projectDir, policy: .requireProjectContext
+        )
+        let marker = ProjectTempDirectory.readMarker(from: created)
+        XCTAssertNotNil(marker)
+        XCTAssertEqual(marker?.version, 1)
+        XCTAssertEqual(marker?.prefix, "meta-")
+        XCTAssertEqual(marker?.policy, .requireProjectContext)
+        XCTAssertNotNil(marker?.resolvedProjectPath)
+        XCTAssertEqual(marker?.pid, ProcessInfo.processInfo.processIdentifier)
+    }
+
+    func testMarkerAbsentForLegacyCreate() throws {
+        let projectDir = testRoot.appendingPathComponent("myproject.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        // The old create(prefix:in:) API should NOT write a marker
+        let created = try ProjectTempDirectory.create(prefix: "legacy-", in: projectDir)
+        let marker = ProjectTempDirectory.readMarker(from: created)
+        XCTAssertNil(marker, "Legacy create should not write provenance marker")
+    }
+
+    func testReadMarkerReturnsNilForMissingFile() throws {
+        let projectDir = testRoot.appendingPathComponent("myproject.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        let marker = ProjectTempDirectory.readMarker(from: projectDir)
+        XCTAssertNil(marker)
+    }
+
+    func testCompatibilityWrapperWritesMarker() throws {
+        let projectDir = testRoot.appendingPathComponent("myproject.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        // createFromContext now routes through the policy API
+        let created = try ProjectTempDirectory.createFromContext(prefix: "compat-", contextURL: projectDir)
+        let marker = ProjectTempDirectory.readMarker(from: created)
+        XCTAssertNotNil(marker)
+        XCTAssertEqual(marker?.policy, .preferProjectContext)
+    }
+
     // MARK: - cleanStale
 
     func testCleanStaleRemovesOldDirectoriesOnly() throws {

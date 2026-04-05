@@ -7,6 +7,33 @@ import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.io, category: "ProjectTempDirectory")
 
+// MARK: - TempScopePolicy
+
+/// Policy controlling where temporary directories are created.
+public enum TempScopePolicy: String, Sendable, Codable {
+    /// Must create temp in project `.tmp/`. Throws if no project context found.
+    case requireProjectContext
+    /// Prefer project `.tmp/`, fall back to system temp if no project found.
+    case preferProjectContext
+    /// Always use system temp directory.
+    case systemOnly
+}
+
+// MARK: - ProjectTempError
+
+/// Errors from project temp directory operations.
+public enum ProjectTempError: Error, LocalizedError {
+    /// A `requireProjectContext` policy could not resolve a `.lungfish` project root.
+    case projectContextRequired(contextURL: URL?)
+
+    public var errorDescription: String? {
+        switch self {
+        case .projectContextRequired(let url):
+            return "Project context required but no .lungfish root found above \(url?.path ?? "<nil>")"
+        }
+    }
+}
+
 // MARK: - ProjectTempDirectory
 
 /// Utility for creating and managing project-scoped temporary directories.
@@ -107,6 +134,94 @@ public enum ProjectTempDirectory {
         return dirURL
     }
 
+    // MARK: - TempOriginMarker
+
+    /// Provenance metadata written to each managed temp directory.
+    public struct TempOriginMarker: Codable, Sendable {
+        public let version: Int
+        public let prefix: String
+        public let policy: TempScopePolicy
+        public let contextPath: String?
+        public let resolvedProjectPath: String?
+        public let pid: Int32
+        public let createdAt: Date
+        public let caller: String
+
+        public static let fileName = ".lungfish-temp-origin.json"
+        public static let currentVersion = 1
+    }
+
+    // MARK: - create (policy-aware)
+
+    /// Creates a temp directory with explicit policy and provenance tracking.
+    ///
+    /// - Parameters:
+    ///   - prefix: A string prepended to the UUID-based directory name.
+    ///   - contextURL: Any URL inside a project (used to resolve project root). Can be nil for `systemOnly`.
+    ///   - policy: Controls where the temp directory is created.
+    ///   - caller: Auto-captured source location for provenance.
+    ///   - line: Auto-captured source line for provenance.
+    /// - Returns: URL of the newly created directory.
+    public static func create(
+        prefix: String,
+        contextURL: URL?,
+        policy: TempScopePolicy,
+        caller: StaticString = #fileID,
+        line: UInt = #line
+    ) throws -> URL {
+        let projectURL: URL?
+
+        switch policy {
+        case .requireProjectContext:
+            guard let ctx = contextURL else {
+                throw ProjectTempError.projectContextRequired(contextURL: nil)
+            }
+            guard let root = findProjectRoot(ctx) else {
+                throw ProjectTempError.projectContextRequired(contextURL: ctx)
+            }
+            projectURL = root
+
+        case .preferProjectContext:
+            if let ctx = contextURL {
+                projectURL = findProjectRoot(ctx)
+                if projectURL == nil {
+                    logger.warning("create(policy: preferProjectContext): no .lungfish root above \(ctx.path, privacy: .public) — falling back to system temp")
+                }
+            } else {
+                projectURL = nil
+            }
+
+        case .systemOnly:
+            projectURL = nil
+        }
+
+        let dirURL = try create(prefix: prefix, in: projectURL)
+
+        // Write provenance marker
+        let marker = TempOriginMarker(
+            version: TempOriginMarker.currentVersion,
+            prefix: prefix,
+            policy: policy,
+            contextPath: contextURL?.path,
+            resolvedProjectPath: projectURL?.path,
+            pid: ProcessInfo.processInfo.processIdentifier,
+            createdAt: Date(),
+            caller: "\(caller):\(line)"
+        )
+        writeMarker(marker, to: dirURL)
+
+        return dirURL
+    }
+
+    /// Reads the provenance marker from a temp directory, if present.
+    public static func readMarker(from dirURL: URL) -> TempOriginMarker? {
+        let markerURL = dirURL.appendingPathComponent(TempOriginMarker.fileName)
+        guard let data = try? Data(contentsOf: markerURL) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try? decoder.decode(TempOriginMarker.self, from: data)
+    }
+
     // MARK: - createFromContext
 
     /// Resolves the project root from any URL inside a project tree, then calls `create`.
@@ -118,11 +233,18 @@ public enum ProjectTempDirectory {
     ///   - contextURL: Any URL inside (or at) a `.lungfish` project.
     /// - Returns: URL of the newly created directory.
     public static func createFromContext(prefix: String, contextURL: URL) throws -> URL {
-        let projectURL = findProjectRoot(contextURL)
-        if projectURL == nil {
-            logger.warning("createFromContext: no .lungfish project found above \(contextURL.path, privacy: .public) — falling back to system temp")
-        }
-        return try create(prefix: prefix, in: projectURL)
+        try create(prefix: prefix, contextURL: contextURL, policy: .preferProjectContext)
+    }
+
+    // MARK: - Private Helpers
+
+    private static func writeMarker(_ marker: TempOriginMarker, to dirURL: URL) {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(marker) else { return }
+        let markerURL = dirURL.appendingPathComponent(TempOriginMarker.fileName)
+        try? data.write(to: markerURL)
     }
 
     // MARK: - cleanAll
