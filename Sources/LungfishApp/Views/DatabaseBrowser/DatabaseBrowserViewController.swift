@@ -526,6 +526,12 @@ public class DatabaseBrowserViewModel: ObservableObject {
     /// Search query text
     @Published var searchText = ""
 
+    /// Accessions imported from a CSV/text file. Takes precedence over searchText parsing.
+    @Published var importedAccessions: [String] = []
+
+    /// Maximum number of SRA results to return for non-accession queries
+    @Published var sraResultLimit: Int = 50
+
     /// Search scope
     @Published var searchScope: SearchScope = .all
 
@@ -1056,6 +1062,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
         sraMinMbases = ""
         sraPubDateFrom = ""
         sraPubDateTo = ""
+        importedAccessions = []
         // Pathoplexus filters
         clearPathoplexusFilters()
     }
@@ -1088,7 +1095,8 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
             logger.info("importAccessionList: Parsed \(accessions.count) accessions from \(url.lastPathComponent)")
 
-            searchText = accessions.joined(separator: "\n")
+            importedAccessions = accessions
+            searchText = "\(accessions.count) accessions from \(url.lastPathComponent)"
             searchScope = .accession
             performSearch()
         } catch {
@@ -1186,6 +1194,8 @@ public class DatabaseBrowserViewModel: ObservableObject {
         let capturedSRAMinMbases: String? = isSRASearch ? sraMinMbases.trimmingCharacters(in: .whitespaces) : nil
         let capturedSRAPubDateFrom: String? = isSRASearch ? sraPubDateFrom.trimmingCharacters(in: .whitespaces) : nil
         let capturedSRAPubDateTo: String? = isSRASearch ? sraPubDateTo.trimmingCharacters(in: .whitespaces) : nil
+        let capturedImportedAccessions = importedAccessions
+        let capturedSRAResultLimit = isSRASearch ? sraResultLimit : 200
 
         // Capture services as they are actors (safe to use across isolation boundaries)
         let ncbi = ncbiService
@@ -1210,7 +1220,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                     self.searchPhase = .searching
                 }
 
-                let searchResults: SearchResults
+                var searchResults: SearchResults
 
                 switch currentSource {
                 case .ncbi:
@@ -1434,7 +1444,10 @@ public class DatabaseBrowserViewModel: ObservableObject {
                     let records: [SearchResultRecord]
 
                     // Detect multi-accession input (paste or CSV import)
-                    let parsedAccessions = SRAAccessionParser.parseAccessionList(query.term)
+                    // Check for imported accession list first (from CSV import)
+                    let parsedAccessions = !capturedImportedAccessions.isEmpty
+                        ? capturedImportedAccessions
+                        : SRAAccessionParser.parseAccessionList(query.term)
                     if parsedAccessions.count >= 2 {
                         // Batch mode: multiple accessions pasted or imported
                         logger.info("performSearch: Batch mode with \(parsedAccessions.count) accessions")
@@ -1517,12 +1530,37 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         let sraSearchTerm = sraClauses.joined(separator: " AND ")
                         logger.info("performSearch: SRA ESearch term = '\(sraSearchTerm, privacy: .public)'")
 
-                        let esearchResult = try await ncbi.sraESearch(term: sraSearchTerm, retmax: min(query.limit, 200))
+                        var esearchResult = try await ncbi.sraESearch(term: sraSearchTerm, retmax: capturedSRAResultLimit)
                         logger.info("performSearch: ESearch returned \(esearchResult.ids.count) UIDs out of \(esearchResult.totalCount) total")
 
                         guard !esearchResult.ids.isEmpty else {
                             searchResults = SearchResults(totalCount: 0, records: [], hasMore: false, nextCursor: nil)
                             break
+                        }
+
+                        // Large result set confirmation
+                        if esearchResult.totalCount > capturedSRAResultLimit {
+                            let action = await confirmLargeResultActionDialog(
+                                totalCount: esearchResult.totalCount,
+                                sourceLabel: "NCBI SRA"
+                            )
+                            switch action {
+                            case .cancel:
+                                searchResults = SearchResults(totalCount: 0, records: [], hasMore: false, nextCursor: nil)
+                                break
+                            case .firstThousand:
+                                let expandedLimit = min(1_000, esearchResult.totalCount)
+                                esearchResult = try await ncbi.sraESearch(term: sraSearchTerm, retmax: expandedLimit)
+                                logger.info("performSearch: Re-fetched ESearch with limit \(expandedLimit), got \(esearchResult.ids.count) UIDs")
+                            case .loadAll:
+                                esearchResult = try await ncbi.sraESearch(term: sraSearchTerm, retmax: esearchResult.totalCount)
+                                logger.info("performSearch: Re-fetched ESearch for all \(esearchResult.ids.count) UIDs")
+                            }
+
+                            guard !esearchResult.ids.isEmpty else {
+                                searchResults = SearchResults(totalCount: 0, records: [], hasMore: false, nextCursor: nil)
+                                break
+                            }
                         }
 
                         try Task.checkCancellation()
@@ -3727,6 +3765,21 @@ public struct DatabaseBrowserView: View {
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 140)
                     }
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Max Results", systemImage: "number")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Picker("", selection: $viewModel.sraResultLimit) {
+                        Text("50").tag(50)
+                        Text("100").tag(100)
+                        Text("200").tag(200)
+                        Text("500").tag(500)
+                        Text("1000").tag(1000)
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 80)
                 }
 
                 Spacer()
