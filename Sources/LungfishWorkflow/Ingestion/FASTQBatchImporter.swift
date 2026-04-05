@@ -1189,52 +1189,46 @@ public enum FASTQBatchImporter {
         let avgQual = dbl("AvgQual")
         let gc = dbl("GC(%)")
 
-        // 2. Scan FASTQ for read-length histogram
-        let reader = FASTQReader(validateSequence: false)
+        // 2. Sampled read-length histogram via seqkit head + fx2tab (~0.2s for 100k reads)
+        //    The histogram is used for the length-distribution chart only — approximate is fine.
+        //    All numeric metrics (N50, median, Q20/Q30) come from the full seqkit stats above.
         var histogram: [Int: Int] = [:]
-        var readCount = 0
-        for try await record in reader.records(from: fastqURL) {
-            histogram[record.length, default: 0] += 1
-            readCount += 1
-        }
-
-        // 3. Compute derived metrics
-        let effectiveReadCount = numSeqs > 0 ? numSeqs : readCount
-        let effectiveBaseCount = sumLen > 0 ? sumLen : histogram.reduce(Int64(0)) { $0 + Int64($1.key * $1.value) }
-        let effectiveMinLen = minLen > 0 ? minLen : histogram.keys.min() ?? 0
-        let effectiveMaxLen = maxLen > 0 ? maxLen : histogram.keys.max() ?? 0
-        let effectiveAvgLen = avgLen > 0 ? avgLen : (effectiveReadCount > 0 ? Double(effectiveBaseCount) / Double(effectiveReadCount) : 0)
-
-        func medianLength() -> Int {
-            guard effectiveReadCount > 0 else { return 0 }
-            let target = (effectiveReadCount + 1) / 2
-            var cumulative = 0
-            for (length, count) in histogram.sorted(by: { $0.key < $1.key }) {
-                cumulative += count
-                if cumulative >= target { return length }
+        let seqkitURL = try await runner.findTool(.seqkit)
+        let histProc = Process()
+        histProc.executableURL = URL(fileURLWithPath: "/bin/sh")
+        histProc.arguments = ["-c", "'\(seqkitURL.path)' head -n 100000 '\(fastqURL.path)' 2>/dev/null | '\(seqkitURL.path)' fx2tab --length --name /dev/stdin 2>/dev/null"]
+        let histPipe = Pipe()
+        histProc.standardOutput = histPipe
+        histProc.standardError = FileHandle.nullDevice
+        do {
+            try histProc.run()
+            let histData = histPipe.fileHandleForReading.readDataToEndOfFile()
+            histProc.waitUntilExit()
+            if let histOutput = String(data: histData, encoding: .utf8) {
+                for line in histOutput.split(whereSeparator: \.isNewline) {
+                    let parts = line.split(separator: "\t")
+                    if parts.count >= 2, let len = Int(parts.last!) {
+                        histogram[len, default: 0] += 1
+                    }
+                }
             }
-            return histogram.keys.max() ?? 0
+        } catch {
+            logger.warning("Sampled histogram failed: \(error) — chart will be empty")
         }
 
-        func n50Length() -> Int {
-            guard effectiveBaseCount > 0 else { return 0 }
-            let target = Double(effectiveBaseCount) / 2.0
-            var cumulative = 0.0
-            for (length, count) in histogram.sorted(by: { $0.key > $1.key }) {
-                cumulative += Double(length * count)
-                if cumulative >= target { return length }
-            }
-            return histogram.keys.max() ?? 0
-        }
+        // 3. Use seqkit stats values directly (exact from full file scan)
+        //    Q2 = median length, N50 reported directly by seqkit stats -a
+        let medianLen = int("Q2")
+        let n50Len = int("N50")
 
         let statistics = FASTQDatasetStatistics(
-            readCount: effectiveReadCount,
-            baseCount: effectiveBaseCount,
-            meanReadLength: effectiveAvgLen,
-            minReadLength: effectiveMinLen,
-            maxReadLength: effectiveMaxLen,
-            medianReadLength: medianLength(),
-            n50ReadLength: n50Length(),
+            readCount: numSeqs,
+            baseCount: sumLen,
+            meanReadLength: avgLen,
+            minReadLength: minLen,
+            maxReadLength: maxLen,
+            medianReadLength: medianLen,
+            n50ReadLength: n50Len,
             meanQuality: avgQual,
             q20Percentage: q20,
             q30Percentage: q30,
@@ -1257,7 +1251,7 @@ public enum FASTQBatchImporter {
         metadata.seqkitStats = seqkitMeta
         FASTQMetadataStore.save(metadata, for: fastqURL)
 
-        logger.info("Statistics cached: \(effectiveReadCount) reads, N50=\(n50Length()), Q30=\(String(format: "%.1f", q30))%")
+        logger.info("Statistics cached: \(numSeqs) reads, N50=\(n50Len), Q30=\(String(format: "%.1f", q30))%, histogram bins=\(histogram.count)")
     }
 
     // MARK: - Private Helpers
