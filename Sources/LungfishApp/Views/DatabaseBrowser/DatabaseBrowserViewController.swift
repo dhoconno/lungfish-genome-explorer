@@ -3202,6 +3202,9 @@ public struct DatabaseBrowserView: View {
                 if viewModel.isPathoplexusSearch {
                     pathoplexusFiltersGrid
                         .transition(.opacity.combined(with: .move(edge: .top)))
+                } else if viewModel.isSRASearch {
+                    sraFiltersGrid
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                 } else if viewModel.ncbiSearchType == .virus {
                     virusFiltersGrid
                         .transition(.opacity.combined(with: .move(edge: .top)))
@@ -3592,6 +3595,91 @@ public struct DatabaseBrowserView: View {
         .padding(12)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
         .cornerRadius(8)
+    }
+
+    // MARK: - SRA Filters Grid
+
+    private var sraFiltersGrid: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Platform and Strategy row
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Platform", systemImage: "cpu")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Picker("", selection: $viewModel.sraPlatformFilter) {
+                        ForEach(SRAPlatformFilter.allCases) { platform in
+                            Text(platform.rawValue).tag(platform)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 180)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Strategy", systemImage: "list.bullet.rectangle")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Picker("", selection: $viewModel.sraStrategyFilter) {
+                        ForEach(SRAStrategyFilter.allCases) { strategy in
+                            Text(strategy.rawValue).tag(strategy)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 160)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Layout", systemImage: "arrow.left.and.right")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Picker("", selection: $viewModel.sraLayoutFilter) {
+                        ForEach(SRALayoutFilter.allCases) { layout in
+                            Text(layout.rawValue).tag(layout)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 120)
+                }
+
+                Spacer()
+            }
+
+            // Min Mbases and Publication Date row
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Min Size (Mbases)", systemImage: "internaldrive")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField("e.g., 10", text: $viewModel.sraMinMbases)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 100)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("Publication Date", systemImage: "calendar")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    HStack(spacing: 8) {
+                        TextField("From (YYYY/MM/DD)", text: $viewModel.sraPubDateFrom)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 140)
+                        Text("to")
+                            .foregroundColor(.secondary)
+                        TextField("To (YYYY/MM/DD)", text: $viewModel.sraPubDateTo)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 140)
+                    }
+                }
+
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
     }
 
     private var resultsSection: some View {
