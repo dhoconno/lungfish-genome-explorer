@@ -414,18 +414,12 @@ public enum FASTQBatchImporter {
                 .appendingPathComponent("Imports")
             try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
 
-            // Create a temp workspace on the same volume for intermediate files
-            let workspace: URL
-            do {
-                workspace = try FileManager.default.url(
-                    for: .itemReplacementDirectory, in: .userDomainMask,
-                    appropriateFor: pair.r1, create: true
-                )
-            } catch {
-                workspace = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("fastq-import-\(UUID().uuidString)")
-                try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
-            }
+            // Create a temp workspace for intermediate files inside the project's
+            // .tmp/ directory. This keeps intermediates co-located with the project
+            // (on the same volume) and avoids confusion with system temp files.
+            let workspace = try ProjectTempDirectory.create(
+                prefix: "fastq-import-", in: config.projectDirectory
+            )
             defer { try? FileManager.default.removeItem(at: workspace) }
 
             // Step 1: Apply recipe if provided (BEFORE clumpify — recipe changes the
