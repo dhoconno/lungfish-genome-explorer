@@ -66,17 +66,13 @@ public enum ProjectTempDirectory {
     // MARK: - Private Constants
 
     private static let tmpDirName = ".tmp"
-    // Recipes with N steps create 2*N nested path components
-    // (derivatives/step-name.lungfishfastq per step), so 20 handles
-    // even deeply nested multi-step pipeline outputs.
-    private static let maxWalkDepth = 20
     private static let lungfishExtension = "lungfish"
 
     // MARK: - findProjectRoot
 
     /// Walks up the directory tree from `url` to find the enclosing `.lungfish` project directory.
     ///
-    /// Returns `nil` if no `.lungfish` ancestor is found within `maxWalkDepth` levels.
+    /// Returns `nil` if no `.lungfish` ancestor is found before reaching the filesystem root.
     public static func findProjectRoot(_ url: URL) -> URL? {
         var current = url.standardizedFileURL
         // If url points to a file, start from its parent directory
@@ -85,12 +81,13 @@ public enum ProjectTempDirectory {
             current = current.deletingLastPathComponent()
         }
 
-        for _ in 0..<maxWalkDepth {
+        // Walk up to filesystem root — no artificial depth limit
+        while true {
             if current.pathExtension.lowercased() == lungfishExtension {
                 return current
             }
             let parent = current.deletingLastPathComponent()
-            // Stop when we can't go further up
+            // Stop when we reach filesystem root
             if parent.standardizedFileURL == current {
                 break
             }

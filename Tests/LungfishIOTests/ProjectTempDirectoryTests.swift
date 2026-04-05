@@ -71,6 +71,20 @@ final class ProjectTempDirectoryTests: XCTestCase {
         XCTAssertEqual(found?.standardizedFileURL, projectDir.standardizedFileURL)
     }
 
+    func testFindProjectRootFromDeeplyNestedPath() throws {
+        // Create a path 25+ levels deep — deeper than the old maxWalkDepth of 20
+        let projectDir = testRoot.appendingPathComponent("myproject.lungfish", isDirectory: true)
+        var deepPath = projectDir
+        for i in 0..<25 {
+            deepPath = deepPath.appendingPathComponent("level-\(i)", isDirectory: true)
+        }
+        try FileManager.default.createDirectory(at: deepPath, withIntermediateDirectories: true)
+
+        let found = ProjectTempDirectory.findProjectRoot(deepPath)
+        XCTAssertNotNil(found, "Should find .lungfish root even from 25+ levels deep")
+        XCTAssertEqual(found?.standardizedFileURL, projectDir.standardizedFileURL)
+    }
+
     // MARK: - tempRoot
 
     func testTempRootReturnsCorrectPath() throws {
