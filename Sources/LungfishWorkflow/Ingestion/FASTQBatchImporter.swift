@@ -521,6 +521,7 @@ public enum FASTQBatchImporter {
             // read population, so k-mer grouping must be computed on the final reads)
             var recipeOutputFASTQ: URL? = nil
             var isPairedAfterRecipe = pair.r2 != nil
+            var recipeStepResults: [RecipeStepResult] = []
 
             if let newRecipe = config.newRecipe {
                 // New-format declarative recipe: delegate to RecipeEngine
@@ -562,6 +563,7 @@ public enum FASTQBatchImporter {
                 )
                 let result = try await engine.execute(recipe: newRecipe, input: stepInput, context: stepContext)
                 let output = result.output
+                recipeStepResults = result.stepRecords
                 // Emit stepComplete for the last recipe step
                 if let lastStep = tracker.currentStep {
                     log?(.stepComplete(sample: pair.sampleName, step: lastStep,
@@ -636,6 +638,15 @@ public enum FASTQBatchImporter {
                 step: clumpifyLabel,
                 durationSeconds: Date().timeIntervalSince(clumpifyStart)
             ))
+            recipeStepResults.append(RecipeStepResult(
+                stepName: clumpifyLabel,
+                tool: config.optimizeStorage ? "clumpify.sh" : "reformat.sh",
+                toolVersion: nil,
+                commandLine: nil,
+                inputReadCount: nil,
+                outputReadCount: nil,
+                durationSeconds: Date().timeIntervalSince(clumpifyStart)
+            ))
             printProgress("  \u{2192} \(clumpifyLabel)... done (\(Int(Date().timeIntervalSince(clumpifyStart)))s)")
 
             let finalFASTQURL = ingestionResult.outputFile
@@ -664,13 +675,19 @@ public enum FASTQBatchImporter {
             )
             var metadata = PersistedFASTQMetadata()
             metadata.ingestion = ingestion
-            let stepResults: [RecipeStepResult] = []
-            if let recipe = config.recipe, !stepResults.isEmpty {
+            if let recipe = config.newRecipe, !recipeStepResults.isEmpty {
+                metadata.ingestion?.recipeApplied = RecipeAppliedInfo(
+                    recipeID: recipe.id,
+                    recipeName: recipe.name,
+                    appliedDate: Date(),
+                    stepResults: recipeStepResults
+                )
+            } else if let recipe = config.recipe, !recipeStepResults.isEmpty {
                 metadata.ingestion?.recipeApplied = RecipeAppliedInfo(
                     recipeID: recipe.id.uuidString,
                     recipeName: recipe.name,
                     appliedDate: Date(),
-                    stepResults: stepResults
+                    stepResults: recipeStepResults
                 )
             }
             FASTQMetadataStore.save(metadata, for: bundleFASTQURL)
@@ -691,6 +708,15 @@ public enum FASTQBatchImporter {
             }
             log?(.stepComplete(sample: pair.sampleName, step: statsLabel,
                                durationSeconds: Date().timeIntervalSince(statsStart)))
+            recipeStepResults.append(RecipeStepResult(
+                stepName: statsLabel,
+                tool: "seqkit",
+                toolVersion: nil,
+                commandLine: nil,
+                inputReadCount: nil,
+                outputReadCount: nil,
+                durationSeconds: Date().timeIntervalSince(statsStart)
+            ))
 
             let finalBytes = bundleFileSize(bundleURL)
             let duration = Date().timeIntervalSince(sampleStart)
