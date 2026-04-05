@@ -304,13 +304,26 @@ public enum FASTQBatchImporter {
         }
     }
 
+    // MARK: - Bundle Output Path
+
+    /// Computes the output bundle URL, incorporating `relativePath` for
+    /// recursive directory imports.
+    ///
+    /// - Standard: `<project>/Imports/<sampleName>.lungfishfastq`
+    /// - Recursive: `<project>/Imports/<relativePath>/<sampleName>.lungfishfastq`
+    public static func bundleOutputURL(for pair: SamplePair, in projectDirectory: URL) -> URL {
+        var importsDir = projectDirectory.appendingPathComponent("Imports")
+        if let rel = pair.relativePath {
+            importsDir = importsDir.appendingPathComponent(rel)
+        }
+        return importsDir.appendingPathComponent("\(pair.sampleName).\(FASTQBundle.directoryExtension)")
+    }
+
     // MARK: - Skip Logic
 
     /// Returns `true` when a `.lungfishfastq` bundle already exists for `pair` in `projectDir`.
     public static func bundleExists(for pair: SamplePair, in projectDir: URL) -> Bool {
-        let bundleURL = projectDir
-            .appendingPathComponent("Imports")
-            .appendingPathComponent("\(pair.sampleName).\(FASTQBundle.directoryExtension)")
+        let bundleURL = bundleOutputURL(for: pair, in: projectDir)
         return FASTQBundle.isBundleURL(bundleURL) &&
                FileManager.default.fileExists(atPath: bundleURL.path)
     }
@@ -623,9 +636,7 @@ public enum FASTQBatchImporter {
             let finalFASTQURL = ingestionResult.outputFile
 
             // Step 3: Build bundle directory
-            let bundleURL = outputDir.appendingPathComponent(
-                "\(pair.sampleName).\(FASTQBundle.directoryExtension)"
-            )
+            let bundleURL = bundleOutputURL(for: pair, in: config.projectDirectory)
             try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
 
             let bundleFASTQName = "\(pair.sampleName).fastq.gz"

@@ -106,6 +106,44 @@ final class RecursivePairDetectionTests: XCTestCase {
         XCTAssertEqual(subPair?.relativePath, "subdir")
     }
 
+    // MARK: - Bundle Output Path
+
+    func testBundleOutputPathWithRelativePath() {
+        let pair = SamplePair(
+            sampleName: "Sample1",
+            r1: URL(fileURLWithPath: "/data/plate1/Sample1_R1.fq.gz"),
+            r2: nil,
+            relativePath: "plate1"
+        )
+
+        let projectDir = URL(fileURLWithPath: "/projects/Test.lungfish")
+        let expected = projectDir
+            .appendingPathComponent("Imports")
+            .appendingPathComponent("plate1")
+            .appendingPathComponent("Sample1.lungfishfastq")
+
+        let actual = FASTQBatchImporter.bundleOutputURL(for: pair, in: projectDir)
+        XCTAssertEqual(actual, expected)
+    }
+
+    func testBundleOutputPathWithoutRelativePath() {
+        let pair = SamplePair(
+            sampleName: "Sample1",
+            r1: URL(fileURLWithPath: "/data/Sample1_R1.fq.gz"),
+            r2: nil
+        )
+
+        let projectDir = URL(fileURLWithPath: "/projects/Test.lungfish")
+        let expected = projectDir
+            .appendingPathComponent("Imports")
+            .appendingPathComponent("Sample1.lungfishfastq")
+
+        let actual = FASTQBatchImporter.bundleOutputURL(for: pair, in: projectDir)
+        XCTAssertEqual(actual, expected)
+    }
+
+    // MARK: - Empty Subdirs
+
     func testDetectPairsFromDirectoryRecursiveEmptySubdirs() throws {
         // Empty subdirs should not cause errors, but if no FASTQ files anywhere, should throw
         let emptyA = tmpDir.appendingPathComponent("emptyA")
