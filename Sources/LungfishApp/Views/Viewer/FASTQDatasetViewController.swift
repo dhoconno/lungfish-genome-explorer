@@ -1744,47 +1744,80 @@ public final class FASTQDatasetViewController: NSViewController {
 
         let startTime = Date()
 
+        // Capture existing stats (may already have seqkit summary from import)
+        let existingStats = self.statistics
+        let existingSeqkit = FASTQMetadataStore.load(for: url)?.seqkitStats
+
         qualityReportTask = Task.detached(priority: .userInitiated) { [weak self] in
             do {
-                // Use seqkit stats for exact summary + FASTQStatisticsCollector on 100k sample
-                // for distributions — same approach as the import pipeline.
                 let runner = NativeToolRunner.shared
 
-                // 1. Full seqkit stats for exact summary metrics
-                let seqkitResult = try await runner.run(
-                    .seqkit,
-                    arguments: ["stats", "-a", "-T", url.path],
-                    timeout: 900
-                )
+                // 1. Reuse cached seqkit summary if available, otherwise run seqkit stats
+                let numSeqs: Int
+                let sumLen: Int64
+                let minLen: Int
+                let avgLen: Double
+                let maxLen: Int
+                let medianLen: Int
+                let n50Len: Int
+                let q20: Double
+                let q30: Double
+                let avgQual: Double
+                let gc: Double
 
-                var numSeqs = 0, minLen = 0, maxLen = 0, medianLen = 0, n50Len = 0
-                var sumLen: Int64 = 0
-                var avgLen = 0.0, q20 = 0.0, q30 = 0.0, avgQual = 0.0, gc = 0.0
+                if let sk = existingSeqkit, sk.numSeqs > 0 {
+                    // Already have exact seqkit metrics from import — skip the 50s scan
+                    numSeqs = sk.numSeqs
+                    sumLen = sk.sumLen
+                    minLen = sk.minLen
+                    avgLen = sk.avgLen
+                    maxLen = sk.maxLen
+                    q20 = sk.q20Percentage
+                    q30 = sk.q30Percentage
+                    avgQual = sk.averageQuality
+                    gc = sk.gcPercentage
+                    // Median and N50 from cached computedStatistics
+                    medianLen = existingStats?.medianReadLength ?? 0
+                    n50Len = existingStats?.n50ReadLength ?? 0
+                } else {
+                    // No cached seqkit data — run full seqkit stats
+                    let seqkitResult = try await runner.run(
+                        .seqkit,
+                        arguments: ["stats", "-a", "-T", url.path],
+                        timeout: 900
+                    )
+                    var _numSeqs = 0, _minLen = 0, _maxLen = 0, _medianLen = 0, _n50Len = 0
+                    var _sumLen: Int64 = 0
+                    var _avgLen = 0.0, _q20 = 0.0, _q30 = 0.0, _avgQual = 0.0, _gc = 0.0
 
-                if seqkitResult.isSuccess {
-                    let lines = seqkitResult.stdout
-                        .split(whereSeparator: \.isNewline)
-                        .map(String.init)
-                        .filter { !$0.isEmpty }
-                    if lines.count >= 2 {
-                        let headers = lines[0].split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-                        let values = lines[1].split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-                        if headers.count == values.count {
-                            var map: [String: String] = [:]
-                            for (h, v) in zip(headers, values) { map[h] = v }
-                            numSeqs = Int(map["num_seqs"] ?? "") ?? 0
-                            sumLen = Int64(map["sum_len"] ?? "") ?? 0
-                            minLen = Int(map["min_len"] ?? "") ?? 0
-                            avgLen = Double(map["avg_len"] ?? "") ?? 0
-                            maxLen = Int(map["max_len"] ?? "") ?? 0
-                            medianLen = Int(map["Q2"] ?? "") ?? 0
-                            n50Len = Int(map["N50"] ?? "") ?? 0
-                            q20 = Double(map["Q20(%)"] ?? "") ?? 0
-                            q30 = Double(map["Q30(%)"] ?? "") ?? 0
-                            avgQual = Double(map["AvgQual"] ?? "") ?? 0
-                            gc = Double(map["GC(%)"] ?? "") ?? 0
+                    if seqkitResult.isSuccess {
+                        let lines = seqkitResult.stdout
+                            .split(whereSeparator: \.isNewline)
+                            .map(String.init)
+                            .filter { !$0.isEmpty }
+                        if lines.count >= 2 {
+                            let headers = lines[0].split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+                            let values = lines[1].split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+                            if headers.count == values.count {
+                                var map: [String: String] = [:]
+                                for (h, v) in zip(headers, values) { map[h] = v }
+                                _numSeqs = Int(map["num_seqs"] ?? "") ?? 0
+                                _sumLen = Int64(map["sum_len"] ?? "") ?? 0
+                                _minLen = Int(map["min_len"] ?? "") ?? 0
+                                _avgLen = Double(map["avg_len"] ?? "") ?? 0
+                                _maxLen = Int(map["max_len"] ?? "") ?? 0
+                                _medianLen = Int(map["Q2"] ?? "") ?? 0
+                                _n50Len = Int(map["N50"] ?? "") ?? 0
+                                _q20 = Double(map["Q20(%)"] ?? "") ?? 0
+                                _q30 = Double(map["Q30(%)"] ?? "") ?? 0
+                                _avgQual = Double(map["AvgQual"] ?? "") ?? 0
+                                _gc = Double(map["GC(%)"] ?? "") ?? 0
+                            }
                         }
                     }
+                    numSeqs = _numSeqs; sumLen = _sumLen; minLen = _minLen; avgLen = _avgLen
+                    maxLen = _maxLen; medianLen = _medianLen; n50Len = _n50Len
+                    q20 = _q20; q30 = _q30; avgQual = _avgQual; gc = _gc
                 }
 
                 // 2. Sampled distributions from 100k reads via FASTQStatisticsCollector
@@ -1815,7 +1848,7 @@ public final class FASTQDatasetViewController: NSViewController {
                     perPositionQuality = sampled.perPositionQuality
                 }
 
-                // 3. Build combined statistics
+                // 3. Build combined statistics: exact metrics + sampled distributions
                 let fullStats = FASTQDatasetStatistics(
                     readCount: numSeqs,
                     baseCount: sumLen,
