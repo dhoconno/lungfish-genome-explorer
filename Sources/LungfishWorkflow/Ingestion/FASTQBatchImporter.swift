@@ -560,7 +560,8 @@ public enum FASTQBatchImporter {
                                         stepIndex: tracker.stepIndex, totalSteps: tracker.totalSteps))
                     }
                 )
-                let output = try await engine.execute(recipe: newRecipe, input: stepInput, context: stepContext)
+                let result = try await engine.execute(recipe: newRecipe, input: stepInput, context: stepContext)
+                let output = result.output
                 // Emit stepComplete for the last recipe step
                 if let lastStep = tracker.currentStep {
                     log?(.stepComplete(sample: pair.sampleName, step: lastStep,

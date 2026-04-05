@@ -187,11 +187,11 @@ final class RecipeIntegrationTests: XCTestCase {
         let context = StepContext(workspace: workspace, threads: 2, sampleName: "sarscov2-e2e",
                                   runner: NativeToolRunner.shared, progress: { _, _ in })
 
-        let output = try await engine.execute(recipe: testRecipe, input: input, context: context)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: output.r1.path), "Final output should exist")
+        let result = try await engine.execute(recipe: testRecipe, input: input, context: context)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.output.r1.path), "Final output should exist")
 
         // Verify output is valid FASTQ
-        let stats = try await NativeToolRunner.shared.run(.seqkit, arguments: ["stats", "--tabular", output.r1.path])
+        let stats = try await NativeToolRunner.shared.run(.seqkit, arguments: ["stats", "--tabular", result.output.r1.path])
         XCTAssertEqual(stats.exitCode, 0, "seqkit stats should succeed on final output")
     }
 
@@ -218,10 +218,10 @@ final class RecipeIntegrationTests: XCTestCase {
         let context = StepContext(workspace: workspace, threads: 2, sampleName: "sarscov2-vsp2",
                                   runner: NativeToolRunner.shared, progress: { _, _ in })
 
-        let output = try await engine.execute(recipe: vsp2, input: input, context: context)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: output.r1.path))
+        let result = try await engine.execute(recipe: vsp2, input: input, context: context)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.output.r1.path))
 
-        let stats = try await NativeToolRunner.shared.run(.seqkit, arguments: ["stats", "--tabular", output.r1.path])
+        let stats = try await NativeToolRunner.shared.run(.seqkit, arguments: ["stats", "--tabular", result.output.r1.path])
         XCTAssertEqual(stats.exitCode, 0)
     }
 }

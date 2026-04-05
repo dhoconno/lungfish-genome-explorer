@@ -3,7 +3,18 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 import os.log
+
+// MARK: - RecipeExecutionResult
+
+/// Result of executing a recipe, containing the final output and per-step provenance records.
+public struct RecipeExecutionResult: Sendable {
+    /// The final output of the last recipe step.
+    public let output: StepOutput
+    /// Per-step provenance records capturing tool invocations, timing, and read counts.
+    public let stepRecords: [RecipeStepResult]
+}
 
 // MARK: - PlannedStep
 
@@ -167,17 +178,19 @@ public final class RecipeEngine: Sendable {
 
     // MARK: - Execute
 
-    /// Executes the recipe against `input`, producing a final ``StepOutput``.
+    /// Executes the recipe against `input`, producing a ``RecipeExecutionResult``
+    /// containing the final output and per-step provenance records.
     ///
     /// The engine calls ``plan(recipe:inputFormat:)`` first, then iterates the
     /// plan, converting ``StepOutput`` back to ``StepInput`` between steps.
+    /// Intermediate files (inside the workspace) are deleted after each step completes.
     ///
     /// - Throws: ``RecipeEngineError`` or any error thrown by a step executor.
     public func execute(
         recipe: Recipe,
         input: StepInput,
         context: StepContext
-    ) async throws -> StepOutput {
+    ) async throws -> RecipeExecutionResult {
         let steps = try plan(recipe: recipe, inputFormat: input.format)
 
         var currentOutput = StepOutput(
@@ -194,6 +207,9 @@ public final class RecipeEngine: Sendable {
         }.count
         var reportableStepIndex = 0
 
+        var stepRecords: [RecipeStepResult] = []
+        var previousReadCount: Int? = nil
+
         for plannedStep in steps {
             let stepInput = StepInput(
                 r1: currentOutput.r1,
@@ -201,9 +217,15 @@ public final class RecipeEngine: Sendable {
                 r3: currentOutput.r3,
                 format: currentOutput.format
             )
+            // Capture input files for cleanup after step completes
+            let previousFiles = [stepInput.r1, stepInput.r2, stepInput.r3].compactMap { $0 }
+
+            let stepStart = Date()
+            var stepLabel: String
 
             switch plannedStep {
             case .singleStep(let executor, let label):
+                stepLabel = label
                 logger.debug("Executing step: \(label)")
                 let fraction = reportableStepCount > 0
                     ? Double(reportableStepIndex) / Double(reportableStepCount)
@@ -213,6 +235,7 @@ public final class RecipeEngine: Sendable {
                 reportableStepIndex += 1
 
             case .fusedFastp(let extraArgs, _, let label):
+                stepLabel = label
                 logger.debug("Executing fused fastp: \(label)")
                 let fraction = reportableStepCount > 0
                     ? Double(reportableStepIndex) / Double(reportableStepCount)
@@ -227,6 +250,7 @@ public final class RecipeEngine: Sendable {
                 reportableStepIndex += 1
 
             case .formatConversion(let from, let to):
+                stepLabel = "Format conversion (\(from.rawValue) → \(to.rawValue))"
                 logger.debug("Converting format \(from.rawValue) → \(to.rawValue)")
                 currentOutput = try await executeFormatConversion(
                     from: from,
@@ -235,9 +259,47 @@ public final class RecipeEngine: Sendable {
                     context: context
                 )
             }
+
+            let stepDuration = Date().timeIntervalSince(stepStart)
+
+            // Build provenance record (skip format-conversion steps — internal bookkeeping)
+            if case .formatConversion = plannedStep {
+                // skip recording
+            } else {
+                let toolName = currentOutput.tool?.executableName ?? "internal"
+                let toolVersion: String?
+                if let t = currentOutput.tool {
+                    toolVersion = await context.runner.getToolVersion(t)
+                } else {
+                    toolVersion = nil
+                }
+                let commandLine: String?
+                if let args = currentOutput.arguments, let execName = currentOutput.tool?.executableName {
+                    commandLine = execName + " " + args.joined(separator: " ")
+                } else {
+                    commandLine = nil
+                }
+
+                stepRecords.append(RecipeStepResult(
+                    stepName: stepLabel,
+                    tool: toolName,
+                    toolVersion: toolVersion,
+                    commandLine: commandLine,
+                    inputReadCount: previousReadCount,
+                    outputReadCount: currentOutput.readCount,
+                    durationSeconds: stepDuration
+                ))
+                previousReadCount = currentOutput.readCount
+            }
+
+            // Delete previous step's intermediate files (only those inside the workspace)
+            let workspacePath = context.workspace.path
+            for file in previousFiles where file.path.hasPrefix(workspacePath) {
+                try? FileManager.default.removeItem(at: file)
+            }
         }
 
-        return currentOutput
+        return RecipeExecutionResult(output: currentOutput, stepRecords: stepRecords)
     }
 
     // MARK: - Private helpers
