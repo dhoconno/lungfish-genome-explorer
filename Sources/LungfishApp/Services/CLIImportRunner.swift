@@ -51,8 +51,8 @@ public actor CLIImportRunner {
             }
         }
 
-        // 2. Development build directory — look relative to the main executable,
-        //    which in debug builds lives at <project>/.build/debug/Lungfish
+        // 2. Development: same directory as main executable (swift build puts
+        //    both Lungfish and lungfish-cli in .build/debug/)
         if let mainExec = Bundle.main.executableURL {
             let debugDir = mainExec.deletingLastPathComponent()
             let devPath = debugDir.appendingPathComponent("lungfish-cli")
@@ -61,11 +61,19 @@ public actor CLIImportRunner {
             }
         }
 
-        // 2b. Fallback: CWD-relative (for command-line invocation during development)
-        let cwdPath = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent(".build/debug/lungfish-cli")
-        if FileManager.default.isExecutableFile(atPath: cwdPath.path) {
-            return cwdPath
+        // 2b. Development: project source root via #filePath (works when
+        //     running from Xcode where CWD and bundle paths don't help)
+        let sourceFile = URL(fileURLWithPath: #filePath)
+        // #filePath = Sources/LungfishApp/Services/CLIImportRunner.swift
+        // Project root = 4 directories up
+        let projectRoot = sourceFile
+            .deletingLastPathComponent()  // Services/
+            .deletingLastPathComponent()  // LungfishApp/
+            .deletingLastPathComponent()  // Sources/
+            .deletingLastPathComponent()  // project root
+        let srcDevPath = projectRoot.appendingPathComponent(".build/debug/lungfish-cli")
+        if FileManager.default.isExecutableFile(atPath: srcDevPath.path) {
+            return srcDevPath
         }
 
         // 3. PATH lookup via which
