@@ -279,6 +279,73 @@ public actor ENAService: DatabaseService {
         }
     }
 
+    // MARK: - Batch Lookup
+
+    /// Looks up multiple SRA accessions in parallel, returning FASTQ metadata for each.
+    ///
+    /// Failed individual lookups are logged and skipped — they don't abort the batch.
+    /// Results are returned in the same order as the input accessions.
+    ///
+    /// - Parameters:
+    ///   - accessions: Array of SRR/ERR/DRR accessions to look up
+    ///   - concurrency: Maximum number of concurrent ENA requests (default: 10)
+    ///   - progress: Callback reporting (completedCount, totalCount) after each lookup
+    /// - Returns: Array of ENAReadRecord for successfully resolved accessions
+    public func searchReadsBatch(
+        accessions: [String],
+        concurrency: Int = 10,
+        progress: @Sendable (Int, Int) -> Void
+    ) async throws -> [ENAReadRecord] {
+        guard !accessions.isEmpty else { return [] }
+
+        let total = accessions.count
+        let counter = BatchCounter()
+
+        return try await withThrowingTaskGroup(of: (Int, [ENAReadRecord]).self) { group in
+            var results = Array<[ENAReadRecord]?>(repeating: nil, count: total)
+            var launched = 0
+
+            // Launch initial batch up to concurrency limit
+            for i in 0..<min(concurrency, total) {
+                let accession = accessions[i]
+                let index = i
+                group.addTask {
+                    do {
+                        let records = try await self.searchReads(term: accession, limit: 100)
+                        return (index, records)
+                    } catch {
+                        return (index, [])
+                    }
+                }
+                launched += 1
+            }
+
+            // Collect results and launch more as slots open
+            for try await (index, records) in group {
+                results[index] = records
+                let completedCount = await counter.increment()
+                progress(completedCount, total)
+
+                // Launch next task if any remain
+                if launched < total {
+                    let accession = accessions[launched]
+                    let nextIndex = launched
+                    group.addTask {
+                        do {
+                            let records = try await self.searchReads(term: accession, limit: 100)
+                            return (nextIndex, records)
+                        } catch {
+                            return (nextIndex, [])
+                        }
+                    }
+                    launched += 1
+                }
+            }
+
+            return results.compactMap { $0 }.flatMap { $0 }
+        }
+    }
+
     /// Gets the direct HTTPS URLs for FASTQ download.
     ///
     /// ENA provides FTP URLs by default; this converts them to HTTPS for download.
@@ -503,5 +570,17 @@ public struct ENAReadRecord: Codable, Sendable {
             let httpPath = "https://\(ftpPath)"
             return URL(string: httpPath)
         }
+    }
+}
+
+// MARK: - Batch Counter
+
+/// Thread-safe counter for tracking batch progress.
+private actor BatchCounter {
+    private var count = 0
+
+    func increment() -> Int {
+        count += 1
+        return count
     }
 }
