@@ -385,12 +385,11 @@ public enum FASTQIngestionService {
                 return recipe.name.lowercased()
             }()
 
-            // 3. Resolve compression level (Task 6 adds FASTQImportConfiguration.compressionLevel;
-            //    until then default to 6 which maps to "balanced")
-            let compressionLevel = 6
+            // 3. Resolve compression level
+            let compressionStr = importConfig.compressionLevel?.rawValue ?? "balanced"
 
             // 4. Build CLI arguments
-            let qualityBinning = importConfig.qualityBinning != .none
+            let qualityBinning = importConfig.qualityBinning.rawValue
             let optimizeStorage = !importConfig.skipClumpify
 
             let args = CLIImportRunner.buildCLIArguments(
@@ -401,7 +400,7 @@ public enum FASTQIngestionService {
                 recipeName: recipeName,
                 qualityBinning: qualityBinning,
                 optimizeStorage: optimizeStorage,
-                compressionLevel: compressionLevel
+                compressionLevel: compressionStr
             )
 
             // 5. Spawn CLI runner and track results via @unchecked Sendable tracker

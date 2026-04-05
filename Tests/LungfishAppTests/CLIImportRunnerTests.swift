@@ -135,9 +135,9 @@ final class CLIImportRunnerTests: XCTestCase {
             projectDirectory: project,
             platform: "illumina",
             recipeName: "vsp2",
-            qualityBinning: true,
+            qualityBinning: "illumina4",
             optimizeStorage: true,
-            compressionLevel: 6
+            compressionLevel: "balanced"
         )
 
         XCTAssertTrue(args.starts(with: ["import", "fastq", r1.path]))
@@ -153,7 +153,8 @@ final class CLIImportRunnerTests: XCTestCase {
         XCTAssertTrue(args.contains("json"))
         XCTAssertTrue(args.contains("--force"))
         XCTAssertTrue(args.contains("--compression"))
-        XCTAssertTrue(args.contains("6"))
+        XCTAssertTrue(args.contains("balanced"))
+        XCTAssertTrue(args.contains("illumina4"))
         XCTAssertFalse(args.contains("--no-optimize-storage"))
     }
 
@@ -167,19 +168,19 @@ final class CLIImportRunnerTests: XCTestCase {
             projectDirectory: project,
             platform: "nanopore",
             recipeName: nil,
-            qualityBinning: false,
+            qualityBinning: "none",
             optimizeStorage: false,
-            compressionLevel: 3
+            compressionLevel: "fast"
         )
 
         XCTAssertTrue(args.starts(with: ["import", "fastq", r1.path]))
         XCTAssertFalse(args.contains("--recipe"))
         XCTAssertTrue(args.contains("--no-optimize-storage"))
-        XCTAssertFalse(args.contains("--quality-binning"))
+        XCTAssertTrue(args.contains("none"))
         XCTAssertTrue(args.contains("--format"))
         XCTAssertTrue(args.contains("json"))
         XCTAssertTrue(args.contains("--force"))
         XCTAssertTrue(args.contains("--compression"))
-        XCTAssertTrue(args.contains("3"))
+        XCTAssertTrue(args.contains("fast"))
     }
 }

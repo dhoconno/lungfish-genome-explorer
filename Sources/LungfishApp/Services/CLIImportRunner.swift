@@ -102,9 +102,9 @@ public actor CLIImportRunner {
         projectDirectory: URL,
         platform: String,
         recipeName: String?,
-        qualityBinning: Bool,
+        qualityBinning: String,
         optimizeStorage: Bool,
-        compressionLevel: Int
+        compressionLevel: String
     ) -> [String] {
         var args = ["import", "fastq", r1.path]
 
@@ -115,15 +115,12 @@ public actor CLIImportRunner {
         args += ["--project", projectDirectory.path]
         args += ["--platform", platform]
         args += ["--format", "json"]
-        args += ["--compression", "\(compressionLevel)"]
+        args += ["--quality-binning", qualityBinning]
+        args += ["--compression", compressionLevel]
         args.append("--force")
 
         if let recipeName {
             args += ["--recipe", recipeName]
-        }
-
-        if qualityBinning {
-            args.append("--quality-binning")
         }
 
         if !optimizeStorage {
