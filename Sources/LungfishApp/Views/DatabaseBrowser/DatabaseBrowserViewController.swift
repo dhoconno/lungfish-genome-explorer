@@ -6,6 +6,7 @@
 
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
@@ -1057,6 +1058,47 @@ public class DatabaseBrowserViewModel: ObservableObject {
         sraPubDateTo = ""
         // Pathoplexus filters
         clearPathoplexusFilters()
+    }
+
+    /// Imports accession list from a CSV or text file.
+    /// Opens NSOpenPanel, parses the file, and triggers batch search.
+    func importAccessionList() {
+        let panel = NSOpenPanel()
+        panel.title = "Import Accession List"
+        panel.allowedContentTypes = [
+            .commaSeparatedText,
+            .plainText,
+        ]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let accessions = try SRAAccessionParser.parseCSVFile(at: url)
+            if accessions.isEmpty {
+                let alert = NSAlert()
+                alert.messageText = "No Valid Accessions"
+                alert.informativeText = "No valid SRA accessions were found in the selected file."
+                alert.alertStyle = .informational
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
+                return
+            }
+
+            logger.info("importAccessionList: Parsed \(accessions.count) accessions from \(url.lastPathComponent)")
+
+            searchText = accessions.joined(separator: "\n")
+            searchScope = .accession
+            performSearch()
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Import Failed"
+            alert.informativeText = "Could not read the file: \(error.localizedDescription)"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
     }
 
     /// Cancels the current search operation
@@ -3039,6 +3081,18 @@ public struct DatabaseBrowserView: View {
                     }
                     .buttonStyle(.plain)
                     .help("Clear search")
+                }
+
+                // Import accession list button (SRA only)
+                if viewModel.isSRASearch {
+                    Button {
+                        viewModel.importAccessionList()
+                    } label: {
+                        Image(systemName: "doc.badge.plus")
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Import accession list from CSV or text file")
                 }
             }
             .padding(.horizontal, 8)
