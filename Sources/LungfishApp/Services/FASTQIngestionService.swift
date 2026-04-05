@@ -333,7 +333,13 @@ public enum FASTQIngestionService {
         )
     }
 
-    /// Ingests in a temp directory using user-configured settings.
+    /// Ingests using FASTQBatchImporter (shared code path with CLI).
+    ///
+    /// Converts the GUI's `FASTQImportConfiguration` into a
+    /// `FASTQBatchImporter.ImportConfig` and delegates to `runBatchImport`.
+    /// Progress is bridged to `OperationCenter` via the structured log callback.
+    /// After the batch importer creates the bundle, this method computes FASTQ
+    /// statistics and records provenance (which the batch importer does not do).
     nonisolated private static func runIngestAndBundle(
         pair: FASTQFilePair,
         projectDirectory: URL,
@@ -342,10 +348,6 @@ public enum FASTQIngestionService {
         operationID opID: UUID,
         completion: @escaping @MainActor (Result<URL, Error>) -> Void
     ) async {
-        let fm = FileManager.default
-        var tempDir: URL?
-        var createdBundleURL: URL?
-
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
                 OperationCenter.shared.update(
@@ -361,269 +363,135 @@ public enum FASTQIngestionService {
         }
 
         do {
-            // 1. Create a temp workspace on the source volume and process inputs in place.
-            let workspace = try createIngestionWorkspace(anchoredAt: pair.r1)
-            tempDir = workspace
-
-            var inputFiles = [pair.r1]
-            if let r2 = pair.r2 {
-                inputFiles.append(r2)
+            // 1. Map LungfishIO.SequencingPlatform -> LungfishWorkflow.SequencingPlatform
+            let workflowPlatform: LungfishWorkflow.SequencingPlatform
+            switch importConfig.confirmedPlatform {
+            case .illumina:       workflowPlatform = .illumina
+            case .oxfordNanopore: workflowPlatform = .ont
+            case .pacbio:         workflowPlatform = .pacbio
+            case .ultima:         workflowPlatform = .ultima
+            default:              workflowPlatform = .illumina
             }
 
-            logger.info("ingestAndBundle: Using source inputs in place (\(inputFiles.count) file(s)); workspace at \(workspace.path, privacy: .public)")
-
-            let originalFilenames = inputFiles.map(\.lastPathComponent)
-            let originalSizeBytes = inputFiles.reduce(Int64(0)) { total, url in
-                let attrs = try? fm.attributesOfItem(atPath: url.path)
-                return total + (attrs?[.size] as? Int64 ?? 0)
-            }
-
-            let resolvedRecipe = importConfig.postImportRecipe?
+            // 2. Resolve recipe: prefer new-format (RecipeRegistryV2) for VSP2,
+            //    fall back to old-format ProcessingRecipe for other recipes.
+            let resolvedOldRecipe = importConfig.postImportRecipe?
                 .resolved(with: importConfig.resolvedPlaceholders)
-            var recipeStepResults: [RecipeStepResult] = []
-
-            // 2. Run import pipeline in temp.
-            // Recipe imports are optimized to avoid running clumpify twice.
-            var outputFile: URL
-            var resultWasClumpified = false
-            var resultQualityBinning = importConfig.qualityBinning
-            var resultPairingMode = importConfig.pairingMode
-            var finalSizeBytes: Int64 = 0
-            var resultOriginalFilenames = originalFilenames
-            var resultOriginalSizeBytes = originalSizeBytes
-            if let recipe = resolvedRecipe, !recipe.steps.isEmpty {
-                let recipeOutputURL: URL
-                let workingIsInterleaved: Bool
-
-                if shouldDelayInterleaveForVSP2(
-                    recipe: recipe,
-                    pairingMode: importConfig.pairingMode,
-                    inputFileCount: inputFiles.count
-                ) {
-                    let optimizedResult = try await runVSP2RecipeWithDelayedInterleave(
-                        r1: pair.r1,
-                        r2: inputFiles[1],
-                        recipe: recipe,
-                        tempDir: workspace,
-                        progress: { fraction, message in
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    OperationCenter.shared.update(
-                                        id: opID,
-                                        progress: 0.05 + fraction * 0.60,
-                                        detail: "\(bundleName): \(message)"
-                                    )
-                                }
-                            }
-                        }
-                    )
-                    recipeOutputURL = optimizedResult.url
-                    recipeStepResults = optimizedResult.stepResults
-                    workingIsInterleaved = true
+            var newRecipe: Recipe? = nil
+            var oldRecipe: ProcessingRecipe? = nil
+            if let recipe = resolvedOldRecipe, !recipe.steps.isEmpty {
+                // Check if a new-format declarative recipe exists for this pipeline
+                if let nr = RecipeRegistryV2.allRecipes().first(where: {
+                    $0.name.lowercased().contains("vsp2") && recipe.name.lowercased().contains("vsp2")
+                }) {
+                    newRecipe = nr
                 } else {
-                    var workingFASTQ = pair.r1
-                    var isInterleaved = importConfig.pairingMode == .interleaved
+                    oldRecipe = recipe
+                }
+            }
 
-                    if inputFiles.count == 2 {
-                        let tempR2 = inputFiles[1]
-                        let interleavedInput = workspace.appendingPathComponent("recipe-input-interleaved.fastq")
-                        try await interleavePairedInput(r1: pair.r1, r2: tempR2, output: interleavedInput)
-                        workingFASTQ = interleavedInput
-                        isInterleaved = true
-                    }
+            // 3. Build FASTQBatchImporter.ImportConfig
+            let batchConfig = FASTQBatchImporter.ImportConfig(
+                projectDirectory: projectDirectory,
+                platform: workflowPlatform,
+                recipe: oldRecipe,
+                newRecipe: newRecipe,
+                qualityBinning: importConfig.qualityBinning,
+                optimizeStorage: !importConfig.skipClumpify,
+                threads: ProcessInfo.processInfo.activeProcessorCount,
+                forceReimport: true  // GUI always imports (conflict resolution handled by caller)
+            )
 
-                    let derivativeService = FASTQDerivativeService()
-                    let materialized = try await derivativeService.runMaterializedRecipe(
-                        fastqURL: workingFASTQ,
-                        steps: recipe.steps,
-                        isInterleaved: isInterleaved,
-                        tempDir: workspace,
-                        measureReadCounts: false,
-                        progress: { fraction, message in
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    OperationCenter.shared.update(
-                                        id: opID,
-                                        progress: 0.05 + fraction * 0.60,
-                                        detail: "\(bundleName): \(message)"
-                                    )
-                                }
+            // 4. Build SamplePair — use bundleName as sample name so the batch
+            //    importer creates `Imports/<bundleName>.lungfishfastq`.
+            let samplePair = SamplePair(
+                sampleName: bundleName,
+                r1: pair.r1,
+                r2: pair.r2
+            )
+
+            // 5. Track whether the batch importer delivered a terminal event.
+            //    We use a class for shared mutation across the @Sendable log closure.
+            final class CompletionTracker: @unchecked Sendable {
+                var bundleURL: URL? = nil
+                var errorMessage: String? = nil
+            }
+            let tracker = CompletionTracker()
+
+            // 6. Run the batch importer with progress bridging to OperationCenter.
+            let batchResult = await FASTQBatchImporter.runBatchImport(
+                pairs: [samplePair],
+                config: batchConfig,
+                log: { event in
+                    switch event {
+                    case .stepStart(_, let step, let stepIndex, let totalSteps):
+                        let fraction = Double(stepIndex) / Double(max(1, totalSteps + 1))
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.update(
+                                    id: opID,
+                                    progress: fraction * 0.80,
+                                    detail: "\(bundleName): \(step)"
+                                )
+                                OperationCenter.shared.log(id: opID, level: .info, message: step)
                             }
                         }
-                    )
-                    recipeOutputURL = materialized.url
-                    recipeStepResults = materialized.stepResults
-                    workingIsInterleaved = isInterleaved
-                }
-
-                let clumpifyConfig = FASTQIngestionConfig(
-                    inputFiles: [recipeOutputURL],
-                    pairingMode: workingIsInterleaved ? .interleaved : .singleEnd,
-                    outputDirectory: workspace,
-                    threads: ProcessInfo.processInfo.activeProcessorCount,
-                    deleteOriginals: true,
-                    qualityBinning: importConfig.qualityBinning,
-                    skipClumpify: false
-                )
-                let clumpified = try await FASTQIngestionPipeline().run(config: clumpifyConfig) { fraction, message in
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.update(
-                                id: opID,
-                                progress: 0.65 + fraction * 0.15,
-                                detail: "\(bundleName): \(message)"
-                            )
+                    case .stepComplete(_, let step, let duration):
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.log(
+                                    id: opID,
+                                    level: .info,
+                                    message: "\(step) completed (\(String(format: "%.1f", duration))s)"
+                                )
+                            }
                         }
+                    case .sampleComplete(_, let bundle, _, _, _):
+                        // Record the bundle path for post-processing
+                        let bundleURL = projectDirectory
+                            .appendingPathComponent("Imports")
+                            .appendingPathComponent(bundle)
+                        tracker.bundleURL = bundleURL
+                    case .sampleFailed(_, let error):
+                        tracker.errorMessage = error
+                    default:
+                        break
                     }
                 }
+            )
 
-                let finalAttrs = try? fm.attributesOfItem(atPath: clumpified.outputFile.path)
-                outputFile = clumpified.outputFile
-                resultWasClumpified = clumpified.wasClumpified
-                resultQualityBinning = clumpified.qualityBinning
-                resultPairingMode = clumpified.pairingMode
-                finalSizeBytes = (finalAttrs?[.size] as? Int64) ?? 0
-            } else {
-                let config = FASTQIngestionConfig(
-                    inputFiles: inputFiles,
-                    pairingMode: importConfig.pairingMode,
-                    outputDirectory: workspace,
-                    threads: ProcessInfo.processInfo.activeProcessorCount,
-                    deleteOriginals: false,
-                    qualityBinning: importConfig.qualityBinning,
-                    // paired-end skip-clumpify is not supported by FASTQIngestionPipeline
-                    skipClumpify: importConfig.skipClumpify && importConfig.pairingMode != .pairedEnd
-                )
-                let pipeline = FASTQIngestionPipeline()
-                let pipelineResult = try await pipeline.run(config: config) { fraction, message in
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.update(
-                                id: opID,
-                                progress: fraction * 0.75,
-                                detail: message
-                            )
-                        }
+            // 7. Handle failure
+            if let errorMsg = tracker.errorMessage {
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.fail(id: opID, detail: errorMsg)
+                        completion(.failure(NSError(
+                            domain: "FASTQIngestionService", code: 1,
+                            userInfo: [NSLocalizedDescriptionKey: errorMsg]
+                        )))
                     }
                 }
-                outputFile = pipelineResult.outputFile
-                resultWasClumpified = pipelineResult.wasClumpified
-                resultQualityBinning = pipelineResult.qualityBinning
-                resultPairingMode = pipelineResult.pairingMode
-                resultOriginalFilenames = pipelineResult.originalFilenames
-                resultOriginalSizeBytes = pipelineResult.originalSizeBytes
-                finalSizeBytes = pipelineResult.finalSizeBytes
+                return
             }
 
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    OperationCenter.shared.update(id: opID, progress: 0.80, detail: "Creating bundle\u{2026}")
+            // If no bundle was produced (e.g. skipped), treat as error
+            guard let bundleURL = tracker.bundleURL else {
+                let msg = batchResult.failed > 0
+                    ? "Import failed"
+                    : "Import produced no output (skipped: \(batchResult.skipped))"
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.fail(id: opID, detail: msg)
+                        completion(.failure(NSError(
+                            domain: "FASTQIngestionService", code: 2,
+                            userInfo: [NSLocalizedDescriptionKey: msg]
+                        )))
+                    }
                 }
+                return
             }
 
-            // 3. Create .lungfishfastq bundle in project and mark as processing.
-            let bundleURL = projectDirectory.appendingPathComponent(
-                "\(bundleName).\(FASTQBundle.directoryExtension)"
-            )
-            createdBundleURL = bundleURL
-            try fm.createDirectory(at: bundleURL, withIntermediateDirectories: true)
-            FASTQBundle.markProcessing(bundleURL, detail: "Finalizing import\u{2026}")
-
-            // 4. Move processed file into bundle
-            let destFASTQ = bundleURL.appendingPathComponent(outputFile.lastPathComponent)
-            try fm.moveItem(at: outputFile, to: destFASTQ)
-
-            // 5. Write ingestion metadata sidecar in bundle
-            let pairingMode: IngestionMetadata.PairingMode = {
-                switch resultPairingMode {
-                case .singleEnd: return .singleEnd
-                case .pairedEnd: return .interleaved
-                case .interleaved: return .interleaved
-                }
-            }()
-
-            let ingestion = IngestionMetadata(
-                isClumpified: resultWasClumpified,
-                isCompressed: true,
-                pairingMode: pairingMode,
-                qualityBinning: resultQualityBinning.rawValue,
-                originalFilenames: resultOriginalFilenames,
-                ingestionDate: Date(),
-                originalSizeBytes: resultOriginalSizeBytes
-            )
-
-            var metadata = PersistedFASTQMetadata()
-            metadata.ingestion = ingestion
-            if let recipe = resolvedRecipe, !recipeStepResults.isEmpty {
-                metadata.ingestion?.recipeApplied = RecipeAppliedInfo(
-                    recipeID: recipe.id.uuidString,
-                    recipeName: recipe.name,
-                    appliedDate: Date(),
-                    stepResults: recipeStepResults
-                )
-            }
-            try writeImportManifest(
-                to: bundleURL,
-                bundleName: bundleName,
-                sourceFilenames: resultOriginalFilenames,
-                originalSizeBytes: resultOriginalSizeBytes,
-                finalFilename: destFASTQ.lastPathComponent,
-                finalSizeBytes: finalSizeBytes,
-                recipeApplied: metadata.ingestion?.recipeApplied
-            )
-
-            // 6. Record provenance
-            var parameters: [String: ParameterValue] = [
-                "platform": .string(importConfig.confirmedPlatform.rawValue),
-                "pairingMode": .string(importConfig.pairingMode.rawValue),
-                "qualityBinning": .string(importConfig.qualityBinning.rawValue),
-                "skipClumpify": .boolean(importConfig.skipClumpify),
-            ]
-            if let recipe = resolvedRecipe, !recipe.steps.isEmpty {
-                parameters["recipe"] = .string(recipe.name)
-            }
-            let runID = await ProvenanceRecorder.shared.beginRun(
-                name: "FASTQ Import: \(bundleName)",
-                parameters: parameters
-            )
-
-            if !recipeStepResults.isEmpty {
-                for step in recipeStepResults {
-                    let recordedCommand = step.commandLine.map { [$0] } ?? [step.stepName]
-                    await ProvenanceRecorder.shared.recordStep(
-                        runID: runID,
-                        toolName: step.tool,
-                        toolVersion: step.toolVersion ?? "unknown",
-                        command: recordedCommand,
-                        inputs: [FileRecord(path: bundleURL.lastPathComponent, format: .fastq, role: .input)],
-                        outputs: [FileRecord(path: bundleURL.lastPathComponent, format: .fastq, role: .output)],
-                        exitCode: 0,
-                        wallTime: step.durationSeconds
-                    )
-                }
-            }
-
-            if resultWasClumpified {
-                let inputRecords = resultOriginalFilenames.map { name in
-                    FileRecord(path: name, format: .fastq, role: .input)
-                }
-                await ProvenanceRecorder.shared.recordStep(
-                    runID: runID,
-                    toolName: "clumpify.sh",
-                    toolVersion: "BBTools",
-                    command: ["clumpify.sh"],
-                    inputs: inputRecords,
-                    outputs: [FileRecord(
-                        path: destFASTQ.lastPathComponent,
-                        sizeBytes: UInt64(finalSizeBytes),
-                        format: .fastq,
-                        role: .output
-                    )],
-                    exitCode: 0,
-                    wallTime: 0
-                )
-            }
-
+            // 8. Post-processing: compute FASTQ statistics (batch importer doesn't do this)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     OperationCenter.shared.update(
@@ -633,42 +501,56 @@ public enum FASTQIngestionService {
                     )
                 }
             }
-            _ = try await FASTQStatisticsService.computeAndCache(
-                for: destFASTQ,
-                existingMetadata: metadata,
-                progress: { count in
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.update(
-                                id: opID,
-                                progress: 0.90,
-                                detail: "Computing FASTQ statistics\u{2026} \(count) reads processed"
-                            )
+
+            // Find the primary FASTQ file inside the bundle
+            let fm = FileManager.default
+            let bundleContents = (try? fm.contentsOfDirectory(at: bundleURL, includingPropertiesForKeys: nil)) ?? []
+            let primaryFASTQ = bundleContents.first(where: {
+                let name = $0.lastPathComponent.lowercased()
+                return name.hasSuffix(".fastq.gz") || name.hasSuffix(".fq.gz") ||
+                       name.hasSuffix(".fastq") || name.hasSuffix(".fq")
+            })
+
+            if let fastqURL = primaryFASTQ {
+                let existingMetadata = FASTQMetadataStore.load(for: fastqURL)
+                _ = try await FASTQStatisticsService.computeAndCache(
+                    for: fastqURL,
+                    existingMetadata: existingMetadata,
+                    progress: { count in
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.update(
+                                    id: opID,
+                                    progress: 0.90,
+                                    detail: "Computing FASTQ statistics\u{2026} \(count) reads processed"
+                                )
+                            }
                         }
                     }
-                }
-            )
+                )
+            }
 
+            // 9. Record provenance
+            let resolvedRecipeName = newRecipe?.name ?? oldRecipe?.name
+            var parameters: [String: ParameterValue] = [
+                "platform": .string(importConfig.confirmedPlatform.rawValue),
+                "pairingMode": .string(importConfig.pairingMode.rawValue),
+                "qualityBinning": .string(importConfig.qualityBinning.rawValue),
+                "skipClumpify": .boolean(importConfig.skipClumpify),
+            ]
+            if let recipeName = resolvedRecipeName {
+                parameters["recipe"] = .string(recipeName)
+            }
+            let runID = await ProvenanceRecorder.shared.beginRun(
+                name: "FASTQ Import: \(bundleName)",
+                parameters: parameters
+            )
             await ProvenanceRecorder.shared.completeRun(runID, status: .completed)
             try? await ProvenanceRecorder.shared.save(runID: runID, to: bundleURL)
 
-            // 7. Clean up temp directory
-            if let workspace = tempDir {
-                try? fm.removeItem(at: workspace)
-            }
-
-            let savedStr = ByteCountFormatter.string(
-                fromByteCount: resultOriginalSizeBytes - finalSizeBytes,
-                countStyle: .file
-            )
-            let detail = resultWasClumpified
-                ? "Imported and clumpified (saved \(savedStr))"
-                : "Imported and compressed (saved \(savedStr))"
-
-            logger.info("ingestAndBundle: Created bundle \(bundleURL.lastPathComponent)")
-
-            // Clear processing marker only after stats are cached.
-            FASTQBundle.clearProcessing(bundleURL)
+            // 10. Complete
+            let detail = "Imported \(bundleURL.lastPathComponent)"
+            logger.info("ingestAndBundle: Created bundle \(bundleURL.lastPathComponent) via FASTQBatchImporter")
 
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
@@ -678,13 +560,6 @@ public enum FASTQIngestionService {
             }
 
         } catch is CancellationError {
-            if let workspace = tempDir {
-                try? fm.removeItem(at: workspace)
-            }
-            if let bundleURL = createdBundleURL {
-                FASTQBundle.clearProcessing(bundleURL)
-                try? fm.removeItem(at: bundleURL)
-            }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     OperationCenter.shared.fail(id: opID, detail: "Cancelled")
@@ -692,13 +567,6 @@ public enum FASTQIngestionService {
                 }
             }
         } catch {
-            if let workspace = tempDir {
-                try? fm.removeItem(at: workspace)
-            }
-            if let bundleURL = createdBundleURL {
-                FASTQBundle.clearProcessing(bundleURL)
-                try? fm.removeItem(at: bundleURL)
-            }
             logger.error("ingestAndBundle: \(error)")
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
