@@ -359,10 +359,49 @@ public enum FASTQIngestionService {
             }
         }
         await FASTQImportSlotCoordinator.shared.acquire()
-        defer {
-            Task { await FASTQImportSlotCoordinator.shared.release() }
-        }
 
+        // Run the import, then ALWAYS release the slot before returning.
+        // We avoid `defer { Task { await release() } }` because that
+        // fire-and-forget Task is not guaranteed to execute promptly from
+        // a Task.detached context.
+        let result = await _runCLIImport(
+            pair: pair,
+            projectDirectory: projectDirectory,
+            bundleName: bundleName,
+            importConfig: importConfig,
+            operationID: opID
+        )
+
+        await FASTQImportSlotCoordinator.shared.release()
+
+        // Deliver the result on the main actor
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                switch result {
+                case .success(let bundleURL):
+                    OperationCenter.shared.complete(
+                        id: opID,
+                        detail: "Imported \(bundleURL.lastPathComponent)",
+                        bundleURLs: [bundleURL]
+                    )
+                    completion(.success(bundleURL))
+                case .failure(let error):
+                    OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                    completion(.failure(error))
+                }
+            }
+        }
+    }
+
+    /// Core CLI import logic, factored out so the slot can be released via
+    /// a plain `await` rather than a fire-and-forget `Task`.
+    nonisolated private static func _runCLIImport(
+        pair: FASTQFilePair,
+        projectDirectory: URL,
+        bundleName: String,
+        importConfig: FASTQImportConfiguration,
+        operationID opID: UUID
+    ) async -> Result<URL, Error> {
         do {
             // 1. Map GUI platform to CLI string
             let platformStr: String
@@ -403,8 +442,7 @@ public enum FASTQIngestionService {
                 compressionLevel: compressionStr
             )
 
-            // 5. Spawn CLI runner and track results via @unchecked Sendable tracker
-            //    (closures are @Sendable so we cannot capture local vars directly).
+            // 5. Spawn CLI runner
             final class ResultTracker: @unchecked Sendable {
                 var bundleURL: URL?
                 var errorMessage: String?
@@ -422,33 +460,20 @@ public enum FASTQIngestionService {
 
             // 6. Handle failure
             if let errorMsg = tracker.errorMessage, tracker.bundleURL == nil {
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.fail(id: opID, detail: errorMsg)
-                        completion(.failure(NSError(
-                            domain: "FASTQIngestionService", code: 1,
-                            userInfo: [NSLocalizedDescriptionKey: errorMsg]
-                        )))
-                    }
-                }
-                return
+                return .failure(NSError(
+                    domain: "FASTQIngestionService", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: errorMsg]
+                ))
             }
 
             guard let bundleURL = tracker.bundleURL else {
-                let msg = "Import produced no output bundle"
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.fail(id: opID, detail: msg)
-                        completion(.failure(NSError(
-                            domain: "FASTQIngestionService", code: 2,
-                            userInfo: [NSLocalizedDescriptionKey: msg]
-                        )))
-                    }
-                }
-                return
+                return .failure(NSError(
+                    domain: "FASTQIngestionService", code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "Import produced no output bundle"]
+                ))
             }
 
-            // 7. Post-processing: compute FASTQ statistics (CLI doesn't do this)
+            // 7. Post-processing: compute FASTQ statistics
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     OperationCenter.shared.update(
@@ -459,7 +484,6 @@ public enum FASTQIngestionService {
                 }
             }
 
-            // Find the primary FASTQ file inside the bundle
             let fm = FileManager.default
             let bundleContents = (try? fm.contentsOfDirectory(at: bundleURL, includingPropertiesForKeys: nil)) ?? []
             let primaryFASTQ = bundleContents.first(where: {
@@ -504,32 +528,14 @@ public enum FASTQIngestionService {
             await ProvenanceRecorder.shared.completeRun(runID, status: .completed)
             try? await ProvenanceRecorder.shared.save(runID: runID, to: bundleURL)
 
-            // 9. Complete
-            let detail = "Imported \(bundleURL.lastPathComponent)"
             logger.info("ingestAndBundle: Created bundle \(bundleURL.lastPathComponent) via CLIImportRunner")
-
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    OperationCenter.shared.complete(id: opID, detail: detail, bundleURLs: [bundleURL])
-                    completion(.success(bundleURL))
-                }
-            }
+            return .success(bundleURL)
 
         } catch is CancellationError {
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    OperationCenter.shared.fail(id: opID, detail: "Cancelled")
-                    completion(.failure(CancellationError()))
-                }
-            }
+            return .failure(CancellationError())
         } catch {
             logger.error("ingestAndBundle: \(error)")
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    OperationCenter.shared.fail(id: opID, detail: "\(error)")
-                    completion(.failure(error))
-                }
-            }
+            return .failure(error)
         }
     }
 
