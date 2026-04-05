@@ -376,10 +376,12 @@ public enum FASTQIngestionService {
         await FASTQImportSlotCoordinator.shared.release()
 
         // Deliver the result on the main actor
+        logger.info("runIngestAndBundle: delivering result to main actor")
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
                 switch result {
                 case .success(let bundleURL):
+                    logger.info("runIngestAndBundle: completing operation for \(bundleURL.lastPathComponent)")
                     OperationCenter.shared.complete(
                         id: opID,
                         detail: "Imported \(bundleURL.lastPathComponent)",
@@ -477,6 +479,8 @@ public enum FASTQIngestionService {
                 ))
             }
 
+            logger.info("CLI import produced bundle at \(bundleURL.path)")
+
             // 7. Post-processing: compute FASTQ statistics
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
@@ -497,6 +501,7 @@ public enum FASTQIngestionService {
             })
 
             if let fastqURL = primaryFASTQ {
+                logger.info("Computing stats for \(fastqURL.lastPathComponent)")
                 let existingMetadata = FASTQMetadataStore.load(for: fastqURL)
                 _ = try await FASTQStatisticsService.computeAndCache(
                     for: fastqURL,
@@ -534,7 +539,7 @@ public enum FASTQIngestionService {
             await ProvenanceRecorder.shared.completeRun(runID, status: .completed)
             try? await ProvenanceRecorder.shared.save(runID: runID, to: bundleURL)
 
-            logger.info("ingestAndBundle: Created bundle \(bundleURL.lastPathComponent) via CLIImportRunner")
+            logger.info("ingestAndBundle: Created bundle \(bundleURL.lastPathComponent) via CLIImportRunner — returning success")
             return .success(bundleURL)
 
         } catch is CancellationError {
