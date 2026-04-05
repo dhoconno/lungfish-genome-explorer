@@ -1695,6 +1695,77 @@ public class DatabaseBrowserViewModel: ObservableObject {
             logger.info("performBatchDownload: Record[\(idx)] id=\(record.id, privacy: .public) accession=\(record.accession, privacy: .public)")
         }
 
+        // For ENA/SRA downloads, present the FASTQ import config sheet so the
+        // user can confirm platform, quality binning, and recipe before download.
+        // The config sheet is shown before the browser sheet is dismissed, so
+        // we need to detect platform info asynchronously then show the sheet.
+        if currentSource == .ena {
+            isDownloading = true  // prevent double-click while fetching metadata
+            Task {
+                // Quick fetch of the first record to detect platform / pairing
+                let firstAccession = recordsToDownload[0].accession
+                var detectedPlatform: LungfishIO.SequencingPlatform = .unknown
+                var isPaired = false
+                do {
+                    let readRecords = try await ena.searchReads(term: firstAccession, limit: 1)
+                    if let readRecord = readRecords.first {
+                        switch readRecord.instrumentPlatform?.uppercased() {
+                        case "ILLUMINA":       detectedPlatform = .illumina
+                        case "OXFORD_NANOPORE": detectedPlatform = .oxfordNanopore
+                        case "PACBIO_SMRT":     detectedPlatform = .pacbio
+                        case "ULTIMA":          detectedPlatform = .ultima
+                        default:                detectedPlatform = .unknown
+                        }
+                        isPaired = readRecord.libraryLayout?.uppercased() == "PAIRED"
+                    }
+                } catch {
+                    logger.warning("Failed to fetch ENA metadata for config sheet, using defaults: \(error.localizedDescription, privacy: .public)")
+                }
+
+                // Build placeholder pairs for the config sheet display
+                let placeholderPairs = recordsToDownload.map { record in
+                    FASTQFilePair(
+                        r1: URL(fileURLWithPath: "/\(record.accession)_1.fastq.gz"),
+                        r2: isPaired ? URL(fileURLWithPath: "/\(record.accession)_2.fastq.gz") : nil
+                    )
+                }
+
+                // Present config sheet on the main window. The database browser
+                // sheet is dismissed first so the config sheet can attach to the
+                // main window without sheet stacking issues.
+                self.onDownloadStarted?()
+
+                guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
+                    logger.error("No window available for config sheet presentation")
+                    self.isDownloading = false
+                    return
+                }
+
+                FASTQImportConfigSheet.present(
+                    on: window,
+                    pairs: placeholderPairs,
+                    detectedPlatform: detectedPlatform,
+                    onImport: { [downloadCenterTaskID, totalCount] importConfig in
+                        // User confirmed — start the actual download with captured config
+                        self.startENADownloadTask(
+                            records: recordsToDownload,
+                            importConfig: importConfig,
+                            downloadCenterTaskID: downloadCenterTaskID,
+                            totalCount: totalCount
+                        )
+                    },
+                    onCancel: { [downloadCenterTaskID] in
+                        // User cancelled — cancel the DownloadCenter task
+                        DownloadCenter.shared.fail(
+                            id: downloadCenterTaskID,
+                            detail: "Cancelled by user"
+                        )
+                    }
+                )
+            }
+            return
+        }
+
         // Dismiss the sheet immediately so the user can see the main window
         // while the download progresses in the background via DownloadCenter.
         // Bundle delivery happens through DownloadCenter.onBundleReady (set by
@@ -1793,242 +1864,14 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         }
 
                     case .ena:
-                        // SRA run accessions (SRR/ERR/DRR) must be downloaded as FASTQ
-                        // files, NOT fetched as nucleotide sequences. The ENA source in
-                        // the database browser is exclusively used for SRA read searches
-                        // via searchReads(), so all records here are SRA runs.
-                        logger.info("performBatchDownload: Downloading FASTQ for SRA run \(record.accession, privacy: .public)")
-                        performOnMainRunLoop {
-                            DownloadCenter.shared.update(
-                                id: downloadCenterTaskID,
-                                progress: progressFraction,
-                                detail: "Fetching FASTQ URLs for \(record.accession)..."
-                            )
-                        }
-
-                        // Query ENA for verified FASTQ download URLs
-                        let readRecords = try await ena.searchReads(term: record.accession, limit: 1)
-                        guard let readRecord = readRecords.first else {
-                            throw DatabaseServiceError.notFound(accession: record.accession)
-                        }
-
-                        let fastqURLs = readRecord.fastqHTTPURLs
-                        guard !fastqURLs.isEmpty else {
-                            throw DatabaseServiceError.invalidQuery(
-                                reason: "No FASTQ files available for \(record.accession). "
-                                    + "The data may not yet be processed by ENA."
-                            )
-                        }
-
-                        // Download each FASTQ file to the batch directory, with byte-level progress.
-                        // Use the total size from ENAReadRecord.fastqBytes to compute a meaningful
-                        // progress fraction and ETA.
-                        var downloadedFASTQFiles: [URL] = []
-                        let totalExpectedBytes = readRecord.totalFileSizeBytes.map { Int64($0) }
-                        // Per-file byte sizes (semicolon-separated in fastqBytes, aligned with fastqHTTPURLs)
-                        let perFileSizes: [Int64?] = {
-                            guard let bytesStr = readRecord.fastqBytes else { return fastqURLs.map { _ in nil } }
-                            let sizes = bytesStr.components(separatedBy: ";").map { Int64($0) }
-                            return sizes + Array(repeating: nil, count: max(0, fastqURLs.count - sizes.count))
-                        }()
-
-                        // Track bytes already downloaded from completed files
-                        var priorBytesDownloaded: Int64 = 0
-
-                        for (fileIdx, fastqURL) in fastqURLs.enumerated() {
-                            let filename = fastqURL.lastPathComponent
-                            let localPath = batchDir.appendingPathComponent(filename)
-                            let fileExpectedBytes = fileIdx < perFileSizes.count ? perFileSizes[fileIdx] : nil
-
-                            logger.info("performBatchDownload: Downloading \(fastqURL.absoluteString, privacy: .public)")
-
-                            let capturedOpID = downloadCenterTaskID
-                            let capturedPrior = priorBytesDownloaded
-                            let capturedTotal = totalExpectedBytes
-
-                            let data = try await streamingDownload(
-                                url: fastqURL,
-                                totalBytes: fileExpectedBytes,
-                                progressHandler: { bytesWritten, _ in
-                                    let totalSoFar = capturedPrior + bytesWritten
-                                    performOnMainRunLoop {
-                                        DownloadCenter.shared.updateBytes(
-                                            id: capturedOpID,
-                                            bytesDownloaded: totalSoFar,
-                                            totalBytes: capturedTotal
-                                        )
-                                    }
-                                }
-                            )
-
-                            try data.write(to: localPath)
-                            logger.info("performBatchDownload: Saved \(filename) (\(data.count) bytes)")
-                            downloadedFASTQFiles.append(localPath)
-
-                            // Accumulate bytes for next file's baseline
-                            priorBytesDownloaded += fileExpectedBytes ?? Int64(data.count)
-                        }
-
-                        guard !downloadedFASTQFiles.isEmpty else {
-                            throw DatabaseServiceError.invalidQuery(reason: "No FASTQ files were downloaded for \(record.accession)")
-                        }
-
-                        // FASTQ imports are only considered complete once each ingestion batch has:
-                        // 1) passed through clumpify/compression, 2) been indexed, and
-                        // 3) had full dataset statistics precomputed for instant viewport load.
-                        // For paired-end SRA, process R1/R2 together so output is interleaved.
-                        let isPairedBatch: Bool = {
-                            guard downloadedFASTQFiles.count == 2 else { return false }
-                            let first = downloadedFASTQFiles[0].lastPathComponent.lowercased()
-                            let second = downloadedFASTQFiles[1].lastPathComponent.lowercased()
-                            let pairedSuffixes: [(String, String)] = [
-                                ("_1.fastq.gz", "_2.fastq.gz"),
-                                ("_r1.fastq.gz", "_r2.fastq.gz"),
-                                ("_1.fq.gz", "_2.fq.gz"),
-                                ("_r1.fq.gz", "_r2.fq.gz")
-                            ]
-                            return pairedSuffixes.contains { left, right in
-                                first.hasSuffix(left) && second.hasSuffix(right)
-                                    || first.hasSuffix(right) && second.hasSuffix(left)
-                            }
-                        }()
-
-                        let ingestionBatches: [(files: [URL], pairingMode: FASTQIngestionConfig.PairingMode)] = {
-                            if isPairedBatch {
-                                let ordered = downloadedFASTQFiles.sorted { lhs, rhs in
-                                    let left = lhs.lastPathComponent.lowercased()
-                                    let right = rhs.lastPathComponent.lowercased()
-                                    let leftIsR1 = left.contains("_1.fastq") || left.contains("_1.fq")
-                                        || left.contains("_r1.fastq") || left.contains("_r1.fq")
-                                    let rightIsR1 = right.contains("_1.fastq") || right.contains("_1.fq")
-                                        || right.contains("_r1.fastq") || right.contains("_r1.fq")
-                                    if leftIsR1 != rightIsR1 {
-                                        return leftIsR1
-                                    }
-                                    return left.localizedStandardCompare(right) == .orderedAscending
-                                }
-                                return [(ordered, .pairedEnd)]
-                            }
-                            return downloadedFASTQFiles.map { ([$0], .singleEnd) }
-                        }()
-
-                        let batchCount = max(ingestionBatches.count, 1)
-                        var processedFASTQFiles: [URL] = []
-                        for (batchIdx, batch) in ingestionBatches.enumerated() {
-                            let phasePrefix = "[\(batchIdx + 1)/\(ingestionBatches.count)]"
-                            let meta = PersistedFASTQMetadata(
-                                enaReadRecord: readRecord,
-                                downloadDate: Date(),
-                                downloadSource: "ENA"
-                            )
-
-                            performOnMainRunLoop {
-                                DownloadCenter.shared.update(
-                                    id: downloadCenterTaskID,
-                                    progress: progressFraction,
-                                    detail: "\(record.accession) \(phasePrefix) clumpify/compress..."
-                                )
-                            }
-
-                            let pipeline = FASTQIngestionPipeline()
-                            let config = FASTQIngestionConfig(
-                                inputFiles: batch.files,
-                                pairingMode: batch.pairingMode,
-                                outputDirectory: batch.files[0].deletingLastPathComponent(),
-                                threads: min(ProcessInfo.processInfo.processorCount, 8),
-                                deleteOriginals: true,
-                                qualityBinning: .illumina4,
-                                skipClumpify: false
-                            )
-
-                            let ingestionResult = try await pipeline.run(config: config) { pipelineProgress, message in
-                                // Map ingestion progress inside this record slice for user feedback.
-                                let perRecordStep = (Double(batchIdx) + pipelineProgress) / Double(batchCount)
-                                let overall = min(
-                                    0.99,
-                                    (Double(index) + perRecordStep) / Double(totalCount)
-                                )
-                                performOnMainRunLoop {
-                                    DownloadCenter.shared.update(
-                                        id: downloadCenterTaskID,
-                                        progress: overall,
-                                        detail: "\(record.accession) \(phasePrefix) \(message)"
-                                    )
-                                }
-                            }
-                            guard ingestionResult.wasClumpified else {
-                                throw DatabaseServiceError.parseError(
-                                    message: "FASTQ clumpify did not complete for \(batch.files[0].lastPathComponent)"
-                                )
-                            }
-                            var metadata = FASTQMetadataStore.load(for: ingestionResult.outputFile) ?? meta
-                            metadata.enaReadRecord = readRecord
-                            metadata.downloadDate = metadata.downloadDate ?? Date()
-                            metadata.downloadSource = metadata.downloadSource ?? "ENA"
-                            metadata.ingestion = IngestionMetadata(
-                                isClumpified: ingestionResult.wasClumpified,
-                                isCompressed: true,
-                                pairingMode: {
-                                    switch ingestionResult.pairingMode {
-                                    case .singleEnd:
-                                        return .singleEnd
-                                    case .pairedEnd, .interleaved:
-                                        return .interleaved
-                                    }
-                                }(),
-                                qualityBinning: ingestionResult.qualityBinning.rawValue,
-                                originalFilenames: ingestionResult.originalFilenames,
-                                ingestionDate: Date(),
-                                originalSizeBytes: ingestionResult.originalSizeBytes
-                            )
-
-                            performOnMainRunLoop {
-                                DownloadCenter.shared.update(
-                                    id: downloadCenterTaskID,
-                                    progress: progressFraction,
-                                    detail: "\(record.accession) \(phasePrefix) computing FASTQ statistics..."
-                                )
-                            }
-
-                            let estimatedReadsPerFile: Double = {
-                                guard let totalReads = readRecord.readCount, totalReads > 0 else {
-                                    return 1_000_000
-                                }
-                                return max(1.0, Double(totalReads) / Double(batchCount))
-                            }()
-                            let (statistics, seqkitStats) = try await self.computeFASTQStatisticsFast(
-                                for: ingestionResult.outputFile,
-                                progress: { processedCount in
-                                    if processedCount > 0, processedCount % 100_000 == 0 {
-                                        // Map stats phase from 90%->99% within each file.
-                                        let statsProgress = min(
-                                            0.09,
-                                            (Double(processedCount) / estimatedReadsPerFile) * 0.09
-                                        )
-                                        let perRecordStep = (Double(batchIdx) + 0.9 + statsProgress) / Double(batchCount)
-                                        let overall = min(
-                                            0.995,
-                                            (Double(index) + perRecordStep) / Double(totalCount)
-                                        )
-                                        performOnMainRunLoop {
-                                            DownloadCenter.shared.update(
-                                                id: downloadCenterTaskID,
-                                                progress: overall,
-                                                detail: "\(record.accession) \(phasePrefix) stats \(processedCount) reads..."
-                                            )
-                                        }
-                                    }
-                                }
-                            )
-                            metadata.computedStatistics = statistics
-                            metadata.seqkitStats = seqkitStats
-                            FASTQMetadataStore.save(metadata, for: ingestionResult.outputFile)
-
-                            processedFASTQFiles.append(ingestionResult.outputFile)
-                        }
-
-                        downloadedURLs.append(contentsOf: processedFASTQFiles)
-                        fileURL = nil
+                        // ENA/SRA downloads are now handled by startENADownloadTask()
+                        // which is called after the user confirms the import config sheet.
+                        // This case should not be reachable since performBatchDownload()
+                        // returns early for ENA source before entering this Task.detached.
+                        assertionFailure("ENA downloads should not reach this code path")
+                        throw DatabaseServiceError.invalidQuery(
+                            reason: "Internal error: ENA downloads should use the config sheet path"
+                        )
 
                     case .pathoplexus:
                         // Check if this record has an INSDC accession for GenBank retrieval
@@ -2210,6 +2053,275 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 }
 
                 logger.info("performBatchDownload: Complete - \(finalDownloadedURLs.count) downloaded, \(finalFailedCount) failed")
+            }
+        }
+    }
+
+    // MARK: - ENA/SRA Download with CLI Import
+
+    /// Starts the SRA download and CLI import pipeline for the given records.
+    ///
+    /// Called from the `FASTQImportConfigSheet` `onImport` callback after the user
+    /// confirms import settings. Downloads FASTQ files from ENA, then runs
+    /// `CLIImportRunner` to create `.lungfishfastq` bundles, and finally augments
+    /// each bundle's metadata sidecar with ENA provenance info.
+    private func startENADownloadTask(
+        records: [SearchResultRecord],
+        importConfig: FASTQImportConfiguration,
+        downloadCenterTaskID: UUID,
+        totalCount: Int
+    ) {
+        let ena = enaService
+
+        // Map confirmed platform to CLI string
+        let platformStr: String
+        switch importConfig.confirmedPlatform {
+        case .illumina:       platformStr = "illumina"
+        case .oxfordNanopore: platformStr = "ont"
+        case .pacbio:         platformStr = "pacbio"
+        case .ultima:         platformStr = "ultima"
+        default:              platformStr = "illumina"
+        }
+
+        // Resolve recipe name — prefer V2 recipeName, fall back to legacy
+        let recipeName: String? = {
+            if let name = importConfig.recipeName { return name }
+            guard let recipe = importConfig.postImportRecipe, !recipe.steps.isEmpty else { return nil }
+            if recipe.name.lowercased().contains("vsp2") {
+                if let nr = RecipeRegistryV2.allRecipes().first(where: { $0.name.lowercased().contains("vsp2") }) {
+                    return nr.id
+                }
+            }
+            return recipe.name.lowercased()
+        }()
+
+        let compressionStr = importConfig.compressionLevel?.rawValue ?? "balanced"
+        let qualityBinning = importConfig.qualityBinning.rawValue
+        let optimizeStorage = !importConfig.skipClumpify
+        let confirmedPlatform = importConfig.confirmedPlatform
+
+        Task.detached {
+            var downloadedURLs: [URL] = []
+            var failedCount = 0
+            var failureDetails: [String] = []
+
+            let batchDir = try ProjectTempDirectory.create(prefix: "sra-batch-", in: nil)
+            logger.info("startENADownloadTask: Created batch directory at \(batchDir.path, privacy: .public)")
+
+            for (index, record) in records.enumerated() {
+                let progressFraction = Double(index) / Double(totalCount)
+                performOnMainRunLoop {
+                    DownloadCenter.shared.update(
+                        id: downloadCenterTaskID,
+                        progress: progressFraction,
+                        detail: "Downloading \(record.accession) (\(index + 1)/\(totalCount))"
+                    )
+                }
+
+                do {
+                    // 1. Fetch ENA read record for FASTQ URLs and metadata
+                    logger.info("startENADownloadTask: Downloading FASTQ for SRA run \(record.accession, privacy: .public)")
+                    performOnMainRunLoop {
+                        DownloadCenter.shared.update(
+                            id: downloadCenterTaskID,
+                            progress: progressFraction,
+                            detail: "Fetching FASTQ URLs for \(record.accession)..."
+                        )
+                    }
+
+                    let readRecords = try await ena.searchReads(term: record.accession, limit: 1)
+                    guard let readRecord = readRecords.first else {
+                        throw DatabaseServiceError.notFound(accession: record.accession)
+                    }
+
+                    let fastqURLs = readRecord.fastqHTTPURLs
+                    guard !fastqURLs.isEmpty else {
+                        throw DatabaseServiceError.invalidQuery(
+                            reason: "No FASTQ files available for \(record.accession). "
+                                + "The data may not yet be processed by ENA."
+                        )
+                    }
+
+                    // 2. Download each FASTQ file to the batch directory
+                    var downloadedFASTQFiles: [URL] = []
+                    let totalExpectedBytes = readRecord.totalFileSizeBytes.map { Int64($0) }
+                    let perFileSizes: [Int64?] = {
+                        guard let bytesStr = readRecord.fastqBytes else { return fastqURLs.map { _ in nil } }
+                        let sizes = bytesStr.components(separatedBy: ";").map { Int64($0) }
+                        return sizes + Array(repeating: nil, count: max(0, fastqURLs.count - sizes.count))
+                    }()
+
+                    var priorBytesDownloaded: Int64 = 0
+
+                    for (fileIdx, fastqURL) in fastqURLs.enumerated() {
+                        let filename = fastqURL.lastPathComponent
+                        let localPath = batchDir.appendingPathComponent(filename)
+                        let fileExpectedBytes = fileIdx < perFileSizes.count ? perFileSizes[fileIdx] : nil
+
+                        logger.info("startENADownloadTask: Downloading \(fastqURL.absoluteString, privacy: .public)")
+
+                        let capturedPrior = priorBytesDownloaded
+                        let capturedTotal = totalExpectedBytes
+
+                        let data = try await streamingDownload(
+                            url: fastqURL,
+                            totalBytes: fileExpectedBytes,
+                            progressHandler: { bytesWritten, _ in
+                                let totalSoFar = capturedPrior + bytesWritten
+                                performOnMainRunLoop {
+                                    DownloadCenter.shared.updateBytes(
+                                        id: downloadCenterTaskID,
+                                        bytesDownloaded: totalSoFar,
+                                        totalBytes: capturedTotal
+                                    )
+                                }
+                            }
+                        )
+
+                        try data.write(to: localPath)
+                        logger.info("startENADownloadTask: Saved \(filename) (\(data.count) bytes)")
+                        downloadedFASTQFiles.append(localPath)
+                        priorBytesDownloaded += fileExpectedBytes ?? Int64(data.count)
+                    }
+
+                    guard !downloadedFASTQFiles.isEmpty else {
+                        throw DatabaseServiceError.invalidQuery(
+                            reason: "No FASTQ files were downloaded for \(record.accession)"
+                        )
+                    }
+
+                    // 3. Detect R1/R2 pairing from downloaded files
+                    let sortedFiles = downloadedFASTQFiles.sorted { lhs, rhs in
+                        let left = lhs.lastPathComponent.lowercased()
+                        let right = rhs.lastPathComponent.lowercased()
+                        let leftIsR1 = left.contains("_1.fastq") || left.contains("_1.fq")
+                            || left.contains("_r1.fastq") || left.contains("_r1.fq")
+                        let rightIsR1 = right.contains("_1.fastq") || right.contains("_1.fq")
+                            || right.contains("_r1.fastq") || right.contains("_r1.fq")
+                        if leftIsR1 != rightIsR1 { return leftIsR1 }
+                        return left.localizedStandardCompare(right) == .orderedAscending
+                    }
+                    let r1URL = sortedFiles[0]
+                    let r2URL: URL? = sortedFiles.count == 2 ? sortedFiles[1] : nil
+
+                    // 4. Run CLI import pipeline
+                    performOnMainRunLoop {
+                        DownloadCenter.shared.update(
+                            id: downloadCenterTaskID,
+                            progress: progressFraction,
+                            detail: "\(record.accession) importing via CLI pipeline..."
+                        )
+                    }
+
+                    // Use a project directory derived from the batch directory
+                    // The CLI creates bundles in <projectDir>/Imports/
+                    let projectDirectory = batchDir
+
+                    let args = CLIImportRunner.buildCLIArguments(
+                        r1: r1URL,
+                        r2: r2URL,
+                        projectDirectory: projectDirectory,
+                        platform: platformStr,
+                        recipeName: recipeName,
+                        qualityBinning: qualityBinning,
+                        optimizeStorage: optimizeStorage,
+                        compressionLevel: compressionStr
+                    )
+
+                    final class ResultTracker: @unchecked Sendable {
+                        var bundleURL: URL?
+                        var errorMessage: String?
+                    }
+                    let tracker = ResultTracker()
+
+                    let runner = CLIImportRunner()
+                    await runner.run(
+                        arguments: args,
+                        operationID: downloadCenterTaskID,
+                        projectDirectory: projectDirectory,
+                        onBundleCreated: { url in tracker.bundleURL = url },
+                        onError: { error in tracker.errorMessage = error }
+                    )
+
+                    if let errorMsg = tracker.errorMessage, tracker.bundleURL == nil {
+                        throw NSError(
+                            domain: "DatabaseBrowser.SRAImport", code: 1,
+                            userInfo: [NSLocalizedDescriptionKey: errorMsg]
+                        )
+                    }
+
+                    guard let bundleURL = tracker.bundleURL else {
+                        throw NSError(
+                            domain: "DatabaseBrowser.SRAImport", code: 2,
+                            userInfo: [NSLocalizedDescriptionKey: "CLI import produced no output bundle for \(record.accession)"]
+                        )
+                    }
+
+                    // 5. Augment metadata sidecar with ENA provenance info
+                    let contents = try? FileManager.default.contentsOfDirectory(
+                        at: bundleURL,
+                        includingPropertiesForKeys: nil
+                    )
+                    if let fastqURL = contents?.first(where: {
+                        $0.lastPathComponent.hasSuffix(".fastq.gz") || $0.lastPathComponent.hasSuffix(".fq.gz")
+                    }) {
+                        var metadata = FASTQMetadataStore.load(for: fastqURL) ?? PersistedFASTQMetadata()
+                        metadata.enaReadRecord = readRecord
+                        metadata.downloadDate = Date()
+                        metadata.downloadSource = "ENA"
+                        metadata.sequencingPlatform = confirmedPlatform
+                        FASTQMetadataStore.save(metadata, for: fastqURL)
+                    }
+
+                    logger.info("startENADownloadTask: Created bundle at \(bundleURL.path, privacy: .public)")
+                    downloadedURLs.append(bundleURL)
+
+                } catch {
+                    logger.error("startENADownloadTask: Failed for \(record.accession, privacy: .public): \(error, privacy: .public)")
+                    failedCount += 1
+                    failureDetails.append("\(record.accession): \(error.localizedDescription)")
+                    performOnMainRunLoop {
+                        DownloadCenter.shared.update(
+                            id: downloadCenterTaskID,
+                            progress: Double(index + 1) / Double(totalCount),
+                            detail: "Failed: \(record.accession) — \(error.localizedDescription)"
+                        )
+                    }
+                }
+            }
+
+            // Complete — deliver bundles through DownloadCenter
+            let finalDownloadedURLs = downloadedURLs
+            let finalFailedCount = failedCount
+            let finalFailureDetails = failureDetails
+            performOnMainRunLoop {
+                if finalDownloadedURLs.isEmpty && finalFailedCount > 0 {
+                    let reasonSummary = finalFailureDetails.prefix(3).joined(separator: "; ")
+                    DownloadCenter.shared.fail(
+                        id: downloadCenterTaskID,
+                        detail: reasonSummary.isEmpty
+                            ? "Completed with \(finalFailedCount) failure(s)"
+                            : "Completed with \(finalFailedCount) failure(s): \(reasonSummary)"
+                    )
+                } else {
+                    let bundleNames = finalDownloadedURLs.map { $0.deletingPathExtension().lastPathComponent }
+                    let detail: String
+                    if finalFailedCount > 0 {
+                        let reasonSummary = finalFailureDetails.prefix(3).joined(separator: "; ")
+                        detail = "Completed \(finalDownloadedURLs.count) download(s), \(finalFailedCount) failed. \(reasonSummary)"
+                    } else if totalCount == 1 {
+                        detail = "FASTQ ready: \(bundleNames.first ?? "unknown")"
+                    } else {
+                        detail = "Completed \(finalDownloadedURLs.count) file(s)"
+                    }
+                    DownloadCenter.shared.complete(
+                        id: downloadCenterTaskID,
+                        detail: detail,
+                        bundleURLs: finalDownloadedURLs
+                    )
+                }
+
+                logger.info("startENADownloadTask: Complete - \(finalDownloadedURLs.count) downloaded, \(finalFailedCount) failed")
             }
         }
     }
