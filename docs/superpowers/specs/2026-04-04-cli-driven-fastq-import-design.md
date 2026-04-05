@@ -8,6 +8,18 @@
 
 Replace the GUI's direct FASTQBatchImporter call with a CLI subprocess approach: the GUI spawns `lungfish-cli import fastq` and reads structured JSON log events for Operations Panel display. Add a "Sequencing Reads" tab to the Import Center for file/folder/hierarchy selection with recipe configuration.
 
+## Invariant: All Temp Files in Project `.tmp/`
+
+All intermediate and temporary files produced during FASTQ import MUST be written to `<project>.lungfish/.tmp/` via `ProjectTempDirectory.create(prefix:in:)`. This applies to:
+
+- The CLI's `FASTQBatchImporter` workspace (recipe step outputs, format conversions, compressed intermediates)
+- Any decompression, interleaving, or concatenation buffers
+- Fused fastp output, deacon output, seqkit output between steps
+
+No temp files may be written to the system `/tmp/`, the input volume, or any location outside the project's `.tmp/` directory. The project directory is always on the user's chosen storage (typically local SSD), ensuring fast I/O regardless of where the input FASTQ files reside (network drives, external USB, etc.).
+
+The `.tmp/` directory is cleaned up automatically via `defer` blocks after each sample completes or fails. `ProjectTempDirectory.cleanStale(in:olderThan:)` can reclaim orphaned temp files from crashed imports.
+
 ## Non-Goals
 
 - Redesigning the Operations Panel UI
