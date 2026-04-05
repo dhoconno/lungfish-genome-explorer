@@ -16,10 +16,13 @@ public struct SamplePair: Sendable {
     public let sampleName: String
     public let r1: URL
     public let r2: URL?
-    public init(sampleName: String, r1: URL, r2: URL?) {
+    /// Relative path from the scanned root directory (nil for root-level files).
+    public let relativePath: String?
+    public init(sampleName: String, r1: URL, r2: URL?, relativePath: String? = nil) {
         self.sampleName = sampleName
         self.r1 = r1
         self.r2 = r2
+        self.relativePath = relativePath
     }
 }
 
@@ -145,6 +148,85 @@ public enum FASTQBatchImporter {
         }
 
         return detectPairs(from: fastqURLs)
+    }
+
+    /// Recursively scans `directory` and all subdirectories for FASTQ files,
+    /// groups them into pairs per directory, and annotates each pair with its
+    /// relative path from the root.
+    ///
+    /// - Throws: `BatchImportError.noFASTQFilesFound` when no FASTQ files exist
+    ///   anywhere under `directory`.
+    public static func detectPairsFromDirectoryRecursive(_ directory: URL) throws -> [SamplePair] {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            throw BatchImportError.noFASTQFilesFound(directory)
+        }
+
+        // Group FASTQ files by their parent directory
+        var filesByDirectory: [URL: [URL]] = [:]
+        for case let fileURL as URL in enumerator {
+            let name = fileURL.lastPathComponent.lowercased()
+            guard name.hasSuffix(".fastq.gz") || name.hasSuffix(".fq.gz") ||
+                  name.hasSuffix(".fastq") || name.hasSuffix(".fq") else { continue }
+            let parentDir = fileURL.deletingLastPathComponent()
+            filesByDirectory[parentDir, default: []].append(fileURL)
+        }
+
+        guard !filesByDirectory.isEmpty else {
+            throw BatchImportError.noFASTQFilesFound(directory)
+        }
+
+        let rootPath = directory.standardizedFileURL.path
+        var allPairs: [SamplePair] = []
+
+        for (dir, urls) in filesByDirectory {
+            let sortedURLs = urls.sorted { $0.lastPathComponent < $1.lastPathComponent }
+            let basePairs = detectPairs(from: sortedURLs)
+
+            // Compute relative path: nil if same as root, else strip root prefix
+            let dirPath = dir.standardizedFileURL.path
+            let relativePath: String?
+            if dirPath == rootPath {
+                relativePath = nil
+            } else {
+                var rel = dirPath
+                if rel.hasPrefix(rootPath) {
+                    rel = String(rel.dropFirst(rootPath.count))
+                }
+                // Trim leading /
+                if rel.hasPrefix("/") {
+                    rel = String(rel.dropFirst())
+                }
+                // Trim trailing /
+                if rel.hasSuffix("/") {
+                    rel = String(rel.dropLast())
+                }
+                relativePath = rel.isEmpty ? nil : rel
+            }
+
+            for pair in basePairs {
+                allPairs.append(SamplePair(
+                    sampleName: pair.sampleName,
+                    r1: pair.r1,
+                    r2: pair.r2,
+                    relativePath: relativePath
+                ))
+            }
+        }
+
+        // Sort by relativePath (nil first) then sampleName
+        allPairs.sort { lhs, rhs in
+            let lp = lhs.relativePath ?? ""
+            let rp = rhs.relativePath ?? ""
+            if lp != rp { return lp < rp }
+            return lhs.sampleName < rhs.sampleName
+        }
+
+        return allPairs
     }
 
     /// Groups a flat list of FASTQ URLs into R1/R2 pairs using common naming conventions.
