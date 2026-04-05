@@ -1734,7 +1734,7 @@ public final class FASTQDatasetViewController: NSViewController {
         progressIndicator.startAnimation(nil)
         setStatus("Computing quality report...")
 
-        let qrCliCmd = "# lungfish fastq quality-report \(url.path) (CLI command not yet available \u{2014} use GUI)"
+        let qrCliCmd = "seqkit stats -a -T \(url.path) && seqkit head -n 100000 \(url.path) | (sampled quality analysis)"
         let opID = OperationCenter.shared.start(
             title: "Quality Report",
             detail: url.lastPathComponent,
@@ -1746,10 +1746,91 @@ public final class FASTQDatasetViewController: NSViewController {
 
         qualityReportTask = Task.detached(priority: .userInitiated) { [weak self] in
             do {
-                let reader = FASTQReader(validateSequence: false)
-                let (fullStats, _) = try await reader.computeStatistics(
-                    from: url,
-                    sampleLimit: 0
+                // Use seqkit stats for exact summary + FASTQStatisticsCollector on 100k sample
+                // for distributions — same approach as the import pipeline.
+                let runner = NativeToolRunner.shared
+
+                // 1. Full seqkit stats for exact summary metrics
+                let seqkitResult = try await runner.run(
+                    .seqkit,
+                    arguments: ["stats", "-a", "-T", url.path],
+                    timeout: 900
+                )
+
+                var numSeqs = 0, minLen = 0, maxLen = 0, medianLen = 0, n50Len = 0
+                var sumLen: Int64 = 0
+                var avgLen = 0.0, q20 = 0.0, q30 = 0.0, avgQual = 0.0, gc = 0.0
+
+                if seqkitResult.isSuccess {
+                    let lines = seqkitResult.stdout
+                        .split(whereSeparator: \.isNewline)
+                        .map(String.init)
+                        .filter { !$0.isEmpty }
+                    if lines.count >= 2 {
+                        let headers = lines[0].split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+                        let values = lines[1].split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+                        if headers.count == values.count {
+                            var map: [String: String] = [:]
+                            for (h, v) in zip(headers, values) { map[h] = v }
+                            numSeqs = Int(map["num_seqs"] ?? "") ?? 0
+                            sumLen = Int64(map["sum_len"] ?? "") ?? 0
+                            minLen = Int(map["min_len"] ?? "") ?? 0
+                            avgLen = Double(map["avg_len"] ?? "") ?? 0
+                            maxLen = Int(map["max_len"] ?? "") ?? 0
+                            medianLen = Int(map["Q2"] ?? "") ?? 0
+                            n50Len = Int(map["N50"] ?? "") ?? 0
+                            q20 = Double(map["Q20(%)"] ?? "") ?? 0
+                            q30 = Double(map["Q30(%)"] ?? "") ?? 0
+                            avgQual = Double(map["AvgQual"] ?? "") ?? 0
+                            gc = Double(map["GC(%)"] ?? "") ?? 0
+                        }
+                    }
+                }
+
+                // 2. Sampled distributions from 100k reads via FASTQStatisticsCollector
+                let seqkitURL = try await runner.findTool(.seqkit)
+                let sampleFile = url.deletingLastPathComponent()
+                    .appendingPathComponent(".qr-sample-\(UUID().uuidString).fq.gz")
+                defer { try? FileManager.default.removeItem(at: sampleFile) }
+
+                let headResult = try await runner.runProcess(
+                    executableURL: seqkitURL,
+                    arguments: ["head", "-n", "100000", "-o", sampleFile.path, url.path],
+                    timeout: 120
+                )
+
+                var sampledHistogram: [Int: Int] = [:]
+                var qualityScoreHistogram: [UInt8: Int] = [:]
+                var perPositionQuality: [PositionQualitySummary] = []
+
+                if headResult.isSuccess {
+                    let collector = FASTQStatisticsCollector()
+                    let reader = FASTQReader(validateSequence: false)
+                    for try await record in reader.records(from: sampleFile) {
+                        collector.process(record)
+                    }
+                    let sampled = collector.finalize()
+                    sampledHistogram = sampled.readLengthHistogram
+                    qualityScoreHistogram = sampled.qualityScoreHistogram
+                    perPositionQuality = sampled.perPositionQuality
+                }
+
+                // 3. Build combined statistics
+                let fullStats = FASTQDatasetStatistics(
+                    readCount: numSeqs,
+                    baseCount: sumLen,
+                    meanReadLength: avgLen,
+                    minReadLength: minLen,
+                    maxReadLength: maxLen,
+                    medianReadLength: medianLen,
+                    n50ReadLength: n50Len,
+                    meanQuality: avgQual,
+                    q20Percentage: q20,
+                    q30Percentage: q30,
+                    gcContent: gc / 100.0,
+                    readLengthHistogram: sampledHistogram,
+                    qualityScoreHistogram: qualityScoreHistogram,
+                    perPositionQuality: perPositionQuality
                 )
 
                 var metadata = FASTQMetadataStore.load(for: url) ?? PersistedFASTQMetadata()
