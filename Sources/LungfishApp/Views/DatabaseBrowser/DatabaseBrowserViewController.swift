@@ -409,6 +409,57 @@ public enum PathoplexusINSDCFilter: String, CaseIterable, Identifiable, Sendable
     public var id: String { rawValue }
 }
 
+// MARK: - SRA Filter Enums
+
+/// SRA sequencing platform filter.
+public enum SRAPlatformFilter: String, CaseIterable, Identifiable, Sendable {
+    case any = "Any"
+    case illumina = "ILLUMINA"
+    case oxfordNanopore = "OXFORD_NANOPORE"
+    case pacbio = "PACBIO_SMRT"
+    case ionTorrent = "ION_TORRENT"
+    case ultima = "ULTIMA"
+    case element = "ELEMENT"
+    case bgiseq = "BGISEQ"
+
+    public var id: String { rawValue }
+
+    /// The value to use in NCBI ESearch `[Platform]` queries.
+    var entrezValue: String? {
+        self == .any ? nil : rawValue
+    }
+}
+
+/// SRA library strategy filter.
+public enum SRAStrategyFilter: String, CaseIterable, Identifiable, Sendable {
+    case any = "Any"
+    case wgs = "WGS"
+    case amplicon = "AMPLICON"
+    case rnaSeq = "RNA-Seq"
+    case wxs = "WXS"
+    case targetedCapture = "Targeted-Capture"
+    case other = "OTHER"
+
+    public var id: String { rawValue }
+
+    var entrezValue: String? {
+        self == .any ? nil : rawValue
+    }
+}
+
+/// SRA library layout filter.
+public enum SRALayoutFilter: String, CaseIterable, Identifiable, Sendable {
+    case any = "Any"
+    case paired = "PAIRED"
+    case single = "SINGLE"
+
+    public var id: String { rawValue }
+
+    var entrezValue: String? {
+        self == .any ? nil : rawValue
+    }
+}
+
 // MARK: - Result Sort Order
 
 /// Sort options for search results.
@@ -535,6 +586,26 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
     /// Opaque page token for Datasets v2 cursor-based pagination
     @Published var virusNextPageToken: String?
+
+    // MARK: SRA-Specific Filters
+
+    /// Platform filter for SRA searches (e.g., ILLUMINA, OXFORD_NANOPORE)
+    @Published var sraPlatformFilter: SRAPlatformFilter = .any
+
+    /// Library strategy filter for SRA searches (e.g., WGS, AMPLICON)
+    @Published var sraStrategyFilter: SRAStrategyFilter = .any
+
+    /// Library layout filter for SRA searches (e.g., PAIRED, SINGLE)
+    @Published var sraLayoutFilter: SRALayoutFilter = .any
+
+    /// Minimum dataset size in megabases for SRA searches
+    @Published var sraMinMbases: String = ""
+
+    /// Publication date range for SRA searches: start date
+    @Published var sraPubDateFrom: String = ""
+
+    /// Publication date range for SRA searches: end date
+    @Published var sraPubDateTo: String = ""
 
     /// Search results from the API
     @Published var results: [SearchResultRecord] = []
@@ -760,6 +831,13 @@ public class DatabaseBrowserViewModel: ObservableObject {
             if !virusReleasedSinceFilter.isEmpty { count += 1 }
             if virusAnnotatedOnly { count += 1 }
             if refseqOnly { count += 1 }
+        } else if isSRASearch {
+            // SRA-specific filters
+            if sraPlatformFilter != .any { count += 1 }
+            if sraStrategyFilter != .any { count += 1 }
+            if sraLayoutFilter != .any { count += 1 }
+            if !sraMinMbases.isEmpty { count += 1 }
+            if !sraPubDateFrom.isEmpty || !sraPubDateTo.isEmpty { count += 1 }
         } else {
             // Entrez-based filters (nucleotide, genome)
             if !organismFilter.isEmpty { count += 1 }
@@ -970,6 +1048,13 @@ public class DatabaseBrowserViewModel: ObservableObject {
         virusCompletenessFilter = .any
         virusReleasedSinceFilter = ""
         virusAnnotatedOnly = false
+        // SRA filters
+        sraPlatformFilter = .any
+        sraStrategyFilter = .any
+        sraLayoutFilter = .any
+        sraMinMbases = ""
+        sraPubDateFrom = ""
+        sraPubDateTo = ""
         // Pathoplexus filters
         clearPathoplexusFilters()
     }

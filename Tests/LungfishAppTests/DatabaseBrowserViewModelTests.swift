@@ -589,4 +589,43 @@ final class DatabaseBrowserViewModelTests: XCTestCase {
         // all, accession, organism, title, bioProject, author = 6
         XCTAssertEqual(SearchScope.allCases.count, 6)
     }
+
+    // MARK: - SRA Filter Properties
+
+    func testSRAFilterDefaults() {
+        let enaViewModel = DatabaseBrowserViewModel(source: .ena)
+        XCTAssertEqual(enaViewModel.sraPlatformFilter, .any)
+        XCTAssertEqual(enaViewModel.sraStrategyFilter, .any)
+        XCTAssertEqual(enaViewModel.sraLayoutFilter, .any)
+        XCTAssertEqual(enaViewModel.sraMinMbases, "")
+        XCTAssertEqual(enaViewModel.sraPubDateFrom, "")
+        XCTAssertEqual(enaViewModel.sraPubDateTo, "")
+    }
+
+    func testSRAFilterCountPlatform() {
+        let enaViewModel = DatabaseBrowserViewModel(source: .ena)
+        enaViewModel.sraPlatformFilter = .illumina
+        XCTAssertEqual(enaViewModel.activeFilterCount, 1)
+    }
+
+    func testSRAFilterCountMultiple() {
+        let enaViewModel = DatabaseBrowserViewModel(source: .ena)
+        enaViewModel.sraPlatformFilter = .illumina
+        enaViewModel.sraStrategyFilter = .wgs
+        enaViewModel.sraLayoutFilter = .paired
+        XCTAssertEqual(enaViewModel.activeFilterCount, 3)
+    }
+
+    func testClearFiltersClearsSRAFilters() {
+        let enaViewModel = DatabaseBrowserViewModel(source: .ena)
+        enaViewModel.sraPlatformFilter = .illumina
+        enaViewModel.sraStrategyFilter = .wgs
+        enaViewModel.sraLayoutFilter = .paired
+        enaViewModel.sraMinMbases = "100"
+        enaViewModel.clearFilters()
+        XCTAssertEqual(enaViewModel.sraPlatformFilter, .any)
+        XCTAssertEqual(enaViewModel.sraStrategyFilter, .any)
+        XCTAssertEqual(enaViewModel.sraLayoutFilter, .any)
+        XCTAssertEqual(enaViewModel.sraMinMbases, "")
+    }
 }
