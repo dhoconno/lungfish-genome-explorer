@@ -556,4 +556,37 @@ final class DatabaseBrowserViewModelTests: XCTestCase {
         viewModel.ncbiSearchType = .nucleotide
         XCTAssertEqual(viewModel.activeFilterCount, 1)
     }
+
+    // MARK: - New Search Scopes
+
+    func testSearchScopeIncludesBioProject() {
+        XCTAssertNotNil(SearchScope.allCases.first(where: { $0 == .bioProject }))
+        XCTAssertEqual(SearchScope.bioProject.rawValue, "BioProject")
+    }
+
+    func testSearchScopeIncludesAuthor() {
+        XCTAssertNotNil(SearchScope.allCases.first(where: { $0 == .author }))
+        XCTAssertEqual(SearchScope.author.rawValue, "Author")
+    }
+
+    func testBioProjectScopeHasIcon() {
+        XCTAssertFalse(SearchScope.bioProject.icon.isEmpty)
+    }
+
+    func testAuthorScopeHasIcon() {
+        XCTAssertFalse(SearchScope.author.icon.isEmpty)
+    }
+
+    func testBioProjectScopeHasHelpText() {
+        XCTAssertFalse(SearchScope.bioProject.helpText.isEmpty)
+    }
+
+    func testAuthorScopeHasHelpText() {
+        XCTAssertFalse(SearchScope.author.helpText.isEmpty)
+    }
+
+    func testAllScopesCount() {
+        // all, accession, organism, title, bioProject, author = 6
+        XCTAssertEqual(SearchScope.allCases.count, 6)
+    }
 }

@@ -234,6 +234,8 @@ public enum SearchScope: String, CaseIterable, Identifiable {
     case accession = "Accession"
     case organism = "Organism"
     case title = "Title"
+    case bioProject = "BioProject"
+    case author = "Author"
 
     public var id: String { rawValue }
 
@@ -244,6 +246,8 @@ public enum SearchScope: String, CaseIterable, Identifiable {
         case .accession: return "number"
         case .organism: return "leaf"
         case .title: return "text.alignleft"
+        case .bioProject: return "folder"
+        case .author: return "person.text.rectangle"
         }
     }
 
@@ -254,6 +258,8 @@ public enum SearchScope: String, CaseIterable, Identifiable {
         case .accession: return "Search by accession number (e.g., NC_002549, MN908947)"
         case .organism: return "Search by organism or species name"
         case .title: return "Search within sequence titles and descriptions"
+        case .bioProject: return "Search by BioProject accession (e.g., PRJNA989177)"
+        case .author: return "Search by submitter or author name"
         }
     }
 }
@@ -1545,6 +1551,14 @@ public class DatabaseBrowserViewModel: ObservableObject {
         case .title:
             let result = "\(term)[Title]"
             logger.debug("buildSearchTerm: Built title query='\(result, privacy: .public)'")
+            scopedTerm = result
+        case .bioProject:
+            let result = "\(term)[BioProject]"
+            logger.debug("buildSearchTerm: Built BioProject query='\(result, privacy: .public)'")
+            scopedTerm = result
+        case .author:
+            let result = "\(term)[Author]"
+            logger.debug("buildSearchTerm: Built author query='\(result, privacy: .public)'")
             scopedTerm = result
         }
 
@@ -2877,6 +2891,10 @@ public struct DatabaseBrowserView: View {
             return "Enter organism name (e.g., Homo sapiens)"
         case .title:
             return "Search in titles and descriptions"
+        case .bioProject:
+            return "Enter BioProject accession (e.g., PRJNA989177)"
+        case .author:
+            return "Enter submitter or author name"
         }
     }
 
