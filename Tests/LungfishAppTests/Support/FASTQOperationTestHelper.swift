@@ -65,6 +65,114 @@ struct FASTQOperationTestHelper {
         try lines.joined(separator: "\n").appending("\n").write(to: url, atomically: true, encoding: .utf8)
     }
 
+    /// Writes FASTQ records with varying read lengths for length filter testing.
+    static func writeVariableLengthFASTQ(
+        to url: URL,
+        lengths: [Int],
+        readsPerLength: Int = 25,
+        idPrefix: String = "read"
+    ) throws {
+        let bases: [Character] = ["A", "C", "G", "T"]
+        var lines: [String] = []
+        var readIndex = 0
+        for length in lengths {
+            for i in 0..<readsPerLength {
+                readIndex += 1
+                let id = "\(idPrefix)\(readIndex)"
+                var seq = ""
+                for j in 0..<length {
+                    seq.append(bases[(readIndex + j) % 4])
+                }
+                let qual = String(repeating: "I", count: length)
+                lines.append(contentsOf: ["@\(id)", seq, "+", qual])
+            }
+        }
+        try lines.joined(separator: "\n").appending("\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// Writes FASTQ records where some have an embedded motif at a specific position.
+    static func writeMotifEmbeddedFASTQ(
+        to url: URL,
+        motif: String,
+        totalReads: Int = 50,
+        readsWithMotif: Int = 25,
+        readLength: Int = 150,
+        motifPosition: Int = 50
+    ) throws {
+        let bases: [Character] = ["A", "C", "G", "T"]
+        var lines: [String] = []
+        for i in 0..<totalReads {
+            let id = "read\(i + 1)"
+            var seq = ""
+            for j in 0..<readLength {
+                seq.append(bases[(i + j) % 4])
+            }
+            if i < readsWithMotif {
+                var chars = Array(seq)
+                for (j, c) in motif.enumerated() {
+                    if motifPosition + j < chars.count {
+                        chars[motifPosition + j] = c
+                    }
+                }
+                seq = String(chars)
+            }
+            let qual = String(repeating: "I", count: readLength)
+            lines.append(contentsOf: ["@\(id)", seq, "+", qual])
+        }
+        try lines.joined(separator: "\n").appending("\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// Writes FASTQ records with a known adapter appended to some reads.
+    static func writeAdapterAppendedFASTQ(
+        to url: URL,
+        adapter: String,
+        totalReads: Int = 50,
+        readsWithAdapter: Int = 25,
+        readLength: Int = 100
+    ) throws {
+        let bases: [Character] = ["A", "C", "G", "T"]
+        var lines: [String] = []
+        for i in 0..<totalReads {
+            let id = "read\(i + 1)"
+            var seq = ""
+            let insertLen = i < readsWithAdapter ? readLength - adapter.count : readLength
+            for j in 0..<insertLen {
+                seq.append(bases[(i + j) % 4])
+            }
+            if i < readsWithAdapter {
+                seq += adapter
+            }
+            let qual = String(repeating: "I", count: seq.count)
+            lines.append(contentsOf: ["@\(id)", seq, "+", qual])
+        }
+        try lines.joined(separator: "\n").appending("\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// Writes FASTQ records with a known primer prepended to some reads.
+    static func writePrimerPrependedFASTQ(
+        to url: URL,
+        primer: String,
+        totalReads: Int = 50,
+        readsWithPrimer: Int = 50,
+        baseReadLength: Int = 100
+    ) throws {
+        let bases: [Character] = ["A", "C", "G", "T"]
+        var lines: [String] = []
+        for i in 0..<totalReads {
+            let id = "read\(i + 1)"
+            var seq = ""
+            if i < readsWithPrimer {
+                seq += primer
+            }
+            for j in 0..<baseReadLength {
+                seq.append(bases[(i + j) % 4])
+            }
+            let qual = String(repeating: "I", count: seq.count)
+            lines.append(contentsOf: ["@\(id)", seq, "+", qual])
+        }
+        try lines.joined(separator: "\n").appending("\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+
     // MARK: - FASTQ Reading
 
     static func loadFASTQRecords(from url: URL) async throws -> [FASTQRecord] {
