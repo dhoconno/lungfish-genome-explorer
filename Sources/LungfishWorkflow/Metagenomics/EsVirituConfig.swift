@@ -255,6 +255,9 @@ public enum EsVirituConfigError: Error, LocalizedError, Sendable {
     /// The output directory could not be created.
     case outputDirectoryCreationFailed(URL, Error)
 
+    /// An input path is a directory, not a FASTQ file.
+    case inputPathIsDirectory(URL)
+
     public var errorDescription: String? {
         switch self {
         case .noInputFiles:
@@ -263,6 +266,8 @@ public enum EsVirituConfigError: Error, LocalizedError, Sendable {
             return "Paired-end mode requires exactly 2 input files, got \(got)"
         case .inputFileNotFound(let url):
             return "Input file not found: \(url.lastPathComponent)"
+        case .inputPathIsDirectory(let url):
+            return "Input path is a directory, expected FASTQ file: \(url.lastPathComponent)"
         case .databaseNotFound(let url):
             return "EsViritu database directory not found: \(url.path)"
         case .emptySampleName:
@@ -294,8 +299,12 @@ extension EsVirituConfig {
 
         let fm = FileManager.default
         for file in inputFiles {
-            guard fm.fileExists(atPath: file.path) else {
+            var isDirectory: ObjCBool = false
+            guard fm.fileExists(atPath: file.path, isDirectory: &isDirectory) else {
                 throw EsVirituConfigError.inputFileNotFound(file)
+            }
+            if isDirectory.boolValue {
+                throw EsVirituConfigError.inputPathIsDirectory(file)
             }
         }
 

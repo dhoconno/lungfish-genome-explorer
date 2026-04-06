@@ -374,6 +374,9 @@ public enum ClassificationConfigError: Error, LocalizedError, Sendable {
     /// The output directory could not be created.
     case outputDirectoryCreationFailed(URL, Error)
 
+    /// An input path is a directory, not a FASTQ file.
+    case inputPathIsDirectory(URL)
+
     public var errorDescription: String? {
         switch self {
         case .noInputFiles:
@@ -382,6 +385,8 @@ public enum ClassificationConfigError: Error, LocalizedError, Sendable {
             return "Paired-end mode requires exactly 2 input files, got \(got)"
         case .inputFileNotFound(let url):
             return "Input file not found: \(url.lastPathComponent)"
+        case .inputPathIsDirectory(let url):
+            return "Input path is a directory, expected FASTQ file: \(url.lastPathComponent)"
         case .databaseNotFound(let url):
             return "Database directory not found: \(url.path)"
         case .databaseMissingFiles(let url, let missing):
@@ -413,8 +418,12 @@ extension ClassificationConfig {
 
         let fm = FileManager.default
         for file in inputFiles {
-            guard fm.fileExists(atPath: file.path) else {
+            var isDirectory: ObjCBool = false
+            guard fm.fileExists(atPath: file.path, isDirectory: &isDirectory) else {
                 throw ClassificationConfigError.inputFileNotFound(file)
+            }
+            if isDirectory.boolValue {
+                throw ClassificationConfigError.inputPathIsDirectory(file)
             }
         }
 

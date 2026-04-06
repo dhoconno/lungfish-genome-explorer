@@ -5255,7 +5255,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             cliCommand: batchCliCmd
         )
 
-        let task = Task.detached {
+        let task = Task.detached { [weak self] in
+            guard let self else { return }
+
+            let batchMaterializeTempDir = try ProjectTempDirectory.createFromContext(
+                prefix: "classify-batch-mat-", contextURL: firstConfig.inputFiles.first ?? firstConfig.databasePath)
+            defer { try? FileManager.default.removeItem(at: batchMaterializeTempDir) }
+
             let pipeline = ClassificationPipeline()
             var successfulResults: [(sampleId: String, config: ClassificationConfig, result: ClassificationResult)] = []
             var failedResults: [(sampleId: String, error: String)] = []
@@ -5284,12 +5290,38 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 }
 
                 do {
+                    let resolvedFiles = try await self.resolveInputFiles(
+                        config.inputFiles,
+                        tempDirectory: batchMaterializeTempDir,
+                        progress: { message in
+                            let prefixed = "\(samplePrefix): \(message)"
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    viewerController.showProgress(prefixed)
+                                    OperationCenter.shared.update(id: opID, progress: Double(index) / Double(sampleCount), detail: prefixed)
+                                    OperationCenter.shared.log(id: opID, level: .info, message: prefixed)
+                                }
+                            }
+                        }
+                    )
+
+                    var resolvedConfig = config
+                    if resolvedConfig.sampleDisplayName == nil {
+                        let bundleName = config.inputFiles.first?
+                            .deletingPathExtension().lastPathComponent
+                        resolvedConfig.sampleDisplayName = bundleName
+                    }
+                    if resolvedConfig.originalInputFiles == nil {
+                        resolvedConfig.originalInputFiles = config.inputFiles
+                    }
+                    resolvedConfig.inputFiles = resolvedFiles
+
                     let result: ClassificationResult
-                    switch config.goal {
+                    switch resolvedConfig.goal {
                     case .classify, .extract:
-                        result = try await pipeline.classify(config: config, progress: progressCallback)
+                        result = try await pipeline.classify(config: resolvedConfig, progress: progressCallback)
                     case .profile:
-                        result = try await pipeline.profile(config: config, progress: progressCallback)
+                        result = try await pipeline.profile(config: resolvedConfig, progress: progressCallback)
                     }
 
                     do {
@@ -5454,7 +5486,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             cliCommand: esBatchCliCmd
         )
 
-        let task = Task.detached {
+        let task = Task.detached { [weak self] in
+            guard let self else { return }
+
+            let batchMaterializeTempDir = try ProjectTempDirectory.createFromContext(
+                prefix: "esviritu-batch-mat-", contextURL: firstConfig.inputFiles.first ?? firstConfig.outputDirectory)
+            defer { try? FileManager.default.removeItem(at: batchMaterializeTempDir) }
+
+            let pipeline = EsVirituPipeline()
             var successfulResults: [(sampleId: String, config: EsVirituConfig, pipelineResult: LungfishWorkflow.EsVirituResult, ioResult: LungfishIO.EsVirituResult)] = []
             var failedResults: [(sampleId: String, error: String)] = []
 
@@ -5465,11 +5504,28 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
                 let sampleID = MetagenomicsSampleGrouper.sanitizeSampleId(config.sampleName)
                 let samplePrefix = "Sample \(index + 1)/\(sampleCount) (\(sampleID))"
-                let pipeline = EsVirituPipeline()
 
                 do {
+                    let resolvedFiles = try await self.resolveInputFiles(
+                        config.inputFiles,
+                        tempDirectory: batchMaterializeTempDir,
+                        progress: { message in
+                            let prefixed = "\(samplePrefix): \(message)"
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    viewerController.showProgress(prefixed)
+                                    OperationCenter.shared.update(id: opID, progress: Double(index) / Double(sampleCount), detail: prefixed)
+                                    OperationCenter.shared.log(id: opID, level: .info, message: prefixed)
+                                }
+                            }
+                        }
+                    )
+
+                    var resolvedConfig = config
+                    resolvedConfig.inputFiles = resolvedFiles
+
                     let pipelineResult = try await pipeline.detect(
-                        config: config,
+                        config: resolvedConfig,
                         progress: { progress, message in
                             let bounded = max(0, min(1, progress))
                             let overall = (Double(index) + bounded) / Double(sampleCount)
