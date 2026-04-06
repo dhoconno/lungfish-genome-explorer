@@ -497,3 +497,228 @@ final class BatchTaxTriageTableViewTests: XCTestCase {
         XCTAssertEqual(callbackRows[1].organism, "Mycobacterium tuberculosis")
     }
 }
+
+// MARK: - TaxonomyViewController Batch Mode Tests
+
+@MainActor
+final class TaxonomyViewControllerBatchModeTests: XCTestCase {
+
+    // MARK: - Helpers
+
+    /// Minimal valid kreport text with one species and one domain.
+    private let minimalKreport = """
+        10.00\t1000\t0\tU\t0\tunclassified
+        90.00\t9000\t0\tR\t1\troot
+        80.00\t8000\t100\tD\t2\t  Bacteria
+        50.00\t5000\t5000\tS\t562\t    Escherichia coli
+        """
+
+    private let minimalKreport2 = """
+        5.00\t500\t0\tU\t0\tunclassified
+        95.00\t9500\t0\tR\t1\troot
+        90.00\t9000\t200\tD\t10239\t  Viruses
+        70.00\t7000\t7000\tS\t11234\t    SARS-CoV-2
+        """
+
+    /// Creates a temporary batch directory with subdirectories for each sample,
+    /// each containing a `report.kreport` file.
+    ///
+    /// - Parameter samples: Array of (sampleId, kreportText) pairs.
+    /// - Returns: The batch URL and an array of `MetagenomicsBatchSampleRecord`.
+    private func makeTempBatch(samples: [(String, String)]) throws -> (URL, [MetagenomicsBatchSampleRecord]) {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LungfishBatchTest-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+
+        var records: [MetagenomicsBatchSampleRecord] = []
+        for (sampleId, kreportText) in samples {
+            let resultDir = tmp.appendingPathComponent(sampleId)
+            try FileManager.default.createDirectory(at: resultDir, withIntermediateDirectories: true)
+            let kreportURL = resultDir.appendingPathComponent("report.kreport")
+            try kreportText.write(to: kreportURL, atomically: true, encoding: .utf8)
+            records.append(MetagenomicsBatchSampleRecord(
+                sampleId: sampleId,
+                resultDirectory: resultDir.path,
+                inputFiles: [],
+                isPairedEnd: false
+            ))
+        }
+        return (tmp, records)
+    }
+
+    private func makeManifest(records: [MetagenomicsBatchSampleRecord]) -> ClassificationBatchResultManifest {
+        ClassificationBatchResultManifest(
+            header: MetagenomicsBatchManifestHeader(
+                schemaVersion: 1,
+                createdAt: Date(),
+                sampleCount: records.count
+            ),
+            goal: "classify",
+            databaseName: "standard",
+            databaseVersion: "2024",
+            summaryTSV: "",
+            samples: records
+        )
+    }
+
+    // MARK: - Default State Tests
+
+    /// `isBatchMode` is false before any configuration.
+    func testIsBatchModeDefaultsFalse() {
+        let vc = TaxonomyViewController()
+        XCTAssertFalse(vc.isBatchMode)
+    }
+
+    /// `batchTableView` is hidden after `loadView()`.
+    func testBatchTableViewHiddenByDefault() {
+        let vc = TaxonomyViewController()
+        vc.loadViewIfNeeded()
+        XCTAssertTrue(vc.testBatchTableView.isHidden, "batchTableView should be hidden by default")
+    }
+
+    /// `splitView` is visible after `loadView()` (not in batch mode).
+    func testSplitViewVisibleByDefault() {
+        let vc = TaxonomyViewController()
+        vc.loadViewIfNeeded()
+        XCTAssertFalse(vc.splitView.isHidden, "splitView should be visible by default")
+    }
+
+    // MARK: - configureBatch Tests
+
+    /// `configureBatch` sets `isBatchMode` to true.
+    func testConfigureBatchSetsBatchMode() throws {
+        let vc = TaxonomyViewController()
+        vc.loadViewIfNeeded()
+
+        let (batchURL, records) = try makeTempBatch(samples: [("sampleA", minimalKreport)])
+        defer { try? FileManager.default.removeItem(at: batchURL) }
+
+        let manifest = makeManifest(records: records)
+        vc.configureBatch(batchURL: batchURL, manifest: manifest, projectURL: batchURL)
+
+        XCTAssertTrue(vc.isBatchMode)
+    }
+
+    /// `configureBatch` populates `allBatchRows` from kreport files.
+    func testConfigureBatchPopulatesAllBatchRows() throws {
+        let vc = TaxonomyViewController()
+        vc.loadViewIfNeeded()
+
+        let (batchURL, records) = try makeTempBatch(samples: [
+            ("sampleA", minimalKreport),
+            ("sampleB", minimalKreport2),
+        ])
+        defer { try? FileManager.default.removeItem(at: batchURL) }
+
+        let manifest = makeManifest(records: records)
+        vc.configureBatch(batchURL: batchURL, manifest: manifest, projectURL: batchURL)
+
+        // Each kreport contributes 2 rows (Bacteria+E.coli or Viruses+SARS), so total 4
+        XCTAssertFalse(vc.allBatchRows.isEmpty, "allBatchRows should not be empty after configureBatch")
+        XCTAssertTrue(vc.allBatchRows.contains(where: { $0.sample == "sampleA" }),
+                      "allBatchRows should contain rows for sampleA")
+        XCTAssertTrue(vc.allBatchRows.contains(where: { $0.sample == "sampleB" }),
+                      "allBatchRows should contain rows for sampleB")
+    }
+
+    /// `configureBatch` creates one `Kraken2SampleEntry` per sample.
+    func testConfigureBatchCreatesSampleEntries() throws {
+        let vc = TaxonomyViewController()
+        vc.loadViewIfNeeded()
+
+        let (batchURL, records) = try makeTempBatch(samples: [
+            ("sampleA", minimalKreport),
+            ("sampleB", minimalKreport2),
+        ])
+        defer { try? FileManager.default.removeItem(at: batchURL) }
+
+        let manifest = makeManifest(records: records)
+        vc.configureBatch(batchURL: batchURL, manifest: manifest, projectURL: batchURL)
+
+        XCTAssertEqual(vc.sampleEntries.count, 2)
+        let ids = Set(vc.sampleEntries.map(\.id))
+        XCTAssertTrue(ids.contains("sampleA"))
+        XCTAssertTrue(ids.contains("sampleB"))
+    }
+
+    /// `configureBatch` initialises `samplePickerState` with all sample IDs.
+    func testConfigureBatchInitializesSamplePickerState() throws {
+        let vc = TaxonomyViewController()
+        vc.loadViewIfNeeded()
+
+        let (batchURL, records) = try makeTempBatch(samples: [
+            ("alpha", minimalKreport),
+            ("beta", minimalKreport2),
+        ])
+        defer { try? FileManager.default.removeItem(at: batchURL) }
+
+        let manifest = makeManifest(records: records)
+        vc.configureBatch(batchURL: batchURL, manifest: manifest, projectURL: batchURL)
+
+        XCTAssertNotNil(vc.samplePickerState)
+        XCTAssertTrue(vc.samplePickerState.selectedSamples.contains("alpha"))
+        XCTAssertTrue(vc.samplePickerState.selectedSamples.contains("beta"))
+    }
+
+    /// After `configureBatch`, `splitView` is hidden and `batchTableView` is visible.
+    func testConfigureBatchSwapsViewVisibility() throws {
+        let vc = TaxonomyViewController()
+        vc.loadViewIfNeeded()
+
+        let (batchURL, records) = try makeTempBatch(samples: [("sampleA", minimalKreport)])
+        defer { try? FileManager.default.removeItem(at: batchURL) }
+
+        let manifest = makeManifest(records: records)
+        vc.configureBatch(batchURL: batchURL, manifest: manifest, projectURL: batchURL)
+
+        XCTAssertTrue(vc.splitView.isHidden, "splitView should be hidden in batch mode")
+        XCTAssertFalse(vc.testBatchTableView.isHidden, "batchTableView should be visible in batch mode")
+    }
+
+    // MARK: - applyBatchSampleFilter Tests
+
+    /// `applyBatchSampleFilter` filters rows to only selected samples.
+    func testApplyBatchSampleFilterFiltersRows() throws {
+        let vc = TaxonomyViewController()
+        vc.loadViewIfNeeded()
+
+        let (batchURL, records) = try makeTempBatch(samples: [
+            ("sampleA", minimalKreport),
+            ("sampleB", minimalKreport2),
+        ])
+        defer { try? FileManager.default.removeItem(at: batchURL) }
+
+        let manifest = makeManifest(records: records)
+        vc.configureBatch(batchURL: batchURL, manifest: manifest, projectURL: batchURL)
+
+        // Now deselect sampleB
+        vc.samplePickerState.selectedSamples = Set(["sampleA"])
+        // Trigger filter via notification
+        NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil)
+
+        let displayedSamples = Set(vc.testBatchTableView.displayedRows.map(\.sample))
+        XCTAssertTrue(displayedSamples.contains("sampleA"), "sampleA rows should be visible")
+        XCTAssertFalse(displayedSamples.contains("sampleB"), "sampleB rows should be filtered out")
+    }
+
+    /// `applyBatchSampleFilter` with an empty selection produces zero displayed rows.
+    func testApplyBatchSampleFilterEmptySelectionClearsRows() throws {
+        let vc = TaxonomyViewController()
+        vc.loadViewIfNeeded()
+
+        let (batchURL, records) = try makeTempBatch(samples: [
+            ("sampleA", minimalKreport),
+        ])
+        defer { try? FileManager.default.removeItem(at: batchURL) }
+
+        let manifest = makeManifest(records: records)
+        vc.configureBatch(batchURL: batchURL, manifest: manifest, projectURL: batchURL)
+
+        // Deselect everything
+        vc.samplePickerState.selectedSamples = Set()
+        NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil)
+
+        XCTAssertTrue(vc.testBatchTableView.displayedRows.isEmpty,
+                      "Displayed rows should be empty when no samples are selected")
+    }
+}
