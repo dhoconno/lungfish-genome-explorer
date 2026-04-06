@@ -59,7 +59,7 @@ public struct EsVirituConfig: Sendable, Codable, Equatable {
     ///
     /// The pipeline creates multiple output files including detection results,
     /// assembly summaries, taxonomic profiles, and coverage data.
-    public let outputDirectory: URL
+    public var outputDirectory: URL
 
     // MARK: - Database
 

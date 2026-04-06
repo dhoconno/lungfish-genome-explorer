@@ -143,7 +143,7 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
     /// - `classification.kraken` (per-read output)
     /// - `classification.bracken` (Bracken output, if profiling)
     /// - `.lungfish-provenance.json` (provenance sidecar)
-    public let outputDirectory: URL
+    public var outputDirectory: URL
 
     // MARK: - Initialization
 

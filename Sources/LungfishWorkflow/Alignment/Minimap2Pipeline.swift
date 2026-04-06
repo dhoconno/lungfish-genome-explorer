@@ -128,7 +128,7 @@ public struct Minimap2Config: Sendable {
     public let isPairedEnd: Bool
 
     /// Output directory for the sorted BAM and index files.
-    public let outputDirectory: URL
+    public var outputDirectory: URL
 
     /// Sample name used in the @RG read group header and output file naming.
     public let sampleName: String

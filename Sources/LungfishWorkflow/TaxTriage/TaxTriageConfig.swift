@@ -86,7 +86,7 @@ public struct TaxTriageConfig: Sendable, Codable, Equatable {
     ///
     /// Passed as `--outdir` to the Nextflow pipeline. The directory is created
     /// if it does not exist.
-    public let outputDirectory: URL
+    public var outputDirectory: URL
 
     // MARK: - Database
 

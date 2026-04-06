@@ -73,7 +73,7 @@ public struct SPAdesAssemblyConfig: Sendable, Codable {
     /// Additional custom CLI arguments passed verbatim to SPAdes.
     public let customArgs: [String]
     /// Output directory on the host.
-    public let outputDirectory: URL
+    public var outputDirectory: URL
     /// Project name for output naming.
     public let projectName: String
 
