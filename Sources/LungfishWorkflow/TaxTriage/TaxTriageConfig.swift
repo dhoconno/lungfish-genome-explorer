@@ -432,6 +432,9 @@ public enum TaxTriageConfigError: Error, LocalizedError, Sendable {
     /// The output directory could not be created.
     case outputDirectoryCreationFailed(URL, Error)
 
+    /// An input path is a directory, not a FASTQ file.
+    case inputPathIsDirectory(sampleId: String, path: URL)
+
     public var errorDescription: String? {
         switch self {
         case .noSamples:
@@ -442,6 +445,8 @@ public enum TaxTriageConfigError: Error, LocalizedError, Sendable {
             return "Duplicate sample IDs: \(ids.joined(separator: ", "))"
         case .inputFileNotFound(let sampleId, let path):
             return "Input file not found for sample '\(sampleId)': \(path.lastPathComponent)"
+        case .inputPathIsDirectory(let sampleId, let path):
+            return "Input path is a directory for sample '\(sampleId)', expected FASTQ file: \(path.lastPathComponent)"
         case .databaseNotFound(let url):
             return "Kraken2 database not found at \(url.path)"
         case .invalidK2Confidence(let value):
@@ -474,16 +479,30 @@ extension TaxTriageConfig {
                 throw TaxTriageConfigError.emptySampleId
             }
 
-            guard fm.fileExists(atPath: sample.fastq1.path) else {
+            var isDir1: ObjCBool = false
+            guard fm.fileExists(atPath: sample.fastq1.path, isDirectory: &isDir1) else {
                 throw TaxTriageConfigError.inputFileNotFound(
+                    sampleId: sample.sampleId,
+                    path: sample.fastq1
+                )
+            }
+            if isDir1.boolValue {
+                throw TaxTriageConfigError.inputPathIsDirectory(
                     sampleId: sample.sampleId,
                     path: sample.fastq1
                 )
             }
 
             if let r2 = sample.fastq2 {
-                guard fm.fileExists(atPath: r2.path) else {
+                var isDir2: ObjCBool = false
+                guard fm.fileExists(atPath: r2.path, isDirectory: &isDir2) else {
                     throw TaxTriageConfigError.inputFileNotFound(
+                        sampleId: sample.sampleId,
+                        path: r2
+                    )
+                }
+                if isDir2.boolValue {
+                    throw TaxTriageConfigError.inputPathIsDirectory(
                         sampleId: sample.sampleId,
                         path: r2
                     )
