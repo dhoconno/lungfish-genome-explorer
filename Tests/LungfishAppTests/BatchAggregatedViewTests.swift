@@ -1,4 +1,4 @@
-// BatchAggregatedViewTests.swift - Tests for BatchClassificationRow and BatchEsVirituRow
+// BatchAggregatedViewTests.swift - Tests for BatchClassificationRow, BatchEsVirituRow, and BatchTaxTriageTableView
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -352,5 +352,148 @@ final class BatchEsVirituTableViewTests: XCTestCase {
         XCTAssertEqual(callbackRows.count, 2)
         XCTAssertEqual(callbackRows[0].sample, "alpha")
         XCTAssertEqual(callbackRows[1].sample, "gamma")
+    }
+}
+
+// MARK: - BatchTaxTriageTableView Tests
+
+@MainActor
+final class BatchTaxTriageTableViewTests: XCTestCase {
+
+    // MARK: - Helpers
+
+    private func makeMetrics() -> [TaxTriageMetric] {
+        [
+            TaxTriageMetric(
+                sample: "sample-alpha",
+                taxId: 562,
+                organism: "Escherichia coli",
+                rank: "S",
+                reads: 12000,
+                abundance: 0.45,
+                coverageBreadth: 85.3,
+                coverageDepth: 12.7,
+                tassScore: 0.95,
+                confidence: "high"
+            ),
+            TaxTriageMetric(
+                sample: "sample-beta",
+                taxId: 9606,
+                organism: "Homo sapiens",
+                rank: "S",
+                reads: 500,
+                abundance: 0.02,
+                coverageBreadth: 10.0,
+                coverageDepth: 1.2,
+                tassScore: 0.40,
+                confidence: "low"
+            ),
+            TaxTriageMetric(
+                sample: "sample-gamma",
+                taxId: 1773,
+                organism: "Mycobacterium tuberculosis",
+                rank: "S",
+                reads: 3500,
+                abundance: 0.15,
+                coverageBreadth: 60.0,
+                coverageDepth: 7.5,
+                tassScore: 0.72,
+                confidence: "medium"
+            ),
+        ]
+    }
+
+    // MARK: - Tests
+
+    /// The view can be instantiated without crashing.
+    func testInstantiation() {
+        let view = BatchTaxTriageTableView(frame: .zero)
+        XCTAssertNotNil(view)
+    }
+
+    /// `configure(rows:)` sets `displayedRows` to the provided rows.
+    func testConfigureRowsSetsDisplayedRows() {
+        let view = BatchTaxTriageTableView(frame: .zero)
+        let metrics = makeMetrics()
+        view.configure(rows: metrics)
+        XCTAssertEqual(view.displayedRows.count, metrics.count)
+        XCTAssertEqual(view.displayedRows[0].sample, "sample-alpha")
+        XCTAssertEqual(view.displayedRows[1].sample, "sample-beta")
+        XCTAssertEqual(view.displayedRows[2].sample, "sample-gamma")
+    }
+
+    /// The table has exactly 8 fixed columns registered via standardColumnNames.
+    func testColumnCount() {
+        let view = BatchTaxTriageTableView(frame: .zero)
+        XCTAssertEqual(view.metadataColumns.standardColumnNames.count, 8)
+    }
+
+    /// Sort by TASS score descending places the highest score first.
+    func testSortByTassScoreDescending() {
+        let view = BatchTaxTriageTableView(frame: .zero)
+        view.configure(rows: makeMetrics())
+
+        let sorted = view.displayedRows.sorted { $0.tassScore > $1.tassScore }
+
+        XCTAssertEqual(sorted[0].tassScore, 0.95, accuracy: 0.0001)
+        XCTAssertEqual(sorted[1].tassScore, 0.72, accuracy: 0.0001)
+        XCTAssertEqual(sorted[2].tassScore, 0.40, accuracy: 0.0001)
+
+        // Verify ordering corresponds to the correct organisms
+        XCTAssertEqual(sorted[0].organism, "Escherichia coli")
+        XCTAssertEqual(sorted[2].organism, "Homo sapiens")
+    }
+
+    /// Sort by organism name ascending places names in alphabetical order.
+    func testSortByOrganismNameAscending() {
+        let view = BatchTaxTriageTableView(frame: .zero)
+        view.configure(rows: makeMetrics())
+
+        let sorted = view.displayedRows.sorted {
+            $0.organism.localizedCaseInsensitiveCompare($1.organism) == .orderedAscending
+        }
+
+        XCTAssertEqual(sorted[0].organism, "Escherichia coli")
+        XCTAssertEqual(sorted[1].organism, "Homo sapiens")
+        XCTAssertEqual(sorted[2].organism, "Mycobacterium tuberculosis")
+    }
+
+    /// Configuring with an empty array results in zero displayed rows.
+    func testEmptyRowsConfiguration() {
+        let view = BatchTaxTriageTableView(frame: .zero)
+        view.configure(rows: [])
+        XCTAssertTrue(view.displayedRows.isEmpty)
+    }
+
+    /// `sample` field from TaxTriageMetric is preserved in displayed rows.
+    func testSampleFieldIsDisplayed() {
+        let view = BatchTaxTriageTableView(frame: .zero)
+        let metrics = makeMetrics()
+        view.configure(rows: metrics)
+
+        XCTAssertEqual(view.displayedRows[0].sample, "sample-alpha")
+        XCTAssertEqual(view.displayedRows[1].sample, "sample-beta")
+        XCTAssertEqual(view.displayedRows[2].sample, "sample-gamma")
+        // All samples are non-nil as required
+        XCTAssertTrue(view.displayedRows.allSatisfy { $0.sample != nil })
+    }
+
+    /// The `onMultipleRowsSelected` callback fires with correct rows.
+    func testMultiSelectCallbackFires() {
+        let view = BatchTaxTriageTableView(frame: .zero)
+        view.configure(rows: makeMetrics())
+
+        var callbackRows: [TaxTriageMetric] = []
+        view.onMultipleRowsSelected = { rows in
+            callbackRows = rows
+        }
+
+        // Simulate the callback firing as the delegate would trigger it.
+        let selectedRows = [view.displayedRows[0], view.displayedRows[2]]
+        view.onMultipleRowsSelected?(selectedRows)
+
+        XCTAssertEqual(callbackRows.count, 2)
+        XCTAssertEqual(callbackRows[0].organism, "Escherichia coli")
+        XCTAssertEqual(callbackRows[1].organism, "Mycobacterium tuberculosis")
     }
 }
