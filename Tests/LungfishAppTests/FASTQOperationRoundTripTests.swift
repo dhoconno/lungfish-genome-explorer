@@ -613,4 +613,121 @@ final class FASTQOperationRoundTripTests: XCTestCase {
             XCTFail("Expected full payload")
         }
     }
+
+    // MARK: - Paired-End and Interleave Operations
+
+    func testDeinterleaveRoundTrip() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "Deinterleave")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let root = try FASTQOperationTestHelper.makeBundle(named: "root", in: tempDir)
+        try FASTQOperationTestHelper.writeInterleavedPEFASTQ(
+            to: root.fastqURL, pairCount: 50, readLength: 100
+        )
+
+        // Mark the bundle as interleaved so the service allows the deinterleave operation
+        let ingestion = IngestionMetadata(pairingMode: .interleaved)
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(ingestion: ingestion),
+            for: root.fastqURL
+        )
+
+        let service = FASTQDerivativeService()
+        let derivedURL = try await service.createDerivative(
+            from: root.bundleURL,
+            request: .interleaveReformat(direction: .deinterleave),
+            progress: nil
+        )
+
+        FASTQOperationTestHelper.assertPayloadType(bundleURL: derivedURL, expected: "fullPaired")
+        let manifest = FASTQBundle.loadDerivedManifest(in: derivedURL)!
+        if case .fullPaired(let r1Filename, let r2Filename) = manifest.payload {
+            let r1URL = derivedURL.appendingPathComponent(r1Filename)
+            let r2URL = derivedURL.appendingPathComponent(r2Filename)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: r1URL.path), "R1 file should exist")
+            XCTAssertTrue(FileManager.default.fileExists(atPath: r2URL.path), "R2 file should exist")
+            let r1Records = try await FASTQOperationTestHelper.loadFASTQRecords(from: r1URL)
+            let r2Records = try await FASTQOperationTestHelper.loadFASTQRecords(from: r2URL)
+            XCTAssertEqual(r1Records.count, 50, "R1 should have 50 reads")
+            XCTAssertEqual(r2Records.count, 50, "R2 should have 50 reads")
+        } else {
+            XCTFail("Expected fullPaired payload")
+        }
+    }
+
+    func testPairedEndMergeRoundTrip() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "PEMerge")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let root = try FASTQOperationTestHelper.makeBundle(named: "root", in: tempDir)
+        try FASTQOperationTestHelper.writeInterleavedPEFASTQ(
+            to: root.fastqURL, pairCount: 50, readLength: 100
+        )
+
+        // Mark the bundle as interleaved so the service allows the PE merge operation
+        let ingestion = IngestionMetadata(pairingMode: .interleaved)
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(ingestion: ingestion),
+            for: root.fastqURL
+        )
+
+        let service = FASTQDerivativeService()
+        let derivedURL = try await service.createDerivative(
+            from: root.bundleURL,
+            request: .pairedEndMerge(strictness: .normal, minOverlap: 20),
+            progress: nil
+        )
+
+        FASTQOperationTestHelper.assertPayloadType(bundleURL: derivedURL, expected: "fullMixed")
+        let manifest = FASTQBundle.loadDerivedManifest(in: derivedURL)!
+        if case .fullMixed(let classification) = manifest.payload {
+            XCTAssertGreaterThan(classification.files.count, 0,
+                "PE merge should produce classified output files")
+            for fileEntry in classification.files {
+                let fileURL = derivedURL.appendingPathComponent(fileEntry.filename)
+                XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path),
+                    "Output file \(fileEntry.filename) should exist")
+            }
+        } else {
+            XCTFail("Expected fullMixed payload")
+        }
+    }
+
+    func testPairedEndRepairRoundTrip() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "PERepair")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let root = try FASTQOperationTestHelper.makeBundle(named: "root", in: tempDir)
+        try FASTQOperationTestHelper.writeInterleavedPEFASTQ(
+            to: root.fastqURL, pairCount: 50, readLength: 100
+        )
+
+        // Mark the bundle as interleaved so the service allows the PE repair operation
+        let ingestion = IngestionMetadata(pairingMode: .interleaved)
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(ingestion: ingestion),
+            for: root.fastqURL
+        )
+
+        let service = FASTQDerivativeService()
+        let derivedURL = try await service.createDerivative(
+            from: root.bundleURL,
+            request: .pairedEndRepair,
+            progress: nil
+        )
+
+        FASTQOperationTestHelper.assertPayloadType(bundleURL: derivedURL, expected: "fullMixed")
+        let manifest = FASTQBundle.loadDerivedManifest(in: derivedURL)!
+        if case .fullMixed(let classification) = manifest.payload {
+            XCTAssertGreaterThan(classification.files.count, 0,
+                "PE repair should produce classified output files")
+            for fileEntry in classification.files {
+                let fileURL = derivedURL.appendingPathComponent(fileEntry.filename)
+                XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path),
+                    "Output file \(fileEntry.filename) should exist")
+            }
+        } else {
+            XCTFail("Expected fullMixed payload")
+        }
+    }
 }
