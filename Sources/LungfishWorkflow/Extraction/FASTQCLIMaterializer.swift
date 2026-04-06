@@ -70,6 +70,30 @@ public final class FASTQCLIMaterializer: Sendable {
                fastqFilename: manifest.rootFASTQFilename, from: bundleURL
            ) {
             rootBundleURL = recovered
+
+            // Repair the manifest with a project-relative path for future operations
+            if let projectPath = FASTQBundle.projectRelativePath(for: recovered, from: bundleURL) {
+                let repairedManifest = FASTQDerivedBundleManifest(
+                    id: manifest.id,
+                    name: manifest.name,
+                    createdAt: manifest.createdAt,
+                    parentBundleRelativePath: manifest.parentBundleRelativePath,
+                    rootBundleRelativePath: projectPath,
+                    rootFASTQFilename: manifest.rootFASTQFilename,
+                    payload: manifest.payload,
+                    lineage: manifest.lineage,
+                    operation: manifest.operation,
+                    cachedStatistics: manifest.cachedStatistics,
+                    pairingMode: manifest.pairingMode,
+                    readClassification: manifest.readClassification,
+                    batchOperationID: manifest.batchOperationID,
+                    sequenceFormat: manifest.sequenceFormat,
+                    provenance: manifest.provenance,
+                    payloadChecksums: manifest.payloadChecksums,
+                    materializationState: manifest.materializationState
+                )
+                try? FASTQBundle.saveDerivedManifest(repairedManifest, in: bundleURL)
+            }
         }
 
         guard FASTQBundle.isBundleURL(rootBundleURL) else {
@@ -110,6 +134,11 @@ public final class FASTQCLIMaterializer: Sendable {
 
         case .trim(let trimFilename):
             let trimURL = bundleURL.appendingPathComponent(trimFilename)
+            guard isAbsoluteTrimPositionsFile(trimURL) else {
+                throw FASTQCLIMaterializerError.unsupportedTrimFormat(
+                    "Legacy relative trim format not supported by CLI materializer"
+                )
+            }
             let positions = try FASTQTrimPositionFile.load(from: trimURL)
             if manifest.sequenceFormat == .fasta {
                 try await extractTrimmedFASTAReads(
@@ -616,6 +645,7 @@ public enum FASTQCLIMaterializerError: Error, LocalizedError {
     case emptyResult
     case toolFailed(String, String)
     case unsupportedPayload(String)
+    case unsupportedTrimFormat(String)
 
     public var errorDescription: String? {
         switch self {
@@ -633,6 +663,8 @@ public enum FASTQCLIMaterializerError: Error, LocalizedError {
             return "\(tool) failed: \(stderr)"
         case .unsupportedPayload(let type):
             return "Payload type '\(type)' cannot be materialized to a single FASTQ file"
+        case .unsupportedTrimFormat(let reason):
+            return "Unsupported trim file format: \(reason)"
         }
     }
 }

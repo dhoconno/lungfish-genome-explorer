@@ -51,11 +51,16 @@ struct FastqScrubHumanSubcommand: AsyncParsableCommand {
         ]
         if removeReads { scriptArgs.append("-x") }
 
+        var env = await bbToolsEnvironment(runner: runner)
+        if env["PATH"] == nil {
+            env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+        }
+
         let result = try await runner.runProcess(
             executableURL: URL(fileURLWithPath: "/bin/bash"),
             arguments: scriptArgs,
             workingDirectory: scriptsDir,
-            environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+            environment: env,
             timeout: 3600,
             toolName: "scrub.sh"
         )

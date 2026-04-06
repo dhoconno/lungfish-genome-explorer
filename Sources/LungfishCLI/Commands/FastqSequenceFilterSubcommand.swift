@@ -64,7 +64,7 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
 
         args.append("k=\(minOverlap)")
         args.append("hdist=0")
-        args.append("edist=\(Int(errorRate * Double(minOverlap)))")
+        args.append("edist=\(max(1, Int((errorRate * Double(minOverlap)).rounded())))")
 
         if searchReverseComplement {
             args.append("rcomp=t")

@@ -1,5 +1,5 @@
 // DemultiplexPipelineIntegrationTests.swift - Asymmetric demux pipeline integration tests
-// Copyright (c) 2024 Lungfish Contributors
+// Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
 import XCTest
@@ -345,10 +345,13 @@ final class DemultiplexPipelineIntegrationTests: XCTestCase {
 
         // Materialize each bundle and verify output has reads
         let materializer = FASTQCLIMaterializer(runner: NativeToolRunner.shared)
-        let materializeDir = tempDir.appendingPathComponent("materialized", isDirectory: true)
-        try FileManager.default.createDirectory(at: materializeDir, withIntermediateDirectories: true)
 
         for bundleOutputURL in result.outputBundleURLs {
+            // Use a unique temp directory per bundle to avoid output filename collisions
+            let materializeDir = tempDir
+                .appendingPathComponent("mat-\(bundleOutputURL.lastPathComponent)", isDirectory: true)
+            try FileManager.default.createDirectory(at: materializeDir, withIntermediateDirectories: true)
+
             let materializedURL = try await materializer.materialize(
                 bundleURL: bundleOutputURL,
                 tempDirectory: materializeDir,
