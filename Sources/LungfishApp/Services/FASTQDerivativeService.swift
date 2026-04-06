@@ -1474,7 +1474,8 @@ public actor FASTQDerivativeService {
             guard proportion > 0.0, proportion <= 1.0 else {
                 throw FASTQDerivativeError.invalidOperation("proportion must be in (0, 1]")
             }
-            let seed = UInt64.random(in: 0...UInt64.max)
+            // seqkit sample -s accepts a signed Int64; clamp to avoid "value out of range" errors.
+            let seed = UInt64.random(in: 0...UInt64(Int64.max))
             if isInterleaved {
                 // Use reformat.sh with samplerate for pair-aware subsampling
                 let env = await bbToolsEnvironment()
@@ -1494,10 +1495,13 @@ public actor FASTQDerivativeService {
                     throw FASTQDerivativeError.invalidOperation("reformat.sh subsample failed: \(result.stderr)")
                 }
             } else {
-                _ = try await runner.run(
+                let result = try await runner.run(
                     .seqkit,
                     arguments: ["sample", "-p", String(proportion), "-s", String(seed), sourceFASTQ.path, "-o", outputFASTQ.path]
                 )
+                guard result.isSuccess else {
+                    throw FASTQDerivativeError.invalidOperation("seqkit sample failed: \(result.stderr)")
+                }
             }
             return FASTQDerivativeOperation(
                 kind: .subsampleProportion,
@@ -1509,7 +1513,8 @@ public actor FASTQDerivativeService {
             guard count > 0 else {
                 throw FASTQDerivativeError.invalidOperation("count must be > 0")
             }
-            let seed = UInt64.random(in: 0...UInt64.max)
+            // seqkit sample -s accepts a signed Int64; clamp to avoid "value out of range" errors.
+            let seed = UInt64.random(in: 0...UInt64(Int64.max))
             if isInterleaved {
                 // For PE data, sample count/2 pairs to get ~count total reads
                 let pairCount = max(1, count / 2)
@@ -1530,10 +1535,13 @@ public actor FASTQDerivativeService {
                     throw FASTQDerivativeError.invalidOperation("reformat.sh subsample failed: \(result.stderr)")
                 }
             } else {
-                _ = try await runner.run(
+                let result = try await runner.run(
                     .seqkit,
                     arguments: ["sample", "-n", String(count), "-s", String(seed), sourceFASTQ.path, "-o", outputFASTQ.path]
                 )
+                guard result.isSuccess else {
+                    throw FASTQDerivativeError.invalidOperation("seqkit sample failed: \(result.stderr)")
+                }
             }
             return FASTQDerivativeOperation(
                 kind: .subsampleCount,
