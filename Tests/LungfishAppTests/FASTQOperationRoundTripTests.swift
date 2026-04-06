@@ -550,4 +550,67 @@ final class FASTQOperationRoundTripTests: XCTestCase {
         XCTAssertGreaterThan(shorterCount, 0,
             "primerRemoval should shorten at least some reads by removing the prepended primer")
     }
+
+    // MARK: - Full Output Operations
+
+    func testErrorCorrectionRoundTrip() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "ErrorCorrect")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let root = try FASTQOperationTestHelper.makeBundle(named: "root", in: tempDir)
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(
+            to: root.fastqURL, readCount: 200, readLength: 100
+        )
+
+        let service = FASTQDerivativeService()
+        let derivedURL = try await service.createDerivative(
+            from: root.bundleURL,
+            request: .errorCorrection(kmerSize: 21),
+            progress: nil
+        )
+
+        FASTQOperationTestHelper.assertPayloadType(bundleURL: derivedURL, expected: "full")
+        let manifest = FASTQBundle.loadDerivedManifest(in: derivedURL)!
+        if case .full(let filename) = manifest.payload {
+            let fullURL = derivedURL.appendingPathComponent(filename)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: fullURL.path))
+            let records = try await FASTQOperationTestHelper.loadFASTQRecords(from: fullURL)
+            XCTAssertGreaterThan(records.count, 0, "Error correction should produce reads")
+        } else {
+            XCTFail("Expected full payload")
+        }
+    }
+
+    func testDeduplicateRoundTrip() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "Dedup")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let root = try FASTQOperationTestHelper.makeBundle(named: "root", in: tempDir)
+        try FASTQOperationTestHelper.writeDuplicatedFASTQ(
+            to: root.fastqURL, uniqueCount: 50, duplicatesPerRead: 2, readLength: 100
+        )
+
+        let service = FASTQDerivativeService()
+        let derivedURL = try await service.createDerivative(
+            from: root.bundleURL,
+            request: .deduplicate(
+                preset: .exactPCR,
+                substitutions: 0,
+                optical: false,
+                opticalDistance: 0
+            ),
+            progress: nil
+        )
+
+        FASTQOperationTestHelper.assertPayloadType(bundleURL: derivedURL, expected: "full")
+        let manifest = FASTQBundle.loadDerivedManifest(in: derivedURL)!
+        if case .full(let filename) = manifest.payload {
+            let fullURL = derivedURL.appendingPathComponent(filename)
+            let records = try await FASTQOperationTestHelper.loadFASTQRecords(from: fullURL)
+            XCTAssertLessThan(records.count, 100, "Dedup should remove duplicate reads")
+            XCTAssertGreaterThan(records.count, 30, "Should retain most unique reads")
+        } else {
+            XCTFail("Expected full payload")
+        }
+    }
 }
