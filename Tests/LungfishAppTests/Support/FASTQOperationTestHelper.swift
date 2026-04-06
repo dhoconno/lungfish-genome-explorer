@@ -173,6 +173,125 @@ struct FASTQOperationTestHelper {
         try lines.joined(separator: "\n").appending("\n").write(to: url, atomically: true, encoding: .utf8)
     }
 
+    /// Writes interleaved paired-end FASTQ (R1, R2, R1, R2, ...).
+    static func writeInterleavedPEFASTQ(
+        to url: URL,
+        pairCount: Int = 50,
+        readLength: Int = 100,
+        idPrefix: String = "read"
+    ) throws {
+        let bases: [Character] = ["A", "C", "G", "T"]
+        var lines: [String] = []
+        for i in 0..<pairCount {
+            let baseID = "\(idPrefix)\(i + 1)"
+            // R1
+            var r1Seq = ""
+            for j in 0..<readLength { r1Seq.append(bases[(i + j) % 4]) }
+            lines.append(contentsOf: [
+                "@\(baseID)/1", r1Seq, "+", String(repeating: "I", count: readLength)
+            ])
+            // R2
+            var r2Seq = ""
+            for j in 0..<readLength { r2Seq.append(bases[(i + j + 2) % 4]) }
+            lines.append(contentsOf: [
+                "@\(baseID)/2", r2Seq, "+", String(repeating: "I", count: readLength)
+            ])
+        }
+        try lines.joined(separator: "\n").appending("\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// Writes separate R1 and R2 FASTQ files for paired-end input.
+    static func writePairedFASTQ(
+        r1URL: URL,
+        r2URL: URL,
+        pairCount: Int = 50,
+        readLength: Int = 100,
+        idPrefix: String = "read"
+    ) throws {
+        let bases: [Character] = ["A", "C", "G", "T"]
+        var r1Lines: [String] = []
+        var r2Lines: [String] = []
+        for i in 0..<pairCount {
+            let baseID = "\(idPrefix)\(i + 1)"
+            var r1Seq = ""
+            for j in 0..<readLength { r1Seq.append(bases[(i + j) % 4]) }
+            r1Lines.append(contentsOf: [
+                "@\(baseID)/1", r1Seq, "+", String(repeating: "I", count: readLength)
+            ])
+            var r2Seq = ""
+            for j in 0..<readLength { r2Seq.append(bases[(i + j + 2) % 4]) }
+            r2Lines.append(contentsOf: [
+                "@\(baseID)/2", r2Seq, "+", String(repeating: "I", count: readLength)
+            ])
+        }
+        try r1Lines.joined(separator: "\n").appending("\n").write(to: r1URL, atomically: true, encoding: .utf8)
+        try r2Lines.joined(separator: "\n").appending("\n").write(to: r2URL, atomically: true, encoding: .utf8)
+    }
+
+    /// Writes FASTQ reads with known barcode pairs for demux testing.
+    /// Each read has: leftBarcode + insert(insertLength bp) + rc(rightBarcode)
+    static func writeBarcodeTaggedFASTQ(
+        to url: URL,
+        samples: [(name: String, fwdBarcode: String, revBarcode: String, readCount: Int)],
+        untaggedCount: Int = 5,
+        insertLength: Int = 3000
+    ) throws {
+        let bases: [Character] = ["A", "C", "G", "T"]
+        var lines: [String] = []
+        var readIndex = 0
+
+        for sample in samples {
+            let rcRev = reverseComplement(sample.revBarcode)
+            for i in 0..<sample.readCount {
+                readIndex += 1
+                let id = "\(sample.name)_read\(i + 1)"
+                var insert = ""
+                for j in 0..<insertLength { insert.append(bases[(readIndex + j) % 4]) }
+                let seq = sample.fwdBarcode + insert + rcRev
+                let qual = String(repeating: "I", count: seq.count)
+                lines.append(contentsOf: ["@\(id)", seq, "+", qual])
+            }
+        }
+
+        for i in 0..<untaggedCount {
+            readIndex += 1
+            let id = "untagged_read\(i + 1)"
+            var seq = ""
+            for j in 0..<(insertLength + 50) { seq.append(bases[(readIndex + j) % 4]) }
+            let qual = String(repeating: "I", count: seq.count)
+            lines.append(contentsOf: ["@\(id)", seq, "+", qual])
+        }
+
+        try lines.joined(separator: "\n").appending("\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// Returns the reverse complement of a DNA sequence.
+    static func reverseComplement(_ seq: String) -> String {
+        let complement: [Character: Character] = ["A": "T", "T": "A", "C": "G", "G": "C"]
+        return String(seq.reversed().map { complement[$0] ?? $0 })
+    }
+
+    /// Writes FASTQ with duplicate reads for deduplication testing.
+    static func writeDuplicatedFASTQ(
+        to url: URL,
+        uniqueCount: Int = 50,
+        duplicatesPerRead: Int = 2,
+        readLength: Int = 100
+    ) throws {
+        let bases: [Character] = ["A", "C", "G", "T"]
+        var lines: [String] = []
+        for i in 0..<uniqueCount {
+            var seq = ""
+            for j in 0..<readLength { seq.append(bases[(i + j) % 4]) }
+            let qual = String(repeating: "I", count: readLength)
+            for d in 0..<duplicatesPerRead {
+                let id = "read\(i + 1)_dup\(d)"
+                lines.append(contentsOf: ["@\(id)", seq, "+", qual])
+            }
+        }
+        try lines.joined(separator: "\n").appending("\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+
     // MARK: - FASTQ Reading
 
     static func loadFASTQRecords(from url: URL) async throws -> [FASTQRecord] {
