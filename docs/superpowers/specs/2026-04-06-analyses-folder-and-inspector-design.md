@@ -377,12 +377,12 @@ For existing projects with results in `derivatives/`:
 
 This is a one-time migration. After migration, `derivatives/` only contains FASTQ-to-FASTQ transforms.
 
-Migration should be optional/deferred — it can be a follow-up task. New runs immediately use `Analyses/`.
+Migration runs automatically on project open, before the sidebar scan. This ensures existing results appear under the new Analyses/ group immediately.
 
 ## Scope
 
 **In scope for this implementation:**
-- Bug fix: sidebar reload after single-sample EsViritu/Kraken2 runs
+- Bug fix: sidebar reload after single-sample EsViritu/Kraken2/TaxTriage runs
 - `AnalysesFolder` manager
 - `AnalysisManifest` + `AnalysisManifestStore`
 - Pipeline output directory changes (EsViritu, Kraken2, TaxTriage, SPAdes, Minimap2)
@@ -390,17 +390,122 @@ Migration should be optional/deferred — it can be a follow-up task. New runs i
 - Inspector analysis history section
 - Sidebar "Analyses" outline group
 - Config `summaryParameters()` methods
+- Migration of existing `derivatives/` analysis results to `Analyses/` on project open
 
 **Deferred:**
-- Migration of existing `derivatives/` analysis results to `Analyses/`
 - Assembly and alignment viewer integration (these pipelines may not be fully wired yet)
 - Batch manifest updates for the new folder structure (batch runs follow the same pattern but may need testing)
 
 ## Testing
 
-- Unit tests for `AnalysesFolder` directory creation and listing
-- Unit tests for `AnalysisManifestStore` load/save/prune
-- Unit tests for new result sidecar save/load on SPAdes and Minimap2
-- Integration test: single-sample EsViritu run writes to `Analyses/` and manifest
-- Integration test: manifest pruning removes entries for deleted directories
-- UI test: Inspector shows analysis entries and navigation works
+### Test Fixtures
+
+Create a comprehensive set of analysis result fixtures in `Tests/Fixtures/analyses/` that mirror the exact folder structure and file formats of real analysis outputs. Each fixture contains minimal but structurally correct data — real column headers, valid JSON sidecars, and plausible (but tiny) output files.
+
+```
+Tests/Fixtures/analyses/
+├── esviritu-2026-01-15T10-00-00/
+│   ├── esviritu-result.json              (valid sidecar with all fields)
+│   ├── testSample.detected_virus.info.tsv (real column headers, 2 rows)
+│   ├── testSample.tax_profile.tsv        (real column headers, 3 rows)
+│   ├── testSample.virus_coverage_windows.tsv (real column headers, 2 rows)
+│   └── .lungfish-provenance.json
+├── kraken2-2026-01-15T11-00-00/
+│   ├── classification-result.json        (valid sidecar)
+│   ├── reads.kreport                     (valid 6-column Kraken2 format, 5 rows)
+│   ├── reads.kraken                      (valid per-read format, 10 rows)
+│   └── reads.bracken                     (valid Bracken format, 3 rows)
+├── taxtriage-2026-01-15T12-00-00/
+│   ├── taxtriage-result.json             (valid sidecar)
+│   └── sample_report.tsv                 (minimal report)
+├── spades-2026-01-15T13-00-00/
+│   ├── assembly-result.json              (valid sidecar, NEW format)
+│   ├── contigs.fasta                     (2 small contigs)
+│   └── spades.log                        (truncated log)
+├── minimap2-2026-01-15T14-00-00/
+│   ├── alignment-result.json             (valid sidecar, NEW format)
+│   ├── sample.sorted.bam                 (empty/minimal BAM header only)
+│   └── sample.sorted.bam.bai            (minimal index)
+├── esviritu-batch-2026-01-15T15-00-00/
+│   ├── esviritu-batch-manifest.json
+│   ├── esviritu-batch-summary.tsv
+│   ├── sample1/
+│   │   ├── esviritu-result.json
+│   │   └── sample1.detected_virus.info.tsv
+│   └── sample2/
+│       ├── esviritu-result.json
+│       └── sample2.detected_virus.info.tsv
+└── analyses-manifest.json                (sample manifest linking to the above)
+```
+
+A `TestAnalysisFixtures.swift` in `Tests/LungfishIntegrationTests/` provides type-safe accessors (parallel to the existing `TestFixtures.swift` for SARS-CoV-2 data):
+
+```swift
+enum TestAnalysisFixtures {
+    static let fixturesRoot: URL  // Tests/Fixtures/analyses/
+
+    // Individual analysis directories
+    static var esvirituResult: URL
+    static var kraken2Result: URL
+    static var taxTriageResult: URL
+    static var spadesResult: URL
+    static var minimap2Result: URL
+    static var esvirituBatchResult: URL
+
+    // Sample manifest
+    static var sampleManifest: URL
+
+    /// Creates a temporary project directory with the fixture analyses
+    /// copied into an Analyses/ folder, suitable for testing sidebar
+    /// scanning, migration, Inspector loading, etc.
+    static func createTempProject() throws -> URL
+}
+```
+
+### Test Coverage
+
+**AnalysesFolder (unit):**
+- Directory creation, listing, timestamp parsing from folder names
+- Handling of missing/corrupt directories
+- Batch vs single-sample detection
+
+**AnalysisManifestStore (unit):**
+- Load/save round-trip with fixture manifest
+- Append entry and verify JSON structure
+- Prune stale entries (delete a fixture dir, verify entry removed on load)
+- Handle missing manifest file (returns empty)
+- Handle corrupt manifest file (returns empty, does not crash)
+
+**Result Sidecar round-trips (unit):**
+- EsViritu: load fixture `esviritu-result.json`, verify all fields, save and compare
+- Kraken2: load fixture `classification-result.json`, verify all fields
+- TaxTriage: load fixture `taxtriage-result.json`, verify all fields
+- SPAdes: load/save new `assembly-result.json` format against fixture
+- Minimap2: load/save new `alignment-result.json` format against fixture
+
+**Sidebar scanning (integration):**
+- `collectAnalyses()` discovers all fixture analysis directories
+- Correct tool types and timestamps extracted
+- Missing sidecar directories are excluded
+- In-progress markers are respected
+
+**Migration (integration):**
+- Copy fixture EsViritu/Kraken2/TaxTriage dirs into a temp `derivatives/` folder
+- Run migration, verify they appear in `Analyses/` with correct naming
+- Verify `analyses-manifest.json` created in the FASTQ bundle with correct entries
+- Verify `derivatives/` no longer contains the moved directories
+- Verify FASTQ-to-FASTQ derivatives (e.g., a `.lungfishfastq` subfolder) are NOT moved
+
+**Inspector (integration):**
+- Load manifest from fixture, verify entry count and display metadata
+- Navigation: clicking an entry loads the correct result type
+- Prune on load: remove a fixture dir, verify stale entry is cleaned up
+- Empty state: no manifest file shows empty state message
+
+**Pipeline output directory (integration):**
+- Verify pipeline writes to `Analyses/tool-timestamp/` not `derivatives/`
+- Verify `analyses-manifest.json` updated after pipeline completion
+- Verify sidebar reload is called after single-sample completion
+
+**Config summaryParameters (unit):**
+- Each config type returns expected parameter keys and value types
