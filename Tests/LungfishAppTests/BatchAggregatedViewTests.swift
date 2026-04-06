@@ -1005,3 +1005,190 @@ final class EsVirituViewControllerBatchModeTests: XCTestCase {
                       "Displayed rows should be empty when no samples are selected")
     }
 }
+
+// MARK: - TaxTriageViewController Batch Group Mode Tests
+
+@MainActor
+final class TaxTriageViewControllerBatchGroupModeTests: XCTestCase {
+
+    // MARK: - Helpers
+
+    /// Minimal confidence TSV with required columns.
+    private func minimalConfidenceTSV(sampleId: String) -> String {
+        let header = "sample\torganism\treads\ttass_score\tconfidence"
+        let row = "\(sampleId)\tEscherichia coli\t1000\t0.92\thigh"
+        return header + "\n" + row + "\n"
+    }
+
+    /// Two-organism TSV for a sample.
+    private func twoOrganismTSV(sampleId: String) -> String {
+        let header = "sample\torganism\treads\ttass_score\tconfidence"
+        let row1 = "\(sampleId)\tEscherichia coli\t1000\t0.92\thigh"
+        let row2 = "\(sampleId)\tKlebsiella pneumoniae\t500\t0.65\tmedium"
+        return header + "\n" + row1 + "\n" + row2 + "\n"
+    }
+
+    /// Creates a temp batch group directory with one subdirectory per sample, each
+    /// containing a `<sampleId>.organisms.report.txt` confidence TSV file.
+    ///
+    /// - Parameter samples: Array of (sampleId, tsvContent) pairs.
+    /// - Returns: The batch root URL.
+    private func makeTempBatchGroup(samples: [(String, String)]) throws -> URL {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LungfishTaxTriageBatchGroupTest-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        for (sampleId, tsvContent) in samples {
+            let subdir = tmp.appendingPathComponent(sampleId)
+            try FileManager.default.createDirectory(at: subdir, withIntermediateDirectories: true)
+            let metricsURL = subdir.appendingPathComponent("\(sampleId).organisms.report.txt")
+            try tsvContent.write(to: metricsURL, atomically: true, encoding: .utf8)
+        }
+        return tmp
+    }
+
+    // MARK: - Default State Tests
+
+    /// `isBatchGroupMode` is false before any configuration.
+    func testIsBatchGroupModeDefaultsFalse() {
+        let vc = TaxTriageResultViewController()
+        XCTAssertFalse(vc.isBatchGroupMode)
+    }
+
+    /// `batchFlatTableView` is hidden after `loadView()`.
+    func testBatchFlatTableViewHiddenByDefault() {
+        let vc = TaxTriageResultViewController()
+        vc.loadViewIfNeeded()
+        XCTAssertTrue(vc.testBatchFlatTableView.isHidden,
+                      "batchFlatTableView should be hidden by default")
+    }
+
+    // MARK: - configureBatchGroup Tests
+
+    /// `configureBatchGroup` sets `isBatchGroupMode` to true.
+    func testConfigureBatchGroupSetsBatchGroupMode() throws {
+        let vc = TaxTriageResultViewController()
+        vc.loadViewIfNeeded()
+
+        let batchURL = try makeTempBatchGroup(samples: [
+            ("sampleA", minimalConfidenceTSV(sampleId: "sampleA")),
+        ])
+        defer { try? FileManager.default.removeItem(at: batchURL) }
+
+        vc.configureBatchGroup(batchURL: batchURL, projectURL: batchURL)
+
+        XCTAssertTrue(vc.isBatchGroupMode)
+    }
+
+    /// `configureBatchGroup` populates `allBatchGroupRows` from confidence TSV files.
+    func testConfigureBatchGroupPopulatesMetrics() throws {
+        let vc = TaxTriageResultViewController()
+        vc.loadViewIfNeeded()
+
+        let batchURL = try makeTempBatchGroup(samples: [
+            ("alpha", minimalConfidenceTSV(sampleId: "alpha")),
+            ("beta", twoOrganismTSV(sampleId: "beta")),
+        ])
+        defer { try? FileManager.default.removeItem(at: batchURL) }
+
+        vc.configureBatchGroup(batchURL: batchURL, projectURL: batchURL)
+
+        // alpha contributes 1 row, beta contributes 2 rows → 3 total
+        XCTAssertEqual(vc.allBatchGroupRows.count, 3)
+        XCTAssertTrue(vc.allBatchGroupRows.contains(where: { $0.sample == "alpha" }),
+                      "allBatchGroupRows should contain rows tagged with alpha")
+        XCTAssertTrue(vc.allBatchGroupRows.contains(where: { $0.sample == "beta" }),
+                      "allBatchGroupRows should contain rows tagged with beta")
+    }
+
+    /// `configureBatchGroup` creates one `TaxTriageSampleEntry` per sample.
+    func testConfigureBatchGroupCreatesSampleEntries() throws {
+        let vc = TaxTriageResultViewController()
+        vc.loadViewIfNeeded()
+
+        let batchURL = try makeTempBatchGroup(samples: [
+            ("sampleX", minimalConfidenceTSV(sampleId: "sampleX")),
+            ("sampleY", twoOrganismTSV(sampleId: "sampleY")),
+        ])
+        defer { try? FileManager.default.removeItem(at: batchURL) }
+
+        vc.configureBatchGroup(batchURL: batchURL, projectURL: batchURL)
+
+        XCTAssertEqual(vc.sampleEntries.count, 2)
+        let ids = Set(vc.sampleEntries.map(\.id))
+        XCTAssertTrue(ids.contains("sampleX"))
+        XCTAssertTrue(ids.contains("sampleY"))
+    }
+
+    /// `configureBatchGroup` initialises `samplePickerState` with all sample IDs.
+    func testConfigureBatchGroupInitializesSamplePickerState() throws {
+        let vc = TaxTriageResultViewController()
+        vc.loadViewIfNeeded()
+
+        let batchURL = try makeTempBatchGroup(samples: [
+            ("p", minimalConfidenceTSV(sampleId: "p")),
+            ("q", minimalConfidenceTSV(sampleId: "q")),
+        ])
+        defer { try? FileManager.default.removeItem(at: batchURL) }
+
+        vc.configureBatchGroup(batchURL: batchURL, projectURL: batchURL)
+
+        XCTAssertNotNil(vc.samplePickerState)
+        XCTAssertTrue(vc.samplePickerState.selectedSamples.contains("p"))
+        XCTAssertTrue(vc.samplePickerState.selectedSamples.contains("q"))
+    }
+
+    // MARK: - applyBatchGroupFilter Tests
+
+    /// `applyBatchGroupFilter` filters rows to only selected samples.
+    func testApplyBatchGroupFilterFiltersRows() throws {
+        let vc = TaxTriageResultViewController()
+        vc.loadViewIfNeeded()
+
+        let batchURL = try makeTempBatchGroup(samples: [
+            ("sampleA", minimalConfidenceTSV(sampleId: "sampleA")),
+            ("sampleB", minimalConfidenceTSV(sampleId: "sampleB")),
+        ])
+        defer { try? FileManager.default.removeItem(at: batchURL) }
+
+        vc.configureBatchGroup(batchURL: batchURL, projectURL: batchURL)
+
+        // Deselect sampleB
+        vc.samplePickerState.selectedSamples = Set(["sampleA"])
+        NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil)
+
+        let displayedSamples = Set(vc.testBatchFlatTableView.displayedRows.compactMap(\.sample))
+        XCTAssertTrue(displayedSamples.contains("sampleA"), "sampleA rows should be visible")
+        XCTAssertFalse(displayedSamples.contains("sampleB"), "sampleB rows should be filtered out")
+    }
+
+    /// `applyBatchGroupFilter` with an empty selection produces zero displayed rows.
+    func testApplyBatchGroupFilterEmptySelectionClearsRows() throws {
+        let vc = TaxTriageResultViewController()
+        vc.loadViewIfNeeded()
+
+        let batchURL = try makeTempBatchGroup(samples: [
+            ("sampleA", minimalConfidenceTSV(sampleId: "sampleA")),
+        ])
+        defer { try? FileManager.default.removeItem(at: batchURL) }
+
+        vc.configureBatchGroup(batchURL: batchURL, projectURL: batchURL)
+
+        // Deselect everything
+        vc.samplePickerState.selectedSamples = Set()
+        NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil)
+
+        XCTAssertTrue(vc.testBatchFlatTableView.displayedRows.isEmpty,
+                      "Displayed rows should be empty when no samples are selected")
+    }
+
+    /// When NOT in batch group mode, `selectedSampleIndex` is unaffected by
+    /// `configureBatchGroup` calls that never happened (i.e., it stays at 0).
+    func testSelectedSampleIndexUnaffectedWhenNotInBatchGroupMode() {
+        let vc = TaxTriageResultViewController()
+        vc.loadViewIfNeeded()
+        // No configureBatchGroup call — selectedSampleIndex should remain at its default.
+        XCTAssertEqual(vc.selectedSampleIndex, 0,
+                       "selectedSampleIndex should default to 0 when not in batch group mode")
+        XCTAssertFalse(vc.isBatchGroupMode)
+    }
+}

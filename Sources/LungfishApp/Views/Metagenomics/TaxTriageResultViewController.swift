@@ -171,6 +171,26 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     // MARK: - Child Views
 
+    // MARK: - Batch Group Mode
+
+    /// True when this VC is displaying a BATCH GROUP sidebar item (multiple
+    /// independent TaxTriage results aggregated into a single flat table).
+    /// Distinct from the existing `selectedSampleIndex`-based batch switching
+    /// which operates within a single multi-sample TaxTriage result.
+    var isBatchGroupMode: Bool = false
+
+    /// All flat metrics loaded for the batch group, before sample filtering.
+    private(set) var allBatchGroupRows: [TaxTriageMetric] = []
+
+    /// The batch group root directory (parent of sample subdirectories).
+    var batchGroupURL: URL?
+
+    /// Flat table showing one row per organism × sample combination.
+    /// Hidden in normal mode; shown exclusively when `isBatchGroupMode` is true.
+    private(set) var batchFlatTableView = BatchTaxTriageTableView()
+
+    // MARK: - Child Views
+
     private let summaryBar = TaxTriageSummaryBar()
     private let sampleFilterControl = NSSegmentedControl()
     let splitView = NSSplitView()
@@ -306,6 +326,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         setupSplitView()
         setupMiniBAMViewer()
         setupBlastDrawer()
+        setupBatchFlatTableView()
         setupActionBar()
         layoutSubviews()
         wireCallbacks()
@@ -867,7 +888,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     @objc private func handleInspectorSampleSelectionChanged() {
         guard samplePickerState != nil else { return }
-        applyCurrentSampleFilter()
+        if isBatchGroupMode {
+            applyBatchGroupFilter()
+        } else {
+            applyCurrentSampleFilter()
+        }
     }
 
     /// Rebuilds the sample filter segments from the discovered sample IDs.
@@ -1719,6 +1744,164 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         )
     }
 
+    // MARK: - Setup: Batch Flat Table View
+
+    /// Adds the batch flat table view as a sibling of `splitView` with identical
+    /// constraints. Hidden by default; shown when `configureBatchGroup` is called.
+    private func setupBatchFlatTableView() {
+        batchFlatTableView.translatesAutoresizingMaskIntoConstraints = false
+        batchFlatTableView.isHidden = true
+        view.addSubview(batchFlatTableView)
+    }
+
+    // MARK: - Batch Group Mode
+
+    /// Configures the view controller for a BATCH GROUP sidebar item.
+    ///
+    /// Scans `batchURL` for subdirectories and loads TASS metrics from each,
+    /// tagging every metric with its sample ID. Creates `sampleEntries` and
+    /// `samplePickerState` for the Inspector picker. Hides the per-sample UI
+    /// (segmented control, split view, BLAST drawer) and shows `batchFlatTableView`.
+    ///
+    /// - Parameters:
+    ///   - batchURL: Root directory of the batch group (parent of sample subdirs).
+    ///   - projectURL: The containing project URL for display name resolution.
+    public func configureBatchGroup(batchURL: URL, projectURL: URL) {
+        isBatchGroupMode = true
+        self.batchGroupURL = batchURL
+
+        var allRows: [TaxTriageMetric] = []
+        var entries: [TaxTriageSampleEntry] = []
+
+        // Enumerate immediate subdirectories — each is one TaxTriage result.
+        let contents: [String]
+        do {
+            contents = try FileManager.default.contentsOfDirectory(atPath: batchURL.path)
+        } catch {
+            logger.error("configureBatchGroup: cannot list \(batchURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            contents = []
+        }
+
+        let subdirs = contents
+            .sorted()
+            .map { batchURL.appendingPathComponent($0) }
+            .filter { url in
+                var isDir: ObjCBool = false
+                return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
+            }
+
+        for subdir in subdirs {
+            let sampleId = subdir.lastPathComponent
+
+            // Try to locate a TASS confidence metrics file.
+            // Prefer *.organisms.report.txt, then multiqc_confidences.txt, then *.tsv.
+            var metricsURL: URL?
+            if let listing = try? FileManager.default.contentsOfDirectory(atPath: subdir.path) {
+                // 1. Preferred: *.organisms.report.txt or multiqc_confidences.txt
+                let preferred = listing.first(where: {
+                    $0.hasSuffix(".organisms.report.txt") || $0 == "multiqc_confidences.txt"
+                })
+                if let preferred {
+                    metricsURL = subdir.appendingPathComponent(preferred)
+                } else {
+                    // 2. Fallback: any .tsv that could be a metrics file
+                    let tsv = listing.first(where: { $0.hasSuffix(".tsv") })
+                    if let tsv {
+                        metricsURL = subdir.appendingPathComponent(tsv)
+                    }
+                }
+            }
+
+            guard let metricsURL else {
+                logger.warning("configureBatchGroup: no metrics file for \(sampleId, privacy: .public) in \(subdir.path, privacy: .public)")
+                continue
+            }
+
+            do {
+                var parsed = try TaxTriageMetricsParser.parse(url: metricsURL)
+
+                // Tag any metrics that lack a sample field with this subdir's name.
+                parsed = parsed.map { m in
+                    guard m.sample == nil || m.sample!.isEmpty else { return m }
+                    return TaxTriageMetric(
+                        sample: sampleId,
+                        taxId: m.taxId,
+                        organism: m.organism,
+                        rank: m.rank,
+                        reads: m.reads,
+                        abundance: m.abundance,
+                        coverageBreadth: m.coverageBreadth,
+                        coverageDepth: m.coverageDepth,
+                        tassScore: m.tassScore,
+                        confidence: m.confidence,
+                        additionalFields: m.additionalFields,
+                        sourceLineNumber: m.sourceLineNumber
+                    )
+                }
+
+                allRows.append(contentsOf: parsed)
+
+                let displayName = FASTQDisplayNameResolver.resolveDisplayName(
+                    sampleId: sampleId, projectURL: projectURL)
+                let count = Set(parsed.map(\.organism)).count
+                entries.append(TaxTriageSampleEntry(
+                    id: sampleId,
+                    displayName: displayName,
+                    organismCount: count
+                ))
+            } catch {
+                logger.error(
+                    "configureBatchGroup: failed to parse \(metricsURL.lastPathComponent, privacy: .public) for \(sampleId, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+            }
+        }
+
+        allBatchGroupRows = allRows
+        sampleEntries = entries
+
+        let allSampleIds = Set(entries.map(\.id))
+        samplePickerState = ClassifierSamplePickerState(allSamples: allSampleIds)
+
+        // Wire batch flat table callbacks.
+        batchFlatTableView.metadataColumns.isMultiSampleMode = true
+        batchFlatTableView.onRowSelected = { [weak self] _ in
+            self?.actionBar.updateInfoText("1 row selected")
+        }
+        batchFlatTableView.onMultipleRowsSelected = { [weak self] rows in
+            self?.actionBar.updateInfoText("\(rows.count) rows selected")
+        }
+        batchFlatTableView.onSelectionCleared = { [weak self] in
+            self?.actionBar.updateInfoText("Select an organism to view details")
+        }
+
+        // Hide per-sample UI; show flat batch table instead.
+        sampleFilterControl.isHidden = true
+        splitView.isHidden = true
+        blastDrawer.isHidden = true
+        batchFlatTableView.isHidden = false
+
+        applyBatchGroupFilter()
+
+        logger.info("TaxTriage batch group configured: \(allRows.count) rows from \(entries.count) samples")
+    }
+
+    /// Filters `allBatchGroupRows` by the samples selected in `samplePickerState`
+    /// and reloads `batchFlatTableView`.
+    public func applyBatchGroupFilter() {
+        guard isBatchGroupMode, let state = samplePickerState else { return }
+        let selected = state.selectedSamples
+        let filtered: [TaxTriageMetric]
+        if selected.isEmpty {
+            filtered = []
+        } else {
+            filtered = allBatchGroupRows.filter { m in
+                guard let s = m.sample else { return false }
+                return selected.contains(s)
+            }
+        }
+        batchFlatTableView.configure(rows: filtered)
+    }
+
     // MARK: - Setup: Action Bar
 
     private func setupActionBar() {
@@ -1777,6 +1960,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             splitView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             splitView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             splitBottom,
+
+            // Batch flat table (same region as splitView; hidden by default)
+            batchFlatTableView.topAnchor.constraint(equalTo: summaryBar.bottomAnchor),
+            batchFlatTableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            batchFlatTableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            batchFlatTableView.bottomAnchor.constraint(equalTo: actionBar.topAnchor),
         ])
     }
 
@@ -2522,6 +2711,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     /// Returns the current result for testing.
     var testResult: TaxTriageResult? { taxTriageResult }
+
+    /// Returns the batch flat table view for testing.
+    var testBatchFlatTableView: BatchTaxTriageTableView { batchFlatTableView }
 }
 
 
