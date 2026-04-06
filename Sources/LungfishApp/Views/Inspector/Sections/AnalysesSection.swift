@@ -143,16 +143,11 @@ private struct AnalysisRow: View {
         }
     }
 
+    /// Lungfish Orange — matches sidebar analysis item tint.
+    private static let lungfishOrange = Color(red: 212.0/255, green: 123.0/255, blue: 58.0/255)
+
     private func iconColor(for tool: String) -> Color {
-        switch tool.lowercased() {
-        case "kraken2": return .blue
-        case "esviritu": return .green
-        case "taxtriage": return .purple
-        case "nao-mgs": return .orange
-        case "spades", "megahit", "flye": return Color(red: 212.0/255, green: 123.0/255, blue: 58.0/255) // Lungfish Orange
-        case "minimap2", "bwa-mem2", "bowtie2": return .teal
-        default: return .gray
-        }
+        Self.lungfishOrange
     }
 
     // MARK: - Timestamp Formatting
