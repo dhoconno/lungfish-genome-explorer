@@ -805,6 +805,10 @@ public class SidebarViewController: NSViewController {
                         // Hide in-flight imports until ingestion + stats finalize.
                         continue
                     }
+                    // Skip the Analyses/ directory — it gets its own top-level group.
+                    if childURL.lastPathComponent == AnalysesFolder.directoryName {
+                        continue
+                    }
                     // Include directories
                     let childItem = buildSidebarTree(from: childURL, isRoot: false)
                     items.append(childItem)
@@ -816,6 +820,19 @@ public class SidebarViewController: NSViewController {
                         items.append(childItem)
                     }
                 }
+            }
+
+            // Insert a top-level "Analyses" group if the project has any results.
+            let analysesChildren = collectAnalyses(in: projectURL)
+            if !analysesChildren.isEmpty {
+                let analysesGroup = SidebarItem(
+                    title: "Analyses",
+                    type: .folder,
+                    icon: "flask",
+                    children: analysesChildren,
+                    url: projectURL.appendingPathComponent(AnalysesFolder.directoryName)
+                )
+                items.insert(analysesGroup, at: 0)
             }
 
             return items
@@ -937,32 +954,9 @@ public class SidebarViewController: NSViewController {
                 item.children.append(childItem)
             }
 
-            // Scan for classification result directories (classification-XXXXXXXX/).
-            // Results may be at the bundle root OR inside derivatives/.
-            for scanDir in [url, url.appendingPathComponent("derivatives", isDirectory: true)] {
-                let classificationChildren = collectClassificationResults(in: scanDir)
-                item.children.append(contentsOf: classificationChildren)
-                let classificationBatchGroups = collectClassificationBatchResults(in: scanDir)
-                item.children.append(contentsOf: classificationBatchGroups)
-
-                // Scan for EsViritu result directories (esviritu-XXXXXXXX/).
-                let esvirituChildren = collectEsVirituResults(in: scanDir)
-                item.children.append(contentsOf: esvirituChildren)
-                let esvirituBatchGroups = collectEsVirituBatchResults(in: scanDir)
-                item.children.append(contentsOf: esvirituBatchGroups)
-
-                // Scan for TaxTriage result directories (taxtriage-XXXXXXXX/).
-                let taxTriageChildren = collectTaxTriageResults(in: scanDir)
-                item.children.append(contentsOf: taxTriageChildren)
-
-                // Scan for NAO-MGS result bundles (naomgs-XXXXXXXX/).
-                let naoMgsChildren = collectNaoMgsResults(in: scanDir)
-                item.children.append(contentsOf: naoMgsChildren)
-
-                // Scan for NVD result bundles (nvd-XXXXXXXX/).
-                let nvdChildren = collectNvdResults(in: scanDir)
-                item.children.append(contentsOf: nvdChildren)
-            }
+            // Analysis results (classification, EsViritu, TaxTriage, etc.) are now
+            // collected from the project-level Analyses/ folder rather than from
+            // inside each FASTQ bundle's derivatives/ directory.
 
             // Scan for extracted read bundles (.lungfishfastq) at the top level.
             // These are created by taxonomy extraction and don't live in derivatives/.
@@ -1199,6 +1193,56 @@ public class SidebarViewController: NSViewController {
 
             return groupItem
         }
+    }
+
+    // MARK: - Analyses/ Folder Scanning
+
+    /// Collects analysis results from the project-level `Analyses/` directory.
+    ///
+    /// Uses `AnalysesFolder.listAnalyses(in:)` to discover timestamped analysis
+    /// directories, filtering out any that are still in-progress (contain a
+    /// `.processing` sentinel). Returns sidebar items sorted newest-first.
+    private func collectAnalyses(in projectURL: URL) -> [SidebarItem] {
+        guard let analyses = try? AnalysesFolder.listAnalyses(in: projectURL) else { return [] }
+        return analyses.compactMap { info in
+            guard !OperationMarker.isInProgress(info.url) else { return nil }
+            let icon = analysisIcon(for: info.tool)
+            let title = analysisDisplayTitle(for: info)
+            return SidebarItem(
+                title: title,
+                type: .analysisResult,
+                icon: icon,
+                children: [],
+                url: info.url,
+                subtitle: AnalysesFolder.formatTimestamp(info.timestamp)
+            )
+        }
+    }
+
+    private func analysisIcon(for tool: String) -> String {
+        switch tool {
+        case "esviritu": return "e.circle"
+        case "kraken2": return "k.circle"
+        case "taxtriage": return "t.circle"
+        case "spades", "megahit": return "s.circle"
+        case "minimap2": return "m.circle"
+        case "naomgs": return "n.circle"
+        default: return "circle"
+        }
+    }
+
+    private func analysisDisplayTitle(for info: AnalysesFolder.AnalysisDirectoryInfo) -> String {
+        let toolName: String
+        switch info.tool {
+        case "esviritu": toolName = "EsViritu"
+        case "kraken2": toolName = "Kraken2"
+        case "taxtriage": toolName = "TaxTriage"
+        case "spades": toolName = "SPAdes"
+        case "minimap2": toolName = "Minimap2"
+        case "naomgs": toolName = "NAO-MGS"
+        default: toolName = info.tool.capitalized
+        }
+        return info.isBatch ? "\(toolName) Batch" : toolName
     }
 
     /// Collects classification result directories from inside a FASTQ bundle.
@@ -2945,6 +2989,7 @@ public enum SidebarItemType {
     case taxTriageResult       // TaxTriage comprehensive triage result folder
     case naoMgsResult          // NAO-MGS surveillance result bundle
     case nvdResult             // NVD (Novel Virus Diagnostics) result bundle
+    case analysisResult        // Analysis result in Analyses/ folder
 
     var tintColor: NSColor {
         switch self {
@@ -2966,6 +3011,7 @@ public enum SidebarItemType {
         case .taxTriageResult: return .lungfishOrange
         case .naoMgsResult: return .lungfishOrange
         case .nvdResult: return .lungfishOrange
+        case .analysisResult: return .lungfishOrange
         }
     }
 
