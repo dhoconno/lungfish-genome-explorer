@@ -136,4 +136,87 @@ final class BuildDbCommandTests: XCTestCase {
         XCTAssertGreaterThan(attrs[.size] as? Int ?? 0, 0,
                              "Database should be rebuilt with --force")
     }
+
+    /// Verifies that post-build cleanup removes intermediate directories and fastp
+    /// FASTQ files while preserving QC reports and essential result directories.
+    func testTaxTriageCleanupRemovesIntermediateFiles() async throws {
+        let tmpDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let fixtureDir = findFixtureDir("taxtriage-mini")
+        let resultDir = tmpDir.appendingPathComponent("taxtriage")
+        try FileManager.default.copyItem(at: fixtureDir, to: resultDir)
+
+        // Create fake intermediate directories that cleanup should remove
+        let fm = FileManager.default
+        for dirname in ["count", "filterkraken", "get", "map", "samtools", "bedtools"] {
+            let dir = resultDir.appendingPathComponent(dirname)
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            // Add a dummy file so directory isn't empty
+            fm.createFile(atPath: dir.appendingPathComponent("dummy.txt").path, contents: Data("test".utf8))
+        }
+
+        // Create fastp/ with both FASTQ (should be removed) and HTML/JSON (should be kept)
+        let fastpDir = resultDir.appendingPathComponent("fastp")
+        try fm.createDirectory(at: fastpDir, withIntermediateDirectories: true)
+        fm.createFile(atPath: fastpDir.appendingPathComponent("sample.fastp.fastq.gz").path, contents: Data("fastq".utf8))
+        fm.createFile(atPath: fastpDir.appendingPathComponent("sample.fastp.html").path, contents: Data("report".utf8))
+        fm.createFile(atPath: fastpDir.appendingPathComponent("sample.fastp.json").path, contents: Data("report".utf8))
+
+        // Run build-db (cleanup enabled by default)
+        var cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
+        try await cmd.run()
+
+        // Verify intermediate dirs are gone
+        XCTAssertFalse(fm.fileExists(atPath: resultDir.appendingPathComponent("count").path),
+                       "count/ should be removed by cleanup")
+        XCTAssertFalse(fm.fileExists(atPath: resultDir.appendingPathComponent("filterkraken").path),
+                       "filterkraken/ should be removed by cleanup")
+        XCTAssertFalse(fm.fileExists(atPath: resultDir.appendingPathComponent("get").path),
+                       "get/ should be removed by cleanup")
+
+        // Verify essential dirs are kept
+        XCTAssertTrue(fm.fileExists(atPath: resultDir.appendingPathComponent("report").path),
+                      "report/ should be preserved")
+        XCTAssertTrue(fm.fileExists(atPath: resultDir.appendingPathComponent("minimap2").path),
+                      "minimap2/ should be preserved")
+        XCTAssertTrue(fm.fileExists(atPath: resultDir.appendingPathComponent("combine").path),
+                      "combine/ should be preserved")
+
+        // Verify fastp/ HTML and JSON reports are kept, FASTQ removed
+        XCTAssertTrue(fm.fileExists(atPath: fastpDir.appendingPathComponent("sample.fastp.html").path),
+                      "fastp HTML report should be preserved")
+        XCTAssertTrue(fm.fileExists(atPath: fastpDir.appendingPathComponent("sample.fastp.json").path),
+                      "fastp JSON report should be preserved")
+        XCTAssertFalse(fm.fileExists(atPath: fastpDir.appendingPathComponent("sample.fastp.fastq.gz").path),
+                       "fastp FASTQ file should be removed by cleanup")
+    }
+
+    /// Verifies that --no-cleanup preserves all intermediate directories.
+    func testTaxTriageNoCleanupPreservesAll() async throws {
+        let tmpDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let fixtureDir = findFixtureDir("taxtriage-mini")
+        let resultDir = tmpDir.appendingPathComponent("taxtriage")
+        try FileManager.default.copyItem(at: fixtureDir, to: resultDir)
+
+        // Create fake intermediate directories
+        let fm = FileManager.default
+        for dirname in ["count", "filterkraken"] {
+            let dir = resultDir.appendingPathComponent(dirname)
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            fm.createFile(atPath: dir.appendingPathComponent("dummy.txt").path, contents: Data("test".utf8))
+        }
+
+        // Run with --no-cleanup
+        var cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "--no-cleanup", "-q"])
+        try await cmd.run()
+
+        // All directories should still exist
+        XCTAssertTrue(fm.fileExists(atPath: resultDir.appendingPathComponent("count").path),
+                      "count/ should be preserved with --no-cleanup")
+        XCTAssertTrue(fm.fileExists(atPath: resultDir.appendingPathComponent("filterkraken").path),
+                      "filterkraken/ should be preserved with --no-cleanup")
+    }
 }

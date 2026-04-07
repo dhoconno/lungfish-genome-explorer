@@ -52,6 +52,9 @@ extension BuildDbCommand {
         @Flag(name: .long, help: "Force rebuild even if database exists")
         var force: Bool = false
 
+        @Flag(name: .customLong("no-cleanup"), help: "Skip post-build cleanup of intermediate files")
+        var noCleanup: Bool = false
+
         @OptionGroup var globalOptions: GlobalOptions
 
         func run() async throws {
@@ -102,6 +105,69 @@ extension BuildDbCommand {
             if !globalOptions.quiet {
                 print("Built database at \(dbURL.path) with \(rows.count) rows")
             }
+
+            if !noCleanup {
+                performCleanup(resultURL: resultURL)
+            }
+        }
+
+        // MARK: - Post-Build Cleanup
+
+        private func performCleanup(resultURL: URL) {
+            let fm = FileManager.default
+            var freedBytes: Int64 = 0
+
+            // Delete count/ directory (raw FASTQ copies)
+            let countDir = resultURL.appendingPathComponent("count")
+            if let size = directorySize(countDir) {
+                try? fm.removeItem(at: countDir)
+                freedBytes += size
+            }
+
+            // Delete fastp/ FASTQ files only (keep .html and .json QC reports)
+            let fastpDir = resultURL.appendingPathComponent("fastp")
+            if fm.fileExists(atPath: fastpDir.path) {
+                let contents = try? fm.contentsOfDirectory(at: fastpDir, includingPropertiesForKeys: [.fileSizeKey])
+                for file in contents ?? [] {
+                    let ext = file.pathExtension.lowercased()
+                    if ext == "fastq" || ext == "gz" || file.lastPathComponent.hasSuffix(".fastp.fastq.gz") {
+                        let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                        try? fm.removeItem(at: file)
+                        freedBytes += Int64(size)
+                    }
+                }
+            }
+
+            // Delete intermediate pipeline directories
+            for dirname in ["filterkraken", "get", "map", "samtools", "bedtools", "top", "mergedsubspecies", "mergedkrakenreport"] {
+                let dir = resultURL.appendingPathComponent(dirname)
+                if let size = directorySize(dir) {
+                    try? fm.removeItem(at: dir)
+                    freedBytes += size
+                }
+            }
+
+            if !globalOptions.quiet {
+                print("Cleanup complete. Freed \(formatBytes(freedBytes))")
+            }
+        }
+
+        private func directorySize(_ url: URL) -> Int64? {
+            let fm = FileManager.default
+            guard fm.fileExists(atPath: url.path) else { return nil }
+            guard let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey]) else { return nil }
+            var total: Int64 = 0
+            for case let fileURL as URL in enumerator {
+                let size = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                total += Int64(size)
+            }
+            return total
+        }
+
+        private func formatBytes(_ bytes: Int64) -> String {
+            let formatter = ByteCountFormatter()
+            formatter.countStyle = .file
+            return formatter.string(fromByteCount: bytes)
         }
     }
 }
