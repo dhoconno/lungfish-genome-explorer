@@ -2007,6 +2007,9 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 timestamp: manifest.header.createdAt,
                 sourceSamples: sourceSamples
             )
+            // Kraken2 batch always reads from its own per-result sidecars; no separate
+            // aggregated manifest is built, so this status is not applicable.
+            self.inspectorController?.viewModel.documentSectionViewModel.batchManifestStatus = .notCached
 
         } else if dirName.hasPrefix("esviritu") {
             guard let manifest = MetagenomicsBatchResultStore.loadEsViritu(from: batchURL) else {
@@ -2059,6 +2062,10 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 timestamp: manifest.header.createdAt,
                 sourceSamples: sourceSamples
             )
+            if let esVirituVC = viewerController.esVirituViewController {
+                self.inspectorController?.viewModel.documentSectionViewModel.batchManifestStatus =
+                    esVirituVC.didLoadFromManifestCache ? .cached : .building
+            }
 
         } else if dirName.hasPrefix("taxtriage") {
             viewerController.displayTaxTriageBatch(
@@ -2120,6 +2127,10 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 timestamp: taxTriageTimestamp,
                 sourceSamples: taxTriageSamples
             )
+            if let taxTriageVC = viewerController.taxTriageViewController {
+                self.inspectorController?.viewModel.documentSectionViewModel.batchManifestStatus =
+                    taxTriageVC.didLoadFromManifestCache ? .cached : .building
+            }
 
         } else {
             logger.warning("displayBatchGroup: Unrecognized batch prefix in '\(dirName, privacy: .public)'")

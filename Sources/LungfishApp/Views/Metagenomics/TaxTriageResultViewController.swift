@@ -196,6 +196,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// which operates within a single multi-sample TaxTriage result.
     var isBatchGroupMode: Bool = false
 
+    /// Whether the last `configureBatchGroup` call loaded data from a pre-built manifest
+    /// rather than parsing per-sample files. Used to populate the Inspector manifest status.
+    private(set) var didLoadFromManifestCache: Bool = false
+
     /// True when this VC is displaying a single multi-sample TaxTriage result
     /// using the flat table + Inspector sample picker pattern.
     /// Set automatically by `configure(result:config:)` when `sampleIds.count > 1`.
@@ -2420,6 +2424,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         allBatchGroupRows = allRows
         sampleEntries = entries
+        didLoadFromManifestCache = manifestLoaded
 
         let allSampleIds = Set(entries.map(\.id))
         samplePickerState = ClassifierSamplePickerState(allSamples: allSampleIds)
@@ -2618,6 +2623,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         do {
             try MetagenomicsBatchResultStore.saveTaxTriageBatchManifest(manifest, to: batchURL)
             logger.info("Saved TaxTriage batch manifest with \(cachedRows.count) rows")
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    NotificationCenter.default.post(name: .batchManifestCached, object: nil)
+                }
+            }
         } catch {
             logger.warning("Failed to save TaxTriage batch manifest: \(error.localizedDescription, privacy: .public)")
         }

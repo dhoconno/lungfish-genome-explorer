@@ -249,6 +249,10 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     /// Whether this view controller is displaying an aggregated batch result.
     var isBatchMode: Bool = false
 
+    /// Whether the last `configureBatch` call loaded data from a pre-built aggregated manifest
+    /// rather than parsing per-sample files. Used to populate the Inspector manifest status.
+    private(set) var didLoadFromManifestCache: Bool = false
+
     /// All flat rows loaded from each sample's EsViritu detection file in batch mode.
     var allBatchRows: [BatchEsVirituRow] = []
 
@@ -586,6 +590,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         batchAssemblyLookup = assemblyLookup
         batchBAMLookup = bamLookup
         batchBAMIndexLookup = bamIndexLookup
+        didLoadFromManifestCache = aggregatedManifestLoaded
 
         let allSampleIds = Set(entries.map(\.id))
         samplePickerState = ClassifierSamplePickerState(allSamples: allSampleIds)
@@ -670,6 +675,11 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         do {
             try MetagenomicsBatchResultStore.saveEsVirituBatchAggregatedManifest(aggregated, to: batchURL)
             logger.info("Saved EsViritu batch aggregated manifest with \(cachedRows.count) rows")
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    NotificationCenter.default.post(name: .batchManifestCached, object: nil)
+                }
+            }
         } catch {
             logger.warning("Failed to save EsViritu batch aggregated manifest: \(error.localizedDescription, privacy: .public)")
         }

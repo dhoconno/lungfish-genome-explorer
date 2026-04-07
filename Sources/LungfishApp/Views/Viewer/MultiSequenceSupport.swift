@@ -658,6 +658,10 @@ public extension Notification.Name {
 
     /// Posted when the user clicks the "Import Metadata..." button in the Inspector.
     static let metagenomicsMetadataImportRequested = Notification.Name("com.lungfish.metagenomicsMetadataImportRequested")
+
+    /// Posted on the main thread when a batch aggregated manifest file has just been saved to disk.
+    /// The Inspector observes this to transition the manifest status indicator from `.building` to `.cached`.
+    static let batchManifestCached = Notification.Name("com.lungfish.batchManifestCached")
 }
 
 // MARK: - NotificationUserInfoKey Extensions

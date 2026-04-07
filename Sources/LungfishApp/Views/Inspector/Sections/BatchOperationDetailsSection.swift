@@ -13,6 +13,7 @@ struct BatchOperationDetailsSection: View {
     let tool: String
     let parameters: [String: String]
     let timestamp: Date?
+    var manifestStatus: DocumentSectionViewModel.BatchManifestStatus = .notCached
 
     @State private var isExpanded = true
 
@@ -42,10 +43,37 @@ struct BatchOperationDetailsSection: View {
                         }
                     }
                 }
+
+                Divider()
+                    .padding(.vertical, 2)
+
+                manifestStatusRow
             }
             .padding(.top, 4)
         }
         .font(.caption.weight(.semibold))
+    }
+
+    @ViewBuilder
+    private var manifestStatusRow: some View {
+        let (iconName, color, label): (String, Color, String) = {
+            switch manifestStatus {
+            case .cached:
+                return ("checkmark.circle.fill", .green, "Manifest cached")
+            case .building:
+                return ("clock.fill", .orange, "Building manifest...")
+            case .notCached:
+                return ("circle", Color.secondary, "Not cached")
+            }
+        }()
+        HStack(spacing: 4) {
+            Image(systemName: iconName)
+                .foregroundStyle(color)
+                .font(.system(size: 10))
+            Text(label)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+        }
     }
 
     @ViewBuilder

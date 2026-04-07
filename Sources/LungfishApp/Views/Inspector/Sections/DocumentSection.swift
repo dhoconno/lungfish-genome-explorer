@@ -162,6 +162,21 @@ public final class DocumentSectionViewModel {
 
     /// Source sample entries for the batch, each pairing a sample ID with its originating bundle URL (if resolvable).
     var batchSourceSampleURLs: [(sampleId: String, bundleURL: URL?)] = []
+
+    // MARK: - Batch Manifest Cache Status
+
+    /// Represents the caching state of the aggregated batch manifest file.
+    enum BatchManifestStatus: String {
+        /// No manifest has been built yet (first load or manifest absent).
+        case notCached = "Not cached"
+        /// The manifest is currently being built from per-sample files.
+        case building = "Building..."
+        /// A manifest file exists and was loaded (or has just been saved).
+        case cached = "Cached"
+    }
+
+    /// The current manifest cache status for the displayed batch result.
+    var batchManifestStatus: BatchManifestStatus = .notCached
 }
 
 // MARK: - DocumentSection

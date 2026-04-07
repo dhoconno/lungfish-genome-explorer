@@ -213,6 +213,14 @@ public class InspectorViewController: NSViewController {
             object: nil
         )
 
+        // Listen for batch manifest saved — transitions the status indicator from .building to .cached.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleBatchManifestCached),
+            name: .batchManifestCached,
+            object: nil
+        )
+
         hasRegisteredNotificationObservers = true
     }
 
@@ -615,6 +623,16 @@ public class InspectorViewController: NSViewController {
         let available = viewModel.availableTabs
         if !available.contains(viewModel.selectedTab), let first = available.first {
             viewModel.selectedTab = first
+        }
+    }
+
+    /// Handles the `.batchManifestCached` notification.
+    ///
+    /// When a batch aggregated manifest is saved to disk (first-load slow path), this transitions
+    /// the Inspector status indicator from `.building` to `.cached`.
+    @objc private func handleBatchManifestCached() {
+        if viewModel.documentSectionViewModel.batchManifestStatus == .building {
+            viewModel.documentSectionViewModel.batchManifestStatus = .cached
         }
     }
 
@@ -1728,7 +1746,8 @@ private struct MetagenomicsResultSummarySection: View {
                 BatchOperationDetailsSection(
                     tool: tool,
                     parameters: viewModel.batchOperationParameters,
-                    timestamp: viewModel.batchOperationTimestamp
+                    timestamp: viewModel.batchOperationTimestamp,
+                    manifestStatus: viewModel.batchManifestStatus
                 )
                 Divider()
                     .padding(.vertical, 4)
