@@ -90,9 +90,12 @@ extension BuildDbCommand {
             ]
 
             try TaxTriageDatabase.create(at: dbURL, rows: rows, metadata: metadata) { fraction, msg in
-                if !self.globalOptions.quiet {
-                    let json = "{\"progress\": \(fraction), \"message\": \"\(msg)\"}"
-                    print(json)
+                if self.globalOptions.outputFormat == .json {
+                    let obj: [String: Any] = ["progress": fraction, "message": msg]
+                    if let data = try? JSONSerialization.data(withJSONObject: obj),
+                       let json = String(data: data, encoding: .utf8) {
+                        FileHandle.standardError.write(Data((json + "\n").utf8))
+                    }
                 }
             }
 
@@ -213,7 +216,7 @@ extension BuildDbCommand.TaxTriageSubcommand {
                 status: status,
                 tassScore: tassScore,
                 readsAligned: readsAligned,
-                uniqueReads: nil,
+                uniqueReads: nil, // Deferred: computed in a separate pass via samtools dedup (Task 4)
                 pctReads: Double(pctReads ?? ""),
                 pctAlignedReads: Double(pctAlignedReads ?? ""),
                 coverageBreadth: Double(coverageBreadth ?? ""),
