@@ -2170,33 +2170,41 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         triggerDatabaseBuild(tool: tool, resultURL: resultURL, placeholder: placeholder)
     }
 
-    /// Locates the `lungfish` CLI binary, checking the app bundle, adjacent
+    /// Locates the `lungfish-cli` binary, checking the app bundle, adjacent
     /// build products, and common system paths.
+    ///
+    /// The CLI product is named `lungfish-cli` in Package.swift (not `lungfish`,
+    /// which is the GUI app binary).
     private func findLungfishCLI() -> URL? {
-        // 1. In app bundle (release builds).
-        if let url = Bundle.main.url(forResource: "lungfish", withExtension: nil) {
-            return url
-        }
-        // 2. Adjacent to app binary (Xcode run-scheme products directory).
-        let adjacentURL = Bundle.main.bundleURL
-            .deletingLastPathComponent()
-            .appendingPathComponent("lungfish")
-        if FileManager.default.fileExists(atPath: adjacentURL.path) {
-            return adjacentURL
-        }
-        // 3. In build products (SPM debug build).
-        let buildProductsURL = Bundle.main.bundleURL
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("debug")
-            .appendingPathComponent("lungfish")
-        if FileManager.default.fileExists(atPath: buildProductsURL.path) {
-            return buildProductsURL
-        }
-        // 4. Common system paths.
-        for path in ["/usr/local/bin/lungfish", "/opt/homebrew/bin/lungfish"] {
-            if FileManager.default.fileExists(atPath: path) {
-                return URL(fileURLWithPath: path)
+        let names = ["lungfish-cli", "lungfish"]
+        let fm = FileManager.default
+
+        for name in names {
+            // 1. In app bundle (release builds).
+            if let url = Bundle.main.url(forResource: name, withExtension: nil) {
+                return url
+            }
+            // 2. Adjacent to app binary (Xcode run-scheme products directory).
+            let adjacentURL = Bundle.main.bundleURL
+                .deletingLastPathComponent()
+                .appendingPathComponent(name)
+            if fm.fileExists(atPath: adjacentURL.path) {
+                return adjacentURL
+            }
+            // 3. In build products (SPM debug build).
+            let buildProductsURL = Bundle.main.bundleURL
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("debug")
+                .appendingPathComponent(name)
+            if fm.fileExists(atPath: buildProductsURL.path) {
+                return buildProductsURL
+            }
+            // 4. Common system paths.
+            for path in ["/usr/local/bin/\(name)", "/opt/homebrew/bin/\(name)"] {
+                if fm.fileExists(atPath: path) {
+                    return URL(fileURLWithPath: path)
+                }
             }
         }
         return nil
