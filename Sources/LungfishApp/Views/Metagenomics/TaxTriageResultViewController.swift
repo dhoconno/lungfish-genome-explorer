@@ -96,6 +96,18 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Maps Taxonomy ID → BAM reference accessions (from merged.taxid.tsv).
     private var taxIDToAccessions: [Int: [String]] = [:]
 
+    /// Union organism→accession mapping merged from all samples in a multi-sample result.
+    private var mergedOrganismToAccessions: [String: [String]] = [:]
+
+    /// Union taxID→accession mapping merged from all samples in a multi-sample result.
+    private var mergedTaxIDToAccessions: [Int: [String]] = [:]
+
+    /// Per-sample organism→accession mapping for sample-aware lookup in flat tables.
+    private var organismToAccessionsBySample: [String: [String: [String]]] = [:]
+
+    /// Per-sample taxID→accession mapping for sample-aware lookup in flat tables.
+    private var taxIDToAccessionsBySample: [String: [Int: [String]]] = [:]
+
     /// Maps accessions → reference lengths (from BAM header via samtools).
     private var accessionLengths: [String: Int] = [:]
 
@@ -120,6 +132,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Currently selected row state for action-bar/detail updates.
     private var selectedOrganismName: String?
     private var selectedReadCount: Int?
+
+    /// Currently selected flat-table row context (batch group / multi-sample flat mode).
+    /// Used to route miniBAM-derived read stats back into the selected list row.
+    private var selectedBatchSampleId: String?
+    private var selectedBatchOrganismName: String?
 
     /// All table rows before sample filtering (the full merged set).
     private var allTableRows: [TaxTriageTableRow] = []
@@ -444,19 +461,38 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         let bamVC = MiniBAMViewController()
         bamVC.subjectNoun = "organism"
         bamVC.onReadStatsUpdated = { [weak self] totalReads, uniqueReads in
-            guard let self, let selectedOrganismName = self.selectedOrganismName else { return }
+            guard let self else { return }
 
             // Ignore the clear() callback (0, 0) — this fires when switching
             // organisms and should not zero out the cached value.
             guard totalReads > 0 else { return }
 
-            // For segmented organisms, the BAM viewer shows only one segment.
-            // Don't overwrite the assembly total with a single segment's count.
-            if (self.accessions(for: selectedOrganismName)?.count ?? 0) > 1 {
+            if (self.isBatchGroupMode || self.isMultiSampleSingleResultMode),
+               let sampleId = self.selectedBatchSampleId,
+               let organism = self.selectedBatchOrganismName {
+                // For segmented organisms, the miniBAM shows one segment.
+                // Keep table totals stable for multi-accession organisms.
+                if (self.accessions(for: organism, sampleId: sampleId)?.count ?? 0) > 1 {
+                    return
+                }
+                self.applyBatchFlatTableReadStats(
+                    sampleId: sampleId,
+                    organism: organism,
+                    totalReads: totalReads,
+                    uniqueReads: uniqueReads
+                )
                 return
             }
 
-            self.applyUniqueReadCount(uniqueReads, for: selectedOrganismName)
+            guard let selectedOrganismName = self.selectedOrganismName else { return }
+
+            // For segmented organisms, the BAM viewer shows only one segment.
+            // Don't overwrite the assembly total with a single segment's count.
+            if (self.accessions(for: selectedOrganismName)?.count ?? 1) > 1 {
+                return
+            }
+
+            self.applyReadStats(totalReads: totalReads, uniqueReads: uniqueReads, for: selectedOrganismName)
         }
         addChild(bamVC)
         miniBAMController = bamVC
@@ -519,6 +555,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         bamIndexURL = nil
         organismToAccessions = [:]
         taxIDToAccessions = [:]
+        mergedOrganismToAccessions = [:]
+        mergedTaxIDToAccessions = [:]
+        organismToAccessionsBySample = [:]
+        taxIDToAccessionsBySample = [:]
         accessionLengths = [:]
         accessionMappedReadCounts = [:]
         referenceFastaURL = nil
@@ -652,20 +692,15 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             logger.info("Found \(bamFiles.count) TaxTriage BAM(s), active: \(bamURL.lastPathComponent, privacy: .public), index: \(indexName, privacy: .public)")
         }
 
-        // Parse gcfmapping.tsv to build organism→accession lookup
-        let gcfFiles = result.allOutputFiles.filter {
-            $0.lastPathComponent.contains("gcfmapping.tsv") && !$0.path.contains("/work/")
-        }
-        if let gcfFile = gcfFiles.first {
-            parseGCFMapping(url: gcfFile)
-        }
-
-        // Parse merged.taxid.tsv to build taxid→accession lookup and enrich organism mapping.
-        let taxIDMapFiles = result.allOutputFiles.filter {
-            $0.lastPathComponent.contains("merged.taxid.tsv") && !$0.path.contains("/work/")
-        }
-        if let taxIDMapFile = taxIDMapFiles.first {
-            parseTaxIDMapping(url: taxIDMapFile)
+        // Build sample-scoped + merged accession mappings from all mapping files.
+        // Multi-sample TaxTriage runs emit one mapping set per sample; using only
+        // the first file causes miniBAM resolution failures for many list rows.
+        let mappingSampleIds = sampleIds.isEmpty ? result.config.samples.map(\.sampleId) : sampleIds
+        rebuildAccessionLookups(from: result.allOutputFiles, sampleIds: mappingSampleIds)
+        if selectedSampleIndex > 0, selectedSampleIndex <= sampleIds.count {
+            setActiveAccessionLookup(forSampleId: sampleIds[selectedSampleIndex - 1])
+        } else {
+            setActiveAccessionLookup(forSampleId: nil)
         }
 
         referenceFastaURL = result.allOutputFiles.first(where: { url in
@@ -677,7 +712,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         // Parse BAM header for reference lengths (needed for MiniBAMViewController)
         if let bam = bamURL {
-            parseBamReferenceLengths(bamURL: bam)
+            parseBamReferenceLengths(bamURL: bam, indexURL: bamIndexURL)
         }
 
         miniBAMController?.view.isHidden = (bamURL == nil || bamIndexURL == nil)
@@ -1001,7 +1036,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         // TaxTriage multi-sample runs produce per-sample BAMs, gcfmappings, and taxid mappings.
         if selectedSampleIndex > 0, selectedSampleIndex <= sampleIds.count {
             let targetSampleId = sampleIds[selectedSampleIndex - 1]
-            let sampleKey = targetSampleId.lowercased()
 
             if let sampleBam = bamFilesBySample[targetSampleId] {
                 bamURL = sampleBam
@@ -1009,25 +1043,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 accessionLengths = [:]
                 accessionMappedReadCounts = [:]
             }
-
-            // Reload per-sample organism→accession mappings
-            organismToAccessions = [:]
-            taxIDToAccessions = [:]
-            let allFiles = taxTriageResult?.allOutputFiles ?? []
-            if let gcfFile = allFiles.first(where: {
-                $0.lastPathComponent.contains("gcfmapping.tsv")
-                    && $0.lastPathComponent.lowercased().contains(sampleKey)
-                    && !$0.path.contains("/work/")
-            }) {
-                parseGCFMapping(url: gcfFile)
-            }
-            if let taxidFile = allFiles.first(where: {
-                $0.lastPathComponent.hasSuffix(".merged.taxid.tsv")
-                    && $0.lastPathComponent.lowercased().contains(sampleKey)
-                    && !$0.path.contains("/work/")
-            }) {
-                parseTaxIDMapping(url: taxidFile)
-            }
+            setActiveAccessionLookup(forSampleId: targetSampleId)
+        } else {
+            setActiveAccessionLookup(forSampleId: nil)
         }
 
         let filteredRows: [TaxTriageTableRow]
@@ -1255,13 +1273,121 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         return organisms
     }
 
-    /// Parses the gcfmapping.tsv to build organism name → accession lookup.
+    typealias OrganismAccessionMap = [String: [String]]
+    typealias TaxIDAccessionMap = [Int: [String]]
+
+    /// Sets the active accession lookup dictionaries for the currently selected sample.
+    ///
+    /// - Parameter sampleId: Target sample ID, or `nil` to activate the merged lookup.
+    private func setActiveAccessionLookup(forSampleId sampleId: String?) {
+        if let sampleId {
+            organismToAccessions = organismToAccessionsBySample[sampleId] ?? mergedOrganismToAccessions
+            taxIDToAccessions = taxIDToAccessionsBySample[sampleId] ?? mergedTaxIDToAccessions
+        } else {
+            organismToAccessions = mergedOrganismToAccessions
+            taxIDToAccessions = mergedTaxIDToAccessions
+        }
+    }
+
+    /// Rebuilds merged + sample-scoped accession lookup maps from TaxTriage output files.
+    private func rebuildAccessionLookups(from allOutputFiles: [URL], sampleIds: [String]) {
+        let filtered = allOutputFiles.filter { !$0.path.contains("/work/") }
+        let gcfFiles = filtered.filter { $0.lastPathComponent.contains("gcfmapping.tsv") }
+        let taxIDFiles = filtered.filter { $0.lastPathComponent.contains("merged.taxid.tsv") }
+        rebuildAccessionLookups(gcfFiles: gcfFiles, taxIDFiles: taxIDFiles, sampleIds: sampleIds)
+    }
+
+    /// Rebuilds merged + sample-scoped accession lookup maps from explicit mapping file sets.
+    private func rebuildAccessionLookups(gcfFiles: [URL], taxIDFiles: [URL], sampleIds: [String]) {
+        mergedOrganismToAccessions = [:]
+        mergedTaxIDToAccessions = [:]
+        organismToAccessionsBySample = [:]
+        taxIDToAccessionsBySample = [:]
+
+        for gcfFile in gcfFiles {
+            let parsed = parseGCFMappingData(url: gcfFile)
+            guard !parsed.isEmpty else { continue }
+            mergeOrganismMappings(parsed, into: &mergedOrganismToAccessions)
+            if let sampleId = sampleIdForMappingFile(gcfFile, sampleIds: sampleIds) {
+                var perSample = organismToAccessionsBySample[sampleId] ?? [:]
+                mergeOrganismMappings(parsed, into: &perSample)
+                organismToAccessionsBySample[sampleId] = perSample
+            }
+        }
+
+        for taxIDFile in taxIDFiles {
+            let (taxMap, organismMap) = parseTaxIDMappingData(url: taxIDFile)
+            if !taxMap.isEmpty {
+                mergeTaxIDMappings(taxMap, into: &mergedTaxIDToAccessions)
+            }
+            if !organismMap.isEmpty {
+                mergeOrganismMappings(organismMap, into: &mergedOrganismToAccessions)
+            }
+
+            if let sampleId = sampleIdForMappingFile(taxIDFile, sampleIds: sampleIds) {
+                if !taxMap.isEmpty {
+                    var perSampleTax = taxIDToAccessionsBySample[sampleId] ?? [:]
+                    mergeTaxIDMappings(taxMap, into: &perSampleTax)
+                    taxIDToAccessionsBySample[sampleId] = perSampleTax
+                }
+                if !organismMap.isEmpty {
+                    var perSampleOrg = organismToAccessionsBySample[sampleId] ?? [:]
+                    mergeOrganismMappings(organismMap, into: &perSampleOrg)
+                    organismToAccessionsBySample[sampleId] = perSampleOrg
+                }
+            }
+        }
+
+        organismToAccessions = mergedOrganismToAccessions
+        taxIDToAccessions = mergedTaxIDToAccessions
+        logger.info("Built TaxTriage accession lookups: merged organisms=\(self.mergedOrganismToAccessions.count), merged taxids=\(self.mergedTaxIDToAccessions.count), per-sample organism maps=\(self.organismToAccessionsBySample.count), per-sample taxid maps=\(self.taxIDToAccessionsBySample.count)")
+    }
+
+    /// Attempts to infer the sample ID encoded in a mapping filename.
+    private func sampleIdForMappingFile(_ fileURL: URL, sampleIds: [String]) -> String? {
+        let name = fileURL.lastPathComponent.lowercased()
+        if let containsMatch = sampleIds.first(where: { name.contains($0.lowercased()) }) {
+            return containsMatch
+        }
+
+        let pathComponents = Set(fileURL.pathComponents.map { $0.lowercased() })
+        if let componentMatch = sampleIds.first(where: { pathComponents.contains($0.lowercased()) }) {
+            return componentMatch
+        }
+
+        let stem = fileURL.deletingPathExtension().lastPathComponent
+        let candidatePrefix = stem.components(separatedBy: ".").first ?? stem
+        return sampleIds.first(where: { $0.caseInsensitiveCompare(candidatePrefix) == .orderedSame })
+    }
+
+    /// Collects regular files recursively under a directory that match a predicate.
+    private func collectFilesRecursively(in directory: URL, matching predicate: (URL) -> Bool) -> [URL] {
+        guard let enumerator = FileManager.default.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        var matches: [URL] = []
+        for case let fileURL as URL in enumerator {
+            guard (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+                continue
+            }
+            if predicate(fileURL) {
+                matches.append(fileURL)
+            }
+        }
+        return matches
+    }
+
+    /// Parses a gcfmapping file into a normalized organism→accessions map.
     ///
     /// Format: accession\tGCF_ID\torganism_name\tdescription
-    private func parseGCFMapping(url: URL) {
-        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return }
-
-        var mapping: [String: [String]] = [:]
+    private func parseGCFMappingData(url: URL) -> OrganismAccessionMap {
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return [:] }
+        var mapping: OrganismAccessionMap = [:]
         for line in content.components(separatedBy: .newlines) {
             let cols = line.components(separatedBy: "\t")
             guard cols.count >= 3 else { continue }
@@ -1272,19 +1398,18 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             guard !key.isEmpty else { continue }
             mapping[key, default: []].append(accession)
         }
-        organismToAccessions = mapping.mapValues(uniqueAccessionsPreservingOrder)
-        logger.info("Parsed gcfmapping: \(mapping.count) organisms → \(mapping.values.flatMap { $0 }.count) accessions")
+        return mapping.mapValues(uniqueAccessionsPreservingOrder)
     }
 
-    /// Parses merged taxid mapping: accession + organism + taxid.
+    /// Parses merged taxid mapping rows into taxID and organism lookup maps.
     ///
     /// Expected columns:
     /// `Acc\tAssembly\tOrganism_Name\tDescription\tMapped_Value`
-    private func parseTaxIDMapping(url: URL) {
-        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return }
+    private func parseTaxIDMappingData(url: URL) -> (taxID: TaxIDAccessionMap, organism: OrganismAccessionMap) {
+        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return ([:], [:]) }
 
-        var byTaxID: [Int: [String]] = [:]
-        var byOrganism: [String: [String]] = organismToAccessions
+        var byTaxID: TaxIDAccessionMap = [:]
+        var byOrganism: OrganismAccessionMap = [:]
 
         for line in content.components(separatedBy: .newlines) {
             let cols = line.components(separatedBy: "\t")
@@ -1305,9 +1430,26 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             }
         }
 
-        taxIDToAccessions = byTaxID.mapValues(uniqueAccessionsPreservingOrder)
-        organismToAccessions = byOrganism.mapValues(uniqueAccessionsPreservingOrder)
-        logger.info("Parsed merged taxid mapping: \(self.taxIDToAccessions.count) taxids, \(self.organismToAccessions.count) organisms")
+        return (
+            byTaxID.mapValues(uniqueAccessionsPreservingOrder),
+            byOrganism.mapValues(uniqueAccessionsPreservingOrder)
+        )
+    }
+
+    /// Merges a parsed organism→accessions mapping into an existing destination map.
+    private func mergeOrganismMappings(_ incoming: OrganismAccessionMap, into destination: inout OrganismAccessionMap) {
+        for (organism, accessions) in incoming {
+            destination[organism, default: []].append(contentsOf: accessions)
+            destination[organism] = uniqueAccessionsPreservingOrder(destination[organism] ?? [])
+        }
+    }
+
+    /// Merges a parsed taxID→accessions mapping into an existing destination map.
+    private func mergeTaxIDMappings(_ incoming: TaxIDAccessionMap, into destination: inout TaxIDAccessionMap) {
+        for (taxID, accessions) in incoming {
+            destination[taxID, default: []].append(contentsOf: accessions)
+            destination[taxID] = uniqueAccessionsPreservingOrder(destination[taxID] ?? [])
+        }
     }
 
     private func uniqueAccessionsPreservingOrder(_ accessions: [String]) -> [String] {
@@ -1338,34 +1480,68 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
     }
 
-    private func accessions(for row: TaxTriageTableRow) -> [String]? {
-        if let taxID = row.taxId, let byTaxID = taxIDToAccessions[taxID], !byTaxID.isEmpty {
-            return rankAccessionsByReadSupport(byTaxID)
-        }
-        return accessions(for: row.organism)
-    }
+    private func lookupAccessions(for normalizedOrganismName: String, in mapping: OrganismAccessionMap) -> [String]? {
+        guard !normalizedOrganismName.isEmpty else { return nil }
 
-    private func accessions(for organismName: String) -> [String]? {
-        let normalized = normalizedOrganismName(organismName)
-        guard !normalized.isEmpty else { return nil }
-        if let exact = organismToAccessions[normalized] {
+        if let exact = mapping[normalizedOrganismName], !exact.isEmpty {
             return rankAccessionsByReadSupport(exact)
         }
-        if let fuzzy = organismToAccessions.first(where: { key, _ in
-            key.contains(normalized) || normalized.contains(key)
+        if let fuzzy = mapping.first(where: { key, _ in
+            key.contains(normalizedOrganismName) || normalizedOrganismName.contains(key)
         }) {
             return rankAccessionsByReadSupport(fuzzy.value)
         }
 
         // Token-overlap fallback handles minor source typos/variant formatting
         // (e.g. missing first character, shortened years like /40 vs /1940).
-        let best = organismToAccessions.max { lhs, rhs in
-            tokenSimilarity(lhs.key, normalized) < tokenSimilarity(rhs.key, normalized)
+        let best = mapping.max { lhs, rhs in
+            tokenSimilarity(lhs.key, normalizedOrganismName) < tokenSimilarity(rhs.key, normalizedOrganismName)
         }
-        if let best, tokenSimilarity(best.key, normalized) >= 0.75 {
+        if let best, tokenSimilarity(best.key, normalizedOrganismName) >= 0.75 {
             return rankAccessionsByReadSupport(best.value)
         }
         return nil
+    }
+
+    private func accessions(for row: TaxTriageTableRow, sampleId: String? = nil) -> [String]? {
+        if let taxID = row.taxId,
+           let sampleId,
+           let sampleTaxMap = taxIDToAccessionsBySample[sampleId],
+           let bySampleTaxID = sampleTaxMap[taxID],
+           !bySampleTaxID.isEmpty {
+            return rankAccessionsByReadSupport(bySampleTaxID)
+        }
+
+        if let taxID = row.taxId, let byTaxID = taxIDToAccessions[taxID], !byTaxID.isEmpty {
+            return rankAccessionsByReadSupport(byTaxID)
+        }
+        return accessions(for: row.organism, sampleId: sampleId)
+    }
+
+    private func accessions(for metric: TaxTriageMetric) -> [String]? {
+        if let taxID = metric.taxId,
+           let sampleId = metric.sample,
+           let sampleTaxMap = taxIDToAccessionsBySample[sampleId],
+           let bySampleTaxID = sampleTaxMap[taxID],
+           !bySampleTaxID.isEmpty {
+            return rankAccessionsByReadSupport(bySampleTaxID)
+        }
+
+        if let taxID = metric.taxId, let byTaxID = taxIDToAccessions[taxID], !byTaxID.isEmpty {
+            return rankAccessionsByReadSupport(byTaxID)
+        }
+
+        return accessions(for: metric.organism, sampleId: metric.sample)
+    }
+
+    private func accessions(for organismName: String, sampleId: String? = nil) -> [String]? {
+        let normalized = normalizedOrganismName(organismName)
+        if let sampleId,
+           let sampleMapping = organismToAccessionsBySample[sampleId],
+           let sampleResolved = lookupAccessions(for: normalized, in: sampleMapping) {
+            return sampleResolved
+        }
+        return lookupAccessions(for: normalized, in: organismToAccessions)
     }
 
     private func tokenSimilarity(_ lhs: String, _ rhs: String) -> Double {
@@ -1444,7 +1620,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             guard let self else { return }
 
             if self.accessionLengths.isEmpty {
-                self.parseBamReferenceLengths(bamURL: bamURL)
+                self.parseBamReferenceLengths(bamURL: bamURL, indexURL: bamIndexURL)
             }
 
             for row in rowsByReadCount {
@@ -1464,7 +1640,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 for accession in rowAccessions {
                     if Task.isCancelled { return }
                     if self.accessionLengths[accession] == nil {
-                        self.parseBamReferenceLengths(bamURL: bamURL)
+                        self.parseBamReferenceLengths(bamURL: bamURL, indexURL: bamIndexURL)
                     }
                     guard let contigLength = self.accessionLengths[accession] else { continue }
 
@@ -1525,7 +1701,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         // Snapshot the per-sample BAM map so the task doesn't capture mutable state.
         let bamsBySample = bamFilesBySample
-        let fm = FileManager.default
 
         deduplicatedReadCountTask = Task { [weak self] in
             guard let self else { return }
@@ -1537,36 +1712,27 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 let sampleId = subdir.lastPathComponent
                 guard let bamURL = bamsBySample[sampleId] else { continue }
 
-                // Resolve BAM index.
-                let baiPath = bamURL.path + ".bai"
-                let csiPath = bamURL.path + ".csi"
-                let indexPath: String
-                if fm.fileExists(atPath: baiPath) {
-                    indexPath = baiPath
-                } else if fm.fileExists(atPath: csiPath) {
-                    indexPath = csiPath
-                } else {
+                // Resolve BAM index (adjacent or external under this sample subtree).
+                let indexCandidates = self.collectFilesRecursively(in: subdir) { fileURL in
+                    let ext = fileURL.pathExtension.lowercased()
+                    return ext == "bai" || ext == "csi"
+                }
+                guard let indexURL = self.resolveBamIndex(for: bamURL, allOutputFiles: indexCandidates) else {
                     logger.debug("Batch dedup: no BAM index for sample \(sampleId, privacy: .public)")
                     continue
                 }
 
-                // Parse per-sample GCF mapping to get organism→accession.
-                var localOrgToAccessions: [String: [String]] = [:]
-                if let listing = try? fm.contentsOfDirectory(atPath: subdir.path) {
-                    if let gcfName = listing.first(where: { $0.hasSuffix("gcfmapping.tsv") }) {
-                        let gcfURL = subdir.appendingPathComponent(gcfName)
-                        if let content = try? String(contentsOf: gcfURL, encoding: .utf8) {
-                            for line in content.components(separatedBy: .newlines) {
-                                let cols = line.components(separatedBy: "\t")
-                                guard cols.count >= 3 else { continue }
-                                let accession = cols[0].trimmingCharacters(in: .whitespacesAndNewlines)
-                                let organism = cols[2].trimmingCharacters(in: .whitespacesAndNewlines)
-                                guard !accession.isEmpty, !organism.isEmpty else { continue }
-                                let key = self.normalizedOrganismName(organism)
-                                guard !key.isEmpty else { continue }
-                                localOrgToAccessions[key, default: []].append(accession)
-                            }
-                        }
+                // Prefer pre-built sample-scoped mappings from configureBatchGroup().
+                var localOrgToAccessions: [String: [String]] = self.organismToAccessionsBySample[sampleId] ?? [:]
+
+                // Fallback: parse any recursive GCF mapping files for this sample.
+                if localOrgToAccessions.isEmpty {
+                    let gcfFiles = self.collectFilesRecursively(in: subdir) { fileURL in
+                        fileURL.lastPathComponent.contains("gcfmapping.tsv")
+                    }
+                    for gcfURL in gcfFiles {
+                        let parsed = self.parseGCFMappingData(url: gcfURL)
+                        self.mergeOrganismMappings(parsed, into: &localOrgToAccessions)
                     }
                 }
 
@@ -1575,12 +1741,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                     continue
                 }
 
-                // Parse accession lengths from `samtools idxstats` for this sample's BAM.
+                // Parse accession lengths from BAM header for this sample's references.
                 var localLengths: [String: Int] = [:]
                 if let samtools = ProcessManager.shared.findExecutable(named: "samtools") {
                     let proc = Process()
                     proc.executableURL = samtools
-                    proc.arguments = ["idxstats", bamURL.path]
+                    proc.arguments = ["view", "-H", bamURL.path]
                     let pipe = Pipe()
                     proc.standardOutput = pipe
                     proc.standardError = Pipe()
@@ -1588,13 +1754,19 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                         let data = pipe.fileHandleForReading.readDataToEndOfFile()
                         proc.waitUntilExit()
                         if let output = String(data: data, encoding: .utf8) {
-                            for line in output.components(separatedBy: .newlines) {
-                                let cols = line.components(separatedBy: "\t")
-                                guard cols.count >= 2 else { continue }
-                                let ref = cols[0].trimmingCharacters(in: .whitespacesAndNewlines)
-                                guard !ref.isEmpty, ref != "*" else { continue }
-                                if let length = Int(cols[1]), length > 0 {
-                                    localLengths[ref] = length
+                            for line in output.components(separatedBy: .newlines) where line.hasPrefix("@SQ") {
+                                let fields = line.components(separatedBy: "\t")
+                                var name: String?
+                                var length: Int?
+                                for field in fields {
+                                    if field.hasPrefix("SN:") {
+                                        name = String(field.dropFirst(3))
+                                    } else if field.hasPrefix("LN:") {
+                                        length = Int(field.dropFirst(3))
+                                    }
+                                }
+                                if let name, let length, length > 0 {
+                                    localLengths[name] = length
                                 }
                             }
                         }
@@ -1603,7 +1775,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
                 let provider = AlignmentDataProvider(
                     alignmentPath: bamURL.path,
-                    indexPath: indexPath
+                    indexPath: indexURL.path
                 )
 
                 // Compute per-organism unique reads for this sample.
@@ -1680,18 +1852,19 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
     }
 
-    private func applyUniqueReadCount(_ uniqueReads: Int, for organismName: String) {
+    private func applyReadStats(totalReads: Int? = nil, uniqueReads: Int, for organismName: String) {
         let key = normalizedOrganismName(organismName)
         deduplicatedReadCounts[key] = uniqueReads
 
         var changed = false
         let updated = organismTableView.rows.map { row -> TaxTriageTableRow in
             guard normalizedOrganismName(row.organism) == key else { return row }
+            let resolvedReads = totalReads ?? row.reads
             // Enforce invariant: if the organism has reads, unique reads >= 1
-            let safeUnique = (uniqueReads == 0 && row.reads > 0) ? row.reads : uniqueReads
-            if row.uniqueReads == safeUnique { return row }
+            let safeUnique = (uniqueReads == 0 && resolvedReads > 0) ? resolvedReads : uniqueReads
+            if row.uniqueReads == safeUnique, row.reads == resolvedReads { return row }
             changed = true
-            return row.with(uniqueReads: safeUnique)
+            return row.with(reads: resolvedReads, uniqueReads: safeUnique)
         }
 
         if changed {
@@ -1706,11 +1879,42 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
 
         if normalizedOrganismName(selectedOrganismName ?? "") == key {
+            if let totalReads {
+                selectedReadCount = totalReads
+            }
             updateActionBarForOrganism(
                 name: selectedOrganismName,
                 readCount: selectedReadCount,
                 uniqueReadCount: uniqueReads
             )
+        }
+    }
+
+    private func applyUniqueReadCount(_ uniqueReads: Int, for organismName: String) {
+        applyReadStats(uniqueReads: uniqueReads, for: organismName)
+    }
+
+    private func applyBatchFlatTableReadStats(
+        sampleId: String,
+        organism: String,
+        totalReads: Int,
+        uniqueReads: Int
+    ) {
+        let key = "\(sampleId)\t\(organism)"
+        batchFlatTableView.totalReadsByKey[key] = totalReads
+        batchFlatTableView.uniqueReadsByKey[key] = uniqueReads
+        batchFlatTableView.reloadReadStatsColumns()
+
+        let normalized = normalizedOrganismName(organism)
+        perSampleDeduplicatedReadCounts[normalized, default: [:]][sampleId] = uniqueReads
+
+        if selectedBatchSampleId == sampleId, selectedBatchOrganismName == organism {
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .decimal
+            formatter.groupingSeparator = ","
+            let totalReadsText = formatter.string(from: NSNumber(value: totalReads)) ?? "\(totalReads)"
+            let uniqueReadsText = formatter.string(from: NSNumber(value: uniqueReads)) ?? "\(uniqueReads)"
+            actionBar.updateInfoText("\(organism) — \(totalReadsText) reads (\(uniqueReadsText) unique)")
         }
     }
 
@@ -1792,49 +1996,98 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         return nil
     }
 
-    /// Parses BAM reference lengths from samtools idxstats output.
-    private func parseBamReferenceLengths(bamURL: URL) {
-        guard ProcessManager.shared.findExecutable(named: "samtools") != nil else {
+    /// Parses BAM reference lengths from samtools output.
+    ///
+    /// Uses `samtools view -H` for index-independent sequence lengths and
+    /// `samtools idxstats` for mapped-read counts when possible.
+    private func parseBamReferenceLengths(bamURL: URL, indexURL: URL? = nil) {
+        guard let samtoolsURL = ProcessManager.shared.findExecutable(named: "samtools") else {
             logger.warning("Cannot parse BAM references: samtools not found")
             return
         }
-        let proc = Process()
-        proc.executableURL = ProcessManager.shared.findExecutable(named: "samtools")
-        proc.arguments = ["idxstats", bamURL.path]
-        let pipe = Pipe()
-        proc.standardOutput = pipe
-        let errorPipe = Pipe()
-        proc.standardError = errorPipe
 
-        do {
-            try proc.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            proc.waitUntilExit()
-            guard proc.terminationStatus == 0 else {
-                let stderrData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-                logger.warning("samtools idxstats failed: \(stderr, privacy: .public)")
-                return
+        func runSamtools(_ arguments: [String]) -> (status: Int32, stdout: String, stderr: String)? {
+            let proc = Process()
+            proc.executableURL = samtoolsURL
+            proc.arguments = arguments
+            let outPipe = Pipe()
+            let errPipe = Pipe()
+            proc.standardOutput = outPipe
+            proc.standardError = errPipe
+            do {
+                try proc.run()
+                let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+                let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+                proc.waitUntilExit()
+                return (
+                    proc.terminationStatus,
+                    String(data: outData, encoding: .utf8) ?? "",
+                    String(data: errData, encoding: .utf8) ?? ""
+                )
+            } catch {
+                logger.warning("Failed to run samtools \(arguments.joined(separator: " "), privacy: .public): \(error.localizedDescription, privacy: .public)")
+                return nil
             }
+        }
 
-            if let output = String(data: data, encoding: .utf8) {
-                for line in output.components(separatedBy: .newlines) {
-                    let cols = line.components(separatedBy: "\t")
-                    guard cols.count >= 4 else { continue }
-                    let ref = cols[0].trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !ref.isEmpty, ref != "*" else { continue }
-                    if let length = Int(cols[1]), length > 0 {
-                        accessionLengths[ref] = length
-                    }
-                    if let mappedReads = Int(cols[2]) {
-                        accessionMappedReadCounts[ref] = mappedReads
+        // 1) Sequence lengths from header (does not require an index).
+        if let header = runSamtools(["view", "-H", bamURL.path]), header.status == 0 {
+            for line in header.stdout.components(separatedBy: .newlines) where line.hasPrefix("@SQ") {
+                let fields = line.components(separatedBy: "\t")
+                var name: String?
+                var length: Int?
+                for field in fields {
+                    if field.hasPrefix("SN:") {
+                        name = String(field.dropFirst(3))
+                    } else if field.hasPrefix("LN:") {
+                        length = Int(field.dropFirst(3))
                     }
                 }
+                if let name, let length, length > 0 {
+                    accessionLengths[name] = length
+                }
             }
-            let refCount = self.accessionLengths.count
+        }
+
+        // 2) idxstats for mapped read counts (prefer explicit index path when available).
+        let fm = FileManager.default
+        var idxstatsAttempts: [[String]] = []
+        if let indexURL, fm.fileExists(atPath: indexURL.path) {
+            idxstatsAttempts.append(["idxstats", "-X", bamURL.path, indexURL.path])
+        }
+        idxstatsAttempts.append(["idxstats", bamURL.path])
+
+        var parsedMappedReads = false
+        for args in idxstatsAttempts {
+            guard let result = runSamtools(args) else { continue }
+            guard result.status == 0 else {
+                if !result.stderr.isEmpty {
+                    logger.warning("samtools \(args.joined(separator: " "), privacy: .public) failed: \(result.stderr, privacy: .public)")
+                }
+                continue
+            }
+
+            for line in result.stdout.components(separatedBy: .newlines) {
+                let cols = line.components(separatedBy: "\t")
+                guard cols.count >= 4 else { continue }
+                let ref = cols[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !ref.isEmpty, ref != "*" else { continue }
+                if let length = Int(cols[1]), length > 0 {
+                    accessionLengths[ref] = length
+                }
+                if let mappedReads = Int(cols[2]) {
+                    accessionMappedReadCounts[ref] = mappedReads
+                    parsedMappedReads = true
+                }
+            }
+            break
+        }
+
+        let refCount = accessionLengths.count
+        if parsedMappedReads {
             logger.info("Parsed BAM references: \(refCount) contigs, mapped-read stats for \(self.accessionMappedReadCounts.count) contigs")
-        } catch {
-            logger.warning("Failed to parse BAM references: \(error.localizedDescription)")
+        } else {
+            logger.info("Parsed BAM references: \(refCount) contigs (mapped-read stats unavailable)")
         }
     }
 
@@ -2057,12 +2310,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         bamFilesBySample = [:]
         for subdir in subdirs {
             let sampleId = subdir.lastPathComponent
-            if let listing = try? FileManager.default.contentsOfDirectory(atPath: subdir.path) {
-                let bamFiles = listing.filter { $0.hasSuffix(".bam") }
-                if let bamName = bamFiles.first {
-                    let bamURL = subdir.appendingPathComponent(bamName)
-                    bamFilesBySample[sampleId] = bamURL
-                }
+            let bamFiles = collectFilesRecursively(in: subdir) { $0.pathExtension.lowercased() == "bam" }
+            if let bamURL = bamFiles.first {
+                bamFilesBySample[sampleId] = bamURL
             }
         }
 
@@ -2072,32 +2322,22 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         let allSampleIds = Set(entries.map(\.id))
         samplePickerState = ClassifierSamplePickerState(allSamples: allSampleIds)
 
-        // Eagerly parse per-sample GCF mappings so `accessions(for:)` works when a row
-        // is selected. In batch group mode there is no single TaxTriage result driving
-        // the shared `organismToAccessions` dict, so we build it here by merging GCF
-        // mappings from each subdirectory. Later entries overwrite earlier ones for the
-        // same organism, which is acceptable (accessions are identical across samples).
-        organismToAccessions = [:]
+        // Build sample-scoped + merged accession mappings from all sub-result files.
+        var gcfFiles: [URL] = []
+        var taxIDFiles: [URL] = []
         for subdir in subdirs {
-            if let listing = try? FileManager.default.contentsOfDirectory(atPath: subdir.path),
-               let gcfName = listing.first(where: { $0.hasSuffix("gcfmapping.tsv") }) {
-                let gcfURL = subdir.appendingPathComponent(gcfName)
-                if let content = try? String(contentsOf: gcfURL, encoding: .utf8) {
-                    for line in content.components(separatedBy: .newlines) {
-                        let cols = line.components(separatedBy: "\t")
-                        guard cols.count >= 3 else { continue }
-                        let accession = cols[0].trimmingCharacters(in: .whitespacesAndNewlines)
-                        let organism = cols[2].trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !accession.isEmpty, !organism.isEmpty else { continue }
-                        let key = normalizedOrganismName(organism)
-                        guard !key.isEmpty else { continue }
-                        if !organismToAccessions[key, default: []].contains(accession) {
-                            organismToAccessions[key, default: []].append(accession)
-                        }
-                    }
-                }
-            }
+            gcfFiles.append(contentsOf: collectFilesRecursively(in: subdir) { fileURL in
+                fileURL.lastPathComponent.contains("gcfmapping.tsv")
+            })
+            taxIDFiles.append(contentsOf: collectFilesRecursively(in: subdir) { fileURL in
+                fileURL.lastPathComponent.contains("merged.taxid.tsv")
+            })
         }
+        rebuildAccessionLookups(
+            gcfFiles: gcfFiles,
+            taxIDFiles: taxIDFiles,
+            sampleIds: entries.map(\.id)
+        )
 
         // Wire batch flat table callbacks.
         batchFlatTableView.metadataColumns.isMultiSampleMode = true
@@ -2105,6 +2345,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             guard let self else { return }
             self.actionBar.updateInfoText("1 row selected")
             self.hideMultiSelectionPlaceholder()
+            self.selectedBatchSampleId = row.sample
+            self.selectedBatchOrganismName = row.organism
 
             // Resolve BAM for the row's sample.
             guard let sampleId = row.sample,
@@ -2119,15 +2361,15 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             let bamIndexURL = resolveBamIndex(for: bamURL, allOutputFiles: [])
 
             // Look up the accession for this organism and display miniBAM.
-            if let accessions = self.accessions(for: row.organism),
-               let primaryAccession = accessions.first {
-                if self.accessionLengths[primaryAccession] == nil {
-                    self.parseBamReferenceLengths(bamURL: bamURL)
+            if let accessions = self.accessions(for: row), !accessions.isEmpty {
+                if accessions.contains(where: { self.accessionLengths[$0] == nil }) {
+                    self.parseBamReferenceLengths(bamURL: bamURL, indexURL: bamIndexURL)
                 }
-                if let contigLength = self.accessionLengths[primaryAccession] {
+                if let resolvedAccession = accessions.first(where: { self.accessionLengths[$0] != nil }),
+                   let contigLength = self.accessionLengths[resolvedAccession] {
                     self.miniBAMController?.displayContig(
                         bamURL: bamURL,
-                        contig: primaryAccession,
+                        contig: resolvedAccession,
                         contigLength: contigLength,
                         indexURL: bamIndexURL
                     )
@@ -2143,11 +2385,15 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             guard let self else { return }
             self.actionBar.updateInfoText("\(rows.count) rows selected")
             self.showMultiSelectionPlaceholder(count: rows.count)
+            self.selectedBatchSampleId = nil
+            self.selectedBatchOrganismName = nil
         }
         batchFlatTableView.onSelectionCleared = { [weak self] in
             guard let self else { return }
             self.actionBar.updateInfoText("Select an organism to view details")
             self.hideMultiSelectionPlaceholder()
+            self.selectedBatchSampleId = nil
+            self.selectedBatchOrganismName = nil
             self.miniBAMController?.clear()
         }
 
@@ -2240,6 +2486,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             guard let self else { return }
             self.actionBar.updateInfoText("1 row selected")
             self.hideMultiSelectionPlaceholder()
+            self.selectedBatchSampleId = row.sample
+            self.selectedBatchOrganismName = row.organism
 
             guard let sampleId = row.sample,
                   let bamURL = self.bamFilesBySample[sampleId] else {
@@ -2249,15 +2497,15 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
             let bamIndexURL = resolveBamIndex(for: bamURL, allOutputFiles: self.taxTriageResult?.allOutputFiles ?? [])
 
-            if let accessions = self.accessions(for: row.organism),
-               let primaryAccession = accessions.first {
-                if self.accessionLengths[primaryAccession] == nil {
-                    self.parseBamReferenceLengths(bamURL: bamURL)
+            if let accessions = self.accessions(for: row), !accessions.isEmpty {
+                if accessions.contains(where: { self.accessionLengths[$0] == nil }) {
+                    self.parseBamReferenceLengths(bamURL: bamURL, indexURL: bamIndexURL)
                 }
-                if let contigLength = self.accessionLengths[primaryAccession] {
+                if let resolvedAccession = accessions.first(where: { self.accessionLengths[$0] != nil }),
+                   let contigLength = self.accessionLengths[resolvedAccession] {
                     self.miniBAMController?.displayContig(
                         bamURL: bamURL,
-                        contig: primaryAccession,
+                        contig: resolvedAccession,
                         contigLength: contigLength,
                         indexURL: bamIndexURL
                     )
@@ -2273,11 +2521,15 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             guard let self else { return }
             self.actionBar.updateInfoText("\(rows.count) rows selected")
             self.showMultiSelectionPlaceholder(count: rows.count)
+            self.selectedBatchSampleId = nil
+            self.selectedBatchOrganismName = nil
         }
         batchFlatTableView.onSelectionCleared = { [weak self] in
             guard let self else { return }
             self.actionBar.updateInfoText("Select an organism to view details")
             self.hideMultiSelectionPlaceholder()
+            self.selectedBatchSampleId = nil
+            self.selectedBatchOrganismName = nil
             self.miniBAMController?.clear()
         }
 
@@ -2407,15 +2659,16 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             if let row, let bamURL = self.bamURL {
                 let organismName = row.organism
                 if let accessions = self.accessions(for: row),
-                   let primaryAccession = accessions.first {
-                    if self.accessionLengths[primaryAccession] == nil {
-                        self.parseBamReferenceLengths(bamURL: bamURL)
+                   !accessions.isEmpty {
+                    if accessions.contains(where: { self.accessionLengths[$0] == nil }) {
+                        self.parseBamReferenceLengths(bamURL: bamURL, indexURL: self.bamIndexURL)
                     }
-                    if let contigLength = self.accessionLengths[primaryAccession] {
-                        let referenceSequence = self.referenceSequence(for: primaryAccession)
+                    if let resolvedAccession = accessions.first(where: { self.accessionLengths[$0] != nil }),
+                       let contigLength = self.accessionLengths[resolvedAccession] {
+                        let referenceSequence = self.referenceSequence(for: resolvedAccession)
                         self.miniBAMController?.displayContig(
                             bamURL: bamURL,
-                            contig: primaryAccession,
+                            contig: resolvedAccession,
                             contigLength: contigLength,
                             indexURL: self.bamIndexURL,
                             referenceSequence: referenceSequence
@@ -2424,7 +2677,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                         self.miniBAMController?.view.isHidden = false
                     } else {
                         self.miniBAMController?.clear()
-                        logger.debug("No reference length for accession: \(primaryAccession, privacy: .public)")
+                        logger.debug("No reference length found for any mapped accession in \(organismName, privacy: .public)")
                     }
                 } else {
                     self.miniBAMController?.clear()
@@ -3131,6 +3384,29 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     /// Returns deduplicated read counts for testing.
     var testDeduplicatedReadCounts: [String: Int] { deduplicatedReadCounts }
+
+    /// Returns parsed BAM accession lengths for testing.
+    var testAccessionLengths: [String: Int] { accessionLengths }
+
+    /// Test hook for applying flat-table read stats updates.
+    func testApplyBatchFlatTableReadStats(sampleId: String, organism: String, totalReads: Int, uniqueReads: Int) {
+        applyBatchFlatTableReadStats(
+            sampleId: sampleId,
+            organism: organism,
+            totalReads: totalReads,
+            uniqueReads: uniqueReads
+        )
+    }
+
+    /// Test hook for parsing BAM reference lengths with optional external index.
+    func testParseBamReferenceLengths(bamURL: URL, indexURL: URL?) {
+        parseBamReferenceLengths(bamURL: bamURL, indexURL: indexURL)
+    }
+
+    /// Test hook for organism/sample accession lookup resolution.
+    func testAccessions(forOrganism organism: String, sampleId: String? = nil) -> [String]? {
+        accessions(for: organism, sampleId: sampleId)
+    }
 }
 
 
@@ -3195,11 +3471,11 @@ struct TaxTriageTableRow: Equatable {
         self.isContaminationRisk = isContaminationRisk
     }
 
-    func with(uniqueReads: Int?) -> TaxTriageTableRow {
+    func with(reads: Int? = nil, uniqueReads: Int?) -> TaxTriageTableRow {
         TaxTriageTableRow(
             organism: organism,
             tassScore: tassScore,
-            reads: reads,
+            reads: reads ?? self.reads,
             uniqueReads: uniqueReads,
             coverage: coverage,
             confidence: confidence,

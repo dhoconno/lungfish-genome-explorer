@@ -497,6 +497,41 @@ final class BatchTaxTriageTableViewTests: XCTestCase {
         XCTAssertEqual(callbackRows[0].organism, "Escherichia coli")
         XCTAssertEqual(callbackRows[1].organism, "Mycobacterium tuberculosis")
     }
+
+    /// Reads cell rendering should prefer BAM-derived totals when available.
+    func testReadsCellUsesTotalReadsOverride() {
+        let view = BatchTaxTriageTableView(frame: .zero)
+        let metrics = makeMetrics()
+        view.configure(rows: metrics)
+
+        let row = metrics[0] // sample-alpha / Escherichia coli
+        view.totalReadsByKey["sample-alpha\tEscherichia coli"] = 42
+
+        let cell = view.cellContent(
+            for: NSUserInterfaceItemIdentifier("tt_reads"),
+            row: row
+        )
+        XCTAssertEqual(cell.text, "42")
+    }
+
+    /// Read-count sorting should use BAM-derived totals when present.
+    func testReadsSortUsesTotalReadsOverride() {
+        let view = BatchTaxTriageTableView(frame: .zero)
+        let metrics = makeMetrics()
+        view.configure(rows: metrics)
+
+        let lhs = metrics[0] // parser reads: 12000
+        let rhs = metrics[2] // parser reads: 3500
+
+        // Override so lhs becomes smaller than rhs.
+        view.totalReadsByKey["sample-alpha\tEscherichia coli"] = 100
+        view.totalReadsByKey["sample-gamma\tMycobacterium tuberculosis"] = 5000
+
+        XCTAssertTrue(
+            view.compareRows(lhs, rhs, by: "tt_reads", ascending: true),
+            "Ascending sort should compare BAM-derived totals (100 < 5000)"
+        )
+    }
 }
 
 // MARK: - TaxonomyViewController Batch Mode Tests
@@ -2169,5 +2204,169 @@ final class TaxTriageBatchRegressionTests: XCTestCase {
             vc.testOrganismTableView.isHidden,
             "organismTableView must be hidden after multi-sample configure()"
         )
+    }
+
+    /// Multi-sample TaxTriage runs can place per-sample mapping files under
+    /// sample directories using generic names (`gcfmapping.tsv`). Sample lookup
+    /// must still resolve sample-specific accessions from the full path context.
+    func testConfigureResolvesSampleScopedMappingsFromDirectoryStructure() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TTMappingPathScope-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let metricsURL = tmp.appendingPathComponent("multiqc_confidences.txt")
+        let metricsTSV = """
+            sample\torganism\treads\ttass_score\tconfidence
+            s1\tShared virus\t100\t0.9\thigh
+            s2\tShared virus\t90\t0.8\tmedium
+            """
+        try metricsTSV.write(to: metricsURL, atomically: true, encoding: .utf8)
+
+        let s1Dir = tmp.appendingPathComponent("s1")
+        let s2Dir = tmp.appendingPathComponent("s2")
+        try FileManager.default.createDirectory(at: s1Dir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: s2Dir, withIntermediateDirectories: true)
+
+        let s1GCF = s1Dir.appendingPathComponent("gcfmapping.tsv")
+        let s2GCF = s2Dir.appendingPathComponent("gcfmapping.tsv")
+        try "ACC_S1\tGCF_1\tShared virus\t-\n".write(to: s1GCF, atomically: true, encoding: .utf8)
+        try "ACC_S2\tGCF_2\tShared virus\t-\n".write(to: s2GCF, atomically: true, encoding: .utf8)
+
+        let samples = [
+            TaxTriageSample(sampleId: "s1", fastq1: tmp.appendingPathComponent("s1.fastq")),
+            TaxTriageSample(sampleId: "s2", fastq1: tmp.appendingPathComponent("s2.fastq")),
+        ]
+        let config = TaxTriageConfig(samples: samples, outputDirectory: tmp)
+        let result = TaxTriageResult(
+            config: config,
+            runtime: 1.0,
+            exitCode: 0,
+            outputDirectory: tmp,
+            metricsFiles: [metricsURL],
+            allOutputFiles: [metricsURL, s1GCF, s2GCF]
+        )
+
+        let vc = TaxTriageResultViewController()
+        vc.loadViewIfNeeded()
+        vc.configure(result: result)
+
+        XCTAssertEqual(vc.testAccessions(forOrganism: "Shared virus", sampleId: "s1"), ["ACC_S1"])
+        XCTAssertEqual(vc.testAccessions(forOrganism: "Shared virus", sampleId: "s2"), ["ACC_S2"])
+
+        let merged = Set(vc.testAccessions(forOrganism: "Shared virus") ?? [])
+        XCTAssertEqual(merged, Set(["ACC_S1", "ACC_S2"]))
+    }
+
+    /// TaxTriage list mappings must merge data from all sample mapping files.
+    /// If only the first mapping file is used, one organism will be unresolved.
+    func testConfigureMergesMappingsAcrossAllSampleFiles() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TTMappingMerge-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let metricsURL = tmp.appendingPathComponent("multiqc_confidences.txt")
+        let metricsTSV = """
+            sample\torganism\treads\ttass_score\tconfidence
+            s1\tOrganism one\t100\t0.9\thigh
+            s2\tOrganism two\t80\t0.7\tmedium
+            """
+        try metricsTSV.write(to: metricsURL, atomically: true, encoding: .utf8)
+
+        let s1Dir = tmp.appendingPathComponent("s1")
+        let s2Dir = tmp.appendingPathComponent("s2")
+        try FileManager.default.createDirectory(at: s1Dir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: s2Dir, withIntermediateDirectories: true)
+
+        let s1GCF = s1Dir.appendingPathComponent("gcfmapping.tsv")
+        let s2GCF = s2Dir.appendingPathComponent("gcfmapping.tsv")
+        try "ACC_ONE\tGCF_1\tOrganism one\t-\n".write(to: s1GCF, atomically: true, encoding: .utf8)
+        try "ACC_TWO\tGCF_2\tOrganism two\t-\n".write(to: s2GCF, atomically: true, encoding: .utf8)
+
+        let samples = [
+            TaxTriageSample(sampleId: "s1", fastq1: tmp.appendingPathComponent("s1.fastq")),
+            TaxTriageSample(sampleId: "s2", fastq1: tmp.appendingPathComponent("s2.fastq")),
+        ]
+        let config = TaxTriageConfig(samples: samples, outputDirectory: tmp)
+        let result = TaxTriageResult(
+            config: config,
+            runtime: 1.0,
+            exitCode: 0,
+            outputDirectory: tmp,
+            metricsFiles: [metricsURL],
+            allOutputFiles: [metricsURL, s1GCF, s2GCF]
+        )
+
+        let vc = TaxTriageResultViewController()
+        vc.loadViewIfNeeded()
+        vc.configure(result: result)
+
+        XCTAssertEqual(vc.testAccessions(forOrganism: "Organism one"), ["ACC_ONE"])
+        XCTAssertEqual(vc.testAccessions(forOrganism: "Organism two"), ["ACC_TWO"])
+    }
+
+    /// Flat-table rows can be updated with BAM-derived read statistics using the
+    /// same sample+organism key used by the table columns.
+    func testApplyingBatchReadStatsUpdatesFlatTableCounts() throws {
+        let tmp = try makeBatchDirNoBAM(sampleIds: ["s1"], reads: 25)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let vc = TaxTriageResultViewController()
+        vc.loadViewIfNeeded()
+        vc.configureBatchGroup(batchURL: tmp, projectURL: tmp)
+
+        vc.testApplyBatchFlatTableReadStats(
+            sampleId: "s1",
+            organism: "Escherichia coli",
+            totalReads: 123,
+            uniqueReads: 100
+        )
+
+        XCTAssertEqual(
+            vc.testBatchFlatTableView.totalReadsByKey["s1\tEscherichia coli"],
+            123
+        )
+        XCTAssertEqual(
+            vc.testBatchFlatTableView.uniqueReadsByKey["s1\tEscherichia coli"],
+            100
+        )
+
+        let normalized = OrganismNameNormalizer.normalizedKey("Escherichia coli")
+        XCTAssertEqual(vc.testPerSampleDeduplicatedReadCounts[normalized]?["s1"], 100)
+    }
+
+    /// TaxTriage should parse BAM reference lengths when the index exists at an
+    /// external path (not adjacent to the BAM), matching how batch runs store CSI/BAI.
+    func testParseBamReferenceLengthsSupportsExternalIndexPath() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TTExternalIndex-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let minimap2Dir = tmp.appendingPathComponent("minimap2")
+        let alignmentDir = tmp.appendingPathComponent("alignment")
+        try FileManager.default.createDirectory(at: minimap2Dir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: alignmentDir, withIntermediateDirectories: true)
+
+        let repoRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let fixtureBAM = repoRoot.appendingPathComponent("Tests/Fixtures/sarscov2/test.paired_end.sorted.bam")
+        let fixtureBAI = repoRoot.appendingPathComponent("Tests/Fixtures/sarscov2/test.paired_end.sorted.bam.bai")
+
+        let bamURL = minimap2Dir.appendingPathComponent("sampleA.sampleA.dwnld.references.bam")
+        let externalIndexURL = alignmentDir.appendingPathComponent("sampleA.sampleA.dwnld.references.bam.bai")
+        try FileManager.default.copyItem(at: fixtureBAM, to: bamURL)
+        try FileManager.default.copyItem(at: fixtureBAI, to: externalIndexURL)
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: bamURL.path + ".bai"),
+            "Precondition failed: test BAM should not have an adjacent index"
+        )
+
+        let vc = TaxTriageResultViewController()
+        vc.loadViewIfNeeded()
+        vc.testParseBamReferenceLengths(bamURL: bamURL, indexURL: externalIndexURL)
+
+        XCTAssertEqual(vc.testAccessionLengths["MT192765.1"], 29_829)
     }
 }

@@ -39,6 +39,13 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
 
     // MARK: - Extra State
 
+    /// Lookup dictionary for BAM-derived total read counts in batch modes.
+    ///
+    /// Key format: `"<sampleId>\t<organism>"`. Values are populated from
+    /// miniBAM selections and/or background computation. When absent, cells fall
+    /// back to the parser-provided `row.reads` value.
+    var totalReadsByKey: [String: Int] = [:]
+
     /// Lookup dictionary for unique (deduplicated) read counts in batch group mode.
     ///
     /// Key format: `"<sampleId>\t<organism>"`. Values are populated from
@@ -83,9 +90,11 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
         case .tt_tassScore:
             return (String(format: "%.3f", row.tassScore), .right, nil)
         case .tt_reads:
-            return (formatReadCount(row.reads), .right, nil)
+            let key = rowKey(for: row)
+            let reads = totalReadsByKey[key] ?? row.reads
+            return (formatReadCount(reads), .right, nil)
         case .tt_uniqueReads:
-            let key = "\(row.sample ?? "")\t\(row.organism)"
+            let key = rowKey(for: row)
             let text = uniqueReadsByKey[key].map { formatReadCount($0) } ?? "\u{2014}"
             return (text, .right, nil)
         case .tt_confidence:
@@ -124,10 +133,12 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
         case "tt_tassScore":
             result = lhs.tassScore < rhs.tassScore
         case "tt_reads":
-            result = lhs.reads < rhs.reads
+            let lk = rowKey(for: lhs)
+            let rk = rowKey(for: rhs)
+            result = (totalReadsByKey[lk] ?? lhs.reads) < (totalReadsByKey[rk] ?? rhs.reads)
         case "tt_uniqueReads":
-            let lk = "\(lhs.sample ?? "")\t\(lhs.organism)"
-            let rk = "\(rhs.sample ?? "")\t\(rhs.organism)"
+            let lk = rowKey(for: lhs)
+            let rk = rowKey(for: rhs)
             result = (uniqueReadsByKey[lk] ?? -1) < (uniqueReadsByKey[rk] ?? -1)
         case "tt_confidence":
             let lc = lhs.confidence ?? ""; let rc = rhs.confidence ?? ""
@@ -168,14 +179,34 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
         logger.info("BatchTaxTriageTableView configured with \(rows.count) rows")
     }
 
-    /// Reloads only the Unique Reads column cells without re-sorting or scrolling.
+    /// Reloads only the Reads + Unique Reads column cells without re-sorting or scrolling.
     ///
-    /// Call this after updating ``uniqueReadsByKey`` to refresh the column in-place.
-    func reloadUniqueReadsColumn() {
-        guard let colIndex = tableView.column(withIdentifier: .tt_uniqueReads) as Int?,
-              colIndex >= 0 else { return }
-        let colIndexSet = IndexSet(integer: colIndex)
+    /// Call this after updating ``totalReadsByKey`` and/or ``uniqueReadsByKey``.
+    func reloadReadStatsColumns() {
+        let readsColumn = tableView.column(withIdentifier: .tt_reads)
+        let uniqueColumn = tableView.column(withIdentifier: .tt_uniqueReads)
+
+        var colIndexSet = IndexSet()
+        if readsColumn >= 0 {
+            colIndexSet.insert(readsColumn)
+        }
+        if uniqueColumn >= 0 {
+            colIndexSet.insert(uniqueColumn)
+        }
+        guard !colIndexSet.isEmpty else { return }
+
         let rowIndexSet = IndexSet(integersIn: 0..<displayedRows.count)
-        tableView.reloadData(forRowIndexes: rowIndexSet, columnIndexes: colIndexSet)
+        if !rowIndexSet.isEmpty {
+            tableView.reloadData(forRowIndexes: rowIndexSet, columnIndexes: colIndexSet)
+        }
+    }
+
+    /// Backward-compatible alias for older call sites that only update unique reads.
+    func reloadUniqueReadsColumn() {
+        reloadReadStatsColumns()
+    }
+
+    private func rowKey(for row: TaxTriageMetric) -> String {
+        "\(row.sample ?? "")\t\(row.organism)"
     }
 }
