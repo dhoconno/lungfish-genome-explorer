@@ -2153,6 +2153,39 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         }
     }
 
+    /// Shows a ``DatabaseBuildPlaceholderView`` in the viewport area.
+    ///
+    /// Used when a classifier batch result directory exists but the corresponding
+    /// SQLite database has not yet been built.  The placeholder tells the user
+    /// which CLI command to run, then removes itself when the user re-selects the
+    /// item after building the database.
+    ///
+    /// - Parameters:
+    ///   - tool: Human-readable tool name (e.g. "TaxTriage").
+    ///   - resultURL: The batch result directory URL.
+    private func showDatabaseBuildPlaceholder(tool: String, resultURL: URL) {
+        // Clear any existing viewport content so the placeholder is the only thing shown.
+        viewerController.clearViewport(statusMessage: "")
+
+        let placeholder = DatabaseBuildPlaceholderView()
+        placeholder.configure(tool: tool, resultURL: resultURL)
+
+        let contentView = viewerController.view
+        contentView.addSubview(placeholder)
+        placeholder.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            placeholder.topAnchor.constraint(equalTo: contentView.topAnchor),
+            placeholder.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            placeholder.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            placeholder.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+        ])
+
+        let dirName = resultURL.lastPathComponent
+        logger.info(
+            "showDatabaseBuildPlaceholder: Shown for tool='\(tool, privacy: .public)' result='\(dirName, privacy: .public)'"
+        )
+    }
+
     /// Formats a pipeline runtime duration as a human-readable string for the Inspector.
     ///
     /// Returns strings like "34s", "2m 14s", or "1h 3m" depending on magnitude.
