@@ -644,7 +644,14 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             (sampleId, FASTQDisplayNameResolver.resolveDisplayName(sampleId: sampleId, projectURL: projectURL))
         })
 
-        rebuildSampleFilterSegments()
+        // When multi-sample, skip rebuildSampleFilterSegments() and applyCurrentSampleFilter()
+        // entirely — they would momentarily un-hide the segmented control / batch overview before
+        // enableMultiSampleFlatTableMode() hides them again, causing a visible UI flash.
+        let willUseMultiSampleFlatTable = discoveredSamples.count > 1
+
+        if !willUseMultiSampleFlatTable {
+            rebuildSampleFilterSegments()
+        }
 
         // Update summary bar
         summaryBar.update(
@@ -654,9 +661,14 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             sampleCount: result.config.samples.count
         )
 
-        // Configure table (apply filter if a sample was pre-selected)
-        if selectedSampleIndex > 0 {
-            applyCurrentSampleFilter()
+        // Configure table (apply filter if a sample was pre-selected).
+        // Skip for multi-sample: enableMultiSampleFlatTableMode() sets up the flat table instead.
+        if !willUseMultiSampleFlatTable {
+            if selectedSampleIndex > 0 {
+                applyCurrentSampleFilter()
+            } else {
+                organismTableView.rows = mergedRows
+            }
         } else {
             organismTableView.rows = mergedRows
         }
@@ -1814,6 +1826,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             // Persist computed per-sample counts.
             if !Task.isCancelled, !self.perSampleDeduplicatedReadCounts.isEmpty {
                 self.persistDeduplicatedReadCounts()
+
+                // Also write the batch-level cache so the flat table loads instantly next time.
+                if let batchURL = self.batchGroupURL {
+                    let cacheURL = batchURL.appendingPathComponent("batch-unique-reads.json")
+                    self.persistBatchUniqueReadsCache(to: cacheURL)
+                }
             }
         }
     }
@@ -1849,6 +1867,36 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             logger.info("Persisted \(self.deduplicatedReadCounts.count) deduplicated read counts to sidecar")
         } catch {
             logger.warning("Failed to persist deduplicated read counts: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    // MARK: - Batch Unique Reads Cache (batch-unique-reads.json)
+
+    /// Loads the batch-level unique reads cache from `<batchDir>/batch-unique-reads.json`.
+    ///
+    /// The cache maps `"sampleId\torganism"` keys to unique read counts so the flat table
+    /// can be populated immediately on second open without re-scanning BAM files.
+    ///
+    /// - Returns: The decoded cache dictionary, or `nil` if the file is absent or malformed.
+    private func loadBatchUniqueReadsCache(from url: URL) -> [String: Int]? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        let decoder = JSONDecoder()
+        guard let wrapper = try? decoder.decode(BatchUniqueReadsCache.self, from: data) else { return nil }
+        return wrapper.sampleOrganism
+    }
+
+    /// Persists `batchFlatTableView.uniqueReadsByKey` to `<batchDir>/batch-unique-reads.json`
+    /// so the flat table can be restored instantly on the next open.
+    private func persistBatchUniqueReadsCache(to url: URL) {
+        let cache = BatchUniqueReadsCache(sampleOrganism: batchFlatTableView.uniqueReadsByKey)
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(cache)
+            try data.write(to: url)
+            logger.info("Persisted batch-unique-reads.json with \(cache.sampleOrganism.count) entries")
+        } catch {
+            logger.warning("Failed to persist batch-unique-reads.json: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -2415,12 +2463,64 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         applyBatchGroupFilter()
 
+        // Load persisted unique reads from two sources (in priority order):
+        //
+        // 1. Batch-level cache: <batchDir>/batch-unique-reads.json — written after any
+        //    computation pass over the whole batch. Instant load, no per-sample I/O.
+        //
+        // 2. Per-sample taxtriage-result.json sidecars — each subdir may have persisted
+        //    per-sample dedup counts from a previous single-result configure() call.
+        //
+        // After loading, syncUniqueReadsToFlatTable() propagates the counts to the table.
+
+        // 1. Try batch-level cache first.
+        let batchCacheURL = batchURL.appendingPathComponent("batch-unique-reads.json")
+        if let batchCache = loadBatchUniqueReadsCache(from: batchCacheURL) {
+            // Merge into batchFlatTableView directly (keys are "sampleId\torganism").
+            for (key, count) in batchCache {
+                batchFlatTableView.uniqueReadsByKey[key] = count
+            }
+            // Also back-fill perSampleDeduplicatedReadCounts for consistency.
+            for (key, count) in batchCache {
+                let parts = key.split(separator: "\t", maxSplits: 1)
+                guard parts.count == 2 else { continue }
+                let sampleId = String(parts[0])
+                let organism  = String(parts[1])
+                let normalized = normalizedOrganismName(organism)
+                perSampleDeduplicatedReadCounts[normalized, default: [:]][sampleId] = count
+            }
+        } else {
+            // 2. Fall back to per-sample taxtriage-result.json sidecars.
+            for subdir in subdirs {
+                guard let loaded = try? TaxTriageResult.load(from: subdir),
+                      let perSample = loaded.perSampleDeduplicatedReadCounts else { continue }
+                for (normalizedOrganism, sampleCounts) in perSample {
+                    for (sampleId, count) in sampleCounts {
+                        perSampleDeduplicatedReadCounts[normalizedOrganism, default: [:]][sampleId] = count
+                    }
+                }
+            }
+        }
+
         // Populate unique reads column from any already-persisted per-sample dedup counts.
         syncUniqueReadsToFlatTable()
 
         // Schedule background computation of per-sample unique reads directly from each
         // sample's BAM. This produces exact dedup counts instead of proportional estimates.
-        scheduleBatchPerSampleUniqueReadComputation(subdirs: subdirs)
+        // Pass subdirs that are still missing unique reads to avoid redundant BAM scans.
+        let subdirsMissingUniqueReads = subdirs.filter { subdir in
+            let sampleId = subdir.lastPathComponent
+            // Check if ALL organisms for this sample already have unique reads.
+            let rows = allBatchGroupRows.filter { $0.sample == sampleId }
+            guard !rows.isEmpty else { return false }
+            return rows.contains { row in
+                let key = "\(sampleId)\t\(row.organism)"
+                return batchFlatTableView.uniqueReadsByKey[key] == nil
+            }
+        }
+        if !subdirsMissingUniqueReads.isEmpty {
+            scheduleBatchPerSampleUniqueReadComputation(subdirs: subdirsMissingUniqueReads)
+        }
 
         logger.info("TaxTriage batch group configured: \(allRows.count) rows from \(entries.count) samples")
     }
@@ -3376,6 +3476,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Returns the batch flat table view for testing.
     var testBatchFlatTableView: BatchTaxTriageTableView { batchFlatTableView }
 
+    /// Returns the batch overview view for testing.
+    var testBatchOverviewView: TaxTriageBatchOverviewView { batchOverviewView }
+
     /// Returns the sample filter segmented control for testing.
     var testSampleFilterControl: NSSegmentedControl { sampleFilterControl }
 
@@ -3409,6 +3512,18 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     }
 }
 
+
+// MARK: - BatchUniqueReadsCache
+
+/// Codable wrapper for the batch-level unique reads cache (`batch-unique-reads.json`).
+///
+/// Persisted under `<batchDir>/batch-unique-reads.json`. Keys are `"sampleId\torganism"`,
+/// values are unique read counts. Allows instant restoration of the Unique Reads column
+/// in batch group mode without re-scanning any BAM files.
+private struct BatchUniqueReadsCache: Codable {
+    /// Map of `"sampleId\torganism"` → unique read count.
+    var sampleOrganism: [String: Int]
+}
 
 // MARK: - TaxTriageTableRow
 

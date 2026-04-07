@@ -2336,6 +2336,113 @@ final class TaxTriageBatchRegressionTests: XCTestCase {
         XCTAssertEqual(vc.testPerSampleDeduplicatedReadCounts[normalized]?["s1"], 100)
     }
 
+    // MARK: - Fix 1: Viewport Bounce
+
+    /// After `configure(result:config:)` with multi-sample data, both `batchOverviewView`
+    /// and `sampleFilterControl` must remain hidden at all times — never shown transiently.
+    func testViewportDoesNotBounce() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TTViewportBounce-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let result = try makeMultiSampleResult(sampleIds: ["bounce1", "bounce2"], tmpDir: tmp)
+
+        let vc = TaxTriageResultViewController()
+        vc.loadViewIfNeeded()
+        vc.configure(result: result)
+
+        // Neither batchOverviewView nor sampleFilterControl should be visible after
+        // configure() completes for a multi-sample result.
+        XCTAssertTrue(
+            vc.testBatchOverviewView.isHidden,
+            "batchOverviewView must be hidden after multi-sample configure() — no viewport bounce"
+        )
+        XCTAssertTrue(
+            vc.testSampleFilterControl.isHidden,
+            "sampleFilterControl must be hidden after multi-sample configure() — no viewport bounce"
+        )
+    }
+
+    // MARK: - Fix 2: Unique Reads Load from Persisted Sidecar
+
+    /// When a batch group directory contains per-sample `taxtriage-result.json` files with
+    /// `perSampleDeduplicatedReadCounts`, those values must appear in `uniqueReadsByKey`
+    /// immediately after `configureBatchGroup()` — no background BAM scan needed.
+    func testUniqueReadsLoadFromPersistedSidecar() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TTSidecarLoad-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        // Create two sample subdirs with metrics + persisted taxtriage-result.json.
+        let sampleIds = ["sr1", "sr2"]
+        for sampleId in sampleIds {
+            let dir = tmp.appendingPathComponent(sampleId)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+            let tsv = "sample\torganism\treads\ttass_score\tconfidence\n\(sampleId)\tEscherichia coli\t1000\t0.9\thigh\n"
+            try tsv.write(to: dir.appendingPathComponent("\(sampleId).organisms.report.txt"), atomically: true, encoding: .utf8)
+
+            // Persist a taxtriage-result.json with known unique read counts.
+            let samples = [TaxTriageSample(sampleId: sampleId, fastq1: dir.appendingPathComponent("\(sampleId).fastq"))]
+            let config = TaxTriageConfig(samples: samples, outputDirectory: dir)
+            var result = TaxTriageResult(config: config, runtime: 1.0, exitCode: 0, outputDirectory: dir, metricsFiles: [])
+            let normalizedEcoli = OrganismNameNormalizer.normalizedKey("Escherichia coli")
+            result.perSampleDeduplicatedReadCounts = [normalizedEcoli: [sampleId: 750]]
+            try result.save()
+        }
+
+        let vc = TaxTriageResultViewController()
+        vc.loadViewIfNeeded()
+        vc.configureBatchGroup(batchURL: tmp, projectURL: tmp)
+
+        // Both samples must have unique reads loaded immediately from the sidecars.
+        let tableView = vc.testBatchFlatTableView
+        for sampleId in sampleIds {
+            let key = "\(sampleId)\tEscherichia coli"
+            XCTAssertEqual(
+                tableView.uniqueReadsByKey[key],
+                750,
+                "Sample \(sampleId): unique reads should be 750 (loaded from sidecar), got \(tableView.uniqueReadsByKey[key].map(String.init) ?? "nil")"
+            )
+        }
+    }
+
+    // MARK: - Fix 4: Batch Cache Loads Instantly
+
+    /// When `batch-unique-reads.json` exists in the batch dir, `configureBatchGroup()`
+    /// must populate `uniqueReadsByKey` immediately without any background computation.
+    func testBatchCacheLoadsInstantly() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TTBatchCache-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        // Create a sample subdir with metrics.
+        let sampleId = "cacheMe"
+        let dir = tmp.appendingPathComponent(sampleId)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let tsv = "sample\torganism\treads\ttass_score\tconfidence\n\(sampleId)\tHuman coronavirus\t2000\t0.85\thigh\n"
+        try tsv.write(to: dir.appendingPathComponent("\(sampleId).organisms.report.txt"), atomically: true, encoding: .utf8)
+
+        // Pre-write batch-unique-reads.json with known value.
+        let cachePayload: [String: Any] = ["sampleOrganism": ["\(sampleId)\tHuman coronavirus": 1500]]
+        let cacheData = try JSONSerialization.data(withJSONObject: cachePayload)
+        try cacheData.write(to: tmp.appendingPathComponent("batch-unique-reads.json"))
+
+        let vc = TaxTriageResultViewController()
+        vc.loadViewIfNeeded()
+        vc.configureBatchGroup(batchURL: tmp, projectURL: tmp)
+
+        let tableView = vc.testBatchFlatTableView
+        XCTAssertEqual(
+            tableView.uniqueReadsByKey["\(sampleId)\tHuman coronavirus"],
+            1500,
+            "Unique reads should be loaded from batch-unique-reads.json immediately"
+        )
+    }
+
     /// TaxTriage should parse BAM reference lengths when the index exists at an
     /// external path (not adjacent to the BAM), matching how batch runs store CSI/BAI.
     func testParseBamReferenceLengthsSupportsExternalIndexPath() throws {
