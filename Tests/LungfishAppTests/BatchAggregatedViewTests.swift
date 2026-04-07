@@ -942,7 +942,8 @@ final class EsVirituViewControllerBatchModeTests: XCTestCase {
         XCTAssertTrue(vc.samplePickerState.selectedSamples.contains("sampleY"))
     }
 
-    /// After `configureBatch`, `splitView` is hidden and `batchTableView` is visible.
+    /// After `configureBatch`, `splitView` remains visible (detail pane stays active) and
+    /// `batchTableView` is visible inside the right pane while `detectionTableView` is hidden.
     func testConfigureBatchSwapsViewVisibility() throws {
         let vc = EsVirituResultViewController()
         vc.loadViewIfNeeded()
@@ -955,7 +956,7 @@ final class EsVirituViewControllerBatchModeTests: XCTestCase {
         let manifest = makeManifest(records: records)
         vc.configureBatch(batchURL: batchURL, manifest: manifest, projectURL: batchURL)
 
-        XCTAssertTrue(vc.splitView.isHidden, "splitView should be hidden in batch mode")
+        XCTAssertFalse(vc.splitView.isHidden, "splitView should remain visible so the detail pane stays active")
         XCTAssertFalse(vc.testBatchTableView.isHidden, "batchTableView should be visible in batch mode")
     }
 

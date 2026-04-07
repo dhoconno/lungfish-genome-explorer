@@ -189,6 +189,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Hidden in normal mode; shown exclusively when `isBatchGroupMode` is true.
     private(set) var batchFlatTableView = BatchTaxTriageTableView()
 
+    /// Container for the right pane content (organism table, batch overview, or batch flat table).
+    /// Stored as an instance property so `setupBatchFlatTableView()` can add to it.
+    private var rightPaneContainer = NSView()
+
     // MARK: - Child Views
 
     private let summaryBar = TaxTriageSummaryBar()
@@ -1073,14 +1077,14 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         // The BAM viewer is added in setupMiniBAMViewer() with constraints.
 
 
-        // Right pane: organism table + batch overview (mutually exclusive)
-        let tableContainer = NSView()
+        // Right pane: organism table + batch overview + batch flat table (mutually exclusive).
+        // rightPaneContainer is an instance property so setupBatchFlatTableView() can add to it.
         organismTableView.autoresizingMask = [.width, .height]
-        tableContainer.addSubview(organismTableView)
+        rightPaneContainer.addSubview(organismTableView)
 
         batchOverviewView.autoresizingMask = [.width, .height]
         batchOverviewView.isHidden = true
-        tableContainer.addSubview(batchOverviewView)
+        rightPaneContainer.addSubview(batchOverviewView)
 
         // Wire batch overview cell clicks to navigate to organism in sample
         batchOverviewView.onCellSelected = { [weak self] organism, sampleId in
@@ -1091,7 +1095,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
 
         splitView.addArrangedSubview(leftPaneContainer)
-        splitView.addArrangedSubview(tableContainer)
+        splitView.addArrangedSubview(rightPaneContainer)
 
         // Multi-selection placeholder overlay on the left pane container
         leftPaneContainer.addSubview(multiSelectionPlaceholder)
@@ -1747,11 +1751,19 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     // MARK: - Setup: Batch Flat Table View
 
     /// Adds the batch flat table view as a sibling of `splitView` with identical
-    /// constraints. Hidden by default; shown when `configureBatchGroup` is called.
+    /// Adds the batch flat table view inside the right pane container so that the
+    /// split view (and thus the left/miniBAM pane) remains visible in batch group mode.
+    /// Hidden by default; shown when `configureBatchGroup` is called.
     private func setupBatchFlatTableView() {
         batchFlatTableView.translatesAutoresizingMaskIntoConstraints = false
         batchFlatTableView.isHidden = true
-        view.addSubview(batchFlatTableView)
+        rightPaneContainer.addSubview(batchFlatTableView)
+        NSLayoutConstraint.activate([
+            batchFlatTableView.topAnchor.constraint(equalTo: rightPaneContainer.topAnchor),
+            batchFlatTableView.bottomAnchor.constraint(equalTo: rightPaneContainer.bottomAnchor),
+            batchFlatTableView.leadingAnchor.constraint(equalTo: rightPaneContainer.leadingAnchor),
+            batchFlatTableView.trailingAnchor.constraint(equalTo: rightPaneContainer.trailingAnchor),
+        ])
     }
 
     // MARK: - Batch Group Mode
@@ -1856,6 +1868,19 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             }
         }
 
+        // Scan each subdirectory for BAM files to populate bamFilesBySample.
+        bamFilesBySample = [:]
+        for subdir in subdirs {
+            let sampleId = subdir.lastPathComponent
+            if let listing = try? FileManager.default.contentsOfDirectory(atPath: subdir.path) {
+                let bamFiles = listing.filter { $0.hasSuffix(".bam") }
+                if let bamName = bamFiles.first {
+                    let bamURL = subdir.appendingPathComponent(bamName)
+                    bamFilesBySample[sampleId] = bamURL
+                }
+            }
+        }
+
         allBatchGroupRows = allRows
         sampleEntries = entries
 
@@ -1864,20 +1889,60 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         // Wire batch flat table callbacks.
         batchFlatTableView.metadataColumns.isMultiSampleMode = true
-        batchFlatTableView.onRowSelected = { [weak self] _ in
-            self?.actionBar.updateInfoText("1 row selected")
+        batchFlatTableView.onRowSelected = { [weak self] row in
+            guard let self else { return }
+            self.actionBar.updateInfoText("1 row selected")
+            self.hideMultiSelectionPlaceholder()
+
+            // Resolve BAM for the row's sample.
+            guard let sampleId = row.sample,
+                  let bamURL = self.bamFilesBySample[sampleId] else {
+                self.miniBAMController?.clear()
+                return
+            }
+
+            let bamIndexURL = resolveBamIndex(for: bamURL, allOutputFiles: [])
+
+            // Look up the accession for this organism and display miniBAM.
+            if let accessions = self.accessions(for: row.organism),
+               let primaryAccession = accessions.first {
+                if self.accessionLengths[primaryAccession] == nil {
+                    self.parseBamReferenceLengths(bamURL: bamURL)
+                }
+                if let contigLength = self.accessionLengths[primaryAccession] {
+                    self.miniBAMController?.displayContig(
+                        bamURL: bamURL,
+                        contig: primaryAccession,
+                        contigLength: contigLength,
+                        indexURL: bamIndexURL,
+                        maxReads: 5000
+                    )
+                    self.miniBAMController?.view.isHidden = false
+                } else {
+                    self.miniBAMController?.clear()
+                }
+            } else {
+                self.miniBAMController?.clear()
+            }
         }
         batchFlatTableView.onMultipleRowsSelected = { [weak self] rows in
-            self?.actionBar.updateInfoText("\(rows.count) rows selected")
+            guard let self else { return }
+            self.actionBar.updateInfoText("\(rows.count) rows selected")
+            self.showMultiSelectionPlaceholder(count: rows.count)
         }
         batchFlatTableView.onSelectionCleared = { [weak self] in
-            self?.actionBar.updateInfoText("Select an organism to view details")
+            guard let self else { return }
+            self.actionBar.updateInfoText("Select an organism to view details")
+            self.hideMultiSelectionPlaceholder()
+            self.miniBAMController?.clear()
         }
 
-        // Hide per-sample UI; show flat batch table instead.
+        // Keep the split view visible — place batchFlatTableView inside the right pane
+        // so the left pane (miniBAM) remains functional.
         sampleFilterControl.isHidden = true
-        splitView.isHidden = true
         blastDrawer.isHidden = true
+        organismTableView.isHidden = true
+        batchOverviewView.isHidden = true
         batchFlatTableView.isHidden = false
 
         summaryBar.updateBatch(sampleCount: entries.count, totalOrganisms: allRows.count)
@@ -1963,11 +2028,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             splitView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             splitBottom,
 
-            // Batch flat table (same region as splitView; hidden by default)
-            batchFlatTableView.topAnchor.constraint(equalTo: summaryBar.bottomAnchor),
-            batchFlatTableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            batchFlatTableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            batchFlatTableView.bottomAnchor.constraint(equalTo: actionBar.topAnchor),
+            // batchFlatTableView is inside rightPaneContainer; no top-level constraints needed.
         ])
     }
 

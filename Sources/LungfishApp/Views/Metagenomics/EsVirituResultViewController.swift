@@ -240,11 +240,26 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     /// All flat rows loaded from each sample's EsViritu detection file in batch mode.
     var allBatchRows: [BatchEsVirituRow] = []
 
-    /// Flat table used in batch mode (sibling of `splitView`).
+    /// Flat table used in batch mode (placed inside the right pane of `splitView`).
     private(set) var batchTableView = BatchEsVirituTableView()
 
     /// The URL of the batch result directory (set during `configureBatch`).
     var batchURL: URL?
+
+    /// Container for the right pane content (detection table or batch table).
+    /// Saved as an instance property so `setupBatchTableView` can add to it.
+    private var rightPaneContainer = NSView()
+
+    /// Lookup dictionary mapping (sampleId, assemblyAccession) -> ViralAssembly,
+    /// built during `configureBatch` for detail pane wiring.
+    private var batchAssemblyLookup: [String: ViralAssembly] = [:]
+
+    /// Lookup dictionary mapping assemblyAccession -> BAM URL, built during
+    /// `configureBatch` for miniBAM wiring in batch mode.
+    private var batchBAMLookup: [String: URL] = [:]
+
+    /// Lookup dictionary mapping assemblyAccession -> BAM index URL.
+    private var batchBAMIndexLookup: [String: URL] = [:]
 
     // MARK: - Lifecycle
 
@@ -415,6 +430,9 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
         var allRows: [BatchEsVirituRow] = []
         var entries: [EsVirituSampleEntry] = []
+        var assemblyLookup: [String: ViralAssembly] = [:]
+        var bamLookup: [String: URL] = [:]
+        var bamIndexLookup: [String: URL] = [:]
 
         for sample in manifest.samples {
             let resultDir = batchURL.appendingPathComponent(sample.resultDirectory)
@@ -448,6 +466,12 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
                 let rows = BatchEsVirituRow.fromAssemblies(assemblies, sampleId: sample.sampleId)
                 allRows.append(contentsOf: rows)
 
+                // Build assembly lookup keyed by "sampleId\tassemblyAccession"
+                for asm in assemblies {
+                    let key = "\(sample.sampleId)\t\(asm.assembly)"
+                    assemblyLookup[key] = asm
+                }
+
                 let displayName = FASTQDisplayNameResolver.resolveDisplayName(
                     sampleId: sample.sampleId, projectURL: projectURL)
                 entries.append(EsVirituSampleEntry(
@@ -460,28 +484,64 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
                     "Failed to parse detection file for \(sample.sampleId, privacy: .public): \(error.localizedDescription, privacy: .public)"
                 )
             }
+
+            // Locate the EsViritu BAM for this sample (from --keep True).
+            // Typical path: <resultDir>/<sampleId>_temp/<sampleId>.third.filt.sorted.bam
+            let tempDir = resultDir.appendingPathComponent("\(sample.sampleId)_temp")
+            let bamName = "\(sample.sampleId).third.filt.sorted.bam"
+            let candidateBAM = tempDir.appendingPathComponent(bamName)
+            if FileManager.default.fileExists(atPath: candidateBAM.path) {
+                bamLookup[sample.sampleId] = candidateBAM
+                if let idx = resolveBamIndex(for: candidateBAM) {
+                    bamIndexLookup[sample.sampleId] = idx
+                }
+            }
         }
 
         allBatchRows = allRows
         sampleEntries = entries
+        batchAssemblyLookup = assemblyLookup
+        batchBAMLookup = bamLookup
+        batchBAMIndexLookup = bamIndexLookup
 
         let allSampleIds = Set(entries.map(\.id))
         samplePickerState = ClassifierSamplePickerState(allSamples: allSampleIds)
 
         // Wire batch table callbacks
         batchTableView.metadataColumns.isMultiSampleMode = true
-        batchTableView.onRowSelected = { [weak self] _ in
-            self?.actionBar.updateInfoText("1 row selected")
+        batchTableView.onRowSelected = { [weak self] row in
+            guard let self else { return }
+            self.actionBar.updateInfoText("1 row selected")
+            // Show the detail pane for the selected virus+sample combination.
+            let key = "\(row.sample)\t\(row.assembly)"
+            if let assembly = self.batchAssemblyLookup[key] {
+                let batchBAMURL = self.batchBAMLookup[row.sample]
+                let batchBAMIndexURL = self.batchBAMIndexLookup[row.sample]
+                // Temporarily set bamURL/bamIndexURL so showAssemblyDetail works.
+                let savedBAMURL = self.bamURL
+                let savedBAMIndexURL = self.bamIndexURL
+                self.bamURL = batchBAMURL
+                self.bamIndexURL = batchBAMIndexURL
+                self.showAssemblyDetail(assembly)
+                // Restore so normal (single-sample) mode is not disrupted.
+                self.bamURL = savedBAMURL
+                self.bamIndexURL = savedBAMIndexURL
+            }
         }
         batchTableView.onMultipleRowsSelected = { [weak self] rows in
-            self?.actionBar.updateInfoText("\(rows.count) rows selected")
+            guard let self else { return }
+            self.actionBar.updateInfoText("\(rows.count) rows selected")
+            self.showMultiSelectionPlaceholder(count: rows.count)
         }
         batchTableView.onSelectionCleared = { [weak self] in
-            self?.actionBar.updateInfoText("Select a virus to view details")
+            guard let self else { return }
+            self.actionBar.updateInfoText("Select a virus to view details")
+            self.hideMultiSelectionPlaceholder()
         }
 
-        // Swap visibility: hide split view, show batch table
-        splitView.isHidden = true
+        // Keep the split view visible — place batchTableView inside the right pane
+        // so the detail pane (left) remains functional.
+        detectionTableView.isHidden = true
         batchTableView.isHidden = false
 
         summaryBar.updateBatch(sampleCount: entries.count, totalDetections: allRows.count)
@@ -680,13 +740,13 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             multiSelectionPlaceholder.trailingAnchor.constraint(equalTo: detailContainer.trailingAnchor),
         ])
 
-        // Table container (right pane)
-        let tableContainer = NSView()
+        // Table container (right pane) — stored as instance property so
+        // setupBatchTableView() can add batchTableView inside it later.
         detectionTableView.autoresizingMask = [.width, .height]
-        tableContainer.addSubview(detectionTableView)
+        rightPaneContainer.addSubview(detectionTableView)
 
         splitView.addArrangedSubview(detailContainer)
-        splitView.addArrangedSubview(tableContainer)
+        splitView.addArrangedSubview(rightPaneContainer)
 
         // Table pane is preferred to resize (detail pane holds width more firmly)
         splitView.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
@@ -697,12 +757,19 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
     // MARK: - Setup: Batch Table View
 
-    /// Adds the batch table view as a sibling of `splitView` with identical
-    /// constraints. Hidden by default; shown when `configureBatch` is called.
+    /// Adds the batch table view inside the right pane container so that the
+    /// split view (and thus the detail pane) remains visible in batch mode.
+    /// Hidden by default; shown when `configureBatch` is called.
     private func setupBatchTableView() {
         batchTableView.translatesAutoresizingMaskIntoConstraints = false
         batchTableView.isHidden = true
-        view.addSubview(batchTableView)
+        rightPaneContainer.addSubview(batchTableView)
+        NSLayoutConstraint.activate([
+            batchTableView.topAnchor.constraint(equalTo: rightPaneContainer.topAnchor),
+            batchTableView.bottomAnchor.constraint(equalTo: rightPaneContainer.bottomAnchor),
+            batchTableView.leadingAnchor.constraint(equalTo: rightPaneContainer.leadingAnchor),
+            batchTableView.trailingAnchor.constraint(equalTo: rightPaneContainer.trailingAnchor),
+        ])
     }
 
     // MARK: - Setup: Action Bar
@@ -728,13 +795,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             actionBar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             actionBar.heightAnchor.constraint(equalToConstant: 36),
 
-            // Batch table view (same region as splitView, hidden by default)
-            batchTableView.topAnchor.constraint(equalTo: summaryBar.bottomAnchor),
-            batchTableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            batchTableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            batchTableView.bottomAnchor.constraint(equalTo: actionBar.topAnchor),
-
-            // Split view (fills remaining space)
+            // Split view (fills remaining space; batchTableView is inside rightPaneContainer)
             splitView.topAnchor.constraint(equalTo: summaryBar.bottomAnchor),
             splitView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             splitView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
