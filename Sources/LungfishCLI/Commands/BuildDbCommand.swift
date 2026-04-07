@@ -28,6 +28,7 @@ struct BuildDbCommand: AsyncParsableCommand {
         subcommands: [
             TaxTriageSubcommand.self,
             EsVirituSubcommand.self,
+            Kraken2Subcommand.self,
         ]
     )
 }
@@ -775,6 +776,193 @@ extension BuildDbCommand {
                 return Int(dblVal)
             }
             return nil
+        }
+    }
+}
+
+// MARK: - Kraken2 Subcommand
+
+extension BuildDbCommand {
+
+    /// Build a SQLite database from Kraken2 pipeline output.
+    ///
+    /// Enumerates sample subdirectories, parses each `classification.kreport`
+    /// via `KreportParser`, flattens the taxonomy tree into classification rows,
+    /// and writes a `kraken2.sqlite` database in the result directory.
+    ///
+    /// Optionally removes `classification.kraken` and
+    /// `classification.kraken.idx.sqlite` intermediate files after a successful
+    /// build.
+    struct Kraken2Subcommand: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "kraken2",
+            abstract: "Build SQLite database from Kraken2 results"
+        )
+
+        @Argument(help: "Path to the Kraken2 result directory")
+        var resultDir: String
+
+        @Flag(name: .long, help: "Force rebuild even if database exists")
+        var force: Bool = false
+
+        @Flag(name: .customLong("no-cleanup"), help: "Skip post-build cleanup of intermediate files")
+        var noCleanup: Bool = false
+
+        @OptionGroup var globalOptions: GlobalOptions
+
+        func run() async throws {
+            let resultURL = URL(fileURLWithPath: resultDir)
+            let dbURL = resultURL.appendingPathComponent("kraken2.sqlite")
+
+            // Skip if exists (unless --force)
+            if !force && FileManager.default.fileExists(atPath: dbURL.path) {
+                if !globalOptions.quiet {
+                    print("Database already exists at \(dbURL.path). Use --force to rebuild.")
+                }
+                return
+            }
+
+            // 1. Enumerate sample subdirectories and parse kreport files
+            let rows = try parseSampleDirectories(resultURL: resultURL)
+
+            if !globalOptions.quiet {
+                print("Parsed \(rows.count) classification rows from Kraken2 results")
+            }
+
+            // 2. Build database
+            let metadata: [String: String] = [
+                "tool": "kraken2",
+                "created_at": ISO8601DateFormatter().string(from: Date()),
+                "source_dir": resultURL.path,
+            ]
+
+            try Kraken2Database.create(at: dbURL, rows: rows, metadata: metadata) { fraction, msg in
+                if self.globalOptions.outputFormat == .json {
+                    let obj: [String: Any] = ["progress": fraction, "message": msg]
+                    if let data = try? JSONSerialization.data(withJSONObject: obj),
+                       let json = String(data: data, encoding: .utf8) {
+                        FileHandle.standardError.write(Data((json + "\n").utf8))
+                    }
+                }
+            }
+
+            if !globalOptions.quiet {
+                print("Built database at \(dbURL.path) with \(rows.count) rows")
+            }
+
+            if !noCleanup {
+                performCleanup(resultURL: resultURL)
+            }
+        }
+
+        // MARK: - Sample Directory Enumeration & Parsing
+
+        /// Enumerates sample subdirectories under `resultURL` and parses kreport files.
+        func parseSampleDirectories(resultURL: URL) throws -> [Kraken2ClassificationRow] {
+            let fm = FileManager.default
+            let contents = try fm.contentsOfDirectory(
+                at: resultURL,
+                includingPropertiesForKeys: [.isDirectoryKey]
+            )
+
+            var allRows: [Kraken2ClassificationRow] = []
+
+            for dir in contents.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+                let isDir = (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+                guard isDir else { continue }
+
+                let sampleId = dir.lastPathComponent
+                // Skip hidden directories
+                guard !sampleId.hasPrefix(".") else { continue }
+
+                // Look for classification.kreport
+                let kreportURL = dir.appendingPathComponent("classification.kreport")
+                guard fm.fileExists(atPath: kreportURL.path) else { continue }
+
+                let rows = try parseKreport(at: kreportURL, sampleId: sampleId)
+                allRows.append(contentsOf: rows)
+            }
+
+            return allRows
+        }
+
+        /// Parses a single kreport file into classification rows.
+        ///
+        /// Flattens the taxonomy tree produced by `KreportParser`, excluding
+        /// the root node (taxId 1) and the unclassified pseudo-node.
+        func parseKreport(
+            at kreportURL: URL,
+            sampleId: String
+        ) throws -> [Kraken2ClassificationRow] {
+            let tree = try KreportParser.parse(url: kreportURL)
+
+            return tree.allNodes().compactMap { node -> Kraken2ClassificationRow? in
+                // Exclude root (taxId 1) and unclassified nodes
+                guard node.taxId != 1, node.rank != .unclassified else { return nil }
+                return Kraken2ClassificationRow(
+                    sample: sampleId,
+                    taxonName: node.name,
+                    taxId: node.taxId,
+                    rank: node.rank.code,
+                    rankDisplayName: node.rank.displayName,
+                    readsDirect: node.readsDirect,
+                    readsClade: node.readsClade,
+                    percentage: node.fractionClade * 100.0
+                )
+            }
+        }
+
+        // MARK: - Post-Build Cleanup
+
+        /// Removes Kraken2 intermediate files while preserving kreport and the database.
+        ///
+        /// Removes per-sample: `classification.kraken`, `classification.kraken.idx.sqlite`.
+        /// Keeps: `classification.kreport`, `classification-result.json`, `kraken2.sqlite`.
+        private func performCleanup(resultURL: URL) {
+            let fm = FileManager.default
+            var freedBytes: Int64 = 0
+
+            guard let sampleDirs = try? fm.contentsOfDirectory(
+                at: resultURL,
+                includingPropertiesForKeys: [.isDirectoryKey]
+            ) else { return }
+
+            for dir in sampleDirs {
+                let isDir = (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+                guard isDir else { continue }
+                let name = dir.lastPathComponent
+                guard !name.hasPrefix(".") else { continue }
+
+                // Remove raw Kraken2 output file
+                let krakenOutput = dir.appendingPathComponent("classification.kraken")
+                if let size = fileSize(krakenOutput) {
+                    try? fm.removeItem(at: krakenOutput)
+                    freedBytes += size
+                }
+
+                // Remove Kraken2 index SQLite file
+                let krakenIndex = dir.appendingPathComponent("classification.kraken.idx.sqlite")
+                if let size = fileSize(krakenIndex) {
+                    try? fm.removeItem(at: krakenIndex)
+                    freedBytes += size
+                }
+            }
+
+            if !globalOptions.quiet {
+                print("Cleanup complete. Freed \(formatBytes(freedBytes))")
+            }
+        }
+
+        private func fileSize(_ url: URL) -> Int64? {
+            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            return Int64(size)
+        }
+
+        private func formatBytes(_ bytes: Int64) -> String {
+            let formatter = ByteCountFormatter()
+            formatter.countStyle = .file
+            return formatter.string(fromByteCount: bytes)
         }
     }
 }

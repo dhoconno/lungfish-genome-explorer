@@ -278,6 +278,79 @@ final class BuildDbCommandTests: XCTestCase {
                       "esviritu.sqlite should be preserved")
     }
 
+    // MARK: - Kraken2 Tests
+
+    /// Verifies that the command parses kreport files, builds the SQLite database,
+    /// and produces the expected sample and row counts.
+    func testBuildDbKraken2() async throws {
+        let tmpDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let fixtureDir = findFixtureDir("kraken2-mini")
+        let resultDir = tmpDir.appendingPathComponent("kraken2")
+        try FileManager.default.copyItem(at: fixtureDir, to: resultDir)
+
+        var cmd = try BuildDbCommand.Kraken2Subcommand.parse([resultDir.path, "-q"])
+        try await cmd.run()
+
+        let dbURL = resultDir.appendingPathComponent("kraken2.sqlite")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dbURL.path),
+                      "Database file should exist after build")
+
+        let db = try Kraken2Database(at: dbURL)
+        let samples = try db.fetchSamples()
+        XCTAssertEqual(samples.count, 3, "Should have 3 samples")
+
+        let allSampleIds = samples.map(\.sample).sorted()
+        XCTAssertEqual(allSampleIds, ["SRR35517702", "SRR35517703", "SRR35517705"])
+
+        let allRows = try db.fetchRows(samples: allSampleIds)
+        XCTAssertGreaterThan(allRows.count, 0, "Should have classification rows")
+
+        // Verify metadata
+        let meta = try db.fetchMetadata()
+        XCTAssertEqual(meta["tool"], "kraken2")
+        XCTAssertNotNil(meta["created_at"])
+    }
+
+    /// Verifies that Kraken2 cleanup removes .kraken and .kraken.idx.sqlite
+    /// files while preserving kreport and result JSON.
+    func testKraken2CleanupRemovesIntermediateFiles() async throws {
+        let tmpDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let fixtureDir = findFixtureDir("kraken2-mini")
+        let resultDir = tmpDir.appendingPathComponent("kraken2")
+        try FileManager.default.copyItem(at: fixtureDir, to: resultDir)
+
+        let fm = FileManager.default
+
+        // Create fake intermediate files that cleanup should remove
+        let sampleDir = resultDir.appendingPathComponent("SRR35517702")
+        let krakenOutput = sampleDir.appendingPathComponent("classification.kraken")
+        let krakenIndex = sampleDir.appendingPathComponent("classification.kraken.idx.sqlite")
+        fm.createFile(atPath: krakenOutput.path, contents: Data("kraken output".utf8))
+        fm.createFile(atPath: krakenIndex.path, contents: Data("kraken index".utf8))
+
+        // Run build-db (cleanup enabled by default)
+        var cmd = try BuildDbCommand.Kraken2Subcommand.parse([resultDir.path, "-q"])
+        try await cmd.run()
+
+        // Verify intermediate files are removed
+        XCTAssertFalse(fm.fileExists(atPath: krakenOutput.path),
+                       "classification.kraken should be removed by cleanup")
+        XCTAssertFalse(fm.fileExists(atPath: krakenIndex.path),
+                       "classification.kraken.idx.sqlite should be removed by cleanup")
+
+        // Verify kreport and result JSON are preserved
+        XCTAssertTrue(fm.fileExists(atPath: sampleDir.appendingPathComponent("classification.kreport").path),
+                      "classification.kreport should be preserved")
+        XCTAssertTrue(fm.fileExists(atPath: sampleDir.appendingPathComponent("classification-result.json").path),
+                      "classification-result.json should be preserved")
+        XCTAssertTrue(fm.fileExists(atPath: resultDir.appendingPathComponent("kraken2.sqlite").path),
+                      "kraken2.sqlite should be preserved")
+    }
+
     /// Verifies that --no-cleanup preserves all intermediate directories.
     func testTaxTriageNoCleanupPreservesAll() async throws {
         let tmpDir = try makeTempDir()
