@@ -2012,35 +2012,52 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             self.inspectorController?.viewModel.documentSectionViewModel.batchManifestStatus = .notCached
 
         } else if dirName.hasPrefix("esviritu") {
-            guard let manifest = MetagenomicsBatchResultStore.loadEsViritu(from: batchURL) else {
-                logger.error("displayBatchGroup: No EsViritu batch manifest in '\(dirName, privacy: .public)'")
-                let alert = NSAlert()
-                alert.messageText = "Failed to Load Batch EsViritu"
-                alert.informativeText = "Could not find a batch manifest in '\(dirName)'. The batch may be incomplete."
-                alert.alertStyle = .warning
-                alert.addButton(withTitle: "OK")
-                if let window = self.view.window ?? NSApp.keyWindow {
-                    alert.beginSheetModal(for: window)
+            // Check for SQLite database first — faster than parsing per-sample files.
+            let dbURL = batchURL.appendingPathComponent("esviritu.sqlite")
+            if FileManager.default.fileExists(atPath: dbURL.path),
+               let db = try? EsVirituDatabase(at: dbURL) {
+                viewerController.displayEsVirituFromDatabase(db: db, resultURL: batchURL)
+                if let evVC = viewerController.esVirituViewController {
+                    self.inspectorController?.updateClassifierSampleState(
+                        pickerState: evVC.samplePickerState,
+                        entries: evVC.sampleEntries,
+                        strippedPrefix: evVC.strippedPrefix,
+                        metadata: nil,
+                        attachments: BundleAttachmentStore(bundleURL: batchURL)
+                    )
                 }
-                return
-            }
-            viewerController.displayEsVirituBatch(
-                batchURL: batchURL,
-                manifest: manifest,
-                projectURL: projectURL ?? batchURL
-            )
-            if let esVirituVC = viewerController.esVirituViewController {
-                self.inspectorController?.updateClassifierSampleState(
-                    pickerState: esVirituVC.samplePickerState,
-                    entries: esVirituVC.sampleEntries,
-                    strippedPrefix: esVirituVC.strippedPrefix,
-                    metadata: nil,
-                    attachments: BundleAttachmentStore(bundleURL: batchURL)
+            } else {
+                // Fall through to existing manifest path.
+                guard let manifest = MetagenomicsBatchResultStore.loadEsViritu(from: batchURL) else {
+                    logger.error("displayBatchGroup: No EsViritu batch manifest in '\(dirName, privacy: .public)'")
+                    let alert = NSAlert()
+                    alert.messageText = "Failed to Load Batch EsViritu"
+                    alert.informativeText = "Could not find a batch manifest in '\(dirName)'. The batch may be incomplete."
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: "OK")
+                    if let window = self.view.window ?? NSApp.keyWindow {
+                        alert.beginSheetModal(for: window)
+                    }
+                    return
+                }
+                viewerController.displayEsVirituBatch(
+                    batchURL: batchURL,
+                    manifest: manifest,
+                    projectURL: projectURL ?? batchURL
                 )
+                if let esVirituVC = viewerController.esVirituViewController {
+                    self.inspectorController?.updateClassifierSampleState(
+                        pickerState: esVirituVC.samplePickerState,
+                        entries: esVirituVC.sampleEntries,
+                        strippedPrefix: esVirituVC.strippedPrefix,
+                        metadata: nil,
+                        attachments: BundleAttachmentStore(bundleURL: batchURL)
+                    )
+                }
             }
             // Build params from the first sample's EsViritu result sidecar.
             var esVirituParams: [String: String] = [:]
-            if let firstSample = manifest.samples.first {
+            if let firstSample = MetagenomicsBatchResultStore.loadEsViritu(from: batchURL)?.samples.first {
                 let sampleResultDir = batchURL.appendingPathComponent(firstSample.resultDirectory)
                 if let sampleResult = try? LungfishWorkflow.EsVirituResult.load(from: sampleResultDir) {
                     let cfg = sampleResult.config
@@ -2055,13 +2072,15 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                     if !runtimeStr.isEmpty { esVirituParams["Runtime (first sample)"] = runtimeStr }
                 }
             }
-            let sourceSamples = resolveBatchSourceSamples(manifest.samples, projectURL: projectURL)
-            self.inspectorController?.updateBatchOperationDetails(
-                tool: "EsViritu",
-                parameters: esVirituParams,
-                timestamp: manifest.header.createdAt,
-                sourceSamples: sourceSamples
-            )
+            if let manifest = MetagenomicsBatchResultStore.loadEsViritu(from: batchURL) {
+                let sourceSamples = resolveBatchSourceSamples(manifest.samples, projectURL: projectURL)
+                self.inspectorController?.updateBatchOperationDetails(
+                    tool: "EsViritu",
+                    parameters: esVirituParams,
+                    timestamp: manifest.header.createdAt,
+                    sourceSamples: sourceSamples
+                )
+            }
             if let esVirituVC = viewerController.esVirituViewController {
                 self.inspectorController?.viewModel.documentSectionViewModel.batchManifestStatus =
                     esVirituVC.didLoadFromManifestCache ? .cached : .building

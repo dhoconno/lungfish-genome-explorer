@@ -664,6 +664,137 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         recomputeUniqueReadsButton.isHidden = false
     }
 
+    // MARK: - SQLite Database Mode
+
+    /// The SQLite database backing this VC when loaded via `configureFromDatabase`.
+    private var esVirituDatabase: EsVirituDatabase?
+
+    /// Configures this VC from a pre-built SQLite database instead of parsing
+    /// per-sample files or manifest caches.
+    ///
+    /// Sets `isBatchMode = true` so the existing sample selection and filter
+    /// paths operate correctly. Populates `allBatchRows`, sample entries,
+    /// and BAM lookups from the database, then shows the batch table.
+    public func configureFromDatabase(_ db: EsVirituDatabase) {
+        self.esVirituDatabase = db
+        self.isBatchMode = true
+
+        // Fetch all samples from the DB.
+        let sampleList = (try? db.fetchSamples()) ?? []
+        let sampleIds = sampleList.map(\.sample).sorted()
+
+        // Build sample entries for the Inspector picker.
+        sampleEntries = sampleIds.map { sid in
+            let count = sampleList.first(where: { $0.sample == sid })?.detectionCount ?? 0
+            return EsVirituSampleEntry(
+                id: sid,
+                displayName: FASTQDisplayNameResolver.resolveDisplayName(sampleId: sid, projectURL: nil),
+                detectedVirusCount: count
+            )
+        }
+        samplePickerState = ClassifierSamplePickerState(allSamples: Set(sampleIds))
+
+        // Load ALL rows from the DB (filtering by selection happens in applyBatchSampleFilter).
+        reloadFromDatabase()
+
+        // Wire batch table callbacks (same pattern as configureBatch).
+        batchTableView.metadataColumns.isMultiSampleMode = true
+        batchTableView.onRowSelected = { [weak self] row in
+            guard let self else { return }
+            self.actionBar.updateInfoText("1 row selected")
+            // Show the detail pane for the selected virus+sample combination.
+            let key = "\(row.sample)\t\(row.assembly)"
+            if let assembly = self.batchAssemblyLookup[key] {
+                let batchBAMURL = self.batchBAMLookup[row.sample]
+                let batchBAMIndexURL = self.batchBAMIndexLookup[row.sample]
+                let savedBAMURL = self.bamURL
+                let savedBAMIndexURL = self.bamIndexURL
+                self.bamURL = batchBAMURL
+                self.bamIndexURL = batchBAMIndexURL
+                self.showAssemblyDetail(assembly)
+                self.bamURL = savedBAMURL
+                self.bamIndexURL = savedBAMIndexURL
+            }
+        }
+        batchTableView.onMultipleRowsSelected = { [weak self] rows in
+            guard let self else { return }
+            self.actionBar.updateInfoText("\(rows.count) rows selected")
+            self.showMultiSelectionPlaceholder(count: rows.count)
+        }
+        batchTableView.onSelectionCleared = { [weak self] in
+            guard let self else { return }
+            self.actionBar.updateInfoText("Select a virus to view details")
+            self.hideMultiSelectionPlaceholder()
+        }
+
+        // Show batch UI, hide single-sample UI.
+        detectionTableView.isHidden = true
+        batchTableView.isHidden = false
+
+        summaryBar.updateBatch(sampleCount: sampleEntries.count, totalDetections: allBatchRows.count)
+
+        applyBatchSampleFilter()
+
+        logger.info("configureFromDatabase: loaded \(self.allBatchRows.count) rows across \(sampleIds.count) samples from SQLite")
+    }
+
+    /// Loads all rows from the SQLite database into `allBatchRows`.
+    ///
+    /// Fetches every sample's rows (selection filtering is done by `applyBatchSampleFilter`).
+    /// Groups per-contig `EsVirituDetectionRow`s by (sample, assembly) to produce
+    /// `BatchEsVirituRow`s. Also populates `batchBAMLookup` and `batchBAMIndexLookup`
+    /// from DB columns.
+    private func reloadFromDatabase() {
+        guard let db = esVirituDatabase else { return }
+
+        let allSampleIds = sampleEntries.map(\.id)
+        let dbRows = (try? db.fetchRows(samples: allSampleIds)) ?? []
+
+        // Group by (sample, assembly) to aggregate per-contig rows.
+        var grouped: [String: [EsVirituDetectionRow]] = [:]
+        for row in dbRows {
+            let key = "\(row.sample)\t\(row.assembly)"
+            grouped[key, default: []].append(row)
+        }
+
+        var batchRows: [BatchEsVirituRow] = []
+        for (_, group) in grouped {
+            guard let first = group.first else { continue }
+            let totalReads = group.reduce(0) { $0 + $1.readCount }
+            let totalUniqueReads = group.reduce(0) { $0 + ($1.uniqueReads ?? 0) }
+            let totalCoveredBases = group.reduce(0) { $0 + ($1.coveredBases ?? 0) }
+            let assemblyLen = first.assemblyLength ?? 1
+            let breadth = assemblyLen > 0 ? Double(totalCoveredBases) / Double(assemblyLen) : 0
+            let coverageValues = group.compactMap(\.meanCoverage)
+            let avgDepth = coverageValues.isEmpty ? 0.0 :
+                coverageValues.reduce(0, +) / Double(coverageValues.count)
+
+            batchRows.append(BatchEsVirituRow(
+                sample: first.sample,
+                virusName: first.virusName,
+                family: first.family ?? "",
+                assembly: first.assembly,
+                readCount: totalReads,
+                uniqueReads: totalUniqueReads,
+                rpkmf: first.rpkmf ?? 0,
+                coverageBreadth: breadth,
+                coverageDepth: avgDepth
+            ))
+        }
+
+        // Resolve BAM paths from DB columns.
+        for row in dbRows {
+            if let bamPath = row.bamPath, !bamPath.isEmpty {
+                batchBAMLookup[row.sample] = URL(fileURLWithPath: bamPath)
+            }
+            if let bamIndexPath = row.bamIndexPath, !bamIndexPath.isEmpty {
+                batchBAMIndexLookup[row.sample] = URL(fileURLWithPath: bamIndexPath)
+            }
+        }
+
+        allBatchRows = batchRows
+    }
+
     /// Saves a `EsVirituBatchAggregatedManifest` to `<batchURL>/esviritu-batch-aggregated.json`.
     ///
     /// Called on first open (slow path) so subsequent opens can load from cache.
