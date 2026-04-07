@@ -68,6 +68,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     // MARK: - Data
 
+    /// The SQLite database backing this view (when opened from a pre-built DB).
+    private var taxTriageDatabase: TaxTriageDatabase?
+
     /// The TaxTriage result driving this view.
     private(set) var taxTriageResult: TaxTriageResult?
 
@@ -2683,6 +2686,150 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         } catch {
             logger.warning("Failed to update TaxTriage batch manifest: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    // MARK: - SQLite Database Mode
+
+    /// Configures this VC from a pre-built SQLite database instead of parsing
+    /// per-sample files or manifest caches.
+    ///
+    /// Sets `isBatchGroupMode = true` so the existing sample selection and filter
+    /// paths operate correctly. Populates `allBatchGroupRows`, sample entries,
+    /// and BAM lookups from the database, then shows the flat table.
+    public func configureFromDatabase(_ db: TaxTriageDatabase) {
+        self.taxTriageDatabase = db
+        self.isBatchGroupMode = true
+
+        // Fetch all samples from the DB.
+        let sampleList = (try? db.fetchSamples()) ?? []
+        sampleIds = sampleList.map(\.sample).sorted()
+
+        // Build sample entries for the Inspector picker.
+        sampleEntries = sampleIds.map { sid in
+            let count = sampleList.first(where: { $0.sample == sid })?.organismCount ?? 0
+            return TaxTriageSampleEntry(
+                id: sid,
+                displayName: FASTQDisplayNameResolver.resolveDisplayName(sampleId: sid, projectURL: nil),
+                organismCount: count
+            )
+        }
+        samplePickerState = ClassifierSamplePickerState(allSamples: Set(sampleIds))
+
+        // Load ALL rows from the DB (filtering by selection happens in applyBatchGroupFilter).
+        reloadFromDatabase()
+
+        // Wire batch flat table callbacks (same pattern as configureBatchGroup).
+        batchFlatTableView.metadataColumns.isMultiSampleMode = true
+        batchFlatTableView.onRowSelected = { [weak self] row in
+            guard let self else { return }
+            self.actionBar.updateInfoText("1 row selected")
+            self.hideMultiSelectionPlaceholder()
+            self.selectedBatchSampleId = row.sample
+            self.selectedBatchOrganismName = row.organism
+
+            guard let sampleId = row.sample,
+                  let bamURL = self.bamFilesBySample[sampleId] else {
+                self.miniBAMController?.clear()
+                return
+            }
+            let bamIndexURL = resolveBamIndex(for: bamURL, allOutputFiles: [])
+            if let accessions = self.accessions(for: row), !accessions.isEmpty {
+                if accessions.contains(where: { self.accessionLengths[$0] == nil }) {
+                    self.parseBamReferenceLengths(bamURL: bamURL, indexURL: bamIndexURL)
+                }
+                if let resolvedAccession = accessions.first(where: { self.accessionLengths[$0] != nil }),
+                   let contigLength = self.accessionLengths[resolvedAccession] {
+                    self.miniBAMController?.displayContig(
+                        bamURL: bamURL,
+                        contig: resolvedAccession,
+                        contigLength: contigLength,
+                        indexURL: bamIndexURL
+                    )
+                    self.miniBAMController?.view.isHidden = false
+                } else {
+                    self.miniBAMController?.clear()
+                }
+            } else {
+                self.miniBAMController?.clear()
+            }
+        }
+        batchFlatTableView.onMultipleRowsSelected = { [weak self] rows in
+            guard let self else { return }
+            self.actionBar.updateInfoText("\(rows.count) rows selected")
+            self.showMultiSelectionPlaceholder(count: rows.count)
+            self.selectedBatchSampleId = nil
+            self.selectedBatchOrganismName = nil
+        }
+        batchFlatTableView.onSelectionCleared = { [weak self] in
+            guard let self else { return }
+            self.actionBar.updateInfoText("Select an organism to view details")
+            self.hideMultiSelectionPlaceholder()
+            self.selectedBatchSampleId = nil
+            self.selectedBatchOrganismName = nil
+            self.miniBAMController?.clear()
+        }
+
+        // Show flat table, hide single-result UI.
+        sampleFilterControl.isHidden = true
+        blastDrawer.isHidden = true
+        organismTableView.isHidden = true
+        batchOverviewView.isHidden = true
+        batchFlatTableView.isHidden = false
+
+        // Show the organism search field.
+        organismSearchField.isHidden = false
+        sampleFilterHeightConstraint?.constant = 24
+        sampleFilterTopSpacingConstraint?.constant = 4
+        sampleFilterBottomSpacingConstraint?.constant = 4
+
+        summaryBar.updateBatch(sampleCount: sampleEntries.count, totalOrganisms: allBatchGroupRows.count)
+
+        applyBatchGroupFilter()
+
+        logger.info("configureFromDatabase: loaded \(self.allBatchGroupRows.count) rows across \(self.sampleIds.count) samples from SQLite")
+    }
+
+    /// Loads all rows from the SQLite database into `allBatchGroupRows`.
+    ///
+    /// Fetches every sample's rows (selection filtering is done by `applyBatchGroupFilter`).
+    /// Also populates `uniqueReadsByKey` and `bamFilesBySample` from DB columns.
+    private func reloadFromDatabase() {
+        guard let db = taxTriageDatabase else { return }
+
+        let dbRows = (try? db.fetchRows(samples: sampleIds)) ?? []
+
+        var metrics: [TaxTriageMetric] = []
+        var uniqueReadsLookup: [String: Int] = [:]
+
+        for row in dbRows {
+            let metric = TaxTriageMetric(
+                sample: row.sample,
+                taxId: row.taxId,
+                organism: row.organism,
+                reads: row.readsAligned,
+                abundance: row.pctReads,
+                coverageBreadth: row.coverageBreadth,
+                coverageDepth: row.meanDepth,
+                tassScore: row.tassScore,
+                confidence: row.confidence
+            )
+            metrics.append(metric)
+
+            // Pre-populate unique reads (no background BAM computation needed).
+            let key = "\(row.sample)\t\(row.organism)"
+            if let uniqueReads = row.uniqueReads {
+                uniqueReadsLookup[key] = uniqueReads
+            }
+
+            // Resolve BAM paths from DB columns.
+            if let bamPath = row.bamPath, !bamPath.isEmpty {
+                let bamURL = URL(fileURLWithPath: bamPath)
+                bamFilesBySample[row.sample] = bamURL
+            }
+        }
+
+        batchFlatTableView.uniqueReadsByKey = uniqueReadsLookup
+        allBatchGroupRows = metrics
     }
 
     /// Filters `allBatchGroupRows` by the samples selected in `samplePickerState`

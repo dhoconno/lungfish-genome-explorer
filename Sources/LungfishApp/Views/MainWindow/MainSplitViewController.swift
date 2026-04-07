@@ -2068,18 +2068,34 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             }
 
         } else if dirName.hasPrefix("taxtriage") {
-            viewerController.displayTaxTriageBatch(
-                batchURL: batchURL,
-                projectURL: projectURL ?? batchURL
-            )
-            if let taxTriageVC = viewerController.taxTriageViewController {
-                self.inspectorController?.updateClassifierSampleState(
-                    pickerState: taxTriageVC.samplePickerState,
-                    entries: taxTriageVC.sampleEntries,
-                    strippedPrefix: taxTriageVC.strippedPrefix,
-                    metadata: nil,
-                    attachments: BundleAttachmentStore(bundleURL: batchURL)
+            // Check for SQLite database first — faster than parsing per-sample files.
+            let dbURL = batchURL.appendingPathComponent("taxtriage.sqlite")
+            if FileManager.default.fileExists(atPath: dbURL.path),
+               let db = try? TaxTriageDatabase(at: dbURL) {
+                viewerController.displayTaxTriageFromDatabase(db: db, resultURL: batchURL)
+                if let ttVC = viewerController.taxTriageViewController {
+                    self.inspectorController?.updateClassifierSampleState(
+                        pickerState: ttVC.samplePickerState,
+                        entries: ttVC.sampleEntries,
+                        strippedPrefix: ttVC.strippedPrefix,
+                        metadata: nil,
+                        attachments: BundleAttachmentStore(bundleURL: batchURL)
+                    )
+                }
+            } else {
+                viewerController.displayTaxTriageBatch(
+                    batchURL: batchURL,
+                    projectURL: projectURL ?? batchURL
                 )
+                if let taxTriageVC = viewerController.taxTriageViewController {
+                    self.inspectorController?.updateClassifierSampleState(
+                        pickerState: taxTriageVC.samplePickerState,
+                        entries: taxTriageVC.sampleEntries,
+                        strippedPrefix: taxTriageVC.strippedPrefix,
+                        metadata: nil,
+                        attachments: BundleAttachmentStore(bundleURL: batchURL)
+                    )
+                }
             }
 
             // Load TaxTriage result sidecar for provenance.
