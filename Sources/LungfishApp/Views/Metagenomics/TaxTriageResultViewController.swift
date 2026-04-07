@@ -1832,6 +1832,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                     let cacheURL = batchURL.appendingPathComponent("batch-unique-reads.json")
                     self.persistBatchUniqueReadsCache(to: cacheURL)
                 }
+
+                // Update the materialized batch manifest with the new unique reads values
+                // so future opens get fully-populated rows from the manifest cache.
+                self.updateBatchManifestUniqueReads()
             }
         }
     }
@@ -2288,69 +2292,119 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
             }
 
-        for subdir in subdirs {
-            let sampleId = subdir.lastPathComponent
+        // --- Fast path: load from materialized manifest if available ---
+        let manifestLoaded: Bool
+        if let manifest = MetagenomicsBatchResultStore.loadTaxTriageBatchManifest(from: batchURL) {
+            logger.info("configureBatchGroup: loading \(manifest.cachedRows.count) rows from manifest (skipping per-sample parse)")
+            manifestLoaded = true
 
-            // Try to locate a TASS confidence metrics file.
-            // Prefer *.organisms.report.txt, then multiqc_confidences.txt, then *.tsv.
-            var metricsURL: URL?
-            if let listing = try? FileManager.default.contentsOfDirectory(atPath: subdir.path) {
-                // 1. Preferred: *.organisms.report.txt or multiqc_confidences.txt
-                let preferred = listing.first(where: {
-                    $0.hasSuffix(".organisms.report.txt") || $0 == "multiqc_confidences.txt"
-                })
-                if let preferred {
-                    metricsURL = subdir.appendingPathComponent(preferred)
-                } else {
-                    // 2. Fallback: any .tsv that could be a metrics file
-                    let tsv = listing.first(where: { $0.hasSuffix(".tsv") })
-                    if let tsv {
-                        metricsURL = subdir.appendingPathComponent(tsv)
-                    }
-                }
+            // Reconstruct TaxTriageMetric values from cached rows.
+            for cachedRow in manifest.cachedRows {
+                let metric = TaxTriageMetric(
+                    sample: cachedRow.sample.isEmpty ? nil : cachedRow.sample,
+                    taxId: nil,
+                    organism: cachedRow.organism,
+                    rank: nil,
+                    reads: cachedRow.reads,
+                    abundance: cachedRow.abundance,
+                    coverageBreadth: cachedRow.coverageBreadth,
+                    coverageDepth: cachedRow.coverageDepth,
+                    tassScore: cachedRow.tassScore,
+                    confidence: cachedRow.confidence,
+                    additionalFields: [:],
+                    sourceLineNumber: nil
+                )
+                allRows.append(metric)
             }
 
-            guard let metricsURL else {
-                logger.warning("configureBatchGroup: no metrics file for \(sampleId, privacy: .public) in \(subdir.path, privacy: .public)")
-                continue
-            }
-
-            do {
-                var parsed = try TaxTriageMetricsParser.parse(url: metricsURL)
-
-                // Tag any metrics that lack a sample field with this subdir's name.
-                parsed = parsed.map { m in
-                    guard m.sample == nil || m.sample!.isEmpty else { return m }
-                    return TaxTriageMetric(
-                        sample: sampleId,
-                        taxId: m.taxId,
-                        organism: m.organism,
-                        rank: m.rank,
-                        reads: m.reads,
-                        abundance: m.abundance,
-                        coverageBreadth: m.coverageBreadth,
-                        coverageDepth: m.coverageDepth,
-                        tassScore: m.tassScore,
-                        confidence: m.confidence,
-                        additionalFields: m.additionalFields,
-                        sourceLineNumber: m.sourceLineNumber
-                    )
-                }
-
-                allRows.append(contentsOf: parsed)
-
+            // Reconstruct sample entries from manifest sampleIds.
+            for sampleId in manifest.sampleIds {
                 let displayName = FASTQDisplayNameResolver.resolveDisplayName(
                     sampleId: sampleId, projectURL: projectURL)
-                let count = Set(parsed.map(\.organism)).count
+                let count = Set(manifest.cachedRows.filter { $0.sample == sampleId }.map(\.organism)).count
                 entries.append(TaxTriageSampleEntry(
                     id: sampleId,
                     displayName: displayName,
                     organismCount: count
                 ))
-            } catch {
-                logger.error(
-                    "configureBatchGroup: failed to parse \(metricsURL.lastPathComponent, privacy: .public) for \(sampleId, privacy: .public): \(error.localizedDescription, privacy: .public)"
-                )
+            }
+
+            // Populate uniqueReads from manifest rows that already have them.
+            for cachedRow in manifest.cachedRows {
+                guard let uniqueReads = cachedRow.uniqueReads else { continue }
+                let key = "\(cachedRow.sample)\t\(cachedRow.organism)"
+                batchFlatTableView.uniqueReadsByKey[key] = uniqueReads
+                let normalized = normalizedOrganismName(cachedRow.organism)
+                perSampleDeduplicatedReadCounts[normalized, default: [:]][cachedRow.sample] = uniqueReads
+            }
+        } else {
+            manifestLoaded = false
+
+            // --- Slow path: parse per-sample files ---
+            for subdir in subdirs {
+                let sampleId = subdir.lastPathComponent
+
+                // Try to locate a TASS confidence metrics file.
+                // Prefer *.organisms.report.txt, then multiqc_confidences.txt, then *.tsv.
+                var metricsURL: URL?
+                if let listing = try? FileManager.default.contentsOfDirectory(atPath: subdir.path) {
+                    // 1. Preferred: *.organisms.report.txt or multiqc_confidences.txt
+                    let preferred = listing.first(where: {
+                        $0.hasSuffix(".organisms.report.txt") || $0 == "multiqc_confidences.txt"
+                    })
+                    if let preferred {
+                        metricsURL = subdir.appendingPathComponent(preferred)
+                    } else {
+                        // 2. Fallback: any .tsv that could be a metrics file
+                        let tsv = listing.first(where: { $0.hasSuffix(".tsv") })
+                        if let tsv {
+                            metricsURL = subdir.appendingPathComponent(tsv)
+                        }
+                    }
+                }
+
+                guard let metricsURL else {
+                    logger.warning("configureBatchGroup: no metrics file for \(sampleId, privacy: .public) in \(subdir.path, privacy: .public)")
+                    continue
+                }
+
+                do {
+                    var parsed = try TaxTriageMetricsParser.parse(url: metricsURL)
+
+                    // Tag any metrics that lack a sample field with this subdir's name.
+                    parsed = parsed.map { m in
+                        guard m.sample == nil || m.sample!.isEmpty else { return m }
+                        return TaxTriageMetric(
+                            sample: sampleId,
+                            taxId: m.taxId,
+                            organism: m.organism,
+                            rank: m.rank,
+                            reads: m.reads,
+                            abundance: m.abundance,
+                            coverageBreadth: m.coverageBreadth,
+                            coverageDepth: m.coverageDepth,
+                            tassScore: m.tassScore,
+                            confidence: m.confidence,
+                            additionalFields: m.additionalFields,
+                            sourceLineNumber: m.sourceLineNumber
+                        )
+                    }
+
+                    allRows.append(contentsOf: parsed)
+
+                    let displayName = FASTQDisplayNameResolver.resolveDisplayName(
+                        sampleId: sampleId, projectURL: projectURL)
+                    let count = Set(parsed.map(\.organism)).count
+                    entries.append(TaxTriageSampleEntry(
+                        id: sampleId,
+                        displayName: displayName,
+                        organismCount: count
+                    ))
+                } catch {
+                    logger.error(
+                        "configureBatchGroup: failed to parse \(metricsURL.lastPathComponent, privacy: .public) for \(sampleId, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                    )
+                }
             }
         }
 
@@ -2463,47 +2517,60 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         applyBatchGroupFilter()
 
-        // Load persisted unique reads from two sources (in priority order):
-        //
-        // 1. Batch-level cache: <batchDir>/batch-unique-reads.json — written after any
-        //    computation pass over the whole batch. Instant load, no per-sample I/O.
-        //
-        // 2. Per-sample taxtriage-result.json sidecars — each subdir may have persisted
-        //    per-sample dedup counts from a previous single-result configure() call.
-        //
-        // After loading, syncUniqueReadsToFlatTable() propagates the counts to the table.
-
-        // 1. Try batch-level cache first.
-        let batchCacheURL = batchURL.appendingPathComponent("batch-unique-reads.json")
-        if let batchCache = loadBatchUniqueReadsCache(from: batchCacheURL) {
-            // Merge into batchFlatTableView directly (keys are "sampleId\torganism").
-            for (key, count) in batchCache {
-                batchFlatTableView.uniqueReadsByKey[key] = count
-            }
-            // Also back-fill perSampleDeduplicatedReadCounts for consistency.
-            for (key, count) in batchCache {
-                let parts = key.split(separator: "\t", maxSplits: 1)
-                guard parts.count == 2 else { continue }
-                let sampleId = String(parts[0])
-                let organism  = String(parts[1])
-                let normalized = normalizedOrganismName(organism)
-                perSampleDeduplicatedReadCounts[normalized, default: [:]][sampleId] = count
-            }
+        if manifestLoaded {
+            // Manifest fast-path: uniqueReads were already loaded from cachedRows above.
+            // Still call syncUniqueReadsToFlatTable so the table column is populated.
+            syncUniqueReadsToFlatTable()
         } else {
-            // 2. Fall back to per-sample taxtriage-result.json sidecars.
-            for subdir in subdirs {
-                guard let loaded = try? TaxTriageResult.load(from: subdir),
-                      let perSample = loaded.perSampleDeduplicatedReadCounts else { continue }
-                for (normalizedOrganism, sampleCounts) in perSample {
-                    for (sampleId, count) in sampleCounts {
-                        perSampleDeduplicatedReadCounts[normalizedOrganism, default: [:]][sampleId] = count
+            // Slow path: load persisted unique reads from two sources (in priority order):
+            //
+            // 1. Batch-level cache: <batchDir>/batch-unique-reads.json — written after any
+            //    computation pass over the whole batch. Instant load, no per-sample I/O.
+            //
+            // 2. Per-sample taxtriage-result.json sidecars — each subdir may have persisted
+            //    per-sample dedup counts from a previous single-result configure() call.
+            //
+            // After loading, syncUniqueReadsToFlatTable() propagates the counts to the table.
+
+            // 1. Try batch-level cache first.
+            let batchCacheURL = batchURL.appendingPathComponent("batch-unique-reads.json")
+            if let batchCache = loadBatchUniqueReadsCache(from: batchCacheURL) {
+                // Merge into batchFlatTableView directly (keys are "sampleId\torganism").
+                for (key, count) in batchCache {
+                    batchFlatTableView.uniqueReadsByKey[key] = count
+                }
+                // Also back-fill perSampleDeduplicatedReadCounts for consistency.
+                for (key, count) in batchCache {
+                    let parts = key.split(separator: "\t", maxSplits: 1)
+                    guard parts.count == 2 else { continue }
+                    let sampleId = String(parts[0])
+                    let organism  = String(parts[1])
+                    let normalized = normalizedOrganismName(organism)
+                    perSampleDeduplicatedReadCounts[normalized, default: [:]][sampleId] = count
+                }
+            } else {
+                // 2. Fall back to per-sample taxtriage-result.json sidecars.
+                for subdir in subdirs {
+                    guard let loaded = try? TaxTriageResult.load(from: subdir),
+                          let perSample = loaded.perSampleDeduplicatedReadCounts else { continue }
+                    for (normalizedOrganism, sampleCounts) in perSample {
+                        for (sampleId, count) in sampleCounts {
+                            perSampleDeduplicatedReadCounts[normalizedOrganism, default: [:]][sampleId] = count
+                        }
                     }
                 }
             }
-        }
 
-        // Populate unique reads column from any already-persisted per-sample dedup counts.
-        syncUniqueReadsToFlatTable()
+            // Populate unique reads column from any already-persisted per-sample dedup counts.
+            syncUniqueReadsToFlatTable()
+
+            // Save a materialized manifest so subsequent opens skip per-sample file I/O.
+            saveBatchManifest(
+                batchURL: batchURL,
+                rows: allRows,
+                sampleIds: entries.map(\.id)
+            )
+        }
 
         // Schedule background computation of per-sample unique reads directly from each
         // sample's BAM. This produces exact dedup counts instead of proportional estimates.
@@ -2523,6 +2590,72 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
 
         logger.info("TaxTriage batch group configured: \(allRows.count) rows from \(entries.count) samples")
+    }
+
+    /// Saves a `TaxTriageBatchManifest` to `<batchURL>/taxtriage-batch-manifest.json`.
+    ///
+    /// Called on first open (slow path) so subsequent opens can load from cache.
+    private func saveBatchManifest(batchURL: URL, rows: [TaxTriageMetric], sampleIds: [String]) {
+        let cachedRows = rows.map { metric in
+            TaxTriageBatchManifest.CachedRow(
+                sample: metric.sample ?? "",
+                organism: metric.organism,
+                tassScore: metric.tassScore,
+                reads: metric.reads,
+                uniqueReads: batchFlatTableView.uniqueReadsByKey["\(metric.sample ?? "")\t\(metric.organism)"],
+                confidence: metric.confidence,
+                coverageBreadth: metric.coverageBreadth,
+                coverageDepth: metric.coverageDepth,
+                abundance: metric.abundance
+            )
+        }
+        let manifest = TaxTriageBatchManifest(
+            createdAt: Date(),
+            sampleCount: sampleIds.count,
+            sampleIds: sampleIds,
+            cachedRows: cachedRows
+        )
+        do {
+            try MetagenomicsBatchResultStore.saveTaxTriageBatchManifest(manifest, to: batchURL)
+            logger.info("Saved TaxTriage batch manifest with \(cachedRows.count) rows")
+        } catch {
+            logger.warning("Failed to save TaxTriage batch manifest: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Updates the persisted `TaxTriageBatchManifest` with newly computed unique reads values.
+    ///
+    /// Called from background unique-reads computation completion so that future opens
+    /// get the fully-populated manifest including exact BAM-derived counts.
+    private func updateBatchManifestUniqueReads() {
+        guard let batchURL = batchGroupURL,
+              var manifest = MetagenomicsBatchResultStore.loadTaxTriageBatchManifest(from: batchURL)
+        else { return }
+
+        for i in manifest.cachedRows.indices {
+            let row = manifest.cachedRows[i]
+            let key = "\(row.sample)\t\(row.organism)"
+            if let uniqueReads = batchFlatTableView.uniqueReadsByKey[key] {
+                manifest.cachedRows[i] = TaxTriageBatchManifest.CachedRow(
+                    sample: row.sample,
+                    organism: row.organism,
+                    tassScore: row.tassScore,
+                    reads: row.reads,
+                    uniqueReads: uniqueReads,
+                    confidence: row.confidence,
+                    coverageBreadth: row.coverageBreadth,
+                    coverageDepth: row.coverageDepth,
+                    abundance: row.abundance
+                )
+            }
+        }
+
+        do {
+            try MetagenomicsBatchResultStore.saveTaxTriageBatchManifest(manifest, to: batchURL)
+            logger.info("Updated TaxTriage batch manifest with unique reads")
+        } catch {
+            logger.warning("Failed to update TaxTriage batch manifest: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Filters `allBatchGroupRows` by the samples selected in `samplePickerState`

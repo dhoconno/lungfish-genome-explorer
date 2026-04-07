@@ -61,6 +61,57 @@ struct TaxTriageCrossRef: Codable, Sendable, Equatable {
     let batchSampleCount: Int
 }
 
+/// Materialized flat-table cache for a TaxTriage batch group.
+///
+/// Written once after the first parse of per-sample result files. Subsequent opens load
+/// this manifest directly, skipping all per-sample file I/O for near-instant display.
+struct TaxTriageBatchManifest: Codable, Sendable {
+    static let filename = "taxtriage-batch-manifest.json"
+
+    struct CachedRow: Codable, Sendable {
+        let sample: String
+        let organism: String
+        let tassScore: Double
+        let reads: Int
+        /// Nil until background BAM-based unique reads computation has completed.
+        let uniqueReads: Int?
+        let confidence: String?
+        let coverageBreadth: Double?
+        let coverageDepth: Double?
+        let abundance: Double?
+    }
+
+    let createdAt: Date
+    let sampleCount: Int
+    let sampleIds: [String]
+    var cachedRows: [CachedRow]
+}
+
+/// Materialized flat-table cache for an EsViritu batch run.
+///
+/// Written once after the first parse of per-sample detection files. Subsequent opens load
+/// this manifest directly, skipping all per-sample file I/O for near-instant display.
+struct EsVirituBatchAggregatedManifest: Codable, Sendable {
+    static let filename = "esviritu-batch-aggregated.json"
+
+    struct CachedRow: Codable, Sendable {
+        let sample: String
+        let virusName: String
+        let family: String?
+        let assembly: String
+        let readCount: Int
+        let uniqueReads: Int
+        let rpkmf: Double
+        let coverageBreadth: Double
+        let coverageDepth: Double
+    }
+
+    let createdAt: Date
+    let sampleCount: Int
+    let sampleIds: [String]
+    var cachedRows: [CachedRow]
+}
+
 enum MetagenomicsBatchResultStore {
     static func saveClassification(
         _ manifest: ClassificationBatchResultManifest,
@@ -124,6 +175,36 @@ enum MetagenomicsBatchResultStore {
                   url.pathExtension == "json" else { return nil }
             return readJSON(TaxTriageCrossRef.self, from: url)
         }
+    }
+
+    // MARK: - TaxTriage Batch Manifest
+
+    static func saveTaxTriageBatchManifest(
+        _ manifest: TaxTriageBatchManifest,
+        to directory: URL
+    ) throws {
+        let url = directory.appendingPathComponent(TaxTriageBatchManifest.filename)
+        try writeJSON(manifest, to: url)
+    }
+
+    static func loadTaxTriageBatchManifest(from directory: URL) -> TaxTriageBatchManifest? {
+        let url = directory.appendingPathComponent(TaxTriageBatchManifest.filename)
+        return readJSON(TaxTriageBatchManifest.self, from: url)
+    }
+
+    // MARK: - EsViritu Batch Aggregated Manifest
+
+    static func saveEsVirituBatchAggregatedManifest(
+        _ manifest: EsVirituBatchAggregatedManifest,
+        to directory: URL
+    ) throws {
+        let url = directory.appendingPathComponent(EsVirituBatchAggregatedManifest.filename)
+        try writeJSON(manifest, to: url)
+    }
+
+    static func loadEsVirituBatchAggregatedManifest(from directory: URL) -> EsVirituBatchAggregatedManifest? {
+        let url = directory.appendingPathComponent(EsVirituBatchAggregatedManifest.filename)
+        return readJSON(EsVirituBatchAggregatedManifest.self, from: url)
     }
 
     private static func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {

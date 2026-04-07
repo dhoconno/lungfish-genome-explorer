@@ -2477,3 +2477,302 @@ final class TaxTriageBatchRegressionTests: XCTestCase {
         XCTAssertEqual(vc.testAccessionLengths["MT192765.1"], 29_829)
     }
 }
+
+// MARK: - TaxTriageBatchManifest Tests
+
+final class TaxTriageBatchManifestTests: XCTestCase {
+
+    // MARK: - Round-trip
+
+    func testTaxTriageBatchManifestRoundTrip() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TaxTriageManifestRoundTrip-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let row1 = TaxTriageBatchManifest.CachedRow(
+            sample: "sampleA",
+            organism: "Escherichia coli",
+            tassScore: 0.95,
+            reads: 12000,
+            uniqueReads: 11000,
+            confidence: "high",
+            coverageBreadth: 85.3,
+            coverageDepth: 12.7,
+            abundance: 0.45
+        )
+        let row2 = TaxTriageBatchManifest.CachedRow(
+            sample: "sampleB",
+            organism: "Homo sapiens",
+            tassScore: 0.40,
+            reads: 500,
+            uniqueReads: nil,
+            confidence: "low",
+            coverageBreadth: nil,
+            coverageDepth: nil,
+            abundance: nil
+        )
+        let manifest = TaxTriageBatchManifest(
+            createdAt: Date(timeIntervalSince1970: 1_000_000),
+            sampleCount: 2,
+            sampleIds: ["sampleA", "sampleB"],
+            cachedRows: [row1, row2]
+        )
+
+        try MetagenomicsBatchResultStore.saveTaxTriageBatchManifest(manifest, to: tmpDir)
+
+        let manifestURL = tmpDir.appendingPathComponent(TaxTriageBatchManifest.filename)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: manifestURL.path))
+
+        let loaded = MetagenomicsBatchResultStore.loadTaxTriageBatchManifest(from: tmpDir)
+        XCTAssertNotNil(loaded)
+        XCTAssertEqual(loaded?.sampleCount, 2)
+        XCTAssertEqual(loaded?.sampleIds, ["sampleA", "sampleB"])
+        XCTAssertEqual(loaded?.cachedRows.count, 2)
+
+        let loadedRow1 = loaded?.cachedRows[0]
+        XCTAssertEqual(loadedRow1?.sample, "sampleA")
+        XCTAssertEqual(loadedRow1?.organism, "Escherichia coli")
+        XCTAssertEqual(loadedRow1?.tassScore ?? 0, 0.95, accuracy: 0.0001)
+        XCTAssertEqual(loadedRow1?.reads, 12000)
+        XCTAssertEqual(loadedRow1?.uniqueReads, 11000)
+        XCTAssertEqual(loadedRow1?.confidence, "high")
+        XCTAssertEqual(loadedRow1?.coverageBreadth ?? 0, 85.3, accuracy: 0.0001)
+        XCTAssertEqual(loadedRow1?.coverageDepth ?? 0, 12.7, accuracy: 0.0001)
+        XCTAssertEqual(loadedRow1?.abundance ?? 0, 0.45, accuracy: 0.0001)
+
+        let loadedRow2 = loaded?.cachedRows[1]
+        XCTAssertEqual(loadedRow2?.sample, "sampleB")
+        XCTAssertNil(loadedRow2?.uniqueReads, "nil uniqueReads should round-trip as nil")
+        XCTAssertNil(loadedRow2?.coverageBreadth)
+        XCTAssertNil(loadedRow2?.coverageDepth)
+        XCTAssertNil(loadedRow2?.abundance)
+    }
+
+    // MARK: - Built on first load
+
+    @MainActor
+    func testTaxTriageBatchManifestBuiltOnFirstLoad() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TaxTriageManifestFirstLoad-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        // Create a minimal per-sample subdirectory with a TASS metrics TSV.
+        let sampleDir = tmpDir.appendingPathComponent("sampleX")
+        try FileManager.default.createDirectory(at: sampleDir, withIntermediateDirectories: true)
+
+        let tsvContent = """
+        organism\treads\ttass_score\tconfidence
+        SARS-CoV-2\t5000\t0.88\thigh
+        """
+        try tsvContent.write(to: sampleDir.appendingPathComponent("sampleX.tsv"), atomically: true, encoding: .utf8)
+
+        let manifestURL = tmpDir.appendingPathComponent(TaxTriageBatchManifest.filename)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: manifestURL.path),
+                       "Precondition: manifest must not exist before first load")
+
+        let vc = TaxTriageResultViewController()
+        vc.loadViewIfNeeded()
+        vc.configureBatchGroup(batchURL: tmpDir, projectURL: tmpDir)
+
+        // After configureBatchGroup the manifest should have been created on disk.
+        XCTAssertTrue(FileManager.default.fileExists(atPath: manifestURL.path),
+                      "Manifest should be written to disk after first configureBatchGroup call")
+
+        let manifest = MetagenomicsBatchResultStore.loadTaxTriageBatchManifest(from: tmpDir)
+        XCTAssertNotNil(manifest, "Saved manifest should be loadable")
+        XCTAssertEqual(manifest?.sampleIds, ["sampleX"])
+    }
+
+    // MARK: - Loads instantly from manifest
+
+    @MainActor
+    func testTaxTriageBatchManifestLoadsInstantly() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TaxTriageManifestInstantLoad-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        // Pre-write a manifest.
+        let cachedRow = TaxTriageBatchManifest.CachedRow(
+            sample: "sampleY",
+            organism: "Influenza A",
+            tassScore: 0.77,
+            reads: 3000,
+            uniqueReads: 2800,
+            confidence: "medium",
+            coverageBreadth: 60.0,
+            coverageDepth: 8.5,
+            abundance: 0.10
+        )
+        let manifest = TaxTriageBatchManifest(
+            createdAt: Date(),
+            sampleCount: 1,
+            sampleIds: ["sampleY"],
+            cachedRows: [cachedRow]
+        )
+        try MetagenomicsBatchResultStore.saveTaxTriageBatchManifest(manifest, to: tmpDir)
+
+        // Create a sentinel per-sample subdir with a marker file.
+        // If the VC reads this file it would parse TSV — we use an unrecognized filename
+        // so that TaxTriageMetricsParser would return nothing. Any parsed rows would indicate
+        // the slow path ran (rows would be empty since the file can't be parsed).
+        let sampleDir = tmpDir.appendingPathComponent("sampleY")
+        try FileManager.default.createDirectory(at: sampleDir, withIntermediateDirectories: true)
+        try "NOT_A_TSV".write(
+            to: sampleDir.appendingPathComponent("data.bin"),
+            atomically: true, encoding: .utf8
+        )
+
+        let vc = TaxTriageResultViewController()
+        vc.loadViewIfNeeded()
+        vc.configureBatchGroup(batchURL: tmpDir, projectURL: tmpDir)
+
+        // The manifest fast-path should have loaded the pre-cached row.
+        XCTAssertEqual(vc.allBatchGroupRows.count, 1,
+                       "Row should have been loaded from manifest, not from missing TSV")
+        XCTAssertEqual(vc.allBatchGroupRows.first?.organism, "Influenza A")
+        XCTAssertEqual(vc.allBatchGroupRows.first?.reads, 3000)
+
+        // unique reads should have been loaded from manifest.
+        let key = "sampleY\tInfluenza A"
+        XCTAssertEqual(vc.batchFlatTableView.uniqueReadsByKey[key], 2800,
+                       "Unique reads should be populated from the manifest")
+    }
+}
+
+// MARK: - EsVirituBatchAggregatedManifest Tests
+
+final class EsVirituBatchAggregatedManifestTests: XCTestCase {
+
+    // MARK: - Round-trip
+
+    func testEsVirituBatchManifestRoundTrip() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EsVirituManifestRoundTrip-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let row1 = EsVirituBatchAggregatedManifest.CachedRow(
+            sample: "sampleA",
+            virusName: "SARS-CoV-2",
+            family: "Coronaviridae",
+            assembly: "GCF_009858895.2",
+            readCount: 5000,
+            uniqueReads: 4800,
+            rpkmf: 123.4,
+            coverageBreadth: 0.95,
+            coverageDepth: 45.2
+        )
+        let row2 = EsVirituBatchAggregatedManifest.CachedRow(
+            sample: "sampleB",
+            virusName: "Influenza A",
+            family: nil,
+            assembly: "GCF_000865085.1",
+            readCount: 800,
+            uniqueReads: 0,
+            rpkmf: 15.0,
+            coverageBreadth: 0.30,
+            coverageDepth: 5.0
+        )
+        let aggregated = EsVirituBatchAggregatedManifest(
+            createdAt: Date(timeIntervalSince1970: 2_000_000),
+            sampleCount: 2,
+            sampleIds: ["sampleA", "sampleB"],
+            cachedRows: [row1, row2]
+        )
+
+        try MetagenomicsBatchResultStore.saveEsVirituBatchAggregatedManifest(aggregated, to: tmpDir)
+
+        let manifestURL = tmpDir.appendingPathComponent(EsVirituBatchAggregatedManifest.filename)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: manifestURL.path))
+
+        let loaded = MetagenomicsBatchResultStore.loadEsVirituBatchAggregatedManifest(from: tmpDir)
+        XCTAssertNotNil(loaded)
+        XCTAssertEqual(loaded?.sampleCount, 2)
+        XCTAssertEqual(loaded?.sampleIds, ["sampleA", "sampleB"])
+        XCTAssertEqual(loaded?.cachedRows.count, 2)
+
+        let loadedRow1 = loaded?.cachedRows[0]
+        XCTAssertEqual(loadedRow1?.sample, "sampleA")
+        XCTAssertEqual(loadedRow1?.virusName, "SARS-CoV-2")
+        XCTAssertEqual(loadedRow1?.family, "Coronaviridae")
+        XCTAssertEqual(loadedRow1?.assembly, "GCF_009858895.2")
+        XCTAssertEqual(loadedRow1?.readCount, 5000)
+        XCTAssertEqual(loadedRow1?.uniqueReads, 4800)
+        XCTAssertEqual(loadedRow1?.rpkmf ?? 0, 123.4, accuracy: 0.001)
+        XCTAssertEqual(loadedRow1?.coverageBreadth ?? 0, 0.95, accuracy: 0.0001)
+        XCTAssertEqual(loadedRow1?.coverageDepth ?? 0, 45.2, accuracy: 0.001)
+
+        let loadedRow2 = loaded?.cachedRows[1]
+        XCTAssertEqual(loadedRow2?.sample, "sampleB")
+        XCTAssertNil(loadedRow2?.family, "nil family should round-trip as nil")
+        XCTAssertEqual(loadedRow2?.uniqueReads, 0)
+    }
+
+    // MARK: - Built on first load
+
+    func testEsVirituBatchManifestBuiltOnFirstLoad() throws {
+        // This test verifies the store round-trip used by the "slow path" of configureBatch:
+        // rows parsed from per-sample files are saved as a manifest so subsequent opens skip
+        // per-sample I/O. We exercise the store directly because EsVirituResultViewController
+        // requires a full AppKit window context and EsVirituDetectionParser needs 23-column TSV.
+
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EsVirituManifestFirstLoad-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let sampleId = "virusTest"
+        let aggregatedManifestURL = tmpDir.appendingPathComponent(EsVirituBatchAggregatedManifest.filename)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: aggregatedManifestURL.path),
+                       "Precondition: aggregated manifest must not exist before first save")
+
+        // Simulate what saveEsVirituBatchAggregatedManifest does after slow-path parsing.
+        let rows: [BatchEsVirituRow] = [
+            BatchEsVirituRow(
+                sample: sampleId,
+                virusName: "SARS-CoV-2",
+                family: "Coronaviridae",
+                assembly: "GCF_009858895.2",
+                readCount: 4000,
+                uniqueReads: 0,
+                rpkmf: 98.5,
+                coverageBreadth: 0.92,
+                coverageDepth: 42.0
+            )
+        ]
+
+        let cachedRows = rows.map { row in
+            EsVirituBatchAggregatedManifest.CachedRow(
+                sample: row.sample,
+                virusName: row.virusName,
+                family: row.family,
+                assembly: row.assembly,
+                readCount: row.readCount,
+                uniqueReads: row.uniqueReads,
+                rpkmf: row.rpkmf,
+                coverageBreadth: row.coverageBreadth,
+                coverageDepth: row.coverageDepth
+            )
+        }
+        let aggregated = EsVirituBatchAggregatedManifest(
+            createdAt: Date(),
+            sampleCount: 1,
+            sampleIds: [sampleId],
+            cachedRows: cachedRows
+        )
+        try MetagenomicsBatchResultStore.saveEsVirituBatchAggregatedManifest(aggregated, to: tmpDir)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: aggregatedManifestURL.path),
+                      "Aggregated manifest should be written to disk after slow-path save")
+
+        let reloaded = MetagenomicsBatchResultStore.loadEsVirituBatchAggregatedManifest(from: tmpDir)
+        XCTAssertNotNil(reloaded)
+        XCTAssertEqual(reloaded?.sampleIds, [sampleId])
+        XCTAssertEqual(reloaded?.cachedRows.count, 1)
+        XCTAssertEqual(reloaded?.cachedRows.first?.virusName, "SARS-CoV-2")
+        XCTAssertEqual(reloaded?.cachedRows.first?.assembly, "GCF_009858895.2")
+    }
+}

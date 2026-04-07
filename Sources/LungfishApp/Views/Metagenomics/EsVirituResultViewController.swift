@@ -446,82 +446,139 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         var bamLookup: [String: URL] = [:]
         var bamIndexLookup: [String: URL] = [:]
 
-        for sample in manifest.samples {
-            let resultDir = batchURL.appendingPathComponent(sample.resultDirectory)
+        // --- Fast path: load from materialized aggregated manifest if available ---
+        let aggregatedManifestLoaded: Bool
+        if let aggregated = MetagenomicsBatchResultStore.loadEsVirituBatchAggregatedManifest(from: batchURL) {
+            logger.info("configureBatch: loading \(aggregated.cachedRows.count) rows from aggregated manifest (skipping per-sample parse)")
+            aggregatedManifestLoaded = true
 
-            // The detection file is named <sampleId>.detected_virus.info.tsv
-            // Fall back to searching for any *.detected_virus.info.tsv in the directory.
-            var detectionURL: URL?
-            let primaryCandidate = resultDir.appendingPathComponent(
-                "\(sample.sampleId).detected_virus.info.tsv"
-            )
-            if FileManager.default.fileExists(atPath: primaryCandidate.path) {
-                detectionURL = primaryCandidate
-            } else {
-                // Try any .detected_virus.info.tsv in the directory
-                if let contents = try? FileManager.default.contentsOfDirectory(atPath: resultDir.path) {
-                    let match = contents.first { $0.hasSuffix(".detected_virus.info.tsv") }
-                    if let match {
-                        detectionURL = resultDir.appendingPathComponent(match)
+            for cachedRow in aggregated.cachedRows {
+                let row = BatchEsVirituRow(
+                    sample: cachedRow.sample,
+                    virusName: cachedRow.virusName,
+                    family: cachedRow.family,
+                    assembly: cachedRow.assembly,
+                    readCount: cachedRow.readCount,
+                    uniqueReads: cachedRow.uniqueReads,
+                    rpkmf: cachedRow.rpkmf,
+                    coverageBreadth: cachedRow.coverageBreadth,
+                    coverageDepth: cachedRow.coverageDepth
+                )
+                allRows.append(row)
+            }
+
+            for sampleId in aggregated.sampleIds {
+                let displayName = FASTQDisplayNameResolver.resolveDisplayName(
+                    sampleId: sampleId, projectURL: projectURL)
+                let count = Set(aggregated.cachedRows.filter { $0.sample == sampleId }.map(\.assembly)).count
+                entries.append(EsVirituSampleEntry(
+                    id: sampleId,
+                    displayName: displayName,
+                    detectedVirusCount: count
+                ))
+            }
+
+            // Locate BAM files for batch unique-reads callbacks (still needed for BAM viewer).
+            for sample in manifest.samples {
+                let resultDir = batchURL.appendingPathComponent(sample.resultDirectory)
+                let tempDir = resultDir.appendingPathComponent("\(sample.sampleId)_temp")
+                let bamName = "\(sample.sampleId).third.filt.sorted.bam"
+                let candidateBAM = tempDir.appendingPathComponent(bamName)
+                if FileManager.default.fileExists(atPath: candidateBAM.path) {
+                    bamLookup[sample.sampleId] = candidateBAM
+                    if let idx = resolveBamIndex(for: candidateBAM) {
+                        bamIndexLookup[sample.sampleId] = idx
+                    }
+                }
+            }
+        } else {
+            aggregatedManifestLoaded = false
+
+            // --- Slow path: parse per-sample detection files ---
+            for sample in manifest.samples {
+                let resultDir = batchURL.appendingPathComponent(sample.resultDirectory)
+
+                // The detection file is named <sampleId>.detected_virus.info.tsv
+                // Fall back to searching for any *.detected_virus.info.tsv in the directory.
+                var detectionURL: URL?
+                let primaryCandidate = resultDir.appendingPathComponent(
+                    "\(sample.sampleId).detected_virus.info.tsv"
+                )
+                if FileManager.default.fileExists(atPath: primaryCandidate.path) {
+                    detectionURL = primaryCandidate
+                } else {
+                    // Try any .detected_virus.info.tsv in the directory
+                    if let contents = try? FileManager.default.contentsOfDirectory(atPath: resultDir.path) {
+                        let match = contents.first { $0.hasSuffix(".detected_virus.info.tsv") }
+                        if let match {
+                            detectionURL = resultDir.appendingPathComponent(match)
+                        }
+                    }
+                }
+
+                guard let detectionURL else {
+                    logger.warning("No detection file found for sample \(sample.sampleId, privacy: .public) in \(resultDir.path, privacy: .public)")
+                    continue
+                }
+
+                do {
+                    let detections = try EsVirituDetectionParser.parse(url: detectionURL)
+                    let assemblies = EsVirituDetectionParser.groupByAssembly(detections)
+
+                    // Load persisted unique read counts from the sample's result directory sidecar.
+                    let cacheURL = resultDir.appendingPathComponent(Self.uniqueReadsSidecar)
+                    let uniqueByAssembly: [String: Int]
+                    if let data = try? Data(contentsOf: cacheURL),
+                       let cache = try? JSONDecoder().decode(UniqueReadCache.self, from: data) {
+                        uniqueByAssembly = cache.byAssembly
+                    } else {
+                        uniqueByAssembly = [:]
+                    }
+
+                    let rows = BatchEsVirituRow.fromAssemblies(
+                        assemblies, sampleId: sample.sampleId,
+                        uniqueReadsByAssembly: uniqueByAssembly
+                    )
+                    allRows.append(contentsOf: rows)
+
+                    // Build assembly lookup keyed by "sampleId\tassemblyAccession"
+                    for asm in assemblies {
+                        let key = "\(sample.sampleId)\t\(asm.assembly)"
+                        assemblyLookup[key] = asm
+                    }
+
+                    let displayName = FASTQDisplayNameResolver.resolveDisplayName(
+                        sampleId: sample.sampleId, projectURL: projectURL)
+                    entries.append(EsVirituSampleEntry(
+                        id: sample.sampleId,
+                        displayName: displayName,
+                        detectedVirusCount: assemblies.count
+                    ))
+                } catch {
+                    logger.error(
+                        "Failed to parse detection file for \(sample.sampleId, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                    )
+                }
+
+                // Locate the EsViritu BAM for this sample (from --keep True).
+                // Typical path: <resultDir>/<sampleId>_temp/<sampleId>.third.filt.sorted.bam
+                let tempDir = resultDir.appendingPathComponent("\(sample.sampleId)_temp")
+                let bamName = "\(sample.sampleId).third.filt.sorted.bam"
+                let candidateBAM = tempDir.appendingPathComponent(bamName)
+                if FileManager.default.fileExists(atPath: candidateBAM.path) {
+                    bamLookup[sample.sampleId] = candidateBAM
+                    if let idx = resolveBamIndex(for: candidateBAM) {
+                        bamIndexLookup[sample.sampleId] = idx
                     }
                 }
             }
 
-            guard let detectionURL else {
-                logger.warning("No detection file found for sample \(sample.sampleId, privacy: .public) in \(resultDir.path, privacy: .public)")
-                continue
-            }
-
-            do {
-                let detections = try EsVirituDetectionParser.parse(url: detectionURL)
-                let assemblies = EsVirituDetectionParser.groupByAssembly(detections)
-
-                // Load persisted unique read counts from the sample's result directory sidecar.
-                let cacheURL = resultDir.appendingPathComponent(Self.uniqueReadsSidecar)
-                let uniqueByAssembly: [String: Int]
-                if let data = try? Data(contentsOf: cacheURL),
-                   let cache = try? JSONDecoder().decode(UniqueReadCache.self, from: data) {
-                    uniqueByAssembly = cache.byAssembly
-                } else {
-                    uniqueByAssembly = [:]
-                }
-
-                let rows = BatchEsVirituRow.fromAssemblies(
-                    assemblies, sampleId: sample.sampleId,
-                    uniqueReadsByAssembly: uniqueByAssembly
-                )
-                allRows.append(contentsOf: rows)
-
-                // Build assembly lookup keyed by "sampleId\tassemblyAccession"
-                for asm in assemblies {
-                    let key = "\(sample.sampleId)\t\(asm.assembly)"
-                    assemblyLookup[key] = asm
-                }
-
-                let displayName = FASTQDisplayNameResolver.resolveDisplayName(
-                    sampleId: sample.sampleId, projectURL: projectURL)
-                entries.append(EsVirituSampleEntry(
-                    id: sample.sampleId,
-                    displayName: displayName,
-                    detectedVirusCount: assemblies.count
-                ))
-            } catch {
-                logger.error(
-                    "Failed to parse detection file for \(sample.sampleId, privacy: .public): \(error.localizedDescription, privacy: .public)"
-                )
-            }
-
-            // Locate the EsViritu BAM for this sample (from --keep True).
-            // Typical path: <resultDir>/<sampleId>_temp/<sampleId>.third.filt.sorted.bam
-            let tempDir = resultDir.appendingPathComponent("\(sample.sampleId)_temp")
-            let bamName = "\(sample.sampleId).third.filt.sorted.bam"
-            let candidateBAM = tempDir.appendingPathComponent(bamName)
-            if FileManager.default.fileExists(atPath: candidateBAM.path) {
-                bamLookup[sample.sampleId] = candidateBAM
-                if let idx = resolveBamIndex(for: candidateBAM) {
-                    bamIndexLookup[sample.sampleId] = idx
-                }
-            }
+            // Save materialized manifest so subsequent opens skip per-sample file I/O.
+            saveEsVirituBatchAggregatedManifest(
+                batchURL: batchURL,
+                rows: allRows,
+                sampleIds: entries.map(\.id)
+            )
         }
 
         allBatchRows = allRows
@@ -575,9 +632,87 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         applyBatchSampleFilter()
 
         // Schedule background computation of unique reads for any samples that lack them.
-        scheduleBatchUniqueReadComputation()
+        // Skip if the aggregated manifest already has complete unique-reads data.
+        if !aggregatedManifestLoaded || allRows.contains(where: { $0.uniqueReads == 0 }) {
+            scheduleBatchUniqueReadComputation()
+        }
 
         logger.info("EsViritu batch mode configured: \(allRows.count) rows from \(entries.count) samples")
+    }
+
+    /// Saves a `EsVirituBatchAggregatedManifest` to `<batchURL>/esviritu-batch-aggregated.json`.
+    ///
+    /// Called on first open (slow path) so subsequent opens can load from cache.
+    private func saveEsVirituBatchAggregatedManifest(
+        batchURL: URL,
+        rows: [BatchEsVirituRow],
+        sampleIds: [String]
+    ) {
+        let cachedRows = rows.map { row in
+            EsVirituBatchAggregatedManifest.CachedRow(
+                sample: row.sample,
+                virusName: row.virusName,
+                family: row.family,
+                assembly: row.assembly,
+                readCount: row.readCount,
+                uniqueReads: row.uniqueReads,
+                rpkmf: row.rpkmf,
+                coverageBreadth: row.coverageBreadth,
+                coverageDepth: row.coverageDepth
+            )
+        }
+        let aggregated = EsVirituBatchAggregatedManifest(
+            createdAt: Date(),
+            sampleCount: sampleIds.count,
+            sampleIds: sampleIds,
+            cachedRows: cachedRows
+        )
+        do {
+            try MetagenomicsBatchResultStore.saveEsVirituBatchAggregatedManifest(aggregated, to: batchURL)
+            logger.info("Saved EsViritu batch aggregated manifest with \(cachedRows.count) rows")
+        } catch {
+            logger.warning("Failed to save EsViritu batch aggregated manifest: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Updates the persisted `EsVirituBatchAggregatedManifest` with newly computed unique reads.
+    ///
+    /// Called after background unique-reads computation so that future opens get
+    /// fully-populated rows from the manifest cache.
+    private func updateEsVirituBatchAggregatedManifestUniqueReads() {
+        guard let batchURL,
+              var aggregated = MetagenomicsBatchResultStore.loadEsVirituBatchAggregatedManifest(from: batchURL)
+        else { return }
+
+        let updatedRows = allBatchRows
+        let byAssemblyAndSample = Dictionary(
+            uniqueKeysWithValues: updatedRows.map { ("\($0.sample)\t\($0.assembly)", $0.uniqueReads) }
+        )
+
+        for i in aggregated.cachedRows.indices {
+            let row = aggregated.cachedRows[i]
+            let key = "\(row.sample)\t\(row.assembly)"
+            if let uniqueReads = byAssemblyAndSample[key] {
+                aggregated.cachedRows[i] = EsVirituBatchAggregatedManifest.CachedRow(
+                    sample: row.sample,
+                    virusName: row.virusName,
+                    family: row.family,
+                    assembly: row.assembly,
+                    readCount: row.readCount,
+                    uniqueReads: uniqueReads,
+                    rpkmf: row.rpkmf,
+                    coverageBreadth: row.coverageBreadth,
+                    coverageDepth: row.coverageDepth
+                )
+            }
+        }
+
+        do {
+            try MetagenomicsBatchResultStore.saveEsVirituBatchAggregatedManifest(aggregated, to: batchURL)
+            logger.info("Updated EsViritu batch aggregated manifest with unique reads")
+        } catch {
+            logger.warning("Failed to update EsViritu batch aggregated manifest: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Filters `allBatchRows` by the samples selected in `samplePickerState`
@@ -739,6 +874,10 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
                             uniqueByAssembly: snapshotByAssembly,
                             toResultDir: resultDir
                         )
+
+                        // Update the materialized batch aggregated manifest with new unique
+                        // reads so future opens get fully-populated rows from cache.
+                        self.updateEsVirituBatchAggregatedManifestUniqueReads()
                     }
                 }
             }
