@@ -1952,61 +1952,80 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         let projectURL = sidebarController.currentProjectURL ?? DocumentManager.shared.activeProject?.url
 
         if dirName.hasPrefix("kraken2") || dirName.hasPrefix("classification") {
-            guard let manifest = MetagenomicsBatchResultStore.loadClassification(from: batchURL) else {
-                logger.error("displayBatchGroup: No classification batch manifest in '\(dirName, privacy: .public)'")
-                let alert = NSAlert()
-                alert.messageText = "Failed to Load Batch Classification"
-                alert.informativeText = "Could not find a batch manifest in '\(dirName)'. The batch may be incomplete."
-                alert.alertStyle = .warning
-                alert.addButton(withTitle: "OK")
-                if let window = self.view.window ?? NSApp.keyWindow {
-                    alert.beginSheetModal(for: window)
+            // Check for SQLite database first -- faster than parsing per-sample kreport files.
+            let dbURL = batchURL.appendingPathComponent("kraken2.sqlite")
+            if FileManager.default.fileExists(atPath: dbURL.path),
+               let db = try? Kraken2Database(at: dbURL) {
+                viewerController.displayTaxonomyFromDatabase(db: db, resultURL: batchURL)
+                if let taxonomyVC = viewerController.taxonomyViewController {
+                    self.inspectorController?.updateClassifierSampleState(
+                        pickerState: taxonomyVC.samplePickerState,
+                        entries: taxonomyVC.sampleEntries,
+                        strippedPrefix: taxonomyVC.strippedPrefix,
+                        metadata: nil,
+                        attachments: BundleAttachmentStore(bundleURL: batchURL)
+                    )
                 }
-                return
+            } else {
+                // Fall through to existing manifest path.
+                guard let manifest = MetagenomicsBatchResultStore.loadClassification(from: batchURL) else {
+                    logger.error("displayBatchGroup: No classification batch manifest in '\(dirName, privacy: .public)'")
+                    let alert = NSAlert()
+                    alert.messageText = "Failed to Load Batch Classification"
+                    alert.informativeText = "Could not find a batch manifest in '\(dirName)'. The batch may be incomplete."
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: "OK")
+                    if let window = self.view.window ?? NSApp.keyWindow {
+                        alert.beginSheetModal(for: window)
+                    }
+                    return
+                }
+                viewerController.displayTaxonomyBatch(
+                    batchURL: batchURL,
+                    manifest: manifest,
+                    projectURL: projectURL ?? batchURL
+                )
+                if let taxonomyVC = viewerController.taxonomyViewController {
+                    self.inspectorController?.updateClassifierSampleState(
+                        pickerState: taxonomyVC.samplePickerState,
+                        entries: taxonomyVC.sampleEntries,
+                        strippedPrefix: taxonomyVC.strippedPrefix,
+                        metadata: nil,
+                        attachments: BundleAttachmentStore(bundleURL: batchURL)
+                    )
+                }
             }
-            viewerController.displayTaxonomyBatch(
-                batchURL: batchURL,
-                manifest: manifest,
-                projectURL: projectURL ?? batchURL
-            )
-            if let taxonomyVC = viewerController.taxonomyViewController {
-                self.inspectorController?.updateClassifierSampleState(
-                    pickerState: taxonomyVC.samplePickerState,
-                    entries: taxonomyVC.sampleEntries,
-                    strippedPrefix: taxonomyVC.strippedPrefix,
-                    metadata: nil,
-                    attachments: BundleAttachmentStore(bundleURL: batchURL)
+            // Build params starting from the manifest-level fields (if available).
+            if let manifest = MetagenomicsBatchResultStore.loadClassification(from: batchURL) {
+                var params: [String: String] = [
+                    "Database": "\(manifest.databaseName) \(manifest.databaseVersion)".trimmingCharacters(in: .whitespaces),
+                    "Goal": manifest.goal,
+                ]
+                // Augment with per-sample config from the first sample's result sidecar.
+                if let firstSample = manifest.samples.first {
+                    let sampleResultDir = batchURL.appendingPathComponent(firstSample.resultDirectory)
+                    if let sampleResult = try? ClassificationResult.load(from: sampleResultDir) {
+                        let cfg = sampleResult.config
+                        if !sampleResult.toolVersion.isEmpty {
+                            params["Tool Version"] = "Kraken2 \(sampleResult.toolVersion)"
+                        }
+                        params["Confidence"] = String(format: "%.2f", cfg.confidence)
+                        params["Min Hit Groups"] = "\(cfg.minimumHitGroups)"
+                        params["Threads"] = "\(cfg.threads)"
+                        if cfg.memoryMapping { params["Memory Mapping"] = "Yes" }
+                        if cfg.quickMode { params["Quick Mode"] = "Yes" }
+                        let runtimeStr = formatInspectorRuntime(sampleResult.runtime)
+                        if !runtimeStr.isEmpty { params["Runtime (first sample)"] = runtimeStr }
+                    }
+                }
+                let sourceSamples = resolveBatchSourceSamples(manifest.samples, projectURL: projectURL)
+                self.inspectorController?.updateBatchOperationDetails(
+                    tool: "Kraken2",
+                    parameters: params,
+                    timestamp: manifest.header.createdAt,
+                    sourceSamples: sourceSamples
                 )
             }
-            // Build params starting from the manifest-level fields.
-            var params: [String: String] = [
-                "Database": "\(manifest.databaseName) \(manifest.databaseVersion)".trimmingCharacters(in: .whitespaces),
-                "Goal": manifest.goal,
-            ]
-            // Augment with per-sample config from the first sample's result sidecar.
-            if let firstSample = manifest.samples.first {
-                let sampleResultDir = batchURL.appendingPathComponent(firstSample.resultDirectory)
-                if let sampleResult = try? ClassificationResult.load(from: sampleResultDir) {
-                    let cfg = sampleResult.config
-                    if !sampleResult.toolVersion.isEmpty {
-                        params["Tool Version"] = "Kraken2 \(sampleResult.toolVersion)"
-                    }
-                    params["Confidence"] = String(format: "%.2f", cfg.confidence)
-                    params["Min Hit Groups"] = "\(cfg.minimumHitGroups)"
-                    params["Threads"] = "\(cfg.threads)"
-                    if cfg.memoryMapping { params["Memory Mapping"] = "Yes" }
-                    if cfg.quickMode { params["Quick Mode"] = "Yes" }
-                    let runtimeStr = formatInspectorRuntime(sampleResult.runtime)
-                    if !runtimeStr.isEmpty { params["Runtime (first sample)"] = runtimeStr }
-                }
-            }
-            let sourceSamples = resolveBatchSourceSamples(manifest.samples, projectURL: projectURL)
-            self.inspectorController?.updateBatchOperationDetails(
-                tool: "Kraken2",
-                parameters: params,
-                timestamp: manifest.header.createdAt,
-                sourceSamples: sourceSamples
-            )
             // Kraken2 batch always reads from its own per-result sidecars; no separate
             // aggregated manifest is built, so this status is not applicable.
             self.inspectorController?.viewModel.documentSectionViewModel.batchManifestStatus = .notCached

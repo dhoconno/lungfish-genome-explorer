@@ -494,6 +494,89 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         logger.info("Batch mode configured: \(allRows.count) rows from \(entries.count) samples")
     }
 
+    // MARK: - Database-backed Batch Mode
+
+    /// The SQLite database backing this VC when loaded via `configureFromDatabase`.
+    private var kraken2Database: Kraken2Database?
+
+    /// Configures this VC from a pre-built SQLite database instead of parsing
+    /// per-sample kreport files or manifest caches.
+    ///
+    /// Sets `isBatchMode = true` so the existing sample selection and filter
+    /// paths operate correctly. Populates `allBatchRows`, sample entries,
+    /// and picker state from the database, then shows the batch table.
+    public func configureFromDatabase(_ db: Kraken2Database) {
+        self.kraken2Database = db
+        self.isBatchMode = true
+
+        // Fetch all samples from the DB.
+        let sampleList = (try? db.fetchSamples()) ?? []
+        let sampleIds = sampleList.map(\.sample).sorted()
+
+        // Build sample entries for the Inspector picker.
+        sampleEntries = sampleIds.map { sid in
+            let count = sampleList.first(where: { $0.sample == sid })?.taxonCount ?? 0
+            return Kraken2SampleEntry(
+                id: sid,
+                displayName: FASTQDisplayNameResolver.resolveDisplayName(sampleId: sid, projectURL: nil),
+                classifiedReads: count
+            )
+        }
+        samplePickerState = ClassifierSamplePickerState(allSamples: Set(sampleIds))
+
+        // Load ALL rows from the DB (filtering by selection happens in applyBatchSampleFilter).
+        reloadFromDatabase()
+
+        // Wire batch table callbacks (same pattern as configureBatch).
+        batchTableView.metadataColumns.isMultiSampleMode = true
+        batchTableView.onRowSelected = { [weak self] _ in
+            self?.actionBar.updateInfoText("1 row selected")
+        }
+        batchTableView.onMultipleRowsSelected = { [weak self] rows in
+            self?.actionBar.updateInfoText("\(rows.count) rows selected")
+        }
+        batchTableView.onSelectionCleared = { [weak self] in
+            self?.actionBar.updateInfoText("Select a taxon to view details")
+        }
+
+        // Show batch UI, hide single-sample UI.
+        splitView.isHidden = true
+        batchTableView.isHidden = false
+
+        summaryBar.updateBatch(
+            sampleCount: sampleEntries.count,
+            totalRows: allBatchRows.count,
+            databaseName: "kraken2.sqlite"
+        )
+
+        applyBatchSampleFilter()
+
+        logger.info("configureFromDatabase: loaded \(self.allBatchRows.count) rows across \(sampleIds.count) samples from SQLite")
+    }
+
+    /// Loads all rows from the SQLite database into `allBatchRows`.
+    ///
+    /// Fetches every sample's rows (selection filtering is done by `applyBatchSampleFilter`).
+    private func reloadFromDatabase() {
+        guard let db = kraken2Database else { return }
+
+        let allSampleIds = sampleEntries.map(\.id)
+        let dbRows = (try? db.fetchRows(samples: allSampleIds)) ?? []
+
+        allBatchRows = dbRows.map { row in
+            BatchClassificationRow(
+                sample: row.sample,
+                taxonName: row.taxonName,
+                taxId: row.taxId,
+                rank: row.rank ?? "",
+                rankDisplayName: row.rankDisplayName ?? "",
+                readsDirect: row.readsDirect,
+                readsClade: row.readsClade,
+                percentage: row.percentage
+            )
+        }
+    }
+
     /// Filters `allBatchRows` by the samples selected in `samplePickerState`
     /// and reloads the batch table view.
     private func applyBatchSampleFilter() {

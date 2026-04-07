@@ -515,6 +515,59 @@ extension ViewerViewController {
         taxonomyLogger.info("displayTaxonomyBatch: Showing batch browser for '\(batchURL.lastPathComponent, privacy: .public)' with \(manifest.samples.count) samples")
     }
 
+    /// Displays the taxonomy classification browser backed by a pre-built SQLite database.
+    ///
+    /// Creates a ``TaxonomyViewController``, adds it as a child filling the content area,
+    /// and calls ``TaxonomyViewController/configureFromDatabase(_:)`` to populate it from the
+    /// database. Does NOT wire extraction or BLAST callbacks because batch/DB mode uses
+    /// the flat aggregated table, not the per-sample tree.
+    ///
+    /// - Parameters:
+    ///   - db: The `Kraken2Database` to load rows from.
+    ///   - resultURL: The batch result root directory (used for logging).
+    func displayTaxonomyFromDatabase(db: Kraken2Database, resultURL: URL) {
+        hideQuickLookPreview()
+        hideFASTQDatasetView()
+        hideVCFDatasetView()
+        hideFASTACollectionView()
+        hideTaxonomyView()
+        hideEsVirituView()
+        hideTaxTriageView()
+        hideNaoMgsView()
+        hideNvdView()
+        contentMode = .metagenomics
+
+        let controller = TaxonomyViewController()
+        addChild(controller)
+
+        annotationDrawerView?.isHidden = true
+        fastqMetadataDrawerView?.isHidden = true
+
+        // Force loadView() so all subviews exist, then configure BEFORE adding
+        // to the view hierarchy to avoid a one-frame bounce.
+        let taxView = controller.view
+        controller.configureFromDatabase(db)
+        taxView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(taxView)
+
+        NSLayoutConstraint.activate([
+            taxView.topAnchor.constraint(equalTo: view.topAnchor),
+            taxView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            taxView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            taxView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+
+        taxonomyViewController = controller
+
+        enhancedRulerView.isHidden = true
+        viewerView.isHidden = true
+        headerView.isHidden = true
+        statusBar.isHidden = true
+        geneTabBarView.isHidden = true
+
+        taxonomyLogger.info("displayTaxonomyFromDatabase: Showing DB-backed browser for '\(resultURL.lastPathComponent, privacy: .public)'")
+    }
+
     /// Removes the taxonomy classification browser and restores normal viewer components.
     public func hideTaxonomyView() {
         guard let controller = taxonomyViewController else { return }
