@@ -115,6 +115,40 @@ final class TaxTriageDatabaseTests: XCTestCase {
         XCTAssertEqual(try db.fetchSamples().count, 0)
     }
 
+    func testAccessionMapRoundTrip() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbURL = dir.appendingPathComponent("test.sqlite")
+
+        let rows = [makeTestRow(sample: "s1", organism: "Influenza A", tassScore: 0.9, readsAligned: 100,
+                                primaryAccession: "NC_004905.2")]
+        let accessionMap = [
+            TaxTriageAccessionEntry(sample: "s1", organism: "Influenza A",
+                                    accession: "NC_004905.2", description: "segment 5"),
+            TaxTriageAccessionEntry(sample: "s1", organism: "Influenza A",
+                                    accession: "NC_004906.1", description: "segment 8"),
+            TaxTriageAccessionEntry(sample: "s1", organism: "Influenza A",
+                                    accession: "NC_004907.1", description: "segment 7"),
+        ]
+        let db = try TaxTriageDatabase.create(at: dbURL, rows: rows, accessionMap: accessionMap, metadata: [:])
+
+        let accessions = try db.fetchAccessions(sample: "s1", organism: "Influenza A")
+        XCTAssertEqual(accessions.count, 3)
+        XCTAssertTrue(accessions.contains { $0.accession == "NC_004905.2" })
+        XCTAssertTrue(accessions.contains { $0.accession == "NC_004906.1" })
+        XCTAssertEqual(accessions.first { $0.accession == "NC_004905.2" }?.description, "segment 5")
+    }
+
+    func testAccessionMapEmptyForUnknownOrganism() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbURL = dir.appendingPathComponent("test.sqlite")
+
+        let db = try TaxTriageDatabase.create(at: dbURL, rows: [], accessionMap: [], metadata: [:])
+        let accessions = try db.fetchAccessions(sample: "s1", organism: "Unknown")
+        XCTAssertEqual(accessions.count, 0)
+    }
+
     // MARK: - Helpers
 
     private func makeTestRow(

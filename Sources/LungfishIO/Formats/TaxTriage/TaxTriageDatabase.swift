@@ -159,6 +159,23 @@ public struct TaxTriageTaxonomyRow: Sendable {
     }
 }
 
+// MARK: - Accession Map Entry
+
+/// An entry in the accession_map table linking organisms to their reference accessions.
+public struct TaxTriageAccessionEntry: Sendable {
+    public let sample: String
+    public let organism: String
+    public let accession: String
+    public let description: String?
+
+    public init(sample: String, organism: String, accession: String, description: String? = nil) {
+        self.sample = sample
+        self.organism = organism
+        self.accession = accession
+        self.description = description
+    }
+}
+
 // MARK: - TaxTriageDatabase
 
 /// SQLite-backed storage for TaxTriage taxonomy results and run metadata.
@@ -225,6 +242,7 @@ public final class TaxTriageDatabase: @unchecked Sendable {
     public static func create(
         at url: URL,
         rows: [TaxTriageTaxonomyRow],
+        accessionMap: [TaxTriageAccessionEntry] = [],
         metadata: [String: String],
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) throws -> TaxTriageDatabase {
@@ -254,6 +272,9 @@ public final class TaxTriageDatabase: @unchecked Sendable {
             progress?(0.05, "Schema created")
 
             try bulkInsertRows(db: db, rows: rows, progress: progress)
+            progress?(0.75, "Inserting accession map...")
+
+            try bulkInsertAccessionMap(db: db, entries: accessionMap)
             progress?(0.80, "Inserting metadata...")
 
             try insertMetadata(db: db, metadata: metadata)
@@ -318,6 +339,14 @@ public final class TaxTriageDatabase: @unchecked Sendable {
             primary_accession TEXT,
             accession_length INTEGER,
             UNIQUE(sample, organism)
+        );
+
+        CREATE TABLE accession_map (
+            rowid INTEGER PRIMARY KEY,
+            sample TEXT NOT NULL,
+            organism TEXT NOT NULL,
+            accession TEXT NOT NULL,
+            description TEXT
         );
 
         CREATE TABLE metadata (
@@ -513,6 +542,55 @@ public final class TaxTriageDatabase: @unchecked Sendable {
         }
     }
 
+    // MARK: - Bulk Insert Accession Map
+
+    private static func bulkInsertAccessionMap(
+        db: OpaquePointer,
+        entries: [TaxTriageAccessionEntry]
+    ) throws {
+        guard !entries.isEmpty else { return }
+
+        sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
+
+        let insertSQL = """
+        INSERT INTO accession_map (sample, organism, accession, description)
+        VALUES (?, ?, ?, ?)
+        """
+
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, insertSQL, -1, &stmt, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+            throw TaxTriageDatabaseError.insertFailed("Accession map prepare failed: \(msg)")
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        for (i, entry) in entries.enumerated() {
+            sqlite3_reset(stmt)
+            sqlite3_clear_bindings(stmt)
+
+            ttBindText(stmt, 1, entry.sample)
+            ttBindText(stmt, 2, entry.organism)
+            ttBindText(stmt, 3, entry.accession)
+            if let desc = entry.description {
+                ttBindText(stmt, 4, desc)
+            } else {
+                sqlite3_bind_null(stmt, 4)
+            }
+
+            guard sqlite3_step(stmt) == SQLITE_DONE else {
+                let msg = String(cString: sqlite3_errmsg(db))
+                sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+                throw TaxTriageDatabaseError.insertFailed("Accession map row \(i) failed: \(msg)")
+            }
+        }
+
+        guard sqlite3_exec(db, "COMMIT", nil, nil, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw TaxTriageDatabaseError.insertFailed("Accession map commit failed: \(msg)")
+        }
+    }
+
     // MARK: - Indices
 
     private static func createIndices(db: OpaquePointer) throws {
@@ -520,6 +598,7 @@ public final class TaxTriageDatabase: @unchecked Sendable {
             "CREATE INDEX idx_taxonomy_sample ON taxonomy_rows(sample)",
             "CREATE INDEX idx_taxonomy_organism ON taxonomy_rows(organism)",
             "CREATE INDEX idx_tt_tass ON taxonomy_rows(tass_score)",
+            "CREATE INDEX idx_accmap_sample_organism ON accession_map(sample, organism)",
         ]
         for sql in indices {
             guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
@@ -606,6 +685,46 @@ public final class TaxTriageDatabase: @unchecked Sendable {
             let key = String(cString: sqlite3_column_text(stmt, 0))
             let value = String(cString: sqlite3_column_text(stmt, 1))
             results[key] = value
+        }
+        return results
+    }
+
+    /// Returns accession entries for a given sample and organism.
+    ///
+    /// - Parameters:
+    ///   - sample: Sample identifier.
+    ///   - organism: Organism name (raw gcfmap name; may need fuzzy matching on caller side).
+    /// - Returns: Array of ``TaxTriageAccessionEntry`` ordered by accession.
+    public func fetchAccessions(sample: String, organism: String) throws -> [TaxTriageAccessionEntry] {
+        guard let db else { throw TaxTriageDatabaseError.queryFailed("Database not open") }
+
+        let sql = """
+        SELECT sample, organism, accession, description
+        FROM accession_map
+        WHERE sample = ? AND organism = ?
+        ORDER BY accession
+        """
+
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw TaxTriageDatabaseError.queryFailed(msg)
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        ttBindText(stmt, 1, sample)
+        ttBindText(stmt, 2, organism)
+
+        var results: [TaxTriageAccessionEntry] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let desc: String? = sqlite3_column_type(stmt, 3) == SQLITE_NULL
+                ? nil : String(cString: sqlite3_column_text(stmt, 3))
+            results.append(TaxTriageAccessionEntry(
+                sample: String(cString: sqlite3_column_text(stmt, 0)),
+                organism: String(cString: sqlite3_column_text(stmt, 1)),
+                accession: String(cString: sqlite3_column_text(stmt, 2)),
+                description: desc
+            ))
         }
         return results
     }

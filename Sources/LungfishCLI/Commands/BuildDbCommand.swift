@@ -81,10 +81,10 @@ extension BuildDbCommand {
             }
 
             // 2. Parse confidence TSV and resolve BAM/accession data
-            let rows = try parseConfidenceTSV(at: confidenceURL, resultURL: resultURL)
+            let (rows, accessionMap) = try parseConfidenceTSV(at: confidenceURL, resultURL: resultURL)
 
             if !globalOptions.quiet {
-                print("Parsed \(rows.count) taxonomy rows from confidence report")
+                print("Parsed \(rows.count) taxonomy rows, \(accessionMap.count) accession entries from confidence report")
             }
 
             // 3. Build database
@@ -94,7 +94,7 @@ extension BuildDbCommand {
                 "source_dir": resultURL.path,
             ]
 
-            try TaxTriageDatabase.create(at: dbURL, rows: rows, metadata: metadata) { fraction, msg in
+            try TaxTriageDatabase.create(at: dbURL, rows: rows, accessionMap: accessionMap, metadata: metadata) { fraction, msg in
                 if self.globalOptions.outputFormat == .json {
                     let obj: [String: Any] = ["progress": fraction, "message": msg]
                     if let data = try? JSONSerialization.data(withJSONObject: obj),
@@ -184,13 +184,13 @@ extension BuildDbCommand.TaxTriageSubcommand {
     func parseConfidenceTSV(
         at url: URL,
         resultURL: URL
-    ) throws -> [TaxTriageTaxonomyRow] {
+    ) throws -> (rows: [TaxTriageTaxonomyRow], accessionMap: [TaxTriageAccessionEntry]) {
         let content = try String(contentsOf: url, encoding: .utf8)
         let lines = content.components(separatedBy: .newlines)
             .filter { !$0.isEmpty }
 
         guard lines.count >= 2 else {
-            return [] // Header only or empty
+            return (rows: [], accessionMap: []) // Header only or empty
         }
 
         // Parse header to find column indices
@@ -318,7 +318,20 @@ extension BuildDbCommand.TaxTriageSubcommand {
             ))
         }
 
-        return rows
+        // Build accession map entries from gcfmap cache (raw organism names)
+        var accessionEntries: [TaxTriageAccessionEntry] = []
+        for (sampleId, gcfEntries) in gcfmapCache {
+            for entry in gcfEntries {
+                accessionEntries.append(TaxTriageAccessionEntry(
+                    sample: sampleId,
+                    organism: entry.organism,
+                    accession: entry.accession,
+                    description: nil
+                ))
+            }
+        }
+
+        return (rows: rows, accessionMap: accessionEntries)
     }
 
     // MARK: - Column Index Builder
