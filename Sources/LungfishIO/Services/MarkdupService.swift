@@ -146,7 +146,9 @@ public enum MarkdupService {
               let header = String(data: data, encoding: .utf8) else {
             return false
         }
-        return header.contains("ID:samtools.markdup")
+        // samtools 1.23 writes @PG lines with CL: fields; the markdup stage uses
+        // "samtools markdup" in its CL: tag rather than a literal ID:samtools.markdup.
+        return header.contains("samtools markdup")
     }
 
     /// Counts reads in a BAM matching a flag filter, optionally restricted to an accession.
