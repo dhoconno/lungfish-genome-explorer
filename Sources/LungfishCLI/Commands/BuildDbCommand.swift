@@ -74,6 +74,15 @@ private func findSamtools() -> String? {
 /// supplementary (0x800) alignments.
 ///
 /// - Returns: The unique read count, or nil if samtools fails or the BAM is missing.
+/// Computes unique (deduplicated) read count for a specific accession in a BAM file.
+///
+/// Runs `samtools view -F 0x904 <bam> <accession>`, parses SAM output, and deduplicates.
+///
+/// For **paired-end** reads (FLAG & 0x1): counts unique fragment names (QNAMEs).
+/// Each QNAME represents one biological fragment regardless of how many mates align.
+///
+/// For **single-end** reads: deduplicates by position+alignmentEnd+strand fingerprint.
+/// Two reads at the same position, alignment end, and strand are considered duplicates.
 private func computeUniqueReads(
     samtoolsPath: String,
     bamPath: String,
@@ -98,28 +107,55 @@ private func computeUniqueReads(
 
     guard let output = String(data: data, encoding: .utf8) else { return nil }
 
-    var positionGroups: [String: Int] = [:]
-    var totalReads = 0
-
+    // First pass: detect if any reads are paired-end
+    var isPairedEnd = false
+    var lines: [Substring] = []
     for line in output.split(separator: "\n") where !line.hasPrefix("@") {
-        let cols = line.split(separator: "\t", maxSplits: 11)
-        guard cols.count >= 6 else { continue }
-
-        guard let flag = Int(cols[1]),
-              let pos = Int(cols[3]) else { continue }
-
-        let cigar = String(cols[5])
-        let alignEnd = pos + cigarConsumedBases(cigar)
-        let strand = (flag & 0x10) != 0 ? "R" : "F"
-        let key = "\(pos)-\(alignEnd)-\(strand)"
-        positionGroups[key, default: 0] += 1
-        totalReads += 1
+        lines.append(line)
+        if !isPairedEnd {
+            let cols = line.split(separator: "\t", maxSplits: 3)
+            if cols.count >= 2, let flag = Int(cols[1]), (flag & 0x1) != 0 {
+                isPairedEnd = true
+            }
+        }
     }
 
-    let duplicateCount = positionGroups.values.reduce(into: 0) { total, count in
-        if count > 1 { total += count - 1 }
+    guard !lines.isEmpty else { return 0 }
+
+    if isPairedEnd {
+        // Paired-end: count unique QNAMEs (each QNAME = one fragment)
+        var uniqueNames = Set<Substring>()
+        for line in lines {
+            let cols = line.split(separator: "\t", maxSplits: 2)
+            guard !cols.isEmpty else { continue }
+            uniqueNames.insert(cols[0])
+        }
+        return uniqueNames.count
+    } else {
+        // Single-end: deduplicate by position+alignmentEnd+strand fingerprint
+        var positionGroups: [String: Int] = [:]
+        var totalReads = 0
+
+        for line in lines {
+            let cols = line.split(separator: "\t", maxSplits: 11)
+            guard cols.count >= 6 else { continue }
+
+            guard let flag = Int(cols[1]),
+                  let pos = Int(cols[3]) else { continue }
+
+            let cigar = String(cols[5])
+            let alignEnd = pos + cigarConsumedBases(cigar)
+            let strand = (flag & 0x10) != 0 ? "R" : "F"
+            let key = "\(pos)-\(alignEnd)-\(strand)"
+            positionGroups[key, default: 0] += 1
+            totalReads += 1
+        }
+
+        let duplicateCount = positionGroups.values.reduce(into: 0) { total, count in
+            if count > 1 { total += count - 1 }
+        }
+        return max(0, totalReads - duplicateCount)
     }
-    return max(0, totalReads - duplicateCount)
 }
 
 /// Computes the number of reference bases consumed by a CIGAR string.
