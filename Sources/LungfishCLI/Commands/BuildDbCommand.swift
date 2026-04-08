@@ -934,7 +934,11 @@ extension BuildDbCommand {
                 print("Built database at \(dbURL.path) with \(rows.count) rows")
             }
 
-            // 4. Compute unique reads from BAMs and update DB
+            // 4. Relocate BAMs from <sample>/<sample>_temp/ to <sample>/bams/ so the
+            // resolver in updateUniqueReadsInDB and post-cleanup VC can both find them.
+            relocateEsVirituBAMs(resultURL: resultURL)
+
+            // 5. Compute unique reads from BAMs and update DB
             updateUniqueReadsInDB(
                 dbPath: dbURL.path,
                 table: "detection_rows",
@@ -942,9 +946,9 @@ extension BuildDbCommand {
                 accessionCol: "accession",
                 bamPathCol: "bam_path",
                 resultURL: resultURL,
-                bamPathResolver: { resultURL, sample, bamRelPath in
-                    // EsViritu BAM paths are relative to the sample subdirectory
-                    resultURL.appendingPathComponent(sample).appendingPathComponent(bamRelPath).path
+                bamPathResolver: { resultURL, _, bamRelPath in
+                    // EsViritu BAM paths are now full relative paths from the result root.
+                    resultURL.appendingPathComponent(bamRelPath).path
                 },
                 quiet: globalOptions.quiet
             )
@@ -1039,20 +1043,30 @@ extension BuildDbCommand {
                 let pi = parseDouble(fields, colIndex["pi"])
                 let filteredReadsInSample = parseInt(fields, colIndex["filtered_reads_in_sample"])
 
-                // Resolve BAM path
-                let bamRelative = "\(sampleName)_temp/\(sampleName).third.filt.sorted.bam"
-                let bamURL = sampleDir.appendingPathComponent("\(sampleName)_temp")
-                    .appendingPathComponent("\(sampleName).third.filt.sorted.bam")
+                // Resolve BAM path in persistent `bams/` location (relative to result root).
+                let bamBasename = "\(sampleName).third.filt.sorted.bam"
+                let bamRelative = "\(sampleName)/bams/\(bamBasename)"
+
+                // BAM may be in _temp/ at parse time — relocation happens later in run().
+                let tempBamURL = sampleDir.appendingPathComponent("\(sampleName)_temp")
+                    .appendingPathComponent(bamBasename)
+                let persistentBamURL = sampleDir.appendingPathComponent("bams")
+                    .appendingPathComponent(bamBasename)
+
                 var bamPath: String?
                 var bamIndexPath: String?
-                if FileManager.default.fileExists(atPath: bamURL.path) {
+                if FileManager.default.fileExists(atPath: tempBamURL.path)
+                    || FileManager.default.fileExists(atPath: persistentBamURL.path) {
                     bamPath = bamRelative
-                    let baiURL = URL(fileURLWithPath: bamURL.path + ".bai")
-                    let csiURL = URL(fileURLWithPath: bamURL.path + ".csi")
-                    if FileManager.default.fileExists(atPath: baiURL.path) {
-                        bamIndexPath = bamRelative + ".bai"
-                    } else if FileManager.default.fileExists(atPath: csiURL.path) {
-                        bamIndexPath = bamRelative + ".csi"
+                    // Index: prefer .bai then .csi, check either temp or persistent location
+                    for ext in [".bai", ".csi"] {
+                        let tempIdxURL = URL(fileURLWithPath: tempBamURL.path + ext)
+                        let persistentIdxURL = URL(fileURLWithPath: persistentBamURL.path + ext)
+                        if FileManager.default.fileExists(atPath: tempIdxURL.path)
+                            || FileManager.default.fileExists(atPath: persistentIdxURL.path) {
+                            bamIndexPath = bamRelative + ext
+                            break
+                        }
                     }
                 }
 
@@ -1087,6 +1101,48 @@ extension BuildDbCommand {
             }
 
             return rows
+        }
+
+        // MARK: - BAM Relocation (pre-cleanup)
+
+        /// Moves `*.third.filt.sorted.bam{,.bai,.csi}` from each sample's `_temp/`
+        /// directory into a sibling `bams/` directory so post-build cleanup can
+        /// remove `_temp/` without breaking DB-referenced BAM paths.
+        private func relocateEsVirituBAMs(resultURL: URL) {
+            let fm = FileManager.default
+            guard let sampleDirs = try? fm.contentsOfDirectory(
+                at: resultURL, includingPropertiesForKeys: [.isDirectoryKey]
+            ) else { return }
+
+            for sampleDir in sampleDirs {
+                let isDir = (try? sampleDir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+                guard isDir else { continue }
+                let sampleName = sampleDir.lastPathComponent
+                guard !sampleName.hasPrefix(".") else { continue }
+
+                let tempDir = sampleDir.appendingPathComponent("\(sampleName)_temp")
+                let bamsDir = sampleDir.appendingPathComponent("bams")
+                guard fm.fileExists(atPath: tempDir.path) else { continue }
+
+                let bamBasename = "\(sampleName).third.filt.sorted.bam"
+                let sourceURLs = [
+                    tempDir.appendingPathComponent(bamBasename),
+                    tempDir.appendingPathComponent(bamBasename + ".bai"),
+                    tempDir.appendingPathComponent(bamBasename + ".csi"),
+                ]
+
+                // Only create bams/ if we have something to move
+                let movable = sourceURLs.filter { fm.fileExists(atPath: $0.path) }
+                guard !movable.isEmpty else { continue }
+                try? fm.createDirectory(at: bamsDir, withIntermediateDirectories: true)
+
+                for source in movable {
+                    let dest = bamsDir.appendingPathComponent(source.lastPathComponent)
+                    // If destination already exists (re-run), skip
+                    guard !fm.fileExists(atPath: dest.path) else { continue }
+                    try? fm.moveItem(at: source, to: dest)
+                }
+            }
         }
 
         // MARK: - Post-Build Cleanup
