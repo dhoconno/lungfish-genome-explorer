@@ -303,6 +303,60 @@ private func updateUniqueReadsInDB(
         print("  Indexed \(indexedBAMs.count) BAM files that were missing indexes")
     }
 
+    // Build reference length lookup from samtools idxstats on each unique BAM.
+    // This populates accession_length in the DB so the miniBAM viewer knows contig sizes.
+    var refLengths: [String: Int] = [:]  // accession → length
+    for bamFullPath in uniqueBAMPaths {
+        guard fm.fileExists(atPath: bamFullPath) else { continue }
+        let idxProcess = Process()
+        idxProcess.executableURL = URL(fileURLWithPath: samtoolsPath)
+        idxProcess.arguments = ["idxstats", bamFullPath]
+        let idxPipe = Pipe()
+        idxProcess.standardOutput = idxPipe
+        idxProcess.standardError = FileHandle.nullDevice
+        do {
+            try idxProcess.run()
+            let idxData = idxPipe.fileHandleForReading.readDataToEndOfFile()
+            idxProcess.waitUntilExit()
+            if idxProcess.terminationStatus == 0,
+               let idxOutput = String(data: idxData, encoding: .utf8) {
+                for line in idxOutput.split(separator: "\n") {
+                    let cols = line.split(separator: "\t")
+                    guard cols.count >= 2 else { continue }
+                    let refName = String(cols[0])
+                    guard refName != "*" else { continue }
+                    if let len = Int(cols[1]), len > 0 {
+                        refLengths[refName] = len
+                    }
+                }
+            }
+        } catch { /* skip this BAM */ }
+    }
+
+    // Update accession_length column for rows that have a primary_accession
+    if !refLengths.isEmpty {
+        let lenSQL = "UPDATE \(table) SET accession_length = ? WHERE rowid = ?"
+        var lenStmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, lenSQL, -1, &lenStmt, nil) == SQLITE_OK {
+            sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
+            var lenUpdated = 0
+            for row in rowsToProcess {
+                if let len = refLengths[row.accession] {
+                    sqlite3_reset(lenStmt)
+                    sqlite3_bind_int64(lenStmt, 1, Int64(len))
+                    sqlite3_bind_int64(lenStmt, 2, row.rowid)
+                    sqlite3_step(lenStmt)
+                    lenUpdated += 1
+                }
+            }
+            sqlite3_exec(db, "COMMIT", nil, nil, nil)
+            sqlite3_finalize(lenStmt)
+            if !quiet && lenUpdated > 0 {
+                print("  Updated accession lengths for \(lenUpdated) organisms")
+            }
+        }
+    }
+
     // Cache: avoid recomputing for same BAM+accession
     var cache: [String: Int] = [:]
     var updated = 0
