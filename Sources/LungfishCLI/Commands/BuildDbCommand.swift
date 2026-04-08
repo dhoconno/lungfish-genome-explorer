@@ -272,6 +272,35 @@ private func updateUniqueReadsInDB(
     }
     defer { sqlite3_finalize(updateStmt) }
 
+    // Index any BAMs that lack a .bai or .csi index (samtools needs an index for region queries)
+    let fm = FileManager.default
+    var indexedBAMs: Set<String> = []
+    let uniqueBAMPaths = Set(rowsToProcess.map { bamPathResolver(resultURL, $0.sample, $0.bamRelPath) })
+    for bamFullPath in uniqueBAMPaths {
+        guard fm.fileExists(atPath: bamFullPath) else { continue }
+        let hasBai = fm.fileExists(atPath: bamFullPath + ".bai")
+        let hasCsi = fm.fileExists(atPath: bamFullPath + ".csi")
+        if !hasBai && !hasCsi {
+            let indexProcess = Process()
+            indexProcess.executableURL = URL(fileURLWithPath: samtoolsPath)
+            indexProcess.arguments = ["index", bamFullPath]
+            indexProcess.standardOutput = FileHandle.nullDevice
+            indexProcess.standardError = FileHandle.nullDevice
+            do {
+                try indexProcess.run()
+                indexProcess.waitUntilExit()
+                if indexProcess.terminationStatus == 0 {
+                    indexedBAMs.insert(bamFullPath)
+                }
+            } catch {
+                // Skip — samtools index failed, unique reads will be nil for this BAM
+            }
+        }
+    }
+    if !quiet && !indexedBAMs.isEmpty {
+        print("  Indexed \(indexedBAMs.count) BAM files that were missing indexes")
+    }
+
     // Cache: avoid recomputing for same BAM+accession
     var cache: [String: Int] = [:]
     var updated = 0
@@ -282,7 +311,7 @@ private func updateUniqueReadsInDB(
     for (i, row) in rowsToProcess.enumerated() {
         let bamFullPath = bamPathResolver(resultURL, row.sample, row.bamRelPath)
 
-        guard FileManager.default.fileExists(atPath: bamFullPath) else { continue }
+        guard fm.fileExists(atPath: bamFullPath) else { continue }
 
         let cacheKey = "\(bamFullPath)\t\(row.accession)"
         let unique: Int?
