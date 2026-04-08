@@ -2320,8 +2320,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Sets `isBatchGroupMode = true` so the existing sample selection and filter
     /// paths operate correctly. Populates `allBatchGroupRows`, sample entries,
     /// and BAM lookups from the database, then shows the flat table.
-    public func configureFromDatabase(_ db: TaxTriageDatabase) {
+    public func configureFromDatabase(_ db: TaxTriageDatabase, resultURL: URL) {
         self.taxTriageDatabase = db
+        self.batchGroupURL = resultURL
         self.isBatchGroupMode = true
         self.didLoadFromManifestCache = true
 
@@ -2446,10 +2447,33 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 uniqueReadsLookup[key] = uniqueReads
             }
 
-            // Resolve BAM paths from DB columns.
+            // Resolve BAM paths from DB columns (relative to result directory).
             if let bamPath = row.bamPath, !bamPath.isEmpty {
-                let bamURL = URL(fileURLWithPath: bamPath)
-                bamFilesBySample[row.sample] = bamURL
+                if bamPath.hasPrefix("/") {
+                    bamFilesBySample[row.sample] = URL(fileURLWithPath: bamPath)
+                } else if let base = self.batchGroupURL {
+                    bamFilesBySample[row.sample] = base.appendingPathComponent(bamPath)
+                }
+            }
+
+            // Seed accession lookups from DB data so accessions(for:) works.
+            if let acc = row.primaryAccession, !acc.isEmpty {
+                let normalized = normalizedOrganismName(row.organism)
+
+                var perSample = organismToAccessionsBySample[row.sample] ?? [:]
+                perSample[normalized, default: []].append(acc)
+                organismToAccessionsBySample[row.sample] = perSample
+
+                if let taxId = row.taxId {
+                    var taxMap = taxIDToAccessionsBySample[row.sample] ?? [:]
+                    taxMap[taxId, default: []].append(acc)
+                    taxIDToAccessionsBySample[row.sample] = taxMap
+                }
+            }
+
+            // Seed accession lengths from DB (if available).
+            if let acc = row.primaryAccession, let len = row.accessionLength, len > 0 {
+                accessionLengths[acc] = len
             }
         }
 
