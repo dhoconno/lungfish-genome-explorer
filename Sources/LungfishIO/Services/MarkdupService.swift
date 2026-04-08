@@ -33,6 +33,11 @@ public enum MarkdupService {
 
         // Idempotency check
         if !force && isAlreadyMarkduped(bamURL: bamURL, samtoolsPath: samtoolsPath) {
+            // Ensure the BAM has a current, non-stale index. Previous pipeline
+            // steps may have left behind .csi symlinks pointing at deleted files,
+            // which would confuse samtools region queries downstream.
+            try ensureFreshIndex(bamURL: bamURL, samtoolsPath: samtoolsPath)
+
             let total = (try? countReads(bamURL: bamURL, accession: nil, flagFilter: 0x004, samtoolsPath: samtoolsPath)) ?? 0
             let nonDup = (try? countReads(bamURL: bamURL, accession: nil, flagFilter: 0x404, samtoolsPath: samtoolsPath)) ?? 0
             return MarkdupResult(
@@ -69,9 +74,13 @@ public enum MarkdupService {
 
             try runIndex(bamPath: tempBamURL.path, samtoolsPath: samtoolsPath)
 
-            // Atomic replacement: remove existing .bai first, then swap both files.
+            // Atomic replacement: remove ALL existing index files (both .bai and .csi)
+            // before swapping the BAM, so stale indices from a previous pipeline step
+            // don't confuse region queries after markdup.
             let existingBaiURL = URL(fileURLWithPath: bamURL.path + ".bai")
+            let existingCsiURL = URL(fileURLWithPath: bamURL.path + ".csi")
             try? FileManager.default.removeItem(at: existingBaiURL)
+            try? FileManager.default.removeItem(at: existingCsiURL)
             _ = try FileManager.default.replaceItemAt(bamURL, withItemAt: tempBamURL)
             if FileManager.default.fileExists(atPath: tempBaiURL.path) {
                 try FileManager.default.moveItem(at: tempBaiURL, to: existingBaiURL)
@@ -220,6 +229,41 @@ public enum MarkdupService {
         guard process.terminationStatus == 0 else {
             let stderr = String(data: errData, encoding: .utf8) ?? ""
             throw MarkdupError.pipelineFailed(stage: "markdup-pipeline", stderr: stderr)
+        }
+    }
+
+    /// Ensures a BAM file has a current `.bai` index, removing any stale
+    /// `.bai`/`.csi` files first. Used on the idempotent markdup path where
+    /// the BAM is already marked but may have dangling index files from a
+    /// previous pipeline step (e.g., a `.csi` symlink to a deleted directory).
+    private static func ensureFreshIndex(bamURL: URL, samtoolsPath: String) throws {
+        let fm = FileManager.default
+        let baiURL = URL(fileURLWithPath: bamURL.path + ".bai")
+        let csiURL = URL(fileURLWithPath: bamURL.path + ".csi")
+
+        // Check whether the existing .bai is usable. Any read failure (stale
+        // symlink, missing target, corrupt index) triggers a rebuild.
+        let baiHealthy: Bool = {
+            guard fm.fileExists(atPath: baiURL.path) else { return false }
+            // Probe by reading one byte. If the target of a symlink is gone,
+            // this throws even though fileExists returned true (via link).
+            let attrs = try? fm.attributesOfItem(atPath: baiURL.path)
+            let size = (attrs?[.size] as? Int) ?? 0
+            return size > 0
+        }()
+
+        if !baiHealthy {
+            // Remove any dangling index files (including symlinks) and regenerate
+            try? fm.removeItem(at: baiURL)
+            try? fm.removeItem(at: csiURL)
+            try runIndex(bamPath: bamURL.path, samtoolsPath: samtoolsPath)
+            return
+        }
+
+        // .bai looks fine; still remove any stale .csi that might shadow it
+        // during samtools region queries.
+        if fm.fileExists(atPath: csiURL.path) {
+            try? fm.removeItem(at: csiURL)
         }
     }
 
