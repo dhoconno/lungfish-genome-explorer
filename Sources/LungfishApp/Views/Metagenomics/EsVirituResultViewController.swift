@@ -265,7 +265,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     /// Whether this view controller is displaying an aggregated batch result.
     var isBatchMode: Bool = false
 
-    /// Whether the last `configureBatch` call loaded data from a pre-built aggregated manifest
+    /// Whether the last `configureFromDatabase` call loaded data from a pre-built aggregated manifest
     /// rather than parsing per-sample files. Used to populate the Inspector manifest status.
     private(set) var didLoadFromManifestCache: Bool = false
 
@@ -275,7 +275,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     /// Flat table used in batch mode (placed inside the right pane of `splitView`).
     private(set) var batchTableView = BatchEsVirituTableView()
 
-    /// The URL of the batch result directory (set during `configureBatch`).
+    /// The URL of the batch result directory (set during `configureFromDatabase`).
     var batchURL: URL?
 
     /// Container for the right pane content (detection table or batch table).
@@ -283,11 +283,11 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     private var rightPaneContainer = NSView()
 
     /// Lookup dictionary mapping (sampleId, assemblyAccession) -> ViralAssembly,
-    /// built during `configureBatch` for detail pane wiring.
+    /// built during `configureFromDatabase` for detail pane wiring.
     private var batchAssemblyLookup: [String: ViralAssembly] = [:]
 
     /// Lookup dictionary mapping assemblyAccession -> BAM URL, built during
-    /// `configureBatch` for miniBAM wiring in batch mode.
+    /// `configureFromDatabase` for miniBAM wiring in batch mode.
     private var batchBAMLookup: [String: URL] = [:]
 
     /// Lookup dictionary mapping assemblyAccession -> BAM index URL.
@@ -440,230 +440,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         samplePickerState = ClassifierSamplePickerState(allSamples: Set([sampleName]))
     }
 
-    // MARK: - Batch Mode Configuration
-
-    /// Configures the view for an aggregated batch result.
-    ///
-    /// Iterates the manifest samples, loads each sample's `detected_virus.info.tsv`,
-    /// builds flat ``BatchEsVirituRow`` records, and swaps the split view for the
-    /// batch table.
-    ///
-    /// - Parameters:
-    ///   - batchURL: The batch result root directory.
-    ///   - manifest: The EsViritu batch result manifest.
-    ///   - projectURL: The containing project URL, used for display name resolution.
-    func configureBatch(
-        batchURL: URL,
-        manifest: EsVirituBatchResultManifest,
-        projectURL: URL
-    ) {
-        isBatchMode = true
-        self.batchURL = batchURL
-
-        var allRows: [BatchEsVirituRow] = []
-        var entries: [EsVirituSampleEntry] = []
-        var assemblyLookup: [String: ViralAssembly] = [:]
-        var bamLookup: [String: URL] = [:]
-        var bamIndexLookup: [String: URL] = [:]
-
-        // --- Fast path: load from materialized aggregated manifest if available ---
-        let aggregatedManifestLoaded: Bool
-        if let aggregated = MetagenomicsBatchResultStore.loadEsVirituBatchAggregatedManifest(from: batchURL) {
-            logger.info("configureBatch: loading \(aggregated.cachedRows.count) rows from aggregated manifest (skipping per-sample parse)")
-            aggregatedManifestLoaded = true
-
-            for cachedRow in aggregated.cachedRows {
-                let row = BatchEsVirituRow(
-                    sample: cachedRow.sample,
-                    virusName: cachedRow.virusName,
-                    family: cachedRow.family,
-                    assembly: cachedRow.assembly,
-                    readCount: cachedRow.readCount,
-                    uniqueReads: cachedRow.uniqueReads,
-                    rpkmf: cachedRow.rpkmf,
-                    coverageBreadth: cachedRow.coverageBreadth,
-                    coverageDepth: cachedRow.coverageDepth
-                )
-                allRows.append(row)
-            }
-
-            for sampleId in aggregated.sampleIds {
-                let displayName = FASTQDisplayNameResolver.resolveDisplayName(
-                    sampleId: sampleId, projectURL: projectURL)
-                let count = Set(aggregated.cachedRows.filter { $0.sample == sampleId }.map(\.assembly)).count
-                entries.append(EsVirituSampleEntry(
-                    id: sampleId,
-                    displayName: displayName,
-                    detectedVirusCount: count
-                ))
-            }
-
-            // Locate BAM files for batch unique-reads callbacks (still needed for BAM viewer).
-            for sample in manifest.samples {
-                let resultDir = batchURL.appendingPathComponent(sample.resultDirectory)
-                let tempDir = resultDir.appendingPathComponent("\(sample.sampleId)_temp")
-                let bamName = "\(sample.sampleId).third.filt.sorted.bam"
-                let candidateBAM = tempDir.appendingPathComponent(bamName)
-                if FileManager.default.fileExists(atPath: candidateBAM.path) {
-                    bamLookup[sample.sampleId] = candidateBAM
-                    if let idx = resolveBamIndex(for: candidateBAM) {
-                        bamIndexLookup[sample.sampleId] = idx
-                    }
-                }
-            }
-        } else {
-            aggregatedManifestLoaded = false
-
-            // --- Slow path: parse per-sample detection files ---
-            for sample in manifest.samples {
-                let resultDir = batchURL.appendingPathComponent(sample.resultDirectory)
-
-                // The detection file is named <sampleId>.detected_virus.info.tsv
-                // Fall back to searching for any *.detected_virus.info.tsv in the directory.
-                var detectionURL: URL?
-                let primaryCandidate = resultDir.appendingPathComponent(
-                    "\(sample.sampleId).detected_virus.info.tsv"
-                )
-                if FileManager.default.fileExists(atPath: primaryCandidate.path) {
-                    detectionURL = primaryCandidate
-                } else {
-                    // Try any .detected_virus.info.tsv in the directory
-                    if let contents = try? FileManager.default.contentsOfDirectory(atPath: resultDir.path) {
-                        let match = contents.first { $0.hasSuffix(".detected_virus.info.tsv") }
-                        if let match {
-                            detectionURL = resultDir.appendingPathComponent(match)
-                        }
-                    }
-                }
-
-                guard let detectionURL else {
-                    logger.warning("No detection file found for sample \(sample.sampleId, privacy: .public) in \(resultDir.path, privacy: .public)")
-                    continue
-                }
-
-                do {
-                    let detections = try EsVirituDetectionParser.parse(url: detectionURL)
-                    let assemblies = EsVirituDetectionParser.groupByAssembly(detections)
-
-                    // Load persisted unique read counts from the sample's result directory sidecar.
-                    let cacheURL = resultDir.appendingPathComponent(Self.uniqueReadsSidecar)
-                    let uniqueByAssembly: [String: Int]
-                    if let data = try? Data(contentsOf: cacheURL),
-                       let cache = try? JSONDecoder().decode(UniqueReadCache.self, from: data) {
-                        uniqueByAssembly = cache.byAssembly
-                    } else {
-                        uniqueByAssembly = [:]
-                    }
-
-                    let rows = BatchEsVirituRow.fromAssemblies(
-                        assemblies, sampleId: sample.sampleId,
-                        uniqueReadsByAssembly: uniqueByAssembly
-                    )
-                    allRows.append(contentsOf: rows)
-
-                    // Build assembly lookup keyed by "sampleId\tassemblyAccession"
-                    for asm in assemblies {
-                        let key = "\(sample.sampleId)\t\(asm.assembly)"
-                        assemblyLookup[key] = asm
-                    }
-
-                    let displayName = FASTQDisplayNameResolver.resolveDisplayName(
-                        sampleId: sample.sampleId, projectURL: projectURL)
-                    entries.append(EsVirituSampleEntry(
-                        id: sample.sampleId,
-                        displayName: displayName,
-                        detectedVirusCount: assemblies.count
-                    ))
-                } catch {
-                    logger.error(
-                        "Failed to parse detection file for \(sample.sampleId, privacy: .public): \(error.localizedDescription, privacy: .public)"
-                    )
-                }
-
-                // Locate the EsViritu BAM for this sample (from --keep True).
-                // Typical path: <resultDir>/<sampleId>_temp/<sampleId>.third.filt.sorted.bam
-                let tempDir = resultDir.appendingPathComponent("\(sample.sampleId)_temp")
-                let bamName = "\(sample.sampleId).third.filt.sorted.bam"
-                let candidateBAM = tempDir.appendingPathComponent(bamName)
-                if FileManager.default.fileExists(atPath: candidateBAM.path) {
-                    bamLookup[sample.sampleId] = candidateBAM
-                    if let idx = resolveBamIndex(for: candidateBAM) {
-                        bamIndexLookup[sample.sampleId] = idx
-                    }
-                }
-            }
-
-            // Save materialized manifest so subsequent opens skip per-sample file I/O.
-            saveEsVirituBatchAggregatedManifest(
-                batchURL: batchURL,
-                rows: allRows,
-                sampleIds: entries.map(\.id)
-            )
-        }
-
-        allBatchRows = allRows
-        sampleEntries = entries
-        batchAssemblyLookup = assemblyLookup
-        batchBAMLookup = bamLookup
-        batchBAMIndexLookup = bamIndexLookup
-        didLoadFromManifestCache = aggregatedManifestLoaded
-
-        let allSampleIds = Set(entries.map(\.id))
-        samplePickerState = ClassifierSamplePickerState(allSamples: allSampleIds)
-
-        // Wire batch table callbacks
-        batchTableView.metadataColumns.isMultiSampleMode = true
-        batchTableView.onRowSelected = { [weak self] row in
-            guard let self else { return }
-            self.actionBar.updateInfoText("1 row selected")
-            // Show the detail pane for the selected virus+sample combination.
-            let key = "\(row.sample)\t\(row.assembly)"
-            if let assembly = self.batchAssemblyLookup[key] {
-                let batchBAMURL = self.batchBAMLookup[row.sample]
-                let batchBAMIndexURL = self.batchBAMIndexLookup[row.sample]
-                // Temporarily set bamURL/bamIndexURL so showAssemblyDetail works.
-                let savedBAMURL = self.bamURL
-                let savedBAMIndexURL = self.bamIndexURL
-                self.bamURL = batchBAMURL
-                self.bamIndexURL = batchBAMIndexURL
-                self.showAssemblyDetail(assembly)
-                // Restore so normal (single-sample) mode is not disrupted.
-                self.bamURL = savedBAMURL
-                self.bamIndexURL = savedBAMIndexURL
-            }
-        }
-        batchTableView.onMultipleRowsSelected = { [weak self] rows in
-            guard let self else { return }
-            self.actionBar.updateInfoText("\(rows.count) rows selected")
-            self.showMultiSelectionPlaceholder(count: rows.count)
-        }
-        batchTableView.onSelectionCleared = { [weak self] in
-            guard let self else { return }
-            self.actionBar.updateInfoText("Select a virus to view details")
-            self.hideMultiSelectionPlaceholder()
-        }
-
-        // Keep the split view visible — place batchTableView inside the right pane
-        // so the detail pane (left) remains functional.
-        detectionTableView.isHidden = true
-        batchTableView.isHidden = false
-
-        summaryBar.updateBatch(sampleCount: entries.count, totalDetections: allRows.count)
-
-        applyBatchSampleFilter()
-
-        // Schedule background computation of unique reads for any samples that lack them.
-        // Skip if the aggregated manifest already has complete unique-reads data.
-        if !aggregatedManifestLoaded || allRows.contains(where: { $0.uniqueReads == 0 }) {
-            scheduleBatchUniqueReadComputation()
-        }
-
-        logger.info("EsViritu batch mode configured: \(allRows.count) rows from \(entries.count) samples")
-
-        // Show the Recompute Unique Reads button in batch mode.
-        recomputeUniqueReadsButton.isHidden = false
-    }
-
     // MARK: - SQLite Database Mode
 
     /// The SQLite database backing this VC when loaded via `configureFromDatabase`.
@@ -678,6 +454,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     public func configureFromDatabase(_ db: EsVirituDatabase) {
         self.esVirituDatabase = db
         self.isBatchMode = true
+        self.didLoadFromManifestCache = true
 
         // Fetch all samples from the DB.
         let sampleList = (try? db.fetchSamples()) ?? []
@@ -697,7 +474,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         // Load ALL rows from the DB (filtering by selection happens in applyBatchSampleFilter).
         reloadFromDatabase()
 
-        // Wire batch table callbacks (same pattern as configureBatch).
+        // Wire batch table callbacks (same pattern as configureFromDatabase).
         batchTableView.metadataColumns.isMultiSampleMode = true
         batchTableView.onRowSelected = { [weak self] row in
             guard let self else { return }
@@ -793,46 +570,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         }
 
         allBatchRows = batchRows
-    }
-
-    /// Saves a `EsVirituBatchAggregatedManifest` to `<batchURL>/esviritu-batch-aggregated.json`.
-    ///
-    /// Called on first open (slow path) so subsequent opens can load from cache.
-    private func saveEsVirituBatchAggregatedManifest(
-        batchURL: URL,
-        rows: [BatchEsVirituRow],
-        sampleIds: [String]
-    ) {
-        let cachedRows = rows.map { row in
-            EsVirituBatchAggregatedManifest.CachedRow(
-                sample: row.sample,
-                virusName: row.virusName,
-                family: row.family,
-                assembly: row.assembly,
-                readCount: row.readCount,
-                uniqueReads: row.uniqueReads,
-                rpkmf: row.rpkmf,
-                coverageBreadth: row.coverageBreadth,
-                coverageDepth: row.coverageDepth
-            )
-        }
-        let aggregated = EsVirituBatchAggregatedManifest(
-            createdAt: Date(),
-            sampleCount: sampleIds.count,
-            sampleIds: sampleIds,
-            cachedRows: cachedRows
-        )
-        do {
-            try MetagenomicsBatchResultStore.saveEsVirituBatchAggregatedManifest(aggregated, to: batchURL)
-            logger.info("Saved EsViritu batch aggregated manifest with \(cachedRows.count) rows")
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    NotificationCenter.default.post(name: .batchManifestCached, object: nil)
-                }
-            }
-        } catch {
-            logger.warning("Failed to save EsViritu batch aggregated manifest: \(error.localizedDescription, privacy: .public)")
-        }
     }
 
     /// Updates the persisted `EsVirituBatchAggregatedManifest` with newly computed unique reads.
@@ -1247,7 +984,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
     /// Adds the batch table view inside the right pane container so that the
     /// split view (and thus the detail pane) remains visible in batch mode.
-    /// Hidden by default; shown when `configureBatch` is called.
+    /// Hidden by default; shown when `configureFromDatabase` is called.
     private func setupBatchTableView() {
         batchTableView.translatesAutoresizingMaskIntoConstraints = false
         batchTableView.isHidden = true

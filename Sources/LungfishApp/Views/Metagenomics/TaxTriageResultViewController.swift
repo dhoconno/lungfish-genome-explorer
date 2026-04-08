@@ -199,7 +199,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// which operates within a single multi-sample TaxTriage result.
     var isBatchGroupMode: Bool = false
 
-    /// Whether the last `configureBatchGroup` call loaded data from a pre-built manifest
+    /// Whether the last `configureFromDatabase` call loaded data from a pre-built manifest
     /// rather than parsing per-sample files. Used to populate the Inspector manifest status.
     private(set) var didLoadFromManifestCache: Bool = false
 
@@ -1724,10 +1724,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// directly in batch group mode, where every sample has its own BAM file.
     ///
     /// This avoids the estimation error introduced by proportional distribution.
-    /// Called from `configureBatchGroup` after `bamFilesBySample` is populated.
+    /// Called from `configureFromDatabase` after `bamFilesBySample` is populated.
     ///
     /// - Parameters:
-    ///   - subdirs: The list of per-sample subdirectories scanned during `configureBatchGroup`.
+    ///   - subdirs: The list of per-sample subdirectories scanned during `configureFromDatabase`.
     private func scheduleBatchPerSampleUniqueReadComputation(subdirs: [URL]) {
         deduplicatedReadCountTask?.cancel()
         guard !bamFilesBySample.isEmpty else { return }
@@ -1755,7 +1755,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                     continue
                 }
 
-                // Prefer pre-built sample-scoped mappings from configureBatchGroup().
+                // Prefer pre-built sample-scoped mappings from configureFromDatabase().
                 var localOrgToAccessions: [String: [String]] = self.organismToAccessionsBySample[sampleId] ?? [:]
 
                 // Fallback: parse any recursive GCF mapping files for this sample.
@@ -2264,7 +2264,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Adds the batch flat table view as a sibling of `splitView` with identical
     /// Adds the batch flat table view inside the right pane container so that the
     /// split view (and thus the left/miniBAM pane) remains visible in batch group mode.
-    /// Hidden by default; shown when `configureBatchGroup` is called.
+    /// Hidden by default; shown when `configureFromDatabase` is called.
     private func setupBatchFlatTableView() {
         batchFlatTableView.translatesAutoresizingMaskIntoConstraints = false
         batchFlatTableView.isHidden = true
@@ -2275,382 +2275,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             batchFlatTableView.leadingAnchor.constraint(equalTo: rightPaneContainer.leadingAnchor),
             batchFlatTableView.trailingAnchor.constraint(equalTo: rightPaneContainer.trailingAnchor),
         ])
-    }
-
-    // MARK: - Batch Group Mode
-
-    /// Configures the view controller for a BATCH GROUP sidebar item.
-    ///
-    /// Scans `batchURL` for subdirectories and loads TASS metrics from each,
-    /// tagging every metric with its sample ID. Creates `sampleEntries` and
-    /// `samplePickerState` for the Inspector picker. Hides the per-sample UI
-    /// (segmented control, split view, BLAST drawer) and shows `batchFlatTableView`.
-    ///
-    /// - Parameters:
-    ///   - batchURL: Root directory of the batch group (parent of sample subdirs).
-    ///   - projectURL: The containing project URL for display name resolution.
-    public func configureBatchGroup(batchURL: URL, projectURL: URL) {
-        isBatchGroupMode = true
-        self.batchGroupURL = batchURL
-
-        var allRows: [TaxTriageMetric] = []
-        var entries: [TaxTriageSampleEntry] = []
-
-        // Enumerate immediate subdirectories — each is one TaxTriage result.
-        let contents: [String]
-        do {
-            contents = try FileManager.default.contentsOfDirectory(atPath: batchURL.path)
-        } catch {
-            logger.error("configureBatchGroup: cannot list \(batchURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            contents = []
-        }
-
-        let subdirs = contents
-            .sorted()
-            .map { batchURL.appendingPathComponent($0) }
-            .filter { url in
-                var isDir: ObjCBool = false
-                return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
-            }
-
-        // --- Fast path: load from materialized manifest if available ---
-        let manifestLoaded: Bool
-        if let manifest = MetagenomicsBatchResultStore.loadTaxTriageBatchManifest(from: batchURL) {
-            logger.info("configureBatchGroup: loading \(manifest.cachedRows.count) rows from manifest (skipping per-sample parse)")
-            manifestLoaded = true
-
-            // Reconstruct TaxTriageMetric values from cached rows.
-            for cachedRow in manifest.cachedRows {
-                let metric = TaxTriageMetric(
-                    sample: cachedRow.sample.isEmpty ? nil : cachedRow.sample,
-                    taxId: nil,
-                    organism: cachedRow.organism,
-                    rank: nil,
-                    reads: cachedRow.reads,
-                    abundance: cachedRow.abundance,
-                    coverageBreadth: cachedRow.coverageBreadth,
-                    coverageDepth: cachedRow.coverageDepth,
-                    tassScore: cachedRow.tassScore,
-                    confidence: cachedRow.confidence,
-                    additionalFields: [:],
-                    sourceLineNumber: nil
-                )
-                allRows.append(metric)
-            }
-
-            // Reconstruct sample entries from manifest sampleIds.
-            for sampleId in manifest.sampleIds {
-                let displayName = FASTQDisplayNameResolver.resolveDisplayName(
-                    sampleId: sampleId, projectURL: projectURL)
-                let count = Set(manifest.cachedRows.filter { $0.sample == sampleId }.map(\.organism)).count
-                entries.append(TaxTriageSampleEntry(
-                    id: sampleId,
-                    displayName: displayName,
-                    organismCount: count
-                ))
-            }
-
-            // Populate uniqueReads from manifest rows that already have them.
-            for cachedRow in manifest.cachedRows {
-                guard let uniqueReads = cachedRow.uniqueReads else { continue }
-                let key = "\(cachedRow.sample)\t\(cachedRow.organism)"
-                batchFlatTableView.uniqueReadsByKey[key] = uniqueReads
-                let normalized = normalizedOrganismName(cachedRow.organism)
-                perSampleDeduplicatedReadCounts[normalized, default: [:]][cachedRow.sample] = uniqueReads
-            }
-        } else {
-            manifestLoaded = false
-
-            // --- Slow path: parse per-sample files ---
-            for subdir in subdirs {
-                let sampleId = subdir.lastPathComponent
-
-                // Try to locate a TASS confidence metrics file.
-                // Prefer *.organisms.report.txt, then multiqc_confidences.txt, then *.tsv.
-                var metricsURL: URL?
-                if let listing = try? FileManager.default.contentsOfDirectory(atPath: subdir.path) {
-                    // 1. Preferred: *.organisms.report.txt or multiqc_confidences.txt
-                    let preferred = listing.first(where: {
-                        $0.hasSuffix(".organisms.report.txt") || $0 == "multiqc_confidences.txt"
-                    })
-                    if let preferred {
-                        metricsURL = subdir.appendingPathComponent(preferred)
-                    } else {
-                        // 2. Fallback: any .tsv that could be a metrics file
-                        let tsv = listing.first(where: { $0.hasSuffix(".tsv") })
-                        if let tsv {
-                            metricsURL = subdir.appendingPathComponent(tsv)
-                        }
-                    }
-                }
-
-                guard let metricsURL else {
-                    logger.warning("configureBatchGroup: no metrics file for \(sampleId, privacy: .public) in \(subdir.path, privacy: .public)")
-                    continue
-                }
-
-                do {
-                    var parsed = try TaxTriageMetricsParser.parse(url: metricsURL)
-
-                    // Tag any metrics that lack a sample field with this subdir's name.
-                    parsed = parsed.map { m in
-                        guard m.sample == nil || m.sample!.isEmpty else { return m }
-                        return TaxTriageMetric(
-                            sample: sampleId,
-                            taxId: m.taxId,
-                            organism: m.organism,
-                            rank: m.rank,
-                            reads: m.reads,
-                            abundance: m.abundance,
-                            coverageBreadth: m.coverageBreadth,
-                            coverageDepth: m.coverageDepth,
-                            tassScore: m.tassScore,
-                            confidence: m.confidence,
-                            additionalFields: m.additionalFields,
-                            sourceLineNumber: m.sourceLineNumber
-                        )
-                    }
-
-                    allRows.append(contentsOf: parsed)
-
-                    let displayName = FASTQDisplayNameResolver.resolveDisplayName(
-                        sampleId: sampleId, projectURL: projectURL)
-                    let count = Set(parsed.map(\.organism)).count
-                    entries.append(TaxTriageSampleEntry(
-                        id: sampleId,
-                        displayName: displayName,
-                        organismCount: count
-                    ))
-                } catch {
-                    logger.error(
-                        "configureBatchGroup: failed to parse \(metricsURL.lastPathComponent, privacy: .public) for \(sampleId, privacy: .public): \(error.localizedDescription, privacy: .public)"
-                    )
-                }
-            }
-        }
-
-        // Scan each subdirectory for BAM files to populate bamFilesBySample.
-        bamFilesBySample = [:]
-        for subdir in subdirs {
-            let sampleId = subdir.lastPathComponent
-            let bamFiles = collectFilesRecursively(in: subdir) { $0.pathExtension.lowercased() == "bam" }
-            if let bamURL = bamFiles.first {
-                bamFilesBySample[sampleId] = bamURL
-            }
-        }
-
-        allBatchGroupRows = allRows
-        sampleEntries = entries
-        didLoadFromManifestCache = manifestLoaded
-
-        let allSampleIds = Set(entries.map(\.id))
-        samplePickerState = ClassifierSamplePickerState(allSamples: allSampleIds)
-
-        // Build sample-scoped + merged accession mappings from all sub-result files.
-        var gcfFiles: [URL] = []
-        var taxIDFiles: [URL] = []
-        for subdir in subdirs {
-            gcfFiles.append(contentsOf: collectFilesRecursively(in: subdir) { fileURL in
-                fileURL.lastPathComponent.contains("gcfmapping.tsv")
-            })
-            taxIDFiles.append(contentsOf: collectFilesRecursively(in: subdir) { fileURL in
-                fileURL.lastPathComponent.contains("merged.taxid.tsv")
-            })
-        }
-        rebuildAccessionLookups(
-            gcfFiles: gcfFiles,
-            taxIDFiles: taxIDFiles,
-            sampleIds: entries.map(\.id)
-        )
-
-        // Wire batch flat table callbacks.
-        batchFlatTableView.metadataColumns.isMultiSampleMode = true
-        batchFlatTableView.onRowSelected = { [weak self] row in
-            guard let self else { return }
-            self.actionBar.updateInfoText("1 row selected")
-            self.hideMultiSelectionPlaceholder()
-            self.selectedBatchSampleId = row.sample
-            self.selectedBatchOrganismName = row.organism
-
-            // Resolve BAM for the row's sample.
-            guard let sampleId = row.sample,
-                  let bamURL = self.bamFilesBySample[sampleId] else {
-                self.miniBAMController?.clear()
-                return
-            }
-
-            // Resolve BAM index. In batch group mode there is no TaxTriageResult to
-            // supply allOutputFiles, so rely on the adjacent-file check (.bam.bai / .bam.csi)
-            // which covers the standard TaxTriage output layout.
-            let bamIndexURL = resolveBamIndex(for: bamURL, allOutputFiles: [])
-
-            // Look up the accession for this organism and display miniBAM.
-            if let accessions = self.accessions(for: row), !accessions.isEmpty {
-                if accessions.contains(where: { self.accessionLengths[$0] == nil }) {
-                    self.parseBamReferenceLengths(bamURL: bamURL, indexURL: bamIndexURL)
-                }
-                if let resolvedAccession = accessions.first(where: { self.accessionLengths[$0] != nil }),
-                   let contigLength = self.accessionLengths[resolvedAccession] {
-                    self.miniBAMController?.displayContig(
-                        bamURL: bamURL,
-                        contig: resolvedAccession,
-                        contigLength: contigLength,
-                        indexURL: bamIndexURL
-                    )
-                    self.miniBAMController?.view.isHidden = false
-                } else {
-                    self.miniBAMController?.clear()
-                }
-            } else {
-                self.miniBAMController?.clear()
-            }
-        }
-        batchFlatTableView.onMultipleRowsSelected = { [weak self] rows in
-            guard let self else { return }
-            self.actionBar.updateInfoText("\(rows.count) rows selected")
-            self.showMultiSelectionPlaceholder(count: rows.count)
-            self.selectedBatchSampleId = nil
-            self.selectedBatchOrganismName = nil
-        }
-        batchFlatTableView.onSelectionCleared = { [weak self] in
-            guard let self else { return }
-            self.actionBar.updateInfoText("Select an organism to view details")
-            self.hideMultiSelectionPlaceholder()
-            self.selectedBatchSampleId = nil
-            self.selectedBatchOrganismName = nil
-            self.miniBAMController?.clear()
-        }
-
-        // Keep the split view visible — place batchFlatTableView inside the right pane
-        // so the left pane (miniBAM) remains functional.
-        sampleFilterControl.isHidden = true
-        blastDrawer.isHidden = true
-        organismTableView.isHidden = true
-        batchOverviewView.isHidden = true
-        batchFlatTableView.isHidden = false
-
-        // Show the organism search field (filter bar row is visible even without sample segments).
-        organismSearchField.isHidden = false
-        sampleFilterHeightConstraint?.constant = 24
-        sampleFilterTopSpacingConstraint?.constant = 4
-        sampleFilterBottomSpacingConstraint?.constant = 4
-
-        summaryBar.updateBatch(sampleCount: entries.count, totalOrganisms: allRows.count)
-
-        applyBatchGroupFilter()
-
-        if manifestLoaded {
-            // Manifest fast-path: uniqueReads were already loaded from cachedRows above.
-            // Still call syncUniqueReadsToFlatTable so the table column is populated.
-            syncUniqueReadsToFlatTable()
-        } else {
-            // Slow path: load persisted unique reads from two sources (in priority order):
-            //
-            // 1. Batch-level cache: <batchDir>/batch-unique-reads.json — written after any
-            //    computation pass over the whole batch. Instant load, no per-sample I/O.
-            //
-            // 2. Per-sample taxtriage-result.json sidecars — each subdir may have persisted
-            //    per-sample dedup counts from a previous single-result configure() call.
-            //
-            // After loading, syncUniqueReadsToFlatTable() propagates the counts to the table.
-
-            // 1. Try batch-level cache first.
-            let batchCacheURL = batchURL.appendingPathComponent("batch-unique-reads.json")
-            if let batchCache = loadBatchUniqueReadsCache(from: batchCacheURL) {
-                // Merge into batchFlatTableView directly (keys are "sampleId\torganism").
-                for (key, count) in batchCache {
-                    batchFlatTableView.uniqueReadsByKey[key] = count
-                }
-                // Also back-fill perSampleDeduplicatedReadCounts for consistency.
-                for (key, count) in batchCache {
-                    let parts = key.split(separator: "\t", maxSplits: 1)
-                    guard parts.count == 2 else { continue }
-                    let sampleId = String(parts[0])
-                    let organism  = String(parts[1])
-                    let normalized = normalizedOrganismName(organism)
-                    perSampleDeduplicatedReadCounts[normalized, default: [:]][sampleId] = count
-                }
-            } else {
-                // 2. Fall back to per-sample taxtriage-result.json sidecars.
-                for subdir in subdirs {
-                    guard let loaded = try? TaxTriageResult.load(from: subdir),
-                          let perSample = loaded.perSampleDeduplicatedReadCounts else { continue }
-                    for (normalizedOrganism, sampleCounts) in perSample {
-                        for (sampleId, count) in sampleCounts {
-                            perSampleDeduplicatedReadCounts[normalizedOrganism, default: [:]][sampleId] = count
-                        }
-                    }
-                }
-            }
-
-            // Populate unique reads column from any already-persisted per-sample dedup counts.
-            syncUniqueReadsToFlatTable()
-
-            // Save a materialized manifest so subsequent opens skip per-sample file I/O.
-            saveBatchManifest(
-                batchURL: batchURL,
-                rows: allRows,
-                sampleIds: entries.map(\.id)
-            )
-        }
-
-        // Schedule background computation of per-sample unique reads directly from each
-        // sample's BAM. This produces exact dedup counts instead of proportional estimates.
-        // Pass subdirs that are still missing unique reads to avoid redundant BAM scans.
-        let subdirsMissingUniqueReads = subdirs.filter { subdir in
-            let sampleId = subdir.lastPathComponent
-            // Check if ALL organisms for this sample already have unique reads.
-            let rows = allBatchGroupRows.filter { $0.sample == sampleId }
-            guard !rows.isEmpty else { return false }
-            return rows.contains { row in
-                let key = "\(sampleId)\t\(row.organism)"
-                return batchFlatTableView.uniqueReadsByKey[key] == nil
-            }
-        }
-        if !subdirsMissingUniqueReads.isEmpty {
-            scheduleBatchPerSampleUniqueReadComputation(subdirs: subdirsMissingUniqueReads)
-        }
-
-        logger.info("TaxTriage batch group configured: \(allRows.count) rows from \(entries.count) samples")
-
-        // Show the Recompute Unique Reads button in batch group mode.
-        recomputeUniqueReadsButton.isHidden = false
-    }
-
-    /// Saves a `TaxTriageBatchManifest` to `<batchURL>/taxtriage-batch-manifest.json`.
-    ///
-    /// Called on first open (slow path) so subsequent opens can load from cache.
-    private func saveBatchManifest(batchURL: URL, rows: [TaxTriageMetric], sampleIds: [String]) {
-        let cachedRows = rows.map { metric in
-            TaxTriageBatchManifest.CachedRow(
-                sample: metric.sample ?? "",
-                organism: metric.organism,
-                tassScore: metric.tassScore,
-                reads: metric.reads,
-                uniqueReads: batchFlatTableView.uniqueReadsByKey["\(metric.sample ?? "")\t\(metric.organism)"],
-                confidence: metric.confidence,
-                coverageBreadth: metric.coverageBreadth,
-                coverageDepth: metric.coverageDepth,
-                abundance: metric.abundance
-            )
-        }
-        let manifest = TaxTriageBatchManifest(
-            createdAt: Date(),
-            sampleCount: sampleIds.count,
-            sampleIds: sampleIds,
-            cachedRows: cachedRows
-        )
-        do {
-            try MetagenomicsBatchResultStore.saveTaxTriageBatchManifest(manifest, to: batchURL)
-            logger.info("Saved TaxTriage batch manifest with \(cachedRows.count) rows")
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    NotificationCenter.default.post(name: .batchManifestCached, object: nil)
-                }
-            }
-        } catch {
-            logger.warning("Failed to save TaxTriage batch manifest: \(error.localizedDescription, privacy: .public)")
-        }
     }
 
     /// Updates the persisted `TaxTriageBatchManifest` with newly computed unique reads values.
@@ -2699,6 +2323,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     public func configureFromDatabase(_ db: TaxTriageDatabase) {
         self.taxTriageDatabase = db
         self.isBatchGroupMode = true
+        self.didLoadFromManifestCache = true
 
         // Fetch all samples from the DB.
         let sampleList = (try? db.fetchSamples()) ?? []
@@ -2718,7 +2343,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         // Load ALL rows from the DB (filtering by selection happens in applyBatchGroupFilter).
         reloadFromDatabase()
 
-        // Wire batch flat table callbacks (same pattern as configureBatchGroup).
+        // Wire batch flat table callbacks (same pattern as configureFromDatabase).
         batchFlatTableView.metadataColumns.isMultiSampleMode = true
         batchFlatTableView.onRowSelected = { [weak self] row in
             guard let self else { return }
@@ -2888,7 +2513,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         // Use the already-populated `metrics` array as the flat table rows.
         allBatchGroupRows = metrics
 
-        // Wire batch flat table callbacks (same pattern as configureBatchGroup).
+        // Wire batch flat table callbacks (same pattern as configureFromDatabase).
         batchFlatTableView.onRowSelected = { [weak self] row in
             guard let self else { return }
             self.actionBar.updateInfoText("1 row selected")
@@ -3219,7 +2844,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         // 5. Restart computation for all organisms.
         if isBatchGroupMode, let batchURL = batchGroupURL {
-            // Re-enumerate sample subdirectories (same logic as configureBatchGroup).
+            // Re-enumerate sample subdirectories (same logic as configureFromDatabase).
             let contents = (try? FileManager.default.contentsOfDirectory(atPath: batchURL.path)) ?? []
             let subdirs = contents
                 .sorted()

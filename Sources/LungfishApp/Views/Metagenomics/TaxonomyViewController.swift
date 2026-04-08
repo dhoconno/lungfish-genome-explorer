@@ -276,7 +276,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     /// Flat table used in batch mode (sibling of `splitView`).
     private(set) var batchTableView = BatchClassificationTableView()
 
-    /// The URL of the batch result directory (set during `configureBatch`).
+    /// The URL of the batch result directory (set during `configureFromDatabase`).
     var batchURL: URL?
 
     // MARK: - Taxa Collections Drawer
@@ -406,94 +406,6 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         samplePickerState = ClassifierSamplePickerState(allSamples: Set([sampleName]))
     }
 
-    /// Configures the taxonomy view controller in batch mode.
-    ///
-    /// Loads kreport files for all samples in the manifest, builds flat
-    /// `BatchClassificationRow` records, initialises the sample picker, and
-    /// swaps the split view for the batch table.
-    ///
-    /// - Parameters:
-    ///   - batchURL: The batch result directory URL (used to resolve kreport paths).
-    ///   - manifest: The classification batch result manifest.
-    ///   - projectURL: The containing project URL, used for display name resolution.
-    func configureBatch(
-        batchURL: URL,
-        manifest: ClassificationBatchResultManifest,
-        projectURL: URL
-    ) {
-        isBatchMode = true
-        self.batchURL = batchURL
-
-        var allRows: [BatchClassificationRow] = []
-        var entries: [Kraken2SampleEntry] = []
-
-        for sample in manifest.samples {
-            let resultDir = batchURL.appendingPathComponent(sample.resultDirectory)
-            // kreport may be named classification.kreport (canonical), <sampleId>.kreport, or report.kreport
-            let possibleNames = ["classification.kreport", "\(sample.sampleId).kreport", "report.kreport", "kreport.txt"]
-            var kreportURL: URL?
-            for name in possibleNames {
-                let candidate = resultDir.appendingPathComponent(name)
-                if FileManager.default.fileExists(atPath: candidate.path) {
-                    kreportURL = candidate
-                    break
-                }
-            }
-            guard let kreportURL else {
-                logger.warning("No kreport found for sample \(sample.sampleId, privacy: .public) in \(resultDir.path, privacy: .public)")
-                continue
-            }
-
-            do {
-                let tree = try KreportParser.parse(url: kreportURL)
-                let rows = BatchClassificationRow.fromTree(tree, sampleId: sample.sampleId)
-                allRows.append(contentsOf: rows)
-
-                let displayName = FASTQDisplayNameResolver.resolveDisplayName(
-                    sampleId: sample.sampleId, projectURL: projectURL)
-                entries.append(Kraken2SampleEntry(
-                    id: sample.sampleId,
-                    displayName: displayName,
-                    classifiedReads: tree.classifiedReads
-                ))
-            } catch {
-                logger.error("Failed to parse kreport for \(sample.sampleId, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            }
-        }
-
-        allBatchRows = allRows
-        sampleEntries = entries
-
-        let allSampleIds = Set(entries.map(\.id))
-        samplePickerState = ClassifierSamplePickerState(allSamples: allSampleIds)
-
-        // Wire batch table callbacks
-        batchTableView.metadataColumns.isMultiSampleMode = true
-        batchTableView.onRowSelected = { [weak self] _ in
-            self?.actionBar.updateInfoText("1 row selected")
-        }
-        batchTableView.onMultipleRowsSelected = { [weak self] rows in
-            self?.actionBar.updateInfoText("\(rows.count) rows selected")
-        }
-        batchTableView.onSelectionCleared = { [weak self] in
-            self?.actionBar.updateInfoText("Select a taxon to view details")
-        }
-
-        // Swap visibility: hide split view, show batch table
-        splitView.isHidden = true
-        batchTableView.isHidden = false
-
-        summaryBar.updateBatch(
-            sampleCount: entries.count,
-            totalRows: allRows.count,
-            databaseName: manifest.databaseName
-        )
-
-        applyBatchSampleFilter()
-
-        logger.info("Batch mode configured: \(allRows.count) rows from \(entries.count) samples")
-    }
-
     // MARK: - Database-backed Batch Mode
 
     /// The SQLite database backing this VC when loaded via `configureFromDatabase`.
@@ -527,7 +439,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         // Load ALL rows from the DB (filtering by selection happens in applyBatchSampleFilter).
         reloadFromDatabase()
 
-        // Wire batch table callbacks (same pattern as configureBatch).
+        // Wire batch table callbacks (same pattern as configureFromDatabase).
         batchTableView.metadataColumns.isMultiSampleMode = true
         batchTableView.onRowSelected = { [weak self] _ in
             self?.actionBar.updateInfoText("1 row selected")
@@ -731,7 +643,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     // MARK: - Setup: Batch Table View
 
     /// Adds the batch table view as a sibling of `splitView` with identical
-    /// constraints. Hidden by default; shown when `configureBatch` is called.
+    /// constraints. Hidden by default; shown when `configureFromDatabase` is called.
     private func setupBatchTableView() {
         batchTableView.translatesAutoresizingMaskIntoConstraints = false
         batchTableView.isHidden = true
