@@ -121,6 +121,41 @@ public final class NvdDatabase: @unchecked Sendable {
             throw NvdDatabaseError.openFailed(msg)
         }
 
+        // Schema migration: ensure unique_reads column exists (added post-initial release)
+        let colCheck = "PRAGMA table_info(blast_hits)"
+        var checkStmt: OpaquePointer?
+        var hasUniqueReads = false
+        if sqlite3_prepare_v2(db, colCheck, -1, &checkStmt, nil) == SQLITE_OK {
+            while sqlite3_step(checkStmt) == SQLITE_ROW {
+                if let namePtr = sqlite3_column_text(checkStmt, 1) {
+                    let colName = String(cString: namePtr)
+                    if colName == "unique_reads" {
+                        hasUniqueReads = true
+                        break
+                    }
+                }
+            }
+            sqlite3_finalize(checkStmt)
+        }
+        if !hasUniqueReads {
+            // Close read-only handle, reopen read-write to add the column
+            sqlite3_close(db)
+            db = nil
+            var rwDB: OpaquePointer?
+            if sqlite3_open_v2(url.path, &rwDB, SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK {
+                sqlite3_exec(rwDB, "ALTER TABLE blast_hits ADD COLUMN unique_reads INTEGER", nil, nil, nil)
+                sqlite3_close(rwDB)
+            }
+            // Reopen read-only
+            let rc2 = sqlite3_open_v2(url.path, &db, flags, nil)
+            guard rc2 == SQLITE_OK else {
+                let msg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
+                sqlite3_close(db)
+                db = nil
+                throw NvdDatabaseError.openFailed(msg)
+            }
+        }
+
         // Read-side performance tuning
         sqlite3_exec(db, "PRAGMA cache_size = -65536", nil, nil, nil)    // 64 MB
         sqlite3_exec(db, "PRAGMA mmap_size = 268435456", nil, nil, nil)  // 256 MB
@@ -230,6 +265,7 @@ public final class NvdDatabase: @unchecked Sendable {
             blast_db_version TEXT NOT NULL,
             snakemake_run_id TEXT NOT NULL,
             mapped_reads INTEGER NOT NULL,
+            unique_reads INTEGER,
             total_reads INTEGER NOT NULL,
             stat_db_version TEXT NOT NULL,
             adjusted_taxid INTEGER NOT NULL,
@@ -271,10 +307,10 @@ public final class NvdDatabase: @unchecked Sendable {
             experiment, blast_task, sample_id, qseqid, qlen,
             sseqid, stitle, tax_rank, length, pident, evalue, bitscore,
             sscinames, staxids, blast_db_version, snakemake_run_id,
-            mapped_reads, total_reads, stat_db_version,
+            mapped_reads, unique_reads, total_reads, stat_db_version,
             adjusted_taxid, adjustment_method, adjusted_taxid_name,
             adjusted_taxid_rank, hit_rank, reads_per_billion
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """
 
         var stmt: OpaquePointer?
@@ -309,15 +345,21 @@ public final class NvdDatabase: @unchecked Sendable {
             nvdBindText(stmt, 15, hit.blastDbVersion)
             nvdBindText(stmt, 16, hit.snakemakeRunId)
             sqlite3_bind_int64(stmt, 17, Int64(hit.mappedReads))
-            sqlite3_bind_int64(stmt, 18, Int64(hit.totalReads))
-            nvdBindText(stmt, 19, hit.statDbVersion)
+            // 18: unique_reads (nullable)
+            if let unique = hit.uniqueReads {
+                sqlite3_bind_int64(stmt, 18, Int64(unique))
+            } else {
+                sqlite3_bind_null(stmt, 18)
+            }
+            sqlite3_bind_int64(stmt, 19, Int64(hit.totalReads))
+            nvdBindText(stmt, 20, hit.statDbVersion)
             // adjusted_taxid is stored as INTEGER — parse from string
-            sqlite3_bind_int64(stmt, 20, Int64(hit.adjustedTaxid) ?? 0)
-            nvdBindText(stmt, 21, hit.adjustmentMethod)
-            nvdBindText(stmt, 22, hit.adjustedTaxidName)
-            nvdBindText(stmt, 23, hit.adjustedTaxidRank)
-            sqlite3_bind_int64(stmt, 24, Int64(hit.hitRank))
-            sqlite3_bind_double(stmt, 25, hit.readsPerBillion)
+            sqlite3_bind_int64(stmt, 21, Int64(hit.adjustedTaxid) ?? 0)
+            nvdBindText(stmt, 22, hit.adjustmentMethod)
+            nvdBindText(stmt, 23, hit.adjustedTaxidName)
+            nvdBindText(stmt, 24, hit.adjustedTaxidRank)
+            sqlite3_bind_int64(stmt, 25, Int64(hit.hitRank))
+            sqlite3_bind_double(stmt, 26, hit.readsPerBillion)
 
             guard sqlite3_step(stmt) == SQLITE_DONE else {
                 let msg = String(cString: sqlite3_errmsg(db))
@@ -458,7 +500,7 @@ public final class NvdDatabase: @unchecked Sendable {
         SELECT experiment, blast_task, sample_id, qseqid, qlen,
                sseqid, stitle, tax_rank, length, pident, evalue, bitscore,
                sscinames, staxids, blast_db_version, snakemake_run_id,
-               mapped_reads, total_reads, stat_db_version,
+               mapped_reads, unique_reads, total_reads, stat_db_version,
                adjusted_taxid, adjustment_method, adjusted_taxid_name,
                adjusted_taxid_rank, hit_rank, reads_per_billion
         FROM blast_hits
@@ -495,7 +537,7 @@ public final class NvdDatabase: @unchecked Sendable {
         SELECT experiment, blast_task, sample_id, qseqid, qlen,
                sseqid, stitle, tax_rank, length, pident, evalue, bitscore,
                sscinames, staxids, blast_db_version, snakemake_run_id,
-               mapped_reads, total_reads, stat_db_version,
+               mapped_reads, unique_reads, total_reads, stat_db_version,
                adjusted_taxid, adjustment_method, adjusted_taxid_name,
                adjusted_taxid_rank, hit_rank, reads_per_billion
         FROM blast_hits
@@ -583,7 +625,7 @@ public final class NvdDatabase: @unchecked Sendable {
         SELECT experiment, blast_task, sample_id, qseqid, qlen,
                sseqid, stitle, tax_rank, length, pident, evalue, bitscore,
                sscinames, staxids, blast_db_version, snakemake_run_id,
-               mapped_reads, total_reads, stat_db_version,
+               mapped_reads, unique_reads, total_reads, stat_db_version,
                adjusted_taxid, adjustment_method, adjusted_taxid_name,
                adjusted_taxid_rank, hit_rank, reads_per_billion
         FROM blast_hits
@@ -706,11 +748,11 @@ public final class NvdDatabase: @unchecked Sendable {
 
     /// Collects all rows from a prepared SELECT statement into NvdBlastHit values.
     ///
-    /// The SELECT must project the 25 blast_hits columns in the standard order:
+    /// The SELECT must project the 26 blast_hits columns in the standard order:
     /// experiment, blast_task, sample_id, qseqid, qlen,
     /// sseqid, stitle, tax_rank, length, pident, evalue, bitscore,
     /// sscinames, staxids, blast_db_version, snakemake_run_id,
-    /// mapped_reads, total_reads, stat_db_version,
+    /// mapped_reads, unique_reads, total_reads, stat_db_version,
     /// adjusted_taxid, adjustment_method, adjusted_taxid_name,
     /// adjusted_taxid_rank, hit_rank, reads_per_billion
     private func collectHits(stmt: OpaquePointer?) throws -> [NvdBlastHit] {
@@ -733,16 +775,19 @@ public final class NvdDatabase: @unchecked Sendable {
             let blastDbVersion    = String(cString: sqlite3_column_text(stmt, 14))
             let snakemakeRunId    = String(cString: sqlite3_column_text(stmt, 15))
             let mappedReads       = Int(sqlite3_column_int64(stmt, 16))
-            let totalReads        = Int(sqlite3_column_int64(stmt, 17))
-            let statDbVersion     = String(cString: sqlite3_column_text(stmt, 18))
+            // unique_reads is nullable (populated post-markdup)
+            let uniqueReads: Int? = sqlite3_column_type(stmt, 17) == SQLITE_NULL
+                ? nil : Int(sqlite3_column_int64(stmt, 17))
+            let totalReads        = Int(sqlite3_column_int64(stmt, 18))
+            let statDbVersion     = String(cString: sqlite3_column_text(stmt, 19))
             // adjusted_taxid stored as INTEGER, returned as string for NvdBlastHit
-            let adjustedTaxidInt  = sqlite3_column_int64(stmt, 19)
+            let adjustedTaxidInt  = sqlite3_column_int64(stmt, 20)
             let adjustedTaxid     = String(adjustedTaxidInt)
-            let adjustmentMethod  = String(cString: sqlite3_column_text(stmt, 20))
-            let adjustedTaxidName = String(cString: sqlite3_column_text(stmt, 21))
-            let adjustedTaxidRank = String(cString: sqlite3_column_text(stmt, 22))
-            let hitRank           = Int(sqlite3_column_int64(stmt, 23))
-            let readsPerBillion   = sqlite3_column_double(stmt, 24)
+            let adjustmentMethod  = String(cString: sqlite3_column_text(stmt, 21))
+            let adjustedTaxidName = String(cString: sqlite3_column_text(stmt, 22))
+            let adjustedTaxidRank = String(cString: sqlite3_column_text(stmt, 23))
+            let hitRank           = Int(sqlite3_column_int64(stmt, 24))
+            let readsPerBillion   = sqlite3_column_double(stmt, 25)
 
             hits.append(NvdBlastHit(
                 experiment: experiment,
@@ -762,6 +807,7 @@ public final class NvdDatabase: @unchecked Sendable {
                 blastDbVersion: blastDbVersion,
                 snakemakeRunId: snakemakeRunId,
                 mappedReads: mappedReads,
+                uniqueReads: uniqueReads,
                 totalReads: totalReads,
                 statDbVersion: statDbVersion,
                 adjustedTaxid: adjustedTaxid,

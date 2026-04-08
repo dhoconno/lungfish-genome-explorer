@@ -98,6 +98,12 @@ public struct NvdBlastHit: Sendable, Codable, Equatable {
     /// Number of reads that mapped to this contig.
     public let mappedReads: Int
 
+    /// Number of unique (deduplicated) reads that mapped to this contig.
+    ///
+    /// Populated post-markdup. Nullable for backward compatibility with databases
+    /// created before the markdup service was introduced.
+    public let uniqueReads: Int?
+
     /// Total reads in the sample used for normalization.
     public let totalReads: Int
 
@@ -149,6 +155,7 @@ public struct NvdBlastHit: Sendable, Codable, Equatable {
         blastDbVersion: String,
         snakemakeRunId: String,
         mappedReads: Int,
+        uniqueReads: Int? = nil,
         totalReads: Int,
         statDbVersion: String,
         adjustedTaxid: String,
@@ -175,6 +182,7 @@ public struct NvdBlastHit: Sendable, Codable, Equatable {
         self.blastDbVersion = blastDbVersion
         self.snakemakeRunId = snakemakeRunId
         self.mappedReads = mappedReads
+        self.uniqueReads = uniqueReads
         self.totalReads = totalReads
         self.statDbVersion = statDbVersion
         self.adjustedTaxid = adjustedTaxid
