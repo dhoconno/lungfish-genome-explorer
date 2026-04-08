@@ -856,7 +856,6 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
             let miniBAM = MiniBAMViewController()
             miniBAM.subjectNoun = "reference"
-            miniBAM.showsPCRDuplicates = false
             miniBAM.keyboardShortcutsEnabled = true
             addChild(miniBAM)
             miniBAMControllers.append(miniBAM)

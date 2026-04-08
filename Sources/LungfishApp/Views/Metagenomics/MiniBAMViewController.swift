@@ -70,7 +70,9 @@ private final class MiniBAMResizeHandleView: NSView {
 /// - Creates its own `AlignmentDataProvider` from a BAM path
 /// - Renders reads using CoreGraphics directly (no tile cache)
 /// - Shows the entire viral contig in a scrollable view
-/// - Highlights potential PCR duplicates (identical start/end positions)
+///
+/// PCR/optical duplicates are filtered upstream by samtools markdup,
+/// so the viewer receives already-deduplicated reads.
 ///
 /// ## Layout
 ///
@@ -81,9 +83,8 @@ private final class MiniBAMResizeHandleView: NSView {
 /// +--------------------------------------------------+
 /// | Read pileup (scrollable, variable height)        |
 /// | [packed reads with mismatch coloring, arrows]    |
-/// | [duplicate reads highlighted in orange]          |
 /// +--------------------------------------------------+
-/// | Status: "42 reads (3 potential duplicates)"      |
+/// | Status: "42 reads"                               |
 /// +--------------------------------------------------+
 /// ```
 @MainActor
@@ -95,20 +96,10 @@ public final class MiniBAMViewController: NSViewController {
     private var indexURL: URL?
     private var contigName: String = ""
     private var contigLength: Int = 0
-    private var allReads: [AlignedRead] = []
     private var reads: [AlignedRead] = []
-    private var allDuplicateIndices: Set<Int> = []
-    private var duplicateIndices: Set<Int> = []
     private var depthPoints: [DepthPoint] = []
     private var referenceSequence: String?
     public private(set) var uniqueReadCount: Int = 0
-    public private(set) var pcrDuplicateReadCount: Int = 0
-    public var showsPCRDuplicates: Bool = false {
-        didSet {
-            updateDuplicateMenuState()
-            applyDuplicateVisibility(rebuildReference: false)
-        }
-    }
 
     // MARK: - Subviews
 
@@ -117,7 +108,6 @@ public final class MiniBAMViewController: NSViewController {
     private let resizeHandleView = MiniBAMResizeHandleView()
     private let statusLabel = NSTextField(labelWithString: "")
     private var resizeHandleHeightConstraint: NSLayoutConstraint?
-    private weak var duplicateToggleMenuItem: NSMenuItem?
 
     private var lastKnownViewportSize: CGSize = .zero
     private var keyMonitorToken: Any?
@@ -130,7 +120,6 @@ public final class MiniBAMViewController: NSViewController {
     /// Pre-computed result stored in the cache for a BAM+contig combination.
     private struct CachedContigResult {
         let reads: [AlignedRead]
-        let duplicateIndices: Set<Int>
         let readCount: Int
     }
 
@@ -191,15 +180,6 @@ public final class MiniBAMViewController: NSViewController {
         menu.items.last?.target = self
         menu.addItem(withTitle: "Center View Here", action: #selector(centerViewHereAction), keyEquivalent: "")
         menu.items.last?.target = self
-        let duplicateToggleItem = NSMenuItem(
-            title: "Show PCR Duplicates",
-            action: #selector(togglePCRDuplicatesAction),
-            keyEquivalent: ""
-        )
-        duplicateToggleItem.target = self
-        duplicateToggleItem.state = showsPCRDuplicates ? .on : .off
-        menu.addItem(duplicateToggleItem)
-        duplicateToggleMenuItem = duplicateToggleItem
         menu.addItem(.separator())
         menu.addItem(withTitle: "Copy Read Sequence (FASTQ)", action: #selector(copyReadFASTQ), keyEquivalent: "")
         menu.items.last?.target = self
@@ -354,10 +334,6 @@ public final class MiniBAMViewController: NSViewController {
         resizeHandleHeightConstraint?.constant = showsHandle ? 8 : 0
     }
 
-    private func updateDuplicateMenuState() {
-        duplicateToggleMenuItem?.state = showsPCRDuplicates ? .on : .off
-    }
-
     // MARK: - Public API
 
     /// Zoom in: doubles the zoom level (halves bp/px), re-renders at higher detail.
@@ -394,7 +370,6 @@ public final class MiniBAMViewController: NSViewController {
         // Re-render with new zoom level
         pileupView.configure(
             reads: reads,
-            duplicateIndices: duplicateIndices,
             contigName: contigName,
             contigLength: contigLength,
             viewportWidth: viewportWidth,
@@ -430,7 +405,6 @@ public final class MiniBAMViewController: NSViewController {
 
         pileupView.configure(
             reads: reads,
-            duplicateIndices: duplicateIndices,
             contigName: contigName,
             contigLength: contigLength,
             viewportWidth: viewportWidth,
@@ -457,14 +431,10 @@ public final class MiniBAMViewController: NSViewController {
             zoomText = String(format: "%.0f bp/px", bpPerPx)
         }
 
-        let total = allReads.count
-        let unique = uniqueReadCount
-        if showsPCRDuplicates {
-            statusLabel.stringValue = "\(miniBAMFormatCount(total)) total reads (\(miniBAMFormatCount(unique)) unique) · \(zoomText) · ⌘+/⌘- to zoom"
-        } else {
-            statusLabel.stringValue = "\(miniBAMFormatCount(unique)) unique / \(miniBAMFormatCount(total)) total reads · \(zoomText) · ⌘+/⌘- to zoom"
-        }
-        onReadStatsUpdated?(total, unique)
+        let total = reads.count
+        statusLabel.stringValue = "\(miniBAMFormatCount(total)) reads · \(zoomText) · ⌘+/⌘- to zoom"
+        // Reads are already deduplicated by samtools upstream.
+        onReadStatsUpdated?(total, total)
     }
 
     /// Loads and displays reads for a specific viral contig from the BAM file.
@@ -518,11 +488,9 @@ public final class MiniBAMViewController: NSViewController {
         // selections of the same organism row.
         let key = cacheKey(bamPath: bamURL.path, contig: contig)
         if let cached = contigCache[key] {
-            allReads = cached.reads
-            allDuplicateIndices = cached.duplicateIndices
-            pcrDuplicateReadCount = cached.duplicateIndices.count
-            uniqueReadCount = max(0, cached.reads.count - pcrDuplicateReadCount)
-            applyDuplicateVisibility(rebuildReference: true)
+            reads = cached.reads
+            uniqueReadCount = cached.reads.count
+            updatePileup()
             scrollToTop()
             updateZoomStatus()
             logger.info("Cache hit: \(cached.reads.count) reads for \(contig, privacy: .public)")
@@ -535,6 +503,10 @@ public final class MiniBAMViewController: NSViewController {
         )
 
         // Fetch all reads for this contig.
+        // excludeFlags: 0x904 | 0x400 = 0xD04 — exclude unmapped, secondary,
+        // supplementary, and PCR/optical duplicates. Duplicate filtering
+        // happens upstream in samtools markdup, so the viewer receives
+        // already-deduplicated reads.
         loadTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let requestedContig = contig
@@ -543,17 +515,15 @@ public final class MiniBAMViewController: NSViewController {
                     chromosome: contig,
                     start: 0,
                     end: contigLength,
+                    excludeFlags: 0x904 | 0x400,
                     maxReads: maxReads
                 )
                 guard !Task.isCancelled else { return }
                 guard self.contigName == requestedContig else { return }
 
-                let duplicates = self.detectDuplicates(in: fetchedReads)
-                self.allReads = fetchedReads
-                self.allDuplicateIndices = duplicates
-                self.pcrDuplicateReadCount = duplicates.count
-                self.uniqueReadCount = max(0, fetchedReads.count - self.pcrDuplicateReadCount)
-                self.applyDuplicateVisibility(rebuildReference: true)
+                self.reads = fetchedReads
+                self.uniqueReadCount = fetchedReads.count
+                self.updatePileup()
 
                 // Keep the coverage/reference tracks pinned at the top of the viewport.
                 self.scrollToTop()
@@ -562,12 +532,11 @@ public final class MiniBAMViewController: NSViewController {
                 // Store in cache for instant re-display on repeated selections.
                 let result = CachedContigResult(
                     reads: fetchedReads,
-                    duplicateIndices: duplicates,
                     readCount: fetchedReads.count
                 )
                 self.cacheResult(result, key: key)
 
-                logger.info("Loaded \(fetchedReads.count) reads for \(contig, privacy: .public), \(self.pcrDuplicateReadCount) potential duplicates")
+                logger.info("Loaded \(fetchedReads.count) reads for \(contig, privacy: .public)")
             } catch {
                 guard !Task.isCancelled else { return }
                 self.statusLabel.stringValue = "Failed to load reads: \(error.localizedDescription)"
@@ -593,16 +562,14 @@ public final class MiniBAMViewController: NSViewController {
         self.contigName = contig
         self.contigLength = contigLength
 
-        self.allReads = reads
-        self.allDuplicateIndices = detectDuplicates(in: reads)
-        self.pcrDuplicateReadCount = allDuplicateIndices.count
-        self.uniqueReadCount = max(0, reads.count - pcrDuplicateReadCount)
-        self.applyDuplicateVisibility(rebuildReference: true)
+        self.reads = reads
+        self.uniqueReadCount = reads.count
+        self.updatePileup()
 
         scrollToTop()
         updateZoomStatus()
 
-        logger.info("Displayed \(reads.count) pre-fetched reads for \(contig, privacy: .public), \(self.pcrDuplicateReadCount) potential duplicates")
+        logger.info("Displayed \(reads.count) pre-fetched reads for \(contig, privacy: .public)")
     }
 
     // MARK: - Keyboard Shortcuts
@@ -750,9 +717,6 @@ public final class MiniBAMViewController: NSViewController {
     @objc private func zoomInAction() { zoomIn() }
     @objc private func zoomOutAction() { zoomOut() }
     @objc private func zoomToFitAction() { zoomToFit() }
-    @objc private func togglePCRDuplicatesAction() {
-        showsPCRDuplicates.toggle()
-    }
 
     @objc private func centerViewHereAction() {
         guard let clickPoint = pileupView.lastContextClickPoint else { return }
@@ -784,76 +748,14 @@ public final class MiniBAMViewController: NSViewController {
     public func clear() {
         loadTask?.cancel()
         loadTask = nil
-        allReads = []
         reads = []
-        allDuplicateIndices = []
-        duplicateIndices = []
         depthPoints = []
         uniqueReadCount = 0
-        pcrDuplicateReadCount = 0
         referenceSequence = nil
-        updateDuplicateMenuState()
         pileupView.clear()
         statusLabel.stringValue = emptyStatusText
         onReadStatsUpdated?(0, 0)
         lastKnownViewportSize = CGSize(width: currentViewportWidth, height: currentViewportHeight)
-    }
-
-    // MARK: - Duplicate Detection
-
-    /// Identifies potential PCR duplicates: reads with identical start and end positions.
-    ///
-    /// The FIRST read in each position group is kept as the "real" read.
-    /// Subsequent reads at the same position are marked as potential duplicates
-    /// and rendered at 50% opacity in orange.
-    private func detectDuplicates(in reads: [AlignedRead]) -> Set<Int> {
-        var duplicates: Set<Int> = []
-
-        // Group reads by (start, end, strand) — same position AND strand = likely PCR dup
-        var positionGroups: [String: [Int]] = [:]
-        for (i, read) in reads.enumerated() {
-            let strand = read.isReverse ? "R" : "F"
-            let key = "\(read.position)-\(read.alignmentEnd)-\(strand)"
-            positionGroups[key, default: []].append(i)
-        }
-
-        // Mark all reads EXCEPT the first in each group as duplicates
-        for (_, indices) in positionGroups where indices.count > 1 {
-            for idx in indices.dropFirst() {
-                duplicates.insert(idx)
-            }
-        }
-        return duplicates
-    }
-
-    private func applyDuplicateVisibility(rebuildReference: Bool) {
-        if showsPCRDuplicates {
-            reads = allReads
-            // Duplicate indices are defined against all reads, which is now the displayed set.
-            duplicateIndices = allDuplicateIndices
-        } else {
-            reads = allReads.enumerated().compactMap { index, read in
-                allDuplicateIndices.contains(index) ? nil : read
-            }
-            duplicateIndices = []
-        }
-
-        if rebuildReference {
-            updatePileup()
-        } else {
-            pileupView.configure(
-                reads: reads,
-                duplicateIndices: duplicateIndices,
-                contigName: contigName,
-                contigLength: contigLength,
-                viewportWidth: currentViewportWidth,
-                viewportHeight: currentViewportHeight,
-                zoomLevel: zoomLevel,
-                rebuildReference: false
-            )
-        }
-
-        updateZoomStatus()
     }
 
     private func scrollToTop() {
@@ -869,7 +771,6 @@ public final class MiniBAMViewController: NSViewController {
         let viewportHeight = currentViewportHeight
         pileupView.configure(
             reads: reads,
-            duplicateIndices: duplicateIndices,
             contigName: contigName,
             contigLength: contigLength,
             viewportWidth: viewportWidth,
@@ -897,7 +798,6 @@ final class MiniPileupView: NSView {
     // MARK: - Data
 
     private var reads: [AlignedRead] = []
-    private var duplicateIndices: Set<Int> = []
     private var contigName: String = ""
     private var contigLength: Int = 0
     private var packedRows: [[Int]] = []  // indices into reads array per row
@@ -933,7 +833,6 @@ final class MiniPileupView: NSView {
 
     func configure(
         reads: [AlignedRead],
-        duplicateIndices: Set<Int>,
         contigName: String,
         contigLength: Int,
         viewportWidth: CGFloat,
@@ -943,7 +842,6 @@ final class MiniPileupView: NSView {
         referenceSequence: String? = nil
     ) {
         self.reads = reads
-        self.duplicateIndices = duplicateIndices
         self.contigName = contigName
         self.contigLength = contigLength
         if rebuildReference {
@@ -984,7 +882,6 @@ final class MiniPileupView: NSView {
 
     func clear() {
         reads = []
-        duplicateIndices = []
         packedRows = []
         inferredReferenceBases = [:]
         frame = NSRect(x: 0, y: 0, width: 100, height: 100)
@@ -1156,13 +1053,12 @@ final class MiniPileupView: NSView {
 
             for readIdx in row {
                 let read = reads[readIdx]
-                let isDuplicate = duplicateIndices.contains(readIdx)
-                drawRead(read, at: rowY, isDuplicate: isDuplicate, in: dirtyRect)
+                drawRead(read, at: rowY, in: dirtyRect)
             }
         }
     }
 
-    private func drawRead(_ read: AlignedRead, at y: CGFloat, isDuplicate: Bool, in dirtyRect: NSRect) {
+    private func drawRead(_ read: AlignedRead, at y: CGFloat, in dirtyRect: NSRect) {
         let startX = leftMargin + CGFloat(Double(read.position) / bpPerPixel)
         let endX = leftMargin + CGFloat(Double(read.alignmentEnd) / bpPerPixel)
         let width = max(2, endX - startX)
@@ -1173,14 +1069,10 @@ final class MiniPileupView: NSView {
         guard readRect.intersects(dirtyRect) else { return }
 
         // Read color: forward=blue, reverse=red
-        // Duplicates: same strand color but at 50% opacity with orange tint
+        // PCR/optical duplicates are filtered upstream by samtools markdup.
         let baseColor: NSColor
         let fillOpacity: CGFloat
-        if isDuplicate {
-            // Duplicate reads: orange-tinted at 50% opacity to de-emphasize
-            baseColor = .systemOrange
-            fillOpacity = 0.35
-        } else if read.isReverse {
+        if read.isReverse {
             baseColor = NSColor(red: 0.85, green: 0.45, blue: 0.45, alpha: 1.0)
             fillOpacity = 0.7
         } else {
@@ -1250,11 +1142,6 @@ final class MiniPileupView: NSView {
             let clipRect = NSRect(x: endX, y: y, width: clipWidth, height: readHeight)
             NSColor.systemYellow.withAlphaComponent(0.5).setFill()
             NSBezierPath(rect: clipRect).fill()
-        }
-
-        // Duplicate indicator: diagonal stripes
-        if isDuplicate {
-            drawDuplicatePattern(in: readRect)
         }
     }
 
@@ -1556,27 +1443,6 @@ final class MiniPileupView: NSView {
         }
 
         return inferred
-    }
-
-    private func drawDuplicatePattern(in rect: NSRect) {
-        // Diagonal lines pattern to indicate potential PCR duplicate
-        NSGraphicsContext.current?.saveGraphicsState()
-
-        let clip = NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2)
-        clip.addClip()
-
-        NSColor.systemOrange.withAlphaComponent(0.3).setStroke()
-        let stripe = NSBezierPath()
-        stripe.lineWidth = 1
-        var x = rect.minX - rect.height
-        while x < rect.maxX + rect.height {
-            stripe.move(to: NSPoint(x: x, y: rect.minY))
-            stripe.line(to: NSPoint(x: x + rect.height, y: rect.maxY))
-            x += 6
-        }
-        stripe.stroke()
-
-        NSGraphicsContext.current?.restoreGraphicsState()
     }
 
     private func drawEmptyState() {

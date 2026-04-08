@@ -735,7 +735,6 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         // Create MiniBAM
         let miniBAM = MiniBAMViewController()
         miniBAM.subjectNoun = "contig"
-        miniBAM.showsPCRDuplicates = false
         miniBAM.keyboardShortcutsEnabled = true
         addChild(miniBAM)
         miniBAMController = miniBAM
