@@ -1732,21 +1732,46 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     }
 
 
-    /// Routes a classifier result directory through the ``ClassifierDatabaseRouter``.
+    /// Routes a classifier result directory through the DB router.
     ///
-    /// If the directory has a pre-built SQLite database, displays via
-    /// ``displayBatchGroup(at:)``. If the directory is a classifier result but has
-    /// no database yet, shows a placeholder and triggers an auto-build. If the
-    /// directory is not a classifier result at all, logs a warning.
+    /// - Top-level classifier dir with DB → loads batch view.
+    /// - Per-sample subdir with DB → loads batch view, filters picker to that sample.
+    /// - Any classifier dir without DB → shows auto-build placeholder.
+    /// - Non-classifier dir → logs and no-ops.
     private func routeClassifierDisplay(url: URL) {
-        if let route = ClassifierDatabaseRouter.route(for: url) {
-            if route.databaseURL != nil {
-                displayBatchGroup(at: url)
-            } else {
-                showDatabaseBuildPlaceholder(tool: route.displayName, resultURL: url)
+        guard let route = ClassifierDatabaseRouter.route(for: url) else {
+            logger.warning("routeClassifierDisplay: Not a classifier directory: \(url.lastPathComponent, privacy: .public)")
+            return
+        }
+
+        if route.databaseURL != nil {
+            displayBatchGroup(at: route.resultURL)
+            if let sampleId = route.sampleId {
+                filterBatchViewToSingleSample(sampleId: sampleId)
             }
         } else {
-            logger.warning("routeClassifierDisplay: Not a classifier directory: \(url.lastPathComponent, privacy: .public)")
+            showDatabaseBuildPlaceholder(tool: route.displayName, resultURL: route.resultURL)
+        }
+    }
+
+    /// After a batch view loads, constrain the sample picker to a single sample.
+    /// Fires the metagenomicsSampleSelectionChanged notification which each VC
+    /// observes to reload the filtered view.
+    private func filterBatchViewToSingleSample(sampleId: String) {
+        if let taxTriageVC = viewerController.taxTriageViewController {
+            taxTriageVC.samplePickerState?.selectedSamples = [sampleId]
+            NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil)
+            return
+        }
+        if let esVirituVC = viewerController.esVirituViewController {
+            esVirituVC.samplePickerState?.selectedSamples = [sampleId]
+            NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil)
+            return
+        }
+        if let taxonomyVC = viewerController.taxonomyViewController {
+            taxonomyVC.samplePickerState?.selectedSamples = [sampleId]
+            NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil)
+            return
         }
     }
 
