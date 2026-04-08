@@ -7,6 +7,7 @@ import SwiftUI
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
+import SQLite3
 import UniformTypeIdentifiers
 import os
 
@@ -4360,6 +4361,63 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     }
                 }
 
+                // Step 5b: Run markdup on copied BAMs and populate unique_reads column
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.update(id: opID, progress: 0.72, detail: "Marking duplicates...")
+                        OperationCenter.shared.log(id: opID, level: .info, message: "Running samtools markdup on BAM files")
+                    }
+                }
+
+                if let samtoolsPath = AppDelegate.nvdLocateSamtools() {
+                    do {
+                        let markdupResults = try MarkdupService.markdupDirectory(
+                            bamBundleDir,
+                            samtoolsPath: samtoolsPath
+                        )
+                        let markedCount = markdupResults.filter { !$0.wasAlreadyMarkduped }.count
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.log(
+                                    id: opID, level: .info,
+                                    message: "Marked duplicates in \(markedCount)/\(markdupResults.count) BAM file(s)"
+                                )
+                            }
+                        }
+                    } catch {
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.log(
+                                    id: opID, level: .warning,
+                                    message: "Markdup failed: \(error.localizedDescription)"
+                                )
+                            }
+                        }
+                    }
+
+                    // Populate blast_hits.unique_reads via samtools view -c -F 0x404 per (sample, sseqid)
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.update(id: opID, progress: 0.76, detail: "Counting unique reads...")
+                        }
+                    }
+
+                    AppDelegate.nvdPopulateUniqueReads(
+                        dbPath: dbURL.path,
+                        bamDir: bamBundleDir,
+                        samtoolsPath: samtoolsPath
+                    )
+                } else {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.log(
+                                id: opID, level: .warning,
+                                message: "samtools not found; skipping markdup and unique_reads population"
+                            )
+                        }
+                    }
+                }
+
                 // Step 6: Copy FASTA files
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
@@ -4469,6 +4527,86 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
 
         OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+    }
+
+    /// Locates the samtools binary for NVD import markdup.
+    nonisolated private static func nvdLocateSamtools() -> String? {
+        let candidates = [
+            "/opt/homebrew/Cellar/samtools/1.23/bin/samtools",
+            "/opt/homebrew/bin/samtools",
+            "/usr/local/bin/samtools",
+            "/usr/bin/samtools",
+        ]
+        for p in candidates where FileManager.default.fileExists(atPath: p) {
+            return p
+        }
+        return nil
+    }
+
+    /// Populates the `unique_reads` column in an NVD blast_hits table by running
+    /// `samtools view -c -F 0x404` for each (sample, sseqid) pair.
+    nonisolated private static func nvdPopulateUniqueReads(dbPath: String, bamDir: URL, samtoolsPath: String) {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else { return }
+        defer { sqlite3_close(db) }
+
+        // Fetch all blast_hits rows that need counts
+        let selectSQL = "SELECT rowid, sample_id, sseqid FROM blast_hits"
+        var selectStmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, selectSQL, -1, &selectStmt, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(selectStmt) }
+
+        struct Row { let rowid: Int64; let sampleId: String; let sseqid: String }
+        var rows: [Row] = []
+        while sqlite3_step(selectStmt) == SQLITE_ROW {
+            let rowid = sqlite3_column_int64(selectStmt, 0)
+            guard let sPtr = sqlite3_column_text(selectStmt, 1),
+                  let aPtr = sqlite3_column_text(selectStmt, 2) else { continue }
+            rows.append(Row(
+                rowid: rowid,
+                sampleId: String(cString: sPtr),
+                sseqid: String(cString: aPtr)
+            ))
+        }
+        guard !rows.isEmpty else { return }
+
+        // Prepare UPDATE statement
+        let updateSQL = "UPDATE blast_hits SET unique_reads = ? WHERE rowid = ?"
+        var updateStmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, updateSQL, -1, &updateStmt, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(updateStmt) }
+
+        // Count reads per (bam, sseqid) with caching
+        sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
+        var cache: [String: Int] = [:]
+        for row in rows {
+            let bamURL = bamDir.appendingPathComponent("\(row.sampleId).filtered.bam")
+            guard FileManager.default.fileExists(atPath: bamURL.path) else { continue }
+
+            let cacheKey = "\(bamURL.path)\t\(row.sseqid)"
+            let unique: Int
+            if let cached = cache[cacheKey] {
+                unique = cached
+            } else {
+                do {
+                    unique = try MarkdupService.countReads(
+                        bamURL: bamURL,
+                        accession: row.sseqid,
+                        flagFilter: 0x404,
+                        samtoolsPath: samtoolsPath
+                    )
+                    cache[cacheKey] = unique
+                } catch {
+                    continue
+                }
+            }
+
+            sqlite3_reset(updateStmt)
+            sqlite3_bind_int64(updateStmt, 1, Int64(unique))
+            sqlite3_bind_int64(updateStmt, 2, row.rowid)
+            sqlite3_step(updateStmt)
+        }
+        sqlite3_exec(db, "COMMIT", nil, nil, nil)
     }
 
     @objc func launchOrientReads(_ sender: Any?) {
