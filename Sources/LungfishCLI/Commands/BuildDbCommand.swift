@@ -5,6 +5,7 @@
 import ArgumentParser
 import Foundation
 import LungfishIO
+import SQLite3
 
 /// Build SQLite databases from classifier pipeline output.
 ///
@@ -31,6 +32,251 @@ struct BuildDbCommand: AsyncParsableCommand {
             Kraken2Subcommand.self,
         ]
     )
+}
+
+// MARK: - Unique Reads Computation (samtools dedup)
+
+/// Locates a samtools binary on the system.
+///
+/// Checks common Homebrew and system paths, then falls back to `which` via PATH.
+private func findSamtools() -> String? {
+    let paths = [
+        "/opt/homebrew/bin/samtools",
+        "/usr/local/bin/samtools",
+        "/usr/bin/samtools",
+    ]
+    for path in paths {
+        if FileManager.default.fileExists(atPath: path) {
+            return path
+        }
+    }
+    // Try PATH
+    let which = Process()
+    which.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+    which.arguments = ["samtools"]
+    let pipe = Pipe()
+    which.standardOutput = pipe
+    which.standardError = FileHandle.nullDevice
+    try? which.run()
+    which.waitUntilExit()
+    let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    if let path = output, !path.isEmpty, FileManager.default.fileExists(atPath: path) {
+        return path
+    }
+    return nil
+}
+
+/// Computes unique (deduplicated) read count for a specific accession in a BAM file.
+///
+/// Runs `samtools view -F 0x904 <bam> <accession>`, parses SAM output, and deduplicates
+/// by position+alignmentEnd+strand. Flag 0x904 excludes unmapped (0x4), secondary (0x100),
+/// supplementary (0x800) alignments.
+///
+/// - Returns: The unique read count, or nil if samtools fails or the BAM is missing.
+private func computeUniqueReads(
+    samtoolsPath: String,
+    bamPath: String,
+    accession: String
+) -> Int? {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: samtoolsPath)
+    process.arguments = ["view", "-F", "0x904", bamPath, accession]
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = FileHandle.nullDevice
+
+    do {
+        try process.run()
+    } catch {
+        return nil
+    }
+
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    guard process.terminationStatus == 0 else { return nil }
+
+    guard let output = String(data: data, encoding: .utf8) else { return nil }
+
+    var positionGroups: [String: Int] = [:]
+    var totalReads = 0
+
+    for line in output.split(separator: "\n") where !line.hasPrefix("@") {
+        let cols = line.split(separator: "\t", maxSplits: 11)
+        guard cols.count >= 6 else { continue }
+
+        guard let flag = Int(cols[1]),
+              let pos = Int(cols[3]) else { continue }
+
+        let cigar = String(cols[5])
+        let alignEnd = pos + cigarConsumedBases(cigar)
+        let strand = (flag & 0x10) != 0 ? "R" : "F"
+        let key = "\(pos)-\(alignEnd)-\(strand)"
+        positionGroups[key, default: 0] += 1
+        totalReads += 1
+    }
+
+    let duplicateCount = positionGroups.values.reduce(into: 0) { total, count in
+        if count > 1 { total += count - 1 }
+    }
+    return max(0, totalReads - duplicateCount)
+}
+
+/// Computes the number of reference bases consumed by a CIGAR string.
+///
+/// Counts M, D, N, =, X operations (reference-consuming).
+private func cigarConsumedBases(_ cigar: String) -> Int {
+    var total = 0
+    var numStr = ""
+    for c in cigar {
+        if c.isNumber {
+            numStr.append(c)
+        } else {
+            let n = Int(numStr) ?? 0
+            numStr = ""
+            switch c {
+            case "M", "D", "N", "=", "X": total += n
+            default: break
+            }
+        }
+    }
+    return total
+}
+
+/// Updates the `unique_reads` column in a SQLite database for rows with BAM paths.
+///
+/// Opens the database read-write, queries rows that have a BAM path and accession,
+/// computes unique reads via samtools, and updates each row.
+///
+/// - Parameters:
+///   - dbPath: Absolute path to the SQLite database file.
+///   - table: Table name (e.g., "taxonomy_rows" or "detection_rows").
+///   - sampleCol: Column name for the sample identifier.
+///   - accessionCol: Column name for the accession to query in the BAM.
+///   - bamPathCol: Column name for the relative BAM path.
+///   - resultURL: Base URL for resolving relative BAM paths.
+///   - bamPathResolver: Closure that resolves (resultURL, sample, bamRelPath) to an absolute path.
+///   - quiet: Whether to suppress progress output.
+private func updateUniqueReadsInDB(
+    dbPath: String,
+    table: String,
+    sampleCol: String,
+    accessionCol: String,
+    bamPathCol: String,
+    resultURL: URL,
+    bamPathResolver: (URL, String, String) -> String,
+    quiet: Bool
+) {
+    guard let samtoolsPath = findSamtools() else {
+        if !quiet {
+            print("Warning: samtools not found, skipping unique reads computation")
+        }
+        return
+    }
+
+    if !quiet {
+        print("Computing unique reads from BAM files...")
+    }
+
+    var db: OpaquePointer?
+    guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
+        if !quiet {
+            print("Warning: could not open database for unique reads update")
+        }
+        return
+    }
+    defer { sqlite3_close(db) }
+
+    // Query rows that have a BAM path and accession
+    let selectSQL = "SELECT rowid, \(sampleCol), \(accessionCol), \(bamPathCol) FROM \(table) WHERE \(bamPathCol) IS NOT NULL AND \(accessionCol) IS NOT NULL AND \(accessionCol) != ''"
+    var selectStmt: OpaquePointer?
+    guard sqlite3_prepare_v2(db, selectSQL, -1, &selectStmt, nil) == SQLITE_OK else {
+        if !quiet {
+            print("Warning: failed to prepare SELECT for unique reads")
+        }
+        return
+    }
+    defer { sqlite3_finalize(selectStmt) }
+
+    // Collect rows to process
+    struct RowToProcess {
+        let rowid: Int64
+        let sample: String
+        let accession: String
+        let bamRelPath: String
+    }
+    var rowsToProcess: [RowToProcess] = []
+
+    while sqlite3_step(selectStmt) == SQLITE_ROW {
+        let rowid = sqlite3_column_int64(selectStmt, 0)
+        guard let samplePtr = sqlite3_column_text(selectStmt, 1),
+              let accPtr = sqlite3_column_text(selectStmt, 2),
+              let bamPtr = sqlite3_column_text(selectStmt, 3) else { continue }
+        let sample = String(cString: samplePtr)
+        let accession = String(cString: accPtr)
+        let bamRelPath = String(cString: bamPtr)
+        rowsToProcess.append(RowToProcess(rowid: rowid, sample: sample, accession: accession, bamRelPath: bamRelPath))
+    }
+
+    guard !rowsToProcess.isEmpty else {
+        if !quiet {
+            print("  No rows with BAM paths found, skipping unique reads")
+        }
+        return
+    }
+
+    // Prepare UPDATE statement
+    let updateSQL = "UPDATE \(table) SET unique_reads = ? WHERE rowid = ?"
+    var updateStmt: OpaquePointer?
+    guard sqlite3_prepare_v2(db, updateSQL, -1, &updateStmt, nil) == SQLITE_OK else {
+        if !quiet {
+            print("Warning: failed to prepare UPDATE for unique reads")
+        }
+        return
+    }
+    defer { sqlite3_finalize(updateStmt) }
+
+    // Cache: avoid recomputing for same BAM+accession
+    var cache: [String: Int] = [:]
+    var updated = 0
+
+    // Begin transaction for performance
+    sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
+
+    for (i, row) in rowsToProcess.enumerated() {
+        let bamFullPath = bamPathResolver(resultURL, row.sample, row.bamRelPath)
+
+        guard FileManager.default.fileExists(atPath: bamFullPath) else { continue }
+
+        let cacheKey = "\(bamFullPath)\t\(row.accession)"
+        let unique: Int?
+        if let cached = cache[cacheKey] {
+            unique = cached
+        } else {
+            unique = computeUniqueReads(samtoolsPath: samtoolsPath, bamPath: bamFullPath, accession: row.accession)
+            if let u = unique {
+                cache[cacheKey] = u
+            }
+        }
+
+        guard let uniqueCount = unique else { continue }
+
+        sqlite3_reset(updateStmt)
+        sqlite3_bind_int64(updateStmt, 1, Int64(uniqueCount))
+        sqlite3_bind_int64(updateStmt, 2, row.rowid)
+        sqlite3_step(updateStmt)
+        updated += 1
+
+        if (i + 1) % 50 == 0 && !quiet {
+            print("  Processed \(i + 1)/\(rowsToProcess.count) organisms...")
+        }
+    }
+
+    sqlite3_exec(db, "COMMIT", nil, nil, nil)
+
+    if !quiet {
+        print("  Updated unique reads for \(updated)/\(rowsToProcess.count) organisms")
+    }
 }
 
 // MARK: - TaxTriage Subcommand
@@ -107,6 +353,21 @@ extension BuildDbCommand {
             if !globalOptions.quiet {
                 print("Built database at \(dbURL.path) with \(rows.count) rows")
             }
+
+            // 4. Compute unique reads from BAMs and update DB
+            updateUniqueReadsInDB(
+                dbPath: dbURL.path,
+                table: "taxonomy_rows",
+                sampleCol: "sample",
+                accessionCol: "primary_accession",
+                bamPathCol: "bam_path",
+                resultURL: resultURL,
+                bamPathResolver: { resultURL, _, bamRelPath in
+                    // TaxTriage BAM paths are relative to resultURL directly
+                    resultURL.appendingPathComponent(bamRelPath).path
+                },
+                quiet: globalOptions.quiet
+            )
 
             if !noCleanup {
                 performCleanup(resultURL: resultURL)
@@ -551,6 +812,21 @@ extension BuildDbCommand {
             if !globalOptions.quiet {
                 print("Built database at \(dbURL.path) with \(rows.count) rows")
             }
+
+            // 4. Compute unique reads from BAMs and update DB
+            updateUniqueReadsInDB(
+                dbPath: dbURL.path,
+                table: "detection_rows",
+                sampleCol: "sample",
+                accessionCol: "accession",
+                bamPathCol: "bam_path",
+                resultURL: resultURL,
+                bamPathResolver: { resultURL, sample, bamRelPath in
+                    // EsViritu BAM paths are relative to the sample subdirectory
+                    resultURL.appendingPathComponent(sample).appendingPathComponent(bamRelPath).path
+                },
+                quiet: globalOptions.quiet
+            )
 
             if !noCleanup {
                 performCleanup(resultURL: resultURL)
