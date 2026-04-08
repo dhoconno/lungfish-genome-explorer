@@ -107,18 +107,20 @@ private func computeUniqueReads(
 
     guard let output = String(data: data, encoding: .utf8) else { return nil }
 
-    // First pass: detect if any reads are paired-end
-    var isPairedEnd = false
+    // First pass: count paired vs unpaired reads to determine dedup strategy.
+    // A few stray paired-flag reads in an otherwise single-end dataset should not
+    // switch the entire algorithm to QNAME mode.
+    var pairedCount = 0
     var lines: [Substring] = []
     for line in output.split(separator: "\n") where !line.hasPrefix("@") {
         lines.append(line)
-        if !isPairedEnd {
-            let cols = line.split(separator: "\t", maxSplits: 3)
-            if cols.count >= 2, let flag = Int(cols[1]), (flag & 0x1) != 0 {
-                isPairedEnd = true
-            }
+        let cols = line.split(separator: "\t", maxSplits: 3)
+        if cols.count >= 2, let flag = Int(cols[1]), (flag & 0x1) != 0 {
+            pairedCount += 1
         }
     }
+    // Use QNAME dedup only when a majority of reads are paired-end
+    let isPairedEnd = lines.count > 0 && pairedCount > lines.count / 2
 
     guard !lines.isEmpty else { return 0 }
 
