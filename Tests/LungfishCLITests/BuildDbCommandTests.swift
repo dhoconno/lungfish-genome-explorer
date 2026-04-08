@@ -72,7 +72,11 @@ final class BuildDbCommandTests: XCTestCase {
             XCTAssertEqual(row.status, "established")
             XCTAssertEqual(row.tassScore, 0.66, accuracy: 0.01)
             XCTAssertEqual(row.readsAligned, 31)
-            XCTAssertNil(row.uniqueReads, "Unique reads should be nil (not computed)")
+            XCTAssertNotNil(row.uniqueReads, "Unique reads should be computed from BAM dedup")
+            if let unique = row.uniqueReads {
+                XCTAssertLessThanOrEqual(unique, row.readsAligned,
+                    "Unique reads cannot exceed total aligned reads")
+            }
             XCTAssertEqual(row.highConsequence, true)
             XCTAssertEqual(row.isAnnotated, true)
             XCTAssertEqual(row.confidence, "Unknown")
@@ -228,7 +232,11 @@ final class BuildDbCommandTests: XCTestCase {
         if let row = sarscov2Rows.first(where: { $0.sample == "SRR35517702" }) {
             XCTAssertEqual(row.accession, "OM695287.1")
             XCTAssertEqual(row.readCount, 26)
-            XCTAssertNil(row.uniqueReads, "Unique reads should be nil (not computed)")
+            XCTAssertNotNil(row.uniqueReads, "Unique reads should be computed from BAM dedup")
+            if let unique = row.uniqueReads {
+                XCTAssertLessThanOrEqual(unique, row.readCount,
+                    "Unique reads cannot exceed total read count")
+            }
             XCTAssertNotNil(row.rpkmf)
             XCTAssertNotNil(row.meanCoverage)
         }
