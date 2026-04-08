@@ -5173,10 +5173,16 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     private func runEsViritu(config: EsVirituConfig, viewerController: ViewerViewController) {
         // Redirect output to project-level Analyses/ folder when a project is open.
+        // Single-sample runs also use batch-style layout (sample in a subdirectory)
+        // so there's only one display path for EsViritu results.
         var config = config
         if let projectURL = mainWindowController?.mainSplitViewController?.sidebarController?.currentProjectURL {
-            if let analysisDir = try? AnalysesFolder.createAnalysisDirectory(tool: "esviritu", in: projectURL) {
-                config.outputDirectory = analysisDir
+            if let batchDir = try? AnalysesFolder.createAnalysisDirectory(
+                tool: "esviritu", in: projectURL, isBatch: true
+            ) {
+                let sampleSubdir = batchDir.appendingPathComponent(config.sampleName, isDirectory: true)
+                try? FileManager.default.createDirectory(at: sampleSubdir, withIntermediateDirectories: true)
+                config.outputDirectory = sampleSubdir
             }
         }
 
@@ -5850,10 +5856,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// ``TaxTriageResultViewController`` when complete.
     private func runTaxTriage(config: TaxTriageConfig, viewerController: ViewerViewController) {
         // Redirect output to project-level Analyses/ folder when a project is open.
+        // TaxTriage pipeline writes its own sample-subdirectory layout, so we just
+        // create the batch-style parent directory and point outputDirectory at it.
         var config = config
         if let projectURL = mainWindowController?.mainSplitViewController?.sidebarController?.currentProjectURL {
-            if let analysisDir = try? AnalysesFolder.createAnalysisDirectory(tool: "taxtriage", in: projectURL) {
-                config.outputDirectory = analysisDir
+            if let batchDir = try? AnalysesFolder.createAnalysisDirectory(
+                tool: "taxtriage", in: projectURL, isBatch: true
+            ) {
+                config.outputDirectory = batchDir
             }
         }
 
