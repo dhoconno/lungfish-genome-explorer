@@ -67,120 +67,6 @@ private func findSamtools() -> String? {
     return nil
 }
 
-/// Computes unique (deduplicated) read count for a specific accession in a BAM file.
-///
-/// Runs `samtools view -F 0x904 <bam> <accession>`, parses SAM output, and deduplicates
-/// by position+alignmentEnd+strand. Flag 0x904 excludes unmapped (0x4), secondary (0x100),
-/// supplementary (0x800) alignments.
-///
-/// - Returns: The unique read count, or nil if samtools fails or the BAM is missing.
-/// Computes unique (deduplicated) read count for a specific accession in a BAM file.
-///
-/// Runs `samtools view -F 0x904 <bam> <accession>`, parses SAM output, and deduplicates.
-///
-/// For **paired-end** reads (FLAG & 0x1): counts unique fragment names (QNAMEs).
-/// Each QNAME represents one biological fragment regardless of how many mates align.
-///
-/// For **single-end** reads: deduplicates by position+alignmentEnd+strand fingerprint.
-/// Two reads at the same position, alignment end, and strand are considered duplicates.
-private func computeUniqueReads(
-    samtoolsPath: String,
-    bamPath: String,
-    accession: String
-) -> Int? {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: samtoolsPath)
-    process.arguments = ["view", "-F", "0x904", bamPath, accession]
-    let pipe = Pipe()
-    process.standardOutput = pipe
-    process.standardError = FileHandle.nullDevice
-
-    do {
-        try process.run()
-    } catch {
-        return nil
-    }
-
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-    process.waitUntilExit()
-    guard process.terminationStatus == 0 else { return nil }
-
-    guard let output = String(data: data, encoding: .utf8) else { return nil }
-
-    // First pass: count paired vs unpaired reads to determine dedup strategy.
-    // A few stray paired-flag reads in an otherwise single-end dataset should not
-    // switch the entire algorithm to QNAME mode.
-    var pairedCount = 0
-    var lines: [Substring] = []
-    for line in output.split(separator: "\n") where !line.hasPrefix("@") {
-        lines.append(line)
-        let cols = line.split(separator: "\t", maxSplits: 3)
-        if cols.count >= 2, let flag = Int(cols[1]), (flag & 0x1) != 0 {
-            pairedCount += 1
-        }
-    }
-    // Use QNAME dedup only when a majority of reads are paired-end
-    let isPairedEnd = lines.count > 0 && pairedCount > lines.count / 2
-
-    guard !lines.isEmpty else { return 0 }
-
-    if isPairedEnd {
-        // Paired-end: count unique QNAMEs (each QNAME = one fragment)
-        var uniqueNames = Set<Substring>()
-        for line in lines {
-            let cols = line.split(separator: "\t", maxSplits: 2)
-            guard !cols.isEmpty else { continue }
-            uniqueNames.insert(cols[0])
-        }
-        return uniqueNames.count
-    } else {
-        // Single-end: deduplicate by position+alignmentEnd+strand fingerprint
-        var positionGroups: [String: Int] = [:]
-        var totalReads = 0
-
-        for line in lines {
-            let cols = line.split(separator: "\t", maxSplits: 11)
-            guard cols.count >= 6 else { continue }
-
-            guard let flag = Int(cols[1]),
-                  let pos = Int(cols[3]) else { continue }
-
-            let cigar = String(cols[5])
-            let alignEnd = pos + cigarConsumedBases(cigar)
-            let strand = (flag & 0x10) != 0 ? "R" : "F"
-            let key = "\(pos)-\(alignEnd)-\(strand)"
-            positionGroups[key, default: 0] += 1
-            totalReads += 1
-        }
-
-        let duplicateCount = positionGroups.values.reduce(into: 0) { total, count in
-            if count > 1 { total += count - 1 }
-        }
-        return max(0, totalReads - duplicateCount)
-    }
-}
-
-/// Computes the number of reference bases consumed by a CIGAR string.
-///
-/// Counts M, D, N, =, X operations (reference-consuming).
-private func cigarConsumedBases(_ cigar: String) -> Int {
-    var total = 0
-    var numStr = ""
-    for c in cigar {
-        if c.isNumber {
-            numStr.append(c)
-        } else {
-            let n = Int(numStr) ?? 0
-            numStr = ""
-            switch c {
-            case "M", "D", "N", "=", "X": total += n
-            default: break
-            }
-        }
-    }
-    return total
-}
-
 /// Updates the `unique_reads` column in a SQLite database for rows with BAM paths.
 ///
 /// Opens the database read-write, queries rows that have a BAM path and accession,
@@ -207,37 +93,26 @@ private func updateUniqueReadsInDB(
     quiet: Bool
 ) {
     guard let samtoolsPath = findSamtools() else {
-        if !quiet {
-            print("Warning: samtools not found, skipping unique reads computation")
-        }
+        if !quiet { print("Warning: samtools not found, skipping unique reads computation") }
         return
-    }
-
-    if !quiet {
-        print("Computing unique reads from BAM files...")
     }
 
     var db: OpaquePointer?
     guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
-        if !quiet {
-            print("Warning: could not open database for unique reads update")
-        }
+        if !quiet { print("Warning: could not open database for unique reads update") }
         return
     }
     defer { sqlite3_close(db) }
 
-    // Query rows that have a BAM path and accession
+    // Query rows that have BAM + accession
     let selectSQL = "SELECT rowid, \(sampleCol), \(accessionCol), \(bamPathCol) FROM \(table) WHERE \(bamPathCol) IS NOT NULL AND \(accessionCol) IS NOT NULL AND \(accessionCol) != ''"
     var selectStmt: OpaquePointer?
     guard sqlite3_prepare_v2(db, selectSQL, -1, &selectStmt, nil) == SQLITE_OK else {
-        if !quiet {
-            print("Warning: failed to prepare SELECT for unique reads")
-        }
+        if !quiet { print("Warning: failed to prepare SELECT for unique reads") }
         return
     }
     defer { sqlite3_finalize(selectStmt) }
 
-    // Collect rows to process
     struct RowToProcess {
         let rowid: Int64
         let sample: String
@@ -245,96 +120,72 @@ private func updateUniqueReadsInDB(
         let bamRelPath: String
     }
     var rowsToProcess: [RowToProcess] = []
-
     while sqlite3_step(selectStmt) == SQLITE_ROW {
         let rowid = sqlite3_column_int64(selectStmt, 0)
-        guard let samplePtr = sqlite3_column_text(selectStmt, 1),
-              let accPtr = sqlite3_column_text(selectStmt, 2),
-              let bamPtr = sqlite3_column_text(selectStmt, 3) else { continue }
-        let sample = String(cString: samplePtr)
-        let accession = String(cString: accPtr)
-        let bamRelPath = String(cString: bamPtr)
-        rowsToProcess.append(RowToProcess(rowid: rowid, sample: sample, accession: accession, bamRelPath: bamRelPath))
+        guard let sPtr = sqlite3_column_text(selectStmt, 1),
+              let aPtr = sqlite3_column_text(selectStmt, 2),
+              let bPtr = sqlite3_column_text(selectStmt, 3) else { continue }
+        rowsToProcess.append(RowToProcess(
+            rowid: rowid,
+            sample: String(cString: sPtr),
+            accession: String(cString: aPtr),
+            bamRelPath: String(cString: bPtr)
+        ))
     }
 
     guard !rowsToProcess.isEmpty else {
-        if !quiet {
-            print("  No rows with BAM paths found, skipping unique reads")
-        }
+        if !quiet { print("  No rows with BAM paths found, skipping unique reads") }
         return
     }
 
-    // Prepare UPDATE statement
-    let updateSQL = "UPDATE \(table) SET unique_reads = ? WHERE rowid = ?"
-    var updateStmt: OpaquePointer?
-    guard sqlite3_prepare_v2(db, updateSQL, -1, &updateStmt, nil) == SQLITE_OK else {
-        if !quiet {
-            print("Warning: failed to prepare UPDATE for unique reads")
-        }
-        return
-    }
-    defer { sqlite3_finalize(updateStmt) }
-
-    // Index any BAMs that lack a .bai or .csi index (samtools needs an index for region queries)
-    let fm = FileManager.default
-    var indexedBAMs: Set<String> = []
+    // Step 1: Run markdup on each unique BAM file
     let uniqueBAMPaths = Set(rowsToProcess.map { bamPathResolver(resultURL, $0.sample, $0.bamRelPath) })
+    if !quiet { print("Running markdup on \(uniqueBAMPaths.count) BAM file(s)...") }
+    var marked = 0
     for bamFullPath in uniqueBAMPaths {
-        guard fm.fileExists(atPath: bamFullPath) else { continue }
-        let hasBai = fm.fileExists(atPath: bamFullPath + ".bai")
-        let hasCsi = fm.fileExists(atPath: bamFullPath + ".csi")
-        if !hasBai && !hasCsi {
-            let indexProcess = Process()
-            indexProcess.executableURL = URL(fileURLWithPath: samtoolsPath)
-            indexProcess.arguments = ["index", bamFullPath]
-            indexProcess.standardOutput = FileHandle.nullDevice
-            indexProcess.standardError = FileHandle.nullDevice
-            do {
-                try indexProcess.run()
-                indexProcess.waitUntilExit()
-                if indexProcess.terminationStatus == 0 {
-                    indexedBAMs.insert(bamFullPath)
+        let bamURL = URL(fileURLWithPath: bamFullPath)
+        guard FileManager.default.fileExists(atPath: bamFullPath) else { continue }
+        do {
+            let result = try MarkdupService.markdup(bamURL: bamURL, samtoolsPath: samtoolsPath)
+            if !result.wasAlreadyMarkduped { marked += 1 }
+        } catch {
+            if !quiet { print("  Warning: markdup failed on \(bamURL.lastPathComponent): \(error.localizedDescription)") }
+        }
+    }
+    if !quiet && marked > 0 { print("  Marked duplicates in \(marked) BAM file(s)") }
+
+    // Step 2: Count reads_aligned and unique_reads per (sample, accession)
+    if !quiet { print("Counting reads per organism...") }
+
+    // Build accession_length map from samtools idxstats if needed
+    var refLengths: [String: Int] = [:]
+    if updateAccessionLength {
+        for bamFullPath in uniqueBAMPaths {
+            guard FileManager.default.fileExists(atPath: bamFullPath) else { continue }
+            let idxProcess = Process()
+            idxProcess.executableURL = URL(fileURLWithPath: samtoolsPath)
+            idxProcess.arguments = ["idxstats", bamFullPath]
+            let pipe = Pipe()
+            idxProcess.standardOutput = pipe
+            idxProcess.standardError = FileHandle.nullDevice
+            do { try idxProcess.run() } catch { continue }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            idxProcess.waitUntilExit()
+            guard idxProcess.terminationStatus == 0,
+                  let output = String(data: data, encoding: .utf8) else { continue }
+            for line in output.split(separator: "\n") {
+                let cols = line.split(separator: "\t")
+                guard cols.count >= 2 else { continue }
+                let refName = String(cols[0])
+                guard refName != "*" else { continue }
+                if let len = Int(cols[1]), len > 0 {
+                    refLengths[refName] = len
                 }
-            } catch {
-                // Skip — samtools index failed, unique reads will be nil for this BAM
             }
         }
     }
-    if !quiet && !indexedBAMs.isEmpty {
-        print("  Indexed \(indexedBAMs.count) BAM files that were missing indexes")
-    }
 
-    // Build reference length lookup from samtools idxstats on each unique BAM.
-    // This populates accession_length in the DB so the miniBAM viewer knows contig sizes.
-    var refLengths: [String: Int] = [:]  // accession → length
-    for bamFullPath in uniqueBAMPaths {
-        guard fm.fileExists(atPath: bamFullPath) else { continue }
-        let idxProcess = Process()
-        idxProcess.executableURL = URL(fileURLWithPath: samtoolsPath)
-        idxProcess.arguments = ["idxstats", bamFullPath]
-        let idxPipe = Pipe()
-        idxProcess.standardOutput = idxPipe
-        idxProcess.standardError = FileHandle.nullDevice
-        do {
-            try idxProcess.run()
-            let idxData = idxPipe.fileHandleForReading.readDataToEndOfFile()
-            idxProcess.waitUntilExit()
-            if idxProcess.terminationStatus == 0,
-               let idxOutput = String(data: idxData, encoding: .utf8) {
-                for line in idxOutput.split(separator: "\n") {
-                    let cols = line.split(separator: "\t")
-                    guard cols.count >= 2 else { continue }
-                    let refName = String(cols[0])
-                    guard refName != "*" else { continue }
-                    if let len = Int(cols[1]), len > 0 {
-                        refLengths[refName] = len
-                    }
-                }
-            }
-        } catch { /* skip this BAM */ }
-    }
-
-    // Update accession_length column for rows that have a primary_accession
+    // Update accession_length column (TaxTriage only)
     if updateAccessionLength && !refLengths.isEmpty {
         let lenSQL = "UPDATE \(table) SET accession_length = ? WHERE rowid = ?"
         var lenStmt: OpaquePointer?
@@ -352,53 +203,56 @@ private func updateUniqueReadsInDB(
             }
             sqlite3_exec(db, "COMMIT", nil, nil, nil)
             sqlite3_finalize(lenStmt)
-            if !quiet && lenUpdated > 0 {
-                print("  Updated accession lengths for \(lenUpdated) organisms")
-            }
+            if !quiet && lenUpdated > 0 { print("  Updated accession lengths for \(lenUpdated) organisms") }
         }
     }
 
-    // Cache: avoid recomputing for same BAM+accession
-    var cache: [String: Int] = [:]
-    var updated = 0
+    // Update unique_reads via markdup-based counts
+    let uniqueSQL = "UPDATE \(table) SET unique_reads = ? WHERE rowid = ?"
+    var uniqueStmt: OpaquePointer?
+    guard sqlite3_prepare_v2(db, uniqueSQL, -1, &uniqueStmt, nil) == SQLITE_OK else {
+        if !quiet { print("Warning: failed to prepare UPDATE for unique reads") }
+        return
+    }
+    defer { sqlite3_finalize(uniqueStmt) }
 
-    // Begin transaction for performance
     sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
-
+    var updated = 0
+    var cache: [String: Int] = [:]
     for (i, row) in rowsToProcess.enumerated() {
         let bamFullPath = bamPathResolver(resultURL, row.sample, row.bamRelPath)
-
-        guard fm.fileExists(atPath: bamFullPath) else { continue }
+        guard FileManager.default.fileExists(atPath: bamFullPath) else { continue }
 
         let cacheKey = "\(bamFullPath)\t\(row.accession)"
-        let unique: Int?
+        let unique: Int
         if let cached = cache[cacheKey] {
             unique = cached
         } else {
-            unique = computeUniqueReads(samtoolsPath: samtoolsPath, bamPath: bamFullPath, accession: row.accession)
-            if let u = unique {
-                cache[cacheKey] = u
+            do {
+                unique = try MarkdupService.countReads(
+                    bamURL: URL(fileURLWithPath: bamFullPath),
+                    accession: row.accession,
+                    flagFilter: 0x404,  // unmapped + duplicate
+                    samtoolsPath: samtoolsPath
+                )
+                cache[cacheKey] = unique
+            } catch {
+                continue
             }
         }
 
-        guard let uniqueCount = unique else { continue }
-
-        sqlite3_reset(updateStmt)
-        sqlite3_bind_int64(updateStmt, 1, Int64(uniqueCount))
-        sqlite3_bind_int64(updateStmt, 2, row.rowid)
-        sqlite3_step(updateStmt)
+        sqlite3_reset(uniqueStmt)
+        sqlite3_bind_int64(uniqueStmt, 1, Int64(unique))
+        sqlite3_bind_int64(uniqueStmt, 2, row.rowid)
+        sqlite3_step(uniqueStmt)
         updated += 1
 
         if (i + 1) % 50 == 0 && !quiet {
             print("  Processed \(i + 1)/\(rowsToProcess.count) organisms...")
         }
     }
-
     sqlite3_exec(db, "COMMIT", nil, nil, nil)
-
-    if !quiet {
-        print("  Updated unique reads for \(updated)/\(rowsToProcess.count) organisms")
-    }
+    if !quiet { print("  Updated unique reads for \(updated)/\(rowsToProcess.count) organisms") }
 }
 
 // MARK: - TaxTriage Subcommand
