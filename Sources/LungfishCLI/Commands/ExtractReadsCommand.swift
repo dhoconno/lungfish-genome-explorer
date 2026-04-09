@@ -139,6 +139,11 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
     // grouping is reconstructed by `buildClassifierSelectors(rawArgs:)` walking
     // the raw argument list. This dance exists because ArgumentParser does not
     // preserve cross-option ordering for independently-declared repeated options.
+    //
+    // NOTE: `classifierSamples` exists purely for ArgumentParser parse-side
+    // acceptance — without it, `--sample` on the CLI would raise "unknown
+    // option". It is never read directly; the grouping is reconstructed by
+    // `buildClassifierSelectors(rawArgs:)` from the raw argv.
 
     @Option(name: .customLong("sample"), help: "Sample ID (repeatable; scopes subsequent --accession/--taxon flags, for --by-classifier)")
     var classifierSamples: [String] = []
@@ -183,6 +188,11 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
     /// Test-only override for the raw arg list used by
     /// `buildClassifierSelectors`. Defaults to `CommandLine.arguments` in
     /// production runs.
+    ///
+    /// NOTE: this field is `#if DEBUG`-gated, so any test that assigns to
+    /// `cmd.testingRawArgs` depends on the xctest target being built in Debug
+    /// configuration (which is the SPM default). A Release build of the tests
+    /// would fail to compile.
     var testingRawArgs: [String]? = nil
     #endif
 
@@ -509,13 +519,38 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         formatter: TerminalFormatter,
         outputURL: URL
     ) async throws -> ReadExtractionResult {
+        let fm = FileManager.default
+
         guard let toolRaw = classifierTool, let tool = ClassifierTool(rawValue: toolRaw) else {
             throw ExitCode.failure
         }
         guard let resultPathStr = classifierResult else {
             throw ExitCode.failure
         }
+        // Pre-flight existence check, matching the pattern in runByReadID /
+        // runByBAMRegion / runByDatabase. The semantics are slightly relaxed
+        // vs the other strategies because `ClassifierReadResolver.resolveBAMURL`
+        // interprets the path in one of three ways depending on the tool:
+        //
+        //   1. A file that exists (e.g. esviritu's results.sqlite next to
+        //      the sorted BAM) — check `fileExists(atPath:)`.
+        //   2. A directory that exists (e.g. nvd's result dir containing
+        //      {sample}.bam files) — same `fileExists(atPath:)` call
+        //      returns true for directories too.
+        //   3. A sentinel file path whose PARENT directory contains the BAMs
+        //      (e.g. a fake `fake-nvd.sqlite` path used by the nvd scan-the-
+        //      parent-dir flow). In this case the sentinel file itself does
+        //      not need to exist; the resolver strips it to the parent dir.
+        //
+        // So we accept the path if EITHER the path itself exists OR its parent
+        // directory does. If neither is true, the user almost certainly typo'd
+        // the --result argument and we should bail with a readable message.
         let resultPath = URL(fileURLWithPath: resultPathStr)
+        let parentExists = fm.fileExists(atPath: resultPath.deletingLastPathComponent().path)
+        guard fm.fileExists(atPath: resultPathStr) || parentExists else {
+            print(formatter.error("Classifier result not found: \(resultPathStr)"))
+            throw ExitCode.failure
+        }
 
         // In DEBUG builds, allow tests to inject the simulated argv via the
         // testingRawArgs hook so per-sample grouping reflects the test args
@@ -527,7 +562,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         let effectiveArgs: [String]? = nil
         #endif
         let selectors = buildClassifierSelectors(rawArgs: effectiveArgs)
-        let format: CopyFormat = (classifierFormat == "fasta") ? .fasta : .fastq
+        let options = makeExtractionOptions()
 
         print(formatter.header("Classifier Extraction (\(tool.displayName))"))
         print("")
@@ -537,16 +572,12 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
             ("Samples", selectors.compactMap { $0.sampleId }.joined(separator: ", ")),
             ("Accessions", selectors.flatMap { $0.accessions }.joined(separator: ", ")),
             ("Taxons", selectors.flatMap { $0.taxIds.map(String.init) }.joined(separator: ", ")),
-            ("Format", format.rawValue),
-            ("Include unmapped mates", includeUnmappedMates ? "yes" : "no"),
+            ("Format", options.format.rawValue),
+            ("Include unmapped mates", options.includeUnmappedMates ? "yes" : "no"),
         ]))
         print("")
 
         let resolver = ClassifierReadResolver()
-        let options = ExtractionOptions(
-            format: format,
-            includeUnmappedMates: includeUnmappedMates
-        )
         let quiet = globalOptions.quiet
         let outcome = try await resolver.resolveAndExtract(
             tool: tool,
@@ -563,8 +594,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
 
         // Translate the outcome back into a ReadExtractionResult so the common
         // bundle-wrapping + summary print at the bottom of `run()` works
-        // unmodified. Only `.file` (and defensively `.bundle`) are reachable
-        // from the CLI today — clipboard and share are GUI-only destinations.
+        // unmodified.
         let fastqURL: URL
         switch outcome {
         case .file(let u, _):
@@ -572,6 +602,11 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         case .bundle(let u, _):
             fastqURL = u
         case .clipboard, .share:
+            // Defensive dead code: the CLI always passes `.file(outputURL)` as
+            // the destination above, so the resolver never returns a
+            // clipboard/share outcome here. Keep the branch rather than
+            // `fatalError` so a future refactor that adds a CLI-side destination
+            // doesn't silently crash end users.
             print("")
             print(formatter.error("Clipboard / share destinations are not supported from the CLI"))
             throw ExitCode.failure
@@ -583,11 +618,32 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         )
     }
 
+    // MARK: - Classifier option construction
+
+    /// Builds the `ExtractionOptions` that `runByClassifier` passes to
+    /// `ClassifierReadResolver`. Exposed (non-private) so tests can assert that
+    /// CLI flags like `--read-format` and `--include-unmapped-mates` flow
+    /// through to the resolver-facing struct, without having to actually
+    /// execute the extraction pipeline.
+    func makeExtractionOptions() -> ExtractionOptions {
+        let format: CopyFormat = (classifierFormat == "fasta") ? .fasta : .fastq
+        return ExtractionOptions(
+            format: format,
+            includeUnmappedMates: includeUnmappedMates
+        )
+    }
+
     // MARK: - Classifier selection reconstruction
 
     /// Reconstructs per-sample `ClassifierRowSelector` groups from the parsed
     /// flags, using the raw argument order to bind `--accession` and `--taxon`
     /// flags to their preceding `--sample` scope.
+    ///
+    /// Handles both ArgumentParser-accepted forms for each flag:
+    /// - space-separated (`--sample A`), which consumes two argv tokens
+    /// - equals-joined (`--sample=A`), which is a single argv token
+    ///
+    /// Both forms may appear in the same argv.
     ///
     /// - Parameter rawArgs: The full argument list as it was passed to
     ///   `ExtractReadsSubcommand.parse(...)`. Defaults to `CommandLine.arguments`
@@ -600,36 +656,63 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         var selectors: [ClassifierRowSelector] = []
         var current: ClassifierRowSelector?
 
+        /// Splits a token like `--sample=A` into ("--sample", "A"), or
+        /// `--sample` into ("--sample", nil).
+        func split(_ token: String) -> (key: String, inlineValue: String?) {
+            if let eq = token.firstIndex(of: "=") {
+                return (String(token[..<eq]), String(token[token.index(after: eq)...]))
+            }
+            return (token, nil)
+        }
+
         var i = 0
         while i < argv.count {
-            let token = argv[i]
-            switch token {
+            let (key, inlineValue) = split(argv[i])
+
+            // Resolve the flag's value: inline (`--sample=A`) takes precedence,
+            // otherwise read the next argv token (`--sample A`). If neither is
+            // present we let the outer `i += 1` skip the dangling flag —
+            // ArgumentParser rejects dangling-option invocations at parse time
+            // anyway, so this path is defensive.
+            let value: String?
+            let consumed: Int
+            if let inlineValue {
+                value = inlineValue
+                consumed = 1
+            } else if i + 1 < argv.count {
+                value = argv[i + 1]
+                consumed = 2
+            } else {
+                value = nil
+                consumed = 1
+            }
+
+            switch key {
             case "--sample":
-                if i + 1 < argv.count {
-                    // Close the current selector (if any) and start a new one.
+                if let value {
                     if let c = current { selectors.append(c) }
-                    current = ClassifierRowSelector(sampleId: argv[i + 1], accessions: [], taxIds: [])
-                    i += 2
+                    current = ClassifierRowSelector(sampleId: value, accessions: [], taxIds: [])
+                    i += consumed
                     continue
                 }
             case "--accession":
-                if i + 1 < argv.count {
+                if let value {
                     if current == nil {
                         current = ClassifierRowSelector(sampleId: nil, accessions: [], taxIds: [])
                     }
-                    current?.accessions.append(argv[i + 1])
-                    i += 2
+                    current?.accessions.append(value)
+                    i += consumed
                     continue
                 }
             case "--taxon":
-                if i + 1 < argv.count {
+                if let value {
                     if current == nil {
                         current = ClassifierRowSelector(sampleId: nil, accessions: [], taxIds: [])
                     }
-                    if let n = Int(argv[i + 1]) {
+                    if let n = Int(value) {
                         current?.taxIds.append(n)
                     }
-                    i += 2
+                    i += consumed
                     continue
                 }
             default:
@@ -667,7 +750,10 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         } else {
             params["tool"] = classifierTool
             params["result"] = classifierResult
-            params["format"] = classifierFormat
+            // Bundle-metadata key is named after the CLI flag (`--read-format`)
+            // for consistency with other strategy parameters and to make the
+            // key → flag mapping obvious to anyone inspecting the bundle JSON.
+            params["readFormat"] = classifierFormat
             params["includeUnmappedMates"] = includeUnmappedMates ? "yes" : "no"
         }
         return params
