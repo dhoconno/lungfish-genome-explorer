@@ -196,9 +196,10 @@ final class MetagenomicsDatabaseInfoTests: XCTestCase {
                 urlString.hasSuffix(".tar.gz"),
                 "Catalog entry '\(entry.name)' download URL does not end with .tar.gz"
             )
-            // Kraken2 databases come from AWS, EsViritu from Zenodo
+            // Kraken2 databases come from AWS, EsViritu from Zenodo, NCBI Taxonomy from NCBI FTP
             let isKnownHost = urlString.contains("genome-idx.s3.amazonaws.com")
                 || urlString.contains("zenodo.org")
+                || urlString.contains("ftp.ncbi.nlm.nih.gov")
             XCTAssertTrue(
                 isKnownHost,
                 "Catalog entry '\(entry.name)' download URL is not from a known host: \(urlString)"

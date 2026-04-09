@@ -133,7 +133,7 @@ final class GenBankBundleDownloadViewModelTests: XCTestCase {
     // MARK: - SearchScope
 
     func testSearchScopeAllCases() {
-        XCTAssertEqual(SearchScope.allCases.count, 4)
+        XCTAssertEqual(SearchScope.allCases.count, 6)
         XCTAssertEqual(SearchScope.all.rawValue, "All Fields")
     }
 

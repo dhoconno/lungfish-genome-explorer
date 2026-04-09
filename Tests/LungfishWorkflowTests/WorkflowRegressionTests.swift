@@ -1969,13 +1969,14 @@ final class MetagenomicsToolRegressionTests: XCTestCase {
 
     func testAllCases() {
         let cases = MetagenomicsTool.allCases
-        XCTAssertEqual(cases.count, 6)
+        XCTAssertEqual(cases.count, 7)
         XCTAssertTrue(cases.contains(.kraken2))
         XCTAssertTrue(cases.contains(.bracken))
         XCTAssertTrue(cases.contains(.metaphlan))
         XCTAssertTrue(cases.contains(.krakentools))
         XCTAssertTrue(cases.contains(.esviritu))
         XCTAssertTrue(cases.contains(.taxtriage))
+        XCTAssertTrue(cases.contains(.ncbiTaxonomy))
     }
 
     func testDatabaseSectionTitles() {

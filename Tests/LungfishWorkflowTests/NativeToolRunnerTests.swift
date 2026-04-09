@@ -354,7 +354,8 @@ final class NativeToolRunnerTests: XCTestCase {
     }
 
     func testAllCasesCount() {
-        XCTAssertEqual(NativeTool.allCases.count, 22, "Should have 22 bundled tools")
+        // 22 bundled tools + 1 conda-installed (deacon) = 23 total cases
+        XCTAssertEqual(NativeTool.allCases.count, 23, "Should have 23 NativeTool cases (22 bundled + 1 conda-installed)")
     }
 
     // MARK: - Error Tests
