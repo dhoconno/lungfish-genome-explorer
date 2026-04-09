@@ -11,9 +11,9 @@ import LungfishCore
 /// Resolves the `ExtractionResult` ambiguity between LungfishWorkflow and LungfishCore.
 private typealias ReadExtractionResult = LungfishWorkflow.ExtractionResult
 
-/// Extract reads from FASTQ, BAM, or database sources using one of three strategies.
+/// Extract reads from FASTQ, BAM, database, or classifier-result sources.
 ///
-/// Supports three mutually exclusive extraction modes:
+/// Supports four mutually exclusive extraction modes:
 ///
 /// - **By read IDs** (`--by-id`): Extracts reads from FASTQ files by matching read IDs
 ///   listed in a text file. Supports paired-end data.
@@ -21,6 +21,9 @@ private typealias ReadExtractionResult = LungfishWorkflow.ExtractionResult
 ///   for one or more genomic regions.
 /// - **By database query** (`--by-db`): Extracts reads stored in an NAO-MGS SQLite
 ///   database, filtered by taxonomy ID and/or accession.
+/// - **By classifier selection** (`--by-classifier`): Extracts reads from a classifier
+///   result (esviritu, taxtriage, kraken2, naomgs, nvd) by sample/accession/taxon
+///   selection. Delegates to `ClassifierReadResolver` for unified extraction.
 ///
 /// ## Examples
 ///
@@ -32,15 +35,19 @@ private typealias ReadExtractionResult = LungfishWorkflow.ExtractionResult
 /// lungfish extract reads --by-region --bam aligned.bam --region NC_005831.2 -o output.fastq
 ///
 /// # Extract from database
-/// lungfish extract reads --by-db --database results.db --sample S1 --taxid 12345 -o output.fastq
+/// lungfish extract reads --by-db --database results.db --db-sample S1 --db-taxid 12345 -o output.fastq
+///
+/// # Extract from a classifier result
+/// lungfish extract reads --by-classifier --tool esviritu --result results.sqlite \
+///     --sample S1 --accession NC_001803 -o output.fastq
 /// ```
 struct ExtractReadsSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "reads",
-        abstract: "Extract reads from FASTQ, BAM, or database sources",
+        abstract: "Extract reads from FASTQ, BAM, database, or classifier-result sources",
         discussion: """
-        Extract reads using one of three strategies. Exactly one of --by-id,
-        --by-region, or --by-db must be specified.
+        Extract reads using one of four strategies. Exactly one of --by-id,
+        --by-region, --by-db, or --by-classifier must be specified.
 
         By Read IDs (--by-id):
           Extracts reads from FASTQ files matching read IDs in a text file.
@@ -49,11 +56,19 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
 
         By BAM Region (--by-region):
           Extracts reads from a sorted, indexed BAM file for one or more
-          genomic regions. Requires samtools.
+          genomic regions. Requires samtools. Pass --exclude-unmapped to use
+          the stricter samtools -F 0x404 filter (drops unmapped reads).
 
         By Database (--by-db):
           Queries an NAO-MGS SQLite database for reads matching taxonomy IDs
-          and/or accessions. No external tools required.
+          and/or accessions. Use --db-sample, --db-taxid, --db-accession to
+          filter the query. No external tools required.
+
+        By Classifier Selection (--by-classifier):
+          Routes a classifier result (esviritu/taxtriage/kraken2/naomgs/nvd)
+          plus a per-sample selection through ClassifierReadResolver. The same
+          resolver backs the GUI extraction dialog, so the CLI and GUI produce
+          byte-identical output for the same selection.
         """
     )
 
@@ -67,6 +82,9 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
 
     @Flag(name: .customLong("by-db"), help: "Extract reads from an NAO-MGS SQLite database")
     var byDb: Bool = false
+
+    @Flag(name: .customLong("by-classifier"), help: "Extract reads by selection from a classifier result (esviritu, taxtriage, kraken2, naomgs, nvd)")
+    var byClassifier: Bool = false
 
     // MARK: - By-ID Options
 
@@ -95,17 +113,56 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("database"), help: "SQLite database path (for --by-db)")
     var databaseFile: String?
 
-    @Option(name: .customLong("sample"), help: "Sample ID (for --by-db)")
+    @Option(name: .customLong("db-sample"), help: "Sample ID (for --by-db)")
     var sample: String?
 
-    @Option(name: .customLong("taxid"), help: "Taxonomy ID (repeatable, for --by-db)")
+    @Option(name: .customLong("db-taxid"), help: "Taxonomy ID (repeatable, for --by-db)")
     var taxIds: [String] = []
 
-    @Option(name: .customLong("accession"), help: "Accession filter (repeatable, for --by-db)")
+    @Option(name: .customLong("db-accession"), help: "Accession filter (repeatable, for --by-db)")
     var accessions: [String] = []
 
     @Option(name: .customLong("max-reads"), help: "Maximum reads to extract (for --by-db)")
     var maxReads: Int?
+
+    // MARK: - By-Classifier Options
+
+    @Option(name: .customLong("tool"), help: "Classifier tool: esviritu|taxtriage|kraken2|naomgs|nvd (for --by-classifier)")
+    var classifierTool: String?
+
+    @Option(name: .customLong("result"), help: "Path to the classifier result file or directory (for --by-classifier)")
+    var classifierResult: String?
+
+    // MARK: - Classifier selection flags (sample-grouped)
+    //
+    // These three arrays are populated in parse order. The sample/accession/taxon
+    // grouping is reconstructed by `buildClassifierSelectors(rawArgs:)` walking
+    // the raw argument list. This dance exists because ArgumentParser does not
+    // preserve cross-option ordering for independently-declared repeated options.
+
+    @Option(name: .customLong("sample"), help: "Sample ID (repeatable; scopes subsequent --accession/--taxon flags, for --by-classifier)")
+    var classifierSamples: [String] = []
+
+    @Option(name: .customLong("accession"), help: "Reference accession / contig name (repeatable, for --by-classifier)")
+    var classifierAccessionsRaw: [String] = []
+
+    @Option(name: .customLong("taxon"), help: "Taxonomy ID (repeatable, for --by-classifier --tool kraken2)")
+    var classifierTaxonsRaw: [String] = []
+
+    // NOTE: Cannot use bare `--format` here — `GlobalOptions.outputFormat`
+    // already declares `--format` for the report-output format (text/json/tsv).
+    // The classifier strategy uses `--read-format` for the FASTQ vs FASTA
+    // distinction on the extracted read file itself.
+    @Option(name: .customLong("read-format"), help: "Output read format: fastq or fasta (for --by-classifier; default fastq)")
+    var classifierFormat: String = "fastq"
+
+    @Flag(name: .customLong("include-unmapped-mates"), help: "Include unmapped mates of mapped pairs (for --by-classifier, non-kraken2)")
+    var includeUnmappedMates: Bool = false
+
+    // MARK: - By-Region Extension
+
+    @Flag(name: .customLong("exclude-unmapped"), help: "Exclude unmapped reads (samtools -F 0x404 instead of -F 0x400) for --by-region")
+    var excludeUnmapped: Bool = false
 
     // MARK: - Common Options
 
@@ -120,13 +177,22 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
 
     @OptionGroup var globalOptions: GlobalOptions
 
+    // MARK: - Test hooks
+
+    #if DEBUG
+    /// Test-only override for the raw arg list used by
+    /// `buildClassifierSelectors`. Defaults to `CommandLine.arguments` in
+    /// production runs.
+    var testingRawArgs: [String]? = nil
+    #endif
+
     // MARK: - Validation
 
     func validate() throws {
         // Exactly one strategy must be selected
-        let strategyCount = [byId, byRegion, byDb].filter { $0 }.count
+        let strategyCount = [byId, byRegion, byDb, byClassifier].filter { $0 }.count
         guard strategyCount == 1 else {
-            throw ValidationError("Exactly one of --by-id, --by-region, or --by-db must be specified")
+            throw ValidationError("Exactly one of --by-id, --by-region, --by-db, or --by-classifier must be specified")
         }
 
         if byId {
@@ -155,7 +221,45 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
                 throw ValidationError("--database is required with --by-db")
             }
             guard !taxIds.isEmpty || !accessions.isEmpty else {
-                throw ValidationError("At least one --taxid or --accession is required with --by-db")
+                throw ValidationError("At least one --db-taxid or --db-accession is required with --by-db")
+            }
+        }
+
+        if byClassifier {
+            guard let toolRaw = classifierTool else {
+                throw ValidationError("--tool is required with --by-classifier")
+            }
+            guard let tool = ClassifierTool(rawValue: toolRaw) else {
+                throw ValidationError("Invalid --tool value '\(toolRaw)'. Must be one of: \(ClassifierTool.allCases.map(\.rawValue).joined(separator: ", "))")
+            }
+            guard classifierResult != nil else {
+                throw ValidationError("--result is required with --by-classifier")
+            }
+
+            // Use the flat parsed arrays for the "at least one selection
+            // exists" check. We deliberately do NOT call
+            // buildClassifierSelectors here — that helper reads
+            // CommandLine.arguments by default, which holds xctest's argv
+            // during test runs and would produce false negatives.
+            let hasAccessions = !classifierAccessionsRaw.isEmpty
+            let hasTaxons = !classifierTaxonsRaw.isEmpty
+
+            switch tool {
+            case .esviritu, .taxtriage, .naomgs, .nvd:
+                guard hasAccessions else {
+                    throw ValidationError("--tool \(toolRaw) requires at least one --accession")
+                }
+            case .kraken2:
+                guard hasTaxons else {
+                    throw ValidationError("--tool kraken2 requires at least one --taxon")
+                }
+                if includeUnmappedMates {
+                    throw ValidationError("--include-unmapped-mates is not supported with --tool kraken2")
+                }
+            }
+
+            guard classifierFormat == "fastq" || classifierFormat == "fasta" else {
+                throw ValidationError("--read-format must be 'fastq' or 'fasta' (got '\(classifierFormat)')")
             }
         }
     }
@@ -190,12 +294,18 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
                 outputDir: outputDir,
                 outputBase: outputBase
             )
-        } else {
+        } else if byDb {
             result = try await runByDatabase(
                 service: service,
                 formatter: formatter,
                 outputDir: outputDir,
                 outputBase: outputBase
+            )
+        } else {
+            // byClassifier
+            result = try await runByClassifier(
+                formatter: formatter,
+                outputURL: outputURL
             )
         }
 
@@ -329,7 +439,10 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         ]))
         print("")
 
-        return try await service.extractByBAMRegion(config: config) { _, message in
+        return try await service.extractByBAMRegion(
+            config: config,
+            flagFilter: excludeUnmapped ? 0x404 : 0x400
+        ) { _, message in
             if !globalOptions.quiet {
                 print("\r\(formatter.info(message))", terminator: "")
             }
@@ -390,12 +503,151 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         }
     }
 
+    // MARK: - Classifier strategy
+
+    private func runByClassifier(
+        formatter: TerminalFormatter,
+        outputURL: URL
+    ) async throws -> ReadExtractionResult {
+        guard let toolRaw = classifierTool, let tool = ClassifierTool(rawValue: toolRaw) else {
+            throw ExitCode.failure
+        }
+        guard let resultPathStr = classifierResult else {
+            throw ExitCode.failure
+        }
+        let resultPath = URL(fileURLWithPath: resultPathStr)
+
+        // In DEBUG builds, allow tests to inject the simulated argv via the
+        // testingRawArgs hook so per-sample grouping reflects the test args
+        // rather than xctest's CommandLine.arguments. In RELEASE builds, the
+        // helper falls back to CommandLine.arguments.
+        #if DEBUG
+        let effectiveArgs = testingRawArgs
+        #else
+        let effectiveArgs: [String]? = nil
+        #endif
+        let selectors = buildClassifierSelectors(rawArgs: effectiveArgs)
+        let format: CopyFormat = (classifierFormat == "fasta") ? .fasta : .fastq
+
+        print(formatter.header("Classifier Extraction (\(tool.displayName))"))
+        print("")
+        print(formatter.keyValueTable([
+            ("Tool", tool.displayName),
+            ("Result path", resultPath.lastPathComponent),
+            ("Samples", selectors.compactMap { $0.sampleId }.joined(separator: ", ")),
+            ("Accessions", selectors.flatMap { $0.accessions }.joined(separator: ", ")),
+            ("Taxons", selectors.flatMap { $0.taxIds.map(String.init) }.joined(separator: ", ")),
+            ("Format", format.rawValue),
+            ("Include unmapped mates", includeUnmappedMates ? "yes" : "no"),
+        ]))
+        print("")
+
+        let resolver = ClassifierReadResolver()
+        let options = ExtractionOptions(
+            format: format,
+            includeUnmappedMates: includeUnmappedMates
+        )
+        let quiet = globalOptions.quiet
+        let outcome = try await resolver.resolveAndExtract(
+            tool: tool,
+            resultPath: resultPath,
+            selections: selectors,
+            options: options,
+            destination: .file(outputURL),
+            progress: { _, message in
+                if !quiet {
+                    print("\r\(formatter.info(message))", terminator: "")
+                }
+            }
+        )
+
+        // Translate the outcome back into a ReadExtractionResult so the common
+        // bundle-wrapping + summary print at the bottom of `run()` works
+        // unmodified. Only `.file` (and defensively `.bundle`) are reachable
+        // from the CLI today — clipboard and share are GUI-only destinations.
+        let fastqURL: URL
+        switch outcome {
+        case .file(let u, _):
+            fastqURL = u
+        case .bundle(let u, _):
+            fastqURL = u
+        case .clipboard, .share:
+            print("")
+            print(formatter.error("Clipboard / share destinations are not supported from the CLI"))
+            throw ExitCode.failure
+        }
+        return ReadExtractionResult(
+            fastqURLs: [fastqURL],
+            readCount: outcome.readCount,
+            pairedEnd: false
+        )
+    }
+
+    // MARK: - Classifier selection reconstruction
+
+    /// Reconstructs per-sample `ClassifierRowSelector` groups from the parsed
+    /// flags, using the raw argument order to bind `--accession` and `--taxon`
+    /// flags to their preceding `--sample` scope.
+    ///
+    /// - Parameter rawArgs: The full argument list as it was passed to
+    ///   `ExtractReadsSubcommand.parse(...)`. Defaults to `CommandLine.arguments`
+    ///   minus the executable name. Tests supply the list explicitly.
+    func buildClassifierSelectors(rawArgs: [String]? = nil) -> [ClassifierRowSelector] {
+        // The argument list we walk. In tests this is supplied; in production
+        // it is the current process's arguments.
+        let argv: [String] = rawArgs ?? Array(CommandLine.arguments.dropFirst())
+
+        var selectors: [ClassifierRowSelector] = []
+        var current: ClassifierRowSelector?
+
+        var i = 0
+        while i < argv.count {
+            let token = argv[i]
+            switch token {
+            case "--sample":
+                if i + 1 < argv.count {
+                    // Close the current selector (if any) and start a new one.
+                    if let c = current { selectors.append(c) }
+                    current = ClassifierRowSelector(sampleId: argv[i + 1], accessions: [], taxIds: [])
+                    i += 2
+                    continue
+                }
+            case "--accession":
+                if i + 1 < argv.count {
+                    if current == nil {
+                        current = ClassifierRowSelector(sampleId: nil, accessions: [], taxIds: [])
+                    }
+                    current?.accessions.append(argv[i + 1])
+                    i += 2
+                    continue
+                }
+            case "--taxon":
+                if i + 1 < argv.count {
+                    if current == nil {
+                        current = ClassifierRowSelector(sampleId: nil, accessions: [], taxIds: [])
+                    }
+                    if let n = Int(argv[i + 1]) {
+                        current?.taxIds.append(n)
+                    }
+                    i += 2
+                    continue
+                }
+            default:
+                break
+            }
+            i += 1
+        }
+        if let c = current { selectors.append(c) }
+        return selectors
+    }
+
     // MARK: - Helpers
 
     private var strategyLabel: String {
         if byId { return "Read ID" }
         if byRegion { return "BAM Region" }
-        return "Database"
+        if byDb { return "Database" }
+        return "Classifier"
     }
 
     private var strategyParameters: [String: String] {
@@ -406,11 +658,17 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         } else if byRegion {
             params["bamFile"] = bamFile
             params["regions"] = regions.joined(separator: ", ")
-        } else {
+            params["excludeUnmapped"] = excludeUnmapped ? "yes" : "no"
+        } else if byDb {
             params["database"] = databaseFile
             if let s = sample { params["sample"] = s }
             if !taxIds.isEmpty { params["taxIds"] = taxIds.joined(separator: ", ") }
             if !accessions.isEmpty { params["accessions"] = accessions.joined(separator: ", ") }
+        } else {
+            params["tool"] = classifierTool
+            params["result"] = classifierResult
+            params["format"] = classifierFormat
+            params["includeUnmappedMates"] = includeUnmappedMates ? "yes" : "no"
         }
         return params
     }
