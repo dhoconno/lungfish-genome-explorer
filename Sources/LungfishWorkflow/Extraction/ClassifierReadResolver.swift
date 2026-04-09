@@ -366,22 +366,22 @@ public actor ClassifierReadResolver {
                 )
             }
 
-            // NOTE: use -o (not -0). -0 captures only READ_OTHER; -o writes
-            // interleaved READ1/READ2 pairs — the common paired-end case.
-            // Singletons would go to stdout if present; the plan's `-0`
-            // mis-captured nothing for our paired-end sarscov2 fixture.
+            // samtools fastq has subtle output-routing flags. The plan's code used
+            // `samtools fastq -0 file` which captures only READ_OTHER (singletons
+            // with neither READ1 nor READ2 set) — wrong for both paired-end data
+            // (where almost everything is READ1/READ2) and single-end data
+            // (where flag combinations vary). The proven pattern in
+            // ReadExtractionService.convertBAMToFASTQSingleFile uses the 4-file
+            // split (-0/-1/-2/-s) into separate temp files and merges them, with
+            // a stdout-capture fallback for the empty-sidecars edge case. Mirror
+            // that here so the resolver handles both layouts identically.
             let perSampleFASTQ = tempDir.appendingPathComponent("\(sampleLabel).fastq")
-            let fastqResult = try await toolRunner.run(
-                .samtools,
-                arguments: ["fastq", perSampleBAM.path, "-o", perSampleFASTQ.path],
-                timeout: 3600
+            try await convertBAMToFASTQ(
+                inputBAM: perSampleBAM,
+                outputFASTQ: perSampleFASTQ,
+                tempDir: tempDir,
+                sampleLabel: sampleLabel
             )
-            guard fastqResult.isSuccess else {
-                throw ClassifierExtractionError.samtoolsFailed(
-                    sampleId: sampleLabel,
-                    stderr: fastqResult.stderr
-                )
-            }
 
             if fm.fileExists(atPath: perSampleFASTQ.path) {
                 let size = (try? fm.attributesOfItem(atPath: perSampleFASTQ.path)[.size] as? UInt64) ?? 0
@@ -429,6 +429,105 @@ public actor ClassifierReadResolver {
         progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> ExtractionOutcome {
         throw ClassifierExtractionError.notImplemented
+    }
+
+    // MARK: - BAM → FASTQ conversion
+
+    /// Converts a per-sample BAM into a single FASTQ by collecting every read class.
+    ///
+    /// This mirrors `ReadExtractionService.convertBAMToFASTQSingleFile` so the
+    /// resolver picks up the same edge-case handling that surface ate years of
+    /// silent regressions: `samtools fastq -o file` only writes READ1/READ2 and
+    /// silently drops READ_OTHER (singletons), and `-0 file` only writes
+    /// READ_OTHER and silently drops READ1/READ2. The fix is to route every
+    /// read class to its own sidecar, then concatenate. If samtools writes
+    /// nothing into any sidecar (rare but observed for some single-end BAMs),
+    /// we fall back to a stdout capture.
+    ///
+    /// - Parameters:
+    ///   - inputBAM: per-sample region BAM produced by `samtools view -b -F …`.
+    ///   - outputFASTQ: destination FASTQ file (overwritten if it exists).
+    ///   - tempDir: temp directory in which to write the sidecar files. They
+    ///              are siblings of `outputFASTQ` so the caller's `defer` cleanup
+    ///              removes them.
+    ///   - sampleLabel: human-readable sample identifier for error messages.
+    private func convertBAMToFASTQ(
+        inputBAM: URL,
+        outputFASTQ: URL,
+        tempDir: URL,
+        sampleLabel: String
+    ) async throws {
+        let fm = FileManager.default
+
+        let sidecarPrefix = outputFASTQ.deletingPathExtension().lastPathComponent
+        let otherURL = tempDir.appendingPathComponent("\(sidecarPrefix)_other.fastq")
+        let r1URL = tempDir.appendingPathComponent("\(sidecarPrefix)_r1.fastq")
+        let r2URL = tempDir.appendingPathComponent("\(sidecarPrefix)_r2.fastq")
+        let singletonURL = tempDir.appendingPathComponent("\(sidecarPrefix)_singletons.fastq")
+
+        let fastqResult = try await toolRunner.run(
+            .samtools,
+            arguments: [
+                "fastq",
+                "-0", otherURL.path,
+                "-1", r1URL.path,
+                "-2", r2URL.path,
+                "-s", singletonURL.path,
+                inputBAM.path,
+            ],
+            timeout: 3600
+        )
+        guard fastqResult.isSuccess else {
+            throw ClassifierExtractionError.samtoolsFailed(
+                sampleId: sampleLabel,
+                stderr: fastqResult.stderr
+            )
+        }
+
+        if fm.fileExists(atPath: outputFASTQ.path) {
+            try fm.removeItem(at: outputFASTQ)
+        }
+        fm.createFile(atPath: outputFASTQ.path, contents: nil)
+        let outHandle = try FileHandle(forWritingTo: outputFASTQ)
+        defer { try? outHandle.close() }
+
+        // Order matches ReadExtractionService.convertBAMToFASTQSingleFile:
+        // singletons + READ_OTHER first, then the paired R1/R2 stream.
+        let orderedParts = [otherURL, singletonURL, r1URL, r2URL]
+        for partURL in orderedParts {
+            guard fm.fileExists(atPath: partURL.path) else { continue }
+            let attrs = try fm.attributesOfItem(atPath: partURL.path)
+            let size = attrs[.size] as? UInt64 ?? 0
+            guard size > 0 else { continue }
+
+            let inHandle = try FileHandle(forReadingFrom: partURL)
+            defer { try? inHandle.close() }
+
+            while true {
+                let chunk = inHandle.readData(ofLength: 1 << 20)
+                if chunk.isEmpty { break }
+                outHandle.write(chunk)
+            }
+        }
+
+        let mergedSize = (try? fm.attributesOfItem(atPath: outputFASTQ.path)[.size] as? UInt64) ?? 0
+        if mergedSize == 0 {
+            // Sidecar outputs were all empty — retry capturing stdout. This
+            // covers oddball BAMs (e.g. single-end with unusual flag patterns)
+            // that produce reads on stdout but nothing into the named sidecars.
+            let stdoutResult = try await toolRunner.run(
+                .samtools,
+                arguments: ["fastq", inputBAM.path],
+                timeout: 3600
+            )
+            guard stdoutResult.isSuccess else {
+                throw ClassifierExtractionError.samtoolsFailed(
+                    sampleId: sampleLabel,
+                    stderr: stdoutResult.stderr
+                )
+            }
+            try stdoutResult.stdout.write(to: outputFASTQ, atomically: true, encoding: .utf8)
+        }
     }
 
     // MARK: - File helpers
