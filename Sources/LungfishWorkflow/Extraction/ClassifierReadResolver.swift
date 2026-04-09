@@ -411,7 +411,7 @@ public actor ClassifierReadResolver {
             finalFASTQ = concatenated
         }
 
-        return try routeToDestination(
+        return try await routeToDestination(
             finalFile: finalFASTQ,
             tempDir: tempDir,
             readCount: readCount,
@@ -613,7 +613,7 @@ public actor ClassifierReadResolver {
         tool: ClassifierTool,
         destination: ExtractionDestination,
         progress: (@Sendable (Double, String) -> Void)?
-    ) throws -> ExtractionOutcome {
+    ) async throws -> ExtractionOutcome {
         let fm = FileManager.default
         switch destination {
         case .file(let url):
@@ -625,9 +625,48 @@ public actor ClassifierReadResolver {
             progress?(1.0, "Wrote \(readCount) reads to \(url.lastPathComponent)")
             return .file(url, readCount: readCount)
 
-        case .bundle, .clipboard, .share:
-            // Filled in by Task 2.5.
-            throw ClassifierExtractionError.notImplemented
+        case .bundle(let projectRoot, let displayName, let metadata):
+            // Reuse the existing ReadExtractionService bundle creator. Note: createBundle
+            // is actor-isolated on ReadExtractionService, so we must `await` the call
+            // even though the method itself is not declared `async`.
+            let service = ReadExtractionService()
+            let result = ExtractionResult(
+                fastqURLs: [finalFile],
+                readCount: readCount,
+                pairedEnd: false
+            )
+            let bundleURL = try await service.createBundle(
+                from: result,
+                sourceName: displayName,
+                selectionDescription: "extract",
+                metadata: metadata,
+                in: projectRoot
+            )
+            progress?(1.0, "Created bundle \(bundleURL.lastPathComponent)")
+            return .bundle(bundleURL, readCount: readCount)
+
+        case .clipboard(_, let cap):
+            if readCount > cap {
+                throw ClassifierExtractionError.clipboardCapExceeded(
+                    requested: readCount,
+                    cap: cap
+                )
+            }
+            let data = try Data(contentsOf: finalFile)
+            let payload = String(decoding: data, as: UTF8.self)
+            progress?(1.0, "Prepared \(data.count) bytes for clipboard")
+            return .clipboard(payload: payload, byteCount: data.count, readCount: readCount)
+
+        case .share(let shareDir):
+            let sharesSubdir = shareDir.appendingPathComponent("shares/\(UUID().uuidString)")
+            try fm.createDirectory(at: sharesSubdir, withIntermediateDirectories: true)
+            let stableURL = sharesSubdir.appendingPathComponent(finalFile.lastPathComponent)
+            if fm.fileExists(atPath: stableURL.path) {
+                try fm.removeItem(at: stableURL)
+            }
+            try fm.moveItem(at: finalFile, to: stableURL)
+            progress?(1.0, "Prepared file for sharing")
+            return .share(stableURL, readCount: readCount)
         }
     }
 

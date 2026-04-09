@@ -349,4 +349,137 @@ final class ClassifierReadResolverTests: XCTestCase {
         )
         XCTAssertGreaterThan(outcome.readCount, 0)
     }
+
+    // MARK: - Destination routing
+
+    func testDestination_bundle_createsLungfishfastqUnderProjectRoot() async throws {
+        let fm = FileManager.default
+        let projectRoot = fm.temporaryDirectory.appendingPathComponent("proj-\(UUID().uuidString)")
+        let lungfishDir = projectRoot.appendingPathComponent(".lungfish")
+        try fm.createDirectory(at: lungfishDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: projectRoot) }
+
+        // Stand up an NVD fake result INSIDE the project so resolveProjectRoot walks up correctly.
+        let resultDir = projectRoot.appendingPathComponent("analyses/nvd-20260401")
+        try fm.createDirectory(at: resultDir, withIntermediateDirectories: true)
+        let fixtureBAM = try sarscov2FixtureBAM()
+        let fixtureBAI: URL = {
+            let bai = URL(fileURLWithPath: fixtureBAM.path + ".bai")
+            if fm.fileExists(atPath: bai.path) { return bai }
+            return fixtureBAM.deletingPathExtension().appendingPathExtension("bam.bai")
+        }()
+        let bamDest = resultDir.appendingPathComponent("s2.bam")
+        try fm.copyItem(at: fixtureBAM, to: bamDest)
+        try fm.copyItem(at: fixtureBAI, to: URL(fileURLWithPath: bamDest.path + ".bai"))
+        let resultPath = resultDir.appendingPathComponent("fake.sqlite")
+
+        let bamRefs = try await BAMRegionMatcher.readBAMReferences(bamURL: fixtureBAM, runner: .shared)
+        guard let region = bamRefs.first else { throw XCTSkip("no BAM refs") }
+
+        let metadata = ExtractionMetadata(
+            sourceDescription: "sarscov2-fixture",
+            toolName: "NVD",
+            parameters: ["accession": region]
+        )
+
+        let resolver = ClassifierReadResolver()
+        let outcome = try await resolver.resolveAndExtract(
+            tool: .nvd,
+            resultPath: resultPath,
+            selections: [
+                ClassifierRowSelector(sampleId: "s2", accessions: [region], taxIds: [])
+            ],
+            options: ExtractionOptions(),
+            destination: .bundle(
+                projectRoot: projectRoot,
+                displayName: "sarscov2-test-extract",
+                metadata: metadata
+            )
+        )
+
+        guard case .bundle(let bundleURL, let n) = outcome else {
+            XCTFail("Expected .bundle outcome, got \(outcome)")
+            return
+        }
+        XCTAssertTrue(bundleURL.pathExtension == "lungfishfastq",
+                      "Expected .lungfishfastq bundle, got \(bundleURL.lastPathComponent)")
+        XCTAssertTrue(bundleURL.path.hasPrefix(projectRoot.path),
+                      "Bundle must land under the project root: \(bundleURL.path)")
+        XCTAssertFalse(bundleURL.path.contains("/.lungfish/.tmp/"),
+                      "Bundle must NOT land in .lungfish/.tmp/")
+        XCTAssertGreaterThan(n, 0)
+    }
+
+    func testDestination_clipboard_returnsSerializedFASTQ() async throws {
+        let resultPath = try makeSarscov2ResultFixture(tool: .nvd, sampleId: "cb")
+        defer { try? FileManager.default.removeItem(at: resultPath.deletingLastPathComponent()) }
+        let bamRefs = try await BAMRegionMatcher.readBAMReferences(bamURL: try sarscov2FixtureBAM(), runner: .shared)
+        guard let region = bamRefs.first else { throw XCTSkip("no BAM refs") }
+
+        let resolver = ClassifierReadResolver()
+        let outcome = try await resolver.resolveAndExtract(
+            tool: .nvd,
+            resultPath: resultPath,
+            selections: [ClassifierRowSelector(sampleId: "cb", accessions: [region], taxIds: [])],
+            options: ExtractionOptions(format: .fastq),
+            destination: .clipboard(format: .fastq, cap: 10_000)
+        )
+        guard case .clipboard(let payload, let byteCount, let n) = outcome else {
+            XCTFail("Expected .clipboard outcome")
+            return
+        }
+        XCTAssertFalse(payload.isEmpty)
+        XCTAssertGreaterThan(byteCount, 0)
+        XCTAssertGreaterThan(n, 0)
+    }
+
+    func testDestination_share_movesFileToStableLocation() async throws {
+        let resultPath = try makeSarscov2ResultFixture(tool: .nvd, sampleId: "sh")
+        defer { try? FileManager.default.removeItem(at: resultPath.deletingLastPathComponent()) }
+        let bamRefs = try await BAMRegionMatcher.readBAMReferences(bamURL: try sarscov2FixtureBAM(), runner: .shared)
+        guard let region = bamRefs.first else { throw XCTSkip("no BAM refs") }
+
+        let shareDir = FileManager.default.temporaryDirectory.appendingPathComponent("share-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: shareDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: shareDir) }
+
+        let resolver = ClassifierReadResolver()
+        let outcome = try await resolver.resolveAndExtract(
+            tool: .nvd,
+            resultPath: resultPath,
+            selections: [ClassifierRowSelector(sampleId: "sh", accessions: [region], taxIds: [])],
+            options: ExtractionOptions(),
+            destination: .share(tempDirectory: shareDir)
+        )
+        guard case .share(let url, _) = outcome else {
+            XCTFail("Expected .share outcome")
+            return
+        }
+        XCTAssertTrue(url.path.hasPrefix(shareDir.path),
+                      "Share file must land under the requested temp directory")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    func testDestination_clipboard_capExceeded_throws() async throws {
+        let resultPath = try makeSarscov2ResultFixture(tool: .nvd, sampleId: "cap")
+        defer { try? FileManager.default.removeItem(at: resultPath.deletingLastPathComponent()) }
+        let bamRefs = try await BAMRegionMatcher.readBAMReferences(bamURL: try sarscov2FixtureBAM(), runner: .shared)
+        guard let region = bamRefs.first else { throw XCTSkip("no BAM refs") }
+
+        let resolver = ClassifierReadResolver()
+        do {
+            _ = try await resolver.resolveAndExtract(
+                tool: .nvd,
+                resultPath: resultPath,
+                selections: [ClassifierRowSelector(sampleId: "cap", accessions: [region], taxIds: [])],
+                options: ExtractionOptions(),
+                destination: .clipboard(format: .fastq, cap: 1)  // deliberately tiny
+            )
+            XCTFail("Expected clipboardCapExceeded error")
+        } catch ClassifierExtractionError.clipboardCapExceeded {
+            // ok
+        } catch {
+            XCTFail("Expected clipboardCapExceeded, got \(error)")
+        }
+    }
 }

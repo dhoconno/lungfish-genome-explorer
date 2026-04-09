@@ -57,7 +57,7 @@ final class ExtractionDestinationTests: XCTestCase {
     func testOutcome_allCasesCarryReadCount() {
         let f: ExtractionOutcome = .file(URL(fileURLWithPath: "/tmp/a.fastq"), readCount: 10)
         let b: ExtractionOutcome = .bundle(URL(fileURLWithPath: "/tmp/a.lungfishfastq"), readCount: 20)
-        let c: ExtractionOutcome = .clipboard(byteCount: 1234, readCount: 5)
+        let c: ExtractionOutcome = .clipboard(payload: "@r1\nACGT\n+\n!!!!", byteCount: 1234, readCount: 5)
         let s: ExtractionOutcome = .share(URL(fileURLWithPath: "/tmp/x.fastq"), readCount: 7)
 
         XCTAssertEqual(f.readCount, 10)

@@ -53,9 +53,10 @@ public enum ExtractionOutcome: Sendable {
     /// Bundle destination completed; URL is the `.lungfishfastq` directory.
     case bundle(URL, readCount: Int)
 
-    /// Clipboard destination completed; `byteCount` is the serialized text
-    /// length; the actual string is returned in the out-parameter payload.
-    case clipboard(byteCount: Int, readCount: Int)
+    /// Clipboard destination completed. `payload` is the serialized
+    /// FASTQ/FASTA text that the caller (the GUI) writes to `NSPasteboard`.
+    /// `byteCount` is the payload length in bytes for quick display.
+    case clipboard(payload: String, byteCount: Int, readCount: Int)
 
     /// Share destination completed; URL is the stable file ready for
     /// `NSSharingServicePicker`.
@@ -69,8 +70,9 @@ public enum ExtractionOutcome: Sendable {
         switch self {
         case .file(_, let n),
              .bundle(_, let n),
-             .clipboard(_, let n),
              .share(_, let n):
+            return n
+        case .clipboard(_, _, let n):
             return n
         }
     }
