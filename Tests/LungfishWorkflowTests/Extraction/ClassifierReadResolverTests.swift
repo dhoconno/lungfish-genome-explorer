@@ -63,4 +63,30 @@ final class ClassifierReadResolverTests: XCTestCase {
             tempRoot.standardizedFileURL.path
         )
     }
+
+    // MARK: - estimateReadCount
+
+    func testEstimateReadCount_emptySelection_returnsZero() async throws {
+        let resolver = ClassifierReadResolver()
+        let count = try await resolver.estimateReadCount(
+            tool: .esviritu,
+            resultPath: URL(fileURLWithPath: "/tmp/nonexistent.sqlite"),
+            selections: [],
+            options: ExtractionOptions()
+        )
+        XCTAssertEqual(count, 0)
+    }
+
+    func testEstimateReadCount_allEmptySelectors_returnsZero() async throws {
+        let resolver = ClassifierReadResolver()
+        let count = try await resolver.estimateReadCount(
+            tool: .esviritu,
+            resultPath: URL(fileURLWithPath: "/tmp/nonexistent.sqlite"),
+            selections: [
+                ClassifierRowSelector(sampleId: "S1", accessions: [], taxIds: [])
+            ],
+            options: ExtractionOptions()
+        )
+        XCTAssertEqual(count, 0)
+    }
 }

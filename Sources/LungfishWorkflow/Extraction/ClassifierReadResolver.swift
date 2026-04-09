@@ -118,6 +118,110 @@ public actor ClassifierReadResolver {
         selections: [ClassifierRowSelector],
         options: ExtractionOptions
     ) async throws -> Int {
+        // Early return: no selections means nothing to count.
+        let nonEmpty = selections.filter { !$0.isEmpty }
+        guard !nonEmpty.isEmpty else { return 0 }
+
+        if tool.usesBAMDispatch {
+            return try await estimateBAMReadCount(
+                tool: tool,
+                resultPath: resultPath,
+                selections: nonEmpty,
+                options: options
+            )
+        } else {
+            return try await estimateKraken2ReadCount(
+                resultPath: resultPath,
+                selections: nonEmpty
+            )
+        }
+    }
+
+    // MARK: - Private BAM dispatch
+
+    /// Sums `samtools view -c -F <flags> <bam> <regions...>` across samples.
+    private func estimateBAMReadCount(
+        tool: ClassifierTool,
+        resultPath: URL,
+        selections: [ClassifierRowSelector],
+        options: ExtractionOptions
+    ) async throws -> Int {
+        let groupedBySample = groupBySample(selections)
+        var total = 0
+        for (sampleId, group) in groupedBySample {
+            let regions = group.flatMap { $0.accessions }
+            guard !regions.isEmpty else { continue }
+
+            let bamURL = try await resolveBAMURL(
+                tool: tool,
+                sampleId: sampleId,
+                resultPath: resultPath
+            )
+
+            var args = ["view", "-c", "-F", String(options.samtoolsExcludeFlags), bamURL.path]
+            args.append(contentsOf: regions)
+
+            let result = try await toolRunner.run(.samtools, arguments: args, timeout: 600)
+            guard result.isSuccess else {
+                throw ClassifierExtractionError.samtoolsFailed(
+                    sampleId: sampleId ?? "(single)",
+                    stderr: result.stderr
+                )
+            }
+
+            // samtools view -c writes a single integer to stdout.
+            let trimmed = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let n = Int(trimmed) {
+                total += n
+            }
+        }
+        return total
+    }
+
+    /// Kraken2 estimate: sum of `readsClade` across selected taxa, pulled from
+    /// the on-disk taxonomy tree rather than running samtools.
+    private func estimateKraken2ReadCount(
+        resultPath: URL,
+        selections: [ClassifierRowSelector]
+    ) async throws -> Int {
+        // The resolver knows how to load a Kraken2 result from disk because
+        // the ClassificationResult type exposes a .load(from:) initializer.
+        // We defer the actual tree-walking until Task 2.6 where we also
+        // implement the full Kraken2 extraction path; for now, just sum
+        // `selections.taxIds.count * 0` and return zero — a correct-but-
+        // conservative lower bound. Dialog live-update will show a real
+        // number after Task 2.6 fills this in.
+        //
+        // TODO[phase2]: real Kraken2 estimate lands in Task 2.6.
+        let _ = resultPath
+        let _ = selections
+        return 0
+    }
+
+    // MARK: - Private helpers
+
+    /// Groups selectors by `sampleId`, treating `nil` as a single implicit sample.
+    private func groupBySample(
+        _ selections: [ClassifierRowSelector]
+    ) -> [(String?, [ClassifierRowSelector])] {
+        var bySample: [String?: [ClassifierRowSelector]] = [:]
+        var order: [String?] = []
+        for sel in selections {
+            if bySample[sel.sampleId] == nil {
+                order.append(sel.sampleId)
+            }
+            bySample[sel.sampleId, default: []].append(sel)
+        }
+        return order.map { ($0, bySample[$0] ?? []) }
+    }
+
+    /// Resolves the BAM URL for a given sample. Implemented in Task 2.3 — stub
+    /// throws so callers cannot reach production code.
+    private func resolveBAMURL(
+        tool: ClassifierTool,
+        sampleId: String?,
+        resultPath: URL
+    ) async throws -> URL {
         throw ClassifierExtractionError.notImplemented
     }
 }
