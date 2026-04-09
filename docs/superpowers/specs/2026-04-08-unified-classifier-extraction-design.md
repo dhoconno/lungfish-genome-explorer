@@ -423,15 +423,14 @@ Sources/LungfishApp/Views/Metagenomics/ClassifierExtractionDialog.swift
 Sources/LungfishApp/Views/Metagenomics/TaxonomyReadExtractionAction.swift
 ```
 
-### Deleted source files (3)
+### Deleted source files (2)
 
 ```
 Sources/LungfishApp/Views/Metagenomics/TaxonomyExtractionSheet.swift          (~365 lines)
 Sources/LungfishApp/Views/Metagenomics/ClassifierExtractionSheet.swift        (~91 lines)
-Sources/LungfishWorkflow/Metagenomics/TaxonomyExtractionConfig.swift          (replaced by ClassifierRowSelector)
 ```
 
-`TaxonomyExtractionPipeline.swift` is **not** deleted — it remains the Kraken2 backend, wrapped by `ClassifierReadResolver.extractViaKraken2`.
+`TaxonomyExtractionPipeline.swift` and `TaxonomyExtractionConfig.swift` are **not** deleted — the pipeline remains the Kraken2 backend (wrapped by `ClassifierReadResolver.extractViaKraken2`), and its `TaxonomyExtractionConfig` struct is the pipeline's internal input shape. The resolver constructs that struct from a `[ClassifierRowSelector]` internally; callers of the resolver never see it.
 
 ### Modified source files (8)
 
