@@ -80,7 +80,7 @@ The simplification pass should focus on:
 
 ## Simplification pass — disposition
 
-Commit: `<sha>` on top of `5768b82`.
+Commit: `0aad2c6` on top of `5768b82`.
 
 ### Significant issues
 
