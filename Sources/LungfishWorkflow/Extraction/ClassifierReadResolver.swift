@@ -94,12 +94,9 @@ public actor ClassifierReadResolver {
         return fallback
     }
 
-    // MARK: - Public API (stubs — filled in later tasks)
+    // MARK: - Public API
 
     /// Runs an extraction and routes the result to the requested destination.
-    ///
-    /// Implemented in Task 2.3 and later. The stub throws so no caller can
-    /// reach production code yet.
     public func resolveAndExtract(
         tool: ClassifierTool,
         resultPath: URL,
@@ -108,7 +105,31 @@ public actor ClassifierReadResolver {
         destination: ExtractionDestination,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> ExtractionOutcome {
-        throw ClassifierExtractionError.notImplemented
+        let nonEmpty = selections.filter { !$0.isEmpty }
+        guard !nonEmpty.isEmpty else {
+            throw ClassifierExtractionError.zeroReadsExtracted
+        }
+
+        progress?(0.0, "Preparing \(tool.displayName) extraction…")
+
+        if tool.usesBAMDispatch {
+            return try await extractViaBAM(
+                tool: tool,
+                selections: nonEmpty,
+                resultPath: resultPath,
+                options: options,
+                destination: destination,
+                progress: progress
+            )
+        } else {
+            return try await extractViaKraken2(
+                selections: nonEmpty,
+                resultPath: resultPath,
+                options: options,
+                destination: destination,
+                progress: progress
+            )
+        }
     }
 
     /// Cheap pre-flight count. Implemented in Task 2.2.
@@ -291,6 +312,226 @@ public actor ClassifierReadResolver {
         throw ClassifierExtractionError.bamNotFound(sampleId: sample)
     }
 
+    // MARK: - BAM-backed extraction
+
+    private func extractViaBAM(
+        tool: ClassifierTool,
+        selections: [ClassifierRowSelector],
+        resultPath: URL,
+        options: ExtractionOptions,
+        destination: ExtractionDestination,
+        progress: (@Sendable (Double, String) -> Void)?
+    ) async throws -> ExtractionOutcome {
+        let fm = FileManager.default
+        let projectRoot = Self.resolveProjectRoot(from: resultPath)
+
+        let tempDir = try ProjectTempDirectory.create(
+            prefix: "classifier-extract-\(tool.rawValue)-",
+            in: projectRoot
+        )
+        defer { try? fm.removeItem(at: tempDir) }
+
+        let grouped = groupBySample(selections)
+        guard !grouped.isEmpty else {
+            throw ClassifierExtractionError.zeroReadsExtracted
+        }
+
+        // Step 1: per-sample samtools view -b -F <flags> -> per-sample BAM -> per-sample FASTQ.
+        var perSampleFASTQs: [URL] = []
+        let totalSamples = Double(grouped.count)
+
+        for (index, (sampleId, group)) in grouped.enumerated() {
+            try Task.checkCancellation()
+            let sampleLabel = sampleId ?? "sample"
+            progress?(Double(index) / totalSamples, "Extracting \(sampleLabel)…")
+
+            let regions = group.flatMap { $0.accessions }
+            guard !regions.isEmpty else { continue }
+
+            let bamURL = try await resolveBAMURL(
+                tool: tool,
+                sampleId: sampleId,
+                resultPath: resultPath
+            )
+
+            let perSampleBAM = tempDir.appendingPathComponent("\(sampleLabel)_regions.bam")
+            var viewArgs = ["view", "-b", "-F", String(options.samtoolsExcludeFlags), "-o", perSampleBAM.path, bamURL.path]
+            viewArgs.append(contentsOf: regions)
+
+            let viewResult = try await toolRunner.run(.samtools, arguments: viewArgs, timeout: 3600)
+            guard viewResult.isSuccess else {
+                throw ClassifierExtractionError.samtoolsFailed(
+                    sampleId: sampleLabel,
+                    stderr: viewResult.stderr
+                )
+            }
+
+            // NOTE: use -o (not -0). -0 captures only READ_OTHER; -o writes
+            // interleaved READ1/READ2 pairs — the common paired-end case.
+            // Singletons would go to stdout if present; the plan's `-0`
+            // mis-captured nothing for our paired-end sarscov2 fixture.
+            let perSampleFASTQ = tempDir.appendingPathComponent("\(sampleLabel).fastq")
+            let fastqResult = try await toolRunner.run(
+                .samtools,
+                arguments: ["fastq", perSampleBAM.path, "-o", perSampleFASTQ.path],
+                timeout: 3600
+            )
+            guard fastqResult.isSuccess else {
+                throw ClassifierExtractionError.samtoolsFailed(
+                    sampleId: sampleLabel,
+                    stderr: fastqResult.stderr
+                )
+            }
+
+            if fm.fileExists(atPath: perSampleFASTQ.path) {
+                let size = (try? fm.attributesOfItem(atPath: perSampleFASTQ.path)[.size] as? UInt64) ?? 0
+                if size > 0 {
+                    perSampleFASTQs.append(perSampleFASTQ)
+                }
+            }
+        }
+
+        // Step 2: concatenate per-sample FASTQs into one temp file.
+        let concatenated = tempDir.appendingPathComponent("concatenated.fastq")
+        try concatenateFiles(perSampleFASTQs, into: concatenated)
+
+        let readCount = try await countFASTQRecords(in: concatenated)
+        if readCount == 0 {
+            throw ClassifierExtractionError.zeroReadsExtracted
+        }
+
+        progress?(0.9, "Formatting output…")
+
+        // Step 3: handle format conversion and destination routing.
+        let finalFASTQ: URL
+        if options.format == .fasta {
+            finalFASTQ = tempDir.appendingPathComponent("concatenated.fasta")
+            try convertFASTQToFASTA(input: concatenated, output: finalFASTQ)
+        } else {
+            finalFASTQ = concatenated
+        }
+
+        return try routeToDestination(
+            finalFile: finalFASTQ,
+            tempDir: tempDir,
+            readCount: readCount,
+            tool: tool,
+            destination: destination,
+            progress: progress
+        )
+    }
+
+    private func extractViaKraken2(
+        selections: [ClassifierRowSelector],
+        resultPath: URL,
+        options: ExtractionOptions,
+        destination: ExtractionDestination,
+        progress: (@Sendable (Double, String) -> Void)?
+    ) async throws -> ExtractionOutcome {
+        throw ClassifierExtractionError.notImplemented
+    }
+
+    // MARK: - File helpers
+
+    private func concatenateFiles(_ sources: [URL], into destination: URL) throws {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: destination.path) {
+            try fm.removeItem(at: destination)
+        }
+        fm.createFile(atPath: destination.path, contents: nil)
+        let outHandle = try FileHandle(forWritingTo: destination)
+        defer { try? outHandle.close() }
+        for src in sources {
+            let inHandle = try FileHandle(forReadingFrom: src)
+            defer { try? inHandle.close() }
+            while true {
+                let chunk = inHandle.readData(ofLength: 1 << 20)
+                if chunk.isEmpty { break }
+                outHandle.write(chunk)
+            }
+        }
+    }
+
+    /// Counts FASTQ records by dividing `wc -l` by 4. Fast and dependency-free.
+    private func countFASTQRecords(in url: URL) async throws -> Int {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var lineCount = 0
+        while true {
+            let chunk = handle.readData(ofLength: 1 << 20)
+            if chunk.isEmpty { break }
+            lineCount += chunk.reduce(0) { $0 + ($1 == 0x0A ? 1 : 0) }
+        }
+        return lineCount / 4
+    }
+
+    /// FASTQ → FASTA line-by-line conversion. Drops quality lines.
+    private func convertFASTQToFASTA(input: URL, output: URL) throws {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: output.path) {
+            try fm.removeItem(at: output)
+        }
+        fm.createFile(atPath: output.path, contents: nil)
+
+        let inHandle = try FileHandle(forReadingFrom: input)
+        defer { try? inHandle.close() }
+        let outHandle = try FileHandle(forWritingTo: output)
+        defer { try? outHandle.close() }
+
+        // Stream line-by-line. We use a simple buffered line reader.
+        let reader = LineReader(handle: inHandle)
+        var lineIndex = 0
+        while let line = reader.nextLine() {
+            let mod = lineIndex % 4
+            if mod == 0 {
+                // Header line: convert leading @ to >
+                if line.first == 0x40 /* @ */ {
+                    var converted = Data([0x3E /* > */])
+                    converted.append(line.dropFirst())
+                    converted.append(0x0A)
+                    outHandle.write(converted)
+                } else {
+                    var converted = line
+                    converted.append(0x0A)
+                    outHandle.write(converted)
+                }
+            } else if mod == 1 {
+                var seq = line
+                seq.append(0x0A)
+                outHandle.write(seq)
+            }
+            // mod == 2 (+) and mod == 3 (quality) are discarded.
+            lineIndex += 1
+        }
+    }
+
+    // MARK: - Destination routing
+
+    private func routeToDestination(
+        finalFile: URL,
+        tempDir: URL,
+        readCount: Int,
+        tool: ClassifierTool,
+        destination: ExtractionDestination,
+        progress: (@Sendable (Double, String) -> Void)?
+    ) throws -> ExtractionOutcome {
+        let fm = FileManager.default
+        switch destination {
+        case .file(let url):
+            if fm.fileExists(atPath: url.path) {
+                try fm.removeItem(at: url)
+            }
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fm.moveItem(at: finalFile, to: url)
+            progress?(1.0, "Wrote \(readCount) reads to \(url.lastPathComponent)")
+            return .file(url, readCount: readCount)
+
+        case .bundle, .clipboard, .share:
+            // Filled in by Task 2.5.
+            throw ClassifierExtractionError.notImplemented
+        }
+    }
+
     // MARK: - Test hooks
 
     #if DEBUG
@@ -373,6 +614,38 @@ public enum ClassifierExtractionError: Error, LocalizedError, Sendable {
             return "The selection produced zero reads. Try adjusting the flag filter or selecting different rows."
         case .cancelled:
             return "Extraction was cancelled"
+        }
+    }
+}
+
+// MARK: - LineReader (private helper)
+
+/// A minimal line reader for FASTQ → FASTA streaming. Not a general-purpose
+/// line reader — it assumes LF line endings.
+fileprivate final class LineReader {
+    private let handle: FileHandle
+    private var buffer = Data()
+    private let chunkSize = 1 << 20
+
+    init(handle: FileHandle) {
+        self.handle = handle
+    }
+
+    func nextLine() -> Data? {
+        while true {
+            if let newlineIndex = buffer.firstIndex(of: 0x0A) {
+                let line = buffer.subdata(in: buffer.startIndex..<newlineIndex)
+                buffer.removeSubrange(buffer.startIndex..<buffer.index(after: newlineIndex))
+                return line
+            }
+            let chunk = handle.readData(ofLength: chunkSize)
+            if chunk.isEmpty {
+                if buffer.isEmpty { return nil }
+                let line = buffer
+                buffer = Data()
+                return line
+            }
+            buffer.append(chunk)
         }
     }
 }

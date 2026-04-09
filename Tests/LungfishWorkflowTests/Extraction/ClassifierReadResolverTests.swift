@@ -208,4 +208,145 @@ final class ClassifierReadResolverTests: XCTestCase {
             XCTFail("Expected bamNotFound, got \(error)")
         }
     }
+
+    // MARK: - extractViaBAM end-to-end (real samtools)
+
+    /// Path to the sarscov2 test fixture BAM (exists in Tests/Fixtures/sarscov2/).
+    private func sarscov2FixtureBAM() throws -> URL {
+        let thisFile = URL(fileURLWithPath: #filePath)
+        // tests/LungfishWorkflowTests/Extraction/ClassifierReadResolverTests.swift
+        // ↑ we walk up 4 levels to repo root, then into Tests/Fixtures/sarscov2
+        let repoRoot = thisFile
+            .deletingLastPathComponent() // Extraction
+            .deletingLastPathComponent() // LungfishWorkflowTests
+            .deletingLastPathComponent() // Tests
+            .deletingLastPathComponent() // repo root
+        let bam = repoRoot.appendingPathComponent("Tests/Fixtures/sarscov2/test.paired_end.sorted.bam")
+        guard FileManager.default.fileExists(atPath: bam.path) else {
+            throw XCTSkip("sarscov2 test BAM not present at \(bam.path)")
+        }
+        return bam
+    }
+
+    /// Set up a fake "nvd" result directory pointing at the sarscov2 fixture BAM
+    /// by symlinking the fixture BAM + index into the expected naming pattern.
+    private func makeSarscov2ResultFixture(tool: ClassifierTool, sampleId: String) throws -> URL {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("s2fixture-\(tool.rawValue)-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let fixtureBAM = try sarscov2FixtureBAM()
+        let fixtureBAI = fixtureBAM.deletingPathExtension().appendingPathExtension("bam.bai")
+        let fixtureBAIFallback = URL(fileURLWithPath: fixtureBAM.path + ".bai")
+        let actualBAIFixture: URL
+        if fm.fileExists(atPath: fixtureBAIFallback.path) {
+            actualBAIFixture = fixtureBAIFallback
+        } else if fm.fileExists(atPath: fixtureBAI.path) {
+            actualBAIFixture = fixtureBAI
+        } else {
+            throw XCTSkip("sarscov2 BAI not present")
+        }
+
+        let bamDest: URL
+        switch tool {
+        case .nvd:
+            bamDest = root.appendingPathComponent("\(sampleId).bam")
+        case .esviritu:
+            bamDest = root.appendingPathComponent("\(sampleId).sorted.bam")
+        case .taxtriage:
+            try fm.createDirectory(at: root.appendingPathComponent("minimap2"), withIntermediateDirectories: true)
+            bamDest = root.appendingPathComponent("minimap2/\(sampleId).bam")
+        case .naomgs:
+            try fm.createDirectory(at: root.appendingPathComponent("bams"), withIntermediateDirectories: true)
+            bamDest = root.appendingPathComponent("bams/\(sampleId).sorted.bam")
+        case .kraken2:
+            fatalError("kraken2 not BAM-backed")
+        }
+        try fm.copyItem(at: fixtureBAM, to: bamDest)
+        try fm.copyItem(at: actualBAIFixture, to: URL(fileURLWithPath: bamDest.path + ".bai"))
+        return root.appendingPathComponent("fake-result.sqlite")
+    }
+
+    func testExtractViaBAM_nvd_producesFASTQFromFixture() async throws {
+        let resultPath = try makeSarscov2ResultFixture(tool: .nvd, sampleId: "s2")
+        defer { try? FileManager.default.removeItem(at: resultPath.deletingLastPathComponent()) }
+
+        // Dig out the actual reference name from the BAM so we can target it.
+        // For sarscov2 this is "MN908947.3" per TestFixtures, but we read
+        // from the index to avoid hard-coding.
+        let bamRefs = try await BAMRegionMatcher.readBAMReferences(
+            bamURL: try sarscov2FixtureBAM(),
+            runner: .shared
+        )
+        guard let region = bamRefs.first else {
+            throw XCTSkip("sarscov2 BAM header has no references")
+        }
+
+        let tempOut = FileManager.default.temporaryDirectory.appendingPathComponent("out-\(UUID().uuidString).fastq")
+        defer { try? FileManager.default.removeItem(at: tempOut) }
+
+        let resolver = ClassifierReadResolver()
+        let outcome = try await resolver.resolveAndExtract(
+            tool: .nvd,
+            resultPath: resultPath,
+            selections: [
+                ClassifierRowSelector(sampleId: "s2", accessions: [region], taxIds: [])
+            ],
+            options: ExtractionOptions(format: .fastq, includeUnmappedMates: false),
+            destination: .file(tempOut)
+        )
+
+        if case .file(let url, let n) = outcome {
+            XCTAssertEqual(url.standardizedFileURL.path, tempOut.standardizedFileURL.path)
+            XCTAssertGreaterThan(n, 0, "Expected non-zero reads from sarscov2 fixture")
+        } else {
+            XCTFail("Expected .file outcome, got \(outcome)")
+        }
+    }
+
+    func testExtractViaBAM_multiSample_concatenatesOutputs() async throws {
+        let resultPathA = try makeSarscov2ResultFixture(tool: .nvd, sampleId: "A")
+        let rootA = resultPathA.deletingLastPathComponent()
+        let resultPathB = try makeSarscov2ResultFixture(tool: .nvd, sampleId: "B")
+        let rootB = resultPathB.deletingLastPathComponent()
+        defer {
+            try? FileManager.default.removeItem(at: rootA)
+            try? FileManager.default.removeItem(at: rootB)
+        }
+
+        // Same-root multi-sample: copy sample B's BAM into root A so both
+        // samples live under the same result path, per spec.
+        try FileManager.default.copyItem(
+            at: rootB.appendingPathComponent("B.bam"),
+            to: rootA.appendingPathComponent("B.bam")
+        )
+        try FileManager.default.copyItem(
+            at: URL(fileURLWithPath: rootB.appendingPathComponent("B.bam").path + ".bai"),
+            to: URL(fileURLWithPath: rootA.appendingPathComponent("B.bam").path + ".bai")
+        )
+
+        let bamRefs = try await BAMRegionMatcher.readBAMReferences(
+            bamURL: try sarscov2FixtureBAM(),
+            runner: .shared
+        )
+        guard let region = bamRefs.first else {
+            throw XCTSkip("sarscov2 BAM header has no references")
+        }
+
+        let tempOut = FileManager.default.temporaryDirectory.appendingPathComponent("multi-\(UUID().uuidString).fastq")
+        defer { try? FileManager.default.removeItem(at: tempOut) }
+
+        let resolver = ClassifierReadResolver()
+        let outcome = try await resolver.resolveAndExtract(
+            tool: .nvd,
+            resultPath: resultPathA,
+            selections: [
+                ClassifierRowSelector(sampleId: "A", accessions: [region], taxIds: []),
+                ClassifierRowSelector(sampleId: "B", accessions: [region], taxIds: []),
+            ],
+            options: ExtractionOptions(),
+            destination: .file(tempOut)
+        )
+        XCTAssertGreaterThan(outcome.readCount, 0)
+    }
 }
