@@ -4,6 +4,7 @@
 
 import XCTest
 import ArgumentParser
+import LungfishWorkflow
 @testable import LungfishCLI
 
 /// Parse-only tests for the new `--by-classifier` strategy on
@@ -273,6 +274,152 @@ final class ExtractReadsByClassifierCLITests: XCTestCase {
                 "--taxid", "562",
                 "-o", "/tmp/out.fastq",
             ])
+        )
+    }
+
+    // MARK: - End-to-end run tests
+    //
+    // These tests actually execute `ExtractReadsSubcommand.run()` against the
+    // sarscov2 fixture BAM to verify the CLI → ClassifierReadResolver → FASTQ
+    // pipeline end-to-end. They exercise samtools via `NativeToolRunner.shared`
+    // and so are skipped if samtools is unavailable or the fixture is missing.
+    //
+    // The `testingRawArgs` hook on `ExtractReadsSubcommand` (DEBUG-only) lets
+    // us inject a simulated argv so per-sample grouping works from the test
+    // without falling through to xctest's own `CommandLine.arguments`.
+
+    /// Set up a fake NVD-style result directory by copying the sarscov2 fixture
+    /// BAM + BAI into the `{sampleId}.bam` layout that
+    /// `ClassifierReadResolver.resolveBAMURL(tool: .nvd, …)` scans for.
+    ///
+    /// Returns the fake result path (a .sqlite URL inside the temp dir). Caller
+    /// must clean up `returnedURL.deletingLastPathComponent()`.
+    ///
+    /// The `#filePath` walk here mirrors `ImportFastqE2ETests.fixturesDir`
+    /// (LungfishCLITests → Tests → repo root). `TestFixtures.swift` lives in
+    /// `LungfishIntegrationTests` and is not importable from this target, so
+    /// we duplicate the walk locally rather than introduce a cross-target
+    /// dependency for a single helper.
+    private func makeSarscov2NVDFixture(sampleId: String) throws -> URL {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("cli-nvd-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let thisFile = URL(fileURLWithPath: #filePath)
+        let repoRoot = thisFile
+            .deletingLastPathComponent() // LungfishCLITests
+            .deletingLastPathComponent() // Tests
+            .deletingLastPathComponent() // repo root
+        // NOTE: the sarscov2 fixture BAM on disk is `test.paired_end.sorted.bam`,
+        // not `test.sorted.bam` as the Phase 3 plan originally said.
+        let bam = repoRoot.appendingPathComponent("Tests/Fixtures/sarscov2/test.paired_end.sorted.bam")
+        let bai = URL(fileURLWithPath: bam.path + ".bai")
+        guard fm.fileExists(atPath: bam.path), fm.fileExists(atPath: bai.path) else {
+            throw XCTSkip("sarscov2 fixture BAM/BAI missing at \(bam.path)")
+        }
+        let dest = root.appendingPathComponent("\(sampleId).bam")
+        try fm.copyItem(at: bam, to: dest)
+        try fm.copyItem(at: bai, to: URL(fileURLWithPath: dest.path + ".bai"))
+        return root.appendingPathComponent("fake-nvd.sqlite")
+    }
+
+    func testRun_byClassifier_nvd_endToEnd() async throws {
+        let resultPath = try makeSarscov2NVDFixture(sampleId: "s2")
+        let fixtureRoot = resultPath.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+
+        // Discover the actual BAM reference name so we don't hard-code
+        // MN908947.3 and accidentally couple the test to the specific fixture
+        // version. The resolver itself uses `BAMRegionMatcher` internally; we
+        // mirror that here.
+        let fixtureBAM = fixtureRoot.appendingPathComponent("s2.bam")
+        let bamRefs = try await BAMRegionMatcher.readBAMReferences(
+            bamURL: fixtureBAM,
+            runner: .shared
+        )
+        guard let region = bamRefs.first else {
+            throw XCTSkip("sarscov2 BAM header has no references")
+        }
+
+        let tempOut = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-nvd-out-\(UUID().uuidString).fastq")
+        defer { try? FileManager.default.removeItem(at: tempOut) }
+
+        let argv = [
+            "--by-classifier",
+            "--tool", "nvd",
+            "--result", resultPath.path,
+            "--sample", "s2",
+            "--accession", region,
+            "-o", tempOut.path,
+        ]
+        var cmd = try ExtractReadsSubcommand.parse(argv)
+        cmd.testingRawArgs = argv
+        try cmd.validate()
+        try await cmd.run()
+
+        let fm = FileManager.default
+        XCTAssertTrue(
+            fm.fileExists(atPath: tempOut.path),
+            "Expected CLI to write output FASTQ at \(tempOut.path)"
+        )
+        let size = (try? fm.attributesOfItem(atPath: tempOut.path)[.size] as? Int64) ?? 0
+        XCTAssertGreaterThan(size, 0, "Expected non-empty FASTQ output from sarscov2 fixture")
+    }
+
+    func testRun_byClassifier_format_fasta_endToEnd() async throws {
+        let resultPath = try makeSarscov2NVDFixture(sampleId: "s2")
+        let fixtureRoot = resultPath.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+
+        let fixtureBAM = fixtureRoot.appendingPathComponent("s2.bam")
+        let bamRefs = try await BAMRegionMatcher.readBAMReferences(
+            bamURL: fixtureBAM,
+            runner: .shared
+        )
+        guard let region = bamRefs.first else {
+            throw XCTSkip("sarscov2 BAM header has no references")
+        }
+
+        let tempOut = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-nvd-out-\(UUID().uuidString).fasta")
+        defer { try? FileManager.default.removeItem(at: tempOut) }
+
+        // NOTE: the CLI spells this `--read-format` (not `--format`) because
+        // `GlobalOptions.outputFormat` already claims `--format` for the report
+        // format (text/json/tsv). The parsed property is `classifierFormat`.
+        let argv = [
+            "--by-classifier",
+            "--tool", "nvd",
+            "--result", resultPath.path,
+            "--sample", "s2",
+            "--accession", region,
+            "--read-format", "fasta",
+            "-o", tempOut.path,
+        ]
+        var cmd = try ExtractReadsSubcommand.parse(argv)
+        cmd.testingRawArgs = argv
+        XCTAssertEqual(cmd.classifierFormat, "fasta")
+        try cmd.validate()
+        try await cmd.run()
+
+        let fm = FileManager.default
+        XCTAssertTrue(
+            fm.fileExists(atPath: tempOut.path),
+            "Expected CLI to write output FASTA at \(tempOut.path)"
+        )
+        let size = (try? fm.attributesOfItem(atPath: tempOut.path)[.size] as? Int64) ?? 0
+        XCTAssertGreaterThan(size, 0, "Expected non-empty FASTA output from sarscov2 fixture")
+
+        // FASTA records start with '>'. Read just the first byte to avoid
+        // loading the full file into memory.
+        let handle = try FileHandle(forReadingFrom: tempOut)
+        defer { try? handle.close() }
+        let firstByte = try handle.read(upToCount: 1) ?? Data()
+        XCTAssertEqual(
+            firstByte.first,
+            UInt8(ascii: ">"),
+            "FASTA output should begin with '>' header marker"
         )
     }
 }
