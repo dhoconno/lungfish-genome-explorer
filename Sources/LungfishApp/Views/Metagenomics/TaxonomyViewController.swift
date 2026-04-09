@@ -661,85 +661,10 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     ///   - node: The taxon node to extract.
     ///   - includeChildren: Default value for the "include children" toggle.
     public func presentExtractionSheet(for node: TaxonNode, includeChildren: Bool) {
-        guard let window = view.window else {
-            logger.warning("Cannot present extraction sheet: no window")
-            return
-        }
-
-        // In DB-backed batch mode classificationResult is nil. Resolve the sample-level
-        // sidecar result so extraction can still run from the current sample selection.
-        let resolvedResult: ClassificationResult?
-        if let classificationResult {
-            resolvedResult = classificationResult
-        } else if isBatchMode,
-                  let batchURL,
-                  let sampleId = currentBatchSampleId,
-                  let manifest = MetagenomicsBatchResultStore.loadClassification(from: batchURL),
-                  let sampleRecord = manifest.samples.first(where: { $0.sampleId == sampleId }) {
-            let sampleResultDir = batchURL.appendingPathComponent(sampleRecord.resultDirectory)
-            resolvedResult = try? ClassificationResult.load(from: sampleResultDir)
-        } else {
-            resolvedResult = nil
-        }
-
-        guard let result = resolvedResult else {
-            logger.warning("Cannot present extraction sheet: no classification result available")
-            return
-        }
-
-        // Resolve the source FASTQ for extraction. The config's inputFiles may
-        // point to a materialized temp file that no longer exists. Try in order:
-        // 1. originalInputFiles (preserved before materialization)
-        // 2. The enclosing FASTQ bundle (output dir is inside bundle/derivatives/)
-        // 3. Fall back to config.inputFiles (may work if not materialized)
-        let sourceURL: URL = {
-            // Check originalInputFiles first (set during materialization)
-            if let original = result.config.originalInputFiles?.first,
-               FileManager.default.fileExists(atPath: original.path) {
-                // The original may be a .lungfishfastq bundle; resolve its payload
-                return FASTQBundle.resolvePrimaryFASTQURL(for: original) ?? original
-            }
-            // Walk up from outputDirectory (classification-xxx/) to find the bundle:
-            // outputDirectory = bundle.lungfishfastq/derivatives/classification-xxx/
-            let derivativesDir = result.config.outputDirectory.deletingLastPathComponent()
-            let bundleDir = derivativesDir.deletingLastPathComponent()
-            if FASTQBundle.isBundleURL(bundleDir),
-               let resolved = FASTQBundle.resolvePrimaryFASTQURL(for: bundleDir) {
-                return resolved
-            }
-            // Last resort: use config.inputFiles directly
-            return result.config.inputFiles.first ?? URL(fileURLWithPath: "/dev/null")
-        }()
-
-        let sheet = TaxonomyExtractionSheet(
-            selectedNodes: [node],
-            tree: result.tree,
-            sourceURL: sourceURL,
-            classificationOutputURL: result.outputURL,
-            initialIncludeChildren: includeChildren,
-            onExtract: { [weak self, weak window] config in
-                guard let window else { return }
-                if let sheetWindow = window.attachedSheet {
-                    window.endSheet(sheetWindow)
-                }
-                self?.onExtractConfirmed?(config)
-            },
-            onCancel: { [weak window] in
-                guard let window else { return }
-                if let sheetWindow = window.attachedSheet {
-                    window.endSheet(sheetWindow)
-                }
-            }
-        )
-
-        let sheetWindow = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 440, height: 360),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        sheetWindow.contentViewController = NSHostingController(rootView: sheet)
-        window.beginSheet(sheetWindow)
+        // TODO[phase5]: replaced by TaxonomyReadExtractionAction.shared.present(...)
+        #warning("phase5: old extraction sheet removed; new dialog wired up in Phase 5")
+        _ = node; _ = includeChildren
+        return
     }
 
     // MARK: - Setup: Summary Bar
