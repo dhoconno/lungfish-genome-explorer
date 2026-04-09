@@ -168,6 +168,7 @@ public actor ReadExtractionService {
     /// - Throws: ``ExtractionError`` on validation failure, tool errors, or empty output.
     public func extractByBAMRegion(
         config: BAMRegionExtractionConfig,
+        flagFilter: Int = 0x400,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> ExtractionResult {
         let fm = FileManager.default
@@ -260,7 +261,7 @@ public actor ReadExtractionService {
                 let dedupBAM = fallbackTempDir.appendingPathComponent("dedup.bam")
                 let dedupViewResult = try await toolRunner.run(
                     .samtools,
-                    arguments: ["view", "-b", "-F", "1024", "-o", dedupBAM.path, config.bamURL.path],
+                    arguments: ["view", "-b", "-F", String(flagFilter), "-o", dedupBAM.path, config.bamURL.path],
                     timeout: 7200
                 )
                 guard dedupViewResult.isSuccess else {
@@ -284,7 +285,7 @@ public actor ReadExtractionService {
             // samtools view -b [-F 1024] -o extracted.bam bam.bam region1 region2 ...
             var viewArgs = ["view", "-b"]
             if config.deduplicateReads {
-                viewArgs.append(contentsOf: ["-F", "1024"])
+                viewArgs.append(contentsOf: ["-F", String(flagFilter)])
             }
             viewArgs.append(contentsOf: ["-o", tempBAM.path, config.bamURL.path])
             viewArgs.append(contentsOf: matchResult.matchedRegions)
