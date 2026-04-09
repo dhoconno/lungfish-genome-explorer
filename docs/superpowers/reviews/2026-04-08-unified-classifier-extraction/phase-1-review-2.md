@@ -365,7 +365,7 @@ acknowledgement if it is not.
 ## Gate-3 disposition (controller's resolution)
 
 **Verdict:** Phase 1 is **closed and ready to advance to Phase 2** with the
-following resolutions, all landed in commit `<sha>`:
+following resolutions, all landed in commit `4b0914a`:
 
 ### Significant issue 1 — AppDelegate auto-extract silent regression — ACKNOWLEDGED
 
@@ -438,3 +438,35 @@ test time.
 
 `ClassifierRowSelectorTests` grows from 8 to 10. Total Phase 1 test count:
 17 (10 + 6 + 1). Build clean. Floor unchanged.
+
+## Gate 4 — build + test gate
+
+Run at commit `4b0914a` (review #2 closure + 2 new selector tests).
+
+- **Build:** `swift build --build-tests` — clean. Only pre-existing
+  swift-protobuf / grpc-swift plugin warnings and the unhandled-resource
+  Assets.xcassets warning, all unrelated to this work.
+- **swift-testing:** 189 tests in 36 suites — all passing.
+- **XCTest:** 6294 tests, 25 skipped, 8 assertion errors across 5 unique
+  failing test methods. New total = 6277 baseline + 17 Phase 1 tests = 6294 ✓
+- **Floor compared to Phase 0 baseline (README):**
+    - `FASTQProjectSimulationTests.testSimulatedProjectVirtualOperationsCreateConsistentChildBundles` — same (3 assertion errors)
+    - `NativeToolRunnerTests.testValidateToolsInstallation` — same (2 assertion errors, missing deacon)
+    - `TaxonNodeRegressionTests.testEquatable` — same (1 error)
+    - `TaxonNodeRegressionTests.testHashable` — same (1 error)
+    - `DatabaseServiceIntegrationTests.testSRASearch` — flaky NCBI test (1 error). Per the Phase 0 README, NCBI/SRA network tests are NOT counted as the floor — they flicker red across runs based on external service state.
+
+No new regressions caused by Phase 1 work. Gate 4 PASSES.
+
+## Phase 1 close — summary for the audit trail
+
+- 6 implementation commits (`b29425a`, `7c1253b`, `1acf003`, `5768b82`, `0aad2c6`, `9b2780e`).
+- 1 review-#1 + simplification round (commit `0aad2c6`).
+- 1 review-#2 + selector regression tests (commit `4b0914a`).
+- Net new tests: 17 (10 ClassifierRowSelector + 6 ExtractionDestination + 1 FlagFilter).
+- Net new source: 2 files (ClassifierRowSelector.swift, ExtractionDestination.swift).
+- Net deletions: 2 files (TaxonomyExtractionSheet.swift, ClassifierExtractionSheet.swift).
+- 5 stub bodies in 5 view controllers, each emitting `#warning("phase5: old extraction sheet removed; new dialog wired up in Phase 5")`. To be cleared in Phase 5.
+- Known temporary behavioural gap: Kraken2 with `goal == .extract` silently no-ops the auto-extract dialog during Phases 1–4 (AppDelegate.swift:5301-5307). Forwarded to Phase 5 review #1.
+
+**Phase 1 is closed. Phase 2 may begin.**
