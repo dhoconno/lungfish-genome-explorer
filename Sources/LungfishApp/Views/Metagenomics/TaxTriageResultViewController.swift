@@ -2107,6 +2107,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             )
         }
         samplePickerState = ClassifierSamplePickerState(allSamples: Set(sampleIds))
+        samplePickerState.selectedSamples = Set(sampleIds)
 
         // Load ALL rows from the DB (filtering by selection happens in applyBatchGroupFilter).
         reloadFromDatabase()

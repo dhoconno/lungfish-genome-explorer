@@ -434,9 +434,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             )
         }
         samplePickerState = ClassifierSamplePickerState(allSamples: Set(sampleIds))
-        if let firstSample = sampleIds.first {
-            samplePickerState.selectedSamples = [firstSample]
-        }
+        samplePickerState.selectedSamples = Set(sampleIds)
 
         // Reuse the same taxonomy context actions (extract, BLAST, NCBI links)
         // as single-sample mode so DB-backed batch display preserves workflows.

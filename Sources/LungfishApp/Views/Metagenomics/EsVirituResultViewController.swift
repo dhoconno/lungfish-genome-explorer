@@ -371,9 +371,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             )
         }
         samplePickerState = ClassifierSamplePickerState(allSamples: Set(sampleIds))
-        if let firstSample = sampleIds.first {
-            samplePickerState.selectedSamples = [firstSample]
-        }
+        samplePickerState.selectedSamples = Set(sampleIds)
 
         // Load ALL rows from the DB (filtering by selection happens in applyBatchSampleFilter).
         reloadFromDatabase()
