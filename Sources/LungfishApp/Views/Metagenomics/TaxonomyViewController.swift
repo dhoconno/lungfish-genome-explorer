@@ -652,17 +652,33 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         }
         let actionable = nodes.filter { isActionableTaxonNode($0) }
         guard !actionable.isEmpty else { return [] }
-        return [ClassifierRowSelector(sampleId: nil, accessions: [], taxIds: actionable.map(\.taxId))]
+        let taxIds = actionable.map(\.taxId)
+
+        // In batch mode with multiple samples selected, build one selector per
+        // sample so the resolver runs the extraction pipeline against each
+        // sample's classification.kraken file independently. The merged taxonomy
+        // tree shows aggregate counts; the same tax IDs apply to every sample.
+        if isBatchMode {
+            let selectedSamples = samplePickerState.selectedSamples.sorted()
+            if selectedSamples.count > 1 {
+                return selectedSamples.map { sid in
+                    ClassifierRowSelector(sampleId: sid, accessions: [], taxIds: taxIds)
+                }
+            }
+        }
+
+        return [ClassifierRowSelector(sampleId: nil, accessions: [], taxIds: taxIds)]
     }
 
-    /// Resolves the Kraken2 result path — single-result or per-sample batch.
+    /// Resolves the Kraken2 result path.
+    ///
+    /// - Single-result mode: returns `classificationResult.config.outputDirectory`.
+    /// - Batch mode: returns the **batch root** directory so the resolver can
+    ///   locate per-sample subdirectories via the selector's `sampleId`.
     private func resolveKraken2ResultPath() -> URL? {
         if let cr = classificationResult { return cr.config.outputDirectory }
-        guard isBatchMode, let batchURL, let sampleId = currentBatchSampleId,
-              let record = MetagenomicsBatchResultStore.loadClassification(from: batchURL)?
-                  .samples.first(where: { $0.sampleId == sampleId })
-        else { return nil }
-        return batchURL.appendingPathComponent(record.resultDirectory)
+        if isBatchMode, let batchURL { return batchURL }
+        return nil
     }
 
     private func presentUnifiedExtractionDialog(explicitNodes: [TaxonNode]? = nil) {

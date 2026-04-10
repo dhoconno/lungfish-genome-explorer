@@ -451,15 +451,6 @@ public actor ClassifierReadResolver {
         destination: ExtractionDestination,
         progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> ExtractionOutcome {
-        // Load the Kraken2 classification result from the result path.
-        // The result path must point at a classification-* directory.
-        let classResult: ClassificationResult
-        do {
-            classResult = try ClassificationResult.load(from: resultPath)
-        } catch {
-            throw ClassifierExtractionError.kraken2OutputMissing(resultPath)
-        }
-
         // Collect tax IDs from the (possibly multi-row) selection.
         let allTaxIds = Set(selections.flatMap { $0.taxIds })
         guard !allTaxIds.isEmpty else {
@@ -475,55 +466,97 @@ public actor ClassifierReadResolver {
         let cleanTempDir = tempDir  // capture for defer
         defer { try? FileManager.default.removeItem(at: cleanTempDir) }
 
-        // Resolve the source FASTQ by walking up from the classification output
-        // directory to the enclosing FASTQ bundle (if any), falling back to
-        // config.inputFiles. Mirrors the logic in the old TaxonomyViewController
-        // at TaxonomyViewController.swift:695-712.
-        let sourceURLs: [URL] = try resolveKraken2SourceFASTQs(classResult: classResult)
-        try Task.checkCancellation()
-
-        // Build the pipeline config (includeChildren is ALWAYS true per spec).
-        let outputStem = tempDir.appendingPathComponent("kraken2-extract")
-        let outputFiles: [URL]
-        if sourceURLs.count == 1 {
-            outputFiles = [outputStem.appendingPathExtension("fastq")]
-        } else {
-            outputFiles = sourceURLs.enumerated().map { idx, _ in
-                tempDir.appendingPathComponent("kraken2-extract_R\(idx + 1).fastq")
+        // Build the list of per-sample result paths to process.
+        // In batch mode, each selector carries a sampleId and the resultPath
+        // is the batch root directory containing per-sample subdirectories.
+        // In single-sample mode, sampleId is nil and resultPath points directly
+        // at the sample's classification output directory.
+        let sampleJobs: [(sampleId: String?, sampleResultPath: URL)]
+        let sampleIds = selections.compactMap(\.sampleId)
+        if !sampleIds.isEmpty {
+            // Batch mode: resultPath is the batch root. Each sample's results
+            // live in a subdirectory named after the sampleId.
+            sampleJobs = sampleIds.map { sid in
+                (sampleId: sid, sampleResultPath: resultPath.appendingPathComponent(sid))
             }
+        } else {
+            // Single-sample mode: resultPath is the classification output dir.
+            sampleJobs = [(sampleId: nil, sampleResultPath: resultPath)]
         }
 
-        let config = TaxonomyExtractionConfig(
-            taxIds: allTaxIds,
-            includeChildren: true,
-            sourceFiles: sourceURLs,
-            outputFiles: outputFiles,
-            classificationOutput: classResult.outputURL,
-            keepReadPairs: true
-        )
+        var allProducedURLs: [URL] = []
 
-        progress?(0.1, "Extracting reads for \(allTaxIds.count) tax ID(s)…")
+        for (jobIndex, job) in sampleJobs.enumerated() {
+            try Task.checkCancellation()
 
-        let pipeline = TaxonomyExtractionPipeline()
-        let producedURLs = try await pipeline.extract(
-            config: config,
-            tree: classResult.tree,
-            progress: { fraction, message in
-                progress?(0.1 + fraction * 0.7, message)
+            let sampleLabel = job.sampleId ?? "sample"
+            let baseFraction = Double(jobIndex) / Double(sampleJobs.count)
+            let sampleWeight = 1.0 / Double(sampleJobs.count)
+
+            progress?(baseFraction * 0.8, "Loading \(sampleLabel) classification…")
+
+            // Load this sample's ClassificationResult.
+            let classResult: ClassificationResult
+            do {
+                classResult = try ClassificationResult.load(from: job.sampleResultPath)
+            } catch {
+                logger.warning("Skipping sample \(sampleLabel, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                continue
             }
-        )
+
+            // Resolve the source FASTQ(s) for this sample.
+            let sourceURLs: [URL]
+            do {
+                sourceURLs = try resolveKraken2SourceFASTQs(classResult: classResult)
+            } catch {
+                logger.warning("Skipping sample \(sampleLabel, privacy: .public) — source FASTQ not found: \(error.localizedDescription, privacy: .public)")
+                continue
+            }
+
+            // Build per-sample output paths in the shared temp dir.
+            let stem = "\(jobIndex)_\(sampleLabel)"
+            let outputFiles: [URL]
+            if sourceURLs.count == 1 {
+                outputFiles = [tempDir.appendingPathComponent("\(stem).fastq")]
+            } else {
+                outputFiles = sourceURLs.enumerated().map { idx, _ in
+                    tempDir.appendingPathComponent("\(stem)_R\(idx + 1).fastq")
+                }
+            }
+
+            let config = TaxonomyExtractionConfig(
+                taxIds: allTaxIds,
+                includeChildren: true,
+                sourceFiles: sourceURLs,
+                outputFiles: outputFiles,
+                classificationOutput: classResult.outputURL,
+                keepReadPairs: true
+            )
+
+            progress?(baseFraction * 0.8 + 0.1 * sampleWeight, "Extracting \(sampleLabel)…")
+
+            let pipeline = TaxonomyExtractionPipeline()
+            let producedURLs = try await pipeline.extract(
+                config: config,
+                tree: classResult.tree,
+                progress: { fraction, message in
+                    progress?(baseFraction * 0.8 + fraction * 0.7 * sampleWeight, "\(sampleLabel): \(message)")
+                }
+            )
+
+            // Decompress .fastq.gz output from seqkit.
+            let decompressed = try await decompressGzippedFiles(producedURLs)
+            allProducedURLs.append(contentsOf: decompressed)
+        }
+
+        guard !allProducedURLs.isEmpty else {
+            throw ClassifierExtractionError.zeroReadsExtracted
+        }
         try Task.checkCancellation()
 
-        // The pipeline delegates to ReadExtractionService.extractByReadIDs,
-        // which writes .fastq.gz (seqkit auto-detects from the .gz extension).
-        // We need uncompressed FASTQ for concatenation, record counting,
-        // and clipboard/share output. Decompress any .gz files in place.
-        let decompressedURLs = try await decompressGzippedFiles(producedURLs)
-        try Task.checkCancellation()
-
-        // Concatenate R1+R2 (if paired) into a single FASTQ for destination routing.
+        // Concatenate all per-sample outputs into a single FASTQ.
         let concatenated = tempDir.appendingPathComponent("kraken2-concat.fastq")
-        try concatenateFiles(decompressedURLs, into: concatenated)
+        try concatenateFiles(allProducedURLs, into: concatenated)
         try Task.checkCancellation()
 
         let readCount = try await countFASTQRecords(in: concatenated)
@@ -542,6 +575,7 @@ public actor ClassifierReadResolver {
             finalFile = concatenated
         }
 
+        progress?(0.9, "Routing to destination…")
         return try await routeToDestination(
             finalFile: finalFile,
             readCount: readCount,
