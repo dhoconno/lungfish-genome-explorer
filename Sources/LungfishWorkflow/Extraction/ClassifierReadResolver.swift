@@ -57,14 +57,18 @@ public actor ClassifierReadResolver {
 
     // MARK: - Static helpers
 
-    /// Walks up from `resultPath` to find the enclosing `.lungfish/` project root.
+    /// Walks up from `resultPath` to find the enclosing Lungfish project root.
     ///
-    /// If no `.lungfish/` marker is found in any ancestor directory, falls back
-    /// to the result path's parent directory. This means callers always get
-    /// back *some* writable directory — never `nil`.
+    /// A Lungfish project is a directory with the `.lungfish` file extension
+    /// (e.g. `MyProject.lungfish/`). The method also checks for a `.lungfish/`
+    /// subdirectory as a legacy marker for test fixtures.
+    ///
+    /// If no project root is found in any ancestor, falls back to the result
+    /// path's parent directory. This means callers always get back *some*
+    /// writable directory — never `nil`.
     ///
     /// - Parameter resultPath: A file or directory URL inside a Lungfish project.
-    /// - Returns: The `.lungfish/`-containing project root, or `resultPath`'s parent on fallback.
+    /// - Returns: The project root directory, or `resultPath`'s parent on fallback.
     public static func resolveProjectRoot(from resultPath: URL) -> URL {
         let fm = FileManager.default
         var isDirectory: ObjCBool = false
@@ -80,8 +84,13 @@ public actor ClassifierReadResolver {
 
         let fallback = current
 
-        // Walk up until we find .lungfish/ or hit the filesystem root.
+        // Walk up until we find a .lungfish project directory or hit the filesystem root.
         while current.path != "/" {
+            // Check 1: directory itself has .lungfish extension (production projects).
+            if current.pathExtension == "lungfish" {
+                return current
+            }
+            // Check 2: contains a .lungfish/ subdirectory (test fixtures / legacy).
             let marker = current.appendingPathComponent(".lungfish")
             if fm.fileExists(atPath: marker.path) {
                 return current
