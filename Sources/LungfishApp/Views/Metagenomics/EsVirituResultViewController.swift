@@ -1075,44 +1075,14 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             self.onBlastVerification?(detection, readCount, accessions, sampleBAMURL, sampleBAMIndexURL)
         }
 
-        // Table extract request -> open extraction sheet from the clicked row.
-        detectionTableView.onExtractReadsRequested = { [weak self] detection in
-            guard let self else { return }
-            self.setBatchBAMContext(forSample: detection.sampleId)
-            let items = ["Contig: \(detection.accession)"]
-            let source = self.bamURL?.lastPathComponent ?? "EsViritu result"
-            let suggestedName = "\(detection.sampleId)_\(detection.accession)_extract"
-            self.presentExtractionSheet(items: items, source: source, suggestedName: suggestedName)
-            self.onExtractReads?(detection)
+        // Table extract request -> route to the unified extraction dialog.
+        detectionTableView.onExtractReadsRequested = { [weak self] in
+            self?.presentUnifiedExtractionDialog()
         }
 
-        detectionTableView.onExtractAssemblyReadsRequested = { [weak self] assembly in
-            guard let self else { return }
-            self.setBatchBAMContext(forSample: assembly.contigs.first?.sampleId)
-            let accessions = assembly.contigs.map(\.accession)
-            let items = accessions.map { "Assembly: \($0)" }
-            let source = self.bamURL?.lastPathComponent ?? "EsViritu result"
-            let sampleId = assembly.contigs.first?.sampleId ?? (self.esVirituResult?.sampleId ?? "sample")
-            let suggestedName = "\(sampleId)_\(assembly.assembly)_extract"
-            self.presentExtractionSheet(items: items, source: source, suggestedName: suggestedName)
-            self.onExtractAssemblyReads?(assembly)
-        }
-
-        // Action bar Extract FASTQ -> present extraction sheet for selected assemblies
+        // Action bar Extract FASTQ -> route to the unified extraction dialog.
         actionBar.onExtractFASTQ = { [weak self] in
-            guard let self else { return }
-            let accessions = self.detectionTableView.selectedAssemblyAccessions()
-            guard !accessions.isEmpty else { return }
-            if self.isBatchMode {
-                let selectedSample = self.currentSelectedSampleIDForActions()
-                    ?? self.samplePickerState?.selectedSamples.sorted().first
-                self.setBatchBAMContext(forSample: selectedSample)
-            }
-            let sampleId = self.currentSelectedSampleIDForActions() ?? (self.esVirituResult?.sampleId ?? "sample")
-            let items = accessions.map { "Assembly: \($0)" }
-            let source = self.bamURL?.lastPathComponent ?? "EsViritu result"
-            let suggestedName = "\(sampleId)_\(accessions.first ?? "extract")_extract"
-            self.presentExtractionSheet(items: items, source: source, suggestedName: suggestedName)
+            self?.presentUnifiedExtractionDialog()
         }
 
         // Action bar BLAST verify -> show BLAST config popover for the current selection
@@ -1218,15 +1188,37 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         actionBar.updateInfoText("Recomputing unique reads for all assemblies\u{2026}")
     }
 
-    // MARK: - Extraction Sheet
+    // MARK: - Classifier extraction wiring
 
-    /// Internal visibility so that ``ViewerViewController+EsViritu`` context menu
-    /// callbacks can trigger extraction directly on the EsViritu VC.
-    func presentExtractionSheet(items: [String], source: String, suggestedName: String) {
-        // TODO[phase5]: replaced by TaxonomyReadExtractionAction.shared.present(...)
-        #warning("phase5: old extraction sheet removed; new dialog wired up in Phase 5")
-        _ = items; _ = source; _ = suggestedName
-        return
+    /// Builds per-sample selectors from the current detection-table selection.
+    private func buildEsVirituSelectors() -> [ClassifierRowSelector] {
+        let accessions = detectionTableView.selectedAssemblyAccessions()
+        guard !accessions.isEmpty else { return [] }
+        if isBatchMode, let firstSample = detectionTableView.selectedSampleIDs().first {
+            return [ClassifierRowSelector(sampleId: firstSample, accessions: accessions, taxIds: [])]
+        }
+        return [ClassifierRowSelector(sampleId: nil, accessions: accessions, taxIds: [])]
+    }
+
+    /// Presents the unified classifier extraction dialog for the current selection.
+    func presentUnifiedExtractionDialog() {
+        guard let window = view.window else { return }
+        let selectors = buildEsVirituSelectors()
+        guard !selectors.isEmpty else { return }
+        let resultPath: URL
+        if let dbURL = esVirituDatabase?.databaseURL {
+            resultPath = dbURL
+        } else if let cfgDir = esVirituConfig?.outputDirectory {
+            resultPath = cfgDir
+        } else { return }
+        let firstAccession = detectionTableView.selectedAssemblyAccessions().first ?? "extract"
+        let ctx = TaxonomyReadExtractionAction.Context(
+            tool: .esviritu,
+            resultPath: resultPath,
+            selections: selectors,
+            suggestedName: "esviritu_\(firstAccession)"
+        )
+        TaxonomyReadExtractionAction.shared.present(context: ctx, hostWindow: window)
     }
 
     @objc private func handleLayoutSwapRequested(_ notification: Notification) {

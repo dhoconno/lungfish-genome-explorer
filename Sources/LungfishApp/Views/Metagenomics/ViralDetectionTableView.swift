@@ -213,11 +213,10 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     /// - accessions: One or more target accessions to extract reads from.
     public var onBlastRequested: ((ViralDetection, Int, [String]) -> Void)?
 
-    /// Called when the user requests read extraction via context menu.
-    public var onExtractReadsRequested: ((ViralDetection) -> Void)?
-
-    /// Called when the user requests read extraction for an entire assembly.
-    public var onExtractAssemblyReadsRequested: ((ViralAssembly) -> Void)?
+    /// Called when the user invokes "Extract Reads…" from the context menu.
+    /// The VC reads the current selection from the table view itself via
+    /// `selectedAssemblyAccessions()` / `selectedSampleIDs()`.
+    public var onExtractReadsRequested: (() -> Void)?
 
     // MARK: - Internal State
 
@@ -682,14 +681,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     // MARK: - Context Menu Actions
 
     @objc private func contextExtractReads(_ sender: Any?) {
-        let row = outlineView.clickedRow
-        guard row >= 0 else { return }
-        let item = outlineView.item(atRow: row)
-        if let assemblyItem = item as? ViralAssemblyItem {
-            onExtractAssemblyReadsRequested?(assemblyItem.assembly)
-        } else if let detectionItem = item as? ViralDetectionItem {
-            onExtractReadsRequested?(detectionItem.detection)
-        }
+        onExtractReadsRequested?()
     }
 
     /// Shows the BLAST config popover for the currently selected row.
