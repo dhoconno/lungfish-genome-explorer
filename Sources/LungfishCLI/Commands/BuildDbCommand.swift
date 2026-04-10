@@ -1309,10 +1309,12 @@ extension BuildDbCommand {
 
         // MARK: - Post-Build Cleanup
 
-        /// Removes Kraken2 intermediate files while preserving kreport and the database.
+        /// Removes Kraken2 intermediate files while preserving kreport, database,
+        /// and the per-read classification output.
         ///
-        /// Removes per-sample: `classification.kraken`, `classification.kraken.idx.sqlite`.
-        /// Keeps: `classification.kreport`, `classification-result.json`, `kraken2.sqlite`.
+        /// Removes per-sample: `classification.kraken.idx.sqlite`.
+        /// Keeps: `classification.kraken` (needed by TaxonomyExtractionPipeline),
+        ///        `classification.kreport`, `classification-result.json`, `kraken2.sqlite`.
         private func performCleanup(resultURL: URL) {
             let fm = FileManager.default
             var freedBytes: Int64 = 0
@@ -1328,14 +1330,13 @@ extension BuildDbCommand {
                 let name = dir.lastPathComponent
                 guard !name.hasPrefix(".") else { continue }
 
-                // Remove raw Kraken2 output file
-                let krakenOutput = dir.appendingPathComponent("classification.kraken")
-                if let size = fileSize(krakenOutput) {
-                    try? fm.removeItem(at: krakenOutput)
-                    freedBytes += size
-                }
+                // Keep classification.kraken — the per-read output is needed by
+                // TaxonomyExtractionPipeline.extract for read extraction. Previously
+                // this was deleted to save disk space, but that broke the unified
+                // classifier extraction feature (the resolver wraps the pipeline,
+                // which reads this file to build the read-ID-to-taxon mapping).
 
-                // Remove Kraken2 index SQLite file
+                // Remove Kraken2 index SQLite file (intermediate build artifact)
                 let krakenIndex = dir.appendingPathComponent("classification.kraken.idx.sqlite")
                 if let size = fileSize(krakenIndex) {
                     try? fm.removeItem(at: krakenIndex)
