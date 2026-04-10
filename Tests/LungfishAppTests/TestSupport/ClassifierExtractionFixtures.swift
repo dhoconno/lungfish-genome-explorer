@@ -55,7 +55,7 @@ enum ClassifierExtractionFixtures {
     }
 
     static var sarscov2BAMIndex: URL {
-        URL(fileURLWithPath: sarscov2BAM.path + ".bai")
+        sarscov2BAM.appendingPathExtension("bai")
     }
 
     // MARK: - Per-tool fixture builders
@@ -91,7 +91,7 @@ enum ClassifierExtractionFixtures {
         case .esviritu:
             let bam = resultDir.appendingPathComponent("\(sampleId).sorted.bam")
             try fm.copyItem(at: sarscov2BAM, to: bam)
-            try fm.copyItem(at: sarscov2BAMIndex, to: URL(fileURLWithPath: bam.path + ".bai"))
+            try fm.copyItem(at: sarscov2BAMIndex, to: bam.appendingPathExtension("bai"))
             return (resultPath: resultDir.appendingPathComponent("fake.sqlite"), projectRoot: projectRoot)
 
         case .taxtriage:
@@ -99,7 +99,7 @@ enum ClassifierExtractionFixtures {
             try fm.createDirectory(at: subdir, withIntermediateDirectories: true)
             let bam = subdir.appendingPathComponent("\(sampleId).bam")
             try fm.copyItem(at: sarscov2BAM, to: bam)
-            try fm.copyItem(at: sarscov2BAMIndex, to: URL(fileURLWithPath: bam.path + ".bai"))
+            try fm.copyItem(at: sarscov2BAMIndex, to: bam.appendingPathExtension("bai"))
             return (resultPath: resultDir.appendingPathComponent("fake.sqlite"), projectRoot: projectRoot)
 
         case .naomgs:
@@ -107,13 +107,13 @@ enum ClassifierExtractionFixtures {
             try fm.createDirectory(at: subdir, withIntermediateDirectories: true)
             let bam = subdir.appendingPathComponent("\(sampleId).sorted.bam")
             try fm.copyItem(at: sarscov2BAM, to: bam)
-            try fm.copyItem(at: sarscov2BAMIndex, to: URL(fileURLWithPath: bam.path + ".bai"))
+            try fm.copyItem(at: sarscov2BAMIndex, to: bam.appendingPathExtension("bai"))
             return (resultPath: resultDir.appendingPathComponent("fake.sqlite"), projectRoot: projectRoot)
 
         case .nvd:
             let bam = resultDir.appendingPathComponent("\(sampleId).bam")
             try fm.copyItem(at: sarscov2BAM, to: bam)
-            try fm.copyItem(at: sarscov2BAMIndex, to: URL(fileURLWithPath: bam.path + ".bai"))
+            try fm.copyItem(at: sarscov2BAMIndex, to: bam.appendingPathExtension("bai"))
             return (resultPath: resultDir.appendingPathComponent("fake.sqlite"), projectRoot: projectRoot)
 
         case .kraken2:

@@ -66,9 +66,12 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
             source.contains("Extract Reads\u{2026}") || source.contains("Extract Reads\\u{2026}"),
             "TaxTriageResultViewController must wire an 'Extract Reads…' menu item"
         )
+        // Asserting `#selector(contextExtractFASTQ` rather than just the bare
+        // method name catches a regression where the function exists but is
+        // no longer wired into a menu item via `#selector(...)`.
         XCTAssertTrue(
-            source.contains("contextExtractFASTQ"),
-            "TaxTriageResultViewController must have the contextExtractFASTQ action selector"
+            source.contains("#selector(contextExtractFASTQ"),
+            "TaxTriageResultViewController must wire contextExtractFASTQ via #selector(...)"
         )
     }
 
@@ -80,8 +83,8 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
             "NaoMgsResultViewController must wire an 'Extract Reads…' menu item"
         )
         XCTAssertTrue(
-            source.contains("contextExtractFASTQ"),
-            "NaoMgsResultViewController must have an Extract Reads action selector"
+            source.contains("#selector(contextExtractFASTQ"),
+            "NaoMgsResultViewController must wire contextExtractFASTQ via #selector(...)"
         )
     }
 
@@ -93,8 +96,8 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
             "NvdResultViewController must wire an 'Extract Reads…' menu item"
         )
         XCTAssertTrue(
-            source.contains("contextExtractReadsUnified"),
-            "NvdResultViewController must have the contextExtractReadsUnified action selector"
+            source.contains("#selector(contextExtractReadsUnified"),
+            "NvdResultViewController must wire contextExtractReadsUnified via #selector(...)"
         )
     }
 
@@ -193,6 +196,13 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
             progress: nil
         )
 
+        // NOTE: This count-equality check is a weak oracle on its own because
+        // MarkdupService.countReads uses the same `samtools view -c -F 0x404`
+        // dispatch path as the resolver — a refactor that swapped both sides
+        // to a different (but still shared) oracle would pass trivially.
+        // The load-bearing regression teeth is the `< rawTotal` assertion
+        // below, which independently verifies that the resolver's filtered
+        // count is strictly less than the unfiltered markers-BAM total.
         XCTAssertEqual(
             outcome.readCount,
             unique,
@@ -286,8 +296,17 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
 
     /// Parameterized over all 4 BAM-backed tools: verify the resolver actually
     /// dispatches the right flag for both include-unmapped-mates values.
+    ///
+    /// The per-tool loop uses `<=` defensively (a future fixture with zero
+    /// duplicates/unmapped reads would still be correct), but the test also
+    /// asserts a strict `<` delta using NVD against the markers BAM directly.
+    /// On that fixture, 0x404 should produce 199 reads and 0x400 should
+    /// produce 202, so a regression that collapses the two flag paths to
+    /// the same mask is caught by the strict assertion below.
     func testI5_allBAMBackedTools_dispatchCorrectFlag() async throws {
+        var toolsIterated = 0
         for tool in ClassifierTool.allCases where tool.usesBAMDispatch {
+            toolsIterated += 1
             let sampleId = "I5"
             let (resultPath, projectRoot) = try ClassifierExtractionFixtures.buildFixture(tool: tool, sampleId: sampleId)
             defer { try? FileManager.default.removeItem(at: projectRoot) }
@@ -316,6 +335,47 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
                 "I5 violation for \(tool.displayName): 0x404 count (\(countStrict)) must be <= 0x400 count (\(countLoose))"
             )
         }
+        // Guard against a refactor that accidentally flips all 4 BAM-backed
+        // tools off of BAM dispatch — the loop would silently iterate zero
+        // times and pass trivially.
+        XCTAssertFalse(
+            toolsIterated == 0,
+            "I5 loop must iterate at least one BAM-backed tool; did `usesBAMDispatch` get turned off?"
+        )
+
+        // Strict-teeth assertion on the markers BAM via NVD (which points at
+        // the augmented BAM directly). 199 (strict, 0x404) must be < 202
+        // (loose, 0x400) because the markers BAM has 3 unmapped records that
+        // the strict mask excludes and the loose mask keeps. This catches a
+        // regression that folds both flag paths to the same mask — something
+        // the `<=` loop check would let slip through.
+        let markersSampleId = "I5-markers"
+        let (nvdResultPath, nvdProjectRoot) = try ClassifierExtractionFixtures.buildFixture(
+            tool: .nvd,
+            sampleId: markersSampleId
+        )
+        defer { try? FileManager.default.removeItem(at: nvdProjectRoot) }
+        let nvdSelections = try await ClassifierExtractionFixtures.defaultSelection(
+            for: .nvd, sampleId: markersSampleId
+        )
+        let nvdResolver = ClassifierReadResolver()
+        let nvdStrict = try await nvdResolver.estimateReadCount(
+            tool: .nvd,
+            resultPath: nvdResultPath,
+            selections: nvdSelections,
+            options: ExtractionOptions(format: .fastq, includeUnmappedMates: false)
+        )
+        let nvdLoose = try await nvdResolver.estimateReadCount(
+            tool: .nvd,
+            resultPath: nvdResultPath,
+            selections: nvdSelections,
+            options: ExtractionOptions(format: .fastq, includeUnmappedMates: true)
+        )
+        XCTAssertLessThan(
+            nvdStrict,
+            nvdLoose,
+            "I5 strict-teeth violation on markers BAM: 0x404 count (\(nvdStrict)) must be strictly less than 0x400 count (\(nvdLoose)). The markers BAM has 3 unmapped records that distinguish the two flag masks; if they're equal, the resolver is dispatching the same flag for both include-unmapped-mates values."
+        )
     }
 
     // MARK: - I6: Clipboard cap enforcement
@@ -372,14 +432,12 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
         let (resultPath, projectRoot) = try ClassifierExtractionFixtures.buildFixture(tool: tool, sampleId: sampleId)
         defer { try? FileManager.default.removeItem(at: projectRoot) }
 
-        let selections: [ClassifierRowSelector]
-        do {
-            selections = try await ClassifierExtractionFixtures.defaultSelection(
-                for: tool, sampleId: sampleId
-            )
-        } catch {
-            throw XCTSkip("\(tool.displayName) selection unavailable: \(error)")
-        }
+        // `defaultSelection` itself throws XCTSkip when a fixture is
+        // incomplete (e.g. missing kraken2-mini), so we let that propagate
+        // naturally via `try`. Any non-skip error should fail the test.
+        let selections = try await ClassifierExtractionFixtures.defaultSelection(
+            for: tool, sampleId: sampleId
+        )
 
         // Step A: run the resolver directly (GUI path).
         let resolver = ClassifierReadResolver()
@@ -394,8 +452,13 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
                 destination: .file(guiOut),
                 progress: nil
             )
-        } catch {
-            throw XCTSkip("\(tool.displayName) GUI path failed on incomplete fixture: \(error)")
+        } catch ClassifierExtractionError.kraken2SourceMissing {
+            // The kraken2-mini fixture points at source FASTQs that don't
+            // live in the test environment — a self-contained Kraken2
+            // fixture is Phase 7 work. Only this specific error converts
+            // to a skip; any other resolver error is a real regression and
+            // must fail the test.
+            throw XCTSkip("\(tool.displayName) kraken2 source FASTQ unavailable in test fixture (Phase 7 will land a complete fixture)")
         }
 
         // Step B: build the equivalent CLI command string and parse it.
@@ -428,24 +491,13 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
             tokens[oIdx + 1] = cliOut.path
         }
 
-        // Step C: parse + run the CLI command.
-        var cmd: ExtractReadsSubcommand
-        do {
-            cmd = try ExtractReadsSubcommand.parse(tokens)
-        } catch {
-            throw XCTSkip("\(tool.displayName) CLI parse failed: \(error)")
-        }
+        // Step C: parse + run the CLI command. These must succeed cleanly —
+        // any failure here is a real CLI regression, not a fixture issue, so
+        // we let errors propagate and fail the test.
+        var cmd = try ExtractReadsSubcommand.parse(tokens)
         cmd.testingRawArgs = tokens
-        do {
-            try cmd.validate()
-        } catch {
-            throw XCTSkip("\(tool.displayName) CLI validate failed: \(error)")
-        }
-        do {
-            try await cmd.run()
-        } catch {
-            throw XCTSkip("\(tool.displayName) CLI run failed: \(error)")
-        }
+        try cmd.validate()
+        try await cmd.run()
 
         // Step D: compare the two output FASTQs after sorting by record.
         let guiRecords = try Self.fastqRecordsSorted(at: guiOut)
