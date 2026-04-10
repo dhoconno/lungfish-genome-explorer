@@ -644,49 +644,38 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
 
     // MARK: - Classifier extraction wiring
 
-    /// Builds Kraken2 selectors from the currently-selected taxon nodes.
-    /// Kraken2's selector carries only `taxIds`.
-    private func buildKraken2Selectors() -> [ClassifierRowSelector] {
-        let nodes: [TaxonNode] = taxonomyTableView.outlineView.selectedRowIndexes.compactMap { row in
-            taxonomyTableView.outlineView.item(atRow: row) as? TaxonNode
+    /// Builds Kraken2 selectors from `explicit` nodes, or the current table
+    /// selection if `explicit` is nil. Passing explicit nodes bypasses the
+    /// table-view selection state so chart-menu handlers work for nodes
+    /// hidden by an active filter.
+    private func buildKraken2Selectors(explicit: [TaxonNode]? = nil) -> [ClassifierRowSelector] {
+        let nodes: [TaxonNode] = explicit ?? taxonomyTableView.outlineView.selectedRowIndexes.compactMap {
+            taxonomyTableView.outlineView.item(atRow: $0) as? TaxonNode
         }
         let actionable = nodes.filter { isActionableTaxonNode($0) }
         guard !actionable.isEmpty else { return [] }
-        let taxIds = actionable.map(\.taxId)
-        return [ClassifierRowSelector(sampleId: nil, accessions: [], taxIds: taxIds)]
+        return [ClassifierRowSelector(sampleId: nil, accessions: [], taxIds: actionable.map(\.taxId))]
     }
 
-    /// Resolves the Kraken2 result path for the unified extraction dialog.
-    /// Single-result mode uses the captured `classificationResult.config.outputDirectory`.
-    /// Batch-mode uses the per-sample directory looked up from the batch manifest.
+    /// Resolves the Kraken2 result path — single-result or per-sample batch.
     private func resolveKraken2ResultPath() -> URL? {
-        if let cr = classificationResult {
-            return cr.config.outputDirectory
-        }
-        if isBatchMode,
-           let batchURL,
-           let sampleId = currentBatchSampleId,
-           let manifest = MetagenomicsBatchResultStore.loadClassification(from: batchURL),
-           let record = manifest.samples.first(where: { $0.sampleId == sampleId }) {
-            return batchURL.appendingPathComponent(record.resultDirectory)
-        }
-        return nil
+        if let cr = classificationResult { return cr.config.outputDirectory }
+        guard isBatchMode, let batchURL, let sampleId = currentBatchSampleId,
+              let record = MetagenomicsBatchResultStore.loadClassification(from: batchURL)?
+                  .samples.first(where: { $0.sampleId == sampleId })
+        else { return nil }
+        return batchURL.appendingPathComponent(record.resultDirectory)
     }
 
-    /// Presents the unified classifier extraction dialog for the current selection.
-    func presentUnifiedExtractionDialog() {
-        guard let window = view.window else { return }
-        let selectors = buildKraken2Selectors()
-        guard !selectors.isEmpty else { return }
+    private func presentUnifiedExtractionDialog(explicitNodes: [TaxonNode]? = nil) {
         guard let resultPath = resolveKraken2ResultPath() else { return }
-        let firstName = taxonomyTableView.selectedNode?.name ?? "extract"
-        let ctx = TaxonomyReadExtractionAction.Context(
+        let name = (explicitNodes?.first ?? taxonomyTableView.selectedNode)?.name ?? "extract"
+        presentClassifierExtractionDialog(
             tool: .kraken2,
             resultPath: resultPath,
-            selections: selectors,
-            suggestedName: "kraken2_\(firstName.replacingOccurrences(of: " ", with: "_"))"
+            selectors: buildKraken2Selectors(explicit: explicitNodes),
+            suggestedName: "kraken2_\(name.replacingOccurrences(of: " ", with: "_"))"
         )
-        TaxonomyReadExtractionAction.shared.present(context: ctx, hostWindow: window)
     }
 
     // MARK: - Setup: Summary Bar
@@ -1073,8 +1062,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     /// Builds and shows a context menu for a taxon node at the given window point.
     ///
     /// Menu items:
-    /// - Extract Sequences for [name]...
-    /// - Extract Sequences for [name] and Children...
+    /// - Extract Reads...
     /// - Copy Taxon Name
     /// - Copy Taxonomy Path
     /// - (separator)
@@ -1083,25 +1071,17 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     private func showContextMenu(for node: TaxonNode, at windowPoint: NSPoint) {
         let menu = NSMenu()
 
-        // Extract this node only
+        // Extract reads for this taxon. The unified dialog's resolver handles
+        // descendant taxon expansion internally, so the old "and Children"
+        // variant is no longer needed.
         let extractItem = NSMenuItem(
-            title: "Extract Sequences for \(node.name)\u{2026}",
-            action: #selector(contextExtractNode(_:)),
+            title: "Extract Reads\u{2026}",
+            action: #selector(contextExtractReads(_:)),
             keyEquivalent: ""
         )
         extractItem.target = self
         extractItem.representedObject = node
         menu.addItem(extractItem)
-
-        // Extract with children
-        let extractChildrenItem = NSMenuItem(
-            title: "Extract Sequences for \(node.name) and Children\u{2026}",
-            action: #selector(contextExtractNodeWithChildren(_:)),
-            keyEquivalent: ""
-        )
-        extractChildrenItem.target = self
-        extractChildrenItem.representedObject = node
-        menu.addItem(extractChildrenItem)
 
         menu.addItem(.separator())
 
@@ -1250,22 +1230,13 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     /// Adds context menu items to the given menu without showing it.
     private func showContextMenuItems(for node: TaxonNode, into menu: NSMenu) {
         let extractItem = NSMenuItem(
-            title: "Extract Sequences for \(node.name)\u{2026}",
-            action: #selector(contextExtractNode(_:)),
+            title: "Extract Reads\u{2026}",
+            action: #selector(contextExtractReads(_:)),
             keyEquivalent: ""
         )
         extractItem.target = self
         extractItem.representedObject = node
         menu.addItem(extractItem)
-
-        let extractChildrenItem = NSMenuItem(
-            title: "Extract Sequences for \(node.name) and Children\u{2026}",
-            action: #selector(contextExtractNodeWithChildren(_:)),
-            keyEquivalent: ""
-        )
-        extractChildrenItem.target = self
-        extractChildrenItem.representedObject = node
-        menu.addItem(extractChildrenItem)
 
         menu.addItem(.separator())
 
@@ -1325,18 +1296,10 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
 
     // MARK: - Context Menu Actions
 
-    @objc private func contextExtractNode(_ sender: NSMenuItem) {
+    @objc private func contextExtractReads(_ sender: NSMenuItem) {
+        // Explicit nodes so the dialog works for filter-hidden rows.
         guard let node = sender.representedObject as? TaxonNode else { return }
-        // Programmatically select this node so the unified dialog picks it up
-        // via the table-view selection.
-        taxonomyTableView.selectedNode = node
-        presentUnifiedExtractionDialog()
-    }
-
-    @objc private func contextExtractNodeWithChildren(_ sender: NSMenuItem) {
-        guard let node = sender.representedObject as? TaxonNode else { return }
-        taxonomyTableView.selectedNode = node
-        presentUnifiedExtractionDialog()
+        presentUnifiedExtractionDialog(explicitNodes: [node])
     }
 
     @objc private func contextCopyName(_ sender: NSMenuItem) {

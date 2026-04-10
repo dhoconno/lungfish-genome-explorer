@@ -229,16 +229,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     /// - bamIndexURL: BAM index for random-access extraction.
     public var onBlastVerification: ((ViralDetection, Int, [String], URL?, URL?) -> Void)?
 
-    /// Called when the user requests read extraction for a detection.
-    ///
-    /// - Parameter detection: The viral detection whose reads to extract.
-    public var onExtractReads: ((ViralDetection) -> Void)?
-
-    /// Called when the user requests read extraction for an assembly.
-    ///
-    /// - Parameter assembly: The viral assembly whose reads to extract.
-    public var onExtractAssemblyReads: ((ViralAssembly) -> Void)?
-
     /// Called when the user wants to re-run EsViritu with the same or different settings.
     public var onReRun: (() -> Void)?
 
@@ -1194,31 +1184,20 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     private func buildEsVirituSelectors() -> [ClassifierRowSelector] {
         let accessions = detectionTableView.selectedAssemblyAccessions()
         guard !accessions.isEmpty else { return [] }
-        if isBatchMode, let firstSample = detectionTableView.selectedSampleIDs().first {
-            return [ClassifierRowSelector(sampleId: firstSample, accessions: accessions, taxIds: [])]
-        }
-        return [ClassifierRowSelector(sampleId: nil, accessions: accessions, taxIds: [])]
+        let sampleId = isBatchMode ? detectionTableView.selectedSampleIDs().first : nil
+        return [ClassifierRowSelector(sampleId: sampleId, accessions: accessions, taxIds: [])]
     }
 
     /// Presents the unified classifier extraction dialog for the current selection.
-    func presentUnifiedExtractionDialog() {
-        guard let window = view.window else { return }
-        let selectors = buildEsVirituSelectors()
-        guard !selectors.isEmpty else { return }
-        let resultPath: URL
-        if let dbURL = esVirituDatabase?.databaseURL {
-            resultPath = dbURL
-        } else if let cfgDir = esVirituConfig?.outputDirectory {
-            resultPath = cfgDir
-        } else { return }
+    private func presentUnifiedExtractionDialog() {
+        guard let resultPath = esVirituDatabase?.databaseURL ?? esVirituConfig?.outputDirectory else { return }
         let firstAccession = detectionTableView.selectedAssemblyAccessions().first ?? "extract"
-        let ctx = TaxonomyReadExtractionAction.Context(
+        presentClassifierExtractionDialog(
             tool: .esviritu,
             resultPath: resultPath,
-            selections: selectors,
+            selectors: buildEsVirituSelectors(),
             suggestedName: "esviritu_\(firstAccession)"
         )
-        TaxonomyReadExtractionAction.shared.present(context: ctx, hostWindow: window)
     }
 
     @objc private func handleLayoutSwapRequested(_ notification: Notification) {

@@ -428,21 +428,25 @@ final class TaxonomyViewControllerTests: XCTestCase {
         let ecoli = result.tree.node(taxId: 562)!
         let items = vc.contextMenuItems(for: ecoli)
 
-        // Should have: Extract (2), sep, Copy (2), sep, Zoom (2), sep, BLAST (1) = 12 items
+        // Should have: Extract (1), sep, Copy (2), sep, Zoom (2), sep, BLAST (1)
+        // = 6 non-separator + 3 separators = 9 items. Phase 5 collapsed the
+        // old two "Extract Sequences for X / and Children" items into a
+        // single "Extract Reads..." because the unified dialog's resolver
+        // handles descendant expansion internally.
         let nonSeparators = items.filter { !$0.isSeparatorItem }
-        XCTAssertEqual(nonSeparators.count, 7, "Should have 7 non-separator menu items")
+        XCTAssertEqual(nonSeparators.count, 6, "Should have 6 non-separator menu items")
         XCTAssertEqual(items.filter(\.isSeparatorItem).count, 3, "Should have 3 separators")
 
-        // Check specific titles
-        XCTAssertTrue(items[0].title.contains("Extract Sequences for Escherichia coli"))
-        XCTAssertTrue(items[1].title.contains("and Children"))
-        XCTAssertEqual(items[3].title, "Copy Taxon Name")
-        XCTAssertEqual(items[4].title, "Copy Taxonomy Path")
-        XCTAssertTrue(items[6].title.contains("Zoom to"))
-        XCTAssertEqual(items[7].title, "Zoom Out to Root")
+        // Check specific titles. Indices: 0=Extract Reads, 1=sep, 2=Copy Name,
+        // 3=Copy Path, 4=sep, 5=Zoom to, 6=Zoom Out, 7=sep, 8=BLAST
+        XCTAssertEqual(items[0].title, "Extract Reads\u{2026}")
+        XCTAssertEqual(items[2].title, "Copy Taxon Name")
+        XCTAssertEqual(items[3].title, "Copy Taxonomy Path")
+        XCTAssertTrue(items[5].title.contains("Zoom to"))
+        XCTAssertEqual(items[6].title, "Zoom Out to Root")
 
         // Zoom out to root should be disabled when at root
-        XCTAssertFalse(items[7].isEnabled)
+        XCTAssertFalse(items[6].isEnabled)
     }
 
     func testContextMenuZoomOutEnabled() throws {

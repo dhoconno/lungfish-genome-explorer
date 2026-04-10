@@ -1554,20 +1554,17 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     }
 
     /// Presents the unified classifier extraction dialog for the current selection.
-    func presentUnifiedExtractionDialog() {
-        guard let window = view.window else { return }
-        let selectors = buildNaoMgsSelectors()
-        guard !selectors.isEmpty else { return }
+    private func presentUnifiedExtractionDialog() {
         guard let resultPath = database?.databaseURL else { return }
+        let selectors = buildNaoMgsSelectors()
         let first = selectors.first
         let suggested = "naomgs_\(first?.sampleId ?? "sample")_\(first?.taxIds.first.map(String.init) ?? "extract")"
-        let ctx = TaxonomyReadExtractionAction.Context(
+        presentClassifierExtractionDialog(
             tool: .naomgs,
             resultPath: resultPath,
-            selections: selectors,
+            selectors: selectors,
             suggestedName: suggested
         )
-        TaxonomyReadExtractionAction.shared.present(context: ctx, hostWindow: window)
     }
 
     @objc private func handleLayoutSwapRequested(_ notification: Notification) {

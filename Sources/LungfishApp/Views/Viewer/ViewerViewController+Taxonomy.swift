@@ -25,33 +25,6 @@ private func scheduleTaxonomyOnMainRunLoop(_ block: @escaping @Sendable () -> Vo
     CFRunLoopWakeUp(CFRunLoopGetMain())
 }
 
-/// Writes a small JSON file inside the bundle recording extraction provenance.
-///
-/// This is separate from the ``PersistedFASTQMetadata`` sidecar because it
-/// captures taxonomy-specific information (tax IDs, source classification
-/// output, include-children flag) that doesn't fit the generic metadata model.
-private func writeTaxonomyExtractionProvenance(
-    config: TaxonomyExtractionConfig,
-    bundleURL: URL
-) {
-    let provenance: [String: Any] = [
-        "extractionType": "taxonomy",
-        "taxIds": config.taxIds.sorted(),
-        "includeChildren": config.includeChildren,
-        "sourceFile": config.sourceFile.lastPathComponent,
-        "classificationOutput": config.classificationOutput.lastPathComponent,
-        "extractedAt": ISO8601DateFormatter().string(from: Date()),
-    ]
-
-    let provenanceURL = bundleURL.appendingPathComponent("extraction-provenance.json")
-    if let data = try? JSONSerialization.data(
-        withJSONObject: provenance,
-        options: [.prettyPrinted, .sortedKeys]
-    ) {
-        try? data.write(to: provenanceURL, options: .atomic)
-    }
-}
-
 // MARK: - ViewerViewController Taxonomy Display Extension
 
 extension ViewerViewController {

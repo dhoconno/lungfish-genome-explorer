@@ -675,6 +675,11 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
             // BLAST Verify requires exactly one selected row
             return outlineView.clickedRow >= 0 && outlineView.selectedRowIndexes.count <= 1
         }
+        if menuItem.action == #selector(contextExtractReads(_:)) {
+            // Extract Reads is a no-op on empty selection — disable instead
+            // of presenting a blank dialog.
+            return !outlineView.selectedRowIndexes.isEmpty
+        }
         return true
     }
 

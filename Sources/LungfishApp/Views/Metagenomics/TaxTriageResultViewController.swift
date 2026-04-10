@@ -2653,39 +2653,27 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// one sample at a time via `selectedBatchSampleId` / `sampleIds.first`),
     /// so all selected accessions are grouped under that single sample id.
     private func buildTaxTriageSelectors() -> [ClassifierRowSelector] {
-        let rows = organismTableView.selectedTableRows()
-        guard !rows.isEmpty else { return [] }
-        var accessions: [String] = []
-        for row in rows {
-            if let resolved = self.accessions(for: row), !resolved.isEmpty {
-                accessions.append(contentsOf: resolved)
-            }
-        }
+        let accessions = organismTableView.selectedTableRows().flatMap { self.accessions(for: $0) ?? [] }
         guard !accessions.isEmpty else { return [] }
-        let sampleId = selectedBatchSampleId ?? sampleIds.first
-        return [ClassifierRowSelector(sampleId: sampleId, accessions: accessions, taxIds: [])]
+        return [ClassifierRowSelector(
+            sampleId: selectedBatchSampleId ?? sampleIds.first,
+            accessions: accessions,
+            taxIds: []
+        )]
     }
 
     /// Presents the unified classifier extraction dialog for the current selection.
-    func presentUnifiedExtractionDialog() {
-        guard let window = view.window else { return }
+    private func presentUnifiedExtractionDialog() {
+        guard let resultPath = taxTriageDatabase?.databaseURL ?? taxTriageConfig?.outputDirectory else { return }
         let selectors = buildTaxTriageSelectors()
-        guard !selectors.isEmpty else { return }
-        let resultPath: URL
-        if let dbURL = taxTriageDatabase?.databaseURL {
-            resultPath = dbURL
-        } else if let cfgDir = taxTriageConfig?.outputDirectory {
-            resultPath = cfgDir
-        } else { return }
         let firstAccession = selectors.first?.accessions.first ?? "extract"
         let sid = selectors.first?.sampleId ?? "sample"
-        let ctx = TaxonomyReadExtractionAction.Context(
+        presentClassifierExtractionDialog(
             tool: .taxtriage,
             resultPath: resultPath,
-            selections: selectors,
+            selectors: selectors,
             suggestedName: "taxtriage_\(sid)_\(firstAccession)"
         )
-        TaxonomyReadExtractionAction.shared.present(context: ctx, hostWindow: window)
     }
 
     // MARK: - Negative Control Helpers

@@ -32,6 +32,20 @@ enum NvdOutlineItem: Hashable {
 
     /// Taxon grouping header (byTaxon mode).
     case taxonGroup(name: String)
+
+    /// Returns `(sampleId, qseqid)` for rows that point at a contig (either
+    /// directly via `.contig` or indirectly via `.childHit`). Returns nil for
+    /// grouping rows that don't have a BAM reference. Used by
+    /// `buildNvdSelectors` to flatten mixed taxon-group + contig selections.
+    var sampleContig: (sampleId: String, qseqid: String)? {
+        switch self {
+        case .contig(let sampleId, let qseqid),
+             .childHit(let sampleId, let qseqid, _):
+            return (sampleId, qseqid)
+        case .taxonGroup:
+            return nil
+        }
+    }
 }
 
 // MARK: - FlippedNvdContentView
@@ -1202,41 +1216,33 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     // MARK: - Classifier extraction wiring
 
     /// Builds per-sample selectors from the current outline-view selection.
-    /// NvdOutlineItem.contig and .childHit both carry sampleId + qseqid; the
-    /// qseqid is the contig name (used as the BAM @SQ reference). Group by
-    /// sample so multi-sample selections produce one selector per sample.
+    /// `.contig` and `.childHit` both carry sampleId + qseqid (the BAM @SQ
+    /// reference); `.taxonGroup` is a grouping row and is skipped. Results
+    /// are grouped by sample so multi-sample selections produce one selector
+    /// per sample.
     private func buildNvdSelectors() -> [ClassifierRowSelector] {
         var bySample: [String: [String]] = [:]
         for row in outlineView.selectedRowIndexes {
-            guard let item = outlineView.item(atRow: row) as? NvdOutlineItem else { continue }
-            switch item {
-            case .contig(let sampleId, let qseqid):
-                bySample[sampleId, default: []].append(qseqid)
-            case .childHit(let sampleId, let qseqid, _):
-                bySample[sampleId, default: []].append(qseqid)
-            case .taxonGroup:
-                continue
-            }
+            let item = outlineView.item(atRow: row) as? NvdOutlineItem
+            guard let (sampleId, qseqid) = item?.sampleContig else { continue }
+            bySample[sampleId, default: []].append(qseqid)
         }
-        return bySample.map { (sid, contigs) in
-            ClassifierRowSelector(sampleId: sid, accessions: contigs, taxIds: [])
-        }.sorted { ($0.sampleId ?? "") < ($1.sampleId ?? "") }
+        return bySample
+            .map { ClassifierRowSelector(sampleId: $0.key, accessions: $0.value, taxIds: []) }
+            .sorted { ($0.sampleId ?? "") < ($1.sampleId ?? "") }
     }
 
     /// Presents the unified classifier extraction dialog for the current selection.
-    func presentUnifiedExtractionDialog() {
-        guard let window = view.window else { return }
-        let selectors = buildNvdSelectors()
-        guard !selectors.isEmpty else { return }
+    private func presentUnifiedExtractionDialog() {
         guard let resultPath = database?.databaseURL else { return }
+        let selectors = buildNvdSelectors()
         let firstContig = selectors.first?.accessions.first ?? "extract"
-        let ctx = TaxonomyReadExtractionAction.Context(
+        presentClassifierExtractionDialog(
             tool: .nvd,
             resultPath: resultPath,
-            selections: selectors,
+            selectors: selectors,
             suggestedName: "nvd_\(firstContig)"
         )
-        TaxonomyReadExtractionAction.shared.present(context: ctx, hostWindow: window)
     }
 
     @objc private func contextExtractReadsUnified(_ sender: Any?) {
