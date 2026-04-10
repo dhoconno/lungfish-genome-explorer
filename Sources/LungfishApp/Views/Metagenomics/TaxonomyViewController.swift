@@ -652,22 +652,50 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         }
         let actionable = nodes.filter { isActionableTaxonNode($0) }
         guard !actionable.isEmpty else { return [] }
-        let taxIds = actionable.map(\.taxId)
 
-        // In batch mode with multiple samples selected, build one selector per
-        // sample so the resolver runs the extraction pipeline against each
-        // sample's classification.kraken file independently. The merged taxonomy
-        // tree shows aggregate counts; the same tax IDs apply to every sample.
-        if isBatchMode {
-            let selectedSamples = samplePickerState.selectedSamples.sorted()
-            if selectedSamples.count > 1 {
-                return selectedSamples.map { sid in
-                    ClassifierRowSelector(sampleId: sid, accessions: [], taxIds: taxIds)
-                }
-            }
+        guard isBatchMode else {
+            // Single-result mode: no sample attribution needed.
+            return [ClassifierRowSelector(sampleId: nil, accessions: [], taxIds: actionable.map(\.taxId))]
         }
 
-        return [ClassifierRowSelector(sampleId: nil, accessions: [], taxIds: taxIds)]
+        // Batch mode: group selected taxon nodes by their owning sample.
+        // In the merged multi-sample tree, each sample is a synthetic node
+        // (taxId < 0) at depth 1. We walk up from each selected node to find
+        // its sample ancestor. In single-sample-selected mode (no synthetic
+        // root), currentBatchSampleId identifies the sample.
+        var bySample: [String: [Int]] = [:]
+        for node in actionable {
+            let sampleId = findSampleAncestor(of: node) ?? currentBatchSampleId
+            guard let sid = sampleId else { continue }
+            bySample[sid, default: []].append(node.taxId)
+        }
+        guard !bySample.isEmpty else {
+            // Fallback: couldn't resolve samples, use all tax IDs without sample.
+            return [ClassifierRowSelector(sampleId: nil, accessions: [], taxIds: actionable.map(\.taxId))]
+        }
+        return bySample.sorted(by: { $0.key < $1.key }).map { sid, taxIds in
+            ClassifierRowSelector(sampleId: sid, accessions: [], taxIds: taxIds)
+        }
+    }
+
+    /// Walks up from `node` through the outline view's parent hierarchy to
+    /// find the synthetic sample node (taxId < 0, created by `mergedTree`).
+    /// Returns the sample name, or nil if the tree doesn't have a synthetic
+    /// sample layer (single-sample mode).
+    ///
+    /// Uses the outline view's `parent(forItem:)` instead of `parentTaxId`
+    /// because the cloned subtrees in the merged tree preserve their original
+    /// `parentTaxId` values, which don't match the synthetic tree structure.
+    private func findSampleAncestor(of node: TaxonNode) -> String? {
+        let outline = taxonomyTableView.outlineView
+        var current: Any? = node
+        while let item = current {
+            if let taxonNode = item as? TaxonNode, taxonNode.taxId < 0 {
+                return taxonNode.name
+            }
+            current = outline.parent(forItem: item)
+        }
+        return nil
     }
 
     /// Resolves the Kraken2 result path.
