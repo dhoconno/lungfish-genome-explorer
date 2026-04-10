@@ -276,14 +276,30 @@ public actor ClassifierReadResolver {
         let candidates: [URL]
         switch tool {
         case .esviritu:
-            // EsViritu writes {sampleId}.sorted.bam next to the result DB.
-            // Historical layouts may have it in a temp subdir; we try both.
+            // EsViritu BAM locations vary by pipeline version:
+            //   Current: {sampleId}/bams/{sampleId}.third.filt.sorted.bam
+            //   Legacy:  {sampleId}.sorted.bam (next to the result DB)
+            //   Legacy:  {sampleId}_temp/{sampleId}.sorted.bam
+            // We also scan the sample's bams/ subdirectory for any *.sorted.bam
+            // to handle unexpected naming variations.
             var urls: [URL] = []
             if let sampleId {
+                // Current layout: per-sample subdir with bams/ child
+                let bamsDir = resultDir.appendingPathComponent("\(sampleId)/bams")
+                if fm.fileExists(atPath: bamsDir.path) {
+                    // Prefer the specific pattern first, then scan for any .sorted.bam
+                    urls.append(bamsDir.appendingPathComponent("\(sampleId).third.filt.sorted.bam"))
+                    if let contents = try? fm.contentsOfDirectory(at: bamsDir, includingPropertiesForKeys: nil) {
+                        for file in contents where file.lastPathComponent.hasSuffix(".sorted.bam") && !urls.contains(file) {
+                            urls.append(file)
+                        }
+                    }
+                }
+                // Legacy flat layouts
                 urls.append(resultDir.appendingPathComponent("\(sampleId).sorted.bam"))
                 urls.append(resultDir.appendingPathComponent("\(sampleId)_temp/\(sampleId).sorted.bam"))
             } else {
-                // Single-sample: any *.sorted.bam in the result dir.
+                // Single-sample: scan recursively for any *.sorted.bam
                 if let enumerator = fm.enumerator(at: resultDir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]),
                    let match = enumerator.compactMap({ $0 as? URL }).first(where: { $0.lastPathComponent.hasSuffix(".sorted.bam") }) {
                     urls.append(match)
