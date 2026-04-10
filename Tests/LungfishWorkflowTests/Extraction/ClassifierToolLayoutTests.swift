@@ -7,16 +7,27 @@ import XCTest
 
 final class ClassifierToolLayoutTests: XCTestCase {
 
-    /// NVD's result is a sentinel file alongside sibling per-contig BAMs; the
-    /// resolver discovers artifacts by scanning the parent directory.
+    /// NVD's result directory contains sibling `*.bam` files that the
+    /// resolver discovers by scanning (`ClassifierReadResolver.resolveBAMURL`).
+    /// No fixed sentinel filename — the directory itself is the handle.
     func testNvd_hasDirectorySentinelLayout() {
         XCTAssertEqual(ClassifierTool.nvd.expectedResultLayout, .directorySentinel)
     }
 
-    /// EsViritu, TaxTriage, NAO-MGS, and Kraken2 all expose a single result
+    /// Kraken2's result directory contains a fixed `classification-result.json`
+    /// sentinel parsed via `ClassificationResult.load(from:)`, which treats
+    /// its argument as a directory (not a file). The user-facing handle is
+    /// the enclosing directory, passed through by
+    /// `TaxonomyViewController.resolveKraken2ResultPath` and the
+    /// AppDelegate auto-extract path.
+    func testKraken2_hasDirectorySentinelLayout() {
+        XCTAssertEqual(ClassifierTool.kraken2.expectedResultLayout, .directorySentinel)
+    }
+
+    /// EsViritu, TaxTriage, and NAO-MGS each expose a single SQLite database
     /// file that the resolver opens directly.
-    func testBamBackedAndKraken2_haveFileLayout() {
-        let fileLayoutTools: [ClassifierTool] = [.esviritu, .taxtriage, .naomgs, .kraken2]
+    func testBamBackedTools_haveFileLayout() {
+        let fileLayoutTools: [ClassifierTool] = [.esviritu, .taxtriage, .naomgs]
         for tool in fileLayoutTools {
             XCTAssertEqual(
                 tool.expectedResultLayout,

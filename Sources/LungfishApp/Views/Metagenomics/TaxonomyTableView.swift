@@ -605,7 +605,16 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
             return clickedNode != nil
         }
         if menuItem.action == #selector(contextExtractReads(_:)) {
-            return !outlineView.selectedRowIndexes.isEmpty || clickedNode != nil
+            // Gate must mirror the handler's read source. `contextExtractReads`
+            // dispatches to `presentUnifiedExtractionDialog()`, which reads
+            // `selectedRowIndexes` (via `buildKraken2Selectors(explicit: nil)`).
+            // NSOutlineView's default right-click behavior auto-selects the
+            // clicked row before showing the menu, so `clickedNode` is
+            // already in `selectedRowIndexes` whenever the menu is shown —
+            // a `|| clickedNode != nil` clause would create an asymmetric
+            // gate that enables the item on a clicked row that the handler
+            // cannot see.
+            return !outlineView.selectedRowIndexes.isEmpty
         }
         return true
     }
