@@ -514,9 +514,16 @@ public actor ClassifierReadResolver {
         )
         try Task.checkCancellation()
 
+        // The pipeline delegates to ReadExtractionService.extractByReadIDs,
+        // which writes .fastq.gz (seqkit auto-detects from the .gz extension).
+        // We need uncompressed FASTQ for concatenation, record counting,
+        // and clipboard/share output. Decompress any .gz files in place.
+        let decompressedURLs = try await decompressGzippedFiles(producedURLs)
+        try Task.checkCancellation()
+
         // Concatenate R1+R2 (if paired) into a single FASTQ for destination routing.
         let concatenated = tempDir.appendingPathComponent("kraken2-concat.fastq")
-        try concatenateFiles(producedURLs, into: concatenated)
+        try concatenateFiles(decompressedURLs, into: concatenated)
         try Task.checkCancellation()
 
         let readCount = try await countFASTQRecords(in: concatenated)
@@ -587,6 +594,40 @@ public actor ClassifierReadResolver {
     }
 
     // MARK: - File helpers
+
+    /// Decompresses any `.gz` files in the list, returning URLs to uncompressed files.
+    /// Non-`.gz` files are passed through unchanged. Uses `pigz -d -c` (parallel
+    /// decompression to stdout) via `NativeToolRunner.runWithFileOutput`, matching
+    /// the pattern established in `FASTQBatchImporter`.
+    private func decompressGzippedFiles(_ urls: [URL]) async throws -> [URL] {
+        let fm = FileManager.default
+        var result: [URL] = []
+        for url in urls {
+            guard url.pathExtension == "gz" else {
+                result.append(url)
+                continue
+            }
+            let decompressed = url.deletingPathExtension() // strips .gz -> .fastq
+            // If the decompressed file already exists (e.g. from a prior run), use it.
+            if fm.fileExists(atPath: decompressed.path) {
+                result.append(decompressed)
+                continue
+            }
+            let pigzResult = try await toolRunner.runWithFileOutput(
+                .pigz,
+                arguments: ["-d", "-c", url.path],
+                outputFile: decompressed
+            )
+            guard pigzResult.isSuccess,
+                  fm.fileExists(atPath: decompressed.path) else {
+                logger.warning("pigz decompression failed for \(url.lastPathComponent, privacy: .public): \(pigzResult.stderr.suffix(200), privacy: .public)")
+                result.append(url)
+                continue
+            }
+            result.append(decompressed)
+        }
+        return result
+    }
 
     private func concatenateFiles(_ sources: [URL], into destination: URL) throws {
         let fm = FileManager.default
