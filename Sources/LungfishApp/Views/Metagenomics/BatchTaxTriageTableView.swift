@@ -5,6 +5,7 @@
 import AppKit
 import LungfishCore
 import LungfishIO
+import SwiftUI
 import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "BatchTaxTriageTableView")
@@ -39,9 +40,13 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
 
     // MARK: - Callbacks
 
-    /// Fired when the user invokes "Extract Reads…" from the context menu.
+    /// Fired when the user invokes "Extract Reads..." from the context menu.
     /// The VC reads the current selection from the table view itself.
     var onExtractReadsRequested: (() -> Void)?
+
+    /// Fired when the user invokes "Verify with BLAST..." from the context menu.
+    /// Parameters: the clicked metric row, and the read count chosen via the popover.
+    var onBlastVerifyRequested: ((TaxTriageMetric, Int) -> Void)?
 
     // MARK: - Context Menu
 
@@ -53,6 +58,53 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
     private func installContextMenu() {
         guard tableView.menu == nil else { return }
         let menu = NSMenu()
+
+        let blastItem = NSMenuItem(
+            title: "Verify with BLAST\u{2026}",
+            action: #selector(contextBlastVerify(_:)),
+            keyEquivalent: ""
+        )
+        blastItem.target = self
+        menu.addItem(blastItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        let copyOrganismItem = NSMenuItem(
+            title: "Copy Organism Name",
+            action: #selector(contextCopyOrganism(_:)),
+            keyEquivalent: ""
+        )
+        copyOrganismItem.target = self
+        menu.addItem(copyOrganismItem)
+
+        let copyTaxIdItem = NSMenuItem(
+            title: "Copy TaxID",
+            action: #selector(contextCopyTaxId(_:)),
+            keyEquivalent: ""
+        )
+        copyTaxIdItem.target = self
+        menu.addItem(copyTaxIdItem)
+
+        let copyRowTSVItem = NSMenuItem(
+            title: "Copy Row as TSV",
+            action: #selector(contextCopyRowTSV(_:)),
+            keyEquivalent: ""
+        )
+        copyRowTSVItem.target = self
+        menu.addItem(copyRowTSVItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        let lookupItem = NSMenuItem(
+            title: "Look Up in NCBI Taxonomy",
+            action: #selector(contextLookUpNCBI(_:)),
+            keyEquivalent: ""
+        )
+        lookupItem.target = self
+        menu.addItem(lookupItem)
+
+        menu.addItem(NSMenuItem.separator())
+
         let extractItem = NSMenuItem(
             title: "Extract Reads\u{2026}",
             action: #selector(contextExtractReads(_:)),
@@ -60,18 +112,116 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
         )
         extractItem.target = self
         menu.addItem(extractItem)
+
         tableView.menu = menu
+    }
+
+    // MARK: - Context Menu Actions
+
+    @objc private func contextBlastVerify(_ sender: Any?) {
+        let clickedRow = tableView.clickedRow
+        guard clickedRow >= 0, clickedRow < displayedRows.count else { return }
+        let metric = displayedRows[clickedRow]
+
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentSize = NSSize(width: 280, height: 160)
+        popover.contentViewController = NSHostingController(
+            rootView: BlastConfigPopoverView(
+                taxonName: metric.organism,
+                readsClade: metric.reads,
+                onRun: { [weak self, weak popover] readCount in
+                    popover?.close()
+                    self?.onBlastVerifyRequested?(metric, readCount)
+                }
+            )
+        )
+
+        let rowRect = tableView.rect(ofRow: clickedRow)
+        popover.show(relativeTo: rowRect, of: tableView, preferredEdge: .maxY)
+    }
+
+    @objc private func contextCopyOrganism(_ sender: Any?) {
+        let row = tableView.clickedRow
+        guard row >= 0, row < displayedRows.count else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(displayedRows[row].organism, forType: .string)
+    }
+
+    @objc private func contextCopyTaxId(_ sender: Any?) {
+        let row = tableView.clickedRow
+        guard row >= 0, row < displayedRows.count else { return }
+        let metric = displayedRows[row]
+        let taxIdString = metric.taxId.map(String.init) ?? ""
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(taxIdString, forType: .string)
+    }
+
+    @objc private func contextCopyRowTSV(_ sender: Any?) {
+        let row = tableView.clickedRow
+        guard row >= 0, row < displayedRows.count else { return }
+        let metric = displayedRows[row]
+        let fields: [String] = [
+            metric.sample ?? "",
+            metric.organism,
+            String(format: "%.4f", metric.tassScore),
+            "\(metric.reads)",
+            metric.confidence ?? "",
+            metric.coverageBreadth.map { String(format: "%.1f", $0) } ?? "",
+            metric.coverageDepth.map { String(format: "%.1f", $0) } ?? "",
+            metric.abundance.map { String(format: "%.4f", $0) } ?? "",
+            metric.taxId.map(String.init) ?? "",
+            metric.rank ?? "",
+        ]
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(fields.joined(separator: "\t"), forType: .string)
+    }
+
+    @objc private func contextLookUpNCBI(_ sender: Any?) {
+        let row = tableView.clickedRow
+        guard row >= 0, row < displayedRows.count else { return }
+        let metric = displayedRows[row]
+        let urlString: String
+        if let taxId = metric.taxId {
+            urlString = "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=\(taxId)"
+        } else {
+            let encoded = metric.organism.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? metric.organism
+            urlString = "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?name=\(encoded)"
+        }
+        if let url = URL(string: urlString) {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     @objc private func contextExtractReads(_ sender: Any?) {
         onExtractReadsRequested?()
     }
 
+    // MARK: - Menu Validation
+
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(contextBlastVerify(_:)) {
+            // BLAST requires exactly one row (the clicked row).
+            return tableView.clickedRow >= 0 && tableView.selectedRowIndexes.count <= 1
+        }
+        if menuItem.action == #selector(contextCopyOrganism(_:))
+            || menuItem.action == #selector(contextCopyTaxId(_:))
+            || menuItem.action == #selector(contextCopyRowTSV(_:))
+            || menuItem.action == #selector(contextLookUpNCBI(_:)) {
+            return tableView.clickedRow >= 0
+        }
         if menuItem.action == #selector(contextExtractReads(_:)) {
-            return !tableView.selectedRowIndexes.isEmpty
+            return !tableView.selectedRowIndexes.isEmpty || tableView.clickedRow >= 0
         }
         return true
+    }
+
+    /// Returns the metrics for all currently selected rows.
+    func selectedMetrics() -> [TaxTriageMetric] {
+        tableView.selectedRowIndexes.compactMap { index in
+            guard index < displayedRows.count else { return nil }
+            return displayedRows[index]
+        }
     }
 
     // MARK: - Extra State

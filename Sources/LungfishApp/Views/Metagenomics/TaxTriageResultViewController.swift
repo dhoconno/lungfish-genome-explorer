@@ -2584,6 +2584,29 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             self?.presentUnifiedExtractionDialog()
         }
 
+        // Batch flat table BLAST verify -> forward to host with BAM context.
+        batchFlatTableView.onBlastVerifyRequested = { [weak self] metric, readCount in
+            guard let self else { return }
+            let organism = TaxTriageOrganism(
+                name: metric.organism,
+                score: metric.tassScore,
+                reads: metric.reads,
+                coverage: metric.coverageBreadth,
+                taxId: metric.taxId,
+                rank: metric.rank
+            )
+            let rowAccessions = self.accessions(for: metric)
+            let sampleId = metric.sample
+            let bamURL = sampleId.flatMap { self.bamFilesBySample[$0] } ?? self.bamURL
+            let bamIndexURL: URL?
+            if let bamURL {
+                bamIndexURL = resolveBamIndex(for: bamURL, allOutputFiles: self.taxTriageResult?.allOutputFiles ?? [])
+            } else {
+                bamIndexURL = self.bamIndexURL
+            }
+            self.onBlastVerification?(organism, readCount, rowAccessions, bamURL, bamIndexURL)
+        }
+
         // Action bar BLAST verify (TaxTriage triggers BLAST via table context menu)
         actionBar.onBlastVerify = { [weak self] in
             // TaxTriage BLAST is triggered via the table context menu per-organism;
@@ -2693,11 +2716,37 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     // MARK: - Classifier extraction wiring
 
-    /// Builds per-sample selectors from the current organism-table selection.
-    /// TaxTriage rows do not carry a per-row sample id (the table represents
-    /// one sample at a time via `selectedBatchSampleId` / `sampleIds.first`),
-    /// so all selected accessions are grouped under that single sample id.
+    /// Builds per-sample selectors from the current table selection.
+    ///
+    /// When the batch flat table is visible (batch group mode or multi-sample
+    /// single-result mode), reads selected rows from `batchFlatTableView` and
+    /// groups accessions per sample. Otherwise falls back to the organism table
+    /// which represents one sample at a time.
     private func buildTaxTriageSelectors() -> [ClassifierRowSelector] {
+        // Batch flat table is the primary table in batch/multi-sample modes.
+        if !batchFlatTableView.isHidden {
+            let selectedMetrics = batchFlatTableView.selectedMetrics()
+            guard !selectedMetrics.isEmpty else { return [] }
+
+            // Group accessions by sample id since the flat table may have
+            // rows from multiple samples selected simultaneously.
+            var bySample: [String: [String]] = [:]
+            for metric in selectedMetrics {
+                let sampleId = metric.sample ?? sampleIds.first ?? "unknown"
+                let metricAccessions = self.accessions(for: metric) ?? []
+                bySample[sampleId, default: []].append(contentsOf: metricAccessions)
+            }
+            return bySample.compactMap { (sampleId, accessions) in
+                guard !accessions.isEmpty else { return nil }
+                return ClassifierRowSelector(
+                    sampleId: sampleId,
+                    accessions: accessions,
+                    taxIds: []
+                )
+            }
+        }
+
+        // Single-sample organism table fallback.
         let accessions = organismTableView.selectedTableRows().flatMap { self.accessions(for: $0) ?? [] }
         guard !accessions.isEmpty else { return [] }
         return [ClassifierRowSelector(
