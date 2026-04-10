@@ -1167,28 +1167,9 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     // MARK: - Callback Wiring
 
     private func wireCallbacks() {
-        // Action bar Extract FASTQ -> present extraction sheet for selected contigs
+        // Action bar Extract FASTQ -> route to the unified extraction dialog.
         actionBar.onExtractFASTQ = { [weak self] in
-            guard let self else { return }
-            let selectedIndexes = self.outlineView.selectedRowIndexes
-            var contigNames: [String] = []
-            for row in selectedIndexes {
-                guard let item = self.outlineView.item(atRow: row) as? NvdOutlineItem else { continue }
-                switch item {
-                case .contig(_, let qseqid):
-                    contigNames.append(qseqid)
-                case .childHit(_, let qseqid, _):
-                    contigNames.append(qseqid)
-                case .taxonGroup:
-                    break
-                }
-            }
-            guard !contigNames.isEmpty else { return }
-
-            let items = contigNames.map { "Contig: \($0)" }
-            let source = self.bundleURL?.lastPathComponent ?? "NVD result"
-            let suggestedName = "\(contigNames.first ?? "extract")_extract"
-            self.presentExtractionSheet(items: items, source: source, suggestedName: suggestedName)
+            self?.presentUnifiedExtractionDialog()
         }
 
         actionBar.onBlastVerify = { [weak self] in
@@ -1218,13 +1199,48 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         )
     }
 
-    // MARK: - Extraction Sheet
+    // MARK: - Classifier extraction wiring
 
-    private func presentExtractionSheet(items: [String], source: String, suggestedName: String) {
-        // TODO[phase5]: replaced by TaxonomyReadExtractionAction.shared.present(...)
-        #warning("phase5: old extraction sheet removed; new dialog wired up in Phase 5")
-        _ = items; _ = source; _ = suggestedName
-        return
+    /// Builds per-sample selectors from the current outline-view selection.
+    /// NvdOutlineItem.contig and .childHit both carry sampleId + qseqid; the
+    /// qseqid is the contig name (used as the BAM @SQ reference). Group by
+    /// sample so multi-sample selections produce one selector per sample.
+    private func buildNvdSelectors() -> [ClassifierRowSelector] {
+        var bySample: [String: [String]] = [:]
+        for row in outlineView.selectedRowIndexes {
+            guard let item = outlineView.item(atRow: row) as? NvdOutlineItem else { continue }
+            switch item {
+            case .contig(let sampleId, let qseqid):
+                bySample[sampleId, default: []].append(qseqid)
+            case .childHit(let sampleId, let qseqid, _):
+                bySample[sampleId, default: []].append(qseqid)
+            case .taxonGroup:
+                continue
+            }
+        }
+        return bySample.map { (sid, contigs) in
+            ClassifierRowSelector(sampleId: sid, accessions: contigs, taxIds: [])
+        }.sorted { ($0.sampleId ?? "") < ($1.sampleId ?? "") }
+    }
+
+    /// Presents the unified classifier extraction dialog for the current selection.
+    func presentUnifiedExtractionDialog() {
+        guard let window = view.window else { return }
+        let selectors = buildNvdSelectors()
+        guard !selectors.isEmpty else { return }
+        guard let resultPath = database?.databaseURL else { return }
+        let firstContig = selectors.first?.accessions.first ?? "extract"
+        let ctx = TaxonomyReadExtractionAction.Context(
+            tool: .nvd,
+            resultPath: resultPath,
+            selections: selectors,
+            suggestedName: "nvd_\(firstContig)"
+        )
+        TaxonomyReadExtractionAction.shared.present(context: ctx, hostWindow: window)
+    }
+
+    @objc private func contextExtractReadsUnified(_ sender: Any?) {
+        presentUnifiedExtractionDialog()
     }
 
     @objc private func handleLayoutSwapRequested(_ notification: Notification) {
@@ -1480,6 +1496,16 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
     private func populateContextMenu(_ menu: NSMenu, for hit: NvdBlastHit) {
         menu.removeAllItems()
+
+        // Extract Reads -> unified extraction dialog
+        let extractItem = NSMenuItem(
+            title: "Extract Reads\u{2026}",
+            action: #selector(contextExtractReadsUnified(_:)),
+            keyEquivalent: ""
+        )
+        extractItem.target = self
+        menu.addItem(extractItem)
+        menu.addItem(NSMenuItem.separator())
 
         // BLAST Verify (single selection only)
         if onBlastVerification != nil, database != nil,
