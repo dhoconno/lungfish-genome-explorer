@@ -194,4 +194,4 @@ Date: 2026-04-09. Branch: `feature/batch-aggregated-classifier-views`. All chang
 
 ### Commit
 
-Simplification pass landed as a single commit on `feature/batch-aggregated-classifier-views`. SHA is appended to this section once the commit lands.
+Simplification pass landed as commit `60a4774` on `feature/batch-aggregated-classifier-views`.
