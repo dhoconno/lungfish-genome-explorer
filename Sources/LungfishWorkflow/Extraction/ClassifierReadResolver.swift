@@ -308,12 +308,30 @@ public actor ClassifierReadResolver {
             candidates = urls
 
         case .taxtriage:
-            // TaxTriage nf-core layout: minimap2/{sampleId}.bam
+            // TaxTriage nf-core layout stores BAMs in minimap2/ with naming
+            // patterns that vary by pipeline version:
+            //   Current: minimap2/{sampleId}.{sampleId}.dwnld.references.bam
+            //   Legacy:  minimap2/{sampleId}.bam
+            // We try the exact legacy name first, then scan minimap2/ for any
+            // BAM whose filename starts with the sampleId.
             guard let sampleId else {
                 candidates = []
                 break
             }
-            candidates = [resultDir.appendingPathComponent("minimap2/\(sampleId).bam")]
+            var urls: [URL] = []
+            urls.append(resultDir.appendingPathComponent("minimap2/\(sampleId).bam"))
+            let minimap2Dir = resultDir.appendingPathComponent("minimap2")
+            if fm.fileExists(atPath: minimap2Dir.path) {
+                if let contents = try? fm.contentsOfDirectory(at: minimap2Dir, includingPropertiesForKeys: nil) {
+                    for file in contents where file.lastPathComponent.hasPrefix(sampleId)
+                        && file.lastPathComponent.hasSuffix(".bam")
+                        && !file.lastPathComponent.hasSuffix(".bam.bai")
+                        && !urls.contains(file) {
+                        urls.append(file)
+                    }
+                }
+            }
+            candidates = urls
 
         case .naomgs:
             // NAO-MGS: bams/{sampleId}.sorted.bam (materialized from SQLite if missing).
