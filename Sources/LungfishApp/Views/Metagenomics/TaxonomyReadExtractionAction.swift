@@ -168,6 +168,19 @@ public final class TaxonomyReadExtractionAction {
     /// Synchronous and non-throwing — all async work happens inside a detached
     /// Task. Errors surface via `NSAlert.beginSheetModal` on `hostWindow`.
     public func present(context: Context, hostWindow: NSWindow) {
+        #if DEBUG
+        // Phase 7 Task 7.2: when `testingCaptureOnly` is set, record the
+        // context and return immediately without presenting the real dialog.
+        // This short-circuit is BEFORE the re-entrancy guard so tests observe
+        // the context even if a prior test left a sheet attached (defense
+        // against cross-test pollution).
+        if testingCaptureOnly {
+            testingCapture.presentCount += 1
+            testingCapture.lastContext = context
+            return
+        }
+        #endif
+
         // Re-entrancy guard (Phase 4 review-1 significant #4). AppKit only
         // supports one sheet per window at a time, so if the host already has
         // a sheet attached, drop this request silently. The user can retry
@@ -673,6 +686,25 @@ public final class TaxonomyReadExtractionAction {
             hostWindow: fakeHost
         )
     }
+
+    /// Test-only capture struct for observing `present()` calls without
+    /// actually presenting a dialog. Used by `ClassifierExtractionMenuWiringTests`
+    /// to assert the VC → menu → orchestrator Context propagation.
+    public struct TestingCapture {
+        public var lastContext: Context?
+        public var presentCount: Int = 0
+
+        public init() {}
+    }
+
+    /// Test-only: records the most recent `present()` call's context when
+    /// `testingCaptureOnly` is set.
+    public var testingCapture: TestingCapture = TestingCapture()
+
+    /// Test-only: when `true`, `present()` records the context and returns
+    /// immediately WITHOUT presenting the real dialog. The test is responsible
+    /// for resetting this in `tearDown`.
+    public var testingCaptureOnly: Bool = false
     #endif
 }
 
