@@ -115,30 +115,72 @@ final class ClassifierExtractionMenuWiringTests: XCTestCase {
         XCTAssertEqual(captured?.suggestedName, "kr2-test")
     }
 
-    // MARK: - All tools — "Extract Reads…" is the universal label
+    // MARK: - All tools — orchestrator accepts every classifier tool
 
-    func testAllTools_menuLabelIsExtractReads() {
-        // Regression guard: no code path in Phase 5 may silently rename the
-        // menu item to "Extract FASTQ", "Extract Sequences", etc. The Phase 6
-        // I1 invariants already check this for all five tools, but this test
-        // exercises the same two dynamic table views Phase 7 covers above so
-        // both layers fail together when the label drifts.
-        let extractReadsTitle = "Extract Reads\u{2026}"
-
-        let viralTable = ViralDetectionTableView(frame: .zero)
-        let viralMenu = viralTable.testingContextMenu
-        XCTAssertNotNil(viralMenu, "ViralDetectionTableView must have a context menu")
-        XCTAssertTrue(
-            viralMenu?.items.contains(where: { $0.title == extractReadsTitle }) ?? false,
-            "ViralDetectionTableView must use 'Extract Reads…' (not 'Extract FASTQ' or similar)"
+    /// VC-agnostic wiring coverage for the 3 tools (TaxTriage, NAO-MGS, NVD)
+    /// whose menus are built inside VCs that can't be instantiated in a unit
+    /// test without a full AppKit window hierarchy. This is a weaker test
+    /// than the live EsViritu/Kraken2 click paths above — it only proves the
+    /// orchestrator's `present()` path accepts each tool — but it would still
+    /// catch a regression that silently drops a `ClassifierTool` case from
+    /// the dispatch switch.
+    ///
+    /// NOTE: The per-VC menu-click tests for TaxTriage/NAO-MGS/NVD are
+    /// deliberately deferred to Phase 8 manual GUI verification because
+    /// instantiating those VCs requires a live NSApplication context.
+    func testAllTools_orchestratorAcceptsAllClassifierTools() {
+        let host = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 400),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
         )
+        host.contentView = NSView(frame: .zero)
 
-        let taxonTable = TaxonomyTableView(frame: .zero)
-        let taxonMenu = taxonTable.testingContextMenu
-        XCTAssertNotNil(taxonMenu, "TaxonomyTableView must have a context menu")
-        XCTAssertTrue(
-            taxonMenu?.items.contains(where: { $0.title == extractReadsTitle }) ?? false,
-            "TaxonomyTableView must use 'Extract Reads…'"
-        )
+        for tool in ClassifierTool.allCases {
+            // Reset the capture so we observe exactly one call per iteration.
+            TaxonomyReadExtractionAction.shared.testingCapture = .init()
+
+            let selection: ClassifierRowSelector
+            switch tool {
+            case .esviritu, .taxtriage, .naomgs, .nvd:
+                selection = ClassifierRowSelector(
+                    sampleId: "S1",
+                    accessions: ["NC_TEST"],
+                    taxIds: []
+                )
+            case .kraken2:
+                selection = ClassifierRowSelector(
+                    sampleId: nil,
+                    accessions: [],
+                    taxIds: [9606]
+                )
+            }
+
+            let ctx = TaxonomyReadExtractionAction.Context(
+                tool: tool,
+                resultPath: URL(fileURLWithPath: "/tmp/unit-test-\(tool.rawValue).sqlite"),
+                selections: [selection],
+                suggestedName: "test-\(tool.rawValue)"
+            )
+            TaxonomyReadExtractionAction.shared.present(context: ctx, hostWindow: host)
+
+            XCTAssertEqual(
+                TaxonomyReadExtractionAction.shared.testingCapture.presentCount,
+                1,
+                "Orchestrator must accept present() for \(tool.rawValue)"
+            )
+            let captured = TaxonomyReadExtractionAction.shared.testingCapture.lastContext
+            XCTAssertEqual(
+                captured?.tool,
+                tool,
+                "Captured context must preserve tool for \(tool.rawValue)"
+            )
+            XCTAssertEqual(
+                captured?.suggestedName,
+                "test-\(tool.rawValue)",
+                "Captured context must preserve suggestedName for \(tool.rawValue)"
+            )
+        }
     }
 }
