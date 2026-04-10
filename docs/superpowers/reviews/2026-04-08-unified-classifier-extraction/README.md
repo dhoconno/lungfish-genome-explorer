@@ -207,3 +207,30 @@ warnings remain. The AppDelegate auto-extract path at line 5305 is
 rewired to call `TaxonomyReadExtractionAction.shared.present(...)`.
 
 **Phase 5 is closed. Phase 6 may begin.**
+
+## Phase 6 Gate 4 closure (2026-04-09)
+
+Run after Phase 6 simplification pass (commit `3aa8c62`, review-1 disposition).
+
+- **Build:** `swift build --build-tests` — clean.
+- **swift-testing:** 189 tests — all passing.
+- **XCTest:** 6395 tests, 27 skipped, 7 assertion errors across the same 4 unique Phase 5 floor methods.
+  - 6395 = 6371 (Phase 5 baseline) + 24 new `ClassifierExtractionInvariantTests` ✓
+  - 27 skipped = 26 (Phase 5) + 1 new (Kraken2 I7 round-trip, fixture incomplete per Phase 7) ✓
+- **Invariant suite runtime:** ~2.4s (48% of the 5-second budget).
+
+### I4 fixture teeth verified
+
+Augmented `Tests/Fixtures/sarscov2/test.paired_end.sorted.markers.bam`:
+- raw total: 203
+- `-F 0x404` filtered: 199
+- `-F 0x400` filtered: 202
+- Contains 1 secondary (0x100), 1 supplementary (0x800), 1 duplicate (0x400), 3 unmapped (0x004).
+
+The Phase 2 review-2 forwarded I4 fixture-teeth requirement is **resolved**. Any regression that removes the `0x404` mask from the resolver or MarkdupService will now fail the I4 invariant.
+
+### Floor comparison (Phase 5 → Phase 6)
+
+Same 4 unique failing methods as Phase 5. Zero new regressions.
+
+**Phase 6 is closed. Phase 7 may begin.**
