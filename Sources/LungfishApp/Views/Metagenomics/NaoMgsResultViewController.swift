@@ -109,6 +109,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     private var columnFilters: [String: ColumnFilter] = [:]
     /// Column type hints — true = numeric, false = text.
     private var columnTypes: [String: Bool] = [:]
+    /// Original column titles before filter indicators were appended.
+    private var originalColumnTitles: [String: String] = [:]
     private let detailScrollView = NSScrollView()
     private let detailContentView = FlippedNaoMgsContentView()
     let actionBar = ClassifierActionBar()
@@ -411,6 +413,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         let selectedTaxId = selectedRow?.taxId
         let selectedSample = selectedRow?.sample
         taxonomyTableView.reloadData()
+        ColumnFilter.updateColumnTitleIndicators(on: taxonomyTableView, filters: columnFilters, originalTitles: &originalColumnTitles)
 
         guard !displayedRows.isEmpty else {
             suppressSelectionSync = true

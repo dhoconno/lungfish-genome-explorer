@@ -118,6 +118,9 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
     /// Per-column filters applied via column header click menus.
     private(set) var columnFilters: [String: ColumnFilter] = [:]
 
+    /// Original column titles before filter indicators were appended.
+    private var originalColumnTitles: [String: String] = [:]
+
     /// Current filter text applied to rows.
     private var filterText: String = ""
 
@@ -307,6 +310,7 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
             self.displayedRows = filtered
         }
         tableView.reloadData()
+        ColumnFilter.updateColumnTitleIndicators(on: tableView, filters: columnFilters, originalTitles: &originalColumnTitles)
     }
 
     // MARK: - Cell Factory

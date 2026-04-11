@@ -132,6 +132,20 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     /// Per-column filters applied via column header click menus.
     private var columnFilters: [String: ColumnFilter] = [:]
 
+    /// Original column titles before filter indicators were appended.
+    private var originalColumnTitles: [String: String] = [:]
+
+    /// Refreshes the outline view and updates column header filter indicators.
+    private func reloadDataAndUpdateFilterIndicators() {
+        outlineView.reloadData()
+        ColumnFilter.updateColumnTitleIndicators(
+            columns: outlineView.tableColumns,
+            filters: columnFilters,
+            originalTitles: &originalColumnTitles
+        )
+        outlineView.headerView?.needsDisplay = true
+    }
+
     /// Column type hints — true = numeric, false = text.
     private let columnTypes: [String: Bool] = [
         ColumnID.sample: false,
@@ -894,7 +908,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
             }
 
             self.columnFilters[columnId] = ColumnFilter(columnId: columnId, op: op, value: value, value2: value2)
-            self.outlineView.reloadData()
+            self.reloadDataAndUpdateFilterIndicators()
         }
     }
 
@@ -919,12 +933,12 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     @objc private func clearColumnFilter(_ sender: NSMenuItem) {
         guard let columnId = sender.representedObject as? String else { return }
         columnFilters.removeValue(forKey: columnId)
-        outlineView.reloadData()
+        reloadDataAndUpdateFilterIndicators()
     }
 
     @objc private func clearAllColumnFilters(_ sender: Any?) {
         columnFilters.removeAll()
-        outlineView.reloadData()
+        reloadDataAndUpdateFilterIndicators()
     }
 
     // MARK: - NSOutlineViewDelegate
