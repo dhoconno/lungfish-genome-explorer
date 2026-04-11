@@ -1795,11 +1795,17 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                let db = try? Kraken2Database(at: dbURL) {
                 viewerController.displayTaxonomyFromDatabase(db: db, resultURL: batchURL)
                 if let taxonomyVC = viewerController.taxonomyViewController {
+                    // Load sample metadata from the bundle if available
+                    let knownIds = Set(taxonomyVC.sampleEntries.map(\.id))
+                    let metadataStore = SampleMetadataStore.load(from: batchURL, knownSampleIds: knownIds)
+                    metadataStore?.wireAutosave(bundleURL: batchURL)
+                    taxonomyVC.sampleMetadataStore = metadataStore
+
                     self.inspectorController?.updateClassifierSampleState(
                         pickerState: taxonomyVC.samplePickerState,
                         entries: taxonomyVC.sampleEntries,
                         strippedPrefix: taxonomyVC.strippedPrefix,
-                        metadata: nil,
+                        metadata: metadataStore,
                         attachments: BundleAttachmentStore(bundleURL: batchURL)
                     )
                 }
