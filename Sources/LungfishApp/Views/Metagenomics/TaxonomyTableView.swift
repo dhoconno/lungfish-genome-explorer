@@ -137,13 +137,12 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
 
     /// Refreshes the outline view and updates column header filter indicators.
     private func reloadDataAndUpdateFilterIndicators() {
-        outlineView.reloadData()
         ColumnFilter.updateColumnTitleIndicators(
             columns: outlineView.tableColumns,
             filters: columnFilters,
             originalTitles: &originalColumnTitles
         )
-        outlineView.headerView?.needsDisplay = true
+        outlineView.reloadData()
     }
 
     /// Column type hints — true = numeric, false = text.

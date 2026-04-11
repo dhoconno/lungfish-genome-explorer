@@ -134,10 +134,15 @@ public struct ColumnFilter: Sendable {
 import AppKit
 
 extension ColumnFilter {
+    /// Filter indicator suffix appended to column titles.
+    private static let filterIndicator = " ◆"
+
     // MARK: - Column Title Indicator
 
-    /// Updates column header cells to show a Lungfish Orange diamond indicator
-    /// when a filter is active on that column.
+    /// Updates column titles to show a diamond indicator when a filter is active.
+    ///
+    /// Uses the column title directly (not attributed strings) so the indicator
+    /// persists across table reloads.
     ///
     /// - Parameters:
     ///   - columns: The table columns to update.
@@ -151,27 +156,20 @@ extension ColumnFilter {
         for column in columns {
             let colId = column.identifier.rawValue
 
-            // Store original title on first encounter
+            // Store original title on first encounter (strip any existing indicator)
             if originalTitles[colId] == nil {
-                originalTitles[colId] = column.title
+                var title = column.title
+                if title.hasSuffix(filterIndicator) {
+                    title = String(title.dropLast(filterIndicator.count))
+                }
+                originalTitles[colId] = title
             }
 
             guard let originalTitle = originalTitles[colId] else { continue }
 
             if let filter = filters[colId], filter.isActive {
-                let attributed = NSMutableAttributedString(string: originalTitle + " ")
-                let diamond = NSAttributedString(
-                    string: "◆",
-                    attributes: [
-                        .foregroundColor: NSColor.lungfishOrange,
-                        .font: NSFont.systemFont(ofSize: 9),
-                    ]
-                )
-                attributed.append(diamond)
-                column.headerCell.attributedStringValue = attributed
-                column.title = originalTitle
+                column.title = originalTitle + filterIndicator
             } else {
-                column.headerCell.attributedStringValue = NSAttributedString(string: originalTitle)
                 column.title = originalTitle
             }
         }
