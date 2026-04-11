@@ -214,6 +214,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             let selected = samplePickerState?.selectedSamples.sorted() ?? []
             let sampleId = selected.count == 1 ? selected.first : nil
             detectionTableView.metadataColumns.update(store: sampleMetadataStore, sampleId: sampleId)
+            batchTableView.metadataColumns.update(store: sampleMetadataStore, sampleId: nil)
         }
     }
 

@@ -1431,12 +1431,17 @@ private func formatBases(_ bases: Int64) -> String {
             let knownSampleIds: Set<String>
             let naoMgsDB = bundleURL.appendingPathComponent("hits.sqlite")
             let kraken2DB = bundleURL.appendingPathComponent("kraken2.sqlite")
+            let esvirituDB = bundleURL.appendingPathComponent("esviritu.sqlite")
             if fm.fileExists(atPath: naoMgsDB.path) {
                 let db = try NaoMgsDatabase(at: naoMgsDB)
                 let samples = try db.fetchSamples()
                 knownSampleIds = Set(samples.map(\.sample))
             } else if fm.fileExists(atPath: kraken2DB.path) {
                 let db = try Kraken2Database(at: kraken2DB)
+                let samples = try db.fetchSamples()
+                knownSampleIds = Set(samples.map(\.sample))
+            } else if fm.fileExists(atPath: esvirituDB.path) {
+                let db = try EsVirituDatabase(at: esvirituDB)
                 let samples = try db.fetchSamples()
                 knownSampleIds = Set(samples.map(\.sample))
             } else {

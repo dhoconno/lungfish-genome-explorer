@@ -1856,11 +1856,16 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                let db = try? EsVirituDatabase(at: dbURL) {
                 viewerController.displayEsVirituFromDatabase(db: db, resultURL: batchURL)
                 if let evVC = viewerController.esVirituViewController {
+                    let knownIds = Set(evVC.sampleEntries.map(\.id))
+                    let metadataStore = SampleMetadataStore.load(from: batchURL, knownSampleIds: knownIds)
+                    metadataStore?.wireAutosave(bundleURL: batchURL)
+                    evVC.sampleMetadataStore = metadataStore
+
                     self.inspectorController?.updateClassifierSampleState(
                         pickerState: evVC.samplePickerState,
                         entries: evVC.sampleEntries,
                         strippedPrefix: evVC.strippedPrefix,
-                        metadata: nil,
+                        metadata: metadataStore,
                         attachments: BundleAttachmentStore(bundleURL: batchURL)
                     )
                 }

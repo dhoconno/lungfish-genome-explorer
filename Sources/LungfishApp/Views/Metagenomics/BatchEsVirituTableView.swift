@@ -47,6 +47,13 @@ final class BatchEsVirituTableView: BatchTableView<BatchEsVirituRow> {
 
     override var searchPlaceholder: String { "Filter viruses\u{2026}" }
 
+    override var columnTypeHints: [String: Bool] {
+        [
+            "sample": false, "name": false, "family": false, "assembly": false,
+            "reads": true, "uniqueReads": true, "rpkmf": true, "coverage": true,
+        ]
+    }
+
     override func cellContent(
         for column: NSUserInterfaceItemIdentifier,
         row: BatchEsVirituRow
