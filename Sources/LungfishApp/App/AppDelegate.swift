@@ -407,7 +407,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         sidebarController.reloadFromFilesystem()
         _ = sidebarController.selectItem(forURL: url)
-        requestInspectorDocumentModeAfterDownload()
+
+        // Metagenomics results set their own inspector tab via contentMode
+        // notification; forcing "document" tab would override it.
+        let isMetagenomicsResult = url.lastPathComponent.hasPrefix("naomgs-")
+            || url.lastPathComponent.hasPrefix("kraken2-")
+            || url.lastPathComponent.hasPrefix("esviritu-")
+            || url.lastPathComponent.hasPrefix("taxtriage-")
+            || url.lastPathComponent.hasPrefix("nvd-")
+        if !isMetagenomicsResult {
+            requestInspectorDocumentModeAfterDownload()
+        }
     }
 
     /// Ensures post-download imports land on the Inspector's Document tab.
