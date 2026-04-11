@@ -1425,16 +1425,31 @@ private func formatBases(_ bases: Int64) -> String {
 
             let csvData = try Data(contentsOf: inputURL)
 
-            // Discover known sample IDs from the bundle's database
+            // Discover known sample IDs from the bundle's database.
+            // Supports NAO-MGS (hits.sqlite), Kraken2 (kraken2.sqlite),
+            // and other classifier types.
             let knownSampleIds: Set<String>
-            let dbURL = bundleURL.appendingPathComponent("hits.sqlite")
-            if fm.fileExists(atPath: dbURL.path) {
-                let db = try NaoMgsDatabase(at: dbURL)
+            let naoMgsDB = bundleURL.appendingPathComponent("hits.sqlite")
+            let kraken2DB = bundleURL.appendingPathComponent("kraken2.sqlite")
+            if fm.fileExists(atPath: naoMgsDB.path) {
+                let db = try NaoMgsDatabase(at: naoMgsDB)
+                let samples = try db.fetchSamples()
+                knownSampleIds = Set(samples.map(\.sample))
+            } else if fm.fileExists(atPath: kraken2DB.path) {
+                let db = try Kraken2Database(at: kraken2DB)
                 let samples = try db.fetchSamples()
                 knownSampleIds = Set(samples.map(\.sample))
             } else {
-                // Try manifest for other classifier types
-                knownSampleIds = []
+                // Fallback: scan for sample subdirectories
+                let contents = (try? fm.contentsOfDirectory(at: bundleURL, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
+                let subdirs = contents.filter {
+                    (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+                        && !$0.lastPathComponent.hasPrefix(".")
+                        && $0.lastPathComponent != "metadata"
+                        && $0.lastPathComponent != "references"
+                        && $0.lastPathComponent != "bams"
+                }
+                knownSampleIds = Set(subdirs.map(\.lastPathComponent))
             }
 
             if knownSampleIds.isEmpty {
