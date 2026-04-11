@@ -128,16 +128,16 @@ public struct ColumnFilter: Sendable {
         return Double(cleaned)
     }
 
+}
+
+#if canImport(AppKit)
+import AppKit
+
+extension ColumnFilter {
     // MARK: - Column Title Indicator
 
-    /// Suffix appended to column titles when a filter is active.
-    private static let filterIndicator = " ◆"
-
-    /// Updates column titles on a table/outline view to show filter indicators.
-    ///
-    /// Columns with active filters get a small diamond appended to their title.
-    /// Columns without filters have any indicator stripped. Call this after
-    /// changing `columnFilters` to keep the headers in sync.
+    /// Updates column header cells to show a Lungfish Orange diamond indicator
+    /// when a filter is active on that column.
     ///
     /// - Parameters:
     ///   - columns: The table columns to update.
@@ -159,19 +159,25 @@ public struct ColumnFilter: Sendable {
             guard let originalTitle = originalTitles[colId] else { continue }
 
             if let filter = filters[colId], filter.isActive {
-                column.title = originalTitle + filterIndicator
+                let attributed = NSMutableAttributedString(string: originalTitle + " ")
+                let diamond = NSAttributedString(
+                    string: "◆",
+                    attributes: [
+                        .foregroundColor: NSColor.lungfishOrange,
+                        .font: NSFont.systemFont(ofSize: 9),
+                    ]
+                )
+                attributed.append(diamond)
+                column.headerCell.attributedStringValue = attributed
+                column.title = originalTitle
             } else {
+                column.headerCell.attributedStringValue = NSAttributedString(string: originalTitle)
                 column.title = originalTitle
             }
         }
     }
-}
 
-#if canImport(AppKit)
-import AppKit
-
-extension ColumnFilter {
-    /// Convenience overload accepting NSTableColumn array directly.
+    /// Convenience overload accepting NSTableView directly.
     public static func updateColumnTitleIndicators(
         on tableView: NSTableView,
         filters: [String: ColumnFilter],
