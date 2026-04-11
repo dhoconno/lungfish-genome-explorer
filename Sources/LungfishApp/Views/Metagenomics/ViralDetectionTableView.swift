@@ -944,9 +944,19 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         guard let column = tableColumn else { return nil }
         let colID = column.identifier.rawValue
 
-        // Check for dynamic metadata columns first (same value for all rows in single-sample)
-        if let cell = metadataColumns.cellForColumn(column) {
-            return cell
+        // Check for dynamic metadata columns — pass per-row sample ID in multi-sample mode.
+        if MetadataColumnController.isMetadataColumn(column.identifier) {
+            let rowSampleId: String?
+            if let assemblyItem = item as? ViralAssemblyItem {
+                rowSampleId = assemblyItem.assembly.contigs.first?.sampleId
+            } else if let detectionItem = item as? ViralDetectionItem {
+                rowSampleId = detectionItem.detection.sampleId
+            } else {
+                rowSampleId = nil
+            }
+            if let cell = metadataColumns.cellForColumn(column, sampleId: rowSampleId ?? metadataColumns.currentSampleId) {
+                return cell
+            }
         }
 
         if let assemblyItem = item as? ViralAssemblyItem {
