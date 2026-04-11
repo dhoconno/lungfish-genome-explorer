@@ -58,6 +58,7 @@ struct ImportCommand: AsyncParsableCommand {
             TaxTriageSubcommand.self,
             NaoMgsSubcommand.self,
             NvdSubcommand.self,
+            MetadataSubcommand.self,
         ]
     )
 }
@@ -1377,6 +1378,111 @@ private func formatBases(_ bases: Int64) -> String {
         return String(format: "%.2f Gb", Double(bases) / 1_000_000_000)
     }
 }
+
+    // MARK: - Metadata Import
+
+    /// Import sample metadata CSV/TSV into a result bundle.
+    ///
+    /// Reads a comma- or tab-delimited file, auto-detects the sample ID column,
+    /// and stores the metadata inside the bundle's `metadata/` directory.
+    ///
+    /// ```
+    /// # Import metadata CSV into an NAO-MGS result
+    /// lungfish import metadata metadata.csv --bundle ./Analyses/naomgs-result/
+    /// ```
+    struct MetadataSubcommand: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "metadata",
+            abstract: "Import sample metadata CSV/TSV into a result bundle"
+        )
+
+        @Argument(help: "Path to the metadata CSV or TSV file")
+        var inputPath: String
+
+        @Option(
+            name: [.customLong("bundle"), .customShort("b")],
+            help: "Path to the result bundle directory (e.g., naomgs-*, kraken2-*)"
+        )
+        var bundlePath: String
+
+        @OptionGroup var globalOptions: GlobalOptions
+
+        func run() throws {
+            let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+            let fm = FileManager.default
+
+            let inputURL = URL(fileURLWithPath: inputPath)
+            guard fm.fileExists(atPath: inputURL.path) else {
+                print(formatter.error("Metadata file not found: \(inputPath)"))
+                throw ExitCode.failure
+            }
+
+            let bundleURL = URL(fileURLWithPath: bundlePath)
+            guard fm.fileExists(atPath: bundleURL.path) else {
+                print(formatter.error("Bundle directory not found: \(bundlePath)"))
+                throw ExitCode.failure
+            }
+
+            let csvData = try Data(contentsOf: inputURL)
+
+            // Discover known sample IDs from the bundle's database
+            let knownSampleIds: Set<String>
+            let dbURL = bundleURL.appendingPathComponent("hits.sqlite")
+            if fm.fileExists(atPath: dbURL.path) {
+                let db = try NaoMgsDatabase(at: dbURL)
+                let samples = try db.fetchSamples()
+                knownSampleIds = Set(samples.map(\.sample))
+            } else {
+                // Try manifest for other classifier types
+                knownSampleIds = []
+            }
+
+            if knownSampleIds.isEmpty {
+                print(formatter.warning("No sample IDs found in bundle — metadata will be stored but may not match"))
+            }
+
+            // Scan for sample column
+            let scanResult = try SampleMetadataStore.scanForSampleColumn(
+                csvData: csvData,
+                knownSampleIds: knownSampleIds
+            )
+
+            guard let bestColumn = scanResult.bestColumn else {
+                print(formatter.error("Could not identify a sample ID column in the metadata file"))
+                if !scanResult.candidates.isEmpty {
+                    print("Candidate columns: \(scanResult.candidates.map(\.name).joined(separator: ", "))")
+                }
+                throw ExitCode.failure
+            }
+
+            let store = SampleMetadataStore(
+                scanResult: scanResult,
+                sampleColumnIndex: bestColumn.index,
+                knownSampleIds: knownSampleIds
+            )
+
+            // Persist to bundle (pass original CSV data for storage)
+            try store.persist(originalData: csvData, to: bundleURL)
+
+            print(formatter.header("Metadata Import"))
+            print("")
+            print(formatter.keyValueTable([
+                ("Input", inputURL.lastPathComponent),
+                ("Bundle", bundleURL.lastPathComponent),
+                ("Columns", String(store.columnNames.count)),
+                ("Matched samples", String(store.matchedSampleIds.count)),
+                ("Unmatched records", String(store.unmatchedRecords.count)),
+                ("Sample ID column", bestColumn.name),
+            ]))
+            print("")
+
+            if !store.matchedSampleIds.isEmpty {
+                print(formatter.success("Imported \(store.columnNames.count) metadata columns for \(store.matchedSampleIds.count) sample(s)"))
+            } else {
+                print(formatter.warning("No sample IDs matched — metadata stored but not linked"))
+            }
+        }
+    }
 
 /// Scans a directory for files matching the given extensions.
 private func scanForFiles(in directory: URL, extensions: [String]) -> [URL] {
