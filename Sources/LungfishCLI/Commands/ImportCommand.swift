@@ -1444,6 +1444,10 @@ private func formatBases(_ bases: Int64) -> String {
                 let db = try EsVirituDatabase(at: esvirituDB)
                 let samples = try db.fetchSamples()
                 knownSampleIds = Set(samples.map(\.sample))
+            } else if fm.fileExists(atPath: bundleURL.appendingPathComponent("taxtriage.sqlite").path) {
+                let db = try TaxTriageDatabase(at: bundleURL.appendingPathComponent("taxtriage.sqlite"))
+                let samples = try db.fetchSamples()
+                knownSampleIds = Set(samples.map(\.sample))
             } else {
                 // Fallback: scan for sample subdirectories
                 let contents = (try? fm.contentsOfDirectory(at: bundleURL, includingPropertiesForKeys: [.isDirectoryKey])) ?? []

@@ -259,6 +259,14 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
 
     override var searchPlaceholder: String { "Filter organisms\u{2026}" }
 
+    override var columnTypeHints: [String: Bool] {
+        [
+            "sample": false, "organism": false, "confidence": false,
+            "tassScore": true, "reads": true, "uniqueReads": true,
+            "coverageBreadth": true, "coverageDepth": true, "abundance": true,
+        ]
+    }
+
     override var standardColumnNames: [String] {
         ["Sample", "Organism", "TASS Score",
          "Reads", "Unique Reads", "Confidence",

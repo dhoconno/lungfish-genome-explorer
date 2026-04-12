@@ -1912,11 +1912,16 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                let db = try? TaxTriageDatabase(at: dbURL) {
                 viewerController.displayTaxTriageFromDatabase(db: db, resultURL: batchURL)
                 if let ttVC = viewerController.taxTriageViewController {
+                    let knownIds = Set(ttVC.sampleEntries.map(\.id))
+                    let metadataStore = SampleMetadataStore.load(from: batchURL, knownSampleIds: knownIds)
+                    metadataStore?.wireAutosave(bundleURL: batchURL)
+                    ttVC.sampleMetadataStore = metadataStore
+
                     self.inspectorController?.updateClassifierSampleState(
                         pickerState: ttVC.samplePickerState,
                         entries: ttVC.sampleEntries,
                         strippedPrefix: ttVC.strippedPrefix,
-                        metadata: nil,
+                        metadata: metadataStore,
                         attachments: BundleAttachmentStore(bundleURL: batchURL)
                     )
                 }

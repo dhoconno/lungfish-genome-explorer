@@ -423,3 +423,141 @@ struct Kraken2BatchColumnTypeTests {
         #expect(hints["rank"] == false)
     }
 }
+
+// MARK: - TaxTriage Batch Column Filtering
+
+@Suite("TaxTriage Batch — Column Filtering")
+@MainActor
+struct TaxTriageBatchFilterTests {
+
+    private func makeRow(
+        sample: String = "S1",
+        organism: String = "Virus A",
+        tassScore: Double = 0.8,
+        reads: Int = 100,
+        confidence: String = "high",
+        coverageBreadth: Double = 50.0,
+        coverageDepth: Double = 3.0,
+        abundance: Double = 0.05
+    ) -> TaxTriageMetric {
+        TaxTriageMetric(
+            sample: sample, taxId: nil, organism: organism, rank: "S",
+            reads: reads, abundance: abundance,
+            coverageBreadth: coverageBreadth, coverageDepth: coverageDepth,
+            tassScore: tassScore, confidence: confidence,
+            additionalFields: [:], sourceLineNumber: nil
+        )
+    }
+
+    @Test("Filter by TASS score numeric column")
+    func filterByTassScore() {
+        let rows = [
+            makeRow(organism: "Norovirus", tassScore: 0.95),
+            makeRow(organism: "Rotavirus", tassScore: 0.45),
+            makeRow(organism: "Astrovirus", tassScore: 0.72),
+        ]
+
+        let filter = ColumnFilter(columnId: "tassScore", op: .greaterOrEqual, value: "0.7")
+        let filtered = rows.filter { filter.matchesNumeric($0.tassScore) }
+        #expect(filtered.count == 2)
+        #expect(Set(filtered.map(\.organism)) == Set(["Norovirus", "Astrovirus"]))
+    }
+
+    @Test("Filter by organism text column")
+    func filterByOrganism() {
+        let rows = [
+            makeRow(organism: "Norovirus GII"),
+            makeRow(organism: "Rotavirus A"),
+            makeRow(organism: "Norovirus GI"),
+        ]
+
+        let filter = ColumnFilter(columnId: "organism", op: .contains, value: "Norovirus")
+        let filtered = rows.filter { filter.matchesString($0.organism) }
+        #expect(filtered.count == 2)
+    }
+
+    @Test("Filter by reads with K suffix")
+    func filterByReadsKSuffix() {
+        let rows = [
+            makeRow(organism: "A", reads: 500),
+            makeRow(organism: "B", reads: 1500),
+            makeRow(organism: "C", reads: 3000),
+        ]
+
+        let filter = ColumnFilter(columnId: "reads", op: .greaterOrEqual, value: "1K")
+        let filtered = rows.filter { filter.matchesNumeric(Double($0.reads)) }
+        #expect(filtered.count == 2)
+        #expect(filtered.allSatisfy { $0.reads >= 1000 })
+    }
+
+    @Test("Filter by confidence text column")
+    func filterByConfidence() {
+        let rows = [
+            makeRow(organism: "A", confidence: "high"),
+            makeRow(organism: "B", confidence: "medium"),
+            makeRow(organism: "C", confidence: "low"),
+            makeRow(organism: "D", confidence: "high"),
+        ]
+
+        let filter = ColumnFilter(columnId: "confidence", op: .equal, value: "high")
+        let filtered = rows.filter { filter.matchesString($0.confidence ?? "") }
+        #expect(filtered.count == 2)
+    }
+
+    @Test("Filter by coverage breadth between")
+    func filterByCoverageBetween() {
+        let rows = [
+            makeRow(organism: "A", coverageBreadth: 10.0),
+            makeRow(organism: "B", coverageBreadth: 45.0),
+            makeRow(organism: "C", coverageBreadth: 80.0),
+        ]
+
+        let filter = ColumnFilter(columnId: "coverageBreadth", op: .between, value: "30", value2: "60")
+        let filtered = rows.filter { filter.matchesNumeric($0.coverageBreadth ?? 0) }
+        #expect(filtered.count == 1)
+        #expect(filtered[0].organism == "B")
+    }
+
+    @Test("BatchTaxTriageTableView declares correct column types")
+    func columnTypeHintsCorrect() {
+        let table = BatchTaxTriageTableView()
+        let hints = table.columnTypeHints
+        #expect(hints["tassScore"] == true)
+        #expect(hints["reads"] == true)
+        #expect(hints["uniqueReads"] == true)
+        #expect(hints["coverageBreadth"] == true)
+        #expect(hints["coverageDepth"] == true)
+        #expect(hints["abundance"] == true)
+        #expect(hints["sample"] == false)
+        #expect(hints["organism"] == false)
+        #expect(hints["confidence"] == false)
+    }
+
+    @Test("Metadata filter on TaxTriage rows via sample ID join")
+    func metadataFilterOnTaxTriageRows() throws {
+        let store = try makeMetadataStore(
+            samples: ["S1", "S2"],
+            columns: ["organism", "read_count"],
+            values: [["Homo sapiens", "12000000"], ["Mus musculus", "8000000"]]
+        )
+
+        let rows = [
+            makeRow(sample: "S1", organism: "Norovirus"),
+            makeRow(sample: "S2", organism: "Rotavirus"),
+            makeRow(sample: "S1", organism: "Astrovirus"),
+        ]
+
+        // Filter metadata column: read_count >= 10M
+        let filter = ColumnFilter(columnId: "metadata_read_count", op: .greaterOrEqual, value: "10M")
+        let filtered = rows.filter { row in
+            guard let sid = row.sample,
+                  let value = store.records[sid]?["read_count"],
+                  let num = Double(value) else { return false }
+            return filter.matchesNumeric(num)
+        }
+
+        // Only S1 rows pass (12M >= 10M), S2 fails (8M < 10M)
+        #expect(filtered.count == 2)
+        #expect(filtered.allSatisfy { $0.sample == "S1" })
+    }
+}

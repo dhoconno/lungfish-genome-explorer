@@ -3152,6 +3152,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
         organismTableView.metadataColumns.isMultiSampleMode = isMultiSample
         organismTableView.metadataColumns.update(store: sampleMetadataStore, sampleId: currentId)
+        batchFlatTableView.metadataColumns.update(store: sampleMetadataStore, sampleId: nil)
     }
 
     // MARK: - Open Externally
