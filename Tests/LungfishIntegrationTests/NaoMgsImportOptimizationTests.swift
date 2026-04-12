@@ -507,6 +507,64 @@ struct NaoMgsImportOptimizationTests {
         #expect(!summaryRows.isEmpty)
     }
 
+    @Test
+    func mergedDatabaseAppendsSampleScopedSummariesAndMergesReferenceLengths() async throws {
+        let workspace = makeTemporaryDirectory(prefix: "naomgs-merge-")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let sampleADatabaseURL = workspace.appendingPathComponent("sampleA.sqlite")
+        let sampleBDatabaseURL = workspace.appendingPathComponent("sampleB.sqlite")
+        let mergedDatabaseURL = workspace.appendingPathComponent("merged.sqlite")
+
+        try await createSyntheticNaoMgsStageDatabase(
+            at: sampleADatabaseURL,
+            sample: "SAMPLE_A",
+            taxId: 111,
+            accession: "ACC_SHARED",
+            referenceLength: 100
+        )
+        try await createSyntheticNaoMgsStageDatabase(
+            at: sampleBDatabaseURL,
+            sample: "SAMPLE_B",
+            taxId: 222,
+            accession: "ACC_SHARED",
+            referenceLength: 150
+        )
+
+        try NaoMgsDatabase.createMergedSummaryDatabase(at: mergedDatabaseURL, from: [
+            .init(
+                sample: "SAMPLE_A",
+                databaseURL: sampleADatabaseURL,
+                bamRelativePath: "bams/SAMPLE_A.bam",
+                bamIndexRelativePath: "bams/SAMPLE_A.bam.bai"
+            ),
+            .init(
+                sample: "SAMPLE_B",
+                databaseURL: sampleBDatabaseURL,
+                bamRelativePath: "bams/SAMPLE_B.bam",
+                bamIndexRelativePath: "bams/SAMPLE_B.bam.bai"
+            ),
+        ])
+
+        let db = try NaoMgsDatabase(at: mergedDatabaseURL)
+        let taxonRows = try db.fetchTaxonSummaryRows(samples: nil)
+        #expect(taxonRows.count == 2)
+
+        let maybeSampleARow = taxonRows.first { $0.sample == "SAMPLE_A" && $0.taxId == 111 }
+        let sampleARow = try #require(maybeSampleARow)
+        #expect(sampleARow.bamPath == "bams/SAMPLE_A.bam")
+        #expect(sampleARow.bamIndexPath == "bams/SAMPLE_A.bam.bai")
+
+        let maybeSampleBRow = taxonRows.first { $0.sample == "SAMPLE_B" && $0.taxId == 222 }
+        let sampleBRow = try #require(maybeSampleBRow)
+        #expect(sampleBRow.bamPath == "bams/SAMPLE_B.bam")
+        #expect(sampleBRow.bamIndexPath == "bams/SAMPLE_B.bam.bai")
+
+        #expect(try db.fetchAccessionSummaries(sample: "SAMPLE_A", taxId: 111).count == 1)
+        #expect(try db.fetchAccessionSummaries(sample: "SAMPLE_B", taxId: 222).count == 1)
+        #expect(try db.referenceLength(forAccession: "ACC_SHARED") == 150)
+    }
+
     // MARK: - R2-Only Row Handling
 
     @Test
@@ -839,6 +897,34 @@ struct NaoMgsImportOptimizationTests {
             )
         }
     }
+}
+
+private func createSyntheticNaoMgsStageDatabase(
+    at databaseURL: URL,
+    sample: String,
+    taxId: Int,
+    accession: String,
+    referenceLength: Int
+) async throws {
+    let workspace = databaseURL.deletingLastPathComponent()
+    let sourceURL = workspace.appendingPathComponent("\(sample)-stage.tsv")
+    let sequence = "ACGTACGT"
+
+    let tsvContent = """
+    sample\tseq_id\taligner_taxid_lca\tquery_seq\tquery_qual\tprim_align_genome_id_all\tprim_align_ref_start\tprim_align_edit_distance\tquery_len\tprim_align_query_rc\tprim_align_pair_status\tprim_align_subject_title
+    \(sample)\t\(sample.lowercased())_read1\t\(taxId)\t\(sequence)\tIIIIIIII\t\(accession)\t5\t0\t8\tFalse\tCP\tSynthetic \(accession)
+    """
+    try tsvContent.write(to: sourceURL, atomically: true, encoding: .utf8)
+
+    _ = try await NaoMgsDatabase.createStreaming(
+        at: databaseURL,
+        from: [sourceURL],
+        sampleNameOverride: sample
+    )
+
+    let db = try NaoMgsDatabase.openReadWrite(at: databaseURL)
+    try db.updateReferenceLengths([accession: referenceLength])
+    try db.refreshAccessionSummaryReferenceLengths()
 }
 
 private func makeTemporaryDirectory(prefix: String) -> URL {
