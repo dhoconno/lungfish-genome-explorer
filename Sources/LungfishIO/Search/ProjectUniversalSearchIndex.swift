@@ -2057,6 +2057,119 @@ public final class ProjectUniversalSearchIndex {
         }
     }
 
+    // MARK: - Incremental Updates
+
+    /// Deletes all entities whose `rel_path` starts with the given prefix.
+    /// Also deletes associated attributes via ON DELETE CASCADE.
+    @discardableResult
+    public func deleteEntities(matchingPathPrefix prefix: String) throws -> Int {
+        try execute("BEGIN IMMEDIATE TRANSACTION")
+        do {
+            try execute(
+                "DELETE FROM us_entities WHERE rel_path LIKE ? || '%'",
+                parameters: [prefix]
+            )
+            let changes = sqlite3_changes(db)
+            try execute("COMMIT")
+            Self.logger.debug("deleteEntities: Removed \(changes) entities matching prefix '\(prefix, privacy: .public)'")
+            return Int(changes)
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+    }
+
+    /// Re-indexes a single artifact at the given URL.
+    /// Determines the artifact type and calls the appropriate indexer.
+    public func upsertArtifact(at url: URL) throws {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: url.path, isDirectory: &isDir) else {
+            let relPath = relativePath(for: url)
+            try deleteEntities(matchingPathPrefix: relPath)
+            return
+        }
+
+        var entityCount = 0
+        var attributeCount = 0
+        var perKindCounts: [String: Int] = [:]
+
+        try execute("BEGIN IMMEDIATE TRANSACTION")
+        do {
+            // Delete existing entries first (clean upsert)
+            let relPath = relativePath(for: url)
+            try execute(
+                "DELETE FROM us_entities WHERE rel_path LIKE ? || '%'",
+                parameters: [relPath]
+            )
+
+            if isDir.boolValue {
+                if url.pathExtension == FASTQBundle.directoryExtension {
+                    try indexFASTQBundle(at: url, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
+                } else if url.pathExtension == "lungfishref" {
+                    try indexReferenceBundle(at: url, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
+                } else if url.lastPathComponent.hasPrefix("classification-") && hasFile("classification-result.json", in: url) {
+                    try indexClassificationResult(at: url, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
+                } else if url.lastPathComponent.hasPrefix("esviritu-") && hasFile("esviritu-result.json", in: url) {
+                    try indexEsVirituResult(at: url, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
+                } else if url.lastPathComponent.hasPrefix("taxtriage-") && hasFile("taxtriage-result.json", in: url) {
+                    try indexTaxTriageResult(at: url, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
+                } else if url.lastPathComponent.hasPrefix("naomgs-") && hasFile("manifest.json", in: url) {
+                    try indexNaoMgsResult(at: url, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
+                } else if url.lastPathComponent.hasPrefix("nvd-") && hasFile("hits.sqlite", in: url) {
+                    try indexNvdResult(at: url, entityCount: &entityCount, attributeCount: &attributeCount, perKindCounts: &perKindCounts)
+                }
+            }
+
+            try execute("COMMIT")
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+
+        Self.logger.debug("upsertArtifact: Indexed \(entityCount) entities for \(url.lastPathComponent, privacy: .public)")
+    }
+
+    /// Incrementally updates the index for specific changed paths.
+    /// For files inside bundles, finds the parent bundle and re-indexes it.
+    public func update(changedPaths: [URL]) throws {
+        guard !changedPaths.isEmpty else { return }
+
+        Self.logger.debug("update(changedPaths:): Processing \(changedPaths.count) changed paths")
+
+        var bundlesToUpsert: Set<String> = []
+        var pathsToProcess: [URL] = []
+
+        for url in changedPaths {
+            let pathString = url.standardizedFileURL.path
+
+            if let bundlePath = extractBundlePath(from: pathString) {
+                if bundlesToUpsert.insert(bundlePath).inserted {
+                    pathsToProcess.append(URL(fileURLWithPath: bundlePath))
+                }
+            } else {
+                pathsToProcess.append(url)
+            }
+        }
+
+        for url in pathsToProcess {
+            try upsertArtifact(at: url)
+        }
+    }
+
+    /// Extracts the path to the enclosing `.lungfishfastq` or `.lungfishref` bundle.
+    private func extractBundlePath(from path: String) -> String? {
+        for ext in [".lungfishfastq/", ".lungfishref/"] {
+            if let range = path.range(of: ext) {
+                return String(path[path.startIndex..<range.upperBound].dropLast())
+            }
+        }
+        if path.hasSuffix(".lungfishfastq") || path.hasSuffix(".lungfishref") {
+            return path
+        }
+        return nil
+    }
+
     // MARK: - SQL
 
     private func createSchemaIfNeeded() throws {

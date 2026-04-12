@@ -92,6 +92,20 @@ public actor UniversalProjectSearchService {
         return try index.indexStats()
     }
 
+    /// Incrementally updates the search index for specific changed paths.
+    public func update(projectURL: URL, changedPaths: [URL]) {
+        let canonical = projectURL.standardizedFileURL
+
+        do {
+            let idx = try index(for: canonical)
+            try idx.update(changedPaths: changedPaths)
+        } catch {
+            universalSearchLogger.error(
+                "update(changedPaths:) failed for \(canonical.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+        }
+    }
+
     /// Clears cached state for a project (used when closing/changing projects).
     public func clearProject(_ projectURL: URL) {
         let canonical = projectURL.standardizedFileURL

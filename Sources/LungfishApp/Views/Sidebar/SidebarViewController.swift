@@ -467,14 +467,12 @@ public class SidebarViewController: NSViewController {
     /// this only updates index entries for the specific files that changed.
     private func updateSearchIndex(changedPaths: [URL]) {
         guard let projectURL else { return }
-        // TODO: Implement in Task 4 — uncomment when UniversalProjectSearchService.update exists
-        // Task {
-        //     await universalSearchService.update(
-        //         projectURL: projectURL,
-        //         changedPaths: changedPaths
-        //     )
-        // }
-        _ = projectURL // silence unused warning
+        Task {
+            await universalSearchService.update(
+                projectURL: projectURL,
+                changedPaths: changedPaths
+            )
+        }
     }
 
     /// Clears universal-search state for a project.
