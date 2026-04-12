@@ -667,8 +667,9 @@ struct NaoMgsImportOptimizationTests {
         defer { try? FileManager.default.removeItem(at: workspace) }
 
         let source = workspace.appendingPathComponent("virus_hits_final.tsv")
+        let header = "sample\tseq_id\taligner_taxid_lca\tquery_seq\tquery_qual\tprim_align_genome_id_all\tprim_align_ref_start\tprim_align_edit_distance\tquery_len\tprim_align_query_rc\tprim_align_pair_status"
         let content = """
-        sample\tseq_id\taligner_taxid_lca\tquery_seq\tquery_qual\tprim_align_genome_id_all\tprim_align_ref_start\tprim_align_edit_distance\tquery_len\tprim_align_query_rc\tprim_align_pair_status
+        \(header)
         SAMPLE_A_S1_L001\tread1\t111\tACGT\tIIII\tACC1\t10\t0\t4\tFalse\tCP
         SAMPLE_A_S1_L002\tread2\t111\tACGT\tIIII\tACC1\t20\t0\t4\tFalse\tCP
         SAMPLE_B_S2_L001\tread3\t222\tTGCA\tIIII\tACC2\t30\t1\t4\tTrue\tUP
@@ -684,11 +685,21 @@ struct NaoMgsImportOptimizationTests {
         #expect(result.sampleFiles.count == 2)
         #expect(result.sampleFiles.keys.contains("SAMPLE_A"))
         #expect(result.sampleFiles.keys.contains("SAMPLE_B"))
+        #expect(result.totalRows == 3)
 
         let sampleA = try String(contentsOf: result.sampleFiles["SAMPLE_A"]!)
-        #expect(sampleA.contains("read1"))
-        #expect(sampleA.contains("read2"))
+        let sampleALines = sampleA.split(separator: "\n", omittingEmptySubsequences: false)
+        #expect(sampleALines.count == 4)
+        #expect(String(sampleALines[0]) == header)
+        #expect(String(sampleALines[1]).contains("read1"))
+        #expect(String(sampleALines[2]).contains("read2"))
         #expect(!sampleA.contains("read3"))
+
+        let sampleB = try String(contentsOf: result.sampleFiles["SAMPLE_B"]!)
+        let sampleBLines = sampleB.split(separator: "\n", omittingEmptySubsequences: false)
+        #expect(sampleBLines.count == 3)
+        #expect(String(sampleBLines[0]) == header)
+        #expect(String(sampleBLines[1]) == "SAMPLE_B_S2_L001\tread3\t222\tTGCA\tIIII\tACC2\t30\t1\t4\tTrue\tUP")
     }
 
     @Test
@@ -715,9 +726,18 @@ struct NaoMgsImportOptimizationTests {
         )
 
         let sampleA = try String(contentsOf: result.sampleFiles["SAMPLE_A"]!)
-        #expect(sampleA.contains("read1"))
-        #expect(sampleA.contains("read2"))
-        #expect(sampleA.split(separator: "\n").count == 3)
+        let sampleALines = sampleA.split(separator: "\n", omittingEmptySubsequences: false)
+        #expect(result.totalRows == 3)
+        #expect(sampleALines.count == 4)
+        #expect(String(sampleALines[0]) == header.trimmingCharacters(in: .newlines))
+        #expect(String(sampleALines[1]).contains("read1"))
+        #expect(String(sampleALines[2]).contains("read2"))
+
+        let sampleB = try String(contentsOf: result.sampleFiles["SAMPLE_B"]!)
+        let sampleBLines = sampleB.split(separator: "\n", omittingEmptySubsequences: false)
+        #expect(sampleBLines.count == 3)
+        #expect(String(sampleBLines[0]) == header.trimmingCharacters(in: .newlines))
+        #expect(String(sampleBLines[1]) == "SAMPLE_B_S2_L001\tread3\t222\tTGCA\tIIII\tACC2\t30\t1\t4\tTrue\tUP")
     }
 }
 

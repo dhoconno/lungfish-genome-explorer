@@ -517,7 +517,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
 
                     if identityFloor > 0, percentIdentity < identityFloor { return }
 
-                    let sampleName = normalizeSampleName(String(fields[map.sample]))
+                    let sampleName = normalizeImportedSampleName(String(fields[map.sample]))
                     if firstSampleName == nil { firstSampleName = sampleName }
 
                     // --- Bind to SQLite ---
@@ -1003,7 +1003,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
     /// NAO-MGS sample names include Illumina lane/index suffixes like `_S2_L001`.
     /// Stripping these produces the biological sample identity, allowing reads from
     /// multiple lanes/indices to aggregate under one logical sample.
-    private static func normalizeSampleName(_ raw: String) -> String {
+    public static func normalizeImportedSampleName(_ raw: String) -> String {
         if let range = raw.range(of: #"_S\d+_L\d+.*$"#, options: .regularExpression) {
             return String(raw[..<range.lowerBound])
         }
@@ -1048,7 +1048,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
             sqlite3_reset(stmt)
             sqlite3_clear_bindings(stmt)
 
-            naoBindText(stmt, 1, normalizeSampleName(hit.sample))
+            naoBindText(stmt, 1, normalizeImportedSampleName(hit.sample))
             naoBindText(stmt, 2, hit.seqId)
             sqlite3_bind_int64(stmt, 3, Int64(hit.taxId))
             naoBindText(stmt, 4, hit.subjectSeqId)
