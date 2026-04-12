@@ -784,6 +784,44 @@ struct NaoMgsImportOptimizationTests {
     }
 
     @Test
+    func partitionerRemovesStaleSampleFilesBeforeRerun() async throws {
+        let workspace = makeTemporaryDirectory(prefix: "naomgs-partition-stale-")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let input = workspace.appendingPathComponent("virus_hits_final.tsv")
+        let outputDir = workspace.appendingPathComponent("partitioned", isDirectory: true)
+        let header = "sample\tseq_id\taligner_taxid_lca\tquery_seq\tquery_qual\tprim_align_genome_id_all\tprim_align_ref_start\tprim_align_edit_distance\tquery_len\tprim_align_query_rc\tprim_align_pair_status"
+
+        try """
+        \(header)
+        SAMPLE_A_S1_L001\tread1\t111\tACGT\tIIII\tACC1\t10\t0\t4\tFalse\tCP
+        SAMPLE_B_S2_L001\tread2\t222\tTGCA\tIIII\tACC2\t20\t0\t4\tFalse\tUP
+        """.write(to: input, atomically: true, encoding: .utf8)
+
+        let first = try NaoMgsSamplePartitioner.partition(
+            inputURLs: [input],
+            outputDirectory: outputDir
+        )
+
+        let sampleBURL = try #require(first.sampleFiles["SAMPLE_B"])
+        #expect(FileManager.default.fileExists(atPath: sampleBURL.path))
+
+        try """
+        \(header)
+        SAMPLE_A_S1_L001\tread3\t111\tCCCC\tIIII\tACC1\t30\t0\t4\tFalse\tCP
+        """.write(to: input, atomically: true, encoding: .utf8)
+
+        let second = try NaoMgsSamplePartitioner.partition(
+            inputURLs: [input],
+            outputDirectory: outputDir
+        )
+
+        #expect(second.sampleFiles["SAMPLE_B"] == nil)
+        #expect(!FileManager.default.fileExists(atPath: sampleBURL.path),
+            "Partition rerun should remove stale files for samples no longer present")
+    }
+
+    @Test
     func partitionerThrowsOnCorruptedGzipInput() async throws {
         let workspace = makeTemporaryDirectory(prefix: "naomgs-partition-corrupt-")
         defer { try? FileManager.default.removeItem(at: workspace) }

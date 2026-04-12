@@ -19,7 +19,9 @@ enum NaoMgsSamplePartitioner {
             return NaoMgsPartitionResult(sampleFiles: [:], totalRows: 0)
         }
 
-        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        try clearExistingPartitionOutputs(in: outputDirectory, fileManager: fileManager)
 
         var headerLine: String?
         var sampleColumnIndex: Int?
@@ -96,6 +98,21 @@ enum NaoMgsSamplePartitioner {
         }
 
         return NaoMgsPartitionResult(sampleFiles: sampleFiles, totalRows: totalRows)
+    }
+}
+
+private func clearExistingPartitionOutputs(in directory: URL, fileManager: FileManager) throws {
+    let existingFiles = try fileManager.contentsOfDirectory(
+        at: directory,
+        includingPropertiesForKeys: [.isRegularFileKey],
+        options: [.skipsHiddenFiles]
+    )
+
+    for fileURL in existingFiles where fileURL.pathExtension == "tsv" {
+        let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
+        if values.isRegularFile == true {
+            try fileManager.removeItem(at: fileURL)
+        }
     }
 }
 
