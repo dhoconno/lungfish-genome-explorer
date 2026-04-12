@@ -658,6 +658,67 @@ struct NaoMgsImportOptimizationTests {
             }
         }
     }
+
+    // MARK: - Partitioning
+
+    @Test
+    func partitionerSplitsMonolithicTSVByNormalizedSample() async throws {
+        let workspace = makeTemporaryDirectory(prefix: "naomgs-partition-")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let source = workspace.appendingPathComponent("virus_hits_final.tsv")
+        let content = """
+        sample\tseq_id\taligner_taxid_lca\tquery_seq\tquery_qual\tprim_align_genome_id_all\tprim_align_ref_start\tprim_align_edit_distance\tquery_len\tprim_align_query_rc\tprim_align_pair_status
+        SAMPLE_A_S1_L001\tread1\t111\tACGT\tIIII\tACC1\t10\t0\t4\tFalse\tCP
+        SAMPLE_A_S1_L002\tread2\t111\tACGT\tIIII\tACC1\t20\t0\t4\tFalse\tCP
+        SAMPLE_B_S2_L001\tread3\t222\tTGCA\tIIII\tACC2\t30\t1\t4\tTrue\tUP
+        """
+        try content.write(to: source, atomically: true, encoding: .utf8)
+
+        let outputDir = workspace.appendingPathComponent("partitioned", isDirectory: true)
+        let result = try NaoMgsSamplePartitioner.partition(
+            inputURLs: [source],
+            outputDirectory: outputDir
+        )
+
+        #expect(result.sampleFiles.count == 2)
+        #expect(result.sampleFiles.keys.contains("SAMPLE_A"))
+        #expect(result.sampleFiles.keys.contains("SAMPLE_B"))
+
+        let sampleA = try String(contentsOf: result.sampleFiles["SAMPLE_A"]!)
+        #expect(sampleA.contains("read1"))
+        #expect(sampleA.contains("read2"))
+        #expect(!sampleA.contains("read3"))
+    }
+
+    @Test
+    func partitionerCoalescesOneSampleAcrossMultipleInputTSVs() async throws {
+        let workspace = makeTemporaryDirectory(prefix: "naomgs-partition-multi-")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let inputDir = workspace.appendingPathComponent("input", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputDir, withIntermediateDirectories: true)
+
+        let header = "sample\tseq_id\taligner_taxid_lca\tquery_seq\tquery_qual\tprim_align_genome_id_all\tprim_align_ref_start\tprim_align_edit_distance\tquery_len\tprim_align_query_rc\tprim_align_pair_status\n"
+        try (header + "SAMPLE_A_S1_L001\tread1\t111\tACGT\tIIII\tACC1\t10\t0\t4\tFalse\tCP\n")
+            .write(to: inputDir.appendingPathComponent("part1.tsv"), atomically: true, encoding: .utf8)
+        try (header + "SAMPLE_A_S1_L002\tread2\t111\tACGT\tIIII\tACC1\t20\t0\t4\tFalse\tCP\nSAMPLE_B_S2_L001\tread3\t222\tTGCA\tIIII\tACC2\t30\t1\t4\tTrue\tUP\n")
+            .write(to: inputDir.appendingPathComponent("part2.tsv"), atomically: true, encoding: .utf8)
+
+        let outputDir = workspace.appendingPathComponent("partitioned", isDirectory: true)
+        let result = try NaoMgsSamplePartitioner.partition(
+            inputURLs: [
+                inputDir.appendingPathComponent("part1.tsv"),
+                inputDir.appendingPathComponent("part2.tsv"),
+            ],
+            outputDirectory: outputDir
+        )
+
+        let sampleA = try String(contentsOf: result.sampleFiles["SAMPLE_A"]!)
+        #expect(sampleA.contains("read1"))
+        #expect(sampleA.contains("read2"))
+        #expect(sampleA.split(separator: "\n").count == 3)
+    }
 }
 
 private func makeTemporaryDirectory(prefix: String) -> URL {
