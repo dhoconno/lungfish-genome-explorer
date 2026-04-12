@@ -843,3 +843,23 @@ func naoDoubleField(_ fields: [String], _ index: Int?) -> Double {
     guard let idx = index, idx < fields.count else { return 0.0 }
     return Double(fields[idx]) ?? 0.0
 }
+
+// MARK: - Substring Overloads (zero-copy for streaming import)
+
+/// Safely extracts a string field from a Substring array.
+func naoStringField(_ fields: [Substring], _ index: Int?) -> String {
+    guard let idx = index, idx < fields.count else { return "" }
+    return String(fields[idx])
+}
+
+/// Safely extracts an integer field from a Substring array.
+func naoIntField(_ fields: [Substring], _ index: Int?) -> Int {
+    guard let idx = index, idx < fields.count else { return 0 }
+    return Int(fields[idx]) ?? 0
+}
+
+/// Safely extracts a double field from a Substring array.
+func naoDoubleField(_ fields: [Substring], _ index: Int?) -> Double {
+    guard let idx = index, idx < fields.count else { return 0.0 }
+    return Double(fields[idx]) ?? 0.0
+}

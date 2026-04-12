@@ -428,11 +428,15 @@ public final class NaoMgsDatabase: @unchecked Sendable {
                 }
 
                 // Read in chunks and parse lines synchronously — O(chunk) memory
-                let chunkSize = 1_048_576  // 1 MB
+                let chunkSize = 4_194_304  // 4 MB — larger chunks reduce read syscalls
                 var partial = Data()
 
-                func processLine(_ line: String) throws {
-                    let trimmed = line.trimmingCharacters(in: .whitespaces)
+                // Reusable field buffer to avoid per-row array allocation.
+                var fieldBuffer: [Substring] = []
+                fieldBuffer.reserveCapacity(32)
+
+                func processLine(_ line: Substring) throws {
+                    let trimmed = line.drop(while: { $0 == " " || $0 == "\t" || $0 == "\r" })
                     if trimmed.isEmpty { return }
 
                     if columnMap == nil {
@@ -443,8 +447,11 @@ public final class NaoMgsDatabase: @unchecked Sendable {
                     }
 
                     lineNumber += 1
-                    let fields = trimmed.split(separator: "\t", omittingEmptySubsequences: false)
-                        .map { String($0) }
+                    fieldBuffer.removeAll(keepingCapacity: true)
+                    for field in trimmed.split(separator: "\t", omittingEmptySubsequences: false) {
+                        fieldBuffer.append(field)
+                    }
+                    let fields = fieldBuffer
 
                     guard let map = columnMap else { return }
                     let minFields = max(map.sample, map.seqId, map.taxId) + 1
@@ -510,14 +517,14 @@ public final class NaoMgsDatabase: @unchecked Sendable {
 
                     if identityFloor > 0, percentIdentity < identityFloor { return }
 
-                    let sampleName = normalizeSampleName(fields[map.sample])
+                    let sampleName = normalizeSampleName(String(fields[map.sample]))
                     if firstSampleName == nil { firstSampleName = sampleName }
 
                     // --- Bind to SQLite ---
                     sqlite3_reset(insertStmt)
                     sqlite3_clear_bindings(insertStmt)
                     naoBindText(insertStmt, 1, sampleName)
-                    naoBindText(insertStmt, 2, fields[map.seqId])
+                    naoBindText(insertStmt, 2, String(fields[map.seqId]))
                     sqlite3_bind_int64(insertStmt, 3, Int64(taxId))
                     naoBindText(insertStmt, 4, subjectSeqId)
                     naoBindText(insertStmt, 5, subjectTitle)
@@ -673,9 +680,11 @@ public final class NaoMgsDatabase: @unchecked Sendable {
                         continue
                     }
 
-                    let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
-                    for line in normalized.split(separator: "\n", omittingEmptySubsequences: false) {
-                        try processLine(String(line))
+                    // Split into lines and process as Substrings (zero-copy).
+                    // The processLine closure trims \r internally so we skip
+                    // the expensive .replacingOccurrences("\r\n", "\n") allocation.
+                    for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+                        try processLine(line)
                     }
 
                     let afterNewline = partial.index(after: lastNewline)
@@ -688,9 +697,9 @@ public final class NaoMgsDatabase: @unchecked Sendable {
 
                 // Process remaining partial line
                 if !partial.isEmpty, let text = String(data: partial, encoding: .utf8) {
-                    let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
-                    if !normalized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        try processLine(normalized)
+                    let sub = text[text.startIndex...]
+                    if !sub.allSatisfy({ $0.isWhitespace || $0.isNewline }) {
+                        try processLine(sub)
                     }
                 }
             }
