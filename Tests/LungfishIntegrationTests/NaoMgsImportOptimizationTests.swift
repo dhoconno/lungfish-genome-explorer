@@ -560,9 +560,45 @@ struct NaoMgsImportOptimizationTests {
         #expect(sampleBRow.bamPath == "bams/SAMPLE_B.bam")
         #expect(sampleBRow.bamIndexPath == "bams/SAMPLE_B.bam.bai")
 
-        #expect(try db.fetchAccessionSummaries(sample: "SAMPLE_A", taxId: 111).count == 1)
-        #expect(try db.fetchAccessionSummaries(sample: "SAMPLE_B", taxId: 222).count == 1)
         #expect(try db.referenceLength(forAccession: "ACC_SHARED") == 150)
+
+        let sampleAAccession = try #require(try db.fetchAccessionSummaries(sample: "SAMPLE_A", taxId: 111).first)
+        #expect(sampleAAccession.referenceLength == 150)
+        #expect(sampleAAccession.coveredBasePairs == 8)
+        #expect(sampleAAccession.coverageFraction == 8.0 / 150.0)
+
+        let sampleBAccession = try #require(try db.fetchAccessionSummaries(sample: "SAMPLE_B", taxId: 222).first)
+        #expect(sampleBAccession.referenceLength == 150)
+        #expect(sampleBAccession.coveredBasePairs == 8)
+        #expect(sampleBAccession.coverageFraction == 8.0 / 150.0)
+    }
+
+    @Test
+    func mergedDatabaseThrowsWhenStageInputSampleHasNoRows() async throws {
+        let workspace = makeTemporaryDirectory(prefix: "naomgs-merge-missing-sample-")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let sampleDatabaseURL = workspace.appendingPathComponent("sample.sqlite")
+        let mergedDatabaseURL = workspace.appendingPathComponent("merged.sqlite")
+
+        try await createSyntheticNaoMgsStageDatabase(
+            at: sampleDatabaseURL,
+            sample: "SAMPLE_A",
+            taxId: 111,
+            accession: "ACC_ONLY",
+            referenceLength: 80
+        )
+
+        #expect(throws: Error.self) {
+            try NaoMgsDatabase.createMergedSummaryDatabase(at: mergedDatabaseURL, from: [
+                .init(
+                    sample: "WRONG_SAMPLE",
+                    databaseURL: sampleDatabaseURL,
+                    bamRelativePath: "bams/WRONG_SAMPLE.bam",
+                    bamIndexRelativePath: "bams/WRONG_SAMPLE.bam.bai"
+                )
+            ])
+        }
     }
 
     // MARK: - R2-Only Row Handling

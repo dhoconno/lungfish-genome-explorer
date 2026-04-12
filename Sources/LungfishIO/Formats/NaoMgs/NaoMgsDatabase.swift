@@ -1129,10 +1129,18 @@ public final class NaoMgsDatabase: @unchecked Sendable {
 
         do {
             for stageInput in stageInputs {
-                try appendStageTaxonSummaries(from: stageInput, into: mergedDB, insertStmt: insertTaxonStmt)
-                try appendStageAccessionSummaries(from: stageInput, into: mergedDB, insertStmt: insertAccessionStmt)
+                let taxonCount = try appendStageTaxonSummaries(from: stageInput, into: mergedDB, insertStmt: insertTaxonStmt)
+                let accessionCount = try appendStageAccessionSummaries(from: stageInput, into: mergedDB, insertStmt: insertAccessionStmt)
                 try mergeStageReferenceLengths(from: stageInput, into: mergedDB, insertStmt: mergeReferenceLengthStmt)
+
+                guard taxonCount > 0 else {
+                    throw NaoMgsDatabaseError.createFailed("Staged database \(stageInput.databaseURL.lastPathComponent) contributed no taxon summaries for sample \(stageInput.sample)")
+                }
+                guard accessionCount > 0 else {
+                    throw NaoMgsDatabaseError.createFailed("Staged database \(stageInput.databaseURL.lastPathComponent) contributed no accession summaries for sample \(stageInput.sample)")
+                }
             }
+            try refreshAccessionSummaryReferenceLengths(db: mergedDB)
 
             guard sqlite3_exec(mergedDB, "COMMIT", nil, nil, nil) == SQLITE_OK else {
                 throw NaoMgsDatabaseError.createFailed("Failed to commit merged summary transaction: \(String(cString: sqlite3_errmsg(mergedDB)))")
@@ -1147,7 +1155,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
         from stageInput: NaoMgsStageDatabaseInput,
         into mergedDB: OpaquePointer,
         insertStmt: OpaquePointer?
-    ) throws {
+    ) throws -> Int {
         let selectSQL = """
         SELECT tax_id, name, hit_count, unique_read_count,
                avg_identity, avg_bit_score, avg_edit_distance,
@@ -1155,7 +1163,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
         FROM taxon_summaries
         WHERE sample = ?
         """
-        try withReadOnlySQLiteDatabase(at: stageInput.databaseURL) { stageDB in
+        return try withReadOnlySQLiteDatabase(at: stageInput.databaseURL) { stageDB in
             var selectStmt: OpaquePointer?
             guard sqlite3_prepare_v2(stageDB, selectSQL, -1, &selectStmt, nil) == SQLITE_OK else {
                 throw NaoMgsDatabaseError.createFailed("Stage taxon select prepare failed for \(stageInput.databaseURL.lastPathComponent): \(String(cString: sqlite3_errmsg(stageDB)))")
@@ -1163,6 +1171,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
             defer { sqlite3_finalize(selectStmt) }
 
             naoBindText(selectStmt, 1, stageInput.sample)
+            var insertedCount = 0
             while sqlite3_step(selectStmt) == SQLITE_ROW {
                 sqlite3_reset(insertStmt)
                 sqlite3_clear_bindings(insertStmt)
@@ -1188,7 +1197,9 @@ public final class NaoMgsDatabase: @unchecked Sendable {
                 guard sqlite3_step(insertStmt) == SQLITE_DONE else {
                     throw NaoMgsDatabaseError.createFailed("Merged taxon insert failed for sample \(stageInput.sample): \(String(cString: sqlite3_errmsg(mergedDB)))")
                 }
+                insertedCount += 1
             }
+            return insertedCount
         }
     }
 
@@ -1196,14 +1207,14 @@ public final class NaoMgsDatabase: @unchecked Sendable {
         from stageInput: NaoMgsStageDatabaseInput,
         into mergedDB: OpaquePointer,
         insertStmt: OpaquePointer?
-    ) throws {
+    ) throws -> Int {
         let selectSQL = """
         SELECT tax_id, accession, read_count, unique_read_count,
                reference_length, covered_base_pairs, coverage_fraction
         FROM accession_summaries
         WHERE sample = ?
         """
-        try withReadOnlySQLiteDatabase(at: stageInput.databaseURL) { stageDB in
+        return try withReadOnlySQLiteDatabase(at: stageInput.databaseURL) { stageDB in
             var selectStmt: OpaquePointer?
             guard sqlite3_prepare_v2(stageDB, selectSQL, -1, &selectStmt, nil) == SQLITE_OK else {
                 throw NaoMgsDatabaseError.createFailed("Stage accession select prepare failed for \(stageInput.databaseURL.lastPathComponent): \(String(cString: sqlite3_errmsg(stageDB)))")
@@ -1211,6 +1222,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
             defer { sqlite3_finalize(selectStmt) }
 
             naoBindText(selectStmt, 1, stageInput.sample)
+            var insertedCount = 0
             while sqlite3_step(selectStmt) == SQLITE_ROW {
                 sqlite3_reset(insertStmt)
                 sqlite3_clear_bindings(insertStmt)
@@ -1227,7 +1239,9 @@ public final class NaoMgsDatabase: @unchecked Sendable {
                 guard sqlite3_step(insertStmt) == SQLITE_DONE else {
                     throw NaoMgsDatabaseError.createFailed("Merged accession insert failed for sample \(stageInput.sample): \(String(cString: sqlite3_errmsg(mergedDB)))")
                 }
+                insertedCount += 1
             }
+            return insertedCount
         }
     }
 
@@ -1739,7 +1753,10 @@ public final class NaoMgsDatabase: @unchecked Sendable {
     /// instead of alignment extents.
     public func refreshAccessionSummaryReferenceLengths() throws {
         guard let db else { throw NaoMgsDatabaseError.queryFailed("Database not open") }
+        try Self.refreshAccessionSummaryReferenceLengths(db: db)
+    }
 
+    private static func refreshAccessionSummaryReferenceLengths(db: OpaquePointer) throws {
         let sql = """
         UPDATE accession_summaries
         SET reference_length = (
