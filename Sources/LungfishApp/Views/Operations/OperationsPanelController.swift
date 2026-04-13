@@ -15,12 +15,13 @@ final class OperationsPanelController: NSWindowController {
     init() {
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 560, height: 400),
-            styleMask: [.titled, .closable, .resizable, .utilityWindow],
+            styleMask: [.titled, .closable, .resizable, .utilityWindow, .nonactivatingPanel],
             backing: .buffered,
             defer: true
         )
         panel.title = "Operations"
         panel.isFloatingPanel = true
+        panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.isRestorable = false
         panel.minSize = NSSize(width: 460, height: 250)

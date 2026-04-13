@@ -1434,8 +1434,10 @@ public class SidebarViewController: NSViewController {
     /// directories, filtering out any that are still in-progress (contain a
     /// `.processing` sentinel). Returns sidebar items sorted newest-first.
     private func collectAnalyses(in projectURL: URL) -> [SidebarItem] {
-        guard let analyses = try? AnalysesFolder.listAnalyses(in: projectURL) else { return [] }
-        return analyses.compactMap { info in
+        let analyses = (try? AnalysesFolder.listAnalyses(in: projectURL)) ?? []
+        let recognizedURLs = Set(analyses.map { $0.url.standardizedFileURL })
+
+        var items: [SidebarItem] = analyses.compactMap { info in
             guard !OperationMarker.isInProgress(info.url) else { return nil }
 
             if info.isBatch {
@@ -1473,6 +1475,23 @@ public class SidebarViewController: NSViewController {
             }
             return item
         }
+
+        // Include user-created folders that aren't recognized analysis results.
+        let analysesDir = projectURL.appendingPathComponent(AnalysesFolder.directoryName, isDirectory: true)
+        if let contents = try? FileManager.default.contentsOfDirectory(
+            at: analysesDir,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for url in contents {
+                guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
+                guard !recognizedURLs.contains(url.standardizedFileURL) else { continue }
+                let folderItem = buildSidebarTree(from: url, isRoot: false)
+                items.append(folderItem)
+            }
+        }
+
+        return items
     }
 
     /// Builds a batch group item for a classifier or generic tool batch.
@@ -3783,7 +3802,11 @@ extension SidebarViewController: NSMenuDelegate {
             let folderName = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !folderName.isEmpty else { return }
 
-            self?.createFolder(named: folderName, in: parentURL)
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.createFolder(named: folderName, in: parentURL)
+                }
+            }
         }
     }
 

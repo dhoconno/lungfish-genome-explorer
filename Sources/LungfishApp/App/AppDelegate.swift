@@ -1003,8 +1003,47 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     // MARK: - Menu Actions
 
     @IBAction func newDocument(_ sender: Any?) {
-        // Create new project/document
-        mainWindowController?.showWindow(nil)
+        Task { @MainActor in
+            let savePanel = NSSavePanel()
+            savePanel.title = "Create New Project"
+            savePanel.message = "Choose a location for your new Lungfish project"
+            savePanel.nameFieldLabel = "Project Name:"
+            savePanel.nameFieldStringValue = "My Genome Project"
+            savePanel.canCreateDirectories = true
+            savePanel.allowedContentTypes = [.folder]
+            savePanel.isExtensionHidden = false
+
+            let response: NSApplication.ModalResponse
+            if let window = NSApp.keyWindow {
+                response = await savePanel.beginSheetModal(for: window)
+            } else {
+                response = await savePanel.begin()
+            }
+
+            guard response == .OK, let url = savePanel.url else { return }
+
+            let projectURL = url.deletingPathExtension().appendingPathExtension("lungfish")
+            do {
+                let project = try DocumentManager.shared.createProject(
+                    at: projectURL,
+                    name: projectURL.deletingPathExtension().lastPathComponent
+                )
+                RecentProjectsManager.shared.addRecentProject(
+                    url: project.url,
+                    name: project.name
+                )
+                self.showMainWindowWithProject(project.url)
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "Failed to Create Project"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .critical
+                alert.addButton(withTitle: "OK")
+                if let window = NSApp.keyWindow {
+                    await alert.beginSheetModal(for: window)
+                }
+            }
+        }
     }
 
     @IBAction func openDocument(_ sender: Any?) {
@@ -3317,6 +3356,16 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         splitVC.inspectorController.resetAllAppearanceSettings()
     }
 
+    @objc func showDocumentInspector(_ sender: Any?) {
+        guard let splitViewController = mainWindowController?.mainSplitViewController else { return }
+        splitViewController.setInspectorVisible(true, animated: false, source: "AppDelegate.showDocumentInspector")
+        NotificationCenter.default.post(
+            name: .showInspectorRequested,
+            object: self,
+            userInfo: [NotificationUserInfoKey.inspectorTab: "document"]
+        )
+    }
+
     @objc func showAIAssistant(_ sender: Any?) {
         showOrToggleAIAssistant()
     }
@@ -4856,21 +4905,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
-    @objc func designPrimers(_ sender: Any?) {
-        showNotImplementedAlert("Primer Design")
-    }
-
-    @objc func primalScheme(_ sender: Any?) {
-        showNotImplementedAlert("PrimalScheme")
-    }
-
-    @objc func inSilicoPCR(_ sender: Any?) {
-        showNotImplementedAlert("In-Silico PCR")
-    }
-
-    @objc func alignSequences(_ sender: Any?) {
-        showNotImplementedAlert("Sequence Alignment")
-    }
 
     @objc func searchNCBI(_ sender: Any?) {
         showDatabaseBrowser(source: .ncbi)

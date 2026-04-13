@@ -135,20 +135,12 @@ public final class MainMenu {
             keyEquivalent: "n"
         )
 
-        // Open
+        // Open Project Folder (Cmd-O)
         fileMenu.addItem(
-            withTitle: "Open...",
-            action: #selector(AppDelegate.openDocument(_:)),
-            keyEquivalent: "o"
-        )
-
-        // Open Project Folder (Cmd-Shift-O)
-        let openFolderItem = fileMenu.addItem(
             withTitle: "Open Project Folder...",
             action: #selector(AppDelegate.openProjectFolder(_:)),
             keyEquivalent: "o"
         )
-        openFolderItem.keyEquivalentModifierMask = [.command, .shift]
 
         // Open Recent submenu
         let recentItem = NSMenuItem(title: "Open Recent", action: nil, keyEquivalent: "")
@@ -231,12 +223,6 @@ public final class MainMenu {
         )
 
         importMenu.addItem(.separator())
-
-        importMenu.addItem(
-            withTitle: "Classification Results\u{2026}",
-            action: #selector(AppDelegate.showImportCenterClassification(_:)),
-            keyEquivalent: ""
-        )
 
         let importCenterItem = importMenu.addItem(
             withTitle: "Import Center\u{2026}",
@@ -459,6 +445,14 @@ public final class MainMenu {
         inspectorItem.keyEquivalentModifierMask = [.command, .option]
         inspectorItem.tag = 1001  // Tag to identify this menu item for validation
 
+        // Document Inspector
+        let docInspectorItem = viewMenu.addItem(
+            withTitle: "Document Inspector",
+            action: #selector(ViewMenuActions.showDocumentInspector(_:)),
+            keyEquivalent: "d"
+        )
+        docInspectorItem.keyEquivalentModifierMask = [.command, .option]
+
         viewMenu.addItem(.separator())
 
         // AI Assistant
@@ -647,38 +641,6 @@ public final class MainMenu {
         toolsMenu.addItem(
             withTitle: "Assemble with SPAdes...",
             action: #selector(ToolsMenuActions.runSPAdes(_:)),
-            keyEquivalent: ""
-        )
-
-        // Primer Design
-        let primerItem = NSMenuItem(title: "Primer Design", action: nil, keyEquivalent: "")
-        let primerMenu = NSMenu(title: "Primer Design")
-
-        primerMenu.addItem(
-            withTitle: "Design Primers...",
-            action: #selector(ToolsMenuActions.designPrimers(_:)),
-            keyEquivalent: ""
-        )
-        primerMenu.addItem(
-            withTitle: "PrimalScheme Multiplex...",
-            action: #selector(ToolsMenuActions.primalScheme(_:)),
-            keyEquivalent: ""
-        )
-        primerMenu.addItem(
-            withTitle: "In-Silico PCR...",
-            action: #selector(ToolsMenuActions.inSilicoPCR(_:)),
-            keyEquivalent: ""
-        )
-
-        primerItem.submenu = primerMenu
-        toolsMenu.addItem(primerItem)
-
-        toolsMenu.addItem(.separator())
-
-        // Alignment
-        toolsMenu.addItem(
-            withTitle: "Align Sequences...",
-            action: #selector(ToolsMenuActions.alignSequences(_:)),
             keyEquivalent: ""
         )
 
@@ -900,6 +862,7 @@ public final class MainMenu {
     func toggleNucleotideMode(_ sender: Any?)
     func resetViewSettingsToDefaults(_ sender: Any?)
     func showAIAssistant(_ sender: Any?)
+    func showDocumentInspector(_ sender: Any?)
 }
 
 /// Sequence menu action handlers.
@@ -923,10 +886,6 @@ public final class MainMenu {
     /// Opens the classification wizard for the currently selected FASTQ.
     func classifyReads(_ sender: Any?)
     func runSPAdes(_ sender: Any?)
-    func designPrimers(_ sender: Any?)
-    func primalScheme(_ sender: Any?)
-    func inSilicoPCR(_ sender: Any?)
-    func alignSequences(_ sender: Any?)
     func searchNCBI(_ sender: Any?)
     func searchSRA(_ sender: Any?)
     func searchPathoplexus(_ sender: Any?)
