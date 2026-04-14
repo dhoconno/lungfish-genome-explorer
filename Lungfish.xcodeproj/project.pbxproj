@@ -67,6 +67,7 @@
 				F1E2D3C4B5A6978877665553 /* Resources */,
 				F1E2D3C4B5A6978877665567 /* Embed lungfish-cli */,
 				F1E2D3C4B5A6978877665566 /* Index Help Book */,
+				F1E2D3C4B5A6978877665568 /* Sanitize bundled tools */,
 			);
 			buildRules = (
 			);
@@ -128,6 +129,25 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		F1E2D3C4B5A6978877665568 /* Sanitize bundled tools */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/scripts/sanitize-bundled-tools.sh",
+			);
+			name = "Sanitize bundled tools";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ \"$CONFIGURATION\" = \"Release\" ]; then\n  sanitize_tools_dir() {\n    if [ -d \"$1\" ]; then\n      /bin/bash \"${SRCROOT}/scripts/sanitize-bundled-tools.sh\" \"$1\"\n    fi\n  }\n\n  sanitize_tools_dir \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/LungfishGenomeBrowser_LungfishWorkflow.bundle/Contents/Resources/Tools\"\n  sanitize_tools_dir \"${INSTALLATION_BUILD_PRODUCTS_LOCATION}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/LungfishGenomeBrowser_LungfishWorkflow.bundle/Contents/Resources/Tools\"\n\n  if [ -n \"${TARGET_TEMP_DIR:-}\" ]; then\n    INTERMEDIATE_BUILD_ROOT=$(cd \"${TARGET_TEMP_DIR}/../../..\" && pwd)\n    sanitize_tools_dir \"${INTERMEDIATE_BUILD_ROOT}/UninstalledProducts/macosx/LungfishGenomeBrowser_LungfishWorkflow.bundle/Contents/Resources/Tools\"\n  fi\nfi\n";
+		};
 		F1E2D3C4B5A6978877665567 /* Embed lungfish-cli */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -150,7 +170,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nCONFIGURATION_LOWER=$(printf '%s' \"$CONFIGURATION\" | tr '[:upper:]' '[:lower:]')\nSCRATCH_PATH=\"${SRCROOT}/.build/xcode-cli\"\nCLI_OUTPUT_DIR=\"${SCRATCH_PATH}/arm64-apple-macosx/${CONFIGURATION_LOWER}\"\nCLI_SOURCE=\"${CLI_OUTPUT_DIR}/lungfish-cli\"\nCLI_DEST=\"${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}/lungfish-cli\"\n/usr/bin/xcrun swift build \\\n  --package-path \"${SRCROOT}\" \\\n  --product lungfish-cli \\\n  --configuration \"${CONFIGURATION_LOWER}\" \\\n  --arch arm64 \\\n  --scratch-path \"${SCRATCH_PATH}\"\n/usr/bin/install -d \"$(dirname \"${CLI_DEST}\")\"\n/usr/bin/install -m 755 \"${CLI_SOURCE}\" \"${CLI_DEST}\"\n";
+			shellScript = "set -euo pipefail\nCONFIGURATION_LOWER=$(printf '%s' \"$CONFIGURATION\" | tr '[:upper:]' '[:lower:]')\nSCRATCH_PATH=\"${SRCROOT}/.build/xcode-cli\"\nCLI_OUTPUT_DIR=\"${SCRATCH_PATH}/arm64-apple-macosx/${CONFIGURATION_LOWER}\"\nCLI_SOURCE=\"${CLI_OUTPUT_DIR}/lungfish-cli\"\nCLI_DEST=\"${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}/lungfish-cli\"\n/usr/bin/xcrun swift build \\\n  --package-path \"${SRCROOT}\" \\\n  --product lungfish-cli \\\n  --configuration \"${CONFIGURATION_LOWER}\" \\\n  --arch arm64 \\\n  --scratch-path \"${SCRATCH_PATH}\"\n/usr/bin/install -d \"$(dirname \"${CLI_DEST}\")\"\n/usr/bin/install -m 755 \"${CLI_SOURCE}\" \"${CLI_DEST}\"\nif [ -n \"${EXPANDED_CODE_SIGN_IDENTITY:-}\" ]; then\n  /usr/bin/codesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY}\" \\\n    --options runtime \\\n    --entitlements \"${SRCROOT}/lungfish-cli.entitlements\" \\\n    --generate-entitlement-der \\\n    \"${CLI_DEST}\"\nfi\n";
 		};
 		F1E2D3C4B5A6978877665566 /* Index Help Book */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -222,6 +242,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 29G3WN2GSA;
+				ENABLE_HARDENED_RUNTIME = YES;
 				EXCLUDED_ARCHS = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Lungfish;
