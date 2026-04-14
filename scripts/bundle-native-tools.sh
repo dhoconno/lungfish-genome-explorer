@@ -2,8 +2,8 @@
 #
 # bundle-native-tools.sh - Download and build bioinformatics tools for bundling
 #
-# This script downloads, compiles, and creates universal (arm64 + x86_64) binaries
-# of the bioinformatics tools needed by Lungfish.
+# This script downloads, compiles, and bundles Apple Silicon bioinformatics tools
+# needed by Lungfish.
 #
 # Tools included:
 # - samtools (MIT license) - FASTA/BAM manipulation
@@ -17,14 +17,14 @@
 #
 # Options:
 #   --output-dir <dir>  Output directory for tools (default: Sources/LungfishWorkflow/Resources/Tools)
-#   --arch <arch>       Build for specific architecture: arm64, x86_64, or universal (default: universal)
+#   --arch <arch>       Build for specific architecture: arm64, x86_64, or universal (default: arm64)
 #   --clean             Clean build directories before building
 #   --help              Show this help message
 #
 # Requirements:
 #   - Xcode Command Line Tools
 #   - curl, tar, make
-#   - For universal builds: Rosetta 2 (for x86_64 compilation on Apple Silicon)
+#   - Rosetta 2 is only needed when explicitly requesting x86_64 or universal outputs
 
 set -e
 
@@ -56,7 +56,7 @@ DEFAULT_OUTPUT_DIR="$PROJECT_ROOT/Sources/LungfishWorkflow/Resources/Tools"
 
 # Parse arguments
 OUTPUT_DIR="$DEFAULT_OUTPUT_DIR"
-TARGET_ARCH="universal"
+TARGET_ARCH="arm64"
 CLEAN_BUILD=false
 
 while [[ $# -gt 0 ]]; do

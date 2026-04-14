@@ -14,7 +14,7 @@ BUILD_NUMBER="1"
 # Paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-BUILD_DIR="$PROJECT_ROOT/.build/release"
+BUILD_DIR="$PROJECT_ROOT/.build/arm64-apple-macosx/release"
 APP_DIR="$PROJECT_ROOT/build/$APP_NAME.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
@@ -36,9 +36,9 @@ if [ -d "$APP_DIR" ]; then
 fi
 
 # Build release executable
-echo -e "${GREEN}Building release executable...${NC}"
+echo -e "${GREEN}Building Apple Silicon release executable...${NC}"
 cd "$PROJECT_ROOT"
-swift build -c release
+swift build -c release --arch arm64
 
 if [ ! -f "$BUILD_DIR/Lungfish" ]; then
     echo -e "${RED}Error: Build failed - executable not found${NC}"

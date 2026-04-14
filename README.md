@@ -107,7 +107,7 @@ See [PLAN.md](PLAN.md) for the comprehensive development roadmap.
 
 ```bash
 swift build           # Debug build
-swift build -c release  # Release build
+swift build -c release --arch arm64  # Apple Silicon release build
 swift test            # Run tests (requires Xcode)
 ```
 
