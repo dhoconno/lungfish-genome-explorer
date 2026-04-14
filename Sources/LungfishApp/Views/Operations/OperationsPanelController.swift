@@ -472,8 +472,14 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
             case .completed, .failed:
                 progressBar.isHidden = true
                 statusLabel.isHidden = false
-                statusLabel.stringValue = item.state == .completed ? "Completed" : "Failed"
-                statusLabel.textColor = item.state == .completed ? .systemGreen : .systemRed
+                statusLabel.stringValue = item.displayStateLabel
+                if item.state == .failed {
+                    statusLabel.textColor = .systemRed
+                } else if item.hasWarnings {
+                    statusLabel.textColor = .systemOrange
+                } else {
+                    statusLabel.textColor = .systemGreen
+                }
                 statusLabel.font = .systemFont(ofSize: 11)
             }
             return cell

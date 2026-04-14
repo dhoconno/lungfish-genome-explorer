@@ -397,6 +397,19 @@ public enum MetagenomicsImportService {
         }
 
         let reportEntries = reportFiles.first.map(countDataRows(in:)) ?? 0
+        let logFile = allOutputFiles.first {
+            $0.lastPathComponent.caseInsensitiveCompare("nextflow.log") == .orderedSame
+        }
+        let traceFile = allOutputFiles.first {
+            $0.lastPathComponent.caseInsensitiveCompare("trace.txt") == .orderedSame
+        }
+        let ignoredFailures: [TaxTriageIgnoredFailure]
+        if let logFile,
+           let logText = try? String(contentsOf: logFile, encoding: .utf8) {
+            ignoredFailures = TaxTriageResult.parseIgnoredFailures(fromNextflowLogText: logText)
+        } else {
+            ignoredFailures = []
+        }
 
         progress?(0.85, "Writing sidecar...")
         let result = TaxTriageResult(
@@ -410,9 +423,10 @@ public enum MetagenomicsImportService {
             reportFiles: reportFiles,
             metricsFiles: metricsFiles,
             kronaFiles: kronaFiles,
-            logFile: nil,
-            traceFile: nil,
-            allOutputFiles: allOutputFiles
+            logFile: logFile,
+            traceFile: traceFile,
+            allOutputFiles: allOutputFiles,
+            ignoredFailures: ignoredFailures
         )
         try result.save()
 

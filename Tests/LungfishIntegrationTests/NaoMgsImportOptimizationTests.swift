@@ -207,6 +207,32 @@ struct NaoMgsImportOptimizationTests {
     }
 
     @Test
+    func createStreamingCountsPairedRowsAsTwoAlignments() async throws {
+        let workspace = makeTemporaryDirectory(prefix: "naomgs-paired-counts-")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let input = workspace.appendingPathComponent("virus_hits_final.tsv")
+        let dbURL = workspace.appendingPathComponent("hits.sqlite")
+        let tsv = """
+        sample\tseq_id\taligner_taxid_lca\tquery_seq\tquery_seq_rev\tquery_qual\tquery_qual_rev\tprim_align_genome_id_all\tprim_align_ref_start\tprim_align_ref_start_rev\tprim_align_edit_distance\tprim_align_edit_distance_rev\tquery_len\tquery_len_rev\tprim_align_query_rc\tprim_align_query_rc_rev\tprim_align_pair_status\tprim_align_best_alignment_score\tprim_align_best_alignment_score_rev\tprim_align_fragment_length\tprim_align_cigar\tprim_align_subject_title
+        paired_sample\tread_001\t82658\tACGTACGT\tTGCATGCA\tIIIIIIII\tJJJJJJJJ\tX86557.1\t100\t240\t1\t2\t8\t8\tFalse\tTrue\tCP\t90\t88\t148\t8M\tLordsdale virus
+        """
+        try tsv.write(to: input, atomically: true, encoding: .utf8)
+
+        _ = try await NaoMgsDatabase.createStreaming(at: dbURL, from: [input])
+        let db = try NaoMgsDatabase(at: dbURL)
+        let rows = try db.fetchTaxonSummaryRows()
+        #expect(rows.count == 1)
+        #expect(rows[0].hitCount == 2, "A paired NAO-MGS row should count as two BAM alignments")
+        #expect(rows[0].uniqueReadCount == 2, "A paired NAO-MGS row should contribute two unique alignments")
+
+        let accessions = try db.fetchAccessionSummaries(sample: "paired_sample", taxId: 82658)
+        #expect(accessions.count == 1)
+        #expect(accessions[0].readCount == 2, "Per-accession counts should match the two BAM alignments")
+        #expect(accessions[0].uniqueReadCount == 2, "Per-accession unique counts should match the two BAM alignments")
+    }
+
+    @Test
     func importNaoMgsWithIdentityFilterReducesHits() async throws {
         let workspace = makeTemporaryDirectory(prefix: "naomgs-filter-test-")
         defer { try? FileManager.default.removeItem(at: workspace) }

@@ -354,15 +354,22 @@ public actor ClassifierReadResolver {
             candidates = urls
 
         case .nvd:
-            // NVD: adjacent {sampleId}.bam or sorted.bam
+            // NVD: BAM path stored in hits.sqlite under bam/{sampleId}.filtered.bam
             guard let sampleId else {
                 candidates = []
                 break
             }
-            candidates = [
-                resultDir.appendingPathComponent("\(sampleId).bam"),
-                resultDir.appendingPathComponent("\(sampleId).sorted.bam"),
-            ]
+            var urls: [URL] = []
+            let dbURL = resultDir.appendingPathComponent("hits.sqlite")
+            if fm.fileExists(atPath: dbURL.path),
+               let database = try? NvdDatabase(at: dbURL),
+               let bamRelative = try? database.bamPath(forSample: sampleId),
+               !bamRelative.isEmpty {
+                urls.append(resultDir.appendingPathComponent(bamRelative))
+            }
+            urls.append(resultDir.appendingPathComponent("bam/\(sampleId).filtered.bam"))
+            urls.append(resultDir.appendingPathComponent("bam/\(sampleId).filtered.sorted.bam"))
+            candidates = urls
 
         case .kraken2:
             throw ClassifierExtractionError.notImplemented  // Kraken2 isn't BAM-backed.

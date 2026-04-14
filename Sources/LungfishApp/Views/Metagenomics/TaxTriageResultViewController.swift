@@ -513,6 +513,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                 return
             }
 
+            // Don't overwrite DB-cached unique reads with miniBAM-computed values.
+            let normalized = self.normalizedOrganismName(selectedOrganismName)
+            if self.deduplicatedReadCounts[normalized] != nil {
+                return
+            }
+
             self.applyReadStats(totalReads: totalReads, uniqueReads: uniqueReads, for: selectedOrganismName)
         }
         addChild(bamVC)
@@ -1741,12 +1747,25 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         uniqueReads: Int
     ) {
         let key = "\(sampleId)\t\(organism)"
-        batchFlatTableView.totalReadsByKey[key] = totalReads
-        batchFlatTableView.uniqueReadsByKey[key] = uniqueReads
-        batchFlatTableView.reloadReadStatsColumns()
+        // Only apply BAM-computed values for rows that don't already have
+        // DB-cached counts. The SQLite database is the source of truth for
+        // read counts — the miniBAM viewer should not overwrite them.
+        let hadTotal = batchFlatTableView.totalReadsByKey[key] != nil
+        let hadUnique = batchFlatTableView.uniqueReadsByKey[key] != nil
+        if !hadTotal {
+            batchFlatTableView.totalReadsByKey[key] = totalReads
+        }
+        if !hadUnique {
+            batchFlatTableView.uniqueReadsByKey[key] = uniqueReads
+        }
+        if !hadTotal || !hadUnique {
+            batchFlatTableView.reloadReadStatsColumns()
+        }
 
         let normalized = normalizedOrganismName(organism)
-        perSampleDeduplicatedReadCounts[normalized, default: [:]][sampleId] = uniqueReads
+        if !hadUnique {
+            perSampleDeduplicatedReadCounts[normalized, default: [:]][sampleId] = uniqueReads
+        }
 
         if selectedBatchSampleId == sampleId, selectedBatchOrganismName == organism {
             let formatter = NumberFormatter()
@@ -1758,13 +1777,14 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
     }
 
-    /// Propagates `perSampleDeduplicatedReadCounts` to `batchFlatTableView.uniqueReadsByKey`
+    /// Merges `perSampleDeduplicatedReadCounts` into `batchFlatTableView.uniqueReadsByKey`
     /// and reloads the table so the Unique Reads column reflects the latest computed values.
     ///
     /// Called after each background deduplication update so the batch flat table stays current.
+    /// Uses merge semantics so that DB-cached values are preserved for rows not yet
+    /// recomputed from BAM.
     private func syncUniqueReadsToFlatTable() {
         guard isBatchGroupMode || isMultiSampleSingleResultMode else { return }
-        var lookup: [String: Int] = [:]
         for (normalizedOrganism, perSample) in perSampleDeduplicatedReadCounts {
             for (sampleId, count) in perSample {
                 // Find the display organism name by matching normalisation.
@@ -1778,10 +1798,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                     // Fall back to the normalized name if no exact match found.
                     displayOrganism = normalizedOrganism
                 }
-                lookup["\(sampleId)\t\(displayOrganism)"] = count
+                batchFlatTableView.uniqueReadsByKey["\(sampleId)\t\(displayOrganism)"] = count
             }
         }
-        batchFlatTableView.uniqueReadsByKey = lookup
         // Reload visible rows without resetting scroll position.
         batchFlatTableView.reloadUniqueReadsColumn()
     }
@@ -2215,6 +2234,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         var metrics: [TaxTriageMetric] = []
         var uniqueReadsLookup: [String: Int] = [:]
+        var totalReadsLookup: [String: Int] = [:]
 
         for row in dbRows {
             let metric = TaxTriageMetric(
@@ -2230,11 +2250,14 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             )
             metrics.append(metric)
 
-            // Pre-populate unique reads (no background BAM computation needed).
+            // Pre-populate BAM-derived read counts from the database (no background
+            // BAM computation needed). reads_aligned and unique_reads are both
+            // computed from the BAM at import time by updateUniqueReadsInDB.
             let key = "\(row.sample)\t\(row.organism)"
             if let uniqueReads = row.uniqueReads {
                 uniqueReadsLookup[key] = uniqueReads
             }
+            totalReadsLookup[key] = row.readsAligned
 
             // Resolve BAM paths from DB columns (relative to result directory).
             if let bamPath = row.bamPath, !bamPath.isEmpty {
@@ -2267,6 +2290,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
 
         batchFlatTableView.uniqueReadsByKey = uniqueReadsLookup
+        batchFlatTableView.totalReadsByKey = totalReadsLookup
         allBatchGroupRows = metrics
     }
 

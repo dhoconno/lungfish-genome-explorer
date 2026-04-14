@@ -7,6 +7,60 @@ import XCTest
 
 final class TaxTriagePipelineTests: XCTestCase {
 
+    func testParseIgnoredFailuresFromNextflowLog() {
+        let log = """
+        [aa/111111] Submitted process > NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:MINIMAP2_ALIGN (SRR35517992.SRR35517992.dwnld.references)
+        ERROR ~ Error executing process > 'NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:MINIMAP2_ALIGN (SRR35517992.SRR35517992.dwnld.references)'
+        NOTE: Process `NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:MINIMAP2_ALIGN (SRR35517992.SRR35517992.dwnld.references)` terminated with an error exit status (1) -- Error is ignored
+        NOTE: Process `NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:MINIMAP2_ALIGN (SRR35518015.SRR35518015.dwnld.references)` terminated with an error exit status (137) -- Error is ignored
+        """
+
+        let failures = TaxTriageResult.parseIgnoredFailures(fromNextflowLogText: log)
+
+        XCTAssertEqual(failures.count, 2)
+        XCTAssertEqual(failures[0].processName, "MINIMAP2_ALIGN")
+        XCTAssertEqual(failures[0].sampleID, "SRR35517992")
+        XCTAssertEqual(failures[0].exitCode, 1)
+        XCTAssertEqual(failures[1].sampleID, "SRR35518015")
+        XCTAssertEqual(failures[1].exitCode, 137)
+    }
+
+    func testResultSummaryMentionsIgnoredFailures() {
+        let result = TaxTriageResult(
+            config: TaxTriageConfig(
+                samples: [
+                    TaxTriageSample(
+                        sampleId: "SRR35517992",
+                        fastq1: URL(fileURLWithPath: "/tmp/SRR35517992.fastq.gz"),
+                        platform: .illumina
+                    ),
+                ],
+                outputDirectory: URL(fileURLWithPath: "/tmp/taxtriage")
+            ),
+            runtime: 12,
+            exitCode: 0,
+            outputDirectory: URL(fileURLWithPath: "/tmp/taxtriage"),
+            reportFiles: [],
+            metricsFiles: [],
+            kronaFiles: [],
+            logFile: nil,
+            traceFile: nil,
+            allOutputFiles: [],
+            ignoredFailures: [
+                TaxTriageIgnoredFailure(
+                    processPath: "NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:MINIMAP2_ALIGN",
+                    processName: "MINIMAP2_ALIGN",
+                    taskLabel: "SRR35517992.SRR35517992.dwnld.references",
+                    sampleID: "SRR35517992",
+                    exitCode: 1
+                ),
+            ]
+        )
+
+        XCTAssertTrue(result.summary.contains("completed with warnings"))
+        XCTAssertTrue(result.summary.contains("Ignored sample failures: 1"))
+    }
+
     // MARK: - TaxTriageConfig Tests
 
     func testDefaultConfig() {

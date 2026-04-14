@@ -1026,6 +1026,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                 guard !Task.isCancelled else { return }
                 guard let database = self.database else { return }
                 guard index < self.miniBAMControllers.count else { return }
+                let readNameAllowlist = try? database.fetchReadNames(sample: sample, taxId: taxId)
 
                 let resultURL = database.databaseURL.deletingLastPathComponent()
                 // Use BAM pointers stored in SQLite for consistency with the taxonomy list.
@@ -1042,7 +1043,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                     self.miniBAMControllers[index].displayContig(
                         bamURL: bamURL,
                         contig: summary.accession,
-                        contigLength: max(summary.referenceLength, 1)
+                        contigLength: max(summary.referenceLength, 1),
+                        readNameAllowlist: readNameAllowlist
                     )
                 } else {
                     // Fallback: materialize on-demand for result directories that
@@ -1065,7 +1067,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                                 self.miniBAMControllers[capturedIndex].displayContig(
                                     bamURL: bamURL,
                                     contig: capturedSummary.accession,
-                                    contigLength: max(capturedSummary.referenceLength, 1)
+                                    contigLength: max(capturedSummary.referenceLength, 1),
+                                    readNameAllowlist: readNameAllowlist
                                 )
                             }
                         }

@@ -452,7 +452,8 @@ public final class MiniBAMViewController: NSViewController {
         contigLength: Int,
         indexURL: URL? = nil,
         referenceSequence: String? = nil,
-        maxReads: Int = .max
+        maxReads: Int = .max,
+        readNameAllowlist: Set<String>? = nil
     ) {
         loadTask?.cancel()
         self.bamURL = bamURL
@@ -487,7 +488,7 @@ public final class MiniBAMViewController: NSViewController {
         // Check the read cache first — avoids spawning a samtools subprocess on repeated
         // selections of the same organism row.
         let key = cacheKey(bamPath: bamURL.path, contig: contig)
-        if let cached = contigCache[key] {
+        if readNameAllowlist == nil, let cached = contigCache[key] {
             reads = cached.reads
             uniqueReadCount = cached.reads.count
             updatePileup()
@@ -521,8 +522,15 @@ public final class MiniBAMViewController: NSViewController {
                 guard !Task.isCancelled else { return }
                 guard self.contigName == requestedContig else { return }
 
-                self.reads = fetchedReads
-                self.uniqueReadCount = fetchedReads.count
+                let visibleReads: [AlignedRead]
+                if let readNameAllowlist, !readNameAllowlist.isEmpty {
+                    visibleReads = fetchedReads.filter { readNameAllowlist.contains($0.name) }
+                } else {
+                    visibleReads = fetchedReads
+                }
+
+                self.reads = visibleReads
+                self.uniqueReadCount = visibleReads.count
                 self.updatePileup()
 
                 // Keep the coverage/reference tracks pinned at the top of the viewport.
@@ -530,13 +538,15 @@ public final class MiniBAMViewController: NSViewController {
                 self.updateZoomStatus()
 
                 // Store in cache for instant re-display on repeated selections.
-                let result = CachedContigResult(
-                    reads: fetchedReads,
-                    readCount: fetchedReads.count
-                )
-                self.cacheResult(result, key: key)
+                if readNameAllowlist == nil {
+                    let result = CachedContigResult(
+                        reads: visibleReads,
+                        readCount: visibleReads.count
+                    )
+                    self.cacheResult(result, key: key)
+                }
 
-                logger.info("Loaded \(fetchedReads.count) reads for \(contig, privacy: .public)")
+                logger.info("Loaded \(visibleReads.count) reads for \(contig, privacy: .public)")
             } catch {
                 guard !Task.isCancelled else { return }
                 self.statusLabel.stringValue = "Failed to load reads: \(error.localizedDescription)"

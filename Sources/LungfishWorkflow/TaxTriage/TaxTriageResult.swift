@@ -6,6 +6,28 @@ import Foundation
 
 // MARK: - TaxTriageResult
 
+public struct TaxTriageIgnoredFailure: Sendable, Codable, Equatable {
+    public let processPath: String
+    public let processName: String
+    public let taskLabel: String
+    public let sampleID: String?
+    public let exitCode: Int
+
+    public init(
+        processPath: String,
+        processName: String,
+        taskLabel: String,
+        sampleID: String?,
+        exitCode: Int
+    ) {
+        self.processPath = processPath
+        self.processName = processName
+        self.taskLabel = taskLabel
+        self.sampleID = sampleID
+        self.exitCode = exitCode
+    }
+}
+
 /// The result of a completed TaxTriage pipeline execution.
 ///
 /// Contains paths to all output files produced by the pipeline, along with
@@ -32,6 +54,23 @@ import Foundation
 /// }
 /// ```
 public struct TaxTriageResult: Sendable, Codable, Equatable {
+
+    private enum CodingKeys: String, CodingKey {
+        case config
+        case runtime
+        case exitCode
+        case outputDirectory
+        case reportFiles
+        case metricsFiles
+        case kronaFiles
+        case logFile
+        case traceFile
+        case allOutputFiles
+        case deduplicatedReadCounts
+        case perSampleDeduplicatedReadCounts
+        case sourceBundleURLs
+        case ignoredFailures
+    }
 
     // MARK: - Properties
 
@@ -99,6 +138,16 @@ public struct TaxTriageResult: Sendable, Codable, Equatable {
     /// ``TaxTriageConfig/sourceBundleURLs`` at result creation time.
     public var sourceBundleURLs: [URL]?
 
+    /// Nextflow task failures that were explicitly ignored by the pipeline.
+    ///
+    /// These do not make the overall Nextflow run fail, but they indicate
+    /// sample-level data loss that should be surfaced in the UI.
+    public let ignoredFailures: [TaxTriageIgnoredFailure]
+
+    public var hasIgnoredFailures: Bool {
+        !ignoredFailures.isEmpty
+    }
+
     // MARK: - Initialization
 
     /// Creates a TaxTriage result.
@@ -127,7 +176,8 @@ public struct TaxTriageResult: Sendable, Codable, Equatable {
         allOutputFiles: [URL] = [],
         deduplicatedReadCounts: [String: Int]? = nil,
         perSampleDeduplicatedReadCounts: [String: [String: Int]]? = nil,
-        sourceBundleURLs: [URL]? = nil
+        sourceBundleURLs: [URL]? = nil,
+        ignoredFailures: [TaxTriageIgnoredFailure] = []
     ) {
         self.config = config
         self.runtime = runtime
@@ -142,6 +192,7 @@ public struct TaxTriageResult: Sendable, Codable, Equatable {
         self.deduplicatedReadCounts = deduplicatedReadCounts
         self.perSampleDeduplicatedReadCounts = perSampleDeduplicatedReadCounts
         self.sourceBundleURLs = sourceBundleURLs
+        self.ignoredFailures = ignoredFailures
     }
 
     // MARK: - Summary
@@ -151,7 +202,11 @@ public struct TaxTriageResult: Sendable, Codable, Equatable {
         var lines: [String] = []
 
         if isSuccess {
-            lines.append("TaxTriage pipeline completed successfully")
+            if hasIgnoredFailures {
+                lines.append("TaxTriage pipeline completed with warnings")
+            } else {
+                lines.append("TaxTriage pipeline completed successfully")
+            }
         } else {
             lines.append("TaxTriage pipeline failed (exit code \(exitCode))")
         }
@@ -164,6 +219,12 @@ public struct TaxTriageResult: Sendable, Codable, Equatable {
 
         if !kronaFiles.isEmpty {
             lines.append("Krona visualizations: \(kronaFiles.count)")
+        }
+
+        if hasIgnoredFailures {
+            let sampleCount = Set(ignoredFailures.compactMap(\.sampleID)).count
+            let sampleSummary = sampleCount > 0 ? " across \(sampleCount) samples" : ""
+            lines.append("Ignored sample failures: \(ignoredFailures.count)\(sampleSummary)")
         }
 
         lines.append("Total output files: \(allOutputFiles.count)")
@@ -198,5 +259,58 @@ public struct TaxTriageResult: Sendable, Codable, Equatable {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(TaxTriageResult.self, from: data)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.config = try container.decode(TaxTriageConfig.self, forKey: .config)
+        self.runtime = try container.decode(TimeInterval.self, forKey: .runtime)
+        self.exitCode = try container.decode(Int32.self, forKey: .exitCode)
+        self.outputDirectory = try container.decode(URL.self, forKey: .outputDirectory)
+        self.reportFiles = try container.decodeIfPresent([URL].self, forKey: .reportFiles) ?? []
+        self.metricsFiles = try container.decodeIfPresent([URL].self, forKey: .metricsFiles) ?? []
+        self.kronaFiles = try container.decodeIfPresent([URL].self, forKey: .kronaFiles) ?? []
+        self.logFile = try container.decodeIfPresent(URL.self, forKey: .logFile)
+        self.traceFile = try container.decodeIfPresent(URL.self, forKey: .traceFile)
+        self.allOutputFiles = try container.decodeIfPresent([URL].self, forKey: .allOutputFiles) ?? []
+        self.deduplicatedReadCounts = try container.decodeIfPresent([String: Int].self, forKey: .deduplicatedReadCounts)
+        self.perSampleDeduplicatedReadCounts = try container.decodeIfPresent([String: [String: Int]].self, forKey: .perSampleDeduplicatedReadCounts)
+        self.sourceBundleURLs = try container.decodeIfPresent([URL].self, forKey: .sourceBundleURLs)
+        self.ignoredFailures = try container.decodeIfPresent([TaxTriageIgnoredFailure].self, forKey: .ignoredFailures) ?? []
+    }
+
+    public static func parseIgnoredFailures(fromNextflowLogText logText: String) -> [TaxTriageIgnoredFailure] {
+        let pattern = #"NOTE:\s+Process `([^`]+)\s+\(([^)]+)\)` terminated with an error exit status \((\d+)\) -- Error is ignored"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+
+        let nsRange = NSRange(logText.startIndex..<logText.endIndex, in: logText)
+        return regex.matches(in: logText, range: nsRange).compactMap { match in
+            guard match.numberOfRanges == 4,
+                  let processRange = Range(match.range(at: 1), in: logText),
+                  let taskRange = Range(match.range(at: 2), in: logText),
+                  let exitCodeRange = Range(match.range(at: 3), in: logText),
+                  let exitCode = Int(String(logText[exitCodeRange])) else {
+                return nil
+            }
+
+            let processPath = String(logText[processRange])
+            let taskLabel = String(logText[taskRange])
+            let processName = processPath.split(separator: ":").last.map(String.init) ?? processPath
+            let sampleID = extractSampleID(fromTaskLabel: taskLabel)
+
+            return TaxTriageIgnoredFailure(
+                processPath: processPath,
+                processName: processName,
+                taskLabel: taskLabel,
+                sampleID: sampleID,
+                exitCode: exitCode
+            )
+        }
+    }
+
+    private static func extractSampleID(fromTaskLabel taskLabel: String) -> String? {
+        let candidate = taskLabel.split(separator: ".").first.map(String.init)
+        guard let candidate, !candidate.isEmpty else { return nil }
+        return candidate
     }
 }

@@ -11,7 +11,7 @@ import LungfishIO
 ///
 /// Displays the taxonomy tree as an expandable table with columns for taxon name
 /// (with colored phylum dot), rank, direct reads, clade reads, and percentage.
-/// Supports sorting, searching/filtering, and selection synchronization with the
+/// Supports sorting, per-column filtering, and selection synchronization with the
 /// sunburst chart.
 ///
 /// ## Columns
@@ -55,8 +55,8 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     /// Setting this property reloads the outline view.
     public var tree: TaxonTree? {
         didSet {
-            filterText = ""
             filteredNodeIDs = nil
+            directMatchNodeIDs = []
             reloadData()
         }
     }
@@ -106,15 +106,6 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
 
     // MARK: - Search / Filter
 
-    /// Current filter text. Empty string means no filter.
-    private var filterText: String = "" {
-        didSet {
-            if filterText != oldValue {
-                applyFilter()
-            }
-        }
-    }
-
     /// Set of node identities that match the current filter (or their ancestors).
     private var filteredNodeIDs: Set<ObjectIdentifier>?
 
@@ -142,7 +133,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
             filters: columnFilters,
             originalTitles: &originalColumnTitles
         )
-        outlineView.reloadData()
+        applyFilter()
     }
 
     /// Column type hints — true = numeric, false = text.
@@ -165,7 +156,6 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
 
     private let scrollView = NSScrollView()
     internal let outlineView = TaxonomyOutlineView()
-    private let searchField = NSSearchField()
     private let countLabel = NSTextField(labelWithString: "")
 
     // MARK: - Column Identifiers
@@ -192,22 +182,14 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     }
 
     private func commonInit() {
-        setupSearchField()
+        setupHeader()
         setupOutlineView()
         setupLayout()
     }
 
     // MARK: - Setup
 
-    private func setupSearchField() {
-        searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.placeholderString = "Filter taxa..."
-        searchField.target = self
-        searchField.action = #selector(searchFieldChanged(_:))
-        searchField.sendsSearchStringImmediately = true
-        searchField.font = .systemFont(ofSize: 12)
-        addSubview(searchField)
-
+    private func setupHeader() {
         countLabel.translatesAutoresizingMaskIntoConstraints = false
         countLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         countLabel.textColor = .secondaryLabelColor
@@ -300,29 +282,21 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         // priority) when the NSSplitView container starts at zero size during
         // initial layout. Once the container has real bounds the constraints
         // are always satisfiable.
-        let searchTop = searchField.topAnchor.constraint(equalTo: topAnchor, constant: 4)
-        let searchLeading = searchField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8)
-        let searchHeight = searchField.heightAnchor.constraint(equalToConstant: 24)
-        let labelGap = countLabel.leadingAnchor.constraint(equalTo: searchField.trailingAnchor, constant: 8)
+        let labelTop = countLabel.topAnchor.constraint(equalTo: topAnchor, constant: 8)
         let labelTrailing = countLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
         let scrollBottom = scrollView.bottomAnchor.constraint(equalTo: bottomAnchor)
 
-        for c in [searchTop, searchLeading, searchHeight, labelGap, labelTrailing, scrollBottom] {
+        for c in [labelTop, labelTrailing, scrollBottom] {
             c.priority = .defaultHigh
         }
 
         NSLayoutConstraint.activate([
-            searchTop,
-            searchLeading,
-            searchHeight,
-
-            // Count label to the right of search
-            countLabel.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
-            labelGap,
+            labelTop,
             labelTrailing,
+            countLabel.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 8),
 
             // Scroll view fills remaining space
-            scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 4),
+            scrollView.topAnchor.constraint(equalTo: countLabel.bottomAnchor, constant: 6),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollBottom,
@@ -359,29 +333,20 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         }
     }
 
-    // MARK: - Search
-
-    @objc private func searchFieldChanged(_ sender: NSSearchField) {
-        filterText = sender.stringValue
-    }
-
     private func applyFilter() {
-        let query = filterText.trimmingCharacters(in: .whitespaces).lowercased()
-
-        if query.isEmpty {
+        let activeFilters = columnFilters.values.filter(\.isActive)
+        if activeFilters.isEmpty {
             filteredNodeIDs = nil
             directMatchNodeIDs = []
         } else {
             guard let tree else { return }
 
-            // Find matching nodes
             var matches = Set<ObjectIdentifier>()
             var ancestors = Set<ObjectIdentifier>()
 
             for node in tree.allNodes() {
-                if nodeMatchesFilter(node: node, query: query) {
+                if activeFilters.allSatisfy({ nodeMatchesColumnFilter($0, node: node) }) {
                     matches.insert(ObjectIdentifier(node))
-                    // Include all ancestors so hierarchy context is preserved
                     var parent = node.parent
                     while let p = parent {
                         ancestors.insert(ObjectIdentifier(p))
@@ -534,11 +499,6 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         // Apply text search filter
         if let filtered = filteredNodeIDs {
             children = children.filter { filtered.contains(ObjectIdentifier($0)) }
-        }
-
-        // Apply per-column filters
-        for (_, filter) in columnFilters where filter.isActive {
-            children = children.filter { nodeMatchesColumnFilter(filter, node: $0) }
         }
 
         // Apply sort
@@ -967,7 +927,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
             return makePercentCell(for: node)
         default:
             // Check for dynamic metadata columns
-            if let cell = metadataColumns.cellForColumn(column) {
+            if let cell = metadataColumns.cellForColumn(column, sampleId: sampleID(for: node)) {
                 return cell
             }
             return nil
@@ -1148,18 +1108,6 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         return node
     }
 
-    /// Global filter predicate that matches any visible taxonomy column.
-    private func nodeMatchesFilter(node: TaxonNode, query: String) -> Bool {
-        let pct = String(format: "%.1f%%", node.fractionClade * 100.0).lowercased()
-        if sampleID(for: node).lowercased().contains(query) { return true }
-        if node.name.lowercased().contains(query) { return true }
-        if node.rank.displayName.lowercased().contains(query) { return true }
-        if "\(node.readsClade)".contains(query) { return true }
-        if "\(node.readsDirect)".contains(query) { return true }
-        if pct.contains(query) { return true }
-        return false
-    }
-
     #if DEBUG
     /// Test-only: the outline view's configured context menu. Exposed so
     /// Phase 6 I1 invariant tests can inspect the menu without reaching
@@ -1193,6 +1141,11 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     /// verify the menu-click wiring without synthesizing AppKit events.
     public func simulateContextMenuExtractReads() {
         contextExtractReads(nil)
+    }
+
+    func testingApplyColumnFilter(_ filter: ColumnFilter) {
+        columnFilters[filter.columnId] = filter
+        reloadDataAndUpdateFilterIndicators()
     }
 
     private static var _testingStubKey: UInt8 = 0

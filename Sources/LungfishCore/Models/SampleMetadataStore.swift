@@ -256,7 +256,21 @@ public final class SampleMetadataStore: @unchecked Sendable {
         let metadataDir = bundleURL.appendingPathComponent("metadata", isDirectory: true)
         let tsvURL = metadataDir.appendingPathComponent("sample_metadata.tsv")
         guard let data = try? Data(contentsOf: tsvURL) else { return nil }
-        guard let store = try? SampleMetadataStore(csvData: data, knownSampleIds: knownSampleIds) else { return nil }
+        let store: SampleMetadataStore?
+        if let scanResult = try? SampleMetadataStore.scanForSampleColumn(
+            csvData: data,
+            knownSampleIds: knownSampleIds
+        ),
+           let bestColumn = scanResult.bestColumn {
+            store = SampleMetadataStore(
+                scanResult: scanResult,
+                sampleColumnIndex: bestColumn.index,
+                knownSampleIds: knownSampleIds
+            )
+        } else {
+            store = try? SampleMetadataStore(csvData: data, knownSampleIds: knownSampleIds)
+        }
+        guard let store else { return nil }
         let editsURL = metadataDir.appendingPathComponent("sample_metadata_edits.json")
         if let editsData = try? Data(contentsOf: editsURL),
            let savedEdits = try? JSONDecoder().decode([MetadataEdit].self, from: editsData) {

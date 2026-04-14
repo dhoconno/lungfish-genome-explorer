@@ -621,6 +621,18 @@ final class DownloadCenterTests: XCTestCase {
         XCTAssertEqual(item?.logEntries[2].level, .error)
     }
 
+    func testCompletedItemWithWarningLogsReportsCompletedWithWarnings() {
+        let id = center.start(title: "TaxTriage", detail: "Running...")
+
+        center.log(id: id, level: .warning, message: "21 samples failed in MINIMAP2_ALIGN and were ignored")
+        center.complete(id: id, detail: "128 samples completed, 21 ignored failures")
+
+        let item = center.items.first { $0.id == id }
+        XCTAssertEqual(item?.state, .completed)
+        XCTAssertTrue(item?.hasWarnings == true)
+        XCTAssertEqual(item?.displayStateLabel, "Completed with Warnings")
+    }
+
     // MARK: - Failure Report Data Completeness
 
     func testFailedItemWithAllFieldsHasCompleteReportData() {

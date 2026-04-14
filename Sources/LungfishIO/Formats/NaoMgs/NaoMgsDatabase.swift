@@ -123,6 +123,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
         // Schema migration: check which tables/columns need to be added.
         var hasRefLengths = false
         var hasAccessionSummaries = false
+        var hasTaxonReadNames = false
         let tableListSQL = "SELECT name FROM sqlite_master WHERE type='table'"
         var tblStmt: OpaquePointer?
         if sqlite3_prepare_v2(db, tableListSQL, -1, &tblStmt, nil) == SQLITE_OK {
@@ -131,6 +132,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
                     let name = String(cString: namePtr)
                     if name == "reference_lengths" { hasRefLengths = true }
                     if name == "accession_summaries" { hasAccessionSummaries = true }
+                    if name == "taxon_read_names" { hasTaxonReadNames = true }
                 }
             }
             sqlite3_finalize(tblStmt)
@@ -151,7 +153,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
             sqlite3_finalize(colStmt)
         }
 
-        let needsMigration = !hasRefLengths || !hasAccessionSummaries || !hasBamPath || !hasBamIndexPath
+        let needsMigration = !hasRefLengths || !hasAccessionSummaries || !hasTaxonReadNames || !hasBamPath || !hasBamIndexPath
         if needsMigration {
             sqlite3_close(db)
             self.db = nil
@@ -192,6 +194,18 @@ public final class NaoMgsDatabase: @unchecked Sendable {
                             sqlite3_finalize(countStmt)
                         }
                     }
+                }
+                if !hasTaxonReadNames {
+                    sqlite3_exec(rwDB, """
+                    CREATE TABLE IF NOT EXISTS taxon_read_names (
+                        sample TEXT NOT NULL,
+                        tax_id INTEGER NOT NULL,
+                        seq_id TEXT NOT NULL,
+                        PRIMARY KEY (sample, tax_id, seq_id)
+                    )
+                    """, nil, nil, nil)
+                    try? Self.populateTaxonReadNames(db: rwDB)
+                    sqlite3_exec(rwDB, "CREATE INDEX IF NOT EXISTS idx_taxon_read_names_sample_taxid ON taxon_read_names(sample, tax_id)", nil, nil, nil)
                 }
                 sqlite3_close(rwDB)
             }
@@ -263,6 +277,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
             progress?(0.05, "Schema created")
 
             try bulkInsertHits(db: db, hits: hits, progress: progress)
+            try populateTaxonReadNames(db: db)
             progress?(0.70, "Building indices...")
 
             try createIndices(db: db)
@@ -431,6 +446,17 @@ public final class NaoMgsDatabase: @unchecked Sendable {
             }
             defer { sqlite3_finalize(insertStmt) }
 
+            let insertReadNameSQL = """
+            INSERT OR IGNORE INTO taxon_read_names (sample, tax_id, seq_id)
+            VALUES (?, ?, ?)
+            """
+            var insertReadNameStmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, insertReadNameSQL, -1, &insertReadNameStmt, nil) == SQLITE_OK else {
+                let msg = String(cString: sqlite3_errmsg(db))
+                throw NaoMgsDatabaseError.insertFailed("Prepare failed: \(msg)")
+            }
+            defer { sqlite3_finalize(insertReadNameStmt) }
+
             sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
 
             var insertedCount = 0
@@ -444,17 +470,16 @@ public final class NaoMgsDatabase: @unchecked Sendable {
 
             // Alignment signature hash for deduplication
             func alignmentHash(
-                accession: String, refStart: Int, isRC: Bool, qLen: Int,
-                refStartRev: Int, isRCRev: Bool, qLenRev: Int
+                accession: String,
+                refStart: Int,
+                isRC: Bool,
+                qLen: Int
             ) -> UInt64 {
                 var hasher = Hasher()
                 hasher.combine(accession)
                 hasher.combine(refStart)
                 hasher.combine(isRC)
                 hasher.combine(qLen)
-                hasher.combine(refStartRev)
-                hasher.combine(isRCRev)
-                hasher.combine(qLenRev)
                 return UInt64(bitPattern: Int64(hasher.finalize()))
             }
 
@@ -675,6 +700,17 @@ public final class NaoMgsDatabase: @unchecked Sendable {
                         throw NaoMgsDatabaseError.insertFailed("Row \(lineNumber) failed: \(msg)")
                     }
 
+                    sqlite3_reset(insertReadNameStmt)
+                    sqlite3_clear_bindings(insertReadNameStmt)
+                    naoBindText(insertReadNameStmt, 1, sampleName)
+                    sqlite3_bind_int64(insertReadNameStmt, 2, Int64(taxId))
+                    naoBindText(insertReadNameStmt, 3, String(fields[map.seqId]))
+                    guard sqlite3_step(insertReadNameStmt) == SQLITE_DONE else {
+                        let msg = String(cString: sqlite3_errmsg(db))
+                        sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+                        throw NaoMgsDatabaseError.insertFailed("Read-name row \(lineNumber) failed: \(msg)")
+                    }
+
                     insertedCount += 1
 
                     // --- Update streaming accumulators (class = mutate in-place) ---
@@ -685,28 +721,38 @@ public final class NaoMgsDatabase: @unchecked Sendable {
                         acc = TaxonAccumulator()
                         accumulators[sampleName, default: [:]][taxId] = acc
                     }
-                    acc.hitCount += 1
-                    acc.identitySum += percentIdentity
-                    acc.bitScoreSum += effectiveBitScore
-                    acc.editDistanceSum += effectiveEditDist
+                    let alignmentCount = (hasR1 ? 1 : 0) + (hasR2 ? 1 : 0)
+                    acc.hitCount += alignmentCount
+                    acc.identitySum += percentIdentity * Double(alignmentCount)
+                    acc.bitScoreSum += effectiveBitScore * Double(alignmentCount)
+                    acc.editDistanceSum += effectiveEditDist * alignmentCount
                     acc.accessions.insert(subjectSeqId)
                     if acc.name.isEmpty { acc.name = subjectTitle }
 
-                    // Alignment signature for unique read counting
-                    let sigHash = alignmentHash(
-                        accession: subjectSeqId,
-                        refStart: hasR1 ? refStart : -1,
-                        isRC: hasR1 ? isRC : false,
-                        qLen: hasR1 ? (qLen > 0 ? qLen : readSeq.count) : -1,
-                        refStartRev: hasR2 ? refStartRev : -1,
-                        isRCRev: hasR2 ? isRCRev : false,
-                        qLenRev: hasR2 ? qLenRev : -1
-                    )
-                    acc.alignmentSignatures.insert(sigHash)
-
-                    // Per-accession unique signatures and read count
-                    acc.accessionSignatures[subjectSeqId, default: []].insert(sigHash)
-                    acc.accessionReadCounts[subjectSeqId, default: 0] += 1
+                    if hasR1 {
+                        let r1Len = qLen > 0 ? qLen : readSeq.count
+                        let r1SigHash = alignmentHash(
+                            accession: subjectSeqId,
+                            refStart: refStart,
+                            isRC: isRC,
+                            qLen: r1Len
+                        )
+                        acc.alignmentSignatures.insert(r1SigHash)
+                        acc.accessionSignatures[subjectSeqId, default: []].insert(r1SigHash)
+                        acc.accessionReadCounts[subjectSeqId, default: 0] += 1
+                    }
+                    if hasR2 && refStartRev > 0 {
+                        let r2Len = qLenRev > 0 ? qLenRev : readSeqRev.count
+                        let r2SigHash = alignmentHash(
+                            accession: subjectSeqId,
+                            refStart: refStartRev,
+                            isRC: isRCRev,
+                            qLen: r2Len
+                        )
+                        acc.alignmentSignatures.insert(r2SigHash)
+                        acc.accessionSignatures[subjectSeqId, default: []].insert(r2SigHash)
+                        acc.accessionReadCounts[subjectSeqId, default: 0] += 1
+                    }
 
                     // Per-accession coverage intervals
                     if hasR1 {
@@ -1057,6 +1103,13 @@ public final class NaoMgsDatabase: @unchecked Sendable {
             coverage_fraction REAL NOT NULL,
             PRIMARY KEY (sample, tax_id, accession)
         );
+
+        CREATE TABLE taxon_read_names (
+            sample TEXT NOT NULL,
+            tax_id INTEGER NOT NULL,
+            seq_id TEXT NOT NULL,
+            PRIMARY KEY (sample, tax_id, seq_id)
+        );
         """
         guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -1097,6 +1150,11 @@ public final class NaoMgsDatabase: @unchecked Sendable {
             reference_length, covered_base_pairs, coverage_fraction
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """
+        let insertReadNameSQL = """
+        INSERT OR IGNORE INTO taxon_read_names (
+            sample, tax_id, seq_id
+        ) VALUES (?, ?, ?)
+        """
         let mergeReferenceLengthSQL = """
         INSERT INTO reference_lengths (accession, length)
         VALUES (?, ?)
@@ -1106,6 +1164,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
 
         var insertTaxonStmt: OpaquePointer?
         var insertAccessionStmt: OpaquePointer?
+        var insertReadNameStmt: OpaquePointer?
         var mergeReferenceLengthStmt: OpaquePointer?
 
         guard sqlite3_prepare_v2(mergedDB, insertTaxonSQL, -1, &insertTaxonStmt, nil) == SQLITE_OK else {
@@ -1115,14 +1174,21 @@ public final class NaoMgsDatabase: @unchecked Sendable {
             sqlite3_finalize(insertTaxonStmt)
             throw NaoMgsDatabaseError.createFailed("Merged accession insert prepare failed: \(String(cString: sqlite3_errmsg(mergedDB)))")
         }
+        guard sqlite3_prepare_v2(mergedDB, insertReadNameSQL, -1, &insertReadNameStmt, nil) == SQLITE_OK else {
+            sqlite3_finalize(insertTaxonStmt)
+            sqlite3_finalize(insertAccessionStmt)
+            throw NaoMgsDatabaseError.createFailed("Merged read-name insert prepare failed: \(String(cString: sqlite3_errmsg(mergedDB)))")
+        }
         guard sqlite3_prepare_v2(mergedDB, mergeReferenceLengthSQL, -1, &mergeReferenceLengthStmt, nil) == SQLITE_OK else {
             sqlite3_finalize(insertTaxonStmt)
             sqlite3_finalize(insertAccessionStmt)
+            sqlite3_finalize(insertReadNameStmt)
             throw NaoMgsDatabaseError.createFailed("Merged reference length insert prepare failed: \(String(cString: sqlite3_errmsg(mergedDB)))")
         }
         defer {
             sqlite3_finalize(insertTaxonStmt)
             sqlite3_finalize(insertAccessionStmt)
+            sqlite3_finalize(insertReadNameStmt)
             sqlite3_finalize(mergeReferenceLengthStmt)
         }
 
@@ -1134,6 +1200,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
             for stageInput in stageInputs {
                 let taxonCount = try appendStageTaxonSummaries(from: stageInput, into: mergedDB, insertStmt: insertTaxonStmt)
                 let accessionCount = try appendStageAccessionSummaries(from: stageInput, into: mergedDB, insertStmt: insertAccessionStmt)
+                try appendStageTaxonReadNames(from: stageInput, into: mergedDB, insertStmt: insertReadNameStmt)
                 try mergeStageReferenceLengths(from: stageInput, into: mergedDB, insertStmt: mergeReferenceLengthStmt)
 
                 guard taxonCount > 0 else {
@@ -1275,6 +1342,38 @@ public final class NaoMgsDatabase: @unchecked Sendable {
         }
     }
 
+    private static func appendStageTaxonReadNames(
+        from stageInput: NaoMgsStageDatabaseInput,
+        into mergedDB: OpaquePointer,
+        insertStmt: OpaquePointer?
+    ) throws {
+        let selectSQL = """
+        SELECT tax_id, seq_id
+        FROM taxon_read_names
+        WHERE sample = ?
+        """
+        try withReadOnlySQLiteDatabase(at: stageInput.databaseURL) { stageDB in
+            var selectStmt: OpaquePointer?
+            guard sqlite3_prepare_v2(stageDB, selectSQL, -1, &selectStmt, nil) == SQLITE_OK else {
+                throw NaoMgsDatabaseError.createFailed("Stage read-name select prepare failed for \(stageInput.databaseURL.lastPathComponent): \(String(cString: sqlite3_errmsg(stageDB)))")
+            }
+            defer { sqlite3_finalize(selectStmt) }
+
+            naoBindText(selectStmt, 1, stageInput.sample)
+            while sqlite3_step(selectStmt) == SQLITE_ROW {
+                sqlite3_reset(insertStmt)
+                sqlite3_clear_bindings(insertStmt)
+                naoBindText(insertStmt, 1, stageInput.sample)
+                sqlite3_bind_int64(insertStmt, 2, sqlite3_column_int64(selectStmt, 0))
+                naoBindText(insertStmt, 3, String(cString: sqlite3_column_text(selectStmt, 1)))
+
+                guard sqlite3_step(insertStmt) == SQLITE_DONE else {
+                    throw NaoMgsDatabaseError.createFailed("Merged read-name insert failed for sample \(stageInput.sample): \(String(cString: sqlite3_errmsg(mergedDB)))")
+                }
+            }
+        }
+    }
+
     private static func withReadOnlySQLiteDatabase<T>(
         at url: URL,
         _ body: (OpaquePointer) throws -> T
@@ -1378,6 +1477,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
         let indices = [
             // virus_hits: only idx_hits_sample needed (BAM materializer queries by sample)
             "CREATE INDEX idx_hits_sample ON virus_hits(sample)",
+            "CREATE INDEX idx_taxon_read_names_sample_taxid ON taxon_read_names(sample, tax_id)",
             // taxon_summaries indices
             "CREATE INDEX idx_summaries_sample ON taxon_summaries(sample)",
             "CREATE INDEX idx_summaries_hitcount ON taxon_summaries(sample, hit_count DESC)",
@@ -1390,6 +1490,22 @@ public final class NaoMgsDatabase: @unchecked Sendable {
                 let msg = String(cString: sqlite3_errmsg(db))
                 throw NaoMgsDatabaseError.createFailed("Index creation failed: \(msg)")
             }
+        }
+    }
+
+    private static func populateTaxonReadNames(db: OpaquePointer?) throws {
+        guard let db else {
+            throw NaoMgsDatabaseError.queryFailed("Database not open")
+        }
+
+        let sql = """
+        INSERT OR IGNORE INTO taxon_read_names (sample, tax_id, seq_id)
+        SELECT DISTINCT sample, tax_id, seq_id
+        FROM virus_hits
+        """
+        guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw NaoMgsDatabaseError.createFailed("Taxon read-name population failed: \(msg)")
         }
     }
 
@@ -1536,10 +1652,42 @@ public final class NaoMgsDatabase: @unchecked Sendable {
 
     // MARK: - Accession Summary Pre-Computation
 
+    /// Returns the set of columns present in the given table.
+    private static func columnNames(in table: String, db: OpaquePointer) -> Set<String> {
+        var names = Set<String>()
+        var stmt: OpaquePointer?
+        let pragma = "PRAGMA table_info(\(table))"
+        guard sqlite3_prepare_v2(db, pragma, -1, &stmt, nil) == SQLITE_OK else {
+            return names
+        }
+        defer { sqlite3_finalize(stmt) }
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let namePtr = sqlite3_column_text(stmt, 1) {
+                names.insert(String(cString: namePtr))
+            }
+        }
+        return names
+    }
+
     /// Pre-computes per-accession statistics (read count, unique reads, coverage)
     /// and stores them in the `accession_summaries` table. This replaces the
     /// expensive N+1 pileup queries that previously ran at display time.
     private static func computeAccessionSummaries(db: OpaquePointer) throws {
+        let virusHitColumns = columnNames(in: "virus_hits", db: db)
+        let hasRefStartRev = virusHitColumns.contains("ref_start_rev")
+        let hasQueryLengthRev = virusHitColumns.contains("query_length_rev")
+        let hasIsReverseComplementRev = virusHitColumns.contains("is_reverse_complement_rev")
+
+        let refStartRevExpr = hasRefStartRev ? "IFNULL(ref_start_rev, -1)" : "-1"
+        let queryLengthRevExpr = hasQueryLengthRev ? "IFNULL(query_length_rev, -1)" : "-1"
+        let isReverseComplementRevExpr = hasIsReverseComplementRev ? "IFNULL(is_reverse_complement_rev, -1)" : "-1"
+        let maxRefEndExpr: String
+        if hasRefStartRev && hasQueryLengthRev {
+            maxRefEndExpr = "IFNULL(vh.ref_start_rev + IFNULL(vh.query_length_rev, 0), 0)"
+        } else {
+            maxRefEndExpr = "0"
+        }
+
         // Step 1: Insert read_count, unique_read_count, and reference_length per (sample, tax_id, accession)
         let insertSQL = """
         INSERT INTO accession_summaries (
@@ -1553,7 +1701,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
             COUNT(*) as read_count,
             (SELECT COUNT(*) FROM (
                 SELECT DISTINCT ref_start, is_reverse_complement, query_length,
-                       IFNULL(ref_start_rev, -1), IFNULL(is_reverse_complement_rev, -1), IFNULL(query_length_rev, -1)
+                       \(refStartRevExpr), \(isReverseComplementRevExpr), \(queryLengthRevExpr)
                 FROM virus_hits v2
                 WHERE v2.sample = vh.sample AND v2.tax_id = vh.tax_id AND v2.subject_seq_id = vh.subject_seq_id
             )) as unique_read_count,
@@ -1561,7 +1709,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
                 (SELECT length FROM reference_lengths WHERE accession = vh.subject_seq_id),
                 MAX(MAX(
                     vh.ref_start + vh.query_length,
-                    IFNULL(vh.ref_start_rev + IFNULL(vh.query_length_rev, 0), 0)
+                    \(maxRefEndExpr)
                 ))
             ) as reference_length,
             0,
@@ -1598,10 +1746,16 @@ public final class NaoMgsDatabase: @unchecked Sendable {
         FROM virus_hits
         WHERE sample = ? AND tax_id = ? AND subject_seq_id = ?
         """
+        let legacyPileupSQL = """
+        SELECT ref_start, query_length
+        FROM virus_hits
+        WHERE sample = ? AND tax_id = ? AND subject_seq_id = ?
+        """
         let updateSQL = "UPDATE accession_summaries SET covered_base_pairs = ?, coverage_fraction = ? WHERE sample = ? AND tax_id = ? AND accession = ?"
 
         var pileupStmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, pileupSQL, -1, &pileupStmt, nil) == SQLITE_OK else {
+        let pileupSQLToUse = (hasRefStartRev && hasQueryLengthRev) ? pileupSQL : legacyPileupSQL
+        guard sqlite3_prepare_v2(db, pileupSQLToUse, -1, &pileupStmt, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw NaoMgsDatabaseError.createFailed("Pileup query prepare failed: \(msg)")
         }
@@ -1627,7 +1781,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
                 let refStart = Int(sqlite3_column_int64(pileupStmt, 0))
                 let queryLen = Int(sqlite3_column_int64(pileupStmt, 1))
                 intervals.append((start: refStart, end: refStart + queryLen))
-                if sqlite3_column_type(pileupStmt, 2) != SQLITE_NULL {
+                if hasRefStartRev && hasQueryLengthRev && sqlite3_column_type(pileupStmt, 2) != SQLITE_NULL {
                     let refStartRev = Int(sqlite3_column_int64(pileupStmt, 2))
                     let queryLenRev = sqlite3_column_type(pileupStmt, 3) == SQLITE_NULL
                         ? 0
@@ -1815,6 +1969,14 @@ public final class NaoMgsDatabase: @unchecked Sendable {
             covered_base_pairs INTEGER NOT NULL,
             coverage_fraction REAL NOT NULL,
             PRIMARY KEY (sample, tax_id, accession)
+        )
+        """, nil, nil, nil)
+        sqlite3_exec(instance.db, """
+        CREATE TABLE IF NOT EXISTS taxon_read_names (
+            sample TEXT NOT NULL,
+            tax_id INTEGER NOT NULL,
+            seq_id TEXT NOT NULL,
+            PRIMARY KEY (sample, tax_id, seq_id)
         )
         """, nil, nil, nil)
         return instance
@@ -2330,6 +2492,10 @@ public final class NaoMgsDatabase: @unchecked Sendable {
         guard let db else { throw NaoMgsDatabaseError.queryFailed("Database not open") }
 
         let sql = """
+            SELECT seq_id
+            FROM taxon_read_names
+            WHERE sample = ? AND tax_id = ?
+            UNION
             SELECT DISTINCT seq_id
             FROM virus_hits
             WHERE sample = ? AND tax_id = ?
@@ -2342,6 +2508,8 @@ public final class NaoMgsDatabase: @unchecked Sendable {
         }
         naoBindText(stmt, 1, sample)
         sqlite3_bind_int(stmt, 2, Int32(taxId))
+        naoBindText(stmt, 3, sample)
+        sqlite3_bind_int(stmt, 4, Int32(taxId))
 
         var names = Set<String>()
         while sqlite3_step(stmt) == SQLITE_ROW {

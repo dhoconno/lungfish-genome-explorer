@@ -79,17 +79,26 @@ struct MetagenomicsImportServiceTests {
         222\tVirus B\t8
         """.write(to: reportURL, atomically: true, encoding: .utf8)
 
+        let logURL = sourceDirectory.appendingPathComponent("nextflow.log")
+        try """
+        NOTE: Process `NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:MINIMAP2_ALIGN (SRR35517992.SRR35517992.dwnld.references)` terminated with an error exit status (1) -- Error is ignored
+        """.write(to: logURL, atomically: true, encoding: .utf8)
+
         let outputDirectory = workspace.appendingPathComponent("imports", isDirectory: true)
         let result = try MetagenomicsImportService.importTaxTriage(
             inputURL: sourceDirectory,
             outputDirectory: outputDirectory
         )
 
+        let sidecar = try TaxTriageResult.load(from: result.resultDirectory)
+
         #expect(FileManager.default.fileExists(
             atPath: result.resultDirectory.appendingPathComponent("taxtriage-result.json").path
         ))
         #expect(result.importedFileCount >= 1)
         #expect(result.reportEntryCount == 2)
+        #expect(sidecar.ignoredFailures.count == 1)
+        #expect(sidecar.ignoredFailures.first?.sampleID == "SRR35517992")
     }
 
     @Test

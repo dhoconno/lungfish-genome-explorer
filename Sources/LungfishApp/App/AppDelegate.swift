@@ -5538,7 +5538,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     }
                 }
                 do {
-                    try LungfishCLIRunner.buildClassifierDatabase(tool: "esviritu", resultURL: esvBatchRoot)
+                    try LungfishCLIRunner.buildClassifierDatabase(tool: "esviritu", resultURL: esvBatchRoot, force: true)
                 } catch {
                     dbBuildErrorDescription = error.localizedDescription
                     appDelegateLogger.warning(
@@ -5822,7 +5822,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     }
                 }
                 do {
-                    try LungfishCLIRunner.buildClassifierDatabase(tool: "kraken2", resultURL: batchRoot)
+                    try LungfishCLIRunner.buildClassifierDatabase(tool: "kraken2", resultURL: batchRoot, force: true)
                 } catch {
                     dbBuildErrorDescription = error.localizedDescription
                     appDelegateLogger.warning(
@@ -6112,7 +6112,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     }
                 }
                 do {
-                    try LungfishCLIRunner.buildClassifierDatabase(tool: "esviritu", resultURL: batchRoot)
+                    try LungfishCLIRunner.buildClassifierDatabase(tool: "esviritu", resultURL: batchRoot, force: true)
                 } catch {
                     dbBuildErrorDescription = error.localizedDescription
                     appDelegateLogger.warning(
@@ -6284,7 +6284,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     }
                 }
                 do {
-                    try LungfishCLIRunner.buildClassifierDatabase(tool: "taxtriage", resultURL: config.outputDirectory)
+                    try LungfishCLIRunner.buildClassifierDatabase(tool: "taxtriage", resultURL: config.outputDirectory, force: true)
                 } catch {
                     dbBuildErrorDescription = error.localizedDescription
                     appDelegateLogger.warning(
@@ -6305,9 +6305,31 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                                 message: "Database build failed: \(dbError) — batch will rebuild lazily on open"
                             )
                         }
+                        if capturedResult.hasIgnoredFailures {
+                            let sampleIDs = Array(Set(capturedResult.ignoredFailures.compactMap(\.sampleID))).sorted()
+                            let sampleSummary: String
+                            if sampleIDs.isEmpty {
+                                sampleSummary = "\(capturedResult.ignoredFailures.count) ignored task failures"
+                            } else {
+                                let preview = sampleIDs.prefix(5).joined(separator: ", ")
+                                let suffix = sampleIDs.count > 5 ? ", +\(sampleIDs.count - 5) more" : ""
+                                sampleSummary = "\(capturedResult.ignoredFailures.count) ignored sample failures across \(sampleIDs.count) samples (\(preview)\(suffix))"
+                            }
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .warning,
+                                message: sampleSummary
+                            )
+                        }
+                        let completionDetail: String
+                        if capturedResult.hasIgnoredFailures {
+                            completionDetail = "\(capturedResult.reportFiles.count) reports, \(capturedResult.ignoredFailures.count) ignored sample failures"
+                        } else {
+                            completionDetail = capturedResult.summary
+                        }
                         OperationCenter.shared.complete(
                             id: opID,
-                            detail: capturedResult.summary
+                            detail: completionDetail
                         )
                         // Write cross-reference sidecars into each source bundle so
                         // the sidebar discovers TaxTriage results under all contributors.

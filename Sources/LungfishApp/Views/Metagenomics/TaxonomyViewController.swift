@@ -128,9 +128,13 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     /// Sample metadata for dynamic column display in the taxonomy table.
     var sampleMetadataStore: SampleMetadataStore? {
         didSet {
-            // Kraken2 is single-sample: use the first (only) sample entry's ID.
-            let sampleId = sampleEntries.first?.id
+            let sampleId = sampleEntries.count == 1 ? sampleEntries.first?.id : currentBatchSampleId
+            taxonomyTableView.metadataColumns.isMultiSampleMode = sampleEntries.count > 1
             taxonomyTableView.metadataColumns.update(store: sampleMetadataStore, sampleId: sampleId)
+            batchTableView.metadataColumns.update(store: sampleMetadataStore, sampleId: nil)
+            if let store = sampleMetadataStore {
+                try? kraken2Database?.refreshSampleMetadataCache(store: store)
+            }
         }
     }
 
@@ -423,7 +427,6 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         // Fetch all samples from the DB.
         let sampleList = (try? db.fetchSamples()) ?? []
         let sampleIds = sampleList.map(\.sample).sorted()
-
         // Build sample entries for the Inspector picker.
         sampleEntries = sampleIds.map { sid in
             let count = sampleList.first(where: { $0.sample == sid })?.taxonCount ?? 0
@@ -512,11 +515,12 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         }
     }
 
-    /// Filters `allBatchRows` by the samples selected in `samplePickerState`
-    /// and renders one combined taxonomy tree across all selected samples.
     private func applyBatchSampleFilter() {
         guard let state = samplePickerState else { return }
-        let selected = state.selectedSamples.sorted()
+        renderBatchSelection(sampleIds: state.selectedSamples.sorted())
+    }
+
+    private func renderBatchSelection(sampleIds selected: [String]) {
 
         guard let db = kraken2Database else {
             taxonomyTableView.tree = nil
@@ -652,6 +656,14 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         }
         let actionable = nodes.filter { isActionableTaxonNode($0) }
         guard !actionable.isEmpty else { return [] }
+
+        // A DB-backed single-sample result is rendered through the same code path
+        // as batch mode, but extraction still needs the single-result semantics:
+        // pass no sampleId so the resolver loads `resultPath` directly rather than
+        // looking for a synthetic `resultPath/<sample>/` subdirectory.
+        if kraken2Database != nil, sampleEntries.count == 1, classificationResult == nil {
+            return [ClassifierRowSelector(sampleId: nil, accessions: [], taxIds: actionable.map(\.taxId))]
+        }
 
         guard isBatchMode else {
             // Single-result mode: no sample attribution needed.

@@ -183,7 +183,9 @@ final class ClassifierReadResolverTests: XCTestCase {
             return (resultPath: dbURL, expectedBAM: bam)
 
         case .nvd:
-            let bam = root.appendingPathComponent("\(sampleId).bam")
+            let bamDir = root.appendingPathComponent("bam")
+            try fm.createDirectory(at: bamDir, withIntermediateDirectories: true)
+            let bam = bamDir.appendingPathComponent("\(sampleId).filtered.bam")
             fm.createFile(atPath: bam.path, contents: Data([0x1F, 0x8B]))
             return (resultPath: root.appendingPathComponent("nvd.sqlite"), expectedBAM: bam)
 
@@ -308,7 +310,8 @@ final class ClassifierReadResolverTests: XCTestCase {
         let bamDest: URL
         switch tool {
         case .nvd:
-            bamDest = root.appendingPathComponent("\(sampleId).bam")
+            try fm.createDirectory(at: root.appendingPathComponent("bam"), withIntermediateDirectories: true)
+            bamDest = root.appendingPathComponent("bam/\(sampleId).filtered.bam")
         case .esviritu:
             bamDest = root.appendingPathComponent("\(sampleId).sorted.bam")
         case .taxtriage:
@@ -374,13 +377,14 @@ final class ClassifierReadResolverTests: XCTestCase {
 
         // Same-root multi-sample: copy sample B's BAM into root A so both
         // samples live under the same result path, per spec.
+        let bamDirA = rootA.appendingPathComponent("bam")
         try FileManager.default.copyItem(
-            at: rootB.appendingPathComponent("B.bam"),
-            to: rootA.appendingPathComponent("B.bam")
+            at: rootB.appendingPathComponent("bam/B.filtered.bam"),
+            to: bamDirA.appendingPathComponent("B.filtered.bam")
         )
         try FileManager.default.copyItem(
-            at: URL(fileURLWithPath: rootB.appendingPathComponent("B.bam").path + ".bai"),
-            to: URL(fileURLWithPath: rootA.appendingPathComponent("B.bam").path + ".bai")
+            at: URL(fileURLWithPath: rootB.appendingPathComponent("bam/B.filtered.bam").path + ".bai"),
+            to: URL(fileURLWithPath: bamDirA.appendingPathComponent("B.filtered.bam").path + ".bai")
         )
 
         let bamRefs = try await BAMRegionMatcher.readBAMReferences(
@@ -423,13 +427,14 @@ final class ClassifierReadResolverTests: XCTestCase {
 
         // Copy sample B's BAM into root A so the combined extraction can
         // resolve both samples from the same result path.
+        let bamDirAeq = rootA.appendingPathComponent("bam")
         try FileManager.default.copyItem(
-            at: rootB.appendingPathComponent("B.bam"),
-            to: rootA.appendingPathComponent("B.bam")
+            at: rootB.appendingPathComponent("bam/B.filtered.bam"),
+            to: bamDirAeq.appendingPathComponent("B.filtered.bam")
         )
         try FileManager.default.copyItem(
-            at: URL(fileURLWithPath: rootB.appendingPathComponent("B.bam").path + ".bai"),
-            to: URL(fileURLWithPath: rootA.appendingPathComponent("B.bam").path + ".bai")
+            at: URL(fileURLWithPath: rootB.appendingPathComponent("bam/B.filtered.bam").path + ".bai"),
+            to: URL(fileURLWithPath: bamDirAeq.appendingPathComponent("B.filtered.bam").path + ".bai")
         )
 
         let bamRefs = try await BAMRegionMatcher.readBAMReferences(
@@ -599,14 +604,15 @@ final class ClassifierReadResolverTests: XCTestCase {
 
         // Stand up an NVD fake result INSIDE the project so resolveProjectRoot walks up correctly.
         let resultDir = projectRoot.appendingPathComponent("analyses/nvd-20260401")
-        try fm.createDirectory(at: resultDir, withIntermediateDirectories: true)
+        let resultBamDir = resultDir.appendingPathComponent("bam")
+        try fm.createDirectory(at: resultBamDir, withIntermediateDirectories: true)
         let fixtureBAM = try sarscov2FixtureBAM()
         let fixtureBAI: URL = {
             let bai = URL(fileURLWithPath: fixtureBAM.path + ".bai")
             if fm.fileExists(atPath: bai.path) { return bai }
             return fixtureBAM.deletingPathExtension().appendingPathExtension("bam.bai")
         }()
-        let bamDest = resultDir.appendingPathComponent("s2.bam")
+        let bamDest = resultBamDir.appendingPathComponent("s2.filtered.bam")
         try fm.copyItem(at: fixtureBAM, to: bamDest)
         try fm.copyItem(at: fixtureBAI, to: URL(fileURLWithPath: bamDest.path + ".bai"))
         let resultPath = resultDir.appendingPathComponent("fake.sqlite")

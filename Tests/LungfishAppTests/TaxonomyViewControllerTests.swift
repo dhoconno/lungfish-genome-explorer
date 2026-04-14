@@ -896,6 +896,93 @@ final class TaxonomyTableKeyboardTests: XCTestCase {
 @MainActor
 final class ViewerViewControllerTaxonomyTests: XCTestCase {
 
+    private func makeTempDir(prefix: String) throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(prefix)-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func makeSingleSampleKrakenDatabase(in resultDir: URL) throws -> Kraken2Database {
+        let dbURL = resultDir.appendingPathComponent("kraken2.sqlite")
+        let rows = [
+            Kraken2ClassificationRow(
+                sample: "classification",
+                taxonName: "root",
+                taxId: 1,
+                rank: "R",
+                rankDisplayName: "Root",
+                readsDirect: 0,
+                readsClade: 100,
+                percentage: 100.0,
+                parentTaxId: nil,
+                depth: 0,
+                fractionDirect: 0
+            ),
+            Kraken2ClassificationRow(
+                sample: "classification",
+                taxonName: "Bacteria",
+                taxId: 2,
+                rank: "D",
+                rankDisplayName: "Domain",
+                readsDirect: 0,
+                readsClade: 100,
+                percentage: 100.0,
+                parentTaxId: 1,
+                depth: 1,
+                fractionDirect: 0
+            ),
+            Kraken2ClassificationRow(
+                sample: "classification",
+                taxonName: "Escherichia coli",
+                taxId: 562,
+                rank: "S",
+                rankDisplayName: "Species",
+                readsDirect: 100,
+                readsClade: 100,
+                percentage: 100.0,
+                parentTaxId: 2,
+                depth: 2,
+                fractionDirect: 1.0
+            ),
+        ]
+        return try Kraken2Database.create(
+            at: dbURL,
+            rows: rows,
+            metadata: [
+                "total_reads_classification": "100",
+                "classified_reads_classification": "100",
+                "unclassified_reads_classification": "0",
+            ]
+        )
+    }
+
+    private func makeMultiSampleKrakenDatabase(in resultDir: URL) throws -> Kraken2Database {
+        let dbURL = resultDir.appendingPathComponent("kraken2.sqlite")
+        let rows = [
+            Kraken2ClassificationRow(sample: "S1", taxonName: "root", taxId: 1, rank: "R", rankDisplayName: "Root", readsDirect: 0, readsClade: 100, percentage: 100.0, parentTaxId: nil, depth: 0, fractionDirect: 0),
+            Kraken2ClassificationRow(sample: "S1", taxonName: "Viruses", taxId: 10239, rank: "D", rankDisplayName: "Domain", readsDirect: 0, readsClade: 60, percentage: 60.0, parentTaxId: 1, depth: 1, fractionDirect: 0),
+            Kraken2ClassificationRow(sample: "S1", taxonName: "Coronaviridae", taxId: 11118, rank: "F", rankDisplayName: "Family", readsDirect: 10, readsClade: 40, percentage: 40.0, parentTaxId: 10239, depth: 2, fractionDirect: 0.1),
+            Kraken2ClassificationRow(sample: "S1", taxonName: "Betacoronavirus", taxId: 694002, rank: "G", rankDisplayName: "Genus", readsDirect: 8, readsClade: 20, percentage: 20.0, parentTaxId: 11118, depth: 3, fractionDirect: 0.08),
+
+            Kraken2ClassificationRow(sample: "S2", taxonName: "root", taxId: 1, rank: "R", rankDisplayName: "Root", readsDirect: 0, readsClade: 90, percentage: 100.0, parentTaxId: nil, depth: 0, fractionDirect: 0),
+            Kraken2ClassificationRow(sample: "S2", taxonName: "Viruses", taxId: 10239, rank: "D", rankDisplayName: "Domain", readsDirect: 0, readsClade: 40, percentage: 44.4, parentTaxId: 1, depth: 1, fractionDirect: 0),
+            Kraken2ClassificationRow(sample: "S2", taxonName: "Influenza A virus", taxId: 11320, rank: "S", rankDisplayName: "Species", readsDirect: 12, readsClade: 12, percentage: 13.3, parentTaxId: 10239, depth: 2, fractionDirect: 0.13),
+        ]
+        return try Kraken2Database.create(
+            at: dbURL,
+            rows: rows,
+            metadata: [
+                "total_reads_S1": "100",
+                "classified_reads_S1": "100",
+                "unclassified_reads_S1": "0",
+                "total_reads_S2": "90",
+                "classified_reads_S2": "90",
+                "unclassified_reads_S2": "0",
+            ]
+        )
+    }
+
     func testHideTaxonomyView() throws {
         let viewerVC = ViewerViewController()
         _ = viewerVC.view
@@ -965,5 +1052,104 @@ final class ViewerViewControllerTaxonomyTests: XCTestCase {
         XCTAssertEqual(capturedNode?.taxId, 562)
         XCTAssertEqual(capturedNode?.name, "Escherichia coli")
         XCTAssertEqual(capturedCount, 25)
+    }
+
+    func testDisplayTaxonomyFromDatabase_singleSampleExtractUsesNilSampleId() throws {
+        let resultDir = try makeTempDir(prefix: "KrakenSingleSampleDB")
+        defer { try? FileManager.default.removeItem(at: resultDir) }
+
+        let db = try makeSingleSampleKrakenDatabase(in: resultDir)
+        let vc = TaxonomyViewController()
+        _ = vc.view
+
+        let host = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        host.contentView = NSView(frame: host.frame)
+        host.contentView?.addSubview(vc.view)
+
+        TaxonomyReadExtractionAction.shared.testingCaptureOnly = true
+        TaxonomyReadExtractionAction.shared.testingCapture = .init()
+        defer {
+            TaxonomyReadExtractionAction.shared.testingCaptureOnly = false
+            TaxonomyReadExtractionAction.shared.testingCapture = .init()
+        }
+
+        vc.batchURL = resultDir
+        vc.configureFromDatabase(db)
+
+        let node = try XCTUnwrap(vc.testTableView.tree?.node(taxId: 562))
+        let extractItem = try XCTUnwrap(
+            vc.contextMenuItems(for: node).first(where: { $0.title == "Extract Reads…" })
+        )
+        _ = vc.perform(extractItem.action, with: extractItem)
+
+        let captured = TaxonomyReadExtractionAction.shared.testingCapture.lastContext
+        XCTAssertEqual(captured?.tool, .kraken2)
+        XCTAssertEqual(captured?.resultPath, resultDir)
+        XCTAssertEqual(captured?.selections.first?.taxIds, [562])
+        XCTAssertNil(
+            captured?.selections.first?.sampleId,
+            "Single-sample DB-backed Kraken2 extraction must not synthesize a sampleId"
+        )
+    }
+
+    func testDisplayTaxTriageFromDatabase_wiresBlastCallback() throws {
+        let viewerVC = ViewerViewController()
+        _ = viewerVC.view
+
+        let dir = try makeTempDir(prefix: "TaxTriageDB")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbURL = dir.appendingPathComponent("taxtriage.sqlite")
+        let row = TaxTriageTaxonomyRow(
+            sample: "s1",
+            organism: "Influenza A virus",
+            taxId: 11320,
+            status: nil,
+            tassScore: 0.95,
+            readsAligned: 56,
+            uniqueReads: 56,
+            pctReads: nil,
+            pctAlignedReads: nil,
+            coverageBreadth: nil,
+            meanCoverage: nil,
+            meanDepth: nil,
+            confidence: nil,
+            k2Reads: nil,
+            parentK2Reads: nil,
+            giniCoefficient: nil,
+            meanBaseQ: nil,
+            meanMapQ: nil,
+            mapqScore: nil,
+            disparityScore: nil,
+            minhashScore: nil,
+            diamondIdentity: nil,
+            k2DisparityScore: nil,
+            siblingsScore: nil,
+            breadthWeightScore: nil,
+            hhsPercentile: nil,
+            isAnnotated: nil,
+            annClass: nil,
+            microbialCategory: nil,
+            highConsequence: nil,
+            isSpecies: nil,
+            pathogenicSubstrains: nil,
+            sampleType: nil,
+            bamPath: "minimap2/s1.bam",
+            bamIndexPath: "minimap2/s1.bam.bai",
+            primaryAccession: "NC_123456.1",
+            accessionLength: 1234
+        )
+        let db = try TaxTriageDatabase.create(at: dbURL, rows: [row], metadata: ["tool": "taxtriage"])
+
+        viewerVC.displayTaxTriageFromDatabase(db: db, resultURL: dir)
+
+        XCTAssertNotNil(
+            viewerVC.taxTriageViewController?.onBlastVerification,
+            "DB-backed TaxTriage view must wire BLAST verification"
+        )
     }
 }

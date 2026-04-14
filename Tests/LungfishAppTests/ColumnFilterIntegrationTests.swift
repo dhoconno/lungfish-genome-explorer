@@ -282,6 +282,302 @@ struct MetadataJoinTests {
     }
 }
 
+// MARK: - Kraken Taxonomy Regressions
+
+@Suite("Kraken Taxonomy — Regressions")
+@MainActor
+struct KrakenTaxonomyRegressionTests {
+
+    @Test("Multi-sample Kraken metadata cells use the row sample ID")
+    func taxonomyMetadataCellUsesRowSampleId() throws {
+        let root = TaxonNode(
+            taxId: 1, name: "Root", rank: .root, depth: 0,
+            readsDirect: 0, readsClade: 100, fractionClade: 1.0, fractionDirect: 0.0, parentTaxId: nil
+        )
+        let sampleNode = TaxonNode(
+            taxId: -1, name: "S1", rank: TaxonomicRank(code: "no rank"), depth: 1,
+            readsDirect: 0, readsClade: 100, fractionClade: 1.0, fractionDirect: 0.0, parentTaxId: 1
+        )
+        let taxon = TaxonNode(
+            taxId: 694009,
+            name: "Severe acute respiratory syndrome-related coronavirus",
+            rank: .species,
+            depth: 2,
+            readsDirect: 12,
+            readsClade: 12,
+            fractionClade: 0.12,
+            fractionDirect: 0.12,
+            parentTaxId: -1
+        )
+        root.addChild(sampleNode)
+        sampleNode.addChild(taxon)
+
+        let table = TaxonomyTableView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        table.tree = TaxonTree(root: root, unclassifiedNode: nil, totalReads: 100)
+
+        let store = try makeMetadataStore(
+            samples: ["S1"],
+            columns: ["city"],
+            values: [["Dallas"]]
+        )
+        table.metadataColumns.isMultiSampleMode = true
+        table.metadataColumns.visibleColumns = ["city"]
+        table.metadataColumns.update(store: store, sampleId: nil)
+
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("metadata_city"))
+        let cell = table.outlineView(
+            table.outlineView,
+            viewFor: column,
+            item: taxon
+        ) as? NSTableCellView
+
+        #expect(cell?.textField?.stringValue == "Dallas")
+    }
+
+    @Test("Kraken taxonomy table does not show a free-text search field")
+    func taxonomyTableHasNoSearchField() {
+        let table = TaxonomyTableView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        let hasSearchField = table.subviews.contains { $0 is NSSearchField }
+        #expect(hasSearchField == false)
+    }
+
+    @Test("Kraken text column filters preserve ancestors of deep matches")
+    func taxonomyColumnFilterPreservesAncestors() {
+        let root = TaxonNode(
+            taxId: 1, name: "Root", rank: .root, depth: 0,
+            readsDirect: 0, readsClade: 100, fractionClade: 1.0, fractionDirect: 0.0, parentTaxId: nil
+        )
+        let viruses = TaxonNode(
+            taxId: 10239, name: "Viruses", rank: .domain, depth: 1,
+            readsDirect: 0, readsClade: 100, fractionClade: 1.0, fractionDirect: 0.0, parentTaxId: 1
+        )
+        let family = TaxonNode(
+            taxId: 11118, name: "Coronaviridae", rank: .family, depth: 2,
+            readsDirect: 0, readsClade: 80, fractionClade: 0.8, fractionDirect: 0.0, parentTaxId: 10239
+        )
+        let severe = TaxonNode(
+            taxId: 694009,
+            name: "Severe acute respiratory syndrome-related coronavirus",
+            rank: .species,
+            depth: 3,
+            readsDirect: 20,
+            readsClade: 20,
+            fractionClade: 0.2,
+            fractionDirect: 0.2,
+            parentTaxId: 11118
+        )
+        root.addChild(viruses)
+        viruses.addChild(family)
+        family.addChild(severe)
+
+        let table = TaxonomyTableView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        table.tree = TaxonTree(root: root, unclassifiedNode: nil, totalReads: 100)
+        table.testingApplyColumnFilter(.init(columnId: "name", op: .contains, value: "severe"))
+
+        #expect(table.sortedChildren(of: root).map(\.name) == ["Viruses"])
+        #expect(table.sortedChildren(of: viruses).map(\.name) == ["Coronaviridae"])
+        #expect(table.sortedChildren(of: family).map(\.name) == ["Severe acute respiratory syndrome-related coronavirus"])
+    }
+}
+
+@Suite("EsViritu metadata columns")
+@MainActor
+struct EsVirituMetadataRegressionTests {
+
+    @Test("EsViritu taxonomy rows render metadata per sample in multi-sample mode")
+    func detectionTableMetadataCellUsesRowSampleId() throws {
+        let store = try makeMetadataStore(
+            samples: ["S1", "S2"],
+            columns: ["city"],
+            values: [["Dallas"], ["Houston"]]
+        )
+
+        let detection1 = ViralDetection(
+            sampleId: "S1",
+            name: "Severe acute respiratory syndrome coronavirus 2",
+            description: "",
+            length: 29903,
+            segment: nil,
+            accession: "NC_045512.2",
+            assembly: "ASM1",
+            assemblyLength: 29903,
+            kingdom: "Viruses",
+            phylum: nil,
+            tclass: nil,
+            order: nil,
+            family: "Coronaviridae",
+            genus: "Betacoronavirus",
+            species: "Severe acute respiratory syndrome-related coronavirus",
+            subspecies: nil,
+            rpkmf: 12.5,
+            readCount: 100,
+            coveredBases: 25000,
+            meanCoverage: 18.0,
+            avgReadIdentity: 0.98,
+            pi: 0.0,
+            filteredReadsInSample: 5000
+        )
+        let detection2 = ViralDetection(
+            sampleId: "S2",
+            name: "Human coronavirus HKU1",
+            description: "",
+            length: 29926,
+            segment: nil,
+            accession: "NC_006577.2",
+            assembly: "ASM2",
+            assemblyLength: 29926,
+            kingdom: "Viruses",
+            phylum: nil,
+            tclass: nil,
+            order: nil,
+            family: "Coronaviridae",
+            genus: "Betacoronavirus",
+            species: "Betacoronavirus hongkongense",
+            subspecies: nil,
+            rpkmf: 8.1,
+            readCount: 80,
+            coveredBases: 21000,
+            meanCoverage: 12.0,
+            avgReadIdentity: 0.97,
+            pi: 0.0,
+            filteredReadsInSample: 4200
+        )
+
+        let assembly1 = ViralAssembly(
+            assembly: "ASM1",
+            assemblyLength: 29903,
+            name: detection1.name,
+            family: detection1.family,
+            genus: detection1.genus,
+            species: detection1.species,
+            totalReads: detection1.readCount,
+            rpkmf: detection1.rpkmf,
+            meanCoverage: detection1.meanCoverage,
+            avgReadIdentity: detection1.avgReadIdentity,
+            contigs: [detection1]
+        )
+        let assembly2 = ViralAssembly(
+            assembly: "ASM2",
+            assemblyLength: 29926,
+            name: detection2.name,
+            family: detection2.family,
+            genus: detection2.genus,
+            species: detection2.species,
+            totalReads: detection2.readCount,
+            rpkmf: detection2.rpkmf,
+            meanCoverage: detection2.meanCoverage,
+            avgReadIdentity: detection2.avgReadIdentity,
+            contigs: [detection2]
+        )
+
+        let result = EsVirituResult(
+            sampleId: "batch",
+            detections: [detection1, detection2],
+            assemblies: [assembly1, assembly2],
+            taxProfile: [],
+            coverageWindows: [],
+            totalFilteredReads: 5000,
+            detectedFamilyCount: 1,
+            detectedSpeciesCount: 2,
+            runtime: nil,
+            toolVersion: nil
+        )
+
+        let table = ViralDetectionTableView(frame: NSRect(x: 0, y: 0, width: 800, height: 400))
+        table.metadataColumns.isMultiSampleMode = true
+        table.metadataColumns.visibleColumns = ["city"]
+        table.metadataColumns.update(store: store, sampleId: nil)
+        table.result = result
+
+        let outline = table.testOutlineView
+        let firstAssembly = table.outlineView(outline, child: 0, ofItem: nil)
+        let secondAssembly = table.outlineView(outline, child: 1, ofItem: nil)
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("metadata_city"))
+
+        let firstCell = table.outlineView(outline, viewFor: column, item: firstAssembly) as? NSTableCellView
+        let secondCell = table.outlineView(outline, viewFor: column, item: secondAssembly) as? NSTableCellView
+
+        #expect(firstCell?.textField?.stringValue == "Dallas")
+        #expect(secondCell?.textField?.stringValue == "Houston")
+    }
+}
+
+@Suite("NAO-MGS metadata columns")
+@MainActor
+struct NaoMgsMetadataRegressionTests {
+
+    @Test("NAO-MGS metadata controller resolves per-row sample values")
+    func metadataCellUsesRowSampleId() throws {
+        let store = try makeMetadataStore(
+            samples: ["MU-CASPER-1", "MU-CASPER-2"],
+            columns: ["sampling_location"],
+            values: [["Dallas"], ["Houston"]]
+        )
+
+        let controller = MetadataColumnController()
+        let table = NSTableView()
+        controller.install(on: table)
+        controller.visibleColumns = ["sampling_location"]
+        controller.update(store: store, sampleId: nil)
+
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("metadata_sampling_location"))
+        let s1Cell = controller.cellForColumn(column, sampleId: "MU-CASPER-1") as? NSTableCellView
+        let s2Cell = controller.cellForColumn(column, sampleId: "MU-CASPER-2") as? NSTableCellView
+
+        #expect(s1Cell?.textField?.stringValue == "Dallas")
+        #expect(s2Cell?.textField?.stringValue == "Houston")
+    }
+
+    @Test("NAO-MGS metadata filters use the row sample ID")
+    func metadataFilterUsesRowSampleId() throws {
+        let store = try makeMetadataStore(
+            samples: ["MU-CASPER-1", "MU-CASPER-2"],
+            columns: ["sampling_location"],
+            values: [["Dallas"], ["Houston"]]
+        )
+
+        let controller = NaoMgsResultViewController()
+        _ = controller.view
+        controller.sampleMetadataStore = store
+
+        let row1 = NaoMgsTaxonSummaryRow(
+            sample: "MU-CASPER-1",
+            taxId: 694009,
+            name: "Severe acute respiratory syndrome-related coronavirus",
+            hitCount: 125,
+            uniqueReadCount: 110,
+            avgIdentity: 99.1,
+            avgBitScore: 220.0,
+            avgEditDistance: 1.0,
+            pcrDuplicateCount: 15,
+            accessionCount: 2,
+            topAccessions: ["NC_045512.2"],
+            bamPath: nil,
+            bamIndexPath: nil
+        )
+        let row2 = NaoMgsTaxonSummaryRow(
+            sample: "MU-CASPER-2",
+            taxId: 694009,
+            name: "Severe acute respiratory syndrome-related coronavirus",
+            hitCount: 80,
+            uniqueReadCount: 70,
+            avgIdentity: 98.4,
+            avgBitScore: 210.0,
+            avgEditDistance: 2.0,
+            pcrDuplicateCount: 10,
+            accessionCount: 1,
+            topAccessions: ["NC_045512.2"],
+            bamPath: nil,
+            bamIndexPath: nil
+        )
+
+        let filter = ColumnFilter(columnId: "metadata_sampling_location", op: .contains, value: "Dallas")
+
+        #expect(controller.applyColumnFilter(filter, to: row1) == true)
+        #expect(controller.applyColumnFilter(filter, to: row2) == false)
+    }
+}
+
 // MARK: - Column Title Indicator Tests
 
 @Suite("ColumnFilter — Title Indicators")
@@ -559,5 +855,30 @@ struct TaxTriageBatchFilterTests {
         // Only S1 rows pass (12M >= 10M), S2 fails (8M < 10M)
         #expect(filtered.count == 2)
         #expect(filtered.allSatisfy { $0.sample == "S1" })
+    }
+
+    @Test("Batch TaxTriage metadata cells use the row sample ID")
+    func batchTaxTriageMetadataCellUsesRowSampleId() throws {
+        let store = try makeMetadataStore(
+            samples: ["S1", "S2"],
+            columns: ["city"],
+            values: [["Dallas"], ["Houston"]]
+        )
+
+        let table = BatchTaxTriageTableView()
+        table.metadataColumns.isMultiSampleMode = true
+        table.metadataColumns.visibleColumns = ["city"]
+        table.metadataColumns.update(store: store, sampleId: nil)
+        table.configure(rows: [
+            makeRow(sample: "S1", organism: "Norovirus"),
+            makeRow(sample: "S2", organism: "Rotavirus"),
+        ])
+
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("metadata_city"))
+        let firstCell = table.tableView(table.tableView, viewFor: column, row: 0) as? NSTableCellView
+        let secondCell = table.tableView(table.tableView, viewFor: column, row: 1) as? NSTableCellView
+
+        #expect(firstCell?.textField?.stringValue == "Dallas")
+        #expect(secondCell?.textField?.stringValue == "Houston")
     }
 }

@@ -401,6 +401,12 @@ struct NaoMgsDatabaseTests {
         )
         #expect(reads.isEmpty, "Reads should be empty after virus_hits purge")
 
+        let readNames = try db.fetchReadNames(sample: "sample_A", taxId: 2697049)
+        #expect(
+            !readNames.isEmpty,
+            "Taxon read names should survive purge so NAO-MGS miniBAMs can stay taxon-specific"
+        )
+
         // Taxon summary rows should still work
         let taxonRows = try db.fetchTaxonSummaryRows()
         #expect(taxonRows.count == 4, "Taxon summary rows should survive purge")
@@ -481,5 +487,118 @@ struct NaoMgsDatabaseTests {
         #expect(summaries.count == 3, "Migration should recreate accession_summaries from virus_hits")
         #expect(summaries[0].readCount > 0, "Migrated summaries should have read counts")
         #expect(summaries[0].coveredBasePairs > 0, "Migrated summaries should have coverage")
+    }
+
+    @Test
+    func openLegacyDatabaseWithoutReverseColumnsMigratesAccessionSummaries() throws {
+        let url = temporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        do {
+            var db: OpaquePointer?
+            let rc = sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil)
+            #expect(rc == SQLITE_OK)
+            guard let db else { return }
+            defer { sqlite3_close(db) }
+
+            let createSQL = """
+        CREATE TABLE virus_hits (
+            rowid INTEGER PRIMARY KEY,
+            sample TEXT NOT NULL,
+            seq_id TEXT NOT NULL,
+            tax_id INTEGER NOT NULL,
+            subject_seq_id TEXT NOT NULL,
+            subject_title TEXT NOT NULL,
+            ref_start INTEGER NOT NULL,
+            cigar TEXT NOT NULL,
+            read_sequence TEXT NOT NULL,
+            read_quality TEXT NOT NULL,
+            percent_identity REAL NOT NULL,
+            bit_score REAL NOT NULL,
+            e_value REAL NOT NULL,
+            edit_distance INTEGER NOT NULL,
+            query_length INTEGER NOT NULL,
+            is_reverse_complement INTEGER NOT NULL,
+            pair_status TEXT NOT NULL,
+            fragment_length INTEGER NOT NULL,
+            best_alignment_score REAL NOT NULL
+        );
+        CREATE TABLE taxon_summaries (
+            sample TEXT NOT NULL,
+            tax_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            hit_count INTEGER NOT NULL,
+            unique_read_count INTEGER NOT NULL,
+            avg_identity REAL NOT NULL,
+            avg_bit_score REAL NOT NULL,
+            avg_edit_distance REAL NOT NULL,
+            pcr_duplicate_count INTEGER NOT NULL DEFAULT 0,
+            accession_count INTEGER NOT NULL DEFAULT 0,
+            top_accessions_json TEXT NOT NULL DEFAULT '[]',
+            PRIMARY KEY (sample, tax_id)
+        );
+        CREATE TABLE reference_lengths (
+            accession TEXT PRIMARY KEY,
+            length INTEGER NOT NULL
+        );
+        INSERT INTO reference_lengths (accession, length) VALUES ('AF304460.1', 1000), ('KT253324.1', 900);
+        INSERT INTO taxon_summaries (
+            sample, tax_id, name, hit_count, unique_read_count, avg_identity, avg_bit_score,
+            avg_edit_distance, pcr_duplicate_count, accession_count, top_accessions_json
+        ) VALUES (
+            'legacy_sample', 11137, 'Human coronavirus 229E', 5, 5, 99.0, 250.0, 1.0, 0, 2,
+            '["AF304460.1","KT253324.1"]'
+        );
+        """
+            #expect(sqlite3_exec(db, createSQL, nil, nil, nil) == SQLITE_OK)
+
+            let insertSQL = """
+        INSERT INTO virus_hits (
+            sample, seq_id, tax_id, subject_seq_id, subject_title, ref_start, cigar,
+            read_sequence, read_quality, percent_identity, bit_score, e_value,
+            edit_distance, query_length, is_reverse_complement, pair_status,
+            fragment_length, best_alignment_score
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+            var stmt: OpaquePointer?
+            #expect(sqlite3_prepare_v2(db, insertSQL, -1, &stmt, nil) == SQLITE_OK)
+            defer { sqlite3_finalize(stmt) }
+
+            let reads: [(String, String, Int)] = [
+                ("read_001", "AF304460.1", 0),
+                ("read_002", "AF304460.1", 100),
+                ("read_003", "AF304460.1", 200),
+                ("read_004", "KT253324.1", 0),
+                ("read_005", "KT253324.1", 100),
+            ]
+            for (seqId, accession, refStart) in reads {
+                sqlite3_reset(stmt)
+                sqlite3_bind_text(stmt, 1, ("legacy_sample" as NSString).utf8String, -1, nil)
+                sqlite3_bind_text(stmt, 2, (seqId as NSString).utf8String, -1, nil)
+                sqlite3_bind_int64(stmt, 3, 11137)
+                sqlite3_bind_text(stmt, 4, (accession as NSString).utf8String, -1, nil)
+                sqlite3_bind_text(stmt, 5, ("Human coronavirus 229E" as NSString).utf8String, -1, nil)
+                sqlite3_bind_int64(stmt, 6, Int64(refStart))
+                sqlite3_bind_text(stmt, 7, ("100M" as NSString).utf8String, -1, nil)
+                sqlite3_bind_text(stmt, 8, (String(repeating: "A", count: 100) as NSString).utf8String, -1, nil)
+                sqlite3_bind_text(stmt, 9, (String(repeating: "I", count: 100) as NSString).utf8String, -1, nil)
+                sqlite3_bind_double(stmt, 10, 99.0)
+                sqlite3_bind_double(stmt, 11, 250.0)
+                sqlite3_bind_double(stmt, 12, 1e-40)
+                sqlite3_bind_int64(stmt, 13, 1)
+                sqlite3_bind_int64(stmt, 14, 100)
+                sqlite3_bind_int64(stmt, 15, 0)
+                sqlite3_bind_text(stmt, 16, ("CP" as NSString).utf8String, -1, nil)
+                sqlite3_bind_int64(stmt, 17, 200)
+                sqlite3_bind_double(stmt, 18, 250.0)
+                #expect(sqlite3_step(stmt) == SQLITE_DONE)
+            }
+        }
+
+        let migrated = try NaoMgsDatabase(at: url)
+        let summaries = try migrated.fetchAccessionSummaries(sample: "legacy_sample", taxId: 11137)
+        #expect(summaries.count == 2, "Migration should rebuild accession summaries for legacy virus_hits schemas")
+        #expect(summaries.reduce(0) { $0 + $1.readCount } == 5, "Migrated accession summaries should retain all legacy reads")
+        #expect(summaries.allSatisfy { $0.coveredBasePairs > 0 }, "Migrated legacy summaries should compute covered bases")
     }
 }

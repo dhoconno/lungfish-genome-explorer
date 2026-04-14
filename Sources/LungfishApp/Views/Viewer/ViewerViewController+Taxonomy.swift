@@ -338,22 +338,20 @@ extension ViewerViewController {
 
         // Wire BLAST verification for DB-backed batch display by resolving the
         // currently displayed sample's sidecar result from the batch manifest.
+        // Single-sample DB-backed results have no batch manifest, so fall back
+        // to loading `classification-result.json` directly from `resultURL`.
         controller.onBlastVerification = { [weak controller] node, readCount in
             guard let controller else { return }
-            guard let sampleId = controller.currentBatchSampleId else {
-                taxonomyLogger.warning("BLAST: no current batch sample selected")
-                return
-            }
-
-            guard let manifest = MetagenomicsBatchResultStore.loadClassification(from: resultURL),
-                  let sampleRecord = manifest.samples.first(where: { $0.sampleId == sampleId }) else {
-                taxonomyLogger.warning("BLAST: could not resolve sample record for \(sampleId, privacy: .public)")
-                return
-            }
-
-            let sampleResultDir = resultURL.appendingPathComponent(sampleRecord.resultDirectory)
-            guard let sampleResult = try? ClassificationResult.load(from: sampleResultDir) else {
-                taxonomyLogger.warning("BLAST: failed to load sample result sidecar at \(sampleResultDir.path, privacy: .public)")
+            let sampleResult: ClassificationResult
+            if let manifest = MetagenomicsBatchResultStore.loadClassification(from: resultURL),
+               let sampleId = controller.currentBatchSampleId,
+               let sampleRecord = manifest.samples.first(where: { $0.sampleId == sampleId }),
+               let resolved = try? ClassificationResult.load(from: resultURL.appendingPathComponent(sampleRecord.resultDirectory)) {
+                sampleResult = resolved
+            } else if let resolved = try? ClassificationResult.load(from: resultURL) {
+                sampleResult = resolved
+            } else {
+                taxonomyLogger.warning("BLAST: failed to resolve a Kraken2 classification sidecar for \(resultURL.path, privacy: .public)")
                 return
             }
 

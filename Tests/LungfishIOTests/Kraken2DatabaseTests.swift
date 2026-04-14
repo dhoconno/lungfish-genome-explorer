@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+@testable import LungfishCore
 @testable import LungfishIO
 
 final class Kraken2DatabaseTests: XCTestCase {
@@ -176,7 +177,119 @@ final class Kraken2DatabaseTests: XCTestCase {
         XCTAssertEqual(bacteria.parent?.taxId, 1)
     }
 
+    func testRefreshSampleMetadataCacheStoresTSVFieldsBySample() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbURL = dir.appendingPathComponent("test.sqlite")
+
+        let rows = [
+            makeTestRow(sample: "S1", taxonName: "root", taxId: 1, rank: "R", parentTaxId: nil, depth: 0),
+            makeTestRow(sample: "S2", taxonName: "root", taxId: 1, rank: "R", parentTaxId: nil, depth: 0),
+        ]
+        let db = try Kraken2Database.create(at: dbURL, rows: rows, metadata: [:])
+        let store = try SampleMetadataStore(
+            csvData: Data("sample_id\tcity\tcollection_date\nS1\tDallas\t2024-01-05\nS2\tAustin\t2024-02-01\n".utf8),
+            knownSampleIds: Set(["S1", "S2"])
+        )
+
+        try db.refreshSampleMetadataCache(store: store)
+
+        let cities = try db.fetchMetadataValues(field: "city")
+        XCTAssertEqual(cities["S1"], "Dallas")
+        XCTAssertEqual(cities["S2"], "Austin")
+
+        let dates = try db.fetchMetadataValues(field: "collection_date")
+        XCTAssertEqual(dates["S1"], "2024-01-05")
+        XCTAssertEqual(dates["S2"], "2024-02-01")
+    }
+
+    func testMetadataFilterReturnsMatchingSamples() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbURL = dir.appendingPathComponent("test.sqlite")
+
+        let rows = [
+            makeTestRow(sample: "S1", taxonName: "root", taxId: 1, rank: "R", parentTaxId: nil, depth: 0),
+            makeTestRow(sample: "S2", taxonName: "root", taxId: 1, rank: "R", parentTaxId: nil, depth: 0),
+            makeTestRow(sample: "S3", taxonName: "root", taxId: 1, rank: "R", parentTaxId: nil, depth: 0),
+        ]
+        let db = try Kraken2Database.create(at: dbURL, rows: rows, metadata: [:])
+        let store = try SampleMetadataStore(
+            csvData: Data("sample_id\tcity\nS1\tDallas\nS2\tAustin\nS3\tDallas\n".utf8),
+            knownSampleIds: Set(["S1", "S2", "S3"])
+        )
+
+        try db.refreshSampleMetadataCache(store: store)
+
+        let sampleIds = try db.filterSamplesByMetadata([
+            .init(field: "city", op: .contains, value: "Dallas")
+        ])
+
+        XCTAssertEqual(Set(sampleIds), Set(["S1", "S3"]))
+    }
+
+    func testSearchPrunedHierarchyReturnsMatchingTaxaAndAncestors() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbURL = dir.appendingPathComponent("test.sqlite")
+
+        let rows = makeCoronavirusRows()
+        let db = try Kraken2Database.create(at: dbURL, rows: rows, metadata: [:])
+
+        let result = try db.searchPrunedHierarchy(taxonQuery: "coronavirus", sampleIds: ["S1", "S2", "S3"])
+
+        XCTAssertEqual(Set(result.matchingSamples), Set(["S1", "S3"]))
+        XCTAssertTrue(result.rows.contains(where: { $0.sample == "S1" && $0.taxonName == "Coronaviridae" }))
+        XCTAssertTrue(result.rows.contains(where: { $0.sample == "S1" && $0.taxonName == "root" }))
+        XCTAssertTrue(result.rows.contains(where: { $0.sample == "S3" && $0.taxonName == "Betacoronavirus" }))
+        XCTAssertFalse(result.rows.contains(where: { $0.sample == "S2" && $0.taxonName == "Influenza A virus" }))
+    }
+
+    func testSearchPrunedHierarchyRespectsMetadataFilteredSamples() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbURL = dir.appendingPathComponent("test.sqlite")
+
+        let rows = makeCoronavirusRows()
+        let db = try Kraken2Database.create(at: dbURL, rows: rows, metadata: [:])
+        let store = try SampleMetadataStore(
+            csvData: Data("sample_id\tcity\nS1\tDallas\nS2\tAustin\nS3\tHouston\n".utf8),
+            knownSampleIds: Set(["S1", "S2", "S3"])
+        )
+
+        try db.refreshSampleMetadataCache(store: store)
+        let filtered = try db.filterSamplesByMetadata([
+            .init(field: "city", op: .equal, value: "Dallas")
+        ])
+        let result = try db.searchPrunedHierarchy(taxonQuery: "coronavirus", sampleIds: filtered)
+
+        XCTAssertEqual(result.matchingSamples, ["S1"])
+        XCTAssertTrue(result.rows.allSatisfy { $0.sample == "S1" })
+    }
+
     // MARK: - Helpers
+
+    private func makeCoronavirusRows() -> [Kraken2ClassificationRow] {
+        [
+            makeTestRow(sample: "S1", taxonName: "root", taxId: 1, rank: "R", readsDirect: 0, readsClade: 1000, percentage: 100, parentTaxId: nil, depth: 0),
+            makeTestRow(sample: "S1", taxonName: "Viruses", taxId: 10239, rank: "D", readsDirect: 0, readsClade: 400, percentage: 40, parentTaxId: 1, depth: 1),
+            makeTestRow(sample: "S1", taxonName: "Riboviria", taxId: 2559587, rank: "K", readsDirect: 0, readsClade: 300, percentage: 30, parentTaxId: 10239, depth: 2),
+            makeTestRow(sample: "S1", taxonName: "Coronaviridae", taxId: 11118, rank: "F", readsDirect: 20, readsClade: 200, percentage: 20, parentTaxId: 2559587, depth: 3),
+            makeTestRow(sample: "S1", taxonName: "Betacoronavirus", taxId: 694002, rank: "G", readsDirect: 10, readsClade: 120, percentage: 12, parentTaxId: 11118, depth: 4),
+            makeTestRow(sample: "S1", taxonName: "Influenza A virus", taxId: 11320, rank: "S", readsDirect: 40, readsClade: 40, percentage: 4, parentTaxId: 2559587, depth: 3),
+
+            makeTestRow(sample: "S2", taxonName: "root", taxId: 1, rank: "R", readsDirect: 0, readsClade: 900, percentage: 100, parentTaxId: nil, depth: 0),
+            makeTestRow(sample: "S2", taxonName: "Viruses", taxId: 10239, rank: "D", readsDirect: 0, readsClade: 200, percentage: 22.2, parentTaxId: 1, depth: 1),
+            makeTestRow(sample: "S2", taxonName: "Riboviria", taxId: 2559587, rank: "K", readsDirect: 0, readsClade: 150, percentage: 16.7, parentTaxId: 10239, depth: 2),
+            makeTestRow(sample: "S2", taxonName: "Influenza A virus", taxId: 11320, rank: "S", readsDirect: 50, readsClade: 50, percentage: 5.6, parentTaxId: 2559587, depth: 3),
+
+            makeTestRow(sample: "S3", taxonName: "root", taxId: 1, rank: "R", readsDirect: 0, readsClade: 700, percentage: 100, parentTaxId: nil, depth: 0),
+            makeTestRow(sample: "S3", taxonName: "Viruses", taxId: 10239, rank: "D", readsDirect: 0, readsClade: 300, percentage: 42.8, parentTaxId: 1, depth: 1),
+            makeTestRow(sample: "S3", taxonName: "Riboviria", taxId: 2559587, rank: "K", readsDirect: 0, readsClade: 200, percentage: 28.6, parentTaxId: 10239, depth: 2),
+            makeTestRow(sample: "S3", taxonName: "Coronaviridae", taxId: 11118, rank: "F", readsDirect: 15, readsClade: 150, percentage: 21.4, parentTaxId: 2559587, depth: 3),
+            makeTestRow(sample: "S3", taxonName: "Betacoronavirus", taxId: 694002, rank: "G", readsDirect: 8, readsClade: 80, percentage: 11.4, parentTaxId: 11118, depth: 4),
+        ]
+    }
 
     private func makeTestRow(
         sample: String,

@@ -149,4 +149,25 @@ struct SampleMetadataStoreTests {
         #expect(store.records["S2"]?["Type"] == "clinical")
         #expect(store.matchedSampleIds == Set(["S1", "S2"]))
     }
+
+    @Test("load from bundle detects non-leading sample column")
+    func loadDetectsSampleColumn() throws {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sample-metadata-load-\(UUID().uuidString)", isDirectory: true)
+        let metadataURL = bundleURL.appendingPathComponent("metadata", isDirectory: true)
+        try FileManager.default.createDirectory(at: metadataURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+
+        let tsv = """
+        row_id\tsample_accession\tcity
+        1\tSRR001\tDallas
+        2\tSRR002\tHouston
+        """
+        try Data(tsv.utf8).write(to: metadataURL.appendingPathComponent("sample_metadata.tsv"))
+
+        let store = SampleMetadataStore.load(from: bundleURL, knownSampleIds: Set(["SRR001", "SRR002"]))
+        #expect(store?.columnNames == ["row_id", "city"])
+        #expect(store?.records["SRR001"]?["city"] == "Dallas")
+        #expect(store?.records["SRR002"]?["city"] == "Houston")
+    }
 }

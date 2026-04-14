@@ -673,6 +673,12 @@ public actor TaxTriagePipeline {
         // Find trace file
         let traceURL = outputDir.appendingPathComponent("trace.txt")
         let traceFile = fm.fileExists(atPath: traceURL.path) ? traceURL : nil
+        let ignoredFailures: [TaxTriageIgnoredFailure]
+        if let logText = try? String(contentsOf: logFile, encoding: .utf8) {
+            ignoredFailures = TaxTriageResult.parseIgnoredFailures(fromNextflowLogText: logText)
+        } else {
+            ignoredFailures = []
+        }
 
         let runtime = Date().timeIntervalSince(startTime)
 
@@ -687,7 +693,8 @@ public actor TaxTriagePipeline {
             logFile: logFile,
             traceFile: traceFile,
             allOutputFiles: allFiles,
-            sourceBundleURLs: config.sourceBundleURLs
+            sourceBundleURLs: config.sourceBundleURLs,
+            ignoredFailures: ignoredFailures
         )
     }
 

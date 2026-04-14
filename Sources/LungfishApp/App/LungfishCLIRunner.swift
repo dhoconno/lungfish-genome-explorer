@@ -68,7 +68,7 @@ enum LungfishCLIRunner {
     ///   - tool: Classifier tool name (`kraken2`, `esviritu`, `taxtriage`).
     ///   - resultURL: The batch result directory that the CLI should operate on.
     /// - Throws: ``RunError`` on missing CLI, launch failure, or non-zero exit.
-    static func buildClassifierDatabase(tool: String, resultURL: URL) throws {
+    static func buildClassifierDatabase(tool: String, resultURL: URL, force: Bool = false) throws {
         guard let cliURL = findCLI() else {
             let execDir = Bundle.main.executableURL?.deletingLastPathComponent().path ?? "<nil>"
             let bundleDir = Bundle.main.bundleURL.path
@@ -84,7 +84,11 @@ enum LungfishCLIRunner {
 
         let process = Process()
         process.executableURL = cliURL
-        process.arguments = ["build-db", tool, resultURL.path]
+        var arguments = ["build-db", tool, resultURL.path]
+        if force {
+            arguments.append("--force")
+        }
+        process.arguments = arguments
 
         let stderrPipe = Pipe()
         let stdoutPipe = Pipe()

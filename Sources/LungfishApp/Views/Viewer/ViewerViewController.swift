@@ -953,7 +953,7 @@ public class ViewerViewController: NSViewController {
         let dashBottomConstraint = dashView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
 
         NSLayoutConstraint.activate([
-            dashView.topAnchor.constraint(equalTo: view.topAnchor),
+            dashView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             dashView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             dashView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             dashBottomConstraint,
@@ -1073,7 +1073,7 @@ public class ViewerViewController: NSViewController {
         view.addSubview(dashView)
 
         NSLayoutConstraint.activate([
-            dashView.topAnchor.constraint(equalTo: view.topAnchor),
+            dashView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             dashView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             dashView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             dashView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -1168,7 +1168,7 @@ public class ViewerViewController: NSViewController {
         view.addSubview(dashView)
 
         NSLayoutConstraint.activate([
-            dashView.topAnchor.constraint(equalTo: view.topAnchor),
+            dashView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             dashView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             dashView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             dashView.bottomAnchor.constraint(equalTo: view.bottomAnchor),

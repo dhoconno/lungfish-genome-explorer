@@ -81,6 +81,33 @@ public struct Kraken2ClassificationRow: Sendable {
     }
 }
 
+public struct KrakenMetadataFilter: Sendable {
+    public enum Operation: Sendable {
+        case equal
+        case contains
+    }
+
+    public let field: String
+    public let op: Operation
+    public let value: String
+
+    public init(field: String, op: Operation, value: String) {
+        self.field = field
+        self.op = op
+        self.value = value
+    }
+}
+
+public struct KrakenPrunedSearchResult: Sendable {
+    public let rows: [Kraken2ClassificationRow]
+    public let matchingSamples: [String]
+
+    public init(rows: [Kraken2ClassificationRow], matchingSamples: [String]) {
+        self.rows = rows
+        self.matchingSamples = matchingSamples
+    }
+}
+
 // MARK: - Kraken2Database
 
 /// SQLite-backed storage for Kraken2 taxonomy results and run metadata.
@@ -220,6 +247,13 @@ public final class Kraken2Database: @unchecked Sendable {
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+
+        CREATE TABLE sample_metadata_cache (
+            sample TEXT NOT NULL,
+            field TEXT NOT NULL,
+            value TEXT NOT NULL,
+            PRIMARY KEY(sample, field)
+        );
         """
         guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
@@ -358,6 +392,8 @@ public final class Kraken2Database: @unchecked Sendable {
             "CREATE INDEX idx_kr_sample ON classification_rows(sample)",
             "CREATE INDEX idx_kr_taxon ON classification_rows(taxon_name)",
             "CREATE INDEX idx_kr_reads ON classification_rows(reads_clade)",
+            "CREATE INDEX idx_kr_metadata_field_value ON sample_metadata_cache(field, value)",
+            "CREATE INDEX idx_kr_metadata_sample ON sample_metadata_cache(sample)",
         ]
         for sql in indices {
             guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
@@ -446,6 +482,197 @@ public final class Kraken2Database: @unchecked Sendable {
             results[key] = value
         }
         return results
+    }
+
+    public func refreshSampleMetadataCache(store: SampleMetadataStore) throws {
+        var writeDB: OpaquePointer?
+        let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX
+        let rc = sqlite3_open_v2(url.path, &writeDB, flags, nil)
+        guard rc == SQLITE_OK, let writeDB else {
+            let msg = writeDB.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
+            sqlite3_close(writeDB)
+            throw Kraken2DatabaseError.queryFailed("Failed to open metadata cache for writing: \(msg)")
+        }
+        defer { sqlite3_close(writeDB) }
+
+        let schemaSQL = """
+        CREATE TABLE IF NOT EXISTS sample_metadata_cache (
+            sample TEXT NOT NULL,
+            field TEXT NOT NULL,
+            value TEXT NOT NULL,
+            PRIMARY KEY(sample, field)
+        );
+        CREATE INDEX IF NOT EXISTS idx_kr_metadata_field_value ON sample_metadata_cache(field, value);
+        CREATE INDEX IF NOT EXISTS idx_kr_metadata_sample ON sample_metadata_cache(sample);
+        """
+        guard sqlite3_exec(writeDB, schemaSQL, nil, nil, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(writeDB))
+            throw Kraken2DatabaseError.queryFailed("Failed to ensure metadata cache schema: \(msg)")
+        }
+
+        guard sqlite3_exec(writeDB, "BEGIN TRANSACTION", nil, nil, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(writeDB))
+            throw Kraken2DatabaseError.queryFailed("Failed to begin metadata cache transaction: \(msg)")
+        }
+
+        guard sqlite3_exec(writeDB, "DELETE FROM sample_metadata_cache", nil, nil, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(writeDB))
+            sqlite3_exec(writeDB, "ROLLBACK", nil, nil, nil)
+            throw Kraken2DatabaseError.queryFailed("Failed to clear metadata cache: \(msg)")
+        }
+
+        let insertSQL = "INSERT INTO sample_metadata_cache (sample, field, value) VALUES (?, ?, ?)"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(writeDB, insertSQL, -1, &stmt, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(writeDB))
+            sqlite3_exec(writeDB, "ROLLBACK", nil, nil, nil)
+            throw Kraken2DatabaseError.queryFailed("Failed to prepare metadata cache insert: \(msg)")
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        for (sample, record) in store.records {
+            for (field, value) in record {
+                sqlite3_reset(stmt)
+                sqlite3_clear_bindings(stmt)
+                krBindText(stmt, 1, sample)
+                krBindText(stmt, 2, field)
+                krBindText(stmt, 3, value)
+                guard sqlite3_step(stmt) == SQLITE_DONE else {
+                    let msg = String(cString: sqlite3_errmsg(writeDB))
+                    sqlite3_exec(writeDB, "ROLLBACK", nil, nil, nil)
+                    throw Kraken2DatabaseError.queryFailed("Failed to insert metadata cache row: \(msg)")
+                }
+            }
+        }
+
+        guard sqlite3_exec(writeDB, "COMMIT", nil, nil, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(writeDB))
+            throw Kraken2DatabaseError.queryFailed("Failed to commit metadata cache transaction: \(msg)")
+        }
+    }
+
+    public func fetchMetadataValues(field: String) throws -> [String: String] {
+        guard let db else {
+            throw Kraken2DatabaseError.queryFailed("Database not open")
+        }
+
+        let sql = "SELECT sample, value FROM sample_metadata_cache WHERE field = ? ORDER BY sample"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw Kraken2DatabaseError.queryFailed(msg)
+        }
+        defer { sqlite3_finalize(stmt) }
+        krBindText(stmt, 1, field)
+
+        var results: [String: String] = [:]
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let sample = String(cString: sqlite3_column_text(stmt, 0))
+            let value = String(cString: sqlite3_column_text(stmt, 1))
+            results[sample] = value
+        }
+        return results
+    }
+
+    public func filterSamplesByMetadata(_ filters: [KrakenMetadataFilter]) throws -> [String] {
+        guard let db else {
+            throw Kraken2DatabaseError.queryFailed("Database not open")
+        }
+        let allSamples = try fetchSamples().map(\.sample)
+        guard !filters.isEmpty else { return allSamples }
+
+        var matchingSamples = Set(allSamples)
+
+        for filter in filters {
+            let sql: String
+            let boundValue: String
+            switch filter.op {
+            case .equal:
+                sql = "SELECT sample FROM sample_metadata_cache WHERE field = ? AND lower(value) = lower(?)"
+                boundValue = filter.value
+            case .contains:
+                sql = "SELECT sample FROM sample_metadata_cache WHERE field = ? AND lower(value) LIKE lower(?)"
+                boundValue = "%\(filter.value)%"
+            }
+
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+                let msg = String(cString: sqlite3_errmsg(db))
+                throw Kraken2DatabaseError.queryFailed(msg)
+            }
+
+            krBindText(stmt, 1, filter.field)
+            krBindText(stmt, 2, boundValue)
+
+            var currentMatches: Set<String> = []
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                currentMatches.insert(String(cString: sqlite3_column_text(stmt, 0)))
+            }
+            sqlite3_finalize(stmt)
+
+            matchingSamples.formIntersection(currentMatches)
+            if matchingSamples.isEmpty {
+                return []
+            }
+        }
+
+        return matchingSamples.sorted()
+    }
+
+    public func searchPrunedHierarchy(
+        taxonQuery: String,
+        sampleIds: [String]
+    ) throws -> KrakenPrunedSearchResult {
+        guard let db else {
+            throw Kraken2DatabaseError.queryFailed("Database not open")
+        }
+        let trimmed = taxonQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !sampleIds.isEmpty else {
+            return KrakenPrunedSearchResult(rows: [], matchingSamples: [])
+        }
+
+        let samplePlaceholders = sampleIds.map { _ in "?" }.joined(separator: ",")
+        let sql = """
+        WITH RECURSIVE
+        matches AS (
+            SELECT sample, tax_id
+            FROM classification_rows
+            WHERE sample IN (\(samplePlaceholders))
+              AND lower(taxon_name) LIKE lower(?)
+        ),
+        ancestor_ids(sample, tax_id) AS (
+            SELECT sample, tax_id FROM matches
+            UNION
+            SELECT cr.sample, cr.parent_tax_id
+            FROM classification_rows cr
+            JOIN ancestor_ids a
+              ON cr.sample = a.sample AND cr.tax_id = a.tax_id
+            WHERE cr.parent_tax_id IS NOT NULL
+        )
+        SELECT DISTINCT
+            cr.rowid, cr.sample, cr.taxon_name, cr.tax_id, cr.rank, cr.rank_display_name,
+            cr.reads_direct, cr.reads_clade, cr.percentage, cr.parent_tax_id, cr.depth, cr.fraction_direct
+        FROM classification_rows cr
+        JOIN ancestor_ids a
+          ON cr.sample = a.sample AND cr.tax_id = a.tax_id
+        ORDER BY cr.sample, cr.depth, cr.reads_clade DESC, cr.taxon_name
+        """
+
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw Kraken2DatabaseError.queryFailed(msg)
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        for (index, sampleId) in sampleIds.enumerated() {
+            krBindText(stmt, Int32(index + 1), sampleId)
+        }
+        krBindText(stmt, Int32(sampleIds.count + 1), "%\(trimmed)%")
+
+        let rows = collectRows(stmt: stmt)
+        let matchingSamples = Set(rows.map(\.sample)).sorted()
+        return KrakenPrunedSearchResult(rows: rows, matchingSamples: matchingSamples)
     }
 
     // MARK: - Tree Reconstruction

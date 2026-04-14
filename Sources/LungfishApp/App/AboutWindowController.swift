@@ -320,6 +320,8 @@ final class AboutWindowController: NSWindowController {
              "https://github.com/nextflow-io/nextflow"),
             ("NVD", "O'Connor DH, Ramuta MD, et al.", "MIT",
              "https://github.com/dholab/nvd"),
+            ("NAO-MGS", "SecureBio", "MIT",
+             "https://github.com/securebio/nao-mgs-workflow"),
         ])
 
         appendHeading("Alignment")

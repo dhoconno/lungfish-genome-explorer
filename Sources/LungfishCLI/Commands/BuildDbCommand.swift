@@ -87,6 +87,7 @@ private func updateUniqueReadsInDB(
     sampleCol: String,
     accessionCol: String,
     bamPathCol: String,
+    totalReadsCol: String,
     resultURL: URL,
     bamPathResolver: (URL, String, String) -> String,
     updateAccessionLength: Bool,
@@ -207,44 +208,67 @@ private func updateUniqueReadsInDB(
         }
     }
 
-    // Update unique_reads via markdup-based counts
-    let uniqueSQL = "UPDATE \(table) SET unique_reads = ? WHERE rowid = ?"
-    var uniqueStmt: OpaquePointer?
-    guard sqlite3_prepare_v2(db, uniqueSQL, -1, &uniqueStmt, nil) == SQLITE_OK else {
-        if !quiet { print("Warning: failed to prepare UPDATE for unique reads") }
+    // Update reads_aligned (total mapped) and unique_reads (non-duplicate mapped)
+    // from the BAM. reads_aligned is overwritten with the authoritative BAM count
+    // (samtools view -c -F 0x4) replacing the pipeline TSV value.
+    let updateSQL = "UPDATE \(table) SET \(totalReadsCol) = ?, unique_reads = ? WHERE rowid = ?"
+    var updateStmt: OpaquePointer?
+    guard sqlite3_prepare_v2(db, updateSQL, -1, &updateStmt, nil) == SQLITE_OK else {
+        if !quiet { print("Warning: failed to prepare UPDATE for read counts") }
         return
     }
-    defer { sqlite3_finalize(uniqueStmt) }
+    defer { sqlite3_finalize(updateStmt) }
 
     sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
     var updated = 0
-    var cache: [String: Int] = [:]
+    var uniqueCache: [String: Int] = [:]
+    var totalCache: [String: Int] = [:]
     for (i, row) in rowsToProcess.enumerated() {
         let bamFullPath = bamPathResolver(resultURL, row.sample, row.bamRelPath)
         guard FileManager.default.fileExists(atPath: bamFullPath) else { continue }
 
         let cacheKey = "\(bamFullPath)\t\(row.accession)"
+        let bamURL = URL(fileURLWithPath: bamFullPath)
+
         let unique: Int
-        if let cached = cache[cacheKey] {
+        if let cached = uniqueCache[cacheKey] {
             unique = cached
         } else {
             do {
                 unique = try MarkdupService.countReads(
-                    bamURL: URL(fileURLWithPath: bamFullPath),
+                    bamURL: bamURL,
                     accession: row.accession,
                     flagFilter: 0x404,  // unmapped + duplicate
                     samtoolsPath: samtoolsPath
                 )
-                cache[cacheKey] = unique
+                uniqueCache[cacheKey] = unique
             } catch {
                 continue
             }
         }
 
-        sqlite3_reset(uniqueStmt)
-        sqlite3_bind_int64(uniqueStmt, 1, Int64(unique))
-        sqlite3_bind_int64(uniqueStmt, 2, row.rowid)
-        sqlite3_step(uniqueStmt)
+        let total: Int
+        if let cached = totalCache[cacheKey] {
+            total = cached
+        } else {
+            do {
+                total = try MarkdupService.countReads(
+                    bamURL: bamURL,
+                    accession: row.accession,
+                    flagFilter: 0x4,  // unmapped only (includes duplicates)
+                    samtoolsPath: samtoolsPath
+                )
+                totalCache[cacheKey] = total
+            } catch {
+                total = 0
+            }
+        }
+
+        sqlite3_reset(updateStmt)
+        sqlite3_bind_int64(updateStmt, 1, Int64(total))
+        sqlite3_bind_int64(updateStmt, 2, Int64(unique))
+        sqlite3_bind_int64(updateStmt, 3, row.rowid)
+        sqlite3_step(updateStmt)
         updated += 1
 
         if (i + 1) % 50 == 0 && !quiet {
@@ -252,7 +276,7 @@ private func updateUniqueReadsInDB(
         }
     }
     sqlite3_exec(db, "COMMIT", nil, nil, nil)
-    if !quiet { print("  Updated unique reads for \(updated)/\(rowsToProcess.count) organisms") }
+    if !quiet { print("  Updated read counts for \(updated)/\(rowsToProcess.count) organisms") }
 }
 
 // MARK: - TaxTriage Subcommand
@@ -337,6 +361,7 @@ extension BuildDbCommand {
                 sampleCol: "sample",
                 accessionCol: "primary_accession",
                 bamPathCol: "bam_path",
+                totalReadsCol: "reads_aligned",
                 resultURL: resultURL,
                 bamPathResolver: { resultURL, _, bamRelPath in
                     // TaxTriage BAM paths are relative to resultURL directly
@@ -801,6 +826,7 @@ extension BuildDbCommand {
                 sampleCol: "sample",
                 accessionCol: "accession",
                 bamPathCol: "bam_path",
+                totalReadsCol: "read_count",
                 resultURL: resultURL,
                 bamPathResolver: { resultURL, _, bamRelPath in
                     // EsViritu BAM paths are now full relative paths from the result root.

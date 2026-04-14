@@ -88,6 +88,21 @@ public final class OperationCenter: ObservableObject {
         /// Extended diagnostic detail (stack trace, stderr, etc.) for debugging.
         public var errorDetail: String?
 
+        public var hasWarnings: Bool {
+            logEntries.contains { $0.level == .warning }
+        }
+
+        public var displayStateLabel: String {
+            switch state {
+            case .running:
+                return "Running"
+            case .completed:
+                return hasWarnings ? "Completed with Warnings" : "Completed"
+            case .failed:
+                return "Failed"
+            }
+        }
+
         // MARK: - Byte-level progress tracking
 
         /// Total expected bytes for this operation (if known ahead of time).

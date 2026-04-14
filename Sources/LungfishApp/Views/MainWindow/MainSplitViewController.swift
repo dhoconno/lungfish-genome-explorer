@@ -1953,6 +1953,14 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 }
                 let runtimeStr = formatInspectorRuntime(ttResult.runtime)
                 if !runtimeStr.isEmpty { taxTriageParams["Runtime"] = runtimeStr }
+                if ttResult.hasIgnoredFailures {
+                    let sampleCount = Set(ttResult.ignoredFailures.compactMap(\.sampleID)).count
+                    if sampleCount > 0 {
+                        taxTriageParams["Warnings"] = "\(ttResult.ignoredFailures.count) ignored failures across \(sampleCount) samples"
+                    } else {
+                        taxTriageParams["Warnings"] = "\(ttResult.ignoredFailures.count) ignored failures"
+                    }
+                }
 
                 // Resolve source sample URLs from config samples and project search.
                 taxTriageSamples = cfg.samples.map { sample in
@@ -2052,7 +2060,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
 
         Task.detached { [weak self] in
             do {
-                try LungfishCLIRunner.buildClassifierDatabase(tool: cliTool, resultURL: resultURL)
+                try LungfishCLIRunner.buildClassifierDatabase(tool: cliTool, resultURL: resultURL, force: true)
 
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
@@ -2254,6 +2262,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                     throw NSError(domain: "NaoMgsDisplay", code: 2,
                                   userInfo: [NSLocalizedDescriptionKey: "hits.sqlite not found — bundle may need re-import"])
                 }
+                try await upgradeNaoMgsBundleIfNeeded(bundleURL: bundleURL, manifest: manifest)
                 let database = try NaoMgsDatabase(at: dbURL)
 
                 DispatchQueue.main.async { [weak self] in
@@ -2300,6 +2309,106 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 }
             }
         }
+    }
+
+    private func upgradeNaoMgsBundleIfNeeded(bundleURL: URL, manifest: NaoMgsManifest) async throws {
+        let dbURL = bundleURL.appendingPathComponent("hits.sqlite")
+        guard try naomgsBundleNeedsUpgrade(dbURL: dbURL) else { return }
+
+        let sourceURLs = resolveNaoMgsSourceURLs(from: manifest.sourceFilePath)
+        guard !sourceURLs.isEmpty else {
+            logger.warning("NAO-MGS bundle upgrade skipped: source TSV missing for \(bundleURL.lastPathComponent, privacy: .public)")
+            return
+        }
+
+        logger.info("Upgrading NAO-MGS bundle derived data from source TSV for \(bundleURL.lastPathComponent, privacy: .public)")
+
+        let tempURL = bundleURL.appendingPathComponent(".hits-upgrade-\(UUID().uuidString).sqlite")
+        _ = try await NaoMgsDatabase.createStreaming(at: tempURL, from: sourceURLs)
+        do {
+            let rwDB = try NaoMgsDatabase.openReadWrite(at: tempURL)
+            try rwDB.updateBamPaths(naomgsBamPathsBySample(in: bundleURL))
+            try rwDB.deleteVirusHitsAndVacuum()
+        }
+
+        try? FileManager.default.removeItem(at: dbURL)
+        try? FileManager.default.removeItem(at: URL(fileURLWithPath: dbURL.path + "-wal"))
+        try? FileManager.default.removeItem(at: URL(fileURLWithPath: dbURL.path + "-shm"))
+        try FileManager.default.moveItem(at: tempURL, to: dbURL)
+
+        let tempWal = URL(fileURLWithPath: tempURL.path + "-wal")
+        let tempShm = URL(fileURLWithPath: tempURL.path + "-shm")
+        if FileManager.default.fileExists(atPath: tempWal.path) {
+            try? FileManager.default.moveItem(at: tempWal, to: URL(fileURLWithPath: dbURL.path + "-wal"))
+        }
+        if FileManager.default.fileExists(atPath: tempShm.path) {
+            try? FileManager.default.moveItem(at: tempShm, to: URL(fileURLWithPath: dbURL.path + "-shm"))
+        }
+    }
+
+    private func naomgsBundleNeedsUpgrade(dbURL: URL) throws -> Bool {
+        let database = try NaoMgsDatabase(at: dbURL)
+        let rows = try database.fetchTaxonSummaryRows()
+        guard let first = rows.first else { return false }
+        let readNames = try database.fetchReadNames(sample: first.sample, taxId: first.taxId)
+        return readNames.isEmpty
+    }
+
+    private func resolveNaoMgsSourceURLs(from sourceFilePath: String) -> [URL] {
+        let sourceURL = URL(fileURLWithPath: sourceFilePath)
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: sourceURL.path) else { return [] }
+
+        let parent = sourceURL.deletingLastPathComponent()
+        let basename = sourceURL.lastPathComponent.lowercased()
+        guard let candidates = try? fm.contentsOfDirectory(
+            at: parent,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return [sourceURL]
+        }
+
+        let grouped = candidates.filter { url in
+            let name = url.lastPathComponent.lowercased()
+            guard name.contains("virus_hits") else { return false }
+            return name.hasSuffix(".tsv") || name.hasSuffix(".tsv.gz")
+        }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+
+        if basename.contains("virus_hits"), !grouped.isEmpty {
+            return grouped
+        }
+        return [sourceURL]
+    }
+
+    private func naomgsBamPathsBySample(in bundleURL: URL) -> [String: (bamPath: String, bamIndexPath: String?)] {
+        let fm = FileManager.default
+        let bamDir = bundleURL.appendingPathComponent("bams")
+        guard let bamFiles = try? fm.contentsOfDirectory(
+            at: bamDir,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return [:]
+        }
+
+        var result: [String: (bamPath: String, bamIndexPath: String?)] = [:]
+        for bamURL in bamFiles where bamURL.pathExtension == "bam" {
+            let sample = bamURL.deletingPathExtension().lastPathComponent
+            let relativeBamPath = "bams/\(bamURL.lastPathComponent)"
+            let baiURL = URL(fileURLWithPath: bamURL.path + ".bai")
+            let csiURL = URL(fileURLWithPath: bamURL.path + ".csi")
+            let relativeIndexPath: String?
+            if fm.fileExists(atPath: baiURL.path) {
+                relativeIndexPath = "bams/\(baiURL.lastPathComponent)"
+            } else if fm.fileExists(atPath: csiURL.path) {
+                relativeIndexPath = "bams/\(csiURL.lastPathComponent)"
+            } else {
+                relativeIndexPath = nil
+            }
+            result[sample] = (relativeBamPath, relativeIndexPath)
+        }
+        return result
     }
 
     /// Displays an NVD result from its bundle directory.
