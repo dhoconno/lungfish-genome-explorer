@@ -70,3 +70,6 @@ benchmarks/
 # Large profiling/test fixtures (regenerate locally from source data)
 Tests/Fixtures/naomgs/profile_400k.tsv.gz
 Tests/Fixtures/naomgs/MU-CASPER-*.tsv.gz
+
+# Superpowers brainstorm session artifacts (local scratch)
+.superpowers/
