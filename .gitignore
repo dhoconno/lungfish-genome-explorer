@@ -32,7 +32,7 @@ DerivedData/
 *.o
 *.a
 *.dylib
-build/
+/build/
 
 # Test data (local only)
 test-data/
