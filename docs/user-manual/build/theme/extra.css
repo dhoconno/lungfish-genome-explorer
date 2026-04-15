@@ -1,0 +1,66 @@
+:root {
+  --lf-creamsicle: #EE8B4F;
+  --lf-peach: #F6B088;
+  --lf-deep-ink: #1F1A17;
+  --lf-cream: #FAF4EA;
+  --lf-warm-grey: #8A847A;
+
+  --md-primary-fg-color: var(--lf-creamsicle);
+  --md-primary-fg-color--light: var(--lf-peach);
+  --md-primary-fg-color--dark: var(--lf-deep-ink);
+  --md-accent-fg-color: var(--lf-creamsicle);
+  --md-default-bg-color: var(--lf-cream);
+  --md-typeset-color: var(--lf-deep-ink);
+  --md-typeset-a-color: var(--lf-creamsicle);
+  --md-code-bg-color: #F2EADA;
+  --md-code-fg-color: var(--lf-deep-ink);
+}
+
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;600&family=IBM+Plex+Mono:wght@400;600&display=swap");
+
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3 {
+  font-family: "Space Grotesk", Arial, sans-serif;
+  color: var(--lf-deep-ink);
+}
+
+.md-typeset h1 {
+  font-weight: 700;
+  position: relative;
+  padding-bottom: 0.35em;
+}
+
+.md-typeset h1::after {
+  content: "";
+  display: block;
+  width: 96px;
+  height: 4px;
+  background: var(--lf-creamsicle);
+  position: absolute;
+  left: 0;
+  bottom: 0;
+}
+
+.md-typeset h2 { font-weight: 500; }
+.md-typeset h3 { font-weight: 500; }
+
+.md-typeset {
+  font-family: "Inter", Arial, sans-serif;
+}
+
+.md-typeset code,
+.md-typeset pre code {
+  font-family: "IBM Plex Mono", Consolas, monospace;
+}
+
+.md-typeset .admonition {
+  background-color: var(--lf-peach);
+  color: var(--lf-deep-ink);
+  border-left: 4px solid var(--lf-creamsicle);
+}
+
+.md-footer, .md-header {
+  background-color: var(--lf-deep-ink);
+  color: var(--lf-cream);
+}
