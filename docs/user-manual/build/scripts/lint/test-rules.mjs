@@ -24,3 +24,12 @@ test("known-good chapter produces no messages", async () => {
   const messages = await lint("passing.md");
   assert.deepEqual(messages.map((m) => m.reason), []);
 });
+
+test("written-identity flags every wrong spelling", async () => {
+  const messages = await lint("bad-written-identity.md");
+  const reasons = messages.map((m) => m.reason).join("\n");
+  assert.match(reasons, /LUNGFISH/);
+  assert.match(reasons, /LungFish/);
+  assert.match(reasons, /Lung Fish/);
+  assert.match(reasons, /lowercase 'lungfish'/);
+});
