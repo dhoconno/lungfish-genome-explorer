@@ -1,0 +1,14 @@
+# features.yaml — Lungfish feature inventory
+# Ownership: Code Cartographer only.
+# Schema:
+#   <feature_id>:
+#     title: <human name>
+#     entry_points: [<UI path or CLI command>, ...]
+#     inputs: [<file format or data type>, ...]
+#     outputs: [<file format or data type>, ...]
+#     viewport_class: sequence | alignment | variant | assembly | taxonomy | none
+#     sources: [<Sources/ path>, ...]
+#     notes: <free text>
+
+version: 0
+features: {}
