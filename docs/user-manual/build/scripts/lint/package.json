@@ -1,0 +1,24 @@
+{
+  "name": "lungfish-manual-lint",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Brand-and-structure linter for Lungfish user manual chapters.",
+  "bin": {
+    "lint-chapter": "./bin/lint-chapter.mjs"
+  },
+  "scripts": {
+    "test": "node --test test-rules.mjs"
+  },
+  "dependencies": {
+    "remark": "15.0.1",
+    "remark-frontmatter": "5.0.0",
+    "remark-lint": "10.0.0",
+    "remark-parse": "11.0.0",
+    "unified": "11.0.4",
+    "unist-util-visit": "5.0.0",
+    "vfile": "6.0.1",
+    "vfile-reporter": "8.1.1",
+    "yaml": "2.5.0"
+  }
+}
