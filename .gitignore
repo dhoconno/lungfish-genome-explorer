@@ -54,6 +54,12 @@ coverage/
 
 # Claude/AI session files
 .claude/
+# But track agent personas
+!.claude/
+!.claude/agents/
+!.claude/agents/*.md
+# But ignore settings
+.claude/settings.json
 
 # Large reference databases (>100 MB; cannot be stored in git)
 # Download from the source URLs in manifest.json and place in the same directory.
