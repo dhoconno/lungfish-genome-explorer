@@ -23,8 +23,8 @@ can ship with a review note).
 
 ## Written identity
 
-The product is **Lungfish** in title case, one word. Never LUNGFISH, LungFish,
-Lung Fish, or lowercase lungfish. Kit names are **Lungfish Air Kit** and
+The product is **Lungfish** in title case, one word. Never `LUNGFISH`,
+`LungFish`, `Lung Fish`, or lowercase `lungfish`. Kit names are **Lungfish Air Kit** and
 **Lungfish Wastewater Kit**. The device is the **InBio Apollo Sampler**. The
 consumable is the **Cassette**: capitalised site-facing, lowercase in prose.
 Lint: `written-identity.js`.

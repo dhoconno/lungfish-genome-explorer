@@ -8,7 +8,7 @@ agent writes to chapter files.
 
 ```
 chapters/
-├── 01-foundations/        # Part I — format and concept primers
+├── 01-foundations/        # Part I, format and concept primers
 ├── 02-sequences/          # Part II starts here
 ├── 03-alignments/
 ├── 04-variants/

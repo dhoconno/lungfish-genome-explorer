@@ -2,9 +2,9 @@
 
 **Ownership:** Bioinformatics Educator only.
 
-Terms appear in alphabetical order. Each entry: one-sentence definition,
-optional "see also" cross-references, optional chapter reference.
+Terms appear in alphabetical order. Each entry is a one-sentence definition,
+optionally followed by a "see also" cross-reference and a chapter reference.
 
 ## A
 
-(empty — populated by chapter work)
+(empty, populated by chapter work)
