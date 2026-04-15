@@ -49,3 +49,12 @@ test("typography flags non-brand fonts in HTML", async () => {
   assert.match(reasons, /Helvetica Neue/);
   assert.match(reasons, /Times New Roman/);
 });
+
+test("voice flags marketing patterns and sentence-terminal '!'", async () => {
+  const messages = await lint("bad-voice.md");
+  const reasons = messages.map((m) => m.reason).join("\n");
+  for (const word of ["revolutionary", "breakthrough", "AI-powered", "leverages", "unleash", "cutting-edge"]) {
+    assert.match(reasons, new RegExp(word, "i"));
+  }
+  assert.match(reasons, /sentence-terminal '!'/);
+});
