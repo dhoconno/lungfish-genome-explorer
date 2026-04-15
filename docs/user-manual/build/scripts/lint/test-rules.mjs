@@ -64,3 +64,17 @@ test("primer-before-procedure flags Procedure appearing before primer", async ()
   const reasons = messages.map((m) => m.reason).join("\n");
   assert.match(reasons, /'## Procedure' before any primer section/);
 });
+
+test("frontmatter flags missing required keys", async () => {
+  const messages = await lint("bad-frontmatter.md");
+  const reasons = messages.map((m) => m.reason).join("\n");
+  assert.match(reasons, /missing required key: chapter_id/);
+  assert.match(reasons, /missing required key: audience/);
+});
+
+test("frontmatter flags SHOT marker mismatches", async () => {
+  const messages = await lint("bad-shot-marker.md");
+  const reasons = messages.map((m) => m.reason).join("\n");
+  assert.match(reasons, /declared-but-unused/);
+  assert.match(reasons, /undeclared-orphan/);
+});
