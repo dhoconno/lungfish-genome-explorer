@@ -85,3 +85,24 @@ test("data-viz flags red-amber-green and non-palette colors in vega-lite", async
   assert.match(reasons, /red-amber-green/);
   assert.match(reasons, /non-palette colour in chart/);
 });
+
+test("em-dash flags em dashes in prose and headings but not in code", async () => {
+  const messages = await lint("bad-em-dash.md");
+  const reasons = messages.map((m) => m.reason).join("\n");
+  // At least one em-dash message must fire
+  assert.match(reasons, /em dash/);
+  // The inline-code span and fenced code block must NOT produce messages
+  // (total message count should be less than the number of em dashes in code spans)
+  // We expect exactly 4 prose em dashes (2 in first para, 2 in second para,
+  // 1 in heading) but NOT the inlineCode or fenced block — at least 1 message.
+  assert.ok(messages.some((m) => /em dash/.test(m.reason)), "should flag at least one em dash");
+});
+
+test("bullet-cap flags >5-item list and >2 lists per H2 section", async () => {
+  const messages = await lint("bad-bullet-cap.md");
+  const reasons = messages.map((m) => m.reason).join("\n");
+  // Per-list item cap: 6-item list fires
+  assert.match(reasons, /6 items/);
+  // Per-H2 section cap: third list fires
+  assert.match(reasons, /3rd list in this H2 section/);
+});

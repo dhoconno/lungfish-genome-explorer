@@ -6,6 +6,8 @@ import voice from "./rules/voice.js";
 import primerBeforeProcedure from "./rules/primer-before-procedure.js";
 import frontmatterRule from "./rules/frontmatter.js";
 import dataViz from "./rules/data-viz.js";
+import emDash from "./rules/em-dash.js";
+import bulletCap from "./rules/bullet-cap.js";
 
 export default {
   plugins: [
@@ -17,5 +19,7 @@ export default {
     primerBeforeProcedure,
     frontmatterRule,
     dataViz,
+    emDash,
+    bulletCap,
   ],
 };
