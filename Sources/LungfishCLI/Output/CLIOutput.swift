@@ -247,7 +247,7 @@ struct CLIJSONMetadata: Encodable {
     let platform: String
 
     init() {
-        self.version = "1.0.0"
+        self.version = "1.0.1"
         self.timestamp = ISO8601DateFormatter().string(from: Date())
         self.platform = "macOS \(ProcessInfo.processInfo.operatingSystemVersionString)"
     }

@@ -205,7 +205,7 @@ struct WelcomeView: View {
                 Spacer()
 
                 // Version info
-                Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0")")
+                Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.1")")
                     .font(.caption)
                     .foregroundColor(.secondary.opacity(0.6))
             }

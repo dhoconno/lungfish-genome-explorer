@@ -8,8 +8,8 @@ set -e
 # Configuration
 APP_NAME="Lungfish"
 BUNDLE_ID="org.lungfish.genome-browser"
-VERSION="1.0.0"
-BUILD_NUMBER="1"
+VERSION="1.0.1"
+BUILD_NUMBER="7"
 
 # Paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -78,9 +78,9 @@ cat > "$CONTENTS_DIR/Info.plist" << 'EOF'
 
     <!-- Version Information -->
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>1.0.1</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>7</string>
 
     <!-- macOS Requirements -->
     <key>LSMinimumSystemVersion</key>
