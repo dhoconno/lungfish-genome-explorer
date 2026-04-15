@@ -1,0 +1,32 @@
+id: vcf-open-dialog
+chapter: 04-variants/01-reading-a-vcf
+caption: "The Open dialog filtered to VCF files."
+viewport_class: variant
+app_state:
+  fixture: docs/user-manual/fixtures/sarscov2-clinical
+  open_files:
+    - reference: "{fixture}/reference.fasta"
+  window_size: [1600, 1000]
+  appearance: light
+steps:
+  - action: open_application
+    app: Lungfish
+  - action: wait_ready
+    signal: main_window_visible
+  - action: open_file
+    path: "{fixture}/reference.fasta"
+  - action: wait_ready
+    signal: sequence_viewer_loaded
+  - action: resize_window
+    size: [1600, 1000]
+crop:
+  mode: window
+annotations:
+  - type: bracket
+    region: [1100, 340, 400, 40]
+  - type: callout
+    target: [1500, 360]
+    text: "VCF files only"
+post:
+  retina: true
+  format: png

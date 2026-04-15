@@ -1,0 +1,41 @@
+id: vcf-variant-table
+chapter: 04-variants/01-reading-a-vcf
+caption: "A loaded VCF showing variants aligned to the reference."
+viewport_class: variant
+app_state:
+  fixture: docs/user-manual/fixtures/sarscov2-clinical
+  open_files:
+    - reference: "{fixture}/reference.fasta"
+    - variants: "{fixture}/variants.vcf.gz"
+  window_size: [1600, 1000]
+  appearance: light
+steps:
+  - action: open_application
+    app: Lungfish
+  - action: wait_ready
+    signal: main_window_visible
+  - action: open_file
+    path: "{fixture}/reference.fasta"
+  - action: open_file
+    path: "{fixture}/variants.vcf.gz"
+  - action: wait_ready
+    signal: variant_browser_loaded
+  - action: resize_window
+    size: [1600, 1000]
+  - action: scroll_to
+    target: first_variant
+crop:
+  mode: viewport
+  region: [0, 60, 1600, 900]
+annotations:
+  - type: callout
+    target: [420, 220]
+    text: "REF: reference base"
+  - type: callout
+    target: [510, 220]
+    text: "ALT: sample base"
+  - type: bracket
+    region: [600, 200, 120, 40]
+post:
+  retina: true
+  format: png
