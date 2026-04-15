@@ -10,7 +10,7 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: build-notarized-dmg.sh --signing-identity "Developer ID Application: Example (TEAMID)" --team-id TEAMID --notary-profile PROFILE [--scratch-path PATH] [--archive-path PATH] [--release-dir PATH]
+Usage: build-notarized-dmg.sh --signing-identity "Developer ID Application: Example (TEAMID)" --team-id TEAMID --notary-profile PROFILE [--scratch-path PATH] [--archive-path PATH] [--release-dir PATH] [--derived-data-path PATH]
 
 Required:
   --signing-identity  Developer ID Application identity used for codesign
@@ -21,6 +21,7 @@ Optional:
   --scratch-path      SwiftPM scratch path for lungfish-cli build (default: .build/xcode-cli-release)
   --archive-path      Archive output path (default: build/Release/Lungfish.xcarchive)
   --release-dir       Release directory (default: build/Release)
+  --derived-data-path DerivedData path for the Xcode archive (default: <release-dir>/DerivedData)
 EOF
 }
 
@@ -33,6 +34,7 @@ NOTARY_PROFILE=""
 SCRATCH_PATH="${PROJECT_ROOT}/.build/xcode-cli-release"
 RELEASE_DIR="${PROJECT_ROOT}/build/Release"
 ARCHIVE_PATH="${RELEASE_DIR}/Lungfish.xcarchive"
+DERIVED_DATA_PATH=""
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -60,6 +62,10 @@ while [ "$#" -gt 0 ]; do
             RELEASE_DIR="$2"
             shift 2
             ;;
+        --derived-data-path)
+            DERIVED_DATA_PATH="$2"
+            shift 2
+            ;;
         -h|--help)
             usage
             exit 0
@@ -75,6 +81,10 @@ done
 if [ -z "$SIGNING_IDENTITY" ] || [ -z "$TEAM_ID" ] || [ -z "$NOTARY_PROFILE" ]; then
     usage >&2
     exit 64
+fi
+
+if [ -z "$DERIVED_DATA_PATH" ]; then
+    DERIVED_DATA_PATH="${RELEASE_DIR}/DerivedData"
 fi
 
 require_command() {
@@ -113,6 +123,7 @@ xcodebuild -project Lungfish.xcodeproj \
     -scheme Lungfish \
     -configuration Release \
     -destination "generic/platform=macOS" \
+    -derivedDataPath "$DERIVED_DATA_PATH" \
     -archivePath "$ARCHIVE_PATH" \
     ARCHS=arm64 \
     EXCLUDED_ARCHS=x86_64 \
