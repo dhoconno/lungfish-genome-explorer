@@ -145,7 +145,7 @@ docs/user-manual/
 │   ├── 06-assembly/
 │   └── appendices/
 ├── fixtures/                    # docs-only, real-world, small
-│   └── sarscov2-wastewater/
+│   └── sarscov2-clinical/
 │       ├── README.md            # source, license, citation, size
 │       ├── reference.fasta
 │       ├── reads_R1.fastq.gz
@@ -194,7 +194,7 @@ shots:
     caption: "A loaded VCF showing variants aligned to reference."
 glossary_refs: [VCF, REF, ALT, genotype]
 features_refs: [import.vcf, viewport.variant-browser]
-fixtures_refs: [sarscov2-wastewater]
+fixtures_refs: [sarscov2-clinical]
 brand_reviewed: false
 lead_approved: false
 ---
@@ -242,7 +242,7 @@ Deviation from this tier list requires a sentence of justification in the fixtur
 
 ### 7.4 Pilot fixture
 
-Sub-project 1 delivers exactly one fixture set: `fixtures/sarscov2-wastewater/`, curated for the pilot chapter and usable by future alignment, classification, and variant chapters.
+Sub-project 1 delivers exactly one fixture set: `fixtures/sarscov2-clinical/`, curated for the pilot chapter and usable by future alignment, classification, and variant chapters. A **clinical isolate** is used deliberately rather than a wastewater sample so the pilot chapter teaches the canonical single-organism VCF (clean SNPs relative to reference, unambiguous sample identity). Wastewater VCFs carry low-frequency variants, mixed lineages, dropout regions, and allele-frequency reasoning that the reader should not encounter on first exposure to the format; those complications get their own chapter in sub-project 2 (likely co-located with Classification or as a standalone "Working with environmental / mixed-population samples" chapter).
 
 ## 8. Screenshot pipeline
 
@@ -258,7 +258,7 @@ chapter: 04-variants/01-reading-a-vcf
 caption: "A loaded VCF showing variants aligned to reference."
 viewport_class: variant-browser                # from viewport-interface-classes.md
 app_state:
-  fixture: docs/user-manual/fixtures/sarscov2-wastewater
+  fixture: docs/user-manual/fixtures/sarscov2-clinical
   open_files:
     - reference: "{fixture}/reference.fasta"
     - variants:  "{fixture}/variants.vcf.gz"
@@ -454,7 +454,7 @@ The `.indd` is binary and committed as-is; `.idml` is the diffable exchange form
    - Pre-commit wiring + CI check.
 4. **MkDocs theme** restyled with brand tokens; a "Hello, Lungfish" index page verifying the theme end-to-end.
 5. **InDesign template** (`Lungfish-Manual.indd` + `Lungfish-Manual.idml`) with master pages, paragraph/character/object styles, and the Creamsicle bar object style. Built once by hand from the brand manual.
-6. **Pilot fixture** `fixtures/sarscov2-wastewater/` with complete provenance, license, citation, ≤50 MB, internally coherent.
+6. **Pilot fixture** `fixtures/sarscov2-clinical/` with complete provenance, license, citation, ≤50 MB, internally coherent. Clinical isolate chosen to keep pedagogy clean; wastewater complications are a later chapter's concern (§7.4).
 7. **Pilot chapter** `chapters/04-variants/01-reading-a-vcf.md`, shipped end-to-end: primer, procedure, screenshots via recipes, glossary entries, lint-green, Brand Editor passed, Lead-approved, rendered to MkDocs, exported to InDesign.
 
 ## 13. Success criteria
