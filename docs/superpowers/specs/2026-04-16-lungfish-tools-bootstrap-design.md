@@ -5,7 +5,7 @@ Status: Approved
 
 ## Scope
 
-This design replaces bundled BBTools and the bundled JRE with micromamba-managed installs under `~/.lungfish`, adds a shared dependency registry for required and optional tool packs, updates the welcome screen to show plain-language setup status, and hides inactive packs everywhere they appear.
+This design replaces bundled BBTools and the bundled JRE with micromamba-managed installs under `~/.lungfish`, adds a shared dependency registry for required and optional tool packs, updates the welcome screen to show plain-language setup status, hides inactive packs everywhere they appear, and makes the new welcome/setup UI explicitly follow current Apple Human Interface Guidelines for macOS.
 
 It also removes bundled BBTools/JRE from release packaging after runtime callers have switched to the new managed locations, then measures the release build impact of that cleanup.
 
@@ -31,6 +31,7 @@ This leaves GUI, CLI, plugin browsing, and runtime execution with overlapping bu
 - Keep the actual app logo, branding, and recent projects on the welcome screen.
 - Restrict welcome-screen launch actions to `Create Project` and `Open Project`.
 - Disable launch and recent-project reopening until `Lungfish Tools` is healthy.
+- Keep the welcome/setup experience aligned with the current Apple Human Interface Guidelines for macOS windows, layout, onboarding, and accessibility.
 - Use explicit user action to install or reinstall required tools. Do not auto-install on launch.
 - Keep one conda environment per required tool under `~/.lungfish/conda/envs/<tool>`.
 - Allow optional packs to remain non-blocking and installable separately.
@@ -47,6 +48,7 @@ This leaves GUI, CLI, plugin browsing, and runtime execution with overlapping bu
 - Rewriting the entire plugin or package-management system.
 - Surfacing low-level tool names as the primary welcome-screen experience.
 - Showing inactive packs in a disabled or coming-soon state.
+- Introducing a custom splash or launcher experience that departs from native macOS window behavior without a product need.
 - Changing unrelated welcome-screen branding, recent-project behavior, or Apple HIG-aligned layout conventions.
 
 ## Current State
@@ -120,6 +122,8 @@ The health check should be conservative. Partial or stale installs in `~/.lungfi
 
 Extend the existing welcome screen instead of replacing it.
 
+The welcome window should be treated as the app's first real macOS window, not as a decorative launch-only experience. The setup UI should therefore follow the current Apple Human Interface Guidelines for macOS. Based on Apple's current guidance for launching, onboarding, windows, layout, and accessibility, that means the setup state should be integrated into the first usable window, preserve a clear visual hierarchy, keep controls and content easy to scan, and avoid turning the opening experience into a separate branded splash flow.
+
 Keep:
 
 - the actual app logo
@@ -140,6 +144,9 @@ Required setup UX:
 - While setup is not ready, disable `Create Project`, `Open Project`, and recent-project reopen actions.
 - Keep recent projects visible even when they cannot yet be opened.
 - Hide the per-tool details behind a disclosure such as `Show setup details`.
+- Keep the layout feeling like a standard macOS window: native control patterns, clear alignment, restrained visual treatment, and no oversized branded takeover screen.
+- Make status, disabled states, and install progress accessible and easy to distinguish without relying on color alone.
+- Validate the layout at the supported welcome-window sizes so the setup card, actions, and recent-projects list remain readable and usable.
 
 Optional packs UX:
 
