@@ -58,8 +58,20 @@ struct ReleaseBuildConfigurationTests {
         #expect(script.contains("fdebug-prefix-map"))
     }
 
-    @Test("Release tools sanitizer preserves wrappers and strips resource executables")
-    func releaseToolsSanitizerPreservesWrappersAndStripsResourceExecutables() throws {
+    @Test("Bundled tool manifest excludes bbtools and openjdk")
+    func bundledToolManifestExcludesManagedCoreDependencies() throws {
+        let manifest = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("Sources/LungfishWorkflow/Resources/Tools/tool-versions.json"),
+            encoding: .utf8
+        )
+
+        #expect(manifest.contains(#""name": "bbtools""#) == false)
+        #expect(manifest.contains(#""name": "openjdk""#) == false)
+    }
+
+    @Test("Release tools sanitizer preserves scrubber wrappers and strips stray resource scripts")
+    func releaseToolsSanitizerPreservesScrubberWrappersAndStripsStrayResourceScripts() throws {
         let repositoryRoot = Self.repositoryRoot()
         let sanitizerURL = repositoryRoot.appendingPathComponent("scripts/sanitize-bundled-tools.sh")
         #expect(FileManager.default.fileExists(atPath: sanitizerURL.path))
@@ -93,44 +105,10 @@ struct ReleaseBuildConfigurationTests {
 
         try Self.runScript(sanitizerURL, arguments: [toolsRoot.path])
 
-        #expect(FileManager.default.isExecutableFile(atPath: bbdukURL.path))
+        #expect(FileManager.default.isExecutableFile(atPath: bbdukURL.path) == false)
         #expect(FileManager.default.isExecutableFile(atPath: scrubberHelperURL.path))
         #expect(FileManager.default.isExecutableFile(atPath: machOURL.path))
         #expect(FileManager.default.isExecutableFile(atPath: configURL.path) == false)
-    }
-
-    @Test("Release tools sanitizer removes BBTools build-only helper scripts")
-    func releaseToolsSanitizerRemovesBBToolsBuildOnlyHelperScripts() throws {
-        let repositoryRoot = Self.repositoryRoot()
-        let sanitizerURL = repositoryRoot.appendingPathComponent("scripts/sanitize-bundled-tools.sh")
-        #expect(FileManager.default.fileExists(atPath: sanitizerURL.path))
-
-        let tempRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let bbtoolsDir = tempRoot.appendingPathComponent("Tools/bbtools", isDirectory: true)
-        try FileManager.default.createDirectory(at: bbtoolsDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempRoot) }
-
-        let buildEnvSetupURL = bbtoolsDir.appendingPathComponent("build_env_setup.sh")
-        try "export PREFIX=/Users/dho/miniforge3\n".write(
-            to: buildEnvSetupURL,
-            atomically: true,
-            encoding: .utf8
-        )
-        try Self.makeExecutable(buildEnvSetupURL)
-
-        let condaBuildURL = bbtoolsDir.appendingPathComponent("conda_build.sh")
-        try "source /opt/mambaforge/work/build_env_setup.sh\n".write(
-            to: condaBuildURL,
-            atomically: true,
-            encoding: .utf8
-        )
-        try Self.makeExecutable(condaBuildURL)
-
-        try Self.runScript(sanitizerURL, arguments: [tempRoot.appendingPathComponent("Tools").path])
-
-        #expect(FileManager.default.fileExists(atPath: buildEnvSetupURL.path) == false)
-        #expect(FileManager.default.fileExists(atPath: condaBuildURL.path) == false)
     }
 
     @Test("Xcode Release build runs tools sanitizer")
@@ -203,33 +181,32 @@ struct ReleaseBuildConfigurationTests {
         #expect(sanitizeBlock.contains("LUNGFISH_SKIP_SANITIZE_BUNDLED_TOOLS"))
     }
 
-    @Test("Release smoke test script exercises bundled tools")
-    func releaseSmokeTestScriptExercisesBundledTools() throws {
+    @Test("Release smoke test asserts bundled BBTools and JRE are absent")
+    func releaseSmokeTestAssertsBundledBBToolsAndJREAreAbsent() throws {
         let script = try String(
             contentsOf: Self.repositoryRoot()
                 .appendingPathComponent("scripts/smoke-test-release-tools.sh"),
             encoding: .utf8
         )
 
-        #expect(script.contains("bbduk.sh"))
-        #expect(script.contains("reformat.sh"))
-        #expect(script.contains("clumpify.sh"))
-        #expect(script.contains("bbmerge.sh"))
-        #expect(script.contains("repair.sh"))
-        #expect(script.contains("tadpole.sh"))
-        #expect(script.contains("scrub.sh"))
+        #expect(script.contains(#"if [ -e "$TOOLS_DIR/bbtools" ]"#))
+        #expect(script.contains(#"if [ -e "$TOOLS_DIR/jre" ]"#))
+        #expect(script.contains("run_test samtools "))
+        #expect(script.contains("run_test seqkit "))
+        #expect(script.contains("run_test fastp "))
+        #expect(script.contains("run_test scrub "))
     }
 
-    @Test("Release smoke test validates bundled Java launcher")
-    func releaseSmokeTestValidatesBundledJavaLauncher() throws {
+    @Test("Notarized DMG release script no longer signs JRE launchers")
+    func notarizedDMGReleaseScriptNoLongerSignsJRELaunchers() throws {
         let script = try String(
             contentsOf: Self.repositoryRoot()
-                .appendingPathComponent("scripts/smoke-test-release-tools.sh"),
+                .appendingPathComponent("scripts/release/build-notarized-dmg.sh"),
             encoding: .utf8
         )
 
-        #expect(script.contains("jre/bin/java"))
-        #expect(script.contains("allow-jit"))
+        #expect(script.contains("sign_jre_launcher") == false)
+        #expect(script.contains("jre/bin/java") == false)
     }
 
     @Test("Release smoke test resolves ripgrep from PATH instead of /usr/bin")
@@ -324,30 +301,26 @@ struct ReleaseBuildConfigurationTests {
         #expect(sanitizeIndex < codesignIndex)
     }
 
-    @Test("Notarized DMG release script signs JRE launchers with explicit entitlements")
-    func notarizedDMGReleaseScriptSignsJRELaunchersWithEntitlements() throws {
+    @Test("Notarized DMG release script omits JRE launcher entitlements")
+    func notarizedDMGReleaseScriptOmitsJRELauncherEntitlements() throws {
         let script = try String(
             contentsOf: Self.repositoryRoot()
                 .appendingPathComponent("scripts/release/build-notarized-dmg.sh"),
             encoding: .utf8
         )
 
-        #expect(script.contains("jre-launcher.entitlements"))
-        #expect(script.contains("jre/bin/java"))
-        #expect(script.contains("jre/bin/keytool"))
-        #expect(script.contains("jre/lib/jspawnhelper"))
+        #expect(script.contains("jre-launcher.entitlements") == false)
+        #expect(script.contains("jre/bin/java") == false)
+        #expect(script.contains("jre/bin/keytool") == false)
+        #expect(script.contains("jre/lib/jspawnhelper") == false)
     }
 
-    @Test("JRE launcher entitlements allow bundled JVM execution under hardened runtime")
-    func jreLauncherEntitlementsAllowBundledJVMExecutionUnderHardenedRuntime() throws {
-        let entitlements = try String(
-            contentsOf: Self.repositoryRoot()
-                .appendingPathComponent("scripts/release/jre-launcher.entitlements"),
-            encoding: .utf8
-        )
+    @Test("JRE launcher entitlements file is removed")
+    func jreLauncherEntitlementsFileIsRemoved() throws {
+        let entitlementsURL = Self.repositoryRoot()
+            .appendingPathComponent("scripts/release/jre-launcher.entitlements")
 
-        #expect(entitlements.contains("com.apple.security.cs.allow-jit"))
-        #expect(entitlements.contains("com.apple.security.cs.allow-unsigned-executable-memory"))
+        #expect(FileManager.default.fileExists(atPath: entitlementsURL.path) == false)
     }
 
     @Test("Release agent is tracked in repo")

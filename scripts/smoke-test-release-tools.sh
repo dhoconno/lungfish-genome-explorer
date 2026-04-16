@@ -2,8 +2,8 @@
 #
 # smoke-test-release-tools.sh
 #
-# Run tiny end-to-end smoke tests against the bundled native tools inside a
-# built Lungfish.app bundle.
+# Run tiny smoke tests against the bundled native tools inside a built
+# Lungfish.app bundle.
 
 set -euo pipefail
 
@@ -11,7 +11,8 @@ usage() {
     cat <<'EOF'
 Usage: smoke-test-release-tools.sh <Lungfish.app> [--scrubber-db /path/to/human_filter.db]
 
-Runs tiny-input smoke tests against the bundled BBTools wrappers and, when a
+Verifies that managed core tools such as BBTools and Java are not bundled, then
+runs tiny-input smoke tests against the remaining bundled tools and, when a
 human-scrubber database is available, against scrub.sh as well.
 EOF
 }
@@ -49,10 +50,6 @@ while [ "$#" -gt 0 ]; do
 done
 
 TOOLS_DIR="$APP_PATH/Contents/Resources/LungfishGenomeBrowser_LungfishWorkflow.bundle/Contents/Resources/Tools"
-JAVA_HOME_DIR="$TOOLS_DIR/jre"
-JAVA_BIN="$TOOLS_DIR/jre/bin/java"
-KEYTOOL_BIN="$TOOLS_DIR/jre/bin/keytool"
-JSPAWNHELPER_BIN="$TOOLS_DIR/jre/lib/jspawnhelper"
 RG_BIN="$(command -v rg || true)"
 
 if [ ! -d "$TOOLS_DIR" ]; then
@@ -65,12 +62,15 @@ if [ -z "$RG_BIN" ]; then
     exit 69
 fi
 
-for path in "$JAVA_BIN" "$KEYTOOL_BIN" "$JSPAWNHELPER_BIN"; do
-    if [ ! -f "$path" ]; then
-        echo "missing required bundled JRE executable: $path" >&2
-        exit 66
-    fi
-done
+if [ -e "$TOOLS_DIR/bbtools" ]; then
+    echo "bbtools should not be bundled: $TOOLS_DIR/bbtools" >&2
+    exit 66
+fi
+
+if [ -e "$TOOLS_DIR/jre" ]; then
+    echo "jre should not be bundled: $TOOLS_DIR/jre" >&2
+    exit 66
+fi
 
 find_scrubber_db() {
     if [ -n "$SCRUBBER_DB" ] && [ -f "$SCRUBBER_DB" ]; then
@@ -137,18 +137,6 @@ run_test() {
     fi
 }
 
-run_bbtools_test() {
-    local name="$1"
-    shift
-
-    run_test "$name" \
-        env \
-        "PATH=$JAVA_HOME_DIR/bin:$PATH" \
-        "JAVA_HOME=$JAVA_HOME_DIR" \
-        "BBMAP_JAVA=$JAVA_BIN" \
-        "$@"
-}
-
 run_portability_scan() {
     local leak_patterns=(
         "/Users/dho"
@@ -167,76 +155,11 @@ run_portability_scan() {
     printf 'PASS portability\n'
 }
 
-run_java_entitlement_scan() {
-    local candidate
-    for candidate in "$JAVA_BIN" "$KEYTOOL_BIN" "$JSPAWNHELPER_BIN"; do
-        if ! /usr/bin/codesign -d --entitlements :- "$candidate" 2>&1 | /usr/bin/grep -q "allow-jit"; then
-            printf 'FAIL java-entitlements missing allow-jit for %s\n' "$candidate" >&2
-            /usr/bin/codesign -d --entitlements :- "$candidate" 2>&1 | sed -n '1,120p' >&2 || true
-            exit 1
-        fi
-    done
-
-    printf 'PASS java-entitlements\n'
-}
-
 run_portability_scan
-run_java_entitlement_scan
 
-run_test java "$JAVA_BIN" -version
-
-run_bbtools_test reformat \
-    "$TOOLS_DIR/bbtools/reformat.sh" \
-    in="$TMP_DIR/single.fq" \
-    out="$TMP_DIR/reformat.fq" \
-    ow=t
-
-run_bbtools_test bbduk \
-    "$TOOLS_DIR/bbtools/bbduk.sh" \
-    in="$TMP_DIR/single.fq" \
-    out="$TMP_DIR/bbduk-out.fq" \
-    outm="$TMP_DIR/bbduk-match.fq" \
-    literal=TTTT \
-    k=4 \
-    hdist=0 \
-    ow=t
-
-run_bbtools_test clumpify \
-    "$TOOLS_DIR/bbtools/clumpify.sh" \
-    in="$TMP_DIR/single.fq" \
-    out="$TMP_DIR/clumpify.fq" \
-    ow=t \
-    groups=1
-
-run_bbtools_test bbmerge \
-    "$TOOLS_DIR/bbtools/bbmerge.sh" \
-    in1="$TMP_DIR/r1.fq" \
-    in2="$TMP_DIR/r2.fq" \
-    out="$TMP_DIR/bbmerge.fq" \
-    outu1="$TMP_DIR/bbmerge-u1.fq" \
-    outu2="$TMP_DIR/bbmerge-u2.fq" \
-    ow=t
-
-run_bbtools_test repair \
-    "$TOOLS_DIR/bbtools/repair.sh" \
-    in1="$TMP_DIR/r1.fq" \
-    in2="$TMP_DIR/r2.fq" \
-    out="$TMP_DIR/repair1.fq" \
-    out2="$TMP_DIR/repair2.fq" \
-    outs="$TMP_DIR/repair-singles.fq" \
-    ow=t
-
-run_bbtools_test tadpole \
-    "$TOOLS_DIR/bbtools/tadpole.sh" \
-    in="$TMP_DIR/single.fq" \
-    out="$TMP_DIR/tadpole.fa" \
-    k=3 \
-    ow=t \
-    prealloc=f \
-    mincount=1 \
-    shave=f \
-    rinse=f \
-    pop=f
+run_test samtools "$TOOLS_DIR/samtools" --version
+run_test seqkit "$TOOLS_DIR/seqkit" version
+run_test fastp "$TOOLS_DIR/fastp" --version
 
 if SCRUBBER_DB=$(find_scrubber_db); then
     run_test scrub \

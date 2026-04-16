@@ -21,28 +21,8 @@ if [ "$#" -lt 1 ]; then
     exit 64
 fi
 
-remove_build_only_files() {
-    local tools_dir="$1"
-    local relative_path
-    for relative_path in \
-        "bbtools/build_env_setup.sh" \
-        "bbtools/conda_build.sh"
-    do
-        local path="$tools_dir/$relative_path"
-        if [ -e "$path" ]; then
-            rm -f "$path"
-        fi
-    done
-}
-
 is_allowlisted_script() {
     case "$1" in
-        bbtools/clumpify.sh|\
-        bbtools/bbduk.sh|\
-        bbtools/bbmerge.sh|\
-        bbtools/repair.sh|\
-        bbtools/tadpole.sh|\
-        bbtools/reformat.sh|\
         scrubber/scripts/scrub.sh|\
         scrubber/scripts/cut_spots_fastq.py|\
         scrubber/scripts/fastq_to_fasta.py)
@@ -198,7 +178,6 @@ sanitize_target() {
     fi
 
     if [ -d "$target" ]; then
-        remove_build_only_files "$target"
         while IFS= read -r -d '' path; do
             sanitize_file "$path" "$target"
         done < <(/usr/bin/find "$target" -type f -print0)

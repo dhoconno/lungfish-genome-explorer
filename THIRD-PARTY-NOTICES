@@ -5,6 +5,8 @@ This file contains the licenses and copyright notices for third-party
 software bundled with or used by Lungfish Genome Explorer.
 
 Lungfish itself is licensed under the MIT License. See LICENSE for details.
+Core tools such as Nextflow, Snakemake, and BBTools are installed into
+`~/.lungfish` on demand and are not included in the app bundle.
 
 
 ================================================================================
@@ -264,62 +266,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-
-================================================================================
-BBTools (BBMap) 39.13
-https://sourceforge.net/projects/bbmap/
-================================================================================
-
-BBMap/BBTools License
-
-Copyright (c) 2014-2024 Brian Bushnell, Joint Genome Institute,
-U.S. Department of Energy
-
-BBTools is free to use for all purposes with no restrictions.
-The author requests that it be cited in publications where it is used.
-
-Note: This is a non-standard, non-OSI-approved license. The software is
-provided free of charge for all uses including commercial use, but the
-license text has not been reviewed by the Open Source Initiative.
-
-For the full license terms, see the BBTools distribution or contact the
-author at bbtools@lbl.gov.
-
-
-================================================================================
-OpenJDK Runtime (Eclipse Temurin) 21.0.10
-https://github.com/adoptium/temurin-build
-================================================================================
-
-GNU General Public License, version 2, with the Classpath Exception
-
-Copyright (c) 1996-2024 Oracle and/or its affiliates
-
-The GNU General Public License (GPL) Version 2, June 1991, applies to
-the OpenJDK source code. The "Classpath" exception to the GPL allows
-independent modules (such as Lungfish) that use the standard Java APIs
-to be distributed under any license, without being subject to the GPL.
-
-The Classpath Exception reads:
-
-    Linking this library statically or dynamically with other modules is
-    making a combined work based on this library. Thus, the terms and
-    conditions of the GNU General Public License cover the whole combination.
-
-    As a special exception, the copyright holders of this library give you
-    permission to link this library with independent modules to produce an
-    executable, regardless of the license terms of these independent modules,
-    and to copy and distribute the resulting executable under terms of your
-    choice, provided that you also meet, for each linked independent module,
-    the terms and conditions of the license of that module. An independent
-    module is a module which is not derived from or based on this library.
-    If you modify this library, you may extend this exception to your version
-    of the library, but you are not obligated to do so. If you do not wish
-    to do so, delete this exception statement from your version.
-
-Full license text: https://openjdk.org/legal/gplv2+ce.html
-Source code: https://github.com/adoptium/temurin-build
 
 
 ================================================================================

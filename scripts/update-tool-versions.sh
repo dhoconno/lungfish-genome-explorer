@@ -132,20 +132,9 @@ get_tool_update_version() {
         micromamba)
             echo "$current_version"
             ;;
-        openjdk)
-            local temurin_tag
-            temurin_tag=$(github_api "https://api.github.com/repos/adoptium/temurin21-binaries/releases/latest" 2>/dev/null \
-                | jq -r '.tag_name // empty')
-            if [ -n "$temurin_tag" ]; then
-                echo "$temurin_tag" | sed 's/^jdk-//; s/+.*//'
-            fi
-            ;;
         cutadapt)
             github_api "https://api.github.com/repos/marcelm/cutadapt/releases/latest" 2>/dev/null \
                 | jq -r '.tag_name // empty' | sed 's/^v//'
-            ;;
-        bbtools)
-            echo ""
             ;;
         *)
             local repo_path owner repo
@@ -239,24 +228,10 @@ check_updates() {
                 # Micromamba is intentionally pinned and bundled from a release asset.
                 latest_version="$current_version"
                 ;;
-            openjdk)
-                # Temurin releases are in adoptium/temurin21-binaries, tags like "jdk-21.0.10+1"
-                local temurin_tag
-                temurin_tag=$(github_api "https://api.github.com/repos/adoptium/temurin21-binaries/releases/latest" 2>/dev/null \
-                    | jq -r '.tag_name // empty')
-                if [ -n "$temurin_tag" ]; then
-                    # Extract version from "jdk-21.0.10+1" -> "21.0.10"
-                    latest_version=$(echo "$temurin_tag" | sed 's/^jdk-//; s/+.*//')
-                fi
-                ;;
             cutadapt)
                 # cutadapt PyPI releases may differ from GitHub tags
                 latest_version=$(github_api "https://api.github.com/repos/marcelm/cutadapt/releases/latest" 2>/dev/null \
                     | jq -r '.tag_name // empty' | sed 's/^v//')
-                ;;
-            bbtools)
-                # BBTools is on SourceForge, not GitHub; skip auto-check
-                latest_version=""
                 ;;
             *)
                 if [ -n "$repo_path" ]; then

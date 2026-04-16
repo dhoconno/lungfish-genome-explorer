@@ -139,36 +139,6 @@
       "notes": "Adapter trimming. Built as standalone binary via PyInstaller."
     },
     {
-      "name": "bbtools",
-      "displayName": "BBTools",
-      "version": "39.13",
-      "license": "BBMap License",
-      "licenseId": "LicenseRef-BBMap",
-      "sourceUrl": "https://sourceforge.net/projects/bbmap/",
-      "releaseUrl": "https://sourceforge.net/projects/bbmap/files/",
-      "licenseUrl": "https://sourceforge.net/projects/bbmap/",
-      "copyright": "Copyright (c) 2014-2024 Brian Bushnell, Joint Genome Institute",
-      "executables": ["clumpify.sh"],
-      "dependencies": ["openjdk"],
-      "provisioningMethod": "downloadBinary",
-      "notes": "Read deduplication/clumping via clumpify.sh. Custom permissive license (free for all uses)."
-    },
-    {
-      "name": "openjdk",
-      "displayName": "OpenJDK Runtime (Eclipse Temurin)",
-      "version": "21.0.10",
-      "license": "GPL-2.0 with Classpath Exception",
-      "licenseId": "GPL-2.0-with-classpath-exception",
-      "sourceUrl": "https://github.com/adoptium/temurin-build",
-      "releaseUrl": "https://adoptium.net/temurin/releases/",
-      "licenseUrl": "https://openjdk.org/legal/gplv2+ce.html",
-      "copyright": "Copyright (c) 1996-2024 Oracle and/or its affiliates",
-      "executables": ["java"],
-      "dependencies": [],
-      "provisioningMethod": "downloadBinary",
-      "notes": "JRE runtime for BBTools. Classpath Exception permits bundling without GPL propagation."
-    },
-    {
       "name": "micromamba",
       "displayName": "micromamba",
       "version": "2.0.5-0",
