@@ -86,3 +86,4 @@ docs/user-manual/fixtures/**/cache/
 
 # Superpowers brainstorm session artifacts (local scratch)
 .superpowers/
+.worktrees/
