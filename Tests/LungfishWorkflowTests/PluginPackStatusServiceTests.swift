@@ -38,11 +38,16 @@ final class PluginPackStatusServiceTests: XCTestCase {
         try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: sandbox) }
 
+        let micromamba = try makeFakeMicromamba(
+            at: sandbox.appendingPathComponent("micromamba"),
+            version: "2.0.5-0"
+        )
         let manager = CondaManager(
             rootPrefix: sandbox.appendingPathComponent("conda"),
-            bundledMicromambaProvider: { nil },
-            bundledMicromambaVersionProvider: { nil }
+            bundledMicromambaProvider: { micromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
         )
+        _ = try await manager.ensureMicromamba()
 
         for requirement in PluginPack.requiredSetupPack.toolRequirements {
             let binDir = await manager.environmentURL(named: requirement.environment).appendingPathComponent("bin")
@@ -59,6 +64,52 @@ final class PluginPackStatusServiceTests: XCTestCase {
 
         XCTAssertEqual(status.state, .ready)
         XCTAssertTrue(status.toolStatuses.allSatisfy(\.isReady))
+    }
+
+    func testRequiredPackNeedsInstallWhenMicromambaBootstrapIsMissingOrNotExecutable() async throws {
+        for bootstrapMode in ["missing", "not-executable"] {
+            let sandbox = FileManager.default.temporaryDirectory
+                .appendingPathComponent("pack-status-bootstrap-\(bootstrapMode)-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: sandbox) }
+
+            let manager = CondaManager(
+                rootPrefix: sandbox.appendingPathComponent("conda"),
+                bundledMicromambaProvider: { nil },
+                bundledMicromambaVersionProvider: { nil }
+            )
+
+            for requirement in PluginPack.requiredSetupPack.toolRequirements {
+                let binDir = await manager.environmentURL(named: requirement.environment).appendingPathComponent("bin")
+                try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+                for executable in requirement.executables {
+                    let path = binDir.appendingPathComponent(executable)
+                    FileManager.default.createFile(atPath: path.path, contents: Data("#!/bin/sh\n".utf8))
+                    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path.path)
+                }
+            }
+
+            let micromambaPath = await manager.micromambaPath
+            switch bootstrapMode {
+            case "missing":
+                break
+            case "not-executable":
+                try FileManager.default.createDirectory(
+                    at: micromambaPath.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                FileManager.default.createFile(atPath: micromambaPath.path, contents: Data("#!/bin/sh\n".utf8))
+                try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: micromambaPath.path)
+            default:
+                XCTFail("Unexpected bootstrap mode: \(bootstrapMode)")
+            }
+
+            let service = PluginPackStatusService(condaManager: manager)
+            let status = await service.status(for: .requiredSetupPack)
+
+            XCTAssertEqual(status.state, .needsInstall, "Bootstrap mode \(bootstrapMode) should require install")
+            XCTAssertTrue(status.toolStatuses.allSatisfy(\.isReady))
+        }
     }
 
     func testInstallPackUsesReinstallWhenRequested() async throws {

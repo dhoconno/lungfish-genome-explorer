@@ -93,7 +93,16 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             ))
         }
 
-        let state: PluginPackState = toolStatuses.allSatisfy(\.isReady) ? .ready : .needsInstall
+        let bootstrapReady: Bool
+        if pack.isRequiredBeforeLaunch {
+            let micromambaPath = await condaManager.micromambaPath
+            bootstrapReady = FileManager.default.fileExists(atPath: micromambaPath.path)
+                && FileManager.default.isExecutableFile(atPath: micromambaPath.path)
+        } else {
+            bootstrapReady = true
+        }
+
+        let state: PluginPackState = toolStatuses.allSatisfy(\.isReady) && bootstrapReady ? .ready : .needsInstall
 
         return PluginPackStatus(
             pack: pack,
