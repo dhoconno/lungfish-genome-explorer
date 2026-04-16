@@ -253,7 +253,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .fastp: return "fastp"
         case .vsearch: return "vsearch"
         case .cutadapt: return "cutadapt"
-        case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat: return "bbtools"
+        case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat: return "bbmap"
         case .java: return "openjdk"
         case .alignsTo, .scrubSh: return "sra-human-scrubber"
         case .fasterqDump, .prefetch: return "sra-tools"

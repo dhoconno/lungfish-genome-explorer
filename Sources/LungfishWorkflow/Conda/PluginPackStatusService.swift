@@ -117,10 +117,11 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         reinstall: Bool,
         progress: (@Sendable (Double, String) -> Void)?
     ) async throws {
-        let totalSteps = max(pack.packages.count, 1)
-        for (index, package) in pack.packages.enumerated() {
+        let installTargets = pack.toolRequirements.map { ($0.installPackages, $0.environment) }
+        let totalSteps = max(installTargets.count, 1)
+        for (index, target) in installTargets.enumerated() {
             let base = Double(index) / Double(totalSteps)
-            try await installAction([package], package, reinstall) { fraction, message in
+            try await installAction(target.0, target.1, reinstall) { fraction, message in
                 let scaled = base + (fraction / Double(totalSteps))
                 progress?(scaled, message)
             }

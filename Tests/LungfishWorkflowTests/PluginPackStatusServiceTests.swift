@@ -143,6 +143,37 @@ final class PluginPackStatusServiceTests: XCTestCase {
         XCTAssertTrue(calls.allSatisfy(\.reinstall))
     }
 
+    func testRequiredPackInstallsBBToolsEnvironmentFromBBMapPackage() async throws {
+        actor InstallRecorder {
+            var calls: [(packages: [String], environment: String, reinstall: Bool)] = []
+            func record(_ packages: [String], _ environment: String, _ reinstall: Bool) {
+                calls.append((packages, environment, reinstall))
+            }
+            func recordedCalls() -> [(packages: [String], environment: String, reinstall: Bool)] { calls }
+        }
+
+        let recorder = InstallRecorder()
+        let manager = CondaManager(
+            rootPrefix: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),
+            bundledMicromambaProvider: { nil },
+            bundledMicromambaVersionProvider: { nil }
+        )
+
+        let service = PluginPackStatusService(
+            condaManager: manager,
+            installAction: { packages, environment, reinstall, _ in
+                await recorder.record(packages, environment, reinstall)
+            }
+        )
+
+        try await service.install(pack: .requiredSetupPack, reinstall: false, progress: nil)
+
+        let calls = await recorder.recordedCalls()
+        let bbtoolsCall = try XCTUnwrap(calls.first(where: { $0.environment == "bbtools" }))
+        XCTAssertEqual(bbtoolsCall.packages, ["bbmap"])
+        XCTAssertFalse(bbtoolsCall.reinstall)
+    }
+
     func testInstallPackRunsPostInstallHooksAfterPackageInstalls() async throws {
         let sandbox = FileManager.default.temporaryDirectory
             .appendingPathComponent("pack-hooks-\(UUID().uuidString)", isDirectory: true)

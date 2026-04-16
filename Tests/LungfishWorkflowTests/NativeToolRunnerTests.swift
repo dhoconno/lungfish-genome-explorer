@@ -358,11 +358,11 @@ final class NativeToolRunnerTests: XCTestCase {
         XCTAssertEqual(NativeTool.bgzip.sourcePackage, "htslib")
         XCTAssertEqual(NativeTool.tabix.sourcePackage, "htslib")
         XCTAssertEqual(NativeTool.bedToBigBed.sourcePackage, "ucsc-tools")
-        XCTAssertEqual(NativeTool.bbduk.sourcePackage, "bbtools")
-        XCTAssertEqual(NativeTool.bbmerge.sourcePackage, "bbtools")
-        XCTAssertEqual(NativeTool.repair.sourcePackage, "bbtools")
-        XCTAssertEqual(NativeTool.tadpole.sourcePackage, "bbtools")
-        XCTAssertEqual(NativeTool.reformat.sourcePackage, "bbtools")
+        XCTAssertEqual(NativeTool.bbduk.sourcePackage, "bbmap")
+        XCTAssertEqual(NativeTool.bbmerge.sourcePackage, "bbmap")
+        XCTAssertEqual(NativeTool.repair.sourcePackage, "bbmap")
+        XCTAssertEqual(NativeTool.tadpole.sourcePackage, "bbmap")
+        XCTAssertEqual(NativeTool.reformat.sourcePackage, "bbmap")
     }
 
     func testNativeToolHtslibFlag() {

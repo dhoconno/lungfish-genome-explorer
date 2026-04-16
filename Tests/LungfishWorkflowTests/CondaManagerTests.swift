@@ -134,7 +134,7 @@ final class CondaManagerTests: XCTestCase {
         try FileManager.default.createDirectory(at: staleFile.deletingLastPathComponent(), withIntermediateDirectories: true)
         FileManager.default.createFile(atPath: staleFile.path, contents: Data("stale".utf8))
 
-        try await manager.reinstall(packages: ["bbtools"], environment: "bbtools")
+        try await manager.reinstall(packages: ["bbmap"], environment: "bbtools")
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: staleFile.path))
     }

@@ -9,12 +9,20 @@ public struct PackToolRequirement: Sendable, Codable, Hashable, Identifiable {
     public let id: String
     public let displayName: String
     public let environment: String
+    public let installPackages: [String]
     public let executables: [String]
 
-    public init(id: String, displayName: String, environment: String, executables: [String]) {
+    public init(
+        id: String,
+        displayName: String,
+        environment: String,
+        installPackages: [String]? = nil,
+        executables: [String]
+    ) {
         self.id = id
         self.displayName = displayName
         self.environment = environment
+        self.installPackages = installPackages ?? [id]
         self.executables = executables
     }
 
@@ -31,6 +39,7 @@ public struct PackToolRequirement: Sendable, Codable, Hashable, Identifiable {
         id: "bbtools",
         displayName: "BBTools",
         environment: "bbtools",
+        installPackages: ["bbmap"],
         executables: [
             "clumpify.sh", "bbduk.sh", "bbmerge.sh",
             "repair.sh", "tadpole.sh", "reformat.sh", "java",

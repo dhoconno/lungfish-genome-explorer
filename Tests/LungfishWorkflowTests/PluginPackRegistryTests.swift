@@ -18,6 +18,7 @@ final class PluginPackRegistryTests: XCTestCase {
         let environments = pack.toolRequirements.map(\.environment)
 
         XCTAssertEqual(environments, ["nextflow", "snakemake", "bbtools", "fastp"])
+        XCTAssertEqual(pack.toolRequirements[2].installPackages, ["bbmap"])
         XCTAssertEqual(pack.toolRequirements[2].executables, [
             "clumpify.sh", "bbduk.sh", "bbmerge.sh",
             "repair.sh", "tadpole.sh", "reformat.sh", "java",
