@@ -139,6 +139,81 @@ final class PluginPackStatusServiceTests: XCTestCase {
         )
     }
 
+    func testInstallPackSkipsMissingHookEnvironmentsAndContinuesAfterFailure() async throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pack-hooks-nonfatal-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let micromamba = try makeFakeMicromamba(
+            at: sandbox.appendingPathComponent("micromamba"),
+            version: "2.0.5-0"
+        )
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { micromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+
+        let logURL = await manager.rootPrefix.appendingPathComponent("hook-log.txt")
+        let missingHook = PostInstallHook(
+            description: "Missing hook environment",
+            environment: "missing-env",
+            command: ["missing-tool"]
+        )
+        let failingHook = PostInstallHook(
+            description: "Failing hook",
+            environment: "failing-env",
+            command: ["failing-tool"]
+        )
+        let succeedingHook = PostInstallHook(
+            description: "Succeeding hook",
+            environment: "succeeding-env",
+            command: ["succeeding-tool"]
+        )
+        let pack = PluginPack(
+            id: "nonfatal-hooks",
+            name: "Nonfatal Hooks",
+            description: "Test pack for hook handling",
+            sfSymbol: "wrench.and.screwdriver",
+            packages: [],
+            category: "Testing",
+            postInstallHooks: [missingHook, failingHook, succeedingHook]
+        )
+
+        for (environment, command, shouldFail) in [
+            ("failing-env", "failing-tool", true),
+            ("succeeding-env", "succeeding-tool", false),
+        ] {
+            let envBin = await manager.environmentURL(named: environment).appendingPathComponent("bin")
+            try FileManager.default.createDirectory(at: envBin, withIntermediateDirectories: true)
+            let script = """
+            #!/bin/sh
+            printf '%s %s\n' "$0" "$*" >> "$MAMBA_ROOT_PREFIX/hook-log.txt"
+            \(shouldFail ? "exit 1" : "exit 0")
+            """
+            let executable = envBin.appendingPathComponent(command)
+            try script.write(to: executable, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        }
+
+        let service = PluginPackStatusService(
+            condaManager: manager,
+            installAction: { _, _, _, _ in }
+        )
+
+        try await service.install(pack: pack, reinstall: false, progress: nil)
+
+        let log = try String(contentsOf: logURL, encoding: .utf8)
+        XCTAssertFalse(log.contains("missing-tool"))
+        XCTAssertTrue(log.contains("failing-tool"))
+        XCTAssertTrue(log.contains("succeeding-tool"))
+        XCTAssertLessThan(
+            log.range(of: "failing-tool")!.lowerBound,
+            log.range(of: "succeeding-tool")!.lowerBound
+        )
+    }
+
     @discardableResult
     private func makeFakeMicromamba(at url: URL, version: String) throws -> URL {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

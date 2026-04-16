@@ -1,4 +1,11 @@
 @preconcurrency import Foundation
+import LungfishCore
+import os.log
+
+private let logger = Logger(
+    subsystem: LogSubsystem.workflow,
+    category: "PluginPackStatusService"
+)
 
 public enum PluginPackState: String, Sendable, Codable, Hashable {
     case ready
@@ -109,21 +116,39 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                 progress?(scaled, message)
             }
         }
-        try await runPostInstallHooks(for: pack)
+        await runPostInstallHooks(for: pack)
         progress?(1.0, "\(pack.name) ready")
     }
 
-    private func runPostInstallHooks(for pack: PluginPack) async throws {
+    private func runPostInstallHooks(for pack: PluginPack) async {
         guard !pack.postInstallHooks.isEmpty else { return }
 
         for hook in pack.postInstallHooks {
+            let envURL = await condaManager.environmentURL(named: hook.environment)
+            guard FileManager.default.fileExists(atPath: envURL.path) else {
+                logger.warning(
+                    "Skipping hook '\(hook.description, privacy: .public)': environment '\(hook.environment, privacy: .public)' not installed"
+                )
+                continue
+            }
+
             guard let tool = hook.command.first else { continue }
             let arguments = Array(hook.command.dropFirst())
-            _ = try await condaManager.runTool(
-                name: tool,
-                arguments: arguments,
-                environment: hook.environment
-            )
+            do {
+                _ = try await condaManager.runTool(
+                    name: tool,
+                    arguments: arguments,
+                    environment: hook.environment,
+                    timeout: 600
+                )
+                logger.info(
+                    "Hook '\(hook.description, privacy: .public)' completed successfully"
+                )
+            } catch {
+                logger.error(
+                    "Hook '\(hook.description, privacy: .public)' failed: \(error.localizedDescription, privacy: .public)"
+                )
+            }
         }
     }
 }
