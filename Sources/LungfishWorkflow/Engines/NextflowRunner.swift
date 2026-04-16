@@ -76,7 +76,7 @@ public actor NextflowRunner: WorkflowRunner {
     public func isAvailable() async -> Bool {
         Self.logger.debug("Checking Nextflow availability")
 
-        if let path = baseRunner.findEngine(.nextflow) {
+        if let path = resolveExecutablePath() {
             executablePath = path
             Self.logger.info("Nextflow found at \(path.path)")
             return true
@@ -93,11 +93,30 @@ public actor NextflowRunner: WorkflowRunner {
 
         Self.logger.debug("Getting Nextflow version")
 
-        if let version = await baseRunner.getEngineVersion(.nextflow) {
+        guard let execPath = resolveExecutablePath() else {
+            return nil
+        }
+
+        let workDir = FileManager.default.temporaryDirectory
+
+        do {
+            let environment = managedExecutionEnvironment(for: execPath)
+            let (_, stdout, stderr) = try await baseRunner.processManager.runAndWait(
+                executable: execPath,
+                arguments: ["-version"],
+                workingDirectory: workDir,
+                environment: environment
+            )
+
+            let output = [stdout, stderr]
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
             // Parse version from output like "nextflow version 23.10.0.5889"
-            cachedVersion = parseVersion(from: version)
+            cachedVersion = parseVersion(from: output)
             Self.logger.info("Nextflow version: \(self.cachedVersion ?? "unknown")")
             return cachedVersion
+        } catch {
+            Self.logger.error("Failed to get Nextflow version: \(error.localizedDescription)")
         }
 
         return nil
@@ -112,7 +131,7 @@ public actor NextflowRunner: WorkflowRunner {
         Self.logger.info("Starting Nextflow execution for workflow: \(workflow.name)")
 
         // Ensure Nextflow is available
-        guard let execPath = executablePath ?? baseRunner.findEngine(.nextflow) else {
+        guard let execPath = executablePath ?? resolveExecutablePath() else {
             throw WorkflowError.engineNotFound(
                 engine: "nextflow",
                 searchedPaths: getSearchPaths()
@@ -181,7 +200,7 @@ public actor NextflowRunner: WorkflowRunner {
         Self.logger.info("Executing: nextflow \(arguments.joined(separator: " "))")
 
         // Prepare environment
-        var environment = ProcessInfo.processInfo.environment
+        var environment = managedExecutionEnvironment(for: execPath)
         environment["NXF_ANSI_LOG"] = "false"  // Disable ANSI colors
 
         // Add conda environment variables if using conda profile
@@ -400,6 +419,27 @@ public actor NextflowRunner: WorkflowRunner {
     private nonisolated func getSearchPaths() -> [String] {
         let pathEnv = ProcessInfo.processInfo.environment["PATH"] ?? ""
         return pathEnv.components(separatedBy: ":")
+    }
+
+    private func resolveExecutablePath() -> URL? {
+        preferredExecutablePath() ?? baseRunner.findEngine(.nextflow)
+    }
+
+    private func preferredExecutablePath() -> URL? {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let url = CoreToolLocator.executableURL(
+            environment: engineType.executableName,
+            executableName: engineType.executableName,
+            homeDirectory: home
+        )
+        return FileManager.default.isExecutableFile(atPath: url.path) ? url : nil
+    }
+
+    private func managedExecutionEnvironment(for executablePath: URL) -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        let existingPath = environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        environment["PATH"] = "\(executablePath.deletingLastPathComponent().path):\(existingPath)"
+        return environment
     }
 }
 

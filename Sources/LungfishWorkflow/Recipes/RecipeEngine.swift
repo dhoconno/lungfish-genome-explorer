@@ -411,7 +411,7 @@ public final class RecipeEngine: Sendable {
         let output = context.workspace.appendingPathComponent(
             "\(context.sampleName)_interleaved.fq.gz")
 
-        let env = await bbToolsEnvironment(runner: context.runner)
+        let env = await bbToolsEnvironment()
         let args = [
             "in=\(input.r1.path)",
             "in2=\(r2.path)",
@@ -442,7 +442,7 @@ public final class RecipeEngine: Sendable {
         let outR2 = context.workspace.appendingPathComponent(
             "\(context.sampleName)_conv_R2.fq.gz")
 
-        let env = await bbToolsEnvironment(runner: context.runner)
+        let env = await bbToolsEnvironment()
         let args = [
             "in=\(input.r1.path)",
             "out=\(outR1.path)",
@@ -485,24 +485,13 @@ public final class RecipeEngine: Sendable {
         return StepOutput(r1: output, format: .single)
     }
 
-    /// Builds the BBTools environment dictionary (PATH / JAVA_HOME / BBMAP_JAVA).
-    ///
-    /// Matches the pattern used by ``FASTQBatchImporter/bbToolsEnvironment()``.
-    private func bbToolsEnvironment(runner: NativeToolRunner) async -> [String: String] {
-        var env: [String: String] = [:]
-        if let toolsDir = await runner.getToolsDirectory() {
-            let existingPath = ProcessInfo.processInfo.environment["PATH"]
-                ?? "/usr/bin:/bin:/usr/sbin:/sbin"
-            let jreBinDir = toolsDir.appendingPathComponent("jre/bin")
-            env["PATH"] = "\(toolsDir.path):\(jreBinDir.path):\(existingPath)"
-            let javaURL  = jreBinDir.appendingPathComponent("java")
-            let javaHome = toolsDir.appendingPathComponent("jre")
-            if FileManager.default.fileExists(atPath: javaURL.path) {
-                env["JAVA_HOME"] = javaHome.path
-                env["BBMAP_JAVA"] = javaURL.path
-            }
-        }
-        return env
+    private func bbToolsEnvironment() async -> [String: String] {
+        let existingPath = ProcessInfo.processInfo.environment["PATH"]
+            ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        return CoreToolLocator.bbToolsEnvironment(
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
+            existingPath: existingPath
+        )
     }
 
     // MARK: - Input requirement check

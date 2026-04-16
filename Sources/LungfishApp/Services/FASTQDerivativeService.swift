@@ -3092,27 +3092,16 @@ public actor FASTQDerivativeService {
 
     /// Builds environment variables required by BBTools shell scripts.
     ///
-    /// BBTools scripts are Java wrappers — they need the bundled JRE on PATH
-    /// and JAVA_HOME/BBMAP_JAVA set to avoid depending on system Java.
-    /// Result is cached after first call since the tools directory is stable.
+    /// Result is cached after first call since the managed environment path is stable.
     private func bbToolsEnvironment() async -> [String: String] {
         if let cached = cachedBBToolsEnv {
             return cached
         }
-        var env: [String: String] = [:]
-        // Add tools directory to PATH so bbtools scripts can find the bundled JRE
-        if let toolsDir = await runner.getToolsDirectory() {
-            let existingPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
-            let jreBinDir = toolsDir.appendingPathComponent("jre/bin")
-            env["PATH"] = "\(toolsDir.path):\(jreBinDir.path):\(existingPath)"
-            // Set JAVA_HOME and BBMAP_JAVA for bbtools' internal Java detection
-            let javaURL = jreBinDir.appendingPathComponent("java")
-            let javaHome = toolsDir.appendingPathComponent("jre")
-            if FileManager.default.fileExists(atPath: javaURL.path) {
-                env["JAVA_HOME"] = javaHome.path
-                env["BBMAP_JAVA"] = javaURL.path
-            }
-        }
+        let existingPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        let env = CoreToolLocator.bbToolsEnvironment(
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
+            existingPath: existingPath
+        )
         cachedBBToolsEnv = env
         return env
     }

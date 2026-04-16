@@ -273,7 +273,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
 
     // MARK: - Pipeline Steps
 
-    /// Sorts reads by k-mer similarity using bundled BBTools `clumpify.sh`.
+    /// Sorts reads by k-mer similarity using managed BBTools `clumpify.sh`.
     ///
     /// This writes directly to a gzip output so we can avoid an extra
     /// compression pass while keeping compatibility with `samtools fqidx`.
@@ -284,21 +284,13 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
     ) async throws -> URL {
         let inputFile = config.inputFiles[0]
         let inputFile2 = config.pairingMode == .pairedEnd ? config.inputFiles[1] : nil
-        let toolsDirectory = await runner.getToolsDirectory()
         let clumpifyScript = try await runner.toolPath(for: .clumpify)
-        let bundledJava = (try? await runner.toolPath(for: .java))
         let timeoutSeconds = max(900, Double((try? FileManager.default.attributesOfItem(atPath: inputFile.path)[.size] as? Int64) ?? 0) / 2_500_000)
 
-        var env: [String: String] = [:]
-        if let toolsDirectory {
-            let existingPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
-            env["PATH"] = "\(toolsDirectory.path):\(existingPath)"
-        }
-        if let bundledJava {
-            let javaHome = bundledJava.deletingLastPathComponent().deletingLastPathComponent()
-            env["JAVA_HOME"] = javaHome.path
-            env["BBMAP_JAVA"] = bundledJava.path
-        }
+        var env = CoreToolLocator.bbToolsEnvironment(
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
+            existingPath: ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        )
 
         // BBTools internally calls pigz/gzip without quoting paths, so spaces
         // break at multiple levels (shell eval AND internal tool invocations).

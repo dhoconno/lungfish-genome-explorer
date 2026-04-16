@@ -5,7 +5,7 @@
 import XCTest
 @testable import LungfishWorkflow
 
-/// Integration tests for FASTQ processing operations using real bundled bioinformatics tools.
+/// Integration tests for FASTQ processing operations using real bioinformatics tools.
 ///
 /// These tests exercise the complete tool execution pipeline:
 /// NativeToolRunner → bundled tool binary → file I/O verification.
@@ -142,20 +142,15 @@ final class FASTQToolIntegrationTests: XCTestCase {
         return lines.count / 4
     }
 
-    private func bbToolsEnv() async -> [String: String] {
-        var env: [String: String] = [:]
-        if let toolsDir = await runner.getToolsDirectory() {
-            let existingPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"
-            let jreBinDir = toolsDir.appendingPathComponent("jre/bin")
-            env["PATH"] = "\(toolsDir.path):\(jreBinDir.path):\(existingPath)"
-            let javaURL = jreBinDir.appendingPathComponent("java")
-            let javaHome = toolsDir.appendingPathComponent("jre")
-            if FileManager.default.fileExists(atPath: javaURL.path) {
-                env["JAVA_HOME"] = javaHome.path
-                env["BBMAP_JAVA"] = javaURL.path
-            }
+    private func bbToolsEnv(for tool: NativeTool) async throws -> [String: String] {
+        guard (try? await runner.toolPath(for: tool)) != nil else {
+            throw XCTSkip("Managed \(tool.rawValue) is not available")
         }
-        return env
+
+        return CoreToolLocator.bbToolsEnvironment(
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
+            existingPath: ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"
+        )
     }
 
     // MARK: - Seqkit Operations
@@ -308,15 +303,13 @@ final class FASTQToolIntegrationTests: XCTestCase {
 
     func testBBDukContaminantFilter() async throws {
         let outputURL = tempDir.appendingPathComponent("filtered.fastq")
-        let env = await bbToolsEnv()
+        let env = try await bbToolsEnv(for: .bbduk)
 
         // Resolve the PhiX reference path from the bbtools resources directory
-        guard let toolsDir = await runner.getToolsDirectory() else {
-            throw XCTSkip("Tools directory not available")
-        }
-        let phixRef = toolsDir.appendingPathComponent("bbtools/resources/phix174_ill.ref.fa.gz")
+        let phixRef = await runner.getToolsDirectory()?
+            .appendingPathComponent("bbtools/resources/phix174_ill.ref.fa.gz")
         let refArg: String
-        if FileManager.default.fileExists(atPath: phixRef.path) {
+        if let phixRef, FileManager.default.fileExists(atPath: phixRef.path) {
             refArg = "ref=\(phixRef.path)"
         } else {
             // Fallback: use a synthetic reference (a sequence not in our test data)
@@ -392,7 +385,7 @@ final class FASTQToolIntegrationTests: XCTestCase {
 
         let mergedURL = tempDir.appendingPathComponent("merged.fastq")
         let unmergedURL = tempDir.appendingPathComponent("unmerged.fastq")
-        let env = await bbToolsEnv()
+        let env = try await bbToolsEnv(for: .bbmerge)
 
         let result = try await runner.run(.bbmerge, arguments: [
             "in=\(interleavedURL.path)",
@@ -434,7 +427,7 @@ final class FASTQToolIntegrationTests: XCTestCase {
 
         let repairedURL = tempDir.appendingPathComponent("repaired.fastq")
         let singletonsURL = tempDir.appendingPathComponent("singletons.fastq")
-        let env = await bbToolsEnv()
+        let env = try await bbToolsEnv(for: .repair)
 
         let result = try await runner.run(.repair, arguments: [
             "in=\(interleavedURL.path)",
@@ -450,7 +443,7 @@ final class FASTQToolIntegrationTests: XCTestCase {
 
     func testTadpoleErrorCorrection() async throws {
         let outputURL = tempDir.appendingPathComponent("corrected.fastq")
-        let env = await bbToolsEnv()
+        let env = try await bbToolsEnv(for: .tadpole)
 
         let result = try await runner.run(.tadpole, arguments: [
             "in=\(inputFastqURL.path)",
@@ -494,7 +487,7 @@ final class FASTQToolIntegrationTests: XCTestCase {
 
         let r1URL = tempDir.appendingPathComponent("R1.fastq")
         let r2URL = tempDir.appendingPathComponent("R2.fastq")
-        let env = await bbToolsEnv()
+        let env = try await bbToolsEnv(for: .reformat)
 
         let result = try await runner.run(.reformat, arguments: [
             "in=\(interleavedURL.path)",
@@ -538,7 +531,7 @@ final class FASTQToolIntegrationTests: XCTestCase {
             """.write(to: r2URL, atomically: true, encoding: .utf8)
 
         let outputURL = tempDir.appendingPathComponent("interleaved_out.fastq")
-        let env = await bbToolsEnv()
+        let env = try await bbToolsEnv(for: .reformat)
 
         let result = try await runner.run(.reformat, arguments: [
             "in1=\(r1URL.path)",
@@ -580,7 +573,7 @@ final class FASTQToolIntegrationTests: XCTestCase {
         let r1URL = tempDir.appendingPathComponent("rt_R1.fastq")
         let r2URL = tempDir.appendingPathComponent("rt_R2.fastq")
         let reinterleavedURL = tempDir.appendingPathComponent("rt_reinterleaved.fastq")
-        let env = await bbToolsEnv()
+        let env = try await bbToolsEnv(for: .reformat)
 
         // Deinterleave
         let deintResult = try await runner.run(.reformat, arguments: [

@@ -509,17 +509,11 @@ public final class FASTQCLIMaterializer: Sendable {
     // MARK: - fullPaired interleave
 
     private func interleaveWithReformat(r1URL: URL, r2URL: URL, outputURL: URL) async throws {
-        var env: [String: String] = [:]
-        if let toolsDir = await runner.getToolsDirectory() {
-            let existingPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"
-            let jreBin = toolsDir.appendingPathComponent("jre/bin")
-            env["PATH"] = "\(toolsDir.path):\(jreBin.path):\(existingPath)"
-            let javaURL = jreBin.appendingPathComponent("java")
-            if FileManager.default.fileExists(atPath: javaURL.path) {
-                env["JAVA_HOME"] = toolsDir.appendingPathComponent("jre").path
-                env["BBMAP_JAVA"] = javaURL.path
-            }
-        }
+        let existingPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"
+        let env = CoreToolLocator.bbToolsEnvironment(
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
+            existingPath: existingPath
+        )
         let result = try await runner.run(
             .reformat,
             arguments: [

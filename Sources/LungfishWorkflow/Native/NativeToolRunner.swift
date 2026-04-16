@@ -33,7 +33,7 @@ public struct NativeToolResult: Sendable {
 
 /// Errors that can occur when running native tools.
 public enum NativeToolError: Error, LocalizedError, Sendable {
-    /// Tool not found in app bundle.
+    /// Tool not found in the expected installation location.
     case toolNotFound(String)
 
     /// Tool execution failed.
@@ -51,7 +51,7 @@ public enum NativeToolError: Error, LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .toolNotFound(let tool):
-            return "Bundled tool '\(tool)' not found. The app bundle may be incomplete or corrupted."
+            return "Required tool '\(tool)' was not found in the expected location."
         case .executionFailed(let tool, let code, let stderr):
             return "Tool '\(tool)' failed with exit code \(code): \(stderr)"
         case .timeout(let tool, let seconds):
@@ -62,6 +62,13 @@ public enum NativeToolError: Error, LocalizedError, Sendable {
             return "Tools directory not found in app bundle. The app may need to be reinstalled."
         }
     }
+}
+
+// MARK: - NativeToolLocation
+
+public enum NativeToolLocation: Sendable, Hashable {
+    case bundled(relativePath: String)
+    case managed(environment: String, executableName: String)
 }
 
 
@@ -100,10 +107,10 @@ private final class TailBuffer: @unchecked Sendable {
 
 // MARK: - NativeTool
 
-/// Represents a native bioinformatics tool bundled with the app.
+/// Represents a native bioinformatics tool required by the app.
 ///
-/// All tools are bundled with the app to ensure consistent versions across all users.
-/// Tools are compiled for both arm64 (Apple Silicon) and x86_64 (Intel via Rosetta).
+/// Most tools are bundled with the app. Core workflow launchers and BBTools are
+/// resolved from managed environments under `~/.lungfish/conda/envs`.
 public enum NativeTool: String, CaseIterable, Sendable {
     case samtools
     case bcftools
@@ -159,6 +166,44 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .prefetch: return "prefetch"
         case .deacon: return "deacon"
         }
+    }
+
+    public var location: NativeToolLocation {
+        switch self {
+        case .clumpify:
+            return .managed(environment: "bbtools", executableName: "clumpify.sh")
+        case .bbduk:
+            return .managed(environment: "bbtools", executableName: "bbduk.sh")
+        case .bbmerge:
+            return .managed(environment: "bbtools", executableName: "bbmerge.sh")
+        case .repair:
+            return .managed(environment: "bbtools", executableName: "repair.sh")
+        case .tadpole:
+            return .managed(environment: "bbtools", executableName: "tadpole.sh")
+        case .reformat:
+            return .managed(environment: "bbtools", executableName: "reformat.sh")
+        case .java:
+            return .managed(environment: "bbtools", executableName: "java")
+        case .alignsTo:
+            return .bundled(relativePath: "scrubber/bin/aligns_to")
+        case .scrubSh:
+            return .bundled(relativePath: "scrubber/scripts/scrub.sh")
+        case .fasterqDump:
+            return .bundled(relativePath: "sra-tools/fasterq-dump")
+        case .prefetch:
+            return .bundled(relativePath: "sra-tools/prefetch")
+        case .deacon:
+            return .managed(environment: "deacon-bench", executableName: "deacon")
+        default:
+            return .bundled(relativePath: executableName)
+        }
+    }
+
+    public var isBundled: Bool {
+        if case .bundled = location {
+            return true
+        }
+        return false
     }
 
     /// Relative path from the tools root directory.
@@ -262,16 +307,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
 
 // MARK: - NativeToolRunner
 
-/// Runs native bioinformatics tools bundled with the app.
-///
-/// Tools are ONLY loaded from the app bundle to ensure consistent versions
-/// across all users. This prevents issues with different tool versions
-/// producing different results.
-///
-/// Tools are expected to be in one of these locations:
-/// - `<AppBundle>/Contents/Resources/Tools/<tool>` (macOS app)
-/// - `<ExecutableDir>/../Resources/Tools/<tool>` (CLI tool)
-/// - `<ExecutableDir>/Tools/<tool>` (development/testing)
+/// Runs native bioinformatics tools resolved from bundled resources or managed environments.
 public actor NativeToolRunner {
 
     // MARK: - Shared Instance
@@ -293,6 +329,9 @@ public actor NativeToolRunner {
 
     /// The directory containing bundled tools.
     private var toolsDirectory: URL?
+
+    /// Home directory used for managed tool resolution.
+    private let homeDirectory: URL
 
     /// Default timeout for tool execution (5 minutes).
     private let defaultTimeout: TimeInterval = 300
@@ -318,6 +357,7 @@ public actor NativeToolRunner {
 
     public init() {
         self.toolsDirectory = Self.findToolsDirectory()
+        self.homeDirectory = FileManager.default.homeDirectoryForCurrentUser
         if let dir = self.toolsDirectory {
             logger.info("Tools directory resolved: \(dir.path, privacy: .public)")
         } else {
@@ -326,8 +366,12 @@ public actor NativeToolRunner {
     }
 
     /// Creates a runner with an explicit tools directory (for testing).
-    public init(toolsDirectory: URL?) {
+    public init(
+        toolsDirectory: URL?,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) {
         self.toolsDirectory = toolsDirectory
+        self.homeDirectory = homeDirectory
     }
     
     // MARK: - Tool Discovery
@@ -382,7 +426,7 @@ public actor NativeToolRunner {
             return cached
         }
         // Check bundled manifest
-        if let bundled = Self.bundledVersions[tool.rawValue] {
+        if tool.isBundled, let bundled = Self.bundledVersions[tool.rawValue] {
             runtimeVersionCache[tool] = bundled
             return bundled
         }
@@ -698,9 +742,6 @@ public actor NativeToolRunner {
     // MARK: - Private Methods
 
     private func discoverToolPath(_ tool: NativeTool) throws -> URL {
-        // Deacon is installed via conda, not bundled with the app.
-        // Check the dedicated deacon-bench conda environment first, then fall
-        // back to /usr/local/bin for system-wide installs.
         if tool == .deacon {
             let condaPath = URL(fileURLWithPath: NSHomeDirectory())
                 .appendingPathComponent("miniforge3/envs/deacon-bench/bin/deacon")
@@ -717,21 +758,35 @@ public actor NativeToolRunner {
             throw NativeToolError.toolNotFound(tool.rawValue)
         }
 
-        let relativePath = tool.relativeExecutablePath
+        switch tool.location {
+        case .managed(let environment, let executableName):
+            let managedToolPath = CoreToolLocator.executableURL(
+                environment: environment,
+                executableName: executableName,
+                homeDirectory: homeDirectory
+            )
+            if FileManager.default.isExecutableFile(atPath: managedToolPath.path) {
+                logger.info("Found managed \(tool.rawValue) at \(managedToolPath.path)")
+                return managedToolPath
+            }
+            logger.error("Managed tool not executable at expected path: \(managedToolPath.path)")
+            throw NativeToolError.toolNotFound(tool.rawValue)
 
-        guard let toolsDir = toolsDirectory else {
-            logger.error("Tools directory not found in bundled resources")
-            throw NativeToolError.toolsDirectoryNotFound
+        case .bundled(let relativePath):
+            guard let toolsDir = toolsDirectory else {
+                logger.error("Tools directory not found in bundled resources")
+                throw NativeToolError.toolsDirectoryNotFound
+            }
+
+            let bundledToolPath = toolsDir.appendingPathComponent(relativePath)
+            if FileManager.default.isExecutableFile(atPath: bundledToolPath.path) {
+                logger.info("Found bundled \(tool.rawValue) at \(bundledToolPath.path)")
+                return bundledToolPath
+            }
+
+            logger.error("Bundled tool not executable at expected path: \(bundledToolPath.path)")
+            throw NativeToolError.toolNotFound(tool.rawValue)
         }
-
-        let bundledToolPath = toolsDir.appendingPathComponent(relativePath)
-        if FileManager.default.isExecutableFile(atPath: bundledToolPath.path) {
-            logger.info("Found bundled \(tool.rawValue) at \(bundledToolPath.path)")
-            return bundledToolPath
-        }
-
-        logger.error("Bundled tool not executable at expected path: \(bundledToolPath.path)")
-        throw NativeToolError.toolNotFound(tool.rawValue)
     }
 
     /// Finds the Tools directory in the app bundle.
@@ -766,13 +821,13 @@ public actor NativeToolRunner {
     }
 
     /// Checks if the tools directory exists and contains expected tools.
-    public func validateToolsInstallation() -> (valid: Bool, missing: [NativeTool]) {
+    public func validateBundledToolsInstallation() -> (valid: Bool, missing: [NativeTool]) {
         guard let toolsDir = toolsDirectory else {
-            return (false, NativeTool.allCases)
+            return (false, NativeTool.allCases.filter(\.isBundled))
         }
 
         var missingTools: [NativeTool] = []
-        for tool in NativeTool.allCases {
+        for tool in NativeTool.allCases where tool.isBundled {
             let toolPath = toolsDir.appendingPathComponent(tool.relativeExecutablePath)
             if !FileManager.default.isExecutableFile(atPath: toolPath.path) {
                 missingTools.append(tool)
@@ -780,6 +835,10 @@ public actor NativeToolRunner {
         }
 
         return (missingTools.isEmpty, missingTools)
+    }
+
+    public func validateToolsInstallation() -> (valid: Bool, missing: [NativeTool]) {
+        validateBundledToolsInstallation()
     }
 }
 

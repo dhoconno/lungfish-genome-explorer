@@ -544,18 +544,7 @@ public enum FASTQIngestionService {
         output: URL
     ) async throws {
         let runner = NativeToolRunner.shared
-        let toolsDir = await runner.getToolsDirectory()
-        var env: [String: String] = [:]
-        if let toolsDir {
-            let existingPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
-            let jreBinDir = toolsDir.appendingPathComponent("jre/bin")
-            env["PATH"] = "\(toolsDir.path):\(jreBinDir.path):\(existingPath)"
-            let javaURL = jreBinDir.appendingPathComponent("java")
-            if FileManager.default.fileExists(atPath: javaURL.path) {
-                env["JAVA_HOME"] = toolsDir.appendingPathComponent("jre").path
-                env["BBMAP_JAVA"] = javaURL.path
-            }
-        }
+        let env = await bbToolsEnvironment()
 
         let result = try await runner.run(
             .reformat,
@@ -616,20 +605,11 @@ public enum FASTQIngestionService {
     }
 
     nonisolated private static func bbToolsEnvironment() async -> [String: String] {
-        let runner = NativeToolRunner.shared
-        let toolsDir = await runner.getToolsDirectory()
-        var env: [String: String] = [:]
-        if let toolsDir {
-            let existingPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
-            let jreBinDir = toolsDir.appendingPathComponent("jre/bin")
-            env["PATH"] = "\(toolsDir.path):\(jreBinDir.path):\(existingPath)"
-            let javaURL = jreBinDir.appendingPathComponent("java")
-            if FileManager.default.fileExists(atPath: javaURL.path) {
-                env["JAVA_HOME"] = toolsDir.appendingPathComponent("jre").path
-                env["BBMAP_JAVA"] = javaURL.path
-            }
-        }
-        return env
+        let existingPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        return CoreToolLocator.bbToolsEnvironment(
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
+            existingPath: existingPath
+        )
     }
 
     nonisolated private static func runVSP2RecipeWithDelayedInterleave(

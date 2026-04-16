@@ -1319,22 +1319,12 @@ public enum FASTQBatchImporter {
         }
     }
 
-    /// Builds the PATH/JAVA_HOME/BBMAP_JAVA environment dictionary for BBTools scripts.
     private static func bbToolsEnvironment() async -> [String: String] {
-        let runner = NativeToolRunner.shared
-        var env: [String: String] = [:]
-        if let toolsDir = await runner.getToolsDirectory() {
-            let existingPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
-            let jreBinDir = toolsDir.appendingPathComponent("jre/bin")
-            env["PATH"] = "\(toolsDir.path):\(jreBinDir.path):\(existingPath)"
-            let javaURL = jreBinDir.appendingPathComponent("java")
-            let javaHome = toolsDir.appendingPathComponent("jre")
-            if FileManager.default.fileExists(atPath: javaURL.path) {
-                env["JAVA_HOME"] = javaHome.path
-                env["BBMAP_JAVA"] = javaURL.path
-            }
-        }
-        return env
+        let existingPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        return CoreToolLocator.bbToolsEnvironment(
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
+            existingPath: existingPath
+        )
     }
 
     /// Sums file sizes for the given URLs.

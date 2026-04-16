@@ -10,7 +10,7 @@ final class FASTQIngestionPipelineTests: XCTestCase {
     func testPairedEndClumpifySucceedsWhenProjectPathContainsSpaces() async throws {
         let runner = NativeToolRunner.shared
         guard (try? await runner.toolPath(for: .clumpify)) != nil else {
-            throw XCTSkip("Bundled clumpify is not available")
+            throw XCTSkip("Managed clumpify is not available")
         }
 
         let fm = FileManager.default

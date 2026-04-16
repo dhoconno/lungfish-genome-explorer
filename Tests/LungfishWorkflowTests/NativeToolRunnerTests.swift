@@ -21,33 +21,31 @@ final class NativeToolRunnerTests: XCTestCase {
         }
     }
 
-    func testAllToolsAvailable() async {
+    func testAllBundledToolsRemainAvailable() async {
         let runner = NativeToolRunner()
         let results = await runner.checkAllTools()
 
-        for tool in NativeTool.allCases {
+        for tool in NativeTool.allCases where tool.isBundled {
             XCTAssertTrue(
                 results[tool] == true,
-                "Tool '\(tool.rawValue)' should be available; found: \(results[tool] ?? false)"
+                "Bundled tool '\(tool.rawValue)' should be available; found: \(results[tool] ?? false)"
             )
         }
     }
 
-    func testValidateToolsInstallation() async {
+    func testValidateBundledToolsInstallationIgnoresManagedCoreTools() async {
         let runner = NativeToolRunner()
-        let (valid, missing) = await runner.validateToolsInstallation()
+        let (valid, missing) = await runner.validateBundledToolsInstallation()
 
-        XCTAssertTrue(valid, "All tools should be present")
-        XCTAssertTrue(
-            missing.isEmpty,
-            "No tools should be missing; missing: \(missing.map(\.rawValue))"
-        )
+        XCTAssertTrue(valid, "Bundled tools should still validate without BBTools/JRE in the app bundle")
+        XCTAssertFalse(missing.contains(.clumpify))
+        XCTAssertFalse(missing.contains(.java))
     }
 
-    func testFindToolReturnsExecutableURL() async throws {
+    func testFindToolReturnsExecutableURLForBundledTools() async throws {
         let runner = NativeToolRunner()
 
-        for tool in NativeTool.allCases {
+        for tool in NativeTool.allCases where tool.isBundled {
             let url = try await runner.findTool(tool)
             XCTAssertTrue(
                 FileManager.default.isExecutableFile(atPath: url.path),
@@ -323,15 +321,22 @@ final class NativeToolRunnerTests: XCTestCase {
         XCTAssertEqual(NativeTool.bbmerge.executableName, "bbmerge.sh")
         XCTAssertEqual(NativeTool.repair.executableName, "repair.sh")
         XCTAssertEqual(NativeTool.java.executableName, "java")
-        XCTAssertEqual(NativeTool.clumpify.relativeExecutablePath, "bbtools/clumpify.sh")
-        XCTAssertEqual(NativeTool.bbduk.relativeExecutablePath, "bbtools/bbduk.sh")
-        XCTAssertEqual(NativeTool.bbmerge.relativeExecutablePath, "bbtools/bbmerge.sh")
-        XCTAssertEqual(NativeTool.repair.relativeExecutablePath, "bbtools/repair.sh")
         XCTAssertEqual(NativeTool.tadpole.executableName, "tadpole.sh")
-        XCTAssertEqual(NativeTool.tadpole.relativeExecutablePath, "bbtools/tadpole.sh")
         XCTAssertEqual(NativeTool.reformat.executableName, "reformat.sh")
-        XCTAssertEqual(NativeTool.reformat.relativeExecutablePath, "bbtools/reformat.sh")
-        XCTAssertEqual(NativeTool.java.relativeExecutablePath, "jre/bin/java")
+        XCTAssertTrue(NativeTool.samtools.isBundled)
+        XCTAssertFalse(NativeTool.clumpify.isBundled)
+        XCTAssertFalse(NativeTool.java.isBundled)
+    }
+
+    func testManagedCoreToolLocationsUseCondaEnvironments() {
+        XCTAssertEqual(
+            NativeTool.clumpify.location,
+            .managed(environment: "bbtools", executableName: "clumpify.sh")
+        )
+        XCTAssertEqual(
+            NativeTool.java.location,
+            .managed(environment: "bbtools", executableName: "java")
+        )
     }
 
     func testNativeToolSourcePackages() {
@@ -441,8 +446,8 @@ final class NativeToolRunnerTests: XCTestCase {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
             .appendingPathComponent("NativeToolRunner Space Test \(UUID().uuidString)", isDirectory: true)
-        let toolsDir = root.appendingPathComponent("Tools", isDirectory: true)
-        let bbtoolsDir = toolsDir.appendingPathComponent("bbtools", isDirectory: true)
+        let bbtoolsDir = root
+            .appendingPathComponent(".lungfish/conda/envs/bbtools/bin", isDirectory: true)
         let projectDir = root.appendingPathComponent("My Genome Project.lungfish", isDirectory: true)
         let inputURL = projectDir.appendingPathComponent("reads 1.fastq.gz")
         let outputURL = projectDir.appendingPathComponent("result output.fastq.gz")
@@ -463,7 +468,7 @@ final class NativeToolRunnerTests: XCTestCase {
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
 
-        let runner = NativeToolRunner(toolsDirectory: toolsDir)
+        let runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: root)
         let result = try await runner.run(
             .clumpify,
             arguments: [
