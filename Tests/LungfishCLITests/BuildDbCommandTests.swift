@@ -321,9 +321,9 @@ final class BuildDbCommandTests: XCTestCase {
         XCTAssertNotNil(meta["created_at"])
     }
 
-    /// Verifies that Kraken2 cleanup removes .kraken and .kraken.idx.sqlite
-    /// files while preserving kreport and result JSON.
-    func testKraken2CleanupRemovesIntermediateFiles() async throws {
+    /// Verifies that Kraken2 cleanup preserves per-read output, removes the
+    /// index SQLite sidecar, and keeps the report and result metadata.
+    func testKraken2CleanupPreservesPerReadOutputAndRemovesIndex() async throws {
         let tmpDir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
 
@@ -344,9 +344,10 @@ final class BuildDbCommandTests: XCTestCase {
         var cmd = try BuildDbCommand.Kraken2Subcommand.parse([resultDir.path, "-q"])
         try await cmd.run()
 
-        // Verify intermediate files are removed
-        XCTAssertFalse(fm.fileExists(atPath: krakenOutput.path),
-                       "classification.kraken should be removed by cleanup")
+        // Verify the per-read output remains available for downstream extraction,
+        // while the generated index sidecar is cleaned up.
+        XCTAssertTrue(fm.fileExists(atPath: krakenOutput.path),
+                      "classification.kraken should be preserved for downstream read extraction")
         XCTAssertFalse(fm.fileExists(atPath: krakenIndex.path),
                        "classification.kraken.idx.sqlite should be removed by cleanup")
 

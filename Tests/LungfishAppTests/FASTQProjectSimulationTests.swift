@@ -65,6 +65,14 @@ final class FASTQProjectSimulationTests: XCTestCase {
         return try await loadFASTQRecords(from: outputURL)
     }
 
+    private func requireManagedTool(_ tool: NativeTool) async throws {
+        do {
+            _ = try await NativeToolRunner.shared.toolPath(for: tool)
+        } catch NativeToolError.toolNotFound {
+            throw XCTSkip("Managed \(tool.rawValue) is not available")
+        }
+    }
+
     func testSimulatedProjectImportsReferenceBundle() throws {
         let projectURL = try makeProject()
         defer { try? FileManager.default.removeItem(at: projectURL) }
@@ -116,8 +124,11 @@ final class FASTQProjectSimulationTests: XCTestCase {
         } else {
             XCTFail("Expected trim payload")
         }
-        XCTAssertEqual(trimManifest.parentBundleRelativePath, "../..")
-        XCTAssertEqual(trimManifest.rootBundleRelativePath, "../..")
+        let expectedRootPath = try XCTUnwrap(
+            FASTQBundle.projectRelativePath(for: source.bundleURL, from: trimBundle)
+        )
+        XCTAssertEqual(trimManifest.parentBundleRelativePath, expectedRootPath)
+        XCTAssertEqual(trimManifest.rootBundleRelativePath, expectedRootPath)
 
         let filteredBundle = try await service.createDerivative(
             from: trimBundle,
@@ -163,7 +174,25 @@ final class FASTQProjectSimulationTests: XCTestCase {
             named: "motif.fastq"
         )
         XCTAssertEqual(Set(motifRecords.map(\.identifier)), Set(["beta", "gamma"]))
+    }
 
+    func testSimulatedProjectDeduplicateExportRoundTrip() async throws {
+        try await requireManagedTool(.clumpify)
+
+        let projectURL = try makeProject()
+        defer { try? FileManager.default.removeItem(at: projectURL) }
+
+        let source = try makeFASTQBundle(named: "synthetic", in: projectURL)
+        try writeFASTQ(
+            records: [
+                (id: "alpha", description: "sample=alpha motif=keep", sequence: "AACCGGTTAACC"),
+                (id: "beta", description: "sample=beta motif=match", sequence: "TTTGGGCCAA"),
+                (id: "gamma", description: "sample=beta motif=match", sequence: "TTTGGGCCAA"),
+            ],
+            to: source.fastqURL
+        )
+
+        let service = FASTQDerivativeService()
         let dedupBundle = try await service.createDerivative(
             from: source.bundleURL,
             request: .deduplicate(preset: .exactPCR, substitutions: 0, optical: false, opticalDistance: 40)

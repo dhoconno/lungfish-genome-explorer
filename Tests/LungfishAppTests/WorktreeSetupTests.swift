@@ -21,10 +21,7 @@ struct WorktreeSetupTests {
     func setupWorktreeCopiesIgnoredDylibsAndLinksIgnoredDatabasePayloads() throws {
         let repositoryRoot = Self.repositoryRoot()
         let scriptURL = repositoryRoot.appendingPathComponent("scripts/setup-worktree.sh")
-        let sourceDylib = repositoryRoot
-            .appendingPathComponent("Sources/LungfishWorkflow/Resources/Tools/jre/lib/libjli.dylib")
         #expect(FileManager.default.fileExists(atPath: scriptURL.path))
-        #expect(FileManager.default.fileExists(atPath: sourceDylib.path))
 
         let tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -51,7 +48,7 @@ struct WorktreeSetupTests {
             at: sourceLibURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try FileManager.default.copyItem(at: sourceDylib, to: sourceLibURL)
+        try "synthetic-dylib".write(to: sourceLibURL, atomically: true, encoding: .utf8)
 
         let sourceDBURL = sourceRoot
             .appendingPathComponent("Sources/LungfishWorkflow/Resources/Databases/human-scrubber/human_filter.db.20250916v2")

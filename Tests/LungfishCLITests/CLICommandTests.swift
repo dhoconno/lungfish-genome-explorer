@@ -465,7 +465,7 @@ final class CLIJSONResultTests: XCTestCase {
     func testCLIJSONMetadata() throws {
         let metadata = CLIJSONMetadata()
 
-        XCTAssertEqual(metadata.version, "1.0.0")
+        XCTAssertEqual(metadata.version, "1.0.1")
         XCTAssertFalse(metadata.timestamp.isEmpty, "Timestamp should not be empty")
         XCTAssertFalse(metadata.platform.isEmpty, "Platform should not be empty")
         XCTAssertTrue(metadata.platform.contains("macOS"), "Platform should mention macOS")
@@ -491,14 +491,14 @@ final class CLIJSONResultTests: XCTestCase {
             data: "hello"
         )
 
-        XCTAssertEqual(result.metadata.version, "1.0.0")
+        XCTAssertEqual(result.metadata.version, "1.0.1")
         XCTAssertFalse(result.metadata.timestamp.isEmpty)
 
         let data = try JSONEncoder().encode(result)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         let metadataDict = json?["metadata"] as? [String: Any]
         XCTAssertNotNil(metadataDict)
-        XCTAssertEqual(metadataDict?["version"] as? String, "1.0.0")
+        XCTAssertEqual(metadataDict?["version"] as? String, "1.0.1")
     }
 
     /// Verifies that CLIJSONError correctly formats the exit code as a string.

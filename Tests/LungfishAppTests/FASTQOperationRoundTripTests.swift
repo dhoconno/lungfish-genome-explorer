@@ -5,6 +5,14 @@ import LungfishWorkflow
 
 final class FASTQOperationRoundTripTests: XCTestCase {
 
+    private func requireManagedTool(_ tool: NativeTool) async throws {
+        do {
+            _ = try await NativeToolRunner.shared.toolPath(for: tool)
+        } catch NativeToolError.toolNotFound {
+            throw XCTSkip("Managed \(tool.rawValue) is not available")
+        }
+    }
+
     // MARK: - Trim Preview Bug
 
     /// Verifies that trim derivatives include a preview.fastq file.
@@ -303,6 +311,8 @@ final class FASTQOperationRoundTripTests: XCTestCase {
     // MARK: - Filter Operations
 
     func testContaminantFilterRoundTrip() async throws {
+        try await requireManagedTool(.bbduk)
+
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "ContaminantFilter")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
@@ -338,6 +348,8 @@ final class FASTQOperationRoundTripTests: XCTestCase {
     }
 
     func testSequencePresenceFilterRoundTrip() async throws {
+        try await requireManagedTool(.bbduk)
+
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "SeqPresenceFilter")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
@@ -554,6 +566,8 @@ final class FASTQOperationRoundTripTests: XCTestCase {
     // MARK: - Full Output Operations
 
     func testErrorCorrectionRoundTrip() async throws {
+        try await requireManagedTool(.tadpole)
+
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "ErrorCorrect")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
@@ -582,6 +596,8 @@ final class FASTQOperationRoundTripTests: XCTestCase {
     }
 
     func testDeduplicateRoundTrip() async throws {
+        try await requireManagedTool(.clumpify)
+
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "Dedup")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
@@ -623,6 +639,8 @@ final class FASTQOperationRoundTripTests: XCTestCase {
     // MARK: - Paired-End and Interleave Operations
 
     func testDeinterleaveRoundTrip() async throws {
+        try await requireManagedTool(.reformat)
+
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "Deinterleave")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
@@ -662,6 +680,8 @@ final class FASTQOperationRoundTripTests: XCTestCase {
     }
 
     func testPairedEndMergeRoundTrip() async throws {
+        try await requireManagedTool(.bbmerge)
+
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "PEMerge")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
@@ -700,6 +720,8 @@ final class FASTQOperationRoundTripTests: XCTestCase {
     }
 
     func testPairedEndRepairRoundTrip() async throws {
+        try await requireManagedTool(.repair)
+
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "PERepair")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
