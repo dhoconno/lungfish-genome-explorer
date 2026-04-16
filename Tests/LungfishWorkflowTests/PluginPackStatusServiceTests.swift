@@ -90,4 +90,112 @@ final class PluginPackStatusServiceTests: XCTestCase {
         XCTAssertEqual(calls.map(\.environment), ["nextflow", "snakemake", "bbtools"])
         XCTAssertTrue(calls.allSatisfy(\.reinstall))
     }
+
+    func testInstallPackRunsPostInstallHooksAfterPackageInstalls() async throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pack-hooks-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let micromamba = try makeFakeMicromamba(
+            at: sandbox.appendingPathComponent("micromamba"),
+            version: "2.0.5-0"
+        )
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { micromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+
+        let pack = PluginPack.builtIn.first { $0.id == "wastewater-surveillance" }!
+        let hookLog = await manager.rootPrefix.appendingPathComponent("hook-log.txt")
+
+        for hook in pack.postInstallHooks {
+            let envBin = await manager.environmentURL(named: hook.environment).appendingPathComponent("bin")
+            try FileManager.default.createDirectory(at: envBin, withIntermediateDirectories: true)
+            let script = """
+            #!/bin/sh
+            printf '%s %s\n' "$0" "$*" >> "$MAMBA_ROOT_PREFIX/hook-log.txt"
+            exit 0
+            """
+            let executable = envBin.appendingPathComponent(hook.command[0])
+            try script.write(to: executable, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        }
+
+        let service = PluginPackStatusService(
+            condaManager: manager,
+            installAction: { _, _, _, _ in }
+        )
+
+        try await service.install(pack: pack, reinstall: false, progress: nil)
+
+        let log = try String(contentsOf: hookLog, encoding: .utf8)
+        XCTAssertTrue(log.contains("freyja update"))
+        XCTAssertTrue(log.contains("pangolin --update-data"))
+        XCTAssertLessThan(
+            log.range(of: "freyja update")!.lowerBound,
+            log.range(of: "pangolin --update-data")!.lowerBound
+        )
+    }
+
+    @discardableResult
+    private func makeFakeMicromamba(at url: URL, version: String) throws -> URL {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let script = """
+        #!/bin/sh
+        case "$1" in
+            --version)
+                echo "\(version)"
+                exit 0
+                ;;
+            create|install)
+                env_name=""
+                while [ "$#" -gt 0 ]; do
+                    case "$1" in
+                        -n)
+                            shift
+                            env_name="$1"
+                            ;;
+                    esac
+                    shift
+                done
+                if [ -z "$MAMBA_ROOT_PREFIX" ] || [ -z "$env_name" ]; then
+                    echo "missing root prefix or env name" >&2
+                    exit 1
+                fi
+                mkdir -p "$MAMBA_ROOT_PREFIX/envs/$env_name/bin"
+                mkdir -p "$MAMBA_ROOT_PREFIX/envs/$env_name/conda-meta"
+                exit 0
+                ;;
+            run)
+                env_name=""
+                while [ "$#" -gt 0 ]; do
+                    case "$1" in
+                        -n)
+                            shift
+                            env_name="$1"
+                            shift
+                            break
+                            ;;
+                    esac
+                    shift
+                done
+                tool="$1"
+                shift
+                exec "$MAMBA_ROOT_PREFIX/envs/$env_name/bin/$tool" "$@"
+                ;;
+            remove)
+                exit 0
+                ;;
+            *)
+                echo "unexpected args: $@" >&2
+                exit 1
+                ;;
+        esac
+        """
+        try script.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        return url
+    }
 }

@@ -109,6 +109,21 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                 progress?(scaled, message)
             }
         }
+        try await runPostInstallHooks(for: pack)
         progress?(1.0, "\(pack.name) ready")
+    }
+
+    private func runPostInstallHooks(for pack: PluginPack) async throws {
+        guard !pack.postInstallHooks.isEmpty else { return }
+
+        for hook in pack.postInstallHooks {
+            guard let tool = hook.command.first else { continue }
+            let arguments = Array(hook.command.dropFirst())
+            _ = try await condaManager.runTool(
+                name: tool,
+                arguments: arguments,
+                environment: hook.environment
+            )
+        }
     }
 }
