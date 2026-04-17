@@ -368,13 +368,20 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                     environment: requirement.environment,
                     timeout: smokeTest.timeoutSeconds
                 )
-                guard result.exitCode == 0 else {
+                guard smokeTest.acceptedExitCodes.contains(result.exitCode) else {
                     logger.warning(
                         "Smoke test for '\(requirement.displayName, privacy: .public)' exited \(result.exitCode) with stderr: \(result.stderr, privacy: .public)"
                     )
                     return result.stderr.isEmpty
                         ? "\(requirement.displayName) exited with code \(result.exitCode)"
                         : result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+
+                if let requiredOutputSubstring = smokeTest.requiredOutputSubstring {
+                    let combinedOutput = "\(result.stdout)\n\(result.stderr)"
+                    guard combinedOutput.localizedCaseInsensitiveContains(requiredOutputSubstring) else {
+                        return "\(requirement.displayName) did not report expected usage output"
+                    }
                 }
                 return nil
             } catch {

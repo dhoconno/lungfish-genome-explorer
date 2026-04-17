@@ -67,6 +67,8 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
                 return .command(arguments: ["--help"], timeoutSeconds: 5)
             case "fastp", "deacon":
                 return .command(arguments: ["--help"], timeoutSeconds: 5)
+            case "ucsc-bedtobigbed", "ucsc-bedgraphtobigwig":
+                return .usage(executable: executables.first, timeoutSeconds: 5)
             default:
                 return executables.first.map { executable in
                     .command(executable: executable, arguments: ["--help"], timeoutSeconds: 5)

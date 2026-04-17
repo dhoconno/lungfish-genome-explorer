@@ -865,24 +865,31 @@ final class PluginPackStatusServiceTests: XCTestCase {
         forceFailure: Bool = false
     ) throws {
         let script: String
-        if requirement.environment == "bbtools", executable == "reformat.sh" {
-            if forceFailure {
-                script = "#!/bin/sh\nexit 1\n"
-            } else {
-                script = """
-                #!/bin/sh
-                out=""
-                for arg in "$@"; do
-                    case "$arg" in
-                        out=*) out="${arg#out=}" ;;
-                    esac
-                done
-                if [ -n "$out" ]; then
-                    printf '@r1\\nACGT\\n+\\nIIII\\n' > "$out"
-                fi
-                exit 0
-                """
-            }
+        if forceFailure {
+            script = "#!/bin/sh\nexit 1\n"
+        } else if requirement.environment == "bbtools", executable == "reformat.sh" {
+            script = """
+            #!/bin/sh
+            out=""
+            for arg in "$@"; do
+                case "$arg" in
+                    out=*) out="${arg#out=}" ;;
+                esac
+            done
+            if [ -n "$out" ]; then
+                printf '@r1\\nACGT\\n+\\nIIII\\n' > "$out"
+            fi
+            exit 0
+            """
+        } else if let smokeTest = requirement.smokeTest,
+                  smokeTest.executable == executable,
+                  let requiredOutputSubstring = smokeTest.requiredOutputSubstring,
+                  let exitCode = smokeTest.acceptedExitCodes.first {
+            script = """
+            #!/bin/sh
+            printf '%s\\n' '\(requiredOutputSubstring)' >&2
+            exit \(exitCode)
+            """
         } else {
             script = "#!/bin/sh\nexit 0\n"
         }

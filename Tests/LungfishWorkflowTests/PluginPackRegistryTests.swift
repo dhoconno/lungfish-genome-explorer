@@ -83,6 +83,17 @@ final class PluginPackRegistryTests: XCTestCase {
         )
     }
 
+    func testRequiredSetupPackUsesUsageSmokeProbeForUcscTools() {
+        let pack = PluginPack.requiredSetupPack
+
+        for environment in ["ucsc-bedtobigbed", "ucsc-bedgraphtobigwig"] {
+            let smokeTest = pack.toolRequirements.first(where: { $0.environment == environment })?.smokeTest
+            XCTAssertEqual(smokeTest?.arguments, [])
+            XCTAssertEqual(smokeTest?.acceptedExitCodes, [255])
+            XCTAssertEqual(smokeTest?.requiredOutputSubstring, "usage:")
+        }
+    }
+
     func testActiveOptionalPacksOnlyExposeMetagenomics() {
         XCTAssertEqual(PluginPack.activeOptionalPacks.map(\.id), ["metagenomics"])
     }
