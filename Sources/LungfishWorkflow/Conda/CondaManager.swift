@@ -706,6 +706,7 @@ public actor CondaManager {
         timeout: TimeInterval = 3600,
         stderrHandler: (@Sendable (String) -> Void)? = nil
     ) async throws -> (stdout: String, stderr: String, exitCode: Int32) {
+        repairManagedLaunchers(environment: environment)
         try await ensureMicromamba()
 
         let args = ["run", "-n", environment, name] + arguments
@@ -713,6 +714,8 @@ public actor CondaManager {
 
         let executablePath = micromambaPath
         let rootPath = rootPrefix.path
+        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+        let tempDirectory = ProcessInfo.processInfo.environment["TMPDIR"]
 
         return try await withCheckedThrowingContinuation { continuation in
             let process = Process()
@@ -721,7 +724,11 @@ public actor CondaManager {
             var env: [String: String] = [
                 "MAMBA_ROOT_PREFIX": rootPath,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "HOME": homePath,
             ]
+            if let tempDirectory {
+                env["TMPDIR"] = tempDirectory
+            }
             if let extraVars = environmentVariables {
                 env.merge(extraVars) { _, new in new }
             }
@@ -859,7 +866,173 @@ public actor CondaManager {
         """
     }
 
+    // MARK: - Managed Launcher Repairs
+
+    public func repairManagedLaunchers(environment: String) {
+        let envURL = environmentURL(named: environment)
+        guard FileManager.default.fileExists(atPath: envURL.path) else { return }
+
+        switch environment {
+        case "bracken":
+            ensureBrackenLauncher(in: envURL)
+        case "metaphlan":
+            ensureMetaPhlAnLauncher(in: envURL)
+        case "nextflow":
+            patchNextflowLauncher(in: envURL)
+        default:
+            break
+        }
+    }
+
     // MARK: - Private Helpers
+
+    private func ensureBrackenLauncher(in envURL: URL) {
+        let binURL = envURL.appendingPathComponent("bin", isDirectory: true)
+        let launcherURL = binURL.appendingPathComponent("bracken")
+        let scriptURL = binURL.appendingPathComponent("est_abundance.py")
+
+        guard !FileManager.default.isExecutableFile(atPath: launcherURL.path) else { return }
+        guard FileManager.default.fileExists(atPath: scriptURL.path) else { return }
+        guard let pythonExecutable = preferredPythonExecutable(in: binURL) else { return }
+
+        let wrapper = launcherScript(
+            command: "\"$TOOL_BIN/\(pythonExecutable)\" \"$TOOL_BIN/est_abundance.py\" \"$@\""
+        )
+        writeManagedLauncher(
+            wrapper,
+            to: launcherURL,
+            description: "Created Bracken compatibility launcher"
+        )
+    }
+
+    private func ensureMetaPhlAnLauncher(in envURL: URL) {
+        let binURL = envURL.appendingPathComponent("bin", isDirectory: true)
+        let launcherURL = binURL.appendingPathComponent("metaphlan")
+
+        guard let pythonExecutable = preferredPythonExecutable(in: binURL) else { return }
+
+        let currentScript = try? String(contentsOf: launcherURL, encoding: .utf8)
+        let needsRepair = !FileManager.default.isExecutableFile(atPath: launcherURL.path)
+            || currentScript?.contains("Application Support/Lungfish") == true
+
+        guard needsRepair else { return }
+
+        let wrapper = launcherScript(
+            command: "\"$TOOL_BIN/\(pythonExecutable)\" -m metaphlan.metaphlan \"$@\""
+        )
+        writeManagedLauncher(
+            wrapper,
+            to: launcherURL,
+            description: "Repaired MetaPhlAn launcher"
+        )
+    }
+
+    private func patchNextflowLauncher(in envURL: URL) {
+        let launcherURL = envURL
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("nextflow")
+
+        guard FileManager.default.isExecutableFile(atPath: launcherURL.path),
+              let content = try? String(contentsOf: launcherURL, encoding: .utf8),
+              content.contains("NXF_DIST=/")
+        else {
+            return
+        }
+
+        let lines = content.components(separatedBy: "\n")
+        var newLines: [String] = []
+        var patched = false
+
+        for line in lines {
+            if line.hasPrefix("NXF_DIST=/") && !line.hasPrefix("NXF_DIST=\"") {
+                let value = String(line.dropFirst("NXF_DIST=".count))
+                if value.contains(" ") {
+                    newLines.append("NXF_DIST=\"\(value)\"")
+                    patched = true
+                    continue
+                }
+            }
+
+            if line == "NXF_BIN=${NXF_BIN:-$NXF_DIST/$NXF_VER/$NXF_JAR}" {
+                newLines.append("NXF_BIN=${NXF_BIN:-\"$NXF_DIST/$NXF_VER/$NXF_JAR\"}")
+                patched = true
+                continue
+            }
+
+            newLines.append(line)
+        }
+
+        guard patched else { return }
+
+        do {
+            try newLines.joined(separator: "\n").write(
+                to: launcherURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o755],
+                ofItemAtPath: launcherURL.path
+            )
+            logger.info("Patched Nextflow launcher for space-safe NXF_DIST handling")
+        } catch {
+            logger.warning(
+                "Failed to patch Nextflow launcher at \(launcherURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+        }
+    }
+
+    private func preferredPythonExecutable(in binURL: URL) -> String? {
+        let preferred = ["python", "python3"]
+        for candidate in preferred {
+            let path = binURL.appendingPathComponent(candidate).path
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return candidate
+            }
+        }
+
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: binURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return nil
+        }
+
+        return contents
+            .filter { $0.lastPathComponent.hasPrefix("python") }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            .first(where: { FileManager.default.isExecutableFile(atPath: $0.path) })?
+            .lastPathComponent
+    }
+
+    private func launcherScript(command: String) -> String {
+        """
+        #!/bin/sh
+        set -e
+        TOOL_BIN="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+        exec \(command)
+        """
+    }
+
+    private func writeManagedLauncher(
+        _ script: String,
+        to url: URL,
+        description: String
+    ) {
+        do {
+            try script.write(to: url, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o755],
+                ofItemAtPath: url.path
+            )
+            logger.info("\(description, privacy: .public): \(url.path, privacy: .public)")
+        } catch {
+            logger.warning(
+                "Failed to write managed launcher '\(url.lastPathComponent, privacy: .public)': \(error.localizedDescription, privacy: .public)"
+            )
+        }
+    }
 
     /// Runs micromamba with the given arguments and returns stdout.
     ///
@@ -874,6 +1047,8 @@ public actor CondaManager {
 
         let executablePath = micromambaPath
         let rootPath = rootPrefix.path
+        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+        let tempDirectory = ProcessInfo.processInfo.environment["TMPDIR"]
 
         return try await withCheckedThrowingContinuation { continuation in
             let process = Process()
@@ -883,6 +1058,8 @@ public actor CondaManager {
                 "MAMBA_ROOT_PREFIX": rootPath,
                 "MAMBA_NO_BANNER": "1",
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "HOME": homePath,
+                "TMPDIR": tempDirectory ?? "/tmp",
             ]
 
             let stdoutPipe = Pipe()

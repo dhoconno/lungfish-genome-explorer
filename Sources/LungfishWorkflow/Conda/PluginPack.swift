@@ -5,33 +5,105 @@ public enum PluginPackKind: String, Sendable, Codable, Hashable {
     case optionalTools
 }
 
+public struct PackToolSmokeTest: Sendable, Codable, Hashable {
+    public enum Kind: String, Sendable, Codable, Hashable {
+        case command
+        case bbtoolsReformat
+    }
+
+    public let kind: Kind
+    public let executable: String?
+    public let arguments: [String]
+    public let timeoutSeconds: Double
+
+    public init(
+        kind: Kind,
+        executable: String? = nil,
+        arguments: [String] = [],
+        timeoutSeconds: Double = 30
+    ) {
+        self.kind = kind
+        self.executable = executable
+        self.arguments = arguments
+        self.timeoutSeconds = timeoutSeconds
+    }
+
+    public static func command(
+        executable: String? = nil,
+        arguments: [String],
+        timeoutSeconds: Double = 30
+    ) -> PackToolSmokeTest {
+        PackToolSmokeTest(
+            kind: .command,
+            executable: executable,
+            arguments: arguments,
+            timeoutSeconds: timeoutSeconds
+        )
+    }
+
+    public static let bbtoolsReformat = PackToolSmokeTest(
+        kind: .bbtoolsReformat,
+        executable: "reformat.sh",
+        timeoutSeconds: 30
+    )
+}
+
 public struct PackToolRequirement: Sendable, Codable, Hashable, Identifiable {
     public let id: String
     public let displayName: String
     public let environment: String
     public let installPackages: [String]
     public let executables: [String]
+    public let fallbackExecutablePaths: [String: [String]]
+    public let smokeTest: PackToolSmokeTest?
+    public let managedDatabaseID: String?
 
     public init(
         id: String,
         displayName: String,
         environment: String,
         installPackages: [String]? = nil,
-        executables: [String]
+        executables: [String],
+        fallbackExecutablePaths: [String: [String]] = [:],
+        smokeTest: PackToolSmokeTest? = nil,
+        managedDatabaseID: String? = nil
     ) {
         self.id = id
         self.displayName = displayName
         self.environment = environment
         self.installPackages = installPackages ?? [id]
         self.executables = executables
+        self.fallbackExecutablePaths = fallbackExecutablePaths
+        self.smokeTest = smokeTest
+        self.managedDatabaseID = managedDatabaseID
     }
 
-    public static func package(_ name: String) -> PackToolRequirement {
+    public static func package(
+        _ name: String,
+        displayName: String? = nil,
+        executableName: String? = nil,
+        smokeTest: PackToolSmokeTest? = nil
+    ) -> PackToolRequirement {
         PackToolRequirement(
             id: name,
-            displayName: name.capitalized,
+            displayName: displayName ?? name.capitalized,
             environment: name,
-            executables: [name]
+            executables: [executableName ?? name],
+            smokeTest: smokeTest
+        )
+    }
+
+    public static func managedDatabase(
+        _ databaseID: String,
+        displayName: String
+    ) -> PackToolRequirement {
+        PackToolRequirement(
+            id: databaseID,
+            displayName: displayName,
+            environment: databaseID,
+            installPackages: [],
+            executables: [],
+            managedDatabaseID: databaseID
         )
     }
 
@@ -43,7 +115,11 @@ public struct PackToolRequirement: Sendable, Codable, Hashable, Identifiable {
         executables: [
             "clumpify.sh", "bbduk.sh", "bbmerge.sh",
             "repair.sh", "tadpole.sh", "reformat.sh", "java",
-        ]
+        ],
+        fallbackExecutablePaths: [
+            "java": ["lib/jvm/bin/java"],
+        ],
+        smokeTest: .bbtoolsReformat
     )
 }
 
@@ -116,7 +192,7 @@ public struct PluginPack: Sendable, Codable, Identifiable, Hashable {
     }
 
     public var toolRequirements: [PackToolRequirement] {
-        requirements.isEmpty ? packages.map(PackToolRequirement.package) : requirements
+        requirements.isEmpty ? packages.map { PackToolRequirement.package($0) } : requirements
     }
 }
 
@@ -127,12 +203,19 @@ public extension PluginPack {
             name: "Lungfish Tools",
             description: "Needed before you can create or open a project",
             sfSymbol: "checklist",
-            packages: ["nextflow", "snakemake", "bbtools", "fastp"],
+            packages: ["nextflow", "snakemake", "bbtools", "fastp", "deacon"],
             category: "Required Setup",
             kind: .requiredSetup,
             isActive: true,
-            requirements: [.package("nextflow"), .package("snakemake"), .bbtools, .package("fastp")],
-            estimatedSizeMB: 900
+            requirements: [
+                .package("nextflow", displayName: "Nextflow", smokeTest: .command(arguments: ["-version"])),
+                .package("snakemake", displayName: "Snakemake", smokeTest: .command(arguments: ["--version"])),
+                .bbtools,
+                .package("fastp", displayName: "Fastp", smokeTest: .command(arguments: ["--help"])),
+                .package("deacon", displayName: "Deacon", smokeTest: .command(arguments: ["--help"])),
+                .managedDatabase("deacon-panhuman", displayName: "Human Read Removal Data"),
+            ],
+            estimatedSizeMB: 1920
         ),
         PluginPack(
             id: "illumina-qc",
@@ -184,9 +267,15 @@ public extension PluginPack {
             name: "Metagenomics",
             description: "Taxonomic classification, viral detection, and clinical triage of metagenomic samples",
             sfSymbol: "leaf.fill",
-            packages: ["kraken2", "bracken", "metaphlan", "esviritu", "nextflow"],
+            packages: ["kraken2", "bracken", "metaphlan", "esviritu"],
             category: "Metagenomics",
             isActive: true,
+            requirements: [
+                .package("kraken2", displayName: "Kraken 2", smokeTest: .command(arguments: ["--version"])),
+                .package("bracken", displayName: "Bracken", smokeTest: .command(arguments: ["--help"])),
+                .package("metaphlan", displayName: "MetaPhlAn", smokeTest: .command(arguments: ["--version"])),
+                .package("esviritu", displayName: "EsViritu", smokeTest: .command(arguments: ["--help"])),
+            ],
             estimatedSizeMB: 1200
         ),
         PluginPack(

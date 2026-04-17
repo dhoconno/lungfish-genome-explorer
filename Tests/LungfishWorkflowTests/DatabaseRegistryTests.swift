@@ -80,23 +80,37 @@ final class DatabaseRegistryTests: XCTestCase {
         XCTAssertNil(resolved)
     }
 
+    func testEffectiveDatabasePathIgnoresPartialManagedDatabaseArtifacts() async throws {
+        let userRoot = tempDir.appendingPathComponent("user-databases")
+        let dir = userRoot.appendingPathComponent("deacon-panhuman")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        FileManager.default.createFile(
+            atPath: dir.appendingPathComponent("panhuman-1.k31w15.idx.tmp").path,
+            contents: Data(repeating: 0x22, count: 32)
+        )
+
+        let registry = DatabaseRegistry(
+            bundledDatabasesRoot: try makeBundledDatabasesRoot(),
+            userDatabasesRoot: userRoot
+        )
+
+        let resolved = await registry.effectiveDatabasePath(for: "deacon-panhuman")
+
+        XCTAssertNil(resolved)
+    }
+
     private func makeBundledDatabasesRoot() throws -> URL {
         let root = tempDir.appendingPathComponent("bundled-databases")
-        let humanScrubberDir = root.appendingPathComponent("human-scrubber")
-        try FileManager.default.createDirectory(at: humanScrubberDir, withIntermediateDirectories: true)
-
-        try FileManager.default.copyItem(
-            at: Self.humanScrubberManifestURL(),
-            to: humanScrubberDir.appendingPathComponent("manifest.json")
-        )
+        try copyManifest(named: "human-scrubber", into: root)
+        try copyManifest(named: "deacon-panhuman", into: root)
 
         return root
     }
 
-    private static func humanScrubberManifestURL() -> URL {
+    private static func manifestURL(named name: String) -> URL {
         if let bundleURL = Bundle.module.resourceURL?
             .appendingPathComponent("Databases")
-            .appendingPathComponent("human-scrubber")
+            .appendingPathComponent(name)
             .appendingPathComponent("manifest.json"),
            FileManager.default.fileExists(atPath: bundleURL.path)
         {
@@ -106,14 +120,23 @@ final class DatabaseRegistryTests: XCTestCase {
         var candidate = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         for _ in 0..<10 {
             let manifestURL = candidate
-                .appendingPathComponent("Sources/LungfishWorkflow/Resources/Databases/human-scrubber/manifest.json")
+                .appendingPathComponent("Sources/LungfishWorkflow/Resources/Databases/\(name)/manifest.json")
             if FileManager.default.fileExists(atPath: manifestURL.path) {
                 return manifestURL
             }
             candidate = candidate.deletingLastPathComponent()
         }
 
-        fatalError("Cannot locate Sources/LungfishWorkflow/Resources/Databases/human-scrubber/manifest.json")
+        fatalError("Cannot locate Sources/LungfishWorkflow/Resources/Databases/\(name)/manifest.json")
+    }
+
+    private func copyManifest(named name: String, into bundledRoot: URL) throws {
+        let dir = bundledRoot.appendingPathComponent(name)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(
+            at: Self.manifestURL(named: name),
+            to: dir.appendingPathComponent("manifest.json")
+        )
     }
 
     private func makeBundledHumanScrubberPayload(at bundledRoot: URL, filename: String, contents: Data) throws -> URL {

@@ -56,13 +56,33 @@ public actor HumanScrubberDatabaseInstaller {
     }
 }
 
+// MARK: - DeaconPanhumanDatabaseInstaller
+
+/// Focused installer for the managed Deacon panhuman host-depletion index.
+public actor DeaconPanhumanDatabaseInstaller {
+    public static let databaseID = "deacon-panhuman"
+    public static let shared = DeaconPanhumanDatabaseInstaller()
+
+    private let registry: DatabaseRegistry
+
+    public init(registry: DatabaseRegistry = .shared) {
+        self.registry = registry
+    }
+
+    public func install(
+        progress: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws -> URL {
+        try await registry.installManagedDatabase(Self.databaseID, progress: progress)
+    }
+}
+
 // MARK: - BundledDatabase
 
 /// Metadata for a reference database advertised by the app bundle.
 ///
 /// Manifests live in `Resources/Databases/<id>/manifest.json`.
 /// Some databases also ship a bundled payload file in the same directory.
-/// Others, such as `human-scrubber`, use bundled metadata only and expect the
+/// Others, such as `human-scrubber` and `deacon-panhuman`, use bundled metadata only and expect the
 /// payload itself to be managed in user data.
 public struct BundledDatabase: Sendable, Codable {
     /// Machine-readable identifier (e.g. "human-scrubber").
@@ -94,7 +114,7 @@ public struct BundledDatabase: Sendable, Codable {
 /// 2. Bundled payload in the app's `Resources/Databases/<id>/` directory, but only
 ///    for databases that actually ship a bundled payload
 ///
-/// Managed user-data databases such as `human-scrubber` keep their manifest metadata
+/// Managed user-data databases such as `human-scrubber` and `deacon-panhuman` keep their manifest metadata
 /// in the bundle but do not fall back to bundled payload resolution.
 ///
 /// To update a database without a full app update:
@@ -107,11 +127,13 @@ public actor DatabaseRegistry {
 
     public static let shared = DatabaseRegistry()
     private static let databaseIDAliases: [String: String] = [
+        "deacon": "deacon-panhuman",
         "sra-human-scrubber": "human-scrubber",
     ]
 
     private static let managedUserDataIDs: Set<String> = [
-        "human-scrubber"
+        "human-scrubber",
+        "deacon-panhuman",
     ]
 
     /// Loaded manifests indexed by database ID.
@@ -146,6 +168,7 @@ public actor DatabaseRegistry {
     /// All known bundled database IDs.
     public static let knownIDs: [String] = [
         "human-scrubber",
+        "deacon-panhuman",
     ]
 
     /// Returns the canonical ID for a database, mapping legacy aliases when needed.
@@ -173,7 +196,7 @@ public actor DatabaseRegistry {
     ///
     /// Checks for a user-installed copy first.
     /// Falls back to a bundled payload only when that database ships with one.
-    /// Managed user-data databases such as `human-scrubber` return `nil` when no
+    /// Managed user-data databases such as `human-scrubber` and `deacon-panhuman` return `nil` when no
     /// installed copy exists, even though bundled manifest metadata is still available.
     public func effectiveDatabasePath(for id: String) -> URL? {
         let resolvedID = Self.normalizedDatabaseID(id)
@@ -232,15 +255,13 @@ public actor DatabaseRegistry {
     }
 
     /// Downloads and installs a managed database into user storage.
-    ///
-    /// This is intentionally narrow for the human-scrubber database shipped by this branch.
     public func installManagedDatabase(
         _ id: String,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> URL {
         let resolvedID = Self.normalizedDatabaseID(id)
         if let existing = effectiveDatabasePath(for: id) {
-            progress?(1.0, "Using installed database")
+            progress?(1.0, "Using installed \(manifest(for: resolvedID)?.displayName ?? resolvedID)")
             return existing
         }
 
@@ -253,9 +274,36 @@ public actor DatabaseRegistry {
             )
         }
 
-        guard let artifactURLs = managedDatabaseArtifactURLs(for: manifest) else {
+        switch resolvedID {
+        case HumanScrubberDatabaseInstaller.databaseID:
+            return try await installChecksummedManagedDatabase(
+                databaseID: resolvedID,
+                manifest: manifest,
+                progress: progress
+            )
+        case DeaconPanhumanDatabaseInstaller.databaseID:
+            return try await installDeaconManagedDatabase(
+                databaseID: resolvedID,
+                manifest: manifest,
+                progress: progress
+            )
+        default:
             throw HumanScrubberDatabaseError.installationFailed(
                 databaseID: resolvedID,
+                displayName: manifest.displayName,
+                reason: "Unsupported managed database"
+            )
+        }
+    }
+
+    private func installChecksummedManagedDatabase(
+        databaseID: String,
+        manifest: BundledDatabase,
+        progress: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws -> URL {
+        guard let artifactURLs = managedDatabaseArtifactURLs(for: manifest) else {
+            throw HumanScrubberDatabaseError.installationFailed(
+                databaseID: databaseID,
                 displayName: manifest.displayName,
                 reason: "No download URL is available"
             )
@@ -263,9 +311,9 @@ public actor DatabaseRegistry {
         let downloadURL = artifactURLs.databaseURL
         let md5URL = artifactURLs.md5URL
 
-        guard let installDirectory = managedDatabaseDirectory(for: resolvedID) else {
+        guard let installDirectory = managedDatabaseDirectory(for: databaseID) else {
             throw HumanScrubberDatabaseError.installationFailed(
-                databaseID: resolvedID,
+                databaseID: databaseID,
                 displayName: manifest.displayName,
                 reason: "No writable database storage location is configured"
             )
@@ -281,41 +329,39 @@ public actor DatabaseRegistry {
         try? fileManager.removeItem(at: tempDownloadURL)
         try? fileManager.removeItem(at: tempMD5URL)
 
-        progress?(0.05, "Downloading \(manifest.displayName)…")
+        progress?(0.02, "Preparing \(manifest.displayName)…")
 
         do {
-            let (downloadedURL, response) = try await URLSession.shared.download(from: downloadURL)
-            guard let httpResponse = response as? HTTPURLResponse,
-                  (200...299).contains(httpResponse.statusCode) else {
-                throw HumanScrubberDatabaseError.installationFailed(
-                    databaseID: resolvedID,
-                    displayName: manifest.displayName,
-                    reason: "Server returned an unexpected response"
+            let downloadedURL = try await downloadFile(from: downloadURL) { fraction, bytesWritten, totalBytes in
+                let scaled = 0.04 + (fraction * 0.72)
+                progress?(
+                    scaled,
+                    "Downloading \(manifest.displayName)… \(Self.formatByteCount(bytesWritten)) of \(Self.formatByteCount(totalBytes))"
                 )
             }
 
-            let (downloadedMD5URL, md5Response) = try await URLSession.shared.download(from: md5URL)
-            guard let md5HTTPResponse = md5Response as? HTTPURLResponse,
-                  (200...299).contains(md5HTTPResponse.statusCode) else {
-                throw HumanScrubberDatabaseError.installationFailed(
-                    databaseID: resolvedID,
-                    displayName: manifest.displayName,
-                    reason: "MD5 checksum file returned an unexpected response"
-                )
+            progress?(0.78, "Downloading checksum for \(manifest.displayName)…")
+            let downloadedMD5URL = try await downloadFile(from: md5URL) { fraction, _, _ in
+                let scaled = 0.78 + (fraction * 0.04)
+                progress?(scaled, "Downloading checksum for \(manifest.displayName)…")
             }
 
-            progress?(0.85, "Installing \(manifest.displayName)…")
+            progress?(0.84, "Checking \(manifest.displayName)…")
 
             let expectedMD5 = try parseExpectedMD5(from: downloadedMD5URL)
-            let actualMD5 = try md5Hex(of: downloadedURL)
+            let actualMD5 = try md5Hex(of: downloadedURL) { fraction in
+                let scaled = 0.84 + (fraction * 0.12)
+                progress?(scaled, "Checking \(manifest.displayName)…")
+            }
             guard actualMD5.lowercased() == expectedMD5.lowercased() else {
                 throw HumanScrubberDatabaseError.installationFailed(
-                    databaseID: resolvedID,
+                    databaseID: databaseID,
                     displayName: manifest.displayName,
                     reason: "MD5 mismatch: expected \(expectedMD5), got \(actualMD5)"
                 )
             }
 
+            progress?(0.97, "Saving \(manifest.displayName)…")
             if fileManager.fileExists(atPath: destinationURL.path) {
                 try fileManager.removeItem(at: destinationURL)
             }
@@ -325,7 +371,7 @@ public actor DatabaseRegistry {
             try? fileManager.removeItem(at: tempMD5URL)
             UserDefaults.standard.set(
                 manifest.filename,
-                forKey: overrideFilenameKey(for: resolvedID)
+                forKey: overrideFilenameKey(for: databaseID)
             )
             progress?(1.0, "Installed \(manifest.displayName)")
             return destinationURL
@@ -333,7 +379,7 @@ public actor DatabaseRegistry {
             try? fileManager.removeItem(at: tempDownloadURL)
             try? fileManager.removeItem(at: tempMD5URL)
             throw HumanScrubberDatabaseError.installationCancelled(
-                databaseID: resolvedID,
+                databaseID: databaseID,
                 displayName: manifest.displayName
             )
         } catch let error as HumanScrubberDatabaseError {
@@ -344,7 +390,112 @@ public actor DatabaseRegistry {
             try? fileManager.removeItem(at: tempDownloadURL)
             try? fileManager.removeItem(at: tempMD5URL)
             throw HumanScrubberDatabaseError.installationFailed(
-                databaseID: resolvedID,
+                databaseID: databaseID,
+                displayName: manifest.displayName,
+                reason: error.localizedDescription
+            )
+        }
+    }
+
+    private func installDeaconManagedDatabase(
+        databaseID: String,
+        manifest: BundledDatabase,
+        progress: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws -> URL {
+        guard let installDirectory = managedDatabaseDirectory(for: databaseID) else {
+            throw HumanScrubberDatabaseError.installationFailed(
+                databaseID: databaseID,
+                displayName: manifest.displayName,
+                reason: "No writable database storage location is configured"
+            )
+        }
+
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: installDirectory, withIntermediateDirectories: true, attributes: nil)
+
+        let destinationURL = installDirectory.appendingPathComponent(manifest.filename)
+        let tempOutputURL = installDirectory.appendingPathComponent("\(manifest.filename).partial")
+        let tempFetchURL = tempOutputURL.appendingPathExtension("tmp")
+
+        try? fileManager.removeItem(at: tempOutputURL)
+        try? fileManager.removeItem(at: tempFetchURL)
+
+        progress?(0.02, "Preparing \(manifest.displayName)…")
+
+        do {
+            progress?(0.08, "Downloading \(manifest.displayName)…")
+            let fetchResult = try await CondaManager.shared.runTool(
+                name: "deacon",
+                arguments: ["index", "fetch", manifest.version, "-o", tempOutputURL.path],
+                environment: "deacon",
+                timeout: 7200,
+                stderrHandler: { line in
+                    let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return }
+                    if trimmed.hasPrefix("Fetching ") {
+                        progress?(0.14, "Downloading \(manifest.displayName)…")
+                    }
+                }
+            )
+            guard fetchResult.exitCode == 0 else {
+                let message = fetchResult.stderr.isEmpty ? fetchResult.stdout : fetchResult.stderr
+                throw HumanScrubberDatabaseError.installationFailed(
+                    databaseID: databaseID,
+                    displayName: manifest.displayName,
+                    reason: message.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            }
+
+            guard fileManager.fileExists(atPath: tempOutputURL.path) else {
+                throw HumanScrubberDatabaseError.installationFailed(
+                    databaseID: databaseID,
+                    displayName: manifest.displayName,
+                    reason: "Deacon did not create the fetched index"
+                )
+            }
+
+            progress?(0.88, "Checking \(manifest.displayName)…")
+            let infoResult = try await CondaManager.shared.runTool(
+                name: "deacon",
+                arguments: ["index", "info", tempOutputURL.path],
+                environment: "deacon",
+                timeout: 300
+            )
+            guard infoResult.exitCode == 0 else {
+                throw HumanScrubberDatabaseError.installationFailed(
+                    databaseID: databaseID,
+                    displayName: manifest.displayName,
+                    reason: infoResult.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            }
+
+            progress?(0.97, "Saving \(manifest.displayName)…")
+            if fileManager.fileExists(atPath: destinationURL.path) {
+                try fileManager.removeItem(at: destinationURL)
+            }
+            try fileManager.moveItem(at: tempOutputURL, to: destinationURL)
+            UserDefaults.standard.set(
+                manifest.filename,
+                forKey: overrideFilenameKey(for: databaseID)
+            )
+            progress?(1.0, "Installed \(manifest.displayName)")
+            return destinationURL
+        } catch is CancellationError {
+            try? fileManager.removeItem(at: tempOutputURL)
+            try? fileManager.removeItem(at: tempFetchURL)
+            throw HumanScrubberDatabaseError.installationCancelled(
+                databaseID: databaseID,
+                displayName: manifest.displayName
+            )
+        } catch let error as HumanScrubberDatabaseError {
+            try? fileManager.removeItem(at: tempOutputURL)
+            try? fileManager.removeItem(at: tempFetchURL)
+            throw error
+        } catch {
+            try? fileManager.removeItem(at: tempOutputURL)
+            try? fileManager.removeItem(at: tempFetchURL)
+            throw HumanScrubberDatabaseError.installationFailed(
+                databaseID: databaseID,
                 displayName: manifest.displayName,
                 reason: error.localizedDescription
             )
@@ -385,9 +536,18 @@ public actor DatabaseRegistry {
         ) else { return nil }
 
         return contents
-            .filter { !$0.lastPathComponent.hasPrefix(".") }
+            .filter { isUsableInstalledDatabaseCandidate($0) }
             .sorted { $0.lastPathComponent > $1.lastPathComponent }  // newest first by name
             .first
+    }
+
+    private func isUsableInstalledDatabaseCandidate(_ url: URL) -> Bool {
+        let name = url.lastPathComponent
+        guard !name.hasPrefix(".") else { return false }
+        guard !name.hasSuffix(".tmp") else { return false }
+        guard !name.hasSuffix(".download") else { return false }
+        guard !name.hasSuffix(".partial") else { return false }
+        return true
     }
 
     private func managedDatabaseDirectory(for id: String) -> URL? {
@@ -419,22 +579,65 @@ public actor DatabaseRegistry {
         )
     }
 
-    private func md5Hex(of fileURL: URL) throws -> String {
+    private func md5Hex(
+        of fileURL: URL,
+        progress: (@Sendable (Double) -> Void)? = nil
+    ) throws -> String {
         let handle = try FileHandle(forReadingFrom: fileURL)
         defer { try? handle.close() }
 
+        let totalBytes = Int64((try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
         var hasher = Insecure.MD5()
+        var bytesRead: Int64 = 0
         while true {
             let data = try handle.read(upToCount: 1_048_576)
             guard let data, !data.isEmpty else { break }
             hasher.update(data: data)
+            bytesRead += Int64(data.count)
+            if totalBytes > 0 {
+                progress?(min(Double(bytesRead) / Double(totalBytes), 1.0))
+            }
         }
+        progress?(1.0)
 
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
+    private func downloadFile(
+        from url: URL,
+        progress: @Sendable @escaping (Double, Int64, Int64) -> Void
+    ) async throws -> URL {
+        nonisolated(unsafe) var downloadTask: URLSessionDownloadTask?
+
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
+                let delegate = ManagedDatabaseDownloadDelegate(
+                    suggestedExtension: url.pathExtension,
+                    progress: progress,
+                    completion: { result in
+                        continuation.resume(with: result)
+                    }
+                )
+                let session = URLSession(
+                    configuration: .default,
+                    delegate: delegate,
+                    delegateQueue: nil
+                )
+                let task = session.downloadTask(with: url)
+                downloadTask = task
+                task.resume()
+            }
+        } onCancel: {
+            downloadTask?.cancel()
+        }
+    }
+
     private func overrideFilenameKey(for id: String) -> String {
         "database.\(id).overrideFilename"
+    }
+
+    private static func formatByteCount(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: max(bytes, 0), countStyle: .file)
     }
 
     private static func normalizedDatabaseID(_ id: String) -> String {
@@ -455,5 +658,80 @@ public actor DatabaseRegistry {
 
         dbLogger.error("DatabaseRegistry: Could not find bundled Databases directory")
         return nil
+    }
+}
+
+private final class ManagedDatabaseDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    private let suggestedExtension: String
+    private let progressCallback: @Sendable (Double, Int64, Int64) -> Void
+    private let completionCallback: @Sendable (Result<URL, Error>) -> Void
+    private let hasFired = LockedFlag()
+
+    init(
+        suggestedExtension: String,
+        progress: @Sendable @escaping (Double, Int64, Int64) -> Void,
+        completion: @Sendable @escaping (Result<URL, Error>) -> Void
+    ) {
+        self.suggestedExtension = suggestedExtension
+        self.progressCallback = progress
+        self.completionCallback = completion
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        let total = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : max(totalBytesWritten, 1)
+        let fraction = Double(totalBytesWritten) / Double(total)
+        progressCallback(min(fraction, 1.0), totalBytesWritten, total)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didFinishDownloadingTo location: URL
+    ) {
+        guard hasFired.testAndSet() else { return }
+
+        let stableURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension(suggestedExtension)
+
+        do {
+            try FileManager.default.copyItem(at: location, to: stableURL)
+            completionCallback(.success(stableURL))
+        } catch {
+            completionCallback(.failure(error))
+        }
+
+        session.invalidateAndCancel()
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didCompleteWithError error: Error?
+    ) {
+        if let error {
+            guard hasFired.testAndSet() else { return }
+            completionCallback(.failure(error))
+            session.invalidateAndCancel()
+        }
+    }
+}
+
+private final class LockedFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    func testAndSet() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !value else { return false }
+        value = true
+        return true
     }
 }

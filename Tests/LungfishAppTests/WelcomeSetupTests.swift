@@ -20,14 +20,81 @@ private actor StubWelcomePackStatusProvider: PluginPackStatusProviding {
     func install(
         pack: PluginPack,
         reinstall: Bool,
-        progress: (@Sendable (Double, String) -> Void)?
+        progress: (@Sendable (PluginPackInstallProgress) -> Void)?
     ) async throws {
-        progress?(1.0, "Installed")
+        progress?(PluginPackInstallProgress(
+            requirementID: nil,
+            requirementDisplayName: nil,
+            overallFraction: 1.0,
+            itemFraction: 1.0,
+            message: "Installed"
+        ))
     }
 }
 
 @MainActor
 final class WelcomeSetupTests: XCTestCase {
+
+    func testWelcomeWindowUsesStandardTitlebarChrome() {
+        let controller = WelcomeWindowController()
+        guard let window = controller.window else {
+            XCTFail("Expected welcome window")
+            return
+        }
+
+        XCTAssertFalse(window.titlebarAppearsTransparent)
+        XCTAssertFalse(window.isMovableByWindowBackground)
+        XCTAssertGreaterThanOrEqual(window.contentMinSize.width, 980)
+        XCTAssertGreaterThanOrEqual(window.contentMinSize.height, 640)
+        XCTAssertLessThanOrEqual(window.contentMinSize.height, 700)
+    }
+
+    func testWelcomeViewSourceOmitsBrandingHeaderStack() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertFalse(source.contains("Image(nsImage: Self.loadLogo())"))
+        XCTAssertFalse(source.contains("Text(\"Lungfish Genome Explorer\")"))
+        XCTAssertFalse(source.contains("Text(\"Seeing the invisible. Informing action.\")"))
+    }
+
+    func testWelcomeViewSourceIncludesSidebarNavigationSections() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("Get Started"))
+        XCTAssertTrue(source.contains("Recent Projects"))
+        XCTAssertTrue(source.contains("Required Setup"))
+        XCTAssertTrue(source.contains("Optional Tools"))
+    }
+
+    func testWelcomeViewSourceUsesCoreToolsStatusCopy() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertFalse(source.contains("Lungfish Tools Ready"))
+        XCTAssertTrue(source.contains("Core Tools Installed"))
+    }
+
+    func testWelcomeViewSourceUsesLungfishOrangeSidebarTintAndNoVerticalFixedSize() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("Color.lungfishOrangeFallback"))
+        XCTAssertFalse(source.contains(".fixedSize(horizontal: false, vertical: true)"))
+    }
 
     func testAvailableActionsExcludeOpenFiles() {
         XCTAssertEqual(WelcomeAction.allCases, [.createProject, .openProject])
@@ -70,5 +137,12 @@ final class WelcomeSetupTests: XCTestCase {
         await viewModel.refreshSetup()
 
         XCTAssertTrue(viewModel.canLaunch)
+    }
+
+    private func repositoryRoot() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
     }
 }

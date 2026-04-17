@@ -28,8 +28,8 @@ final class CoreToolLocatorTests: XCTestCase {
             existingPath: "/usr/bin:/bin"
         )
 
-        XCTAssertEqual(env["JAVA_HOME"], "/tmp/lungfish-home/.lungfish/conda/envs/bbtools")
-        XCTAssertEqual(env["BBMAP_JAVA"], "/tmp/lungfish-home/.lungfish/conda/envs/bbtools/bin/java")
+        XCTAssertEqual(env["JAVA_HOME"], "/tmp/lungfish-home/.lungfish/conda/envs/bbtools/lib/jvm")
+        XCTAssertEqual(env["BBMAP_JAVA"], "/tmp/lungfish-home/.lungfish/conda/envs/bbtools/lib/jvm/bin/java")
         XCTAssertEqual(
             env["PATH"],
             "/tmp/lungfish-home/.lungfish/conda/envs/bbtools/bin:/usr/bin:/bin"

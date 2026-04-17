@@ -81,9 +81,9 @@ extension CondaCommand {
                     print("")
 
                     do {
-                        try await packStatusService.install(pack: pack, reinstall: false) { _, message in
+                        try await packStatusService.install(pack: pack, reinstall: false) { event in
                             if !globalOptions.quiet {
-                                print("\r\(formatter.info(message))", terminator: "")
+                                print("\r\(formatter.info(event.message))", terminator: "")
                             }
                         }
                         print("")

@@ -200,8 +200,8 @@ final class RecipeIntegrationTests: XCTestCase {
               await toolAvailable(.deacon) else {
             throw XCTSkip("Required tools not available")
         }
-        guard let _ = await DatabaseRegistry.shared.effectiveDatabasePath(for: "deacon") else {
-            throw XCTSkip("Deacon panhuman-1 index not installed")
+        guard let _ = await DatabaseRegistry.shared.effectiveDatabasePath(for: "deacon-panhuman") else {
+            throw XCTSkip("Deacon human-read removal index not installed")
         }
         guard let fixtures = fixturesDir else { throw XCTSkip("Test fixtures not found") }
 

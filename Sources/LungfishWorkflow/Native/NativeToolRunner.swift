@@ -195,7 +195,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .prefetch:
             return .bundled(relativePath: "sra-tools/prefetch")
         case .deacon:
-            return .managed(environment: "deacon-bench", executableName: "deacon")
+            return .managed(environment: "deacon", executableName: "deacon")
         default:
             return .bundled(relativePath: executableName)
         }
@@ -744,22 +744,6 @@ public actor NativeToolRunner {
     // MARK: - Private Methods
 
     private func discoverToolPath(_ tool: NativeTool) throws -> URL {
-        if tool == .deacon {
-            let condaPath = URL(fileURLWithPath: NSHomeDirectory())
-                .appendingPathComponent("miniforge3/envs/deacon-bench/bin/deacon")
-            if FileManager.default.isExecutableFile(atPath: condaPath.path) {
-                logger.info("Found deacon via conda env at \(condaPath.path, privacy: .public)")
-                return condaPath
-            }
-            let systemPath = URL(fileURLWithPath: "/usr/local/bin/deacon")
-            if FileManager.default.isExecutableFile(atPath: systemPath.path) {
-                logger.info("Found deacon at system path \(systemPath.path, privacy: .public)")
-                return systemPath
-            }
-            logger.error("deacon not found at conda env path or /usr/local/bin")
-            throw NativeToolError.toolNotFound(tool.rawValue)
-        }
-
         switch tool.location {
         case .managed(let environment, let executableName):
             let managedToolPath = CoreToolLocator.executableURL(

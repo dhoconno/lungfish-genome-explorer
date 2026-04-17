@@ -1,0 +1,11 @@
+{
+  "id": "deacon-panhuman",
+  "displayName": "Human Read Removal Data",
+  "tool": "deacon",
+  "version": "panhuman-1",
+  "filename": "panhuman-1.k31w15.idx",
+  "releaseDate": "2025-04-01",
+  "description": "Prebuilt Deacon panhuman minimizer index used for host-read depletion before metagenomic and targeted-viral analysis.",
+  "sourceUrl": "https://github.com/mbhall88/deacon",
+  "releasesUrl": "https://zenodo.org/records/15118215"
+}

@@ -11,7 +11,7 @@
     "steps": [
         { "type": "fastp-dedup", "label": "Remove PCR duplicates" },
         { "type": "fastp-trim", "label": "Adapter + quality trim", "params": { "detectAdapter": true, "quality": 15, "window": 5, "cutMode": "right" } },
-        { "type": "deacon-scrub", "label": "Remove human reads", "params": { "database": "deacon" } },
+        { "type": "deacon-scrub", "label": "Remove human reads", "params": { "database": "deacon-panhuman" } },
         { "type": "fastp-merge", "label": "Merge overlapping pairs", "params": { "minOverlap": 15 } },
         { "type": "seqkit-length-filter", "label": "Remove short reads", "params": { "minLength": 50 } }
     ]

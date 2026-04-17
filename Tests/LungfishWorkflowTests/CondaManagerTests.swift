@@ -238,8 +238,18 @@ final class CondaManagerTests: XCTestCase {
         XCTAssertTrue(pack!.packages.contains("kraken2"))
         XCTAssertTrue(pack!.packages.contains("bracken"))
         XCTAssertTrue(pack!.packages.contains("metaphlan"))
+        XCTAssertFalse(pack!.packages.contains("nextflow"))
         // freyja moved to wastewater-surveillance pack
         XCTAssertFalse(pack!.packages.contains("freyja"))
+    }
+
+    func testRequiredSetupPackIncludesDeacon() {
+        let pack = PluginPack.requiredSetupPack
+        XCTAssertTrue(pack.packages.contains("deacon"))
+        XCTAssertEqual(
+            pack.toolRequirements.first(where: { $0.environment == "deacon" })?.executables,
+            ["deacon"]
+        )
     }
 
     func testWastewaterSurveillancePack() {
@@ -588,6 +598,57 @@ final class CondaManagerTests: XCTestCase {
             XCTAssertEqual(String(stdoutLines[i]), "stdout-line-\(i)")
             XCTAssertEqual(String(stderrLines[i]), "stderr-line-\(i)")
         }
+    }
+
+    func testRunToolPreservesHomeDirectoryForManagedLaunchers() async throws {
+        let sandbox = try makeMicromambaSandbox()
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let bundledMicromamba = sandbox.appendingPathComponent("bundled-micromamba")
+        try FileManager.default.createDirectory(
+            at: bundledMicromamba.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let script = """
+        #!/bin/sh
+        case "$1" in
+            --version)
+                echo "2.0.5-0"
+                exit 0
+                ;;
+            run)
+                printf '%s' "${HOME:-}"
+                exit 0
+                ;;
+            *)
+                echo "unexpected args: $@" >&2
+                exit 1
+                ;;
+        esac
+        """
+        try script.write(to: bundledMicromamba, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: bundledMicromamba.path
+        )
+
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { bundledMicromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+        _ = try await manager.ensureMicromamba()
+
+        let result = try await manager.runTool(
+            name: "nextflow",
+            arguments: ["-version"],
+            environment: "nextflow"
+        )
+
+        XCTAssertEqual(
+            result.stdout,
+            FileManager.default.homeDirectoryForCurrentUser.path
+        )
     }
 
     // MARK: - Private Test Helper

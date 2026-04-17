@@ -797,9 +797,16 @@ final class TaxTriagePipelineTests: XCTestCase {
         XCTAssertEqual(args.prefix(4), ["-c", runtimeConfigURL.path, "run", "jhuapl-bio/taxtriage"])
     }
 
-    func testBuildLaunchEnvironmentIncludesMambaRootPrefix() async {
+    func testUsesNextflowCondaOnlyWhenCondaProfileIsSelected() {
+        XCTAssertFalse(TaxTriagePipeline.usesNextflowConda(profile: "docker"))
+        XCTAssertFalse(TaxTriagePipeline.usesNextflowConda(profile: "podman"))
+        XCTAssertTrue(TaxTriagePipeline.usesNextflowConda(profile: "conda"))
+        XCTAssertTrue(TaxTriagePipeline.usesNextflowConda(profile: "test,conda"))
+    }
+
+    func testBuildLaunchEnvironmentIncludesMambaRootPrefixForCondaProfile() async {
         let pipeline = TaxTriagePipeline()
-        let environment = await pipeline.buildLaunchEnvironment()
+        let environment = await pipeline.buildLaunchEnvironment(useNextflowConda: true)
         let condaRoot = await CondaManager.shared.rootPrefix
 
         XCTAssertEqual(environment["MAMBA_ROOT_PREFIX"], condaRoot.path)
@@ -814,6 +821,93 @@ final class TaxTriagePipelineTests: XCTestCase {
             environment["PATH"]?.contains("/opt/homebrew/bin") == true,
             "PATH should retain Docker-friendly system locations"
         )
+    }
+
+    func testBuildLaunchEnvironmentOmitsCondaOverridesForDockerProfile() async {
+        let pipeline = TaxTriagePipeline()
+        let environment = await pipeline.buildLaunchEnvironment(useNextflowConda: false)
+        let condaRoot = await CondaManager.shared.rootPrefix
+
+        XCTAssertEqual(environment["MAMBA_ROOT_PREFIX"], condaRoot.path)
+        XCTAssertNil(environment["NXF_CONDA_ENABLED"])
+        XCTAssertNil(environment["NXF_CONDA_CACHEDIR"])
+        XCTAssertEqual(
+            environment["NXF_HOME"],
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".nextflow").path
+        )
+        XCTAssertTrue(
+            environment["PATH"]?.contains("/opt/homebrew/bin") == true,
+            "PATH should retain Docker-friendly system locations"
+        )
+    }
+
+    func testPrepareExecutionConfigRedirectsSpaceSensitivePathsIntoSystemTemp() async throws {
+        let workspace = FileManager.default.temporaryDirectory
+            .appendingPathComponent("taxtriage space redirect \(UUID().uuidString)", isDirectory: true)
+        let projectDir = workspace.appendingPathComponent("Lungfish Docs.lungfish", isDirectory: true)
+        let importsDir = projectDir.appendingPathComponent("Imports", isDirectory: true)
+        let readsURL = importsDir.appendingPathComponent("sample reads.fastq.gz")
+        let outputDir = projectDir.appendingPathComponent("Analyses", isDirectory: true)
+            .appendingPathComponent("taxtriage-batch-\(UUID().uuidString)", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: importsDir, withIntermediateDirectories: true)
+        try Data("ACGT".utf8).write(to: readsURL)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let sample = TaxTriageSample(
+            sampleId: "SRR14420360",
+            fastq1: readsURL,
+            platform: .illumina
+        )
+        let config = TaxTriageConfig(
+            samples: [sample],
+            outputDirectory: outputDir
+        )
+
+        let pipeline = TaxTriagePipeline()
+        let execution = try await pipeline.prepareExecutionConfig(for: config)
+
+        XCTAssertNotNil(execution.redirectDirectory)
+        XCTAssertFalse(execution.effectiveConfig.outputDirectory.path.contains(" "))
+        XCTAssertFalse(execution.effectiveConfig.samplesheetURL.path.contains(" "))
+        XCTAssertFalse(execution.effectiveConfig.samples[0].fastq1.path.contains(" "))
+        XCTAssertFalse(
+            execution.redirectDirectory?.path.contains(" ") ?? true,
+            "Redirect directory itself must be space-free for TaxTriage schema validation"
+        )
+    }
+
+    func testCheckPrerequisitesUsesManagedNextflowOutsidePATH() async throws {
+        let tempHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("taxtriage-managed-nextflow-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempHome) }
+
+        let binDir = tempHome
+            .appendingPathComponent(".lungfish", isDirectory: true)
+            .appendingPathComponent("conda", isDirectory: true)
+            .appendingPathComponent("envs", isDirectory: true)
+            .appendingPathComponent("nextflow", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+
+        let nextflowURL = binDir.appendingPathComponent("nextflow")
+        let script = """
+        #!/bin/bash
+        echo "nextflow version 24.10.0"
+        """
+        try script.write(to: nextflowURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: nextflowURL.path
+        )
+
+        let pipeline = TaxTriagePipeline(
+            homeDirectoryProvider: { tempHome }
+        )
+        let status = await pipeline.checkPrerequisites()
+
+        XCTAssertTrue(status.nextflowInstalled)
+        XCTAssertEqual(status.nextflowVersion, "24.10.0")
     }
 
     // MARK: - Multi-Sample Batch Tests (Phase 1)

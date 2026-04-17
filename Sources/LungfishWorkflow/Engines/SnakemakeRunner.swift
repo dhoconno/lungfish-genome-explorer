@@ -52,6 +52,7 @@ public actor SnakemakeRunner: WorkflowRunner {
 
     /// Base workflow runner for common functionality.
     private let baseRunner: BaseWorkflowRunner
+    private let homeDirectoryProvider: @Sendable () -> URL
 
     /// Path to the Snakemake executable.
     private var executablePath: URL?
@@ -67,11 +68,17 @@ public actor SnakemakeRunner: WorkflowRunner {
     /// Creates a new Snakemake runner.
     ///
     /// - Parameter processManager: Optional process manager (defaults to shared)
-    public init(processManager: ProcessManager = .shared) {
+    public init(
+        processManager: ProcessManager = .shared,
+        homeDirectoryProvider: @escaping @Sendable () -> URL = {
+            FileManager.default.homeDirectoryForCurrentUser
+        }
+    ) {
         self.baseRunner = BaseWorkflowRunner(
             category: "SnakemakeRunner",
             processManager: processManager
         )
+        self.homeDirectoryProvider = homeDirectoryProvider
     }
 
     // MARK: - WorkflowRunner Protocol
@@ -574,11 +581,11 @@ public actor SnakemakeRunner: WorkflowRunner {
     }
 
     private func resolveExecutablePath() -> URL? {
-        preferredExecutablePath() ?? baseRunner.findEngine(.snakemake)
+        preferredExecutablePath()
     }
 
     private func preferredExecutablePath() -> URL? {
-        let home = FileManager.default.homeDirectoryForCurrentUser
+        let home = homeDirectoryProvider()
         let url = CoreToolLocator.executableURL(
             environment: engineType.executableName,
             executableName: engineType.executableName,

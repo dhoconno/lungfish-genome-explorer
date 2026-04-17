@@ -82,6 +82,25 @@ final class HumanScrubberDatabaseTests: XCTestCase {
         }
     }
 
+    func testRequiredDatabasePathMapsDeaconAliasToCanonicalManifest() async throws {
+        let registry = DatabaseRegistry(
+            bundledDatabasesRoot: try bundledDatabasesRoot(),
+            userDatabasesRoot: tempDir.appendingPathComponent("empty-user-databases")
+        )
+
+        do {
+            _ = try await registry.requiredDatabasePath(for: "deacon")
+            XCTFail("Expected install-required error")
+        } catch let error as HumanScrubberDatabaseError {
+            guard case .installRequired(let databaseID, let displayName) = error else {
+                XCTFail("Unexpected error: \(error)")
+                return
+            }
+            XCTAssertEqual(databaseID, "deacon-panhuman")
+            XCTAssertEqual(displayName, "Human Read Removal Data")
+        }
+    }
+
     func testFASTQBatchImporterReportsInstallRequiredWhenHumanScrubberDatabaseMissing() async throws {
         let registry = DatabaseRegistry(
             bundledDatabasesRoot: try bundledDatabasesRoot(),
@@ -137,24 +156,26 @@ final class HumanScrubberDatabaseTests: XCTestCase {
 
     private func bundledDatabasesRoot() throws -> URL {
         let root = tempDir.appendingPathComponent("bundled-databases", isDirectory: true)
-        let databaseDir = root.appendingPathComponent("human-scrubber", isDirectory: true)
-        try FileManager.default.createDirectory(at: databaseDir, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(
-            at: try bundledManifestURL(),
-            to: databaseDir.appendingPathComponent("manifest.json")
-        )
+        for databaseID in ["human-scrubber", "deacon-panhuman"] {
+            let databaseDir = root.appendingPathComponent(databaseID, isDirectory: true)
+            try FileManager.default.createDirectory(at: databaseDir, withIntermediateDirectories: true)
+            try FileManager.default.copyItem(
+                at: try bundledManifestURL(for: databaseID),
+                to: databaseDir.appendingPathComponent("manifest.json")
+            )
+        }
         return root
     }
 
-    private func bundledManifestURL() throws -> URL {
+    private func bundledManifestURL(for databaseID: String) throws -> URL {
         let candidate = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishWorkflow/Resources/Databases/human-scrubber/manifest.json")
+            .appendingPathComponent("Sources/LungfishWorkflow/Resources/Databases/\(databaseID)/manifest.json")
         if FileManager.default.fileExists(atPath: candidate.path) {
             return candidate
         }
-        throw XCTSkip("Bundled human-scrubber manifest not found at \(candidate.path)")
+        throw XCTSkip("Bundled manifest not found at \(candidate.path)")
     }
 }

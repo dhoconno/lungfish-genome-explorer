@@ -31,7 +31,7 @@ public struct DeaconScrubStep: RecipeStepExecutor {
     // MARK: - Init
 
     public init(params: [String: AnyCodableValue]?) throws {
-        databaseID = params?["database"]?.stringValue ?? "deacon"
+        databaseID = params?["database"]?.stringValue ?? DeaconPanhumanDatabaseInstaller.databaseID
     }
 
     // MARK: - Execute
@@ -42,7 +42,12 @@ public struct DeaconScrubStep: RecipeStepExecutor {
                 expected: .pairedR1R2, got: input.format, step: Self.typeID)
         }
 
-        guard let dbPath = await DatabaseRegistry.shared.effectiveDatabasePath(for: databaseID) else {
+        let dbPath: URL
+        do {
+            dbPath = try await DatabaseRegistry.shared.requiredDatabasePath(for: databaseID)
+        } catch let error as HumanScrubberDatabaseError {
+            throw error
+        } catch {
             throw RecipeEngineError.databaseNotFound(id: databaseID, step: Self.typeID)
         }
 
@@ -62,7 +67,7 @@ public struct DeaconScrubStep: RecipeStepExecutor {
         let result = try await context.runner.run(.deacon, arguments: args)
         if result.exitCode != 0 {
             throw RecipeEngineError.toolFailed(
-                tool: "deacon", step: Self.typeID, stderr: result.stderr ?? "")
+                tool: "deacon", step: Self.typeID, stderr: result.stderr)
         }
 
         return StepOutput(r1: outR1, r2: outR2, format: .pairedR1R2, tool: .deacon, arguments: args)

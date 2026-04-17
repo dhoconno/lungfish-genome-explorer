@@ -482,13 +482,12 @@ private struct PacksTabView: View {
 
                             PackCard(
                                 status: required,
-                                installedNames: viewModel.installedEnvironmentNames,
                                 isInstalling: viewModel.installingPacks.contains(required.pack.id),
                                 progressMessage: viewModel.packProgressMessage[required.pack.id],
                                 onInstallAll: {
                                     viewModel.installPack(
                                         required.pack,
-                                        reinstall: required.state == .ready
+                                        reinstall: required.shouldReinstall
                                     )
                                 },
                                 onRemoveAll: nil
@@ -505,11 +504,13 @@ private struct PacksTabView: View {
                             ForEach(viewModel.optionalPackStatuses) { status in
                                 PackCard(
                                     status: status,
-                                    installedNames: viewModel.installedEnvironmentNames,
                                     isInstalling: viewModel.installingPacks.contains(status.pack.id),
                                     progressMessage: viewModel.packProgressMessage[status.pack.id],
                                     onInstallAll: {
-                                        viewModel.installPack(status.pack)
+                                        viewModel.installPack(
+                                            status.pack,
+                                            reinstall: status.shouldReinstall
+                                        )
                                     },
                                     onRemoveAll: {
                                         viewModel.removePack(status.pack)
@@ -545,7 +546,6 @@ private struct PacksTabView: View {
 private struct PackCard: View {
 
     let status: PluginPackStatus
-    let installedNames: Set<String>
     let isInstalling: Bool
     let progressMessage: String?
     let onInstallAll: () -> Void
@@ -555,14 +555,22 @@ private struct PackCard: View {
         status.pack
     }
 
-    /// How many of this pack's packages are already installed.
+    /// How many of this pack's tools are ready to use.
     private var installedCount: Int {
-        pack.packages.filter { installedNames.contains($0) }.count
+        status.toolStatuses.filter(\.isReady).count
     }
 
     /// Whether this pack is currently ready to use.
     private var isReady: Bool {
         status.state == .ready
+    }
+
+    private var installActionTitle: String {
+        status.shouldReinstall ? "Reinstall" : (pack.isRequiredBeforeLaunch ? "Install" : "Install All")
+    }
+
+    private var installActionSymbol: String {
+        status.shouldReinstall ? "arrow.clockwise" : "arrow.down.circle.fill"
     }
 
     var body: some View {
@@ -615,8 +623,8 @@ private struct PackCard: View {
                         onInstallAll()
                     } label: {
                         Label(
-                            isReady ? "Reinstall" : "Install",
-                            systemImage: isReady ? "arrow.clockwise" : "arrow.down.circle.fill"
+                            installActionTitle,
+                            systemImage: installActionSymbol
                         )
                     }
                     .controlSize(.small)
@@ -632,7 +640,7 @@ private struct PackCard: View {
                     Button {
                         onInstallAll()
                     } label: {
-                        Label("Install All", systemImage: "arrow.down.circle.fill")
+                        Label(installActionTitle, systemImage: installActionSymbol)
                     }
                     .controlSize(.small)
                     .buttonStyle(.borderedProminent)
@@ -646,32 +654,26 @@ private struct PackCard: View {
 
             // Package list
             VStack(alignment: .leading, spacing: 4) {
-                ForEach(pack.packages, id: \.self) { packageName in
+                ForEach(status.toolStatuses) { toolStatus in
                     HStack(spacing: 8) {
-                        if installedNames.contains(packageName) {
+                        if toolStatus.isReady {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundStyle(.green)
                                 .font(.caption)
                         } else {
-                            Image(systemName: "circle")
-                                .foregroundStyle(.tertiary)
+                            Image(systemName: "exclamationmark.circle.fill")
+                                .foregroundStyle(.red)
                                 .font(.caption)
                         }
 
-                        Text(packageName)
-                            .font(.system(.caption, design: .monospaced))
+                        Text(toolStatus.requirement.displayName)
+                            .font(.caption)
 
                         Spacer()
 
-                        if installedNames.contains(packageName) {
-                            Text("Installed")
-                                .font(.caption2)
-                                .foregroundStyle(.green)
-                        } else {
-                            Text("Not installed")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
+                        Text(toolStatus.statusText)
+                            .font(.caption2)
+                            .foregroundStyle(toolStatus.isReady ? .green : .secondary)
                     }
                 }
             }
@@ -681,7 +683,7 @@ private struct PackCard: View {
 
             // Status bar with install count, estimated size, and hook info
             HStack(spacing: 12) {
-                Text("\(installedCount) of \(pack.packages.count) installed")
+                Text("\(installedCount) of \(status.toolStatuses.count) ready")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 

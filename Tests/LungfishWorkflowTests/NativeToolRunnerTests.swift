@@ -43,6 +43,16 @@ final class NativeToolRunnerTests: XCTestCase {
         XCTAssertFalse(missing.contains(.fastp))
     }
 
+    func testDeaconResolvesFromManagedLungfishEnvironment() {
+        switch NativeTool.deacon.location {
+        case .managed(let environment, let executableName):
+            XCTAssertEqual(environment, "deacon")
+            XCTAssertEqual(executableName, "deacon")
+        default:
+            XCTFail("Deacon should resolve from a managed tool environment")
+        }
+    }
+
     func testFindToolReturnsExecutableURLForBundledTools() async throws {
         let runner = NativeToolRunner()
 

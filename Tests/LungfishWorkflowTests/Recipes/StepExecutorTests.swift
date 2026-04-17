@@ -89,7 +89,7 @@ final class StepExecutorTests: XCTestCase {
 
     func testDeaconScrubDefaultDatabase() throws {
         let step = try DeaconScrubStep(params: nil)
-        XCTAssertEqual(step.databaseID, "deacon")
+        XCTAssertEqual(step.databaseID, DeaconPanhumanDatabaseInstaller.databaseID)
     }
 
     // MARK: - FastpMergeStep

@@ -364,10 +364,10 @@ final class PluginManagerViewModel {
             }
 
             do {
-                try await packStatusProvider.install(pack: pack, reinstall: reinstall) { [weak self] _, message in
+                try await packStatusProvider.install(pack: pack, reinstall: reinstall) { [weak self] event in
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            self?.packProgressMessage[pack.id] = message
+                            self?.packProgressMessage[pack.id] = event.message
                         }
                     }
                 }

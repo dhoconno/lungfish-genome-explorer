@@ -24,7 +24,10 @@ final class PluginPackStatusServiceTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nextflowBin.path)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: snakemakeBin.path)
 
-        let service = PluginPackStatusService(condaManager: manager)
+        let service = PluginPackStatusService(
+            condaManager: manager,
+            databaseInstalledCheck: { _ in true }
+        )
         let status = await service.status(for: .requiredSetupPack)
 
         XCTAssertEqual(status.pack.id, "lungfish-tools")
@@ -55,16 +58,231 @@ final class PluginPackStatusServiceTests: XCTestCase {
             try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
             for executable in requirement.executables {
                 let path = binDir.appendingPathComponent(executable)
-                FileManager.default.createFile(atPath: path.path, contents: Data("#!/bin/sh\n".utf8))
-                try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path.path)
+                try writeSmokeReadyExecutable(
+                    for: requirement,
+                    executable: executable,
+                    at: path
+                )
             }
         }
+
+        let service = PluginPackStatusService(
+            condaManager: manager,
+            databaseInstalledCheck: { _ in true }
+        )
+        let status = await service.status(for: .requiredSetupPack)
+
+        XCTAssertEqual(status.state, .ready)
+        XCTAssertTrue(status.toolStatuses.allSatisfy(\.isReady))
+    }
+
+    func testRequiredPackAcceptsBBToolsJavaUnderLibJvmBin() async throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pack-status-bbtools-java-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let micromamba = try makeFakeMicromamba(
+            at: sandbox.appendingPathComponent("micromamba"),
+            version: "2.0.5-0"
+        )
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { micromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+        _ = try await manager.ensureMicromamba()
+
+        for requirement in PluginPack.requiredSetupPack.toolRequirements {
+            let binDir = await manager.environmentURL(named: requirement.environment).appendingPathComponent("bin")
+            try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+            for executable in requirement.executables where executable != "java" {
+                let path = binDir.appendingPathComponent(executable)
+                try writeSmokeReadyExecutable(
+                    for: requirement,
+                    executable: executable,
+                    at: path
+                )
+            }
+        }
+
+        let javaPath = await manager.environmentURL(named: "bbtools")
+            .appendingPathComponent("lib/jvm/bin/java")
+        try FileManager.default.createDirectory(
+            at: javaPath.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        FileManager.default.createFile(atPath: javaPath.path, contents: Data("#!/bin/sh\n".utf8))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: javaPath.path)
 
         let service = PluginPackStatusService(condaManager: manager)
         let status = await service.status(for: .requiredSetupPack)
 
         XCTAssertEqual(status.state, .ready)
         XCTAssertTrue(status.toolStatuses.allSatisfy(\.isReady))
+    }
+
+    func testRequiredPackNeedsInstallWhenBBToolsSmokeCheckFails() async throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pack-status-bbtools-smoke-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let micromamba = try makeFakeMicromamba(
+            at: sandbox.appendingPathComponent("micromamba"),
+            version: "2.0.5-0"
+        )
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { micromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+        _ = try await manager.ensureMicromamba()
+
+        for requirement in PluginPack.requiredSetupPack.toolRequirements {
+            let binDir = await manager.environmentURL(named: requirement.environment).appendingPathComponent("bin")
+            try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+            for executable in requirement.executables {
+                let path = binDir.appendingPathComponent(executable)
+                try writeSmokeReadyExecutable(
+                    for: requirement,
+                    executable: executable,
+                    at: path,
+                    forceFailure: requirement.environment == "bbtools" && executable == "reformat.sh"
+                )
+            }
+        }
+
+        let service = PluginPackStatusService(condaManager: manager)
+        let status = await service.status(for: .requiredSetupPack)
+
+        XCTAssertEqual(status.state, .needsInstall)
+        XCTAssertEqual(status.toolStatuses.first(where: { $0.requirement.environment == "bbtools" })?.isReady, false)
+    }
+
+    func testMetagenomicsPackAcceptsEsVirituExecutableName() async throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pack-status-metagenomics-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "metagenomics" }))
+        let micromamba = try makeFakeMicromamba(
+            at: sandbox.appendingPathComponent("micromamba"),
+            version: "2.0.5-0"
+        )
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { micromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+        _ = try await manager.ensureMicromamba()
+
+        let executableNames: [String: String] = [
+            "kraken2": "kraken2",
+            "bracken": "bracken",
+            "metaphlan": "metaphlan",
+            "esviritu": "EsViritu",
+        ]
+
+        for requirement in pack.toolRequirements {
+            let executable = try XCTUnwrap(executableNames[requirement.environment])
+            let executableURL = await manager.environmentURL(named: requirement.environment)
+                .appendingPathComponent("bin/\(executable)")
+            try FileManager.default.createDirectory(
+                at: executableURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let script = "#!/bin/sh\nexit 0\n"
+            try script.write(to: executableURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executableURL.path)
+        }
+
+        let service = PluginPackStatusService(condaManager: manager)
+        let status = await service.status(for: pack)
+
+        XCTAssertEqual(status.state, .ready)
+        XCTAssertTrue(status.toolStatuses.allSatisfy(\.isReady))
+    }
+
+    func testMetagenomicsPackRepairsManagedLaunchersBeforeSmokeChecks() async throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pack-status-metagenomics-repair-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "metagenomics" }))
+        let micromamba = try makeFakeMicromamba(
+            at: sandbox.appendingPathComponent("micromamba"),
+            version: "2.0.5-0"
+        )
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { micromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+        _ = try await manager.ensureMicromamba()
+
+        let kraken2 = await manager.environmentURL(named: "kraken2").appendingPathComponent("bin/kraken2")
+        try FileManager.default.createDirectory(at: kraken2.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\nexit 0\n".write(to: kraken2, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: kraken2.path)
+
+        let brackenBin = await manager.environmentURL(named: "bracken").appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: brackenBin, withIntermediateDirectories: true)
+        try "#!/bin/sh\nexit 0\n".write(
+            to: brackenBin.appendingPathComponent("python"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: brackenBin.appendingPathComponent("python").path
+        )
+        try "#!/usr/bin/env python\nprint('ok')\n".write(
+            to: brackenBin.appendingPathComponent("est_abundance.py"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let metaphlanBin = await manager.environmentURL(named: "metaphlan").appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: metaphlanBin, withIntermediateDirectories: true)
+        try "#!/bin/sh\nexit 0\n".write(
+            to: metaphlanBin.appendingPathComponent("python"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: metaphlanBin.appendingPathComponent("python").path
+        )
+        try "#!/bin/sh\n'''exec' \"/Users/dho/Library/Application Support/Lungfish/conda/envs/metaphlan/bin/python3.13\" \"$0\" \"$@\" #'''\n".write(
+            to: metaphlanBin.appendingPathComponent("metaphlan"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: metaphlanBin.appendingPathComponent("metaphlan").path
+        )
+
+        let esviritu = await manager.environmentURL(named: "esviritu").appendingPathComponent("bin/EsViritu")
+        try FileManager.default.createDirectory(at: esviritu.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\nexit 0\n".write(to: esviritu, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: esviritu.path)
+
+        let service = PluginPackStatusService(condaManager: manager)
+        let status = await service.status(for: pack)
+
+        XCTAssertEqual(status.state, .ready)
+        XCTAssertTrue(status.toolStatuses.allSatisfy(\.isReady))
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: brackenBin.appendingPathComponent("bracken").path))
+
+        let repairedMetaphlan = try String(
+            contentsOf: metaphlanBin.appendingPathComponent("metaphlan"),
+            encoding: .utf8
+        )
+        XCTAssertFalse(repairedMetaphlan.contains("Application Support/Lungfish"))
     }
 
     func testRequiredPackNeedsInstallWhenMicromambaBootstrapIsMissingOrNotExecutable() async throws {
@@ -105,7 +323,10 @@ final class PluginPackStatusServiceTests: XCTestCase {
                 XCTFail("Unexpected bootstrap mode: \(bootstrapMode)")
             }
 
-            let service = PluginPackStatusService(condaManager: manager)
+            let service = PluginPackStatusService(
+                condaManager: manager,
+                databaseInstalledCheck: { _ in true }
+            )
             let status = await service.status(for: .requiredSetupPack)
 
             XCTAssertEqual(status.state, .needsInstall, "Bootstrap mode \(bootstrapMode) should require install")
@@ -139,7 +360,7 @@ final class PluginPackStatusServiceTests: XCTestCase {
         try await service.install(pack: .requiredSetupPack, reinstall: true, progress: nil)
 
         let calls = await recorder.recordedCalls()
-        XCTAssertEqual(calls.map(\.environment), ["nextflow", "snakemake", "bbtools", "fastp"])
+        XCTAssertEqual(calls.map(\.environment), ["nextflow", "snakemake", "bbtools", "fastp", "deacon"])
         XCTAssertTrue(calls.allSatisfy(\.reinstall))
     }
 
@@ -172,6 +393,71 @@ final class PluginPackStatusServiceTests: XCTestCase {
         let bbtoolsCall = try XCTUnwrap(calls.first(where: { $0.environment == "bbtools" }))
         XCTAssertEqual(bbtoolsCall.packages, ["bbmap"])
         XCTAssertFalse(bbtoolsCall.reinstall)
+    }
+
+    func testRequiredPackInstallsHumanScrubberDatabase() async throws {
+        actor DatabaseRecorder {
+            var calls: [String] = []
+            var fractions: [Double] = []
+            func record(_ databaseID: String) {
+                calls.append(databaseID)
+            }
+            func recordProgress(_ fraction: Double) {
+                fractions.append(fraction)
+            }
+            func recordedCalls() -> [String] { calls }
+            func recordedFractions() -> [Double] { fractions }
+        }
+
+        let recorder = DatabaseRecorder()
+        final class EventRecorder: @unchecked Sendable {
+            private let lock = NSLock()
+            private var events: [PluginPackInstallProgress] = []
+
+            func record(_ event: PluginPackInstallProgress) {
+                lock.lock()
+                events.append(event)
+                lock.unlock()
+            }
+
+            func recordedEvents() -> [PluginPackInstallProgress] {
+                lock.lock()
+                defer { lock.unlock() }
+                return events
+            }
+        }
+        let eventRecorder = EventRecorder()
+        let manager = CondaManager(
+            rootPrefix: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),
+            bundledMicromambaProvider: { nil },
+            bundledMicromambaVersionProvider: { nil }
+        )
+
+        let service = PluginPackStatusService(
+            condaManager: manager,
+            installAction: { _, _, _, _ in },
+            databaseInstallAction: { databaseID, progress in
+                await recorder.record(databaseID)
+                progress?(0.55, "Downloading Human Read Removal Data…")
+                await recorder.recordProgress(0.55)
+                return URL(fileURLWithPath: "/tmp/\(databaseID)")
+            }
+        )
+
+        try await service.install(pack: .requiredSetupPack, reinstall: false) { event in
+            eventRecorder.record(event)
+        }
+
+        let calls = await recorder.recordedCalls()
+        XCTAssertEqual(calls, ["deacon-panhuman"])
+        let fractions = await recorder.recordedFractions()
+        XCTAssertEqual(fractions, [0.55])
+        let events = eventRecorder.recordedEvents()
+        XCTAssertTrue(events.contains {
+            $0.requirementID == "deacon-panhuman"
+                && $0.requirementDisplayName == "Human Read Removal Data"
+                && abs($0.itemFraction - 0.55) < 0.0001
+        })
     }
 
     func testInstallPackRunsPostInstallHooksAfterPackageInstalls() async throws {
@@ -355,5 +641,38 @@ final class PluginPackStatusServiceTests: XCTestCase {
         try script.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
         return url
+    }
+
+    private func writeSmokeReadyExecutable(
+        for requirement: PackToolRequirement,
+        executable: String,
+        at url: URL,
+        forceFailure: Bool = false
+    ) throws {
+        let script: String
+        if requirement.environment == "bbtools", executable == "reformat.sh" {
+            if forceFailure {
+                script = "#!/bin/sh\nexit 1\n"
+            } else {
+                script = """
+                #!/bin/sh
+                out=""
+                for arg in "$@"; do
+                    case "$arg" in
+                        out=*) out="${arg#out=}" ;;
+                    esac
+                done
+                if [ -n "$out" ]; then
+                    printf '@r1\\nACGT\\n+\\nIIII\\n' > "$out"
+                fi
+                exit 0
+                """
+            }
+        } else {
+            script = "#!/bin/sh\nexit 0\n"
+        }
+
+        try script.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
     }
 }

@@ -250,12 +250,35 @@ final class ImportFastqCommandTests: XCTestCase {
         XCTAssertEqual(ids, ["human-scrubber"])
     }
 
+    func testRequiredManagedDatabaseIDsCanonicalizeDeaconRecipeDatabase() throws {
+        let recipe = Recipe(
+            formatVersion: 1,
+            id: "test-deacon",
+            name: "Deacon scrub",
+            platforms: [.illumina],
+            requiredInput: .paired,
+            steps: [
+                RecipeStep(
+                    type: "deacon-scrub",
+                    params: ["database": .string("deacon")]
+                ),
+            ]
+        )
+
+        let ids = ImportCommand.FastqSubcommand.requiredManagedDatabaseIDs(
+            legacyRecipe: nil,
+            newRecipe: recipe
+        )
+
+        XCTAssertEqual(ids, ["deacon-panhuman"])
+    }
+
     func testInstallRequiredManagedDatabasesInstallsMissingHumanScrubber() async throws {
         let registry = StubManagedDatabaseRegistry()
         let sink = StubLineSink()
 
         try await ImportCommand.FastqSubcommand.installRequiredManagedDatabases(
-            requiredIDs: ["human-scrubber"],
+            requiredIDs: ["deacon-panhuman"],
             formatter: TerminalFormatter(useColors: false),
             isQuiet: false,
             databaseRegistry: registry,
@@ -264,7 +287,7 @@ final class ImportFastqCommandTests: XCTestCase {
 
         let installCalls = await registry.currentInstallCalls()
         let emitted = sink.currentLines()
-        XCTAssertEqual(installCalls, ["human-scrubber"])
+        XCTAssertEqual(installCalls, ["deacon-panhuman"])
         XCTAssertTrue(emitted.contains(where: { $0.contains("Installing required database") }))
     }
 }

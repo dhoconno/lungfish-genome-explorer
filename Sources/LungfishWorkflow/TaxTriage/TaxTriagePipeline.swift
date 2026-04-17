@@ -95,17 +95,34 @@ public enum TaxTriagePipelineError: Error, LocalizedError, Sendable {
 /// ```
 public actor TaxTriagePipeline {
 
+    struct PreparedExecutionConfig {
+        let effectiveConfig: TaxTriageConfig
+        let redirectDirectory: URL?
+
+        var needsRedirect: Bool {
+            redirectDirectory != nil
+        }
+    }
+
     /// Shared instance for convenience.
     public static let shared = TaxTriagePipeline()
 
     /// The process manager used to spawn the Nextflow process.
     private let processManager: ProcessManager
 
+    private let homeDirectoryProvider: @Sendable () -> URL
+
     /// Creates a TaxTriage pipeline.
     ///
     /// - Parameter processManager: Process manager for spawning processes (default: shared).
-    public init(processManager: ProcessManager = .shared) {
+    public init(
+        processManager: ProcessManager = .shared,
+        homeDirectoryProvider: @escaping @Sendable () -> URL = {
+            FileManager.default.homeDirectoryForCurrentUser
+        }
+    ) {
         self.processManager = processManager
+        self.homeDirectoryProvider = homeDirectoryProvider
     }
 
     // MARK: - Prerequisite Checks
@@ -118,19 +135,21 @@ public actor TaxTriagePipeline {
     ///
     /// - Returns: A ``PrerequisiteStatus`` describing the state of each requirement.
     public func checkPrerequisites() async -> PrerequisiteStatus {
-        let nextflowPath = processManager.findExecutable(named: "nextflow")
+        let nextflowPath = managedNextflowExecutableURL()
         let nextflowAvailable = nextflowPath != nil
 
         // Detect version if available
         var nextflowVersion: String?
-        if let path = nextflowPath {
+        if let nextflowPath {
+            await CondaManager.shared.repairManagedLaunchers(environment: "nextflow")
             let tempDir = FileManager.default.temporaryDirectory
             if let result = try? await processManager.runAndWait(
-                executable: path,
+                executable: nextflowPath,
                 arguments: ["-version"],
-                workingDirectory: tempDir
+                workingDirectory: tempDir,
+                environment: managedNextflowExecutionEnvironment(for: nextflowPath)
             ), result.exitCode == 0 {
-                nextflowVersion = parseNextflowVersion(from: result.stdout)
+                nextflowVersion = parseNextflowVersion(from: result.stdout + "\n" + result.stderr)
             }
         }
 
@@ -176,7 +195,8 @@ public actor TaxTriagePipeline {
         progress?(0.0, "Checking prerequisites...")
         try profileAdjustedConfig.validate()
 
-        let launchEnvironment = await buildLaunchEnvironment()
+        let useNextflowConda = Self.usesNextflowConda(profile: profileAdjustedConfig.profile)
+        let launchEnvironment = await buildLaunchEnvironment(useNextflowConda: useNextflowConda)
         if profileAdjustedConfig.profile == "docker" {
             try await ensureDockerDaemonReady(
                 progress: progress,
@@ -189,7 +209,7 @@ public actor TaxTriagePipeline {
             throw TaxTriagePipelineError.nextflowNotInstalled
         }
 
-        guard let nextflowPath = processManager.findExecutable(named: "nextflow") else {
+        guard let nextflowPath = managedNextflowExecutableURL() else {
             throw TaxTriagePipelineError.nextflowNotInstalled
         }
 
@@ -222,73 +242,10 @@ public actor TaxTriagePipeline {
         // Nextflow and its Docker bind mounts break on paths with spaces.
         // If the output directory or input files contain spaces, redirect
         // everything through a space-free temp directory with symlinks.
-        let needsRedirect = profileAdjustedConfig.outputDirectory.path.contains(" ")
-            || profileAdjustedConfig.samples.contains(where: {
-                $0.fastq1.path.contains(" ") || ($0.fastq2?.path.contains(" ") ?? false)
-            })
-
-        var effectiveConfig = profileAdjustedConfig
-        var tempRedirectDir: URL?
-
-        if needsRedirect {
-            let safeDir = try ProjectTempDirectory.create(
-                prefix: "taxtriage-",
-                contextURL: config.outputDirectory,
-                policy: .requireProjectContext
-            )
-            tempRedirectDir = safeDir
-
-            // Create symlinks for input FASTQ files
-            let safeSamples = try profileAdjustedConfig.samples.map { sample -> TaxTriageSample in
-                let safeFastq1: URL
-                if sample.fastq1.path.contains(" ") {
-                    let linkName = sample.fastq1.lastPathComponent.replacingOccurrences(of: " ", with: "_")
-                    let linkURL = safeDir.appendingPathComponent(linkName)
-                    try? fm.removeItem(at: linkURL)
-                    try fm.createSymbolicLink(at: linkURL, withDestinationURL: sample.fastq1)
-                    safeFastq1 = linkURL
-                } else {
-                    safeFastq1 = sample.fastq1
-                }
-
-                let safeFastq2: URL?
-                if let fq2 = sample.fastq2, fq2.path.contains(" ") {
-                    let linkName = fq2.lastPathComponent.replacingOccurrences(of: " ", with: "_")
-                    let linkURL = safeDir.appendingPathComponent(linkName)
-                    try? fm.removeItem(at: linkURL)
-                    try fm.createSymbolicLink(at: linkURL, withDestinationURL: fq2)
-                    safeFastq2 = linkURL
-                } else {
-                    safeFastq2 = sample.fastq2
-                }
-
-                return TaxTriageSample(
-                    sampleId: sample.sampleId,
-                    fastq1: safeFastq1,
-                    fastq2: safeFastq2,
-                    platform: sample.platform
-                )
-            }
-
-            effectiveConfig = TaxTriageConfig(
-                samples: safeSamples,
-                platform: profileAdjustedConfig.platform,
-                outputDirectory: safeDir.appendingPathComponent("output"),
-                kraken2DatabasePath: profileAdjustedConfig.kraken2DatabasePath,
-                topHitsCount: profileAdjustedConfig.topHitsCount,
-                k2Confidence: profileAdjustedConfig.k2Confidence,
-                rank: profileAdjustedConfig.rank,
-                skipAssembly: profileAdjustedConfig.skipAssembly,
-                skipKrona: profileAdjustedConfig.skipKrona,
-                maxMemory: profileAdjustedConfig.maxMemory,
-                maxCpus: profileAdjustedConfig.maxCpus,
-                profile: profileAdjustedConfig.profile,
-                revision: profileAdjustedConfig.revision
-            )
-
-            try fm.createDirectory(at: effectiveConfig.outputDirectory, withIntermediateDirectories: true)
-            logger.info("Redirected TaxTriage to space-free path: \(safeDir.path)")
-        }
+        let preparedExecution = try prepareExecutionConfig(for: profileAdjustedConfig)
+        let effectiveConfig = preparedExecution.effectiveConfig
+        let tempRedirectDir = preparedExecution.redirectDirectory
+        let needsRedirect = preparedExecution.needsRedirect
 
         // Generate samplesheet
         let sampleEntries = effectiveConfig.samples.map { sample in
@@ -316,7 +273,10 @@ public actor TaxTriagePipeline {
         progress?(0.10, "Starting TaxTriage pipeline...")
 
         // Phase 3: Build and execute Nextflow command (0.10 -- 0.90)
-        let runtimeConfigURL = try await writeNextflowRuntimeConfig(in: effectiveConfig.outputDirectory)
+        let runtimeConfigURL = try await writeNextflowRuntimeConfig(
+            in: effectiveConfig.outputDirectory,
+            useNextflowConda: useNextflowConda
+        )
         let arguments = buildNextflowLaunchArguments(
             config: effectiveConfig,
             runtimeConfigURL: runtimeConfigURL
@@ -334,6 +294,7 @@ public actor TaxTriagePipeline {
 
         // Run Nextflow via micromamba to ensure the conda environment is activated
         let condaManager = CondaManager.shared
+        await condaManager.repairManagedLaunchers(environment: "nextflow")
         let micromambaPath = await condaManager.micromambaPath
 
         let nextflowEnvName: String
@@ -480,6 +441,89 @@ public actor TaxTriagePipeline {
         return result
     }
 
+    func prepareExecutionConfig(for config: TaxTriageConfig) throws -> PreparedExecutionConfig {
+        let needsRedirect = config.outputDirectory.path.contains(" ")
+            || config.samples.contains(where: {
+                $0.fastq1.path.contains(" ") || ($0.fastq2?.path.contains(" ") ?? false)
+            })
+        guard needsRedirect else {
+            return PreparedExecutionConfig(
+                effectiveConfig: config,
+                redirectDirectory: nil
+            )
+        }
+
+        let fm = FileManager.default
+        let safeDir = try ProjectTempDirectory.create(
+            prefix: "taxtriage-",
+            contextURL: config.outputDirectory,
+            policy: .systemOnly
+        )
+        guard !safeDir.path.contains(" ") else {
+            try? fm.removeItem(at: safeDir)
+            throw TaxTriagePipelineError.prerequisiteFailed(
+                tool: "TaxTriage staging",
+                reason: "Unable to create a space-free temporary working directory."
+            )
+        }
+
+        // Keep the samplesheet and symlinked FASTQs under the same space-free root
+        // because the pipeline schema rejects input CSV paths that contain spaces.
+        let safeSamples = try config.samples.map { sample -> TaxTriageSample in
+            let safeFastq1: URL
+            if sample.fastq1.path.contains(" ") {
+                let linkName = sample.fastq1.lastPathComponent.replacingOccurrences(of: " ", with: "_")
+                let linkURL = safeDir.appendingPathComponent(linkName)
+                try? fm.removeItem(at: linkURL)
+                try fm.createSymbolicLink(at: linkURL, withDestinationURL: sample.fastq1)
+                safeFastq1 = linkURL
+            } else {
+                safeFastq1 = sample.fastq1
+            }
+
+            let safeFastq2: URL?
+            if let fq2 = sample.fastq2, fq2.path.contains(" ") {
+                let linkName = fq2.lastPathComponent.replacingOccurrences(of: " ", with: "_")
+                let linkURL = safeDir.appendingPathComponent(linkName)
+                try? fm.removeItem(at: linkURL)
+                try fm.createSymbolicLink(at: linkURL, withDestinationURL: fq2)
+                safeFastq2 = linkURL
+            } else {
+                safeFastq2 = sample.fastq2
+            }
+
+            return TaxTriageSample(
+                sampleId: sample.sampleId,
+                fastq1: safeFastq1,
+                fastq2: safeFastq2,
+                platform: sample.platform
+            )
+        }
+
+        let effectiveConfig = TaxTriageConfig(
+            samples: safeSamples,
+            platform: config.platform,
+            outputDirectory: safeDir.appendingPathComponent("output"),
+            kraken2DatabasePath: config.kraken2DatabasePath,
+            topHitsCount: config.topHitsCount,
+            k2Confidence: config.k2Confidence,
+            rank: config.rank,
+            skipAssembly: config.skipAssembly,
+            skipKrona: config.skipKrona,
+            maxMemory: config.maxMemory,
+            maxCpus: config.maxCpus,
+            profile: config.profile,
+            revision: config.revision
+        )
+
+        try fm.createDirectory(at: effectiveConfig.outputDirectory, withIntermediateDirectories: true)
+        logger.info("Redirected TaxTriage to space-free path: \(safeDir.path)")
+        return PreparedExecutionConfig(
+            effectiveConfig: effectiveConfig,
+            redirectDirectory: safeDir
+        )
+    }
+
     // MARK: - Command Building
 
     /// Builds the full argument array for the `nextflow` command.
@@ -555,7 +599,7 @@ public actor TaxTriagePipeline {
     /// Fix: strip trailing slashes before calling basename.
     /// Upstream issue: https://github.com/jhuapl-bio/taxtriage
     private func patchTaxTriageDownloadScript() {
-        let home = FileManager.default.homeDirectoryForCurrentUser
+        let home = homeDirectoryProvider()
         let scriptPath = home.appendingPathComponent(".nextflow/assets/jhuapl-bio/taxtriage/bin/download_fastas.py")
 
         guard FileManager.default.fileExists(atPath: scriptPath.path) else { return }
@@ -793,17 +837,25 @@ public actor TaxTriagePipeline {
         return nil
     }
 
-    func buildLaunchEnvironment() async -> [String: String] {
+    func buildLaunchEnvironment(useNextflowConda: Bool) async -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         environment["NXF_ANSI_LOG"] = "false"
+        let condaRoot = CondaManager.shared.rootPrefix
+        environment["MAMBA_ROOT_PREFIX"] = condaRoot.path
 
-        let condaConfig = await CondaManager.shared.nextflowCondaConfig()
-        for (key, value) in condaConfig {
-            environment[key] = value
+        if useNextflowConda {
+            let condaConfig = await CondaManager.shared.nextflowCondaConfig()
+            for (key, value) in condaConfig {
+                environment[key] = value
+            }
+        } else {
+            // Docker/podman/singularity profiles must not inherit managed conda
+            // settings, or Nextflow will override the pipeline's own profile logic.
+            environment.removeValue(forKey: "NXF_CONDA_ENABLED")
+            environment.removeValue(forKey: "NXF_CONDA_CACHEDIR")
         }
 
         // Ensure Docker CLI paths are available even in restricted launch envs.
-        let condaRoot = CondaManager.shared.rootPrefix
         let dockerPaths = [
             condaRoot.appendingPathComponent("bin").path,
             "/usr/local/bin",
@@ -819,17 +871,56 @@ public actor TaxTriagePipeline {
         environment["PATH"] = mergedPaths.joined(separator: ":")
 
         // Keep Nextflow cache in a stable, user-space location.
-        let nxfHome = FileManager.default.homeDirectoryForCurrentUser
+        let nxfHome = homeDirectoryProvider()
             .appendingPathComponent(".nextflow")
         environment["NXF_HOME"] = nxfHome.path
         return environment
     }
 
-    private func writeNextflowRuntimeConfig(in directory: URL) async throws -> URL {
+    private func managedNextflowExecutableURL() -> URL? {
+        let url = CoreToolLocator.executableURL(
+            environment: "nextflow",
+            executableName: "nextflow",
+            homeDirectory: homeDirectoryProvider()
+        )
+        return FileManager.default.isExecutableFile(atPath: url.path) ? url : nil
+    }
+
+    private func managedNextflowExecutionEnvironment(for executablePath: URL) -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        let home = homeDirectoryProvider()
+        let condaBin = CoreToolLocator.condaRoot(homeDirectory: home)
+            .appendingPathComponent("bin", isDirectory: true)
+        let existingPath = environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        environment["PATH"] = [
+            executablePath.deletingLastPathComponent().path,
+            condaBin.path,
+            existingPath,
+        ].joined(separator: ":")
+        environment["HOME"] = home.path
+        return environment
+    }
+
+    private func writeNextflowRuntimeConfig(
+        in directory: URL,
+        useNextflowConda: Bool
+    ) async throws -> URL {
         let configURL = directory.appendingPathComponent("lungfish.nextflow.config")
-        let configString = await CondaManager.shared.nextflowCondaConfigString()
+        let configString: String
+        if useNextflowConda {
+            configString = await CondaManager.shared.nextflowCondaConfigString()
+        } else {
+            configString = ""
+        }
         try configString.write(to: configURL, atomically: true, encoding: .utf8)
         return configURL
+    }
+
+    nonisolated static func usesNextflowConda(profile: String) -> Bool {
+        profile
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .contains("conda")
     }
 
     private func ensureDockerDaemonReady(
@@ -869,7 +960,7 @@ public actor TaxTriagePipeline {
             let result = try await processManager.runAndWait(
                 executable: openPath,
                 arguments: ["-g", "-a", "Docker"],
-                workingDirectory: FileManager.default.homeDirectoryForCurrentUser
+                workingDirectory: homeDirectoryProvider()
             )
             if result.exitCode == 0 {
                 logger.info("Requested Docker Desktop launch via open -a Docker")

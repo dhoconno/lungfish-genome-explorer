@@ -5,6 +5,11 @@
 import Foundation
 
 public enum CoreToolLocator {
+    public static func bbToolsJavaURL(homeDirectory: URL) -> URL {
+        environmentURL(named: "bbtools", homeDirectory: homeDirectory)
+            .appendingPathComponent("lib/jvm/bin/java")
+    }
+
     public static func condaRoot(homeDirectory: URL) -> URL {
         homeDirectory
             .appendingPathComponent(".lungfish", isDirectory: true)
@@ -36,11 +41,12 @@ public enum CoreToolLocator {
     ) -> [String: String] {
         let envRoot = environmentURL(named: "bbtools", homeDirectory: homeDirectory)
         let binDir = envRoot.appendingPathComponent("bin", isDirectory: true)
-        let java = binDir.appendingPathComponent("java")
+        let javaHome = envRoot.appendingPathComponent("lib/jvm", isDirectory: true)
+        let java = bbToolsJavaURL(homeDirectory: homeDirectory)
 
         return [
             "PATH": "\(binDir.path):\(existingPath)",
-            "JAVA_HOME": envRoot.path,
+            "JAVA_HOME": javaHome.path,
             "BBMAP_JAVA": java.path,
         ]
     }

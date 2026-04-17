@@ -20,9 +20,15 @@ private actor StubPluginManagerPackStatusProvider: PluginPackStatusProviding {
     func install(
         pack: PluginPack,
         reinstall: Bool,
-        progress: (@Sendable (Double, String) -> Void)?
+        progress: (@Sendable (PluginPackInstallProgress) -> Void)?
     ) async throws {
-        progress?(1.0, "Installed")
+        progress?(PluginPackInstallProgress(
+            requirementID: nil,
+            requirementDisplayName: nil,
+            overallFraction: 1.0,
+            itemFraction: 1.0,
+            message: "Installed"
+        ))
     }
 }
 

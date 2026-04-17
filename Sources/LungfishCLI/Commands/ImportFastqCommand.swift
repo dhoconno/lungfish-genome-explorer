@@ -341,7 +341,7 @@ extension ImportCommand {
 
             for step in newRecipe?.steps ?? [] {
                 guard Self.newRecipeStepRequiresHumanScrubber(step) else { continue }
-                let configuredID = step.params?["database"]?.stringValue ?? HumanScrubberDatabaseInstaller.databaseID
+                let configuredID = step.params?["database"]?.stringValue ?? DeaconPanhumanDatabaseInstaller.databaseID
                 ids.insert(DatabaseRegistry.canonicalDatabaseID(for: configuredID))
             }
 
@@ -428,7 +428,10 @@ extension ImportCommand {
         }
         private static func newRecipeStepRequiresHumanScrubber(_ step: RecipeStep) -> Bool {
             let type = step.type.lowercased()
-            return type == "human-read-scrub" || type == "human-scrub" || type == "sra-human-scrubber"
+            return type == "human-read-scrub"
+                || type == "human-scrub"
+                || type == "sra-human-scrubber"
+                || type == "deacon-scrub"
         }
     }
 }
