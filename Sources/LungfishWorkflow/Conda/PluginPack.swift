@@ -308,7 +308,7 @@ public extension PluginPack {
         PluginPack(
             id: "metagenomics",
             name: "Metagenomics",
-            description: "Taxonomic classification, viral detection, and clinical triage of metagenomic samples",
+            description: "Taxonomic classification and pathogen detection from metagenomic samples",
             sfSymbol: "leaf.fill",
             packages: ["kraken2", "bracken", "esviritu"],
             category: "Metagenomics",

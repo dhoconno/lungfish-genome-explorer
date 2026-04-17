@@ -7,8 +7,7 @@ import LungfishWorkflow
 
 // MARK: - UnifiedMetagenomicsWizard
 
-/// A unified SwiftUI wizard that serves as the single entry point for all metagenomics
-/// analysis workflows in Lungfish.
+/// A unified SwiftUI shell for all metagenomics analysis workflows in Lungfish.
 ///
 /// ## Analysis Types
 ///
@@ -16,34 +15,48 @@ import LungfishWorkflow
 /// |--------------------|-------------|---------------------------------------|--------|
 /// | Taxonomic          | Kraken2     | Broad taxonomic classification        | Fast   |
 /// | Viral Detection    | EsViritu    | Virus-specific detection + coverage   | Medium |
-/// | Clinical Triage    | TaxTriage   | End-to-end with confidence scoring    | Slow   |
-///
-/// ## Two-Step Flow
-///
-/// 1. **Choose Analysis Type**: User selects from the three analysis types.
-///    Each option shows a description and tool availability.
-/// 2. **Tool Configuration**: The wizard shows the appropriate sub-wizard for
-///    the selected tool.
+/// | Pathogen Detection  | TaxTriage   | End-to-end pathogen detection         | Slow   |
 ///
 /// ## Presentation
 ///
 /// Hosted in an `NSPanel` via `NSHostingController` and presented with
 /// `beginSheetModal` (per macOS 26 rules -- never `runModal()`).
 struct UnifiedMetagenomicsWizard: View {
+    static let preferredContentSize = CGSize(width: 880, height: 620)
 
     /// The input FASTQ files to analyze.
     let inputFiles: [URL]
+    let initialSelection: AnalysisType
+
+    /// Stable shared section identifiers for the unified runner shell.
+    private enum SharedSection: CaseIterable {
+        case overview
+        case prerequisites
+        case samples
+        case database
+        case toolSettings
+        case advancedSettings
+
+        var title: String {
+            switch self {
+            case .overview: return "Overview"
+            case .prerequisites: return "Prerequisites"
+            case .samples: return "Samples"
+            case .database: return "Database"
+            case .toolSettings: return "Tool Settings"
+            case .advancedSettings: return "Advanced Settings"
+            }
+        }
+    }
+
+    /// Section order shared by the unified runner shell.
+    static let sharedSectionOrder = SharedSection.allCases.map(\.title)
 
     // MARK: - State
 
-    @State private var currentStep: WizardStep = .chooseType
-    @State private var selectedType: AnalysisType? = nil
-
-    // Tool availability (checked asynchronously)
-    @State private var kraken2Available: Bool? = nil
-    @State private var esvirituAvailable: Bool? = nil
-    @State private var nextflowAvailable: Bool? = nil
-    @State private var containerAvailable: Bool? = nil
+    @State private var sidebarSelection: AnalysisType
+    @State private var runnerCanRun: Bool = false
+    @State private var runnerRunTrigger: Int = 0
 
     // MARK: - Callbacks
 
@@ -59,23 +72,48 @@ struct UnifiedMetagenomicsWizard: View {
     /// Called when the user cancels.
     var onCancel: (() -> Void)?
 
-    // MARK: - Enums
-
-    /// The steps in the wizard flow.
-    enum WizardStep {
-        case chooseType
-        case configure
+    init(
+        inputFiles: [URL],
+        initialSelection: AnalysisType = .classification,
+        onRunClassification: (([ClassificationConfig]) -> Void)? = nil,
+        onRunEsViritu: (([EsVirituConfig]) -> Void)? = nil,
+        onRunTaxTriage: ((TaxTriageConfig) -> Void)? = nil,
+        onCancel: (() -> Void)? = nil
+    ) {
+        self.inputFiles = inputFiles
+        self.initialSelection = initialSelection
+        self.onRunClassification = onRunClassification
+        self.onRunEsViritu = onRunEsViritu
+        self.onRunTaxTriage = onRunTaxTriage
+        self.onCancel = onCancel
+        _sidebarSelection = State(initialValue: initialSelection)
     }
 
+    #if DEBUG
+    var testingSidebarSelection: AnalysisType { sidebarSelection }
+    var testingInitialSelection: AnalysisType { initialSelection }
+    #endif
+
+    // MARK: - Enums
+
     /// The available metagenomics analysis types.
-    enum AnalysisType: String, CaseIterable, Identifiable {
-        case classification = "Taxonomic Classification"
-        case viralDetection = "Viral Detection"
-        case clinicalTriage = "Comprehensive Triage"
+    enum AnalysisType: CaseIterable, Identifiable {
+        case classification
+        case viralDetection
+        case clinicalTriage
 
-        var id: String { rawValue }
+        var id: Self { self }
 
-        /// SF Symbol name for the analysis type card.
+        var sidebarTitle: String {
+            switch self {
+            case .classification: return "Kraken2"
+            case .viralDetection: return "EsViritu"
+            case .clinicalTriage: return "TaxTriage"
+            }
+        }
+
+        var runnerTitle: String { sidebarTitle }
+
         var symbolName: String {
             switch self {
             case .classification: return "k.circle"
@@ -84,16 +122,14 @@ struct UnifiedMetagenomicsWizard: View {
             }
         }
 
-        /// The underlying tool name.
         var toolName: String {
             switch self {
-            case .classification: return "Kraken2 / Bracken"
-            case .viralDetection: return "EsViritu"
-            case .clinicalTriage: return "TaxTriage (Nextflow)"
+            case .classification: return "Classify & Profile (Kraken2)"
+            case .viralDetection: return "Detect Viruses (EsViritu)"
+            case .clinicalTriage: return "Detect Pathogens (TaxTriage)"
             }
         }
 
-        /// Brief description of what this analysis does.
         var analysisDescription: String {
             switch self {
             case .classification:
@@ -101,277 +137,154 @@ struct UnifiedMetagenomicsWizard: View {
             case .viralDetection:
                 return "Virus-focused read mapping pipeline. Detects and quantifies viral pathogens with per-genome coverage metrics, consensus sequences, and iterative alignment."
             case .clinicalTriage:
-                return "End-to-end metagenomic classification with alignment validation and TASS confidence scoring. Supports multiple classifiers, host removal, and PDF reporting. Can classify many types of sequences but prone to false negatives."
+                return "End-to-end pathogen detection with TaxTriage. Uses alignment validation, host removal, and confidence scoring to help flag likely pathogens in metagenomic samples."
             }
         }
-
-        /// All analysis types are configurable — tool availability is checked
-        /// separately and shown as badges on each card.
-        var isConfigurable: Bool { true }
     }
 
     // MARK: - Body
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Title
-            HStack {
-                if currentStep == .configure, let type = selectedType {
-                    Button {
-                        currentStep = .chooseType
-                    } label: {
-                        Image(systemName: "chevron.left")
-                    }
-                    .buttonStyle(.plain)
-                    .help("Back to analysis selection")
-
-                    Text(type.rawValue)
-                        .font(.headline)
-                } else {
-                    Text("Classify Reads")
-                        .font(.headline)
-                }
-                Spacer()
-                if inputFiles.count == 1 {
-                    Text(inputFiles.first?.lastPathComponent ?? "")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                } else {
-                    Text("\(inputFiles.count) files")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            .padding(.bottom, 12)
+        HStack(spacing: 0) {
+            runnerSidebar
+                .frame(width: 260)
+                .background(Color.lungfishSidebarBackground)
 
             Divider()
 
-            // Content
-            switch currentStep {
-            case .chooseType:
-                analysisTypeSelector
+            VStack(spacing: 0) {
+                UnifiedClassifierRunnerHeader(
+                    title: sidebarSelection.sidebarTitle,
+                    subtitle: sidebarSelection.analysisDescription,
+                    datasetLabel: runnerDatasetLabel
+                )
 
-            case .configure:
-                configurationStep
+                Divider()
+
+                runnerDetail
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(20)
+
+                Divider()
+
+                footerBar
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.lungfishCanvasBackground)
         }
-        .frame(width: 560, height: currentStep == .chooseType ? 520 : 680)
-        .animation(.easeInOut(duration: 0.2), value: currentStep)
-        .onAppear {
-            checkToolAvailability()
-        }
+        .frame(width: Self.preferredContentSize.width, height: Self.preferredContentSize.height)
     }
 
-    // MARK: - Step 1: Analysis Type Selector
+    // MARK: - Runner Sidebar
 
-    private var analysisTypeSelector: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Choose an analysis type for your sequencing data.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-
-                    ForEach(AnalysisType.allCases) { type in
-                        analysisTypeCard(type)
+    private var runnerSidebar: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                UnifiedClassifierRunnerSection("Classifier", subtitle: "Choose the analysis to configure") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(AnalysisType.allCases) { type in
+                            Button {
+                                sidebarSelection = type
+                            } label: {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(type.sidebarTitle)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(Color.primary)
+                                    Text(type.toolName)
+                                        .font(.caption)
+                                        .foregroundStyle(Color.lungfishSecondaryText)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 8)
+                                .padding(.horizontal, 10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .fill(sidebarSelection == type
+                                            ? Color.lungfishCreamsicleFallback.opacity(0.18)
+                                            : Color.clear)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .stroke(
+                                            sidebarSelection == type
+                                            ? Color.lungfishCreamsicleFallback.opacity(0.35)
+                                            : Color.lungfishStroke,
+                                            lineWidth: 1
+                                        )
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
+
+                Spacer(minLength: 0)
             }
-
-            Divider()
-
-            // Action buttons
-            HStack {
-                if let selected = selectedType, !selected.isConfigurable {
-                    Text("\(selected.toolName) wizard not yet available")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-
-                Spacer()
-
-                Button("Cancel") {
-                    onCancel?()
-                }
-                .keyboardShortcut(.cancelAction)
-
-                Button("Next") {
-                    if let selected = selectedType, selected.isConfigurable {
-                        currentStep = .configure
-                    }
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .disabled(selectedType == nil || !(selectedType?.isConfigurable ?? false))
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
+            .padding(16)
         }
     }
 
-    /// A single analysis type selection card.
-    private func analysisTypeCard(_ type: AnalysisType) -> some View {
-        Button {
-            selectedType = type
-        } label: {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: type.symbolName)
-                    .font(.system(size: 24))
-                    .foregroundStyle(selectedType == type ? .white : Color.accentColor)
-                    .frame(width: 40, height: 40)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(selectedType == type ? Color.accentColor : Color.accentColor.opacity(0.1))
-                    )
+    private var runnerDetail: some View {
+        Group {
+            switch sidebarSelection {
+            case .classification:
+                ClassificationWizardSheet(
+                    inputFiles: inputFiles,
+                    embeddedInUnifiedRunner: true,
+                    embeddedRunTrigger: runnerRunTrigger,
+                    onRun: { configs in
+                        onRunClassification?(configs)
+                    },
+                    onRunnerAvailabilityChange: { runnerCanRun = $0 }
+                )
 
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(type.rawValue)
-                            .font(.system(size: 13, weight: .semibold))
-                        Spacer()
-                        toolAvailabilityBadge(for: type)
-                    }
+            case .viralDetection:
+                EsVirituWizardSheet(
+                    inputFiles: inputFiles,
+                    embeddedInUnifiedRunner: true,
+                    embeddedRunTrigger: runnerRunTrigger,
+                    onRun: { configs in
+                        onRunEsViritu?(configs)
+                    },
+                    onRunnerAvailabilityChange: { runnerCanRun = $0 }
+                )
 
-                    Text(type.toolName)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-
-                    Text(type.analysisDescription)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(selectedType == type
-                          ? Color.accentColor.opacity(0.08)
-                          : Color(nsColor: .controlBackgroundColor))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(
-                        selectedType == type ? Color.accentColor : Color(nsColor: .separatorColor),
-                        lineWidth: selectedType == type ? 2 : 0.5
-                    )
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(type.rawValue)
-        .accessibilityHint(type.analysisDescription)
-    }
-
-    /// Shows availability status for a tool type.
-    @ViewBuilder
-    private func toolAvailabilityBadge(for type: AnalysisType) -> some View {
-        switch type {
-        case .classification:
-            availabilityIndicator(available: kraken2Available)
-
-        case .viralDetection:
-            availabilityIndicator(available: esvirituAvailable)
-
-        case .clinicalTriage:
-            if let nf = nextflowAvailable, let ct = containerAvailable {
-                availabilityIndicator(available: nf && ct ? true : false)
-            } else {
-                ProgressView()
-                    .controlSize(.mini)
+            case .clinicalTriage:
+                TaxTriageWizardSheet(
+                    initialFiles: inputFiles,
+                    embeddedInUnifiedRunner: true,
+                    embeddedRunTrigger: runnerRunTrigger,
+                    onRun: { config in
+                        onRunTaxTriage?(config)
+                    },
+                    onRunnerAvailabilityChange: { runnerCanRun = $0 }
+                )
             }
         }
-    }
-
-    @ViewBuilder
-    private func availabilityIndicator(available: Bool?) -> some View {
-        if let available {
-            if available {
-                HStack(spacing: 2) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                    Text("Ready")
-                        .foregroundStyle(.green)
-                }
-                .font(.system(size: 10, weight: .medium))
-            } else {
-                HStack(spacing: 2) {
-                    Image(systemName: "exclamationmark.circle")
-                        .foregroundStyle(.orange)
-                    Text("Install in Plugin Manager")
-                        .foregroundStyle(.orange)
-                }
-                .font(.system(size: 10, weight: .medium))
-            }
-        } else {
-            ProgressView()
-                .controlSize(.mini)
+        .onChange(of: sidebarSelection) { _, _ in
+            runnerCanRun = false
         }
     }
 
-    // MARK: - Step 2: Configuration
-
-    @ViewBuilder
-    private var configurationStep: some View {
-        switch selectedType {
-        case .classification:
-            ClassificationWizardSheet(
-                inputFiles: inputFiles,
-                onRun: { configs in
-                    onRunClassification?(configs)
-                },
-                onCancel: { onCancel?() }
-            )
-
-        case .viralDetection:
-            EsVirituWizardSheet(
-                inputFiles: inputFiles,
-                onRun: { configs in
-                    onRunEsViritu?(configs)
-                },
-                onCancel: { onCancel?() }
-            )
-
-        case .clinicalTriage:
-            TaxTriageWizardSheet(
-                initialFiles: inputFiles,
-                onRun: { config in
-                    onRunTaxTriage?(config)
-                },
-                onCancel: { onCancel?() }
-            )
-
-        case nil:
-            EmptyView()
+    private var runnerDatasetLabel: String {
+        if inputFiles.count == 1 {
+            return inputFiles.first?.lastPathComponent ?? ""
         }
+        return "\(inputFiles.count) files"
     }
 
-    // MARK: - Tool Availability Checks
-
-    private func checkToolAvailability() {
-        Task { @MainActor in
-            // Check Kraken2 via conda
-            let condaMgr = CondaManager.shared
-            let kraken2Installed = await condaMgr.isToolInstalled("kraken2")
-            kraken2Available = kraken2Installed
-
-            // Check EsViritu via conda
-            let esvirituInstalled = await condaMgr.isToolInstalled("EsViritu")
-            esvirituAvailable = esvirituInstalled
-
-            // Check Nextflow
-            let nfRunner = NextflowRunner()
-            nextflowAvailable = await nfRunner.isAvailable()
-
-            // Check container runtime
-            let containerRT = await NewContainerRuntimeFactory.createRuntime()
-            containerAvailable = containerRT != nil
-        }
+    private var runnerFooterStatusText: String {
+        runnerCanRun ? "Ready to run" : "Finish the settings above to continue"
     }
+
+    private var footerBar: some View {
+        UnifiedClassifierRunnerFooter(
+            statusText: runnerFooterStatusText,
+            isRunEnabled: runnerCanRun,
+            onCancel: { onCancel?() },
+            onRun: { runnerRunTrigger += 1 }
+        )
+    }
+
 }

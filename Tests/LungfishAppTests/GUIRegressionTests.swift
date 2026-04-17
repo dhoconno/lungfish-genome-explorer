@@ -467,9 +467,37 @@ final class UnifiedWizardTests: XCTestCase {
         XCTAssertEqual(types.count, 3)
 
         let typeMap = Dictionary(uniqueKeysWithValues: types.map { ($0, $0.toolName) })
-        XCTAssertEqual(typeMap[.classification], "Kraken2 / Bracken")
-        XCTAssertEqual(typeMap[.viralDetection], "EsViritu")
-        XCTAssertEqual(typeMap[.clinicalTriage], "TaxTriage (Nextflow)")
+        XCTAssertEqual(typeMap[.classification], "Classify & Profile (Kraken2)")
+        XCTAssertEqual(typeMap[.viralDetection], "Detect Viruses (EsViritu)")
+        XCTAssertEqual(typeMap[.clinicalTriage], "Detect Pathogens (TaxTriage)")
+    }
+
+    /// Verifies the FASTQ dataset controller source has the unified classifier labels.
+    func testFASTQDatasetViewControllerUsesUnifiedClassifierCopy() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("case .classifyReads: return \"Classify & Profile (Kraken2)\""))
+        XCTAssertTrue(source.contains("case .detectViruses: return \"Detect Viruses (EsViritu)\""))
+        XCTAssertTrue(source.contains("case .comprehensiveTriage: return \"Detect Pathogens (TaxTriage)\""))
+        XCTAssertTrue(source.contains("return \"Run TaxTriage for end-to-end pathogen detection from metagenomic reads with confidence scoring and organism reporting.\""))
+        XCTAssertFalse(source.contains("Clinical Triage (TaxTriage)"))
+    }
+
+    /// Verifies the TaxTriage sheet title and subtitle use the normalized copy.
+    func testTaxTriageWizardSheetUsesNormalizedTitleCopy() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Metagenomics/TaxTriageWizardSheet.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("Text(\"TaxTriage\")"))
+        XCTAssertFalse(source.contains("TaxTriage Metagenomic Triage"))
+        XCTAssertFalse(source.contains("Comprehensive taxonomic classification pipeline"))
     }
 
     /// Verifies analysis types have non-empty descriptions and runtime estimates.
@@ -494,6 +522,13 @@ final class UnifiedWizardTests: XCTestCase {
             "Internal names contain pipeline step prefixes")
         XCTAssertFalse(userFriendlyName.contains("step_"),
             "User-friendly names should not contain pipeline prefixes")
+    }
+
+    private func repositoryRoot() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
     }
 }
 

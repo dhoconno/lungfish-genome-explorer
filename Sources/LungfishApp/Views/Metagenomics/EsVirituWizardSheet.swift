@@ -50,6 +50,12 @@ struct EsVirituWizardSheet: View {
     /// The input FASTQ files to analyze.
     let inputFiles: [URL]
 
+    /// Whether the wizard is embedded inside the shared classifier runner shell.
+    let embeddedInUnifiedRunner: Bool
+
+    /// Incremented by the shared shell to request a run.
+    let embeddedRunTrigger: Int
+
     // MARK: - State
 
     @State private var sampleName: String = ""
@@ -75,6 +81,25 @@ struct EsVirituWizardSheet: View {
 
     /// Called when the user clicks Cancel.
     var onCancel: (() -> Void)?
+
+    /// Notifies the shared shell whether the current configuration can run.
+    var onRunnerAvailabilityChange: ((Bool) -> Void)?
+
+    init(
+        inputFiles: [URL],
+        embeddedInUnifiedRunner: Bool = false,
+        embeddedRunTrigger: Int = 0,
+        onRun: (([EsVirituConfig]) -> Void)? = nil,
+        onCancel: (() -> Void)? = nil,
+        onRunnerAvailabilityChange: ((Bool) -> Void)? = nil
+    ) {
+        self.inputFiles = inputFiles
+        self.embeddedInUnifiedRunner = embeddedInUnifiedRunner
+        self.embeddedRunTrigger = embeddedRunTrigger
+        self.onRun = onRun
+        self.onCancel = onCancel
+        self.onRunnerAvailabilityChange = onRunnerAvailabilityChange
+    }
 
     // MARK: - Computed Properties
 
@@ -112,8 +137,48 @@ struct EsVirituWizardSheet: View {
     // MARK: - Body
 
     var body: some View {
+        Group {
+            if !embeddedInUnifiedRunner {
+                standaloneBody
+            } else {
+                embeddedBody
+            }
+        }
+        .background(Color.lungfishCanvasBackground)
+        .tint(.lungfishCreamsicleFallback)
+        .onAppear {
+            // Auto-populate sample name for single-sample runs
+            if sampleName.isEmpty, let sample = groupedSamples.first {
+                sampleName = sample.sampleId
+            }
+
+            // Check database installation
+            checkDatabaseStatus()
+            onRunnerAvailabilityChange?(canRun)
+        }
+        .onChange(of: canRun) { _, newValue in
+            onRunnerAvailabilityChange?(newValue)
+        }
+        .onChange(of: embeddedRunTrigger) { _, _ in
+            guard embeddedInUnifiedRunner else { return }
+            performRun()
+        }
+    }
+
+    private var embeddedBody: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header: tool identity + dataset name
+            Divider()
+
+            ScrollView {
+                configurationContent
+            }
+
+            Divider()
+        }
+    }
+
+    private var standaloneBody: some View {
+        VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("EsViritu Viral Detection")
@@ -142,83 +207,41 @@ struct EsVirituWizardSheet: View {
             Divider()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Detect viruses from sequencing reads using the EsViritu pipeline. Results will include per-virus detection metrics, genome coverage, and taxonomic profiles.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Divider()
-
-                    // Sample configuration
-                    sampleSection
-
-                    Divider()
-
-                    // Database picker
-                    databaseSection
-
-                    Divider()
-
-                    // Quality filtering
-                    qualityFilterSection
-
-                    Divider()
-
-                    // Advanced settings
-                    advancedSettings
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
+                configurationContent
             }
 
             Divider()
 
-            // Action buttons
-            HStack {
-                if !canRun && inputFiles.isEmpty {
-                    Text("No input files selected")
-                        .font(.caption)
-                        .foregroundStyle(Color.lungfishOrangeFallback)
-                } else if !canRun && groupedSamples.isEmpty {
-                    Text("Could not detect valid sample inputs")
-                        .font(.caption)
-                        .foregroundStyle(Color.lungfishOrangeFallback)
-                } else if !canRun && !isDatabaseInstalled {
-                    Text("EsViritu database not installed")
-                        .font(.caption)
-                        .foregroundStyle(Color.lungfishOrangeFallback)
-                }
-
-                Spacer()
-
-                Button("Cancel") {
-                    onCancel?()
-                }
-                .keyboardShortcut(.cancelAction)
-
-                Button("Run") {
-                    performRun()
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .disabled(!canRun)
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
+            standaloneFooter
         }
         .frame(width: 520, height: 500)
-        .background(Color.lungfishCanvasBackground)
-        .tint(.lungfishCreamsicleFallback)
-        .onAppear {
-            // Auto-populate sample name for single-sample runs
-            if sampleName.isEmpty, let sample = groupedSamples.first {
-                sampleName = sample.sampleId
-            }
+    }
 
-            // Check database installation
-            checkDatabaseStatus()
+    private var configurationContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Detect viruses from sequencing reads using the EsViritu pipeline. Results will include per-virus detection metrics, genome coverage, and taxonomic profiles.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
+            sampleSection
+
+            Divider()
+
+            databaseSection
+
+            Divider()
+
+            qualityFilterSection
+
+            Divider()
+
+            advancedSettings
         }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
     }
 
     // MARK: - Samples
@@ -377,6 +400,32 @@ struct EsVirituWizardSheet: View {
             .padding(.top, 8)
         }
         .font(.system(size: 12, weight: .medium))
+    }
+
+    private var standaloneFooter: some View {
+        HStack {
+            if !canRun {
+                Text("Finish the settings above to continue")
+                    .font(.caption)
+                    .foregroundStyle(Color.lungfishOrangeFallback)
+            }
+
+            Spacer()
+
+            Button("Cancel") {
+                onCancel?()
+            }
+            .keyboardShortcut(.cancelAction)
+
+            Button("Run") {
+                performRun()
+            }
+            .keyboardShortcut(.defaultAction)
+            .buttonStyle(.borderedProminent)
+            .disabled(!canRun)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
     }
 
     // MARK: - Actions

@@ -8,7 +8,7 @@ import LungfishWorkflow
 
 // MARK: - TaxTriageWizardSheet
 
-/// A SwiftUI sheet for configuring and launching a TaxTriage clinical triage run.
+/// A SwiftUI sheet for configuring and launching a TaxTriage run.
 ///
 /// The wizard supports multi-sample input, platform selection, Kraken2 database
 /// path, assembly control, and advanced parameter tuning. Prerequisite checks
@@ -27,6 +27,12 @@ struct TaxTriageWizardSheet: View {
 
     /// Initial input FASTQ files (pre-populated from the invoking context).
     let initialFiles: [URL]
+
+    /// Whether the wizard is embedded inside the shared classifier runner shell.
+    let embeddedInUnifiedRunner: Bool
+
+    /// Incremented by the shared shell to request a run.
+    let embeddedRunTrigger: Int
 
     // MARK: - State
 
@@ -59,16 +65,25 @@ struct TaxTriageWizardSheet: View {
     /// Called when the user clicks Cancel.
     var onCancel: (() -> Void)?
 
+    /// Notifies the shared shell whether the current configuration can run.
+    var onRunnerAvailabilityChange: ((Bool) -> Void)?
+
     // MARK: - Initialization
 
     init(
         initialFiles: [URL] = [],
+        embeddedInUnifiedRunner: Bool = false,
+        embeddedRunTrigger: Int = 0,
         onRun: ((TaxTriageConfig) -> Void)? = nil,
-        onCancel: (() -> Void)? = nil
+        onCancel: (() -> Void)? = nil,
+        onRunnerAvailabilityChange: ((Bool) -> Void)? = nil
     ) {
         self.initialFiles = initialFiles
+        self.embeddedInUnifiedRunner = embeddedInUnifiedRunner
+        self.embeddedRunTrigger = embeddedRunTrigger
         self.onRun = onRun
         self.onCancel = onCancel
+        self.onRunnerAvailabilityChange = onRunnerAvailabilityChange
     }
 
     // MARK: - Computed Properties
@@ -90,13 +105,48 @@ struct TaxTriageWizardSheet: View {
     // MARK: - Body
 
     var body: some View {
+        Group {
+            if !embeddedInUnifiedRunner {
+                standaloneBody
+            } else {
+                embeddedBody
+            }
+        }
+        .background(Color.lungfishCanvasBackground)
+        .tint(.lungfishCreamsicleFallback)
+        .onAppear {
+            populateFromInitialFiles()
+            checkPrerequisites()
+            onRunnerAvailabilityChange?(canRun)
+        }
+        .onChange(of: canRun) { _, newValue in
+            onRunnerAvailabilityChange?(newValue)
+        }
+        .onChange(of: embeddedRunTrigger) { _, _ in
+            guard embeddedInUnifiedRunner else { return }
+            performRun()
+        }
+    }
+
+    private var embeddedBody: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header: tool identity + dataset name
+            Divider()
+
+            ScrollView {
+                configurationContent
+            }
+
+            Divider()
+        }
+    }
+
+    private var standaloneBody: some View {
+        VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("TaxTriage Metagenomic Triage")
+                    Text("TaxTriage")
                         .font(.headline)
-                    Text("Comprehensive taxonomic classification pipeline")
+                    Text("End-to-end pathogen detection for metagenomic samples")
                         .font(.caption)
                         .foregroundStyle(Color.lungfishSecondaryText)
                 }
@@ -120,74 +170,51 @@ struct TaxTriageWizardSheet: View {
             Divider()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Classify and score organisms with alignment-based confidence. Requires Nextflow and Docker.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    // Prerequisite checks
-                    prerequisiteSection
-
-                    Divider()
-
-                    // Sample list
-                    sampleSection
-
-                    Divider()
-
-                    // Database + Platform side by side
-                    HStack(alignment: .top, spacing: 20) {
-                        databaseSection
-                        platformSection
-                    }
-
-                    Divider()
-
-                    // Assembly toggle
-                    assemblySection
-
-                    Divider()
-
-                    // Advanced settings
-                    advancedSettings
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 8)
+                configurationContent
             }
 
             Divider()
 
-            // Action buttons
-            HStack {
-                if !canRun {
-                    validationMessage
-                }
-
-                Spacer()
-
-                Button("Cancel") {
-                    onCancel?()
-                }
-                .keyboardShortcut(.cancelAction)
-
-                Button("Run") {
-                    performRun()
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .disabled(!canRun)
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
+            standaloneFooter
         }
         .frame(width: 520, height: 520)
-        .background(Color.lungfishCanvasBackground)
-        .tint(.lungfishCreamsicleFallback)
-        .onAppear {
-            populateFromInitialFiles()
-            checkPrerequisites()
+    }
+
+    private var configurationContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Classify and score organisms with alignment-based confidence. Requires Nextflow and Docker.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // Prerequisite checks
+            prerequisiteSection
+
+            Divider()
+
+            // Sample list
+            sampleSection
+
+            Divider()
+
+            // Database + Platform side by side
+            HStack(alignment: .top, spacing: 20) {
+                databaseSection
+                platformSection
+            }
+
+            Divider()
+
+            // Assembly toggle
+            assemblySection
+
+            Divider()
+
+            // Advanced settings
+            advancedSettings
         }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
     }
 
     // MARK: - Validation Message
@@ -438,6 +465,32 @@ struct TaxTriageWizardSheet: View {
             .padding(.top, 8)
         }
         .font(.system(size: 12, weight: .medium))
+    }
+
+    private var standaloneFooter: some View {
+        HStack {
+            if !canRun {
+                Text("Finish the settings above to continue")
+                    .font(.caption)
+                    .foregroundStyle(Color.lungfishOrangeFallback)
+            }
+
+            Spacer()
+
+            Button("Cancel") {
+                onCancel?()
+            }
+            .keyboardShortcut(.cancelAction)
+
+            Button("Run") {
+                performRun()
+            }
+            .keyboardShortcut(.defaultAction)
+            .buttonStyle(.borderedProminent)
+            .disabled(!canRun)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
     }
 
     // MARK: - Actions

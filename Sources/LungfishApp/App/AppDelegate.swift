@@ -4987,7 +4987,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         let hostingController = NSHostingController(rootView: wizardView)
         wizardPanel.contentViewController = hostingController
-        wizardPanel.setContentSize(NSSize(width: 560, height: 680))
+        wizardPanel.setContentSize(UnifiedMetagenomicsWizard.preferredContentSize)
         Task { @MainActor in
             await window.beginSheet(wizardPanel)
         }
@@ -5053,27 +5053,29 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         // Pass bundle URLs directly — the sheet displays bundle names (not "preview.fastq").
         // Materialization of virtual FASTQs happens later in runClassification().
-        let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
-        wizardPanel.title = "Kraken2 Classification"
+        let wizardPanel = makeUnifiedClassifierPanel(title: "Kraken2")
 
-        let sheet = ClassificationWizardSheet(
-            inputFiles: bundleURLs,
-            onRun: { [weak self] configs in
-                window.endSheet(wizardPanel)
-                guard let self else { return }
-                self.runClassification(configs: configs, viewerController: viewerController)
-            },
-            onCancel: {
-                window.endSheet(wizardPanel)
-            }
-        )
-
-        let hostingController = NSHostingController(rootView: sheet)
-        wizardPanel.contentViewController = hostingController
-        wizardPanel.setContentSize(NSSize(width: 520, height: 460))
-        Task { @MainActor in
-            await window.beginSheet(wizardPanel)
+        var wizardView = UnifiedMetagenomicsWizard(inputFiles: bundleURLs, initialSelection: .classification)
+        wizardView.onRunClassification = { [weak self] configs in
+            window.endSheet(wizardPanel)
+            guard let self else { return }
+            self.runClassification(configs: configs, viewerController: viewerController)
         }
+        wizardView.onRunEsViritu = { [weak self] configs in
+            window.endSheet(wizardPanel)
+            guard let self else { return }
+            self.runEsViritu(configs: configs, viewerController: viewerController)
+        }
+        wizardView.onRunTaxTriage = { [weak self] config in
+            window.endSheet(wizardPanel)
+            guard let self else { return }
+            self.runTaxTriage(config: config, viewerController: viewerController)
+        }
+        wizardView.onCancel = {
+            window.endSheet(wizardPanel)
+        }
+
+        presentUnifiedClassifierPanel(window: window, wizardPanel: wizardPanel, wizardView: wizardView)
     }
 
     /// Launches EsViritu viral detection directly (skipping the wizard chooser step).
@@ -5092,27 +5094,29 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
-        let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
-        wizardPanel.title = "EsViritu Viral Detection"
+        let wizardPanel = makeUnifiedClassifierPanel(title: "EsViritu")
 
-        let sheet = EsVirituWizardSheet(
-            inputFiles: bundleURLs,
-            onRun: { [weak self] configs in
-                window.endSheet(wizardPanel)
-                guard let self else { return }
-                self.runEsViritu(configs: configs, viewerController: viewerController)
-            },
-            onCancel: {
-                window.endSheet(wizardPanel)
-            }
-        )
-
-        let hostingController = NSHostingController(rootView: sheet)
-        wizardPanel.contentViewController = hostingController
-        wizardPanel.setContentSize(NSSize(width: 560, height: 680))
-        Task { @MainActor in
-            await window.beginSheet(wizardPanel)
+        var wizardView = UnifiedMetagenomicsWizard(inputFiles: bundleURLs, initialSelection: .viralDetection)
+        wizardView.onRunClassification = { [weak self] configs in
+            window.endSheet(wizardPanel)
+            guard let self else { return }
+            self.runClassification(configs: configs, viewerController: viewerController)
         }
+        wizardView.onRunEsViritu = { [weak self] configs in
+            window.endSheet(wizardPanel)
+            guard let self else { return }
+            self.runEsViritu(configs: configs, viewerController: viewerController)
+        }
+        wizardView.onRunTaxTriage = { [weak self] config in
+            window.endSheet(wizardPanel)
+            guard let self else { return }
+            self.runTaxTriage(config: config, viewerController: viewerController)
+        }
+        wizardView.onCancel = {
+            window.endSheet(wizardPanel)
+        }
+
+        presentUnifiedClassifierPanel(window: window, wizardPanel: wizardPanel, wizardView: wizardView)
     }
 
     /// Launches TaxTriage comprehensive triage directly (skipping the wizard chooser step).
@@ -5131,24 +5135,45 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
+        let wizardPanel = makeUnifiedClassifierPanel(title: "TaxTriage")
+
+        var wizardView = UnifiedMetagenomicsWizard(inputFiles: bundleURLs, initialSelection: .clinicalTriage)
+        wizardView.onRunClassification = { [weak self] configs in
+            window.endSheet(wizardPanel)
+            guard let self else { return }
+            self.runClassification(configs: configs, viewerController: viewerController)
+        }
+        wizardView.onRunEsViritu = { [weak self] configs in
+            window.endSheet(wizardPanel)
+            guard let self else { return }
+            self.runEsViritu(configs: configs, viewerController: viewerController)
+        }
+        wizardView.onRunTaxTriage = { [weak self] config in
+            window.endSheet(wizardPanel)
+            guard let self else { return }
+            self.runTaxTriage(config: config, viewerController: viewerController)
+        }
+        wizardView.onCancel = {
+            window.endSheet(wizardPanel)
+        }
+
+        presentUnifiedClassifierPanel(window: window, wizardPanel: wizardPanel, wizardView: wizardView)
+    }
+
+    private func makeUnifiedClassifierPanel(title: String) -> NSPanel {
         let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
-        wizardPanel.title = "TaxTriage Classification"
+        wizardPanel.title = title
+        return wizardPanel
+    }
 
-        let sheet = TaxTriageWizardSheet(
-            initialFiles: bundleURLs,
-            onRun: { [weak self] config in
-                window.endSheet(wizardPanel)
-                guard let self else { return }
-                self.runTaxTriage(config: config, viewerController: viewerController)
-            },
-            onCancel: {
-                window.endSheet(wizardPanel)
-            }
-        )
-
-        let hostingController = NSHostingController(rootView: sheet)
+    private func presentUnifiedClassifierPanel(
+        window: NSWindow,
+        wizardPanel: NSPanel,
+        wizardView: UnifiedMetagenomicsWizard
+    ) {
+        let hostingController = NSHostingController(rootView: wizardView)
         wizardPanel.contentViewController = hostingController
-        wizardPanel.setContentSize(NSSize(width: 560, height: 680))
+        wizardPanel.setContentSize(UnifiedMetagenomicsWizard.preferredContentSize)
         Task { @MainActor in
             await window.beginSheet(wizardPanel)
         }

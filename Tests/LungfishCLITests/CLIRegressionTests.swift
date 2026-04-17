@@ -26,7 +26,7 @@ final class CLITopLevelRegressionTests: XCTestCase {
     }
 
     func testLungfishCLIVersion() {
-        XCTAssertEqual(LungfishCLI.configuration.version, "1.0.1")
+        XCTAssertEqual(LungfishCLI.configuration.version, "1.0.4")
     }
 
     func testLungfishCLIAbstractIsNonEmpty() {
@@ -718,14 +718,15 @@ final class ProvisionToolsCommandRegressionTests: XCTestCase {
             duration: 1.5
         )
 
-        let json = try XCTUnwrap(String(data: JSONEncoder().encode(summary), encoding: .utf8))
+        let payload = try provisioningJSONObject(from: JSONEncoder().encode(summary))
 
-        XCTAssertLessThan(try XCTUnwrap(json.range(of: #""alpha","zeta""#)?.lowerBound),
-                          try XCTUnwrap(json.range(of: #""omega""#)?.lowerBound))
-        XCTAssertLessThan(try XCTUnwrap(json.range(of: #""alpha":"failed alpha""#)?.lowerBound),
-                          try XCTUnwrap(json.range(of: #""zeta":"failed zeta""#)?.lowerBound))
-        XCTAssertLessThan(try XCTUnwrap(json.range(of: #""beta","omega""#)?.lowerBound),
-                          try XCTUnwrap(json.range(of: #""duration":1.5"#)?.lowerBound))
+        XCTAssertEqual(payload["successful"] as? [String], ["alpha", "zeta"])
+        XCTAssertEqual(payload["failed"] as? [String: String], [
+            "alpha": "failed alpha",
+            "zeta": "failed zeta"
+        ])
+        XCTAssertEqual(payload["skipped"] as? [String], ["beta", "omega"])
+        XCTAssertEqual(payload["duration"] as? Double, 1.5)
     }
 
     func testInstallationStatusSummaryJSONIsStable() throws {
@@ -734,10 +735,16 @@ final class ProvisionToolsCommandRegressionTests: XCTestCase {
             "alpha": true
         ])
 
-        let json = try XCTUnwrap(String(data: JSONEncoder().encode(status), encoding: .utf8))
+        let payload = try provisioningJSONObject(from: JSONEncoder().encode(status))
 
-        XCTAssertLessThan(try XCTUnwrap(json.range(of: #""alpha":true"#)?.lowerBound),
-                          try XCTUnwrap(json.range(of: #""zeta":false"#)?.lowerBound))
+        XCTAssertEqual(payload as? [String: Bool], [
+            "alpha": true,
+            "zeta": false
+        ])
+    }
+
+    private func provisioningJSONObject(from data: Data) throws -> [String: Any] {
+        try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 }
 

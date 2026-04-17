@@ -58,6 +58,12 @@ struct ClassificationWizardSheet: View {
     /// The input FASTQ files to classify.
     let inputFiles: [URL]
 
+    /// Whether the wizard is embedded inside the shared classifier runner shell.
+    let embeddedInUnifiedRunner: Bool
+
+    /// Incremented by the shared shell to request a run.
+    let embeddedRunTrigger: Int
+
     /// Installed Kraken2 databases, loaded asynchronously from the registry.
     @State private var installedDatabases: [MetagenomicsDatabaseInfo] = []
 
@@ -84,16 +90,25 @@ struct ClassificationWizardSheet: View {
     /// Called when the user clicks Cancel.
     var onCancel: (() -> Void)?
 
+    /// Notifies the shared shell whether the current configuration can run.
+    var onRunnerAvailabilityChange: ((Bool) -> Void)?
+
     // MARK: - Initialization
 
     init(
         inputFiles: [URL],
+        embeddedInUnifiedRunner: Bool = false,
+        embeddedRunTrigger: Int = 0,
         onRun: (([ClassificationConfig]) -> Void)? = nil,
-        onCancel: (() -> Void)? = nil
+        onCancel: (() -> Void)? = nil,
+        onRunnerAvailabilityChange: ((Bool) -> Void)? = nil
     ) {
         self.inputFiles = inputFiles
+        self.embeddedInUnifiedRunner = embeddedInUnifiedRunner
+        self.embeddedRunTrigger = embeddedRunTrigger
         self.onRun = onRun
         self.onCancel = onCancel
+        self.onRunnerAvailabilityChange = onRunnerAvailabilityChange
     }
 
     // MARK: - Database Loading
@@ -180,8 +195,41 @@ struct ClassificationWizardSheet: View {
     // MARK: - Body
 
     var body: some View {
+        Group {
+            if !embeddedInUnifiedRunner {
+                standaloneBody
+            } else {
+                ScrollView {
+                    configurationContent
+                }
+            }
+        }
+        .background(Color.lungfishCanvasBackground)
+        .tint(.lungfishCreamsicleFallback)
+        .task { await loadDatabases() }
+        .onAppear {
+            onRunnerAvailabilityChange?(canRun)
+        }
+        .onChange(of: canRun) { _, newValue in
+            onRunnerAvailabilityChange?(newValue)
+        }
+        .onChange(of: embeddedRunTrigger) { _, _ in
+            guard embeddedInUnifiedRunner else { return }
+            performRun()
+        }
+        .onChange(of: preset) { _, newPreset in
+            applyPreset(newPreset)
+        }
+        .onChange(of: selectedDatabaseName) { _, _ in
+            // Auto-enable memory mapping when database exceeds RAM
+            if databaseExceedsRAM && !memoryMapping {
+                memoryMapping = true
+            }
+        }
+    }
+
+    private var standaloneBody: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header: tool identity + dataset name
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Kraken2 Classification")
@@ -210,77 +258,69 @@ struct ClassificationWizardSheet: View {
             Divider()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    if isBatchMode {
-                        sampleOverviewSection
-                        Divider()
-                    }
-
-                    // Database picker
-                    databasePicker
-
-                    Divider()
-
-                    // Preset selector
-                    presetSelector
-
-                    Divider()
-
-                    // Advanced settings
-                    advancedSettings
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
+                configurationContent
             }
 
             Divider()
 
-            // Action buttons
-            HStack {
-                if !canRun && inputFiles.isEmpty {
-                    Text("No input files selected")
-                        .font(.caption)
-                        .foregroundStyle(Color.lungfishOrangeFallback)
-                } else if !canRun && groupedSamples.isEmpty {
-                    Text("Could not detect valid sample inputs")
-                        .font(.caption)
-                        .foregroundStyle(Color.lungfishOrangeFallback)
-                } else if !canRun && readyDatabases.isEmpty {
-                    Text("No databases installed")
-                        .font(.caption)
-                        .foregroundStyle(Color.lungfishOrangeFallback)
-                }
-
-                Spacer()
-
-                Button("Cancel") {
-                    onCancel?()
-                }
-                .keyboardShortcut(.cancelAction)
-
-                Button("Run") {
-                    performRun()
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .disabled(!canRun)
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
+            standaloneFooter
         }
         .frame(width: 520, height: 520)
-        .background(Color.lungfishCanvasBackground)
-        .tint(.lungfishCreamsicleFallback)
-        .task { await loadDatabases() }
-        .onChange(of: preset) { _, newPreset in
-            applyPreset(newPreset)
-        }
-        .onChange(of: selectedDatabaseName) { _, _ in
-            // Auto-enable memory mapping when database exceeds RAM
-            if databaseExceedsRAM && !memoryMapping {
-                memoryMapping = true
+    }
+
+    private var standaloneFooter: some View {
+        HStack {
+            if !canRun && inputFiles.isEmpty {
+                Text("No input files selected")
+                    .font(.caption)
+                    .foregroundStyle(Color.lungfishOrangeFallback)
+            } else if !canRun && groupedSamples.isEmpty {
+                Text("Could not detect valid sample inputs")
+                    .font(.caption)
+                    .foregroundStyle(Color.lungfishOrangeFallback)
+            } else if !canRun && readyDatabases.isEmpty {
+                Text("No databases installed")
+                    .font(.caption)
+                    .foregroundStyle(Color.lungfishOrangeFallback)
             }
+
+            Spacer()
+
+            Button("Cancel") {
+                onCancel?()
+            }
+            .keyboardShortcut(.cancelAction)
+
+            Button("Run") {
+                performRun()
+            }
+            .keyboardShortcut(.defaultAction)
+            .buttonStyle(.borderedProminent)
+            .disabled(!canRun)
         }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+    }
+
+    private var configurationContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if isBatchMode {
+                sampleOverviewSection
+                Divider()
+            }
+
+            databasePicker
+
+            Divider()
+
+            presetSelector
+
+            Divider()
+
+            advancedSettings
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
     }
 
     // MARK: - Sample Overview

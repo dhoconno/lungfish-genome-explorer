@@ -93,6 +93,15 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(PluginPack.activeOptionalPacks.map(\.id), ["metagenomics"])
     }
 
+    func testActiveMetagenomicsPackUsesUnifiedClassifierDescription() throws {
+        let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "metagenomics" }))
+
+        XCTAssertEqual(
+            pack.description,
+            "Taxonomic classification and pathogen detection from metagenomic samples"
+        )
+    }
+
     func testVisibleCLIPacksIncludeRequiredAndActiveOptional() {
         XCTAssertEqual(PluginPack.visibleForCLI.map(\.id), ["lungfish-tools", "metagenomics"])
     }

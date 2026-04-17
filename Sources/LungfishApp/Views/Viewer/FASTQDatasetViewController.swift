@@ -178,7 +178,7 @@ public final class FASTQDatasetViewController: NSViewController {
             case .mapReads: return "Map Reads (minimap2)"
             case .classifyReads: return "Classify & Profile (Kraken2)"
             case .detectViruses: return "Detect Viruses (EsViritu)"
-            case .comprehensiveTriage: return "Clinical Triage (TaxTriage)"
+            case .comprehensiveTriage: return "Detect Pathogens (TaxTriage)"
             case .naoMgsImport: return "NAO-MGS Surveillance"
             case .humanReadScrub: return "Remove Human Reads"
             }
@@ -276,7 +276,7 @@ public final class FASTQDatasetViewController: NSViewController {
             case .detectViruses:
                 return "Run EsViritu viral metagenomics detection with de novo assembly and genome coverage analysis."
             case .comprehensiveTriage:
-                return "Run TaxTriage (Nextflow) for end-to-end clinical metagenomics with TASS confidence scoring and organism reporting."
+                return "Run TaxTriage for end-to-end pathogen detection from metagenomic reads with confidence scoring and organism reporting."
             case .naoMgsImport:
                 return "Import results from the NAO metagenomic surveillance pipeline (securebio/nao-mgs-workflow). Parses virus hit tables and displays alignment data."
             case .humanReadScrub:
