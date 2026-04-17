@@ -17,6 +17,8 @@ private actor StubWelcomePackStatusProvider: PluginPackStatusProviding {
         statuses.first(where: { $0.pack.id == pack.id })!
     }
 
+    func invalidateVisibleStatusesCache() async {}
+
     func install(
         pack: PluginPack,
         reinstall: Bool,
@@ -54,6 +56,8 @@ private final class DelayedWelcomePackStatusProvider: @unchecked Sendable, Plugi
         statuses.first(where: { $0.pack.id == pack.id })!
     }
 
+    func invalidateVisibleStatusesCache() async {}
+
     func install(
         pack: PluginPack,
         reinstall: Bool,
@@ -69,6 +73,56 @@ private final class DelayedWelcomePackStatusProvider: @unchecked Sendable, Plugi
         for continuation in pending {
             continuation.resume()
         }
+    }
+}
+
+private final class StatefulWelcomePackStatusProvider: @unchecked Sendable, PluginPackStatusProviding {
+    let initialStatuses: [PluginPackStatus]
+    let loadingStatuses: [PluginPackStatus]
+    private let lock = NSLock()
+    private var callCount = 0
+    private var continuation: CheckedContinuation<[PluginPackStatus], Never>?
+
+    init(initialStatuses: [PluginPackStatus], loadingStatuses: [PluginPackStatus]) {
+        self.initialStatuses = initialStatuses
+        self.loadingStatuses = loadingStatuses
+    }
+
+    func visibleStatuses() async -> [PluginPackStatus] {
+        lock.withLock {
+            callCount += 1
+        }
+
+        if lock.withLock({ callCount }) == 1 {
+            return initialStatuses
+        }
+
+        return await withCheckedContinuation { continuation in
+            lock.withLock {
+                self.continuation = continuation
+            }
+        }
+    }
+
+    func status(for pack: PluginPack) async -> PluginPackStatus {
+        loadingStatuses.first(where: { $0.pack.id == pack.id }) ?? initialStatuses.first(where: { $0.pack.id == pack.id })!
+    }
+
+    func invalidateVisibleStatusesCache() async {}
+
+    func install(
+        pack: PluginPack,
+        reinstall: Bool,
+        progress: (@Sendable (PluginPackInstallProgress) -> Void)?
+    ) async throws {}
+
+    func release() {
+        let continuation = lock.withLock {
+            let continuation = self.continuation
+            self.continuation = nil
+            return continuation
+        }
+        continuation?.resume(returning: loadingStatuses)
     }
 }
 
@@ -201,6 +255,44 @@ final class WelcomeSetupTests: XCTestCase {
 
         XCTAssertFalse(viewModel.isRefreshingSetup)
         XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
+    }
+
+    func testRefreshSetupClearsLoadedStatusesWhileReloading() async {
+        let required = PluginPackStatus(
+            pack: .requiredSetupPack,
+            state: .ready,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+        let optional = PluginPackStatus(
+            pack: PluginPack.activeOptionalPacks[0],
+            state: .ready,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+
+        let provider = StatefulWelcomePackStatusProvider(
+            initialStatuses: [required, optional],
+            loadingStatuses: [required, optional]
+        )
+        let viewModel = WelcomeViewModel(statusProvider: provider)
+
+        await viewModel.refreshSetup()
+        XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
+        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["metagenomics"])
+
+        let refreshTask = Task { await viewModel.refreshSetup() }
+        await Task.yield()
+
+        XCTAssertTrue(viewModel.isRefreshingSetup)
+        XCTAssertNil(viewModel.requiredSetupStatus)
+        XCTAssertTrue(viewModel.optionalPackStatuses.isEmpty)
+
+        provider.release()
+        await refreshTask.value
+
+        XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
+        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["metagenomics"])
     }
 
     private func repositoryRoot() -> URL {

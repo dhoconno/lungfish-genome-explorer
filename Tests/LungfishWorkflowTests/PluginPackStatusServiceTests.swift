@@ -4,6 +4,65 @@ import XCTest
 final class PluginPackStatusServiceTests: XCTestCase {
 
     func testVisibleStatusesReuseCachedResultWithinTTL() async throws {
+        final class DatabaseGate: @unchecked Sendable {
+            var callCount = 0
+            private let lock = NSLock()
+            private var continuation: CheckedContinuation<Void, Never>?
+
+            func waitForRelease() async {
+                lock.withLock {
+                    callCount += 1
+                }
+                await withCheckedContinuation { continuation in
+                    lock.withLock {
+                        self.continuation = continuation
+                    }
+                }
+            }
+
+            func release() {
+                let continuation = lock.withLock {
+                    let continuation = self.continuation
+                    self.continuation = nil
+                    return continuation
+                }
+                continuation?.resume()
+            }
+
+            func recordedCallCount() -> Int { lock.withLock { callCount } }
+        }
+
+        let gate = DatabaseGate()
+        let manager = CondaManager(
+            rootPrefix: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),
+            bundledMicromambaProvider: { nil },
+            bundledMicromambaVersionProvider: { nil }
+        )
+
+        let service = PluginPackStatusService(
+            condaManager: manager,
+            databaseInstalledCheck: { _ in
+                await gate.waitForRelease()
+                return false
+            },
+            cacheLifetime: 60
+        )
+
+        async let firstStatuses = service.visibleStatuses()
+
+        try? await Task.sleep(for: .milliseconds(50))
+        let initialCallCount = gate.recordedCallCount()
+        XCTAssertEqual(initialCallCount, 1)
+
+        gate.release()
+        _ = await firstStatuses
+        _ = await service.visibleStatuses()
+
+        let finalCallCount = gate.recordedCallCount()
+        XCTAssertEqual(finalCallCount, 1)
+    }
+
+    func testVisibleStatusesAreInvalidatedAfterExplicitCacheClear() async throws {
         actor DatabaseRecorder {
             var callCount = 0
 
@@ -32,9 +91,11 @@ final class PluginPackStatusServiceTests: XCTestCase {
 
         _ = await service.visibleStatuses()
         _ = await service.visibleStatuses()
+        await service.invalidateVisibleStatusesCache()
+        _ = await service.visibleStatuses()
 
         let callCount = await recorder.recordedCallCount()
-        XCTAssertEqual(callCount, 1)
+        XCTAssertEqual(callCount, 2)
     }
 
     func testVisibleStatusesShareInFlightRefreshWork() async throws {

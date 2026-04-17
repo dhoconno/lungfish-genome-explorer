@@ -17,6 +17,8 @@ private actor StubPluginManagerPackStatusProvider: PluginPackStatusProviding {
         statuses.first(where: { $0.pack.id == pack.id })!
     }
 
+    func invalidateVisibleStatusesCache() async {}
+
     func install(
         pack: PluginPack,
         reinstall: Bool,
@@ -54,6 +56,8 @@ private final class DelayedPluginManagerPackStatusProvider: @unchecked Sendable,
         statuses.first(where: { $0.pack.id == pack.id })!
     }
 
+    func invalidateVisibleStatusesCache() async {}
+
     func install(
         pack: PluginPack,
         reinstall: Bool,
@@ -69,6 +73,44 @@ private final class DelayedPluginManagerPackStatusProvider: @unchecked Sendable,
         for continuation in pending {
             continuation.resume()
         }
+    }
+}
+
+private actor CacheAwarePluginManagerPackStatusProvider: PluginPackStatusProviding {
+    let pack: PluginPack
+    private let installedStatuses: [PluginPackStatus]
+    private let removedStatuses: [PluginPackStatus]
+    private var currentStatuses: [PluginPackStatus]
+    private var invalidationCount = 0
+
+    init(pack: PluginPack, installedStatuses: [PluginPackStatus], removedStatuses: [PluginPackStatus]) {
+        self.pack = pack
+        self.installedStatuses = installedStatuses
+        self.removedStatuses = removedStatuses
+        self.currentStatuses = installedStatuses
+    }
+
+    func visibleStatuses() async -> [PluginPackStatus] {
+        currentStatuses
+    }
+
+    func status(for pack: PluginPack) async -> PluginPackStatus {
+        currentStatuses.first(where: { $0.pack.id == pack.id })!
+    }
+
+    func invalidateVisibleStatusesCache() async {
+        invalidationCount += 1
+        currentStatuses = removedStatuses
+    }
+
+    func install(
+        pack: PluginPack,
+        reinstall: Bool,
+        progress: (@Sendable (PluginPackInstallProgress) -> Void)?
+    ) async throws {}
+
+    func recordedInvalidationCount() -> Int {
+        invalidationCount
     }
 }
 
@@ -129,5 +171,45 @@ final class PluginPackVisibilityTests: XCTestCase {
 
         XCTAssertFalse(viewModel.isLoadingPackStatuses)
         XCTAssertEqual(viewModel.requiredSetupPack?.pack.id, "lungfish-tools")
+    }
+
+    func testRemovePackInvalidatesCachedPackStatuses() async {
+        let pack = PluginPack(
+            id: "cache-test-pack",
+            name: "Cache Test Pack",
+            description: "Test pack for cache invalidation",
+            sfSymbol: "shippingbox",
+            packages: [],
+            category: "Testing"
+        )
+
+        let installed = PluginPackStatus(
+            pack: pack,
+            state: .ready,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+        let removed = PluginPackStatus(
+            pack: pack,
+            state: .needsInstall,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+        let provider = CacheAwarePluginManagerPackStatusProvider(
+            pack: pack,
+            installedStatuses: [installed],
+            removedStatuses: [removed]
+        )
+        let viewModel = PluginManagerViewModel(packStatusProvider: provider)
+
+        await viewModel.loadPackStatuses()
+        XCTAssertEqual(viewModel.optionalPackStatuses.first?.state, .ready)
+
+        viewModel.removePack(pack)
+        try? await Task.sleep(for: .milliseconds(50))
+
+        let invalidationCount = await provider.recordedInvalidationCount()
+        XCTAssertEqual(invalidationCount, 1)
+        XCTAssertEqual(viewModel.optionalPackStatuses.first?.state, .needsInstall)
     }
 }

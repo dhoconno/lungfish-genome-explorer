@@ -160,6 +160,8 @@ final class WelcomeViewModel: ObservableObject {
 
     func refreshSetup() async {
         isRefreshingSetup = true
+        requiredSetupStatus = nil
+        optionalPackStatuses = []
         defer { isRefreshingSetup = false }
         let statuses = await statusProvider.visibleStatuses()
         requiredSetupStatus = statuses.first(where: { $0.pack.isRequiredBeforeLaunch })

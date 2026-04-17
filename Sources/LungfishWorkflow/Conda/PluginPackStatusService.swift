@@ -77,6 +77,7 @@ public struct PluginPackStatus: Sendable, Codable, Hashable, Identifiable {
 public protocol PluginPackStatusProviding: Sendable {
     func visibleStatuses() async -> [PluginPackStatus]
     func status(for pack: PluginPack) async -> PluginPackStatus
+    func invalidateVisibleStatusesCache() async
     func install(
         pack: PluginPack,
         reinstall: Bool,
@@ -202,7 +203,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         reinstall: Bool,
         progress: (@Sendable (PluginPackInstallProgress) -> Void)?
     ) async throws {
-        invalidateVisibleStatusCache()
+        await invalidateVisibleStatusesCache()
         let installTargets = pack.toolRequirements
         let totalSteps = max(installTargets.count, 1)
         for (index, requirement) in installTargets.enumerated() {
@@ -247,7 +248,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             }
         }
         await runPostInstallHooks(for: pack)
-        invalidateVisibleStatusCache()
+        await invalidateVisibleStatusesCache()
         progress?(PluginPackInstallProgress(
             requirementID: nil,
             requirementDisplayName: nil,
@@ -257,7 +258,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         ))
     }
 
-    private func invalidateVisibleStatusCache() {
+    public func invalidateVisibleStatusesCache() async {
         cacheGeneration += 1
         cachedVisibleStatuses = nil
         inFlightVisibleStatuses = nil

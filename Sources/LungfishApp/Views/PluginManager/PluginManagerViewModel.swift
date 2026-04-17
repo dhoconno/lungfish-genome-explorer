@@ -406,6 +406,7 @@ final class PluginManagerViewModel {
                 }
             }
 
+            await packStatusProvider.invalidateVisibleStatusesCache()
             refreshInstalled()
             refreshPackStatuses()
         }
