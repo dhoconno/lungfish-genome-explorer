@@ -46,6 +46,14 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
         XCTAssertTrue(source.contains("wizardPanel.setContentSize(UnifiedMetagenomicsWizard.preferredContentSize)"))
     }
 
+    func testClassifierLaunchRoutingUsesUnifiedRunnerSelection() throws {
+        let source = try loadSource(at: "Sources/LungfishApp/App/AppDelegate.swift")
+
+        XCTAssertTrue(source.contains("UnifiedMetagenomicsWizard(inputFiles: bundleURLs, initialSelection: .classification)"))
+        XCTAssertTrue(source.contains("UnifiedMetagenomicsWizard(inputFiles: bundleURLs, initialSelection: .viralDetection)"))
+        XCTAssertTrue(source.contains("UnifiedMetagenomicsWizard(inputFiles: bundleURLs, initialSelection: .clinicalTriage)"))
+    }
+
     private func loadSource(at relativePath: String) throws -> String {
         let sourceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
