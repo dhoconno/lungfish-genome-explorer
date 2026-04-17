@@ -7,8 +7,7 @@ import LungfishWorkflow
 
 // MARK: - UnifiedMetagenomicsWizard
 
-/// A unified SwiftUI wizard that serves as the single entry point for all metagenomics
-/// analysis workflows in Lungfish.
+/// A unified SwiftUI shell for all metagenomics analysis workflows in Lungfish.
 ///
 /// ## Analysis Types
 ///
@@ -17,13 +16,6 @@ import LungfishWorkflow
 /// | Taxonomic          | Kraken2     | Broad taxonomic classification        | Fast   |
 /// | Viral Detection    | EsViritu    | Virus-specific detection + coverage   | Medium |
 /// | Clinical Triage    | TaxTriage   | End-to-end with confidence scoring    | Slow   |
-///
-/// ## Two-Step Flow
-///
-/// 1. **Choose Analysis Type**: User selects from the three analysis types.
-///    Each option shows a description and tool availability.
-/// 2. **Tool Configuration**: The wizard shows the appropriate sub-wizard for
-///    the selected tool.
 ///
 /// ## Presentation
 ///
@@ -35,15 +27,29 @@ struct UnifiedMetagenomicsWizard: View {
     let inputFiles: [URL]
     let initialSelection: AnalysisType
 
+    /// Stable shared section identifiers for the unified runner shell.
+    private enum SharedSection: CaseIterable {
+        case overview
+        case prerequisites
+        case samples
+        case database
+        case toolSettings
+        case advancedSettings
+
+        var title: String {
+            switch self {
+            case .overview: return "Overview"
+            case .prerequisites: return "Prerequisites"
+            case .samples: return "Samples"
+            case .database: return "Database"
+            case .toolSettings: return "Tool Settings"
+            case .advancedSettings: return "Advanced Settings"
+            }
+        }
+    }
+
     /// Section order shared by the unified runner shell.
-    static let sharedSectionOrder = [
-        "Overview",
-        "Prerequisites",
-        "Samples",
-        "Database",
-        "Tool Settings",
-        "Advanced Settings"
-    ]
+    static let sharedSectionOrder = SharedSection.allCases.map(\.title)
 
     // MARK: - State
 
@@ -85,6 +91,11 @@ struct UnifiedMetagenomicsWizard: View {
         self.onCancel = onCancel
         _sidebarSelection = State(initialValue: initialSelection)
     }
+
+    #if DEBUG
+    var testingSidebarSelection: AnalysisType { sidebarSelection }
+    var testingInitialSelection: AnalysisType { initialSelection }
+    #endif
 
     // MARK: - Enums
 
@@ -182,8 +193,8 @@ struct UnifiedMetagenomicsWizard: View {
         VStack(alignment: .leading, spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    ForEach(Self.sharedSectionOrder, id: \.self) { section in
-                        Text(section)
+                    ForEach(Self.SharedSection.allCases, id: \.self) { section in
+                        Text(section.title)
                             .font(.system(size: 12, weight: .semibold))
                     }
 
@@ -332,10 +343,6 @@ struct UnifiedMetagenomicsWizard: View {
             )
         }
     }
-
-    #if DEBUG
-    var testingInitialSelection: AnalysisType { initialSelection }
-    #endif
 
     // MARK: - Tool Availability Checks
 

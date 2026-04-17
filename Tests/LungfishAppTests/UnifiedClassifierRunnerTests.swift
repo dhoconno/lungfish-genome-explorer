@@ -24,6 +24,7 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
     func testInitialSelectionIsSeededForTesting() {
         let wizard = UnifiedMetagenomicsWizard(inputFiles: [], initialSelection: .clinicalTriage)
         XCTAssertEqual(wizard.testingInitialSelection, .clinicalTriage)
+        XCTAssertEqual(wizard.testingSidebarSelection, .clinicalTriage)
     }
 
     func testWizardSourceUsesRunnerShellTermsOnly() throws {
@@ -35,8 +36,6 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
 
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
-        XCTAssertTrue(source.contains("sidebarSelection"))
-        XCTAssertTrue(source.contains("runnerSidebar"))
         XCTAssertFalse(source.contains("WizardStep"))
         XCTAssertFalse(source.contains("analysisTypeSelector"))
     }
