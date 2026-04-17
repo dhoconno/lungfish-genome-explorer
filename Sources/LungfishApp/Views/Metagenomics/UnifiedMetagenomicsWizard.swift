@@ -22,7 +22,7 @@ import LungfishWorkflow
 /// Hosted in an `NSPanel` via `NSHostingController` and presented with
 /// `beginSheetModal` (per macOS 26 rules -- never `runModal()`).
 struct UnifiedMetagenomicsWizard: View {
-    static let preferredContentSize = CGSize(width: 760, height: 520)
+    static let preferredContentSize = CGSize(width: 880, height: 620)
 
     /// The input FASTQ files to analyze.
     let inputFiles: [URL]
@@ -55,6 +55,8 @@ struct UnifiedMetagenomicsWizard: View {
     // MARK: - State
 
     @State private var sidebarSelection: AnalysisType
+    @State private var runnerCanRun: Bool = false
+    @State private var runnerRunTrigger: Int = 0
 
     // MARK: - Callbacks
 
@@ -143,101 +145,146 @@ struct UnifiedMetagenomicsWizard: View {
     // MARK: - Body
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Title
-            HStack {
-                Text("Classify Reads")
-                    .font(.headline)
-                Spacer()
-                if inputFiles.count == 1 {
-                    Text(inputFiles.first?.lastPathComponent ?? "")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                } else {
-                    Text("\(inputFiles.count) files")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            .padding(.bottom, 12)
+        HStack(spacing: 0) {
+            runnerSidebar
+                .frame(width: 260)
+                .background(Color.lungfishSidebarBackground)
 
             Divider()
 
-            HStack(spacing: 0) {
-                runnerSidebar
-                    .frame(width: 280)
+            VStack(spacing: 0) {
+                UnifiedClassifierRunnerHeader(
+                    title: sidebarSelection.sidebarTitle,
+                    subtitle: sidebarSelection.analysisDescription,
+                    datasetLabel: runnerDatasetLabel
+                )
 
                 Divider()
 
-                configurationStep
+                runnerDetail
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(20)
+
+                Divider()
+
+                footerBar
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.lungfishCanvasBackground)
         }
-        .frame(
-            width: Self.preferredContentSize.width,
-            height: Self.preferredContentSize.height
-        )
+        .frame(width: Self.preferredContentSize.width, height: Self.preferredContentSize.height)
     }
 
     // MARK: - Runner Sidebar
 
     private var runnerSidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    ForEach(Self.SharedSection.allCases, id: \.self) { section in
-                        Text(section.title)
-                            .font(.system(size: 12, weight: .semibold))
-                    }
-
-                    Picker("Analysis Type", selection: $sidebarSelection) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                UnifiedClassifierRunnerSection("Classifier", subtitle: "Choose the analysis to configure") {
+                    VStack(alignment: .leading, spacing: 8) {
                         ForEach(AnalysisType.allCases) { type in
-                            Text(type.sidebarTitle).tag(type)
+                            Button {
+                                sidebarSelection = type
+                            } label: {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(type.sidebarTitle)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(Color.primary)
+                                    Text(type.toolName)
+                                        .font(.caption)
+                                        .foregroundStyle(Color.lungfishSecondaryText)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 8)
+                                .padding(.horizontal, 10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .fill(sidebarSelection == type
+                                            ? Color.lungfishCreamsicleFallback.opacity(0.18)
+                                            : Color.clear)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .stroke(
+                                            sidebarSelection == type
+                                            ? Color.lungfishCreamsicleFallback.opacity(0.35)
+                                            : Color.lungfishStroke,
+                                            lineWidth: 1
+                                        )
+                                )
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
+
+                Spacer(minLength: 0)
             }
+            .padding(16)
         }
     }
 
-    // MARK: - Step 2: Configuration
+    private var runnerDetail: some View {
+        Group {
+            switch sidebarSelection {
+            case .classification:
+                ClassificationWizardSheet(
+                    inputFiles: inputFiles,
+                    embeddedInUnifiedRunner: true,
+                    embeddedRunTrigger: runnerRunTrigger,
+                    onRun: { configs in
+                        onRunClassification?(configs)
+                    },
+                    onRunnerAvailabilityChange: { runnerCanRun = $0 }
+                )
 
-    @ViewBuilder
-    private var configurationStep: some View {
-        switch sidebarSelection {
-        case .classification:
-            ClassificationWizardSheet(
-                inputFiles: inputFiles,
-                onRun: { configs in
-                    onRunClassification?(configs)
-                },
-                onCancel: { onCancel?() }
-            )
+            case .viralDetection:
+                EsVirituWizardSheet(
+                    inputFiles: inputFiles,
+                    embeddedInUnifiedRunner: true,
+                    embeddedRunTrigger: runnerRunTrigger,
+                    onRun: { configs in
+                        onRunEsViritu?(configs)
+                    },
+                    onRunnerAvailabilityChange: { runnerCanRun = $0 }
+                )
 
-        case .viralDetection:
-            EsVirituWizardSheet(
-                inputFiles: inputFiles,
-                onRun: { configs in
-                    onRunEsViritu?(configs)
-                },
-                onCancel: { onCancel?() }
-            )
-
-        case .clinicalTriage:
-            TaxTriageWizardSheet(
-                initialFiles: inputFiles,
-                onRun: { config in
-                    onRunTaxTriage?(config)
-                },
-                onCancel: { onCancel?() }
-            )
+            case .clinicalTriage:
+                TaxTriageWizardSheet(
+                    initialFiles: inputFiles,
+                    embeddedInUnifiedRunner: true,
+                    embeddedRunTrigger: runnerRunTrigger,
+                    onRun: { config in
+                        onRunTaxTriage?(config)
+                    },
+                    onRunnerAvailabilityChange: { runnerCanRun = $0 }
+                )
+            }
         }
+        .onChange(of: sidebarSelection) { _, _ in
+            runnerCanRun = false
+        }
+    }
+
+    private var runnerDatasetLabel: String {
+        if inputFiles.count == 1 {
+            return inputFiles.first?.lastPathComponent ?? ""
+        }
+        return "\(inputFiles.count) files"
+    }
+
+    private var runnerFooterStatusText: String {
+        runnerCanRun ? "Ready to run" : "Finish the settings above to continue"
+    }
+
+    private var footerBar: some View {
+        UnifiedClassifierRunnerFooter(
+            statusText: runnerFooterStatusText,
+            isRunEnabled: runnerCanRun,
+            onCancel: { onCancel?() },
+            onRun: { runnerRunTrigger += 1 }
+        )
     }
 
 }

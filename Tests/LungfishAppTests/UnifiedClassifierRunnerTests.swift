@@ -34,7 +34,9 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
         let bodySource = String(source[bodyStart.upperBound..<bodyEnd.lowerBound])
 
         XCTAssertTrue(bodySource.contains("runnerSidebar"))
-        XCTAssertTrue(bodySource.contains("configurationStep"))
+        XCTAssertTrue(bodySource.contains("runnerDetail"))
+        XCTAssertTrue(source.contains("footerBar"))
+        XCTAssertTrue(source.contains("UnifiedClassifierRunnerSection"))
         XCTAssertFalse(source.contains("WizardStep"))
         XCTAssertFalse(source.contains("analysisTypeSelector"))
     }

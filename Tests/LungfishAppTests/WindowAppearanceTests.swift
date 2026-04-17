@@ -85,6 +85,51 @@ final class WindowAppearanceTests: XCTestCase {
         XCTAssertFalse(taxtriageSource.contains("Color.accentColor"))
     }
 
+    func testUnifiedClassifierRunnerUsesSharedShellLayout() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Metagenomics/UnifiedMetagenomicsWizard.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("HStack(spacing: 0)"))
+        XCTAssertTrue(source.contains("runnerSidebar"))
+        XCTAssertTrue(source.contains("runnerDetail"))
+        XCTAssertTrue(source.contains("footerBar"))
+        XCTAssertTrue(source.contains("UnifiedClassifierRunnerSection"))
+        XCTAssertTrue(source.contains("Color.lungfishCanvasBackground"))
+        XCTAssertFalse(source.contains("WizardStep"))
+        XCTAssertFalse(source.contains("analysisTypeSelector"))
+    }
+
+    func testToolPanelsExposeOnlyEmbeddedRunnerContent() throws {
+        let classificationSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Metagenomics/ClassificationWizardSheet.swift"),
+            encoding: .utf8
+        )
+        let esvirituSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Metagenomics/EsVirituWizardSheet.swift"),
+            encoding: .utf8
+        )
+        let taxtriageSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Metagenomics/TaxTriageWizardSheet.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(classificationSource.contains("embeddedInUnifiedRunner"))
+        XCTAssertTrue(esvirituSource.contains("embeddedInUnifiedRunner"))
+        XCTAssertTrue(taxtriageSource.contains("embeddedInUnifiedRunner"))
+        XCTAssertFalse(classificationSource.contains(#"Button("Cancel")"#))
+        XCTAssertFalse(esvirituSource.contains(#"Button("Cancel")"#))
+        XCTAssertFalse(taxtriageSource.contains(#"Button("Cancel")"#))
+        XCTAssertFalse(classificationSource.contains(#"Button("Run")"#))
+        XCTAssertFalse(esvirituSource.contains(#"Button("Run")"#))
+        XCTAssertFalse(taxtriageSource.contains(#"Button("Run")"#))
+    }
+
     private func repositoryRoot() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

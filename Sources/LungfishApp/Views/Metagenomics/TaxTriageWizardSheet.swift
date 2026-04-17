@@ -28,6 +28,12 @@ struct TaxTriageWizardSheet: View {
     /// Initial input FASTQ files (pre-populated from the invoking context).
     let initialFiles: [URL]
 
+    /// Whether the wizard is embedded inside the shared classifier runner shell.
+    let embeddedInUnifiedRunner: Bool
+
+    /// Incremented by the shared shell to request a run.
+    let embeddedRunTrigger: Int
+
     // MARK: - State
 
     @State private var samples: [WizardSample] = []
@@ -59,16 +65,25 @@ struct TaxTriageWizardSheet: View {
     /// Called when the user clicks Cancel.
     var onCancel: (() -> Void)?
 
+    /// Notifies the shared shell whether the current configuration can run.
+    var onRunnerAvailabilityChange: ((Bool) -> Void)?
+
     // MARK: - Initialization
 
     init(
         initialFiles: [URL] = [],
+        embeddedInUnifiedRunner: Bool = false,
+        embeddedRunTrigger: Int = 0,
         onRun: ((TaxTriageConfig) -> Void)? = nil,
-        onCancel: (() -> Void)? = nil
+        onCancel: (() -> Void)? = nil,
+        onRunnerAvailabilityChange: ((Bool) -> Void)? = nil
     ) {
         self.initialFiles = initialFiles
+        self.embeddedInUnifiedRunner = embeddedInUnifiedRunner
+        self.embeddedRunTrigger = embeddedRunTrigger
         self.onRun = onRun
         self.onCancel = onCancel
+        self.onRunnerAvailabilityChange = onRunnerAvailabilityChange
     }
 
     // MARK: - Computed Properties
@@ -91,31 +106,33 @@ struct TaxTriageWizardSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header: tool identity + dataset name
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("TaxTriage Metagenomic Triage")
-                        .font(.headline)
-                    Text("Comprehensive taxonomic classification pipeline")
-                        .font(.caption)
-                        .foregroundStyle(Color.lungfishSecondaryText)
+            if !embeddedInUnifiedRunner {
+                // Header: tool identity + dataset name
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("TaxTriage Metagenomic Triage")
+                            .font(.headline)
+                        Text("Comprehensive taxonomic classification pipeline")
+                            .font(.caption)
+                            .foregroundStyle(Color.lungfishSecondaryText)
+                    }
+                    Spacer()
+                    if initialFiles.count == 1 {
+                        Text(inputDisplayName)
+                            .font(.caption)
+                            .foregroundStyle(Color.lungfishSecondaryText)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    } else if !samples.isEmpty {
+                        Text("\(samples.count) sample\(samples.count == 1 ? "" : "s")")
+                            .font(.caption)
+                            .foregroundStyle(Color.lungfishSecondaryText)
+                    }
                 }
-                Spacer()
-                if initialFiles.count == 1 {
-                    Text(inputDisplayName)
-                        .font(.caption)
-                        .foregroundStyle(Color.lungfishSecondaryText)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                } else if !samples.isEmpty {
-                    Text("\(samples.count) sample\(samples.count == 1 ? "" : "s")")
-                        .font(.caption)
-                        .foregroundStyle(Color.lungfishSecondaryText)
-                }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                .padding(.bottom, 12)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            .padding(.bottom, 12)
 
             Divider()
 
@@ -155,38 +172,21 @@ struct TaxTriageWizardSheet: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
             }
-
             Divider()
-
-            // Action buttons
-            HStack {
-                if !canRun {
-                    validationMessage
-                }
-
-                Spacer()
-
-                Button("Cancel") {
-                    onCancel?()
-                }
-                .keyboardShortcut(.cancelAction)
-
-                Button("Run") {
-                    performRun()
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .disabled(!canRun)
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
         }
-        .frame(width: 520, height: 520)
         .background(Color.lungfishCanvasBackground)
         .tint(.lungfishCreamsicleFallback)
         .onAppear {
             populateFromInitialFiles()
             checkPrerequisites()
+            onRunnerAvailabilityChange?(canRun)
+        }
+        .onChange(of: canRun) { _, newValue in
+            onRunnerAvailabilityChange?(newValue)
+        }
+        .onChange(of: embeddedRunTrigger) { _, _ in
+            guard embeddedInUnifiedRunner else { return }
+            performRun()
         }
     }
 
