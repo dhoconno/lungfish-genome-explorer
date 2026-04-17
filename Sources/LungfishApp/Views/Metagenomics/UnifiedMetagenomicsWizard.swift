@@ -55,12 +55,6 @@ struct UnifiedMetagenomicsWizard: View {
 
     @State private var sidebarSelection: AnalysisType
 
-    // Tool availability (checked asynchronously)
-    @State private var kraken2Available: Bool? = nil
-    @State private var esvirituAvailable: Bool? = nil
-    @State private var nextflowAvailable: Bool? = nil
-    @State private var containerAvailable: Bool? = nil
-
     // MARK: - Callbacks
 
     /// Called when the user configures and launches a Kraken2 classification.
@@ -117,7 +111,6 @@ struct UnifiedMetagenomicsWizard: View {
 
         var runnerTitle: String { sidebarTitle }
 
-        /// SF Symbol name for the analysis type card.
         var symbolName: String {
             switch self {
             case .classification: return "k.circle"
@@ -126,7 +119,6 @@ struct UnifiedMetagenomicsWizard: View {
             }
         }
 
-        /// The underlying tool name.
         var toolName: String {
             switch self {
             case .classification: return "Classify & Profile (Kraken2)"
@@ -135,7 +127,6 @@ struct UnifiedMetagenomicsWizard: View {
             }
         }
 
-        /// Brief description of what this analysis does.
         var analysisDescription: String {
             switch self {
             case .classification:
@@ -146,10 +137,6 @@ struct UnifiedMetagenomicsWizard: View {
                 return "End-to-end metagenomic classification with alignment validation and TASS confidence scoring. Supports multiple classifiers, host removal, and PDF reporting. Can classify many types of sequences but prone to false negatives."
             }
         }
-
-        /// All analysis types are configurable — tool availability is checked
-        /// separately and shown as badges on each card.
-        var isConfigurable: Bool { true }
     }
 
     // MARK: - Body
@@ -190,9 +177,6 @@ struct UnifiedMetagenomicsWizard: View {
             }
         }
         .frame(width: 760, height: 520)
-        .onAppear {
-            checkToolAvailability()
-        }
     }
 
     // MARK: - Runner Sidebar
@@ -215,106 +199,6 @@ struct UnifiedMetagenomicsWizard: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
             }
-        }
-    }
-
-    /// A single analysis type selection card.
-    private func analysisTypeCard(_ type: AnalysisType) -> some View {
-        Button {
-            sidebarSelection = type
-        } label: {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: type.symbolName)
-                    .font(.system(size: 24))
-                    .foregroundStyle(sidebarSelection == type ? .white : Color.accentColor)
-                    .frame(width: 40, height: 40)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(sidebarSelection == type ? Color.accentColor : Color.accentColor.opacity(0.1))
-                    )
-
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(type.sidebarTitle)
-                            .font(.system(size: 13, weight: .semibold))
-                        Spacer()
-                        toolAvailabilityBadge(for: type)
-                    }
-
-                    Text(type.toolName)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-
-                    Text(type.analysisDescription)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(sidebarSelection == type
-                          ? Color.accentColor.opacity(0.08)
-                          : Color(nsColor: .controlBackgroundColor))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(
-                        sidebarSelection == type ? Color.accentColor : Color(nsColor: .separatorColor),
-                        lineWidth: sidebarSelection == type ? 2 : 0.5
-                    )
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(type.sidebarTitle)
-        .accessibilityHint(type.analysisDescription)
-    }
-
-    /// Shows availability status for a tool type.
-    @ViewBuilder
-    private func toolAvailabilityBadge(for type: AnalysisType) -> some View {
-        switch type {
-        case .classification:
-            availabilityIndicator(available: kraken2Available)
-
-        case .viralDetection:
-            availabilityIndicator(available: esvirituAvailable)
-
-        case .clinicalTriage:
-            if let nf = nextflowAvailable, let ct = containerAvailable {
-                availabilityIndicator(available: nf && ct ? true : false)
-            } else {
-                ProgressView()
-                    .controlSize(.mini)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func availabilityIndicator(available: Bool?) -> some View {
-        if let available {
-            if available {
-                HStack(spacing: 2) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                    Text("Ready")
-                        .foregroundStyle(.green)
-                }
-                .font(.system(size: 10, weight: .medium))
-            } else {
-                HStack(spacing: 2) {
-                    Image(systemName: "exclamationmark.circle")
-                        .foregroundStyle(.orange)
-                    Text("Install in Plugin Manager")
-                        .foregroundStyle(.orange)
-                }
-                .font(.system(size: 10, weight: .medium))
-            }
-        } else {
-            ProgressView()
-                .controlSize(.mini)
         }
     }
 
@@ -352,26 +236,4 @@ struct UnifiedMetagenomicsWizard: View {
         }
     }
 
-    // MARK: - Tool Availability Checks
-
-    private func checkToolAvailability() {
-        Task { @MainActor in
-            // Check Kraken2 via conda
-            let condaMgr = CondaManager.shared
-            let kraken2Installed = await condaMgr.isToolInstalled("kraken2")
-            kraken2Available = kraken2Installed
-
-            // Check EsViritu via conda
-            let esvirituInstalled = await condaMgr.isToolInstalled("EsViritu")
-            esvirituAvailable = esvirituInstalled
-
-            // Check Nextflow
-            let nfRunner = NextflowRunner()
-            nextflowAvailable = await nfRunner.isAvailable()
-
-            // Check container runtime
-            let containerRT = await NewContainerRuntimeFactory.createRuntime()
-            containerAvailable = containerRT != nil
-        }
-    }
 }

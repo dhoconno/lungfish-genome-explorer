@@ -35,9 +35,12 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
             .appendingPathComponent("Sources/LungfishApp/Views/Metagenomics/UnifiedMetagenomicsWizard.swift")
 
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let bodyStart = try XCTUnwrap(source.range(of: "    var body: some View {"))
+        let bodyEnd = try XCTUnwrap(source.range(of: "    // MARK: - Runner Sidebar"))
+        let bodySource = String(source[bodyStart.upperBound..<bodyEnd.lowerBound])
 
-        XCTAssertTrue(source.contains("runnerSidebar"))
-        XCTAssertTrue(source.contains("configurationStep"))
+        XCTAssertTrue(bodySource.contains("runnerSidebar"))
+        XCTAssertTrue(bodySource.contains("configurationStep"))
         XCTAssertFalse(source.contains("WizardStep"))
         XCTAssertFalse(source.contains("analysisTypeSelector"))
     }
