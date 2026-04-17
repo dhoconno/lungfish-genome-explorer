@@ -1243,18 +1243,18 @@ final class ToolVersionsManifestRegressionTests: XCTestCase {
             "buildArchitecture": "arm64",
             "tools": [
                 {
-                    "name": "samtools",
-                    "displayName": "SAMtools",
-                    "version": "1.21",
-                    "license": "MIT",
-                    "licenseId": "MIT",
-                    "sourceUrl": "https://github.com/samtools/samtools",
-                    "releaseUrl": "https://github.com/samtools/samtools/releases",
-                    "licenseUrl": "https://github.com/samtools/samtools/blob/develop/LICENSE",
-                    "copyright": "Copyright (c) Genome Research Ltd.",
-                    "executables": ["samtools"],
-                    "dependencies": ["htslib"],
-                    "provisioningMethod": "compileFromSource",
+                    "name": "micromamba",
+                    "displayName": "micromamba",
+                    "version": "2.0.5-0",
+                    "license": "BSD-3-Clause",
+                    "licenseId": "BSD-3-Clause",
+                    "sourceUrl": "https://github.com/mamba-org/mamba",
+                    "releaseUrl": "https://github.com/mamba-org/micromamba-releases/releases",
+                    "licenseUrl": "https://github.com/mamba-org/mamba/blob/main/LICENSE",
+                    "copyright": "Copyright (c) QuantStack and mamba contributors",
+                    "executables": ["micromamba"],
+                    "dependencies": [],
+                    "provisioningMethod": "downloadBinary",
                     "notes": null
                 }
             ]
@@ -1267,12 +1267,12 @@ final class ToolVersionsManifestRegressionTests: XCTestCase {
         XCTAssertEqual(manifest.tools.count, 1)
 
         let tool = manifest.tools[0]
-        XCTAssertEqual(tool.name, "samtools")
-        XCTAssertEqual(tool.displayName, "SAMtools")
-        XCTAssertEqual(tool.version, "1.21")
-        XCTAssertEqual(tool.id, "samtools")
-        XCTAssertEqual(tool.executables, ["samtools"])
-        XCTAssertEqual(tool.dependencies, ["htslib"])
+        XCTAssertEqual(tool.name, "micromamba")
+        XCTAssertEqual(tool.displayName, "micromamba")
+        XCTAssertEqual(tool.version, "2.0.5-0")
+        XCTAssertEqual(tool.id, "micromamba")
+        XCTAssertEqual(tool.executables, ["micromamba"])
+        XCTAssertTrue(tool.dependencies.isEmpty)
         XCTAssertNil(tool.notes)
     }
 }
@@ -1298,7 +1298,7 @@ final class ToolManifestRegressionTests: XCTestCase {
 
         let original = ToolManifest(
             formatVersion: "1.0",
-            tools: [.htslib(), .samtools()]
+            tools: [.micromamba()]
         )
 
         let fileURL = tempDir.appendingPathComponent("manifest.json")
@@ -1307,8 +1307,18 @@ final class ToolManifestRegressionTests: XCTestCase {
 
         XCTAssertEqual(loaded.formatVersion, original.formatVersion)
         XCTAssertEqual(loaded.tools.count, original.tools.count)
-        XCTAssertEqual(loaded.tools[0].name, "htslib")
-        XCTAssertEqual(loaded.tools[1].name, "samtools")
+        XCTAssertEqual(loaded.tools[0].name, "micromamba")
+    }
+
+    func testDefaultBundledManifestUsesPackagedResource() throws {
+        let resourceURL = try XCTUnwrap(RuntimeResourceLocator.path("Tools/tool-versions.json", in: .workflow))
+        let resourceManifest = try ToolManifest.loadBundledResource(from: resourceURL)
+        let defaultManifest = ToolManifest.defaultBundledManifest
+
+        XCTAssertEqual(defaultManifest.formatVersion, resourceManifest.formatVersion)
+        XCTAssertEqual(defaultManifest.tools.map(\.name), resourceManifest.tools.map(\.name))
+        XCTAssertEqual(defaultManifest.tools.map(\.version), resourceManifest.tools.map(\.version))
+        XCTAssertEqual(defaultManifest.tools.map(\.displayName), resourceManifest.tools.map(\.displayName))
     }
 }
 
@@ -1324,6 +1334,17 @@ final class BundledToolSpecRegressionTests: XCTestCase {
         XCTAssertEqual(spec.executables, ["bgzip", "tabix"])
         XCTAssertTrue(spec.dependencies.isEmpty)
         XCTAssertEqual(spec.id, "htslib")
+    }
+
+    func testMicromambaFactory() {
+        let spec = BundledToolSpec.micromamba()
+        XCTAssertEqual(spec.name, "micromamba")
+        XCTAssertEqual(spec.displayName, "micromamba")
+        XCTAssertEqual(spec.version, "2.0.5-0")
+        XCTAssertEqual(spec.executables, ["micromamba"])
+        XCTAssertTrue(spec.dependencies.isEmpty)
+        XCTAssertEqual(spec.license.spdxId, "BSD-3-Clause")
+        XCTAssertEqual(spec.id, "micromamba")
     }
 
     func testSamtoolsFactory() {
@@ -1350,14 +1371,140 @@ final class BundledToolSpecRegressionTests: XCTestCase {
 
     func testDefaultTools() {
         let defaults = BundledToolSpec.defaultTools
-        XCTAssertEqual(defaults.count, 4)
-        let names = defaults.map(\.name)
-        XCTAssertEqual(names, ["htslib", "samtools", "bcftools", "ucsc-tools"])
+        XCTAssertEqual(defaults.map(\.name), ToolManifest.defaultBundledManifest.tools.map(\.name))
+        XCTAssertEqual(defaults.map(\.version), ToolManifest.defaultBundledManifest.tools.map(\.version))
+    }
+}
+
+// MARK: - ToolProvisioningOrchestrator Tests
+
+final class ToolProvisioningOrchestratorRegressionTests: XCTestCase {
+
+    func testCreateVersionInfoWritesMicromambaOnlySummary() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let orchestrator = ToolProvisioningOrchestrator(outputDirectory: tempDir)
+        let result = ToolProvisioningOrchestrator.Result(
+            successful: ["micromamba": [tempDir.appendingPathComponent("micromamba")]],
+            failed: [:],
+            skipped: [],
+            duration: 1.2
+        )
+
+        try await orchestrator.createVersionInfo(for: result)
+
+        let versions = try String(
+            contentsOf: tempDir.appendingPathComponent("VERSIONS.txt"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(versions.contains("Lungfish Bundled Bootstrap Tools"))
+        XCTAssertTrue(versions.contains("- micromamba: 2.0.5-0 (BSD-3-Clause license)"))
+        XCTAssertTrue(versions.contains("managed separately."))
+        XCTAssertFalse(versions.contains("already installed"))
+        XCTAssertFalse(versions.contains("failed"))
+        XCTAssertFalse(versions.contains("Build duration"))
+        XCTAssertFalse(versions.contains("micromamba (arm64):"))
+        XCTAssertFalse(versions.contains("micromamba (x86_64):"))
     }
 
-    func testCustomVersion() {
-        let spec = BundledToolSpec.samtools(version: "1.20")
-        XCTAssertEqual(spec.version, "1.20")
+    func testCreateVersionInfoUsesProvisionedArchitecture() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let orchestrator = ToolProvisioningOrchestrator(outputDirectory: tempDir)
+        let result = try await orchestrator.provisionAll(
+            manifest: ToolManifest(tools: []),
+            architecture: .x86_64,
+            forceRebuild: false
+        ) { _ in }
+
+        try await orchestrator.createVersionInfo(for: result)
+
+        let versions = try String(
+            contentsOf: tempDir.appendingPathComponent("VERSIONS.txt"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(versions.contains("Build architecture: x86_64"))
+        XCTAssertFalse(versions.contains("- micromamba:"))
+    }
+
+    func testPreferredSourceURLUsesProvisionedArchitectureForBinaryDownloads() async throws {
+        let orchestrator = ToolProvisioningOrchestrator()
+        _ = try await orchestrator.provisionAll(
+            manifest: ToolManifest(tools: []),
+            architecture: .x86_64,
+            forceRebuild: false
+        ) { _ in }
+
+        let tool = BundledToolSpec(
+            name: "test-tool",
+            displayName: "Test Tool",
+            version: "1.0.0",
+            license: LicenseInfo(spdxId: "MIT"),
+            provisioningMethod: .downloadBinary(BinaryDownload(
+                urls: [
+                    .arm64: URL(string: "https://example.com/test-tool-arm64")!,
+                    .x86_64: URL(string: "https://example.com/test-tool-x86_64")!
+                ],
+                isArchive: false
+            )),
+            executables: ["test-tool"]
+        )
+
+        let url = await orchestrator.preferredSourceURL(forVersionInfo: tool)
+        XCTAssertEqual(url?.absoluteString, "https://example.com/test-tool-x86_64")
+    }
+
+    func testCreateVersionInfoUsesExplicitBuildTimestampWhenProvided() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let priorTimestamp = ProcessInfo.processInfo.environment["LUNGFISH_BUILD_TIMESTAMP"]
+        setenv("LUNGFISH_BUILD_TIMESTAMP", "2024-01-02T03:04:05Z", 1)
+        defer {
+            if let priorTimestamp {
+                setenv("LUNGFISH_BUILD_TIMESTAMP", priorTimestamp, 1)
+            } else {
+                unsetenv("LUNGFISH_BUILD_TIMESTAMP")
+            }
+        }
+
+        let orchestrator = ToolProvisioningOrchestrator(outputDirectory: tempDir)
+        let result = ToolProvisioningOrchestrator.Result(
+            successful: ["micromamba": [tempDir.appendingPathComponent("micromamba")]],
+            failed: [:],
+            skipped: [],
+            duration: 0.1
+        )
+
+        try await orchestrator.createVersionInfo(for: result)
+
+        let versions = try String(
+            contentsOf: tempDir.appendingPathComponent("VERSIONS.txt"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(versions.contains("Build date: 2024-01-02 03:04:05 UTC"))
+    }
+}
+
+final class NativeBundleBuilderRegressionTests: XCTestCase {
+
+    func testMissingToolsDescriptionReferencesManagedBootstrapModel() {
+        let info = NativeBundleBuilder.MissingToolsInfo(missingTools: [.samtools, .bgzip])
+
+        XCTAssertFalse(info.description.contains("Missing bundled tools"))
+        XCTAssertTrue(info.description.contains("managed tools are unavailable"))
+        XCTAssertTrue(info.description.contains("micromamba bootstrap"))
     }
 }
 

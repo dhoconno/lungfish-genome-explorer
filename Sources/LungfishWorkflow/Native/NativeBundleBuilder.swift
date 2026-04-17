@@ -11,15 +11,15 @@ import LungfishIO
 
 /// Builds `.lungfishref` reference genome bundles using native bioinformatics tools.
 ///
-/// This builder uses bioinformatics tools bundled with the application.
-/// Tools used:
+/// The workflow still uses these external tools while building bundles:
 /// - `bgzip` - FASTA compression (from htslib)
 /// - `samtools faidx` - FASTA indexing
 /// - `bcftools` - VCF to BCF conversion
 /// - `bedToBigBed` - BED to BigBed conversion (UCSC)
 /// - `bedGraphToBigWig` - bedGraph to BigWig conversion (UCSC)
 ///
-/// All tools are included in the app bundle under `Resources/Tools`.
+/// Only the micromamba bootstrap remains bundled; the actual build tools are
+/// resolved from app bundle search paths or managed environments.
 @MainActor
 public final class NativeBundleBuilder: ObservableObject {
 
@@ -48,7 +48,7 @@ public final class NativeBundleBuilder: ObservableObject {
 
         public var description: String {
             let toolNames = missingTools.map { $0.rawValue }.joined(separator: ", ")
-            return "Missing bundled tools: \(toolNames). The app bundle may be incomplete or corrupted."
+            return "Required managed tools are unavailable: \(toolNames). Verify the micromamba bootstrap and managed tool environments are installed correctly."
         }
     }
 

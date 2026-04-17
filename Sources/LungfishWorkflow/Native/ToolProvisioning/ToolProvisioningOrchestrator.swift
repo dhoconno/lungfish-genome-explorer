@@ -59,6 +59,15 @@ public actor ToolProvisioningOrchestrator {
     /// Default output directory for tools.
     private let defaultOutputDirectory: URL
 
+    /// Architecture associated with the most recent provisioning operation.
+    private var lastProvisionedArchitecture: Architecture
+
+    /// Tool specs associated with the most recent provisioning manifest.
+    private var lastProvisionedToolsByName: [String: BundledToolSpec]
+
+    /// Tool ordering associated with the most recent provisioning manifest.
+    private var lastProvisionedToolOrder: [String]
+
     /// Cached provisioners.
     private var provisioners: [String: any ToolProvisioner] = [:]
 
@@ -75,6 +84,10 @@ public actor ToolProvisioningOrchestrator {
 
         self.defaultOutputDirectory = outputDirectory ??
             projectRoot.appendingPathComponent("Sources/LungfishWorkflow/Resources/Tools")
+
+        self.lastProvisionedArchitecture = .current
+        self.lastProvisionedToolsByName = [:]
+        self.lastProvisionedToolOrder = []
     }
 
     // MARK: - Public API
@@ -88,12 +101,15 @@ public actor ToolProvisioningOrchestrator {
     ///   - progress: Callback for progress updates.
     /// - Returns: Result of provisioning.
     public func provisionAll(
-        manifest: ToolManifest = ToolManifest(tools: BundledToolSpec.defaultTools),
+        manifest: ToolManifest = ToolManifest.defaultBundledManifest,
         architecture: Architecture = .current,
         forceRebuild: Bool = false,
         progress: @escaping @Sendable (Status) -> Void
     ) async throws -> Result {
         let startTime = Date()
+        lastProvisionedArchitecture = architecture
+        lastProvisionedToolsByName = Dictionary(uniqueKeysWithValues: manifest.tools.map { ($0.name, $0) })
+        lastProvisionedToolOrder = manifest.tools.map(\.name)
 
         progress(Status(
             phase: .analyzing,
@@ -248,6 +264,7 @@ public actor ToolProvisioningOrchestrator {
         forceRebuild: Bool = false,
         progress: @escaping @Sendable (ProvisioningProgress) -> Void
     ) async throws -> [URL] {
+        lastProvisionedArchitecture = architecture
         let provisioner = try createProvisioner(for: tool)
 
         if !forceRebuild && provisioner.isInstalled(in: defaultOutputDirectory) {
@@ -273,7 +290,7 @@ public actor ToolProvisioningOrchestrator {
     public func checkInstallationStatus() -> [String: Bool] {
         var status: [String: Bool] = [:]
 
-        for tool in BundledToolSpec.defaultTools {
+        for tool in ToolManifest.defaultBundledManifest.tools {
             guard let provisioner = try? createProvisioner(for: tool) else {
                 status[tool.name] = false
                 continue
@@ -387,46 +404,43 @@ public actor ToolProvisioningOrchestrator {
 extension ToolProvisioningOrchestrator {
     /// Creates a version info file in the tools directory.
     public func createVersionInfo(for result: Result) async throws {
-        let manifest = ToolManifest(tools: BundledToolSpec.defaultTools)
+        let timestamp = DateFormatter.versionSummaryTimestamp.string(from: Self.resolvedVersionSummaryDate())
+        let entries = versionInfoEntries(for: result)
 
         var content = """
-        Lungfish Bundled Bioinformatics Tools
-        ======================================
+        Lungfish Bundled Bootstrap Tools
+        =================================
 
-        This directory contains pre-built bioinformatics tools bundled with Lungfish.
-        All tools are open source and distributed under MIT-compatible licenses.
+        This directory contains the bundled bootstrap binary used by Lungfish.
+        Only micromamba remains bundled here; all other bioinformatics tools are
+        managed separately.
 
         Versions:
 
         """
 
-        for tool in manifest.tools {
-            let status = result.successful.keys.contains(tool.name) ? "installed" :
-                         result.skipped.contains(tool.name) ? "already installed" :
-                         result.failed.keys.contains(tool.name) ? "failed" : "unknown"
-            content += "- \(tool.displayName): \(tool.version) (\(tool.license.spdxId)) - \(status)\n"
+        for entry in entries {
+            if let tool = entry.tool {
+                content += "- \(tool.displayName): \(tool.version) (\(tool.license.spdxId) license)\n"
+            } else {
+                content += "- \(entry.name): provisioned\n"
+            }
         }
 
         content += """
 
-        Build date: \(ISO8601DateFormatter().string(from: Date()))
-        Build architecture: \(Architecture.current.rawValue)
-        Build duration: \(String(format: "%.1f", result.duration)) seconds
+        Build date: \(timestamp)
+        Build architecture: \(lastProvisionedArchitecture.rawValue)
 
         Source URLs:
 
         """
 
-        for tool in manifest.tools {
-            switch tool.provisioningMethod {
-            case .compileFromSource(let compilation):
-                content += "- \(tool.name): \(compilation.sourceURL.absoluteString)\n"
-            case .downloadBinary(let download):
-                for (arch, url) in download.urls {
-                    content += "- \(tool.name) (\(arch.rawValue)): \(url.absoluteString)\n"
-                }
-            case .custom:
-                content += "- \(tool.name): custom provisioner\n"
+        for entry in entries {
+            if let tool = entry.tool, let url = preferredSourceURL(forVersionInfo: tool) {
+                content += "- \(entry.name): \(url.absoluteString)\n"
+            } else {
+                content += "- \(entry.name): custom provisioner\n"
             }
         }
 
@@ -436,11 +450,13 @@ extension ToolProvisioningOrchestrator {
 
         """
 
-        for tool in manifest.tools {
-            if let url = tool.license.url {
-                content += "- \(tool.name): \(url.absoluteString)\n"
+        for entry in entries {
+            if let tool = entry.tool, let url = tool.license.url {
+                content += "- \(entry.name): \(url.absoluteString)\n"
+            } else if let tool = entry.tool {
+                content += "- \(entry.name): \(tool.license.spdxId)\n"
             } else {
-                content += "- \(tool.name): \(tool.license.spdxId)\n"
+                content += "- \(entry.name): unknown\n"
             }
         }
 
@@ -448,4 +464,73 @@ extension ToolProvisioningOrchestrator {
         try content.write(to: versionFile, atomically: true, encoding: .utf8)
         logger.info("Created version info at \(versionFile.path)")
     }
+
+    private struct VersionInfoEntry {
+        let name: String
+        let tool: BundledToolSpec?
+    }
+
+    private func versionInfoEntries(for result: Result) -> [VersionInfoEntry] {
+        let resultNames = Set(result.successful.keys)
+            .union(result.skipped)
+            .union(result.failed.keys)
+
+        let orderedNames = lastProvisionedToolOrder.filter { resultNames.contains($0) }
+        let remainingNames = resultNames.subtracting(orderedNames).sorted()
+
+        return (orderedNames + remainingNames).map { name in
+            VersionInfoEntry(
+                name: name,
+                tool: lastProvisionedToolsByName[name] ?? ToolManifest.defaultBundledManifest.tools.first(where: { $0.name == name })
+            )
+        }
+    }
+
+    func preferredSourceURL(forVersionInfo tool: BundledToolSpec) -> URL? {
+        if tool.name == "micromamba" {
+            return URL(string: "https://github.com/mamba-org/mamba")
+        }
+
+        switch tool.provisioningMethod {
+        case .compileFromSource(let compilation):
+            return compilation.sourceURL
+        case .downloadBinary(let download):
+            return download.urls[lastProvisionedArchitecture]
+                ?? download.urls.values.sorted(by: { $0.absoluteString < $1.absoluteString }).first
+        case .custom:
+            return nil
+        }
+    }
+
+    private static func resolvedVersionSummaryDate(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Date {
+        if let timestamp = environment["LUNGFISH_BUILD_TIMESTAMP"] {
+            let formatter = ISO8601DateFormatter()
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            formatter.formatOptions = [.withInternetDateTime]
+
+            if let date = formatter.date(from: timestamp) {
+                return date
+            }
+        }
+
+        if let epoch = environment["SOURCE_DATE_EPOCH"],
+           let seconds = TimeInterval(epoch) {
+            return Date(timeIntervalSince1970: seconds)
+        }
+
+        return Date()
+    }
+}
+
+private extension DateFormatter {
+    static let versionSummaryTimestamp: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss 'UTC'"
+        return formatter
+    }()
 }

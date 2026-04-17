@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+@testable import LungfishIO
 
 /// Test helper that generates a minimal BAM file from explicit SAM content,
 /// using samtools to compress. Used by tests that need synthetic BAM data
@@ -83,17 +84,26 @@ enum BamFixtureBuilder {
 
     /// Convenience: returns the path to samtools if available, or nil if not.
     static func locateSamtools() -> String? {
-        let candidates = [
-            "/opt/homebrew/Cellar/samtools/1.23/bin/samtools",
-            "/opt/homebrew/bin/samtools",
-            "/usr/local/bin/samtools",
-            "/usr/bin/samtools",
-        ]
-        for path in candidates {
-            if FileManager.default.fileExists(atPath: path) {
-                return path
+        if let managed = SamtoolsLocator.locate() {
+            return managed
+        }
+
+        let fileManager = FileManager.default
+        if let path = ProcessInfo.processInfo.environment["PATH"] {
+            for directory in path.split(separator: ":") {
+                let candidate = String(directory) + "/samtools"
+                if fileManager.isExecutableFile(atPath: candidate) {
+                    return candidate
+                }
             }
         }
+
+        for candidate in ["/opt/homebrew/bin/samtools", "/usr/local/bin/samtools", "/usr/bin/samtools"] {
+            if fileManager.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+        }
+
         return nil
     }
 }

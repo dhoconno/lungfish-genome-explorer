@@ -32,9 +32,7 @@ public actor SRAService {
 
     private let ncbiService: NCBIService
     private let httpClient: HTTPClient
-
-    /// Path to SRA Toolkit binaries (prefetch, fasterq-dump)
-    private var sraToolkitPath: String?
+    private let homeDirectoryProvider: @Sendable () -> URL
 
     // MARK: - Initialization
 
@@ -45,11 +43,14 @@ public actor SRAService {
     ///   - httpClient: HTTP client for direct API calls
     public init(
         ncbiService: NCBIService = NCBIService(),
-        httpClient: HTTPClient = URLSessionHTTPClient()
+        httpClient: HTTPClient = URLSessionHTTPClient(),
+        homeDirectoryProvider: @escaping @Sendable () -> URL = {
+            FileManager.default.homeDirectoryForCurrentUser
+        }
     ) {
         self.ncbiService = ncbiService
         self.httpClient = httpClient
-        self.sraToolkitPath = Self.findSRAToolkitSync()
+        self.homeDirectoryProvider = homeDirectoryProvider
     }
 
     // MARK: - Search
@@ -227,7 +228,7 @@ public actor SRAService {
         outputDir: URL? = nil,
         progress: (@Sendable (Double) -> Void)? = nil
     ) async throws -> [URL] {
-        guard let toolkitPath = sraToolkitPath else {
+        guard let toolkit = resolvedSRAToolkitExecutables() else {
             throw SRAError.toolkitNotFound
         }
 
@@ -244,9 +245,8 @@ public actor SRAService {
 
         // Step 1: Prefetch the SRA file
         progress?(0.1)
-        let prefetchPath = (toolkitPath as NSString).appendingPathComponent("prefetch")
         let prefetchResult = try await runCommand(
-            prefetchPath,
+            toolkit.prefetch.path,
             arguments: [accession, "-O", outputDirectory.path]
         )
 
@@ -258,13 +258,12 @@ public actor SRAService {
         progress?(0.5)
 
         // Step 2: Convert to FASTQ with fasterq-dump
-        let fasterqPath = (toolkitPath as NSString).appendingPathComponent("fasterq-dump")
         let sraFile = outputDirectory
             .appendingPathComponent(accession)
             .appendingPathComponent("\(accession).sra")
 
         let fasterqResult = try await runCommand(
-            fasterqPath,
+            toolkit.fasterqDump.path,
             arguments: [
                 sraFile.path,
                 "-O", outputDirectory.path,
@@ -392,54 +391,43 @@ public actor SRAService {
 
     // MARK: - SRA Toolkit Detection
 
-    /// Finds the SRA Toolkit installation path (nonisolated for init use).
-    private static func findSRAToolkitSync() -> String? {
-        // Common installation paths
-        let searchPaths = [
-            "/usr/local/bin",
-            "~/sratoolkit/bin",
-            "/usr/bin",
-            "/Applications/sratoolkit.app/Contents/MacOS/bin"
-        ].map { ($0 as NSString).expandingTildeInPath }
+    internal static func managedExecutableURL(
+        executableName: String,
+        homeDirectory: URL
+    ) -> URL {
+        homeDirectory
+            .appendingPathComponent(".lungfish", isDirectory: true)
+            .appendingPathComponent("conda", isDirectory: true)
+            .appendingPathComponent("envs", isDirectory: true)
+            .appendingPathComponent("sra-tools", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent(executableName)
+    }
 
-        for path in searchPaths {
-            let prefetchPath = (path as NSString).appendingPathComponent("prefetch")
-            if FileManager.default.isExecutableFile(atPath: prefetchPath) {
-                logger.info("Found SRA Toolkit at: \(path, privacy: .public)")
-                return path
-            }
+    private func resolvedSRAToolkitExecutables() -> (prefetch: URL, fasterqDump: URL)? {
+        let homeDirectory = homeDirectoryProvider()
+        let prefetchURL = Self.managedExecutableURL(
+            executableName: "prefetch",
+            homeDirectory: homeDirectory
+        )
+        let fasterqDumpURL = Self.managedExecutableURL(
+            executableName: "fasterq-dump",
+            homeDirectory: homeDirectory
+        )
+
+        let fileManager = FileManager.default
+        guard fileManager.isExecutableFile(atPath: prefetchURL.path),
+              fileManager.isExecutableFile(atPath: fasterqDumpURL.path) else {
+            logger.warning("SRA Toolkit not found in managed environment")
+            return nil
         }
 
-        // Try to find via which command
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        process.arguments = ["prefetch"]
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            if let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !output.isEmpty {
-                let binPath = (output as NSString).deletingLastPathComponent
-                logger.info("Found SRA Toolkit via which: \(binPath, privacy: .public)")
-                return binPath
-            }
-        } catch {
-            logger.debug("Could not find SRA Toolkit via which")
-        }
-
-        logger.warning("SRA Toolkit not found")
-        return nil
+        return (prefetch: prefetchURL, fasterqDump: fasterqDumpURL)
     }
 
     /// Checks if SRA Toolkit is available.
     public var isSRAToolkitAvailable: Bool {
-        sraToolkitPath != nil
+        resolvedSRAToolkitExecutables() != nil
     }
 
     // MARK: - Process Execution
@@ -592,7 +580,7 @@ public enum SRAError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .toolkitNotFound:
-            return "SRA Toolkit not found. Install it and ensure `prefetch` is available on PATH."
+            return "SRA Toolkit not found in the managed Lungfish tool environment."
         case .downloadFailed(let message):
             return "Download failed: \(message)"
         case .conversionFailed(let message):

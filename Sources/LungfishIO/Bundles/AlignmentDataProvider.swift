@@ -496,7 +496,7 @@ public final class AlignmentDataProvider: @unchecked Sendable {
 
     /// Finds the samtools binary from standard locations.
     private func findSamtools() throws -> String {
-        guard let samtoolsPath = SamtoolsLocator.locate() else {
+        guard let samtoolsPath = SamtoolsLocator.locate(searchPath: nil) else {
             throw AlignmentFetchError.samtoolsNotFound
         }
         return samtoolsPath
@@ -515,7 +515,7 @@ public enum AlignmentFetchError: Error, LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .samtoolsNotFound:
-            return "samtools not found. Ensure it is installed or bundled with the app."
+            return "samtools not found in the managed Lungfish tool environment."
         case .samtoolsFailed(let msg):
             return "samtools failed: \(msg)"
         case .invalidRegion(let region):

@@ -63,7 +63,8 @@ public enum FASTQDerivativeRequest: Sendable {
         saveUnoriented: Bool
     )
 
-    // Human read removal
+    // Human read removal. `removeReads` is retained for backward compatibility,
+    // but the managed Deacon path always removes matched reads.
     case humanReadScrub(databaseID: String, removeReads: Bool)
 
     /// Human-readable label for this operation, used in the Operations panel.
@@ -251,8 +252,8 @@ public enum FASTQDerivativeRequest: Sendable {
             return ["kitID": kitID, "location": location, "errorRate": "\(errorRate)", "trimBarcodes": "\(trimBarcodes)"]
         case .orient(_, let wordLength, _, _):
             return ["wordLength": "\(wordLength)"]
-        case .humanReadScrub(let databaseID, let removeReads):
-            return ["databaseID": databaseID, "removeReads": "\(removeReads)"]
+        case .humanReadScrub(let databaseID, _):
+            return ["databaseID": Self.canonicalHumanScrubDatabaseID(for: databaseID)]
         }
     }
 }
@@ -270,6 +271,14 @@ private func buildLungfishCommand(subcommand: String, args: [String]) -> String 
 }
 
 extension FASTQDerivativeRequest {
+    private static func canonicalHumanScrubDatabaseID(for databaseID: String) -> String {
+        let canonical = DatabaseRegistry.canonicalDatabaseID(for: databaseID)
+        if canonical == HumanScrubberDatabaseInstaller.databaseID {
+            return DeaconPanhumanDatabaseInstaller.databaseID
+        }
+        return canonical
+    }
+
     /// Constructs the equivalent `lungfish fastq` CLI command for this operation.
     ///
     /// The returned string is a copy-pasteable shell command that reproduces
@@ -430,11 +439,11 @@ extension FASTQDerivativeRequest {
                 "--wordlength", String(wordLength),
             ])
 
-        case .humanReadScrub(let databaseID, let removeReads):
-            // No direct lungfish CLI subcommand — show sra-human-scrubber invocation.
-            let action = removeReads ? "--remove" : "--flag"
+        case .humanReadScrub(let databaseID, _):
+            // No direct lungfish CLI subcommand — show Deacon filter invocation.
+            let resolvedDatabaseID = Self.canonicalHumanScrubDatabaseID(for: databaseID)
             return buildToolCommand(parts: [
-                "sra-human-scrubber", "--db", databaseID, action, inputPath, "-o", outputPath,
+                "deacon", "filter", "-d", resolvedDatabaseID, inputPath, "-o", outputPath,
             ])
         }
     }
@@ -480,7 +489,16 @@ public actor FASTQDerivativeService {
         databaseID: String,
         registry: DatabaseRegistry = .shared
     ) async throws -> URL {
-        try await registry.requiredDatabasePath(for: databaseID)
+        let resolvedID = canonicalHumanScrubDatabaseID(for: databaseID)
+        return try await registry.requiredDatabasePath(for: resolvedID)
+    }
+
+    private static func canonicalHumanScrubDatabaseID(for databaseID: String) -> String {
+        let canonical = DatabaseRegistry.canonicalDatabaseID(for: databaseID)
+        if canonical == HumanScrubberDatabaseInstaller.databaseID {
+            return DeaconPanhumanDatabaseInstaller.databaseID
+        }
+        return canonical
     }
 
     private let runner = NativeToolRunner.shared
@@ -1874,20 +1892,19 @@ public actor FASTQDerivativeService {
                 "Orient is handled via createOrientDerivative."
             )
 
-        case .humanReadScrub(let databaseID, let removeReads):
+        case .humanReadScrub(let databaseID, _):
             let outputURL = outputFASTQ
-            _ = try await runHumanReadScrub(
+            _ = try await runDeaconHumanReadScrub(
                 sourceFASTQ: sourceFASTQ,
                 outputFASTQ: outputURL,
                 databaseID: databaseID,
-                isInterleaved: isInterleaved,
-                removeReads: removeReads
+                isInterleaved: isInterleaved
             )
             return FASTQDerivativeOperation(
                 kind: .humanReadScrub,
-                humanScrubRemoveReads: removeReads,
-                humanScrubDatabaseID: databaseID,
-                toolUsed: "sra-human-scrubber"
+                humanScrubRemoveReads: true,
+                humanScrubDatabaseID: Self.canonicalHumanScrubDatabaseID(for: databaseID),
+                toolUsed: "deacon"
             )
         }
     }
@@ -2698,33 +2715,26 @@ public actor FASTQDerivativeService {
 
             case .humanReadScrub:
                 progress?(fraction, "Removing human reads (\(index + 1)/\(steps.count))…")
-                let dbID = step.humanScrubDatabaseID ?? HumanScrubberDatabaseInstaller.databaseID
-                let removeReads = step.humanScrubRemoveReads ?? false
-                commandLine = "scrub.sh -d \(dbID) -s\(removeReads ? " -x" : "")"
-                let maskedSpots = try await runHumanReadScrub(
+                let dbID = step.humanScrubDatabaseID ?? DeaconPanhumanDatabaseInstaller.databaseID
+                let resolvedDBID = Self.canonicalHumanScrubDatabaseID(for: dbID)
+                commandLine = currentIsInterleaved
+                    ? "deacon filter -d \(resolvedDBID) <R1> <R2> -o <R1.out> -O <R2.out> -t \(toolThreadCount)"
+                    : "deacon filter -d \(resolvedDBID) <input> -o <output> -t \(toolThreadCount)"
+                try await runDeaconHumanReadScrub(
                     sourceFASTQ: currentURL,
                     outputFASTQ: outputURL,
-                    databaseID: dbID,
-                    isInterleaved: currentIsInterleaved,
-                    removeReads: removeReads
+                    databaseID: resolvedDBID,
+                    isInterleaved: currentIsInterleaved
                 )
                 currentURL = outputURL
 
-                // For mask mode: reads are still present but as N-strings.
-                // Report outputReadCount = input - masked so the Inspector shows
-                // how many non-human pairs remain. The length filter later removes the N reads.
-                let outputCount: Int?
-                if let inputCount, let maskedSpots {
-                    outputCount = inputCount - maskedSpots
-                } else if measureReadCounts {
-                    outputCount = await countFASTQReads(at: currentURL, isInterleaved: currentIsInterleaved)
-                } else {
-                    outputCount = nil
-                }
+                let outputCount = measureReadCounts
+                    ? await countFASTQReads(at: currentURL, isInterleaved: currentIsInterleaved)
+                    : nil
                 let duration = Date().timeIntervalSince(stepStart)
                 stepResults.append(RecipeStepResult(
                     stepName: step.displaySummary,
-                    tool: step.toolUsed ?? "sra-human-scrubber",
+                    tool: "deacon",
                     toolVersion: step.toolVersion,
                     commandLine: commandLine,
                     inputReadCount: inputCount,
@@ -2797,39 +2807,31 @@ public actor FASTQDerivativeService {
 
     // MARK: - Human Read Scrub
 
-    /// Runs NCBI sra-human-scrubber on a (possibly interleaved) FASTQ file.
+    /// Runs Deacon host depletion on a (possibly interleaved) FASTQ file.
     ///
-    /// scrub.sh expects the database via `-d`, uses `-s` for interleaved paired-end
-    /// (mask both reads in a pair if either aligns to human), and `-x` to remove
-    /// (rather than mask with N) when removeReads is true.
-    /// Returns the number of spots (read pairs in interleaved mode) that were masked/removed.
-    private func runHumanReadScrub(
+    /// Deacon filters paired-end data from separate R1/R2 files, so interleaved
+    /// inputs are split before filtering and re-interleaved after filtering.
+    private func runDeaconHumanReadScrub(
         sourceFASTQ: URL,
         outputFASTQ: URL,
         databaseID: String,
-        isInterleaved: Bool,
-        removeReads: Bool
-    ) async throws -> Int? {
+        isInterleaved: Bool
+    ) async throws {
         let dbPath = try await humanScrubberDatabasePath(databaseID)
-
-        let scrubSh = try await runner.findTool(.scrubSh)
         let threads = ProcessInfo.processInfo.activeProcessorCount
-        let scriptsDir = scrubSh.deletingLastPathComponent()
 
-        // scrub.sh pipes the input file through fastq_to_fasta.py which reads plain text via
-        // stdin. Decompress gzipped inputs to a temp file first so the script can read them.
         let inputFASTQ: URL
         var decompressedTmp: URL? = nil
         if sourceFASTQ.pathExtension.lowercased() == "gz" {
             let tmp = outputFASTQ.deletingLastPathComponent()
-                .appendingPathComponent("scrub_input_\(UUID().uuidString).fastq")
+                .appendingPathComponent("deacon_scrub_input_\(UUID().uuidString).fastq")
             let pigzResult = try await runner.runWithFileOutput(
                 .pigz,
                 arguments: ["-d", "-c", sourceFASTQ.path],
                 outputFile: tmp
             )
             guard pigzResult.isSuccess else {
-                throw FASTQDerivativeError.invalidOperation("Failed to decompress input for scrub.sh: \(pigzResult.stderr)")
+                throw FASTQDerivativeError.invalidOperation("Failed to decompress input for Deacon scrub: \(pigzResult.stderr)")
             }
             inputFASTQ = tmp
             decompressedTmp = tmp
@@ -2838,43 +2840,62 @@ public actor FASTQDerivativeService {
         }
         defer { if let tmp = decompressedTmp { try? FileManager.default.removeItem(at: tmp) } }
 
-        // scrub.sh usage: scrub.sh -i <input> -o <output> -d <db> [-s] [-x] [-p threads]
-        // Run via bash to ensure the shebang is honoured and PATH is set correctly.
-        var scriptArgs: [String] = [scrubSh.path,
-            "-i", inputFASTQ.path,
-            "-o", outputFASTQ.path,
-            "-d", dbPath.path,
-            "-p", "\(threads)",
-        ]
-        if isInterleaved { scriptArgs.append("-s") }   // paired-end mode: mask both if either is human
-        if removeReads   { scriptArgs.append("-x") }   // remove instead of mask with N
-
-        let scrubResult = try await runner.runProcess(
-            executableURL: URL(fileURLWithPath: "/bin/bash"),
-            arguments: scriptArgs,
-            workingDirectory: scriptsDir,
-            environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
-            timeout: 7200,
-            toolName: "scrub.sh"
-        )
-        guard scrubResult.isSuccess else {
-            throw FASTQDerivativeError.invalidOperation("sra-human-scrubber failed: \(scrubResult.stderr)")
-        }
-
-        // Parse "N  spot(s) masked or removed." from cut_spots_fastq.py stderr
-        // (scrubResult.stderr contains combined stderr from both aligns_to and the Python scripts)
-        let maskedSpots: Int? = scrubResult.stderr
-            .components(separatedBy: .newlines)
-            .compactMap { line -> Int? in
-                // Pattern: "8381523  spot(s) masked or removed."
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                guard trimmed.contains("spot(s) masked or removed"),
-                      let first = trimmed.split(separator: " ").first,
-                      let count = Int(first) else { return nil }
-                return count
+        if isInterleaved {
+            let inputR1 = outputFASTQ.deletingLastPathComponent()
+                .appendingPathComponent("deacon_scrub_input_\(UUID().uuidString)_R1.fastq")
+            let inputR2 = outputFASTQ.deletingLastPathComponent()
+                .appendingPathComponent("deacon_scrub_input_\(UUID().uuidString)_R2.fastq")
+            let outputR1 = outputFASTQ.deletingLastPathComponent()
+                .appendingPathComponent("deacon_scrub_output_\(UUID().uuidString)_R1.fastq")
+            let outputR2 = outputFASTQ.deletingLastPathComponent()
+                .appendingPathComponent("deacon_scrub_output_\(UUID().uuidString)_R2.fastq")
+            defer {
+                try? FileManager.default.removeItem(at: inputR1)
+                try? FileManager.default.removeItem(at: inputR2)
+                try? FileManager.default.removeItem(at: outputR1)
+                try? FileManager.default.removeItem(at: outputR2)
             }
-            .first
-        return maskedSpots
+
+            try await deinterleaveFASTQ(
+                source: inputFASTQ,
+                outputR1: inputR1,
+                outputR2: inputR2
+            )
+
+            let deaconResult = try await runner.run(
+                .deacon,
+                arguments: [
+                    "filter",
+                    "-d", dbPath.path,
+                    inputR1.path,
+                    inputR2.path,
+                    "-o", outputR1.path,
+                    "-O", outputR2.path,
+                    "-t", "\(threads)",
+                ],
+                timeout: 7200
+            )
+            guard deaconResult.isSuccess else {
+                throw FASTQDerivativeError.invalidOperation("deacon filter failed: \(deaconResult.stderr)")
+            }
+
+            try await reinterleaveFastpOutput(r1: outputR1, r2: outputR2, output: outputFASTQ)
+        } else {
+            let deaconResult = try await runner.run(
+                .deacon,
+                arguments: [
+                    "filter",
+                    "-d", dbPath.path,
+                    inputFASTQ.path,
+                    "-o", outputFASTQ.path,
+                    "-t", "\(threads)",
+                ],
+                timeout: 7200
+            )
+            guard deaconResult.isSuccess else {
+                throw FASTQDerivativeError.invalidOperation("deacon filter failed: \(deaconResult.stderr)")
+            }
+        }
     }
 
     private func humanScrubberDatabasePath(_ databaseID: String) async throws -> URL {
@@ -3082,6 +3103,25 @@ public actor FASTQDerivativeService {
         }
         try? FileManager.default.removeItem(at: r1)
         try? FileManager.default.removeItem(at: r2)
+    }
+
+    /// Splits an interleaved FASTQ into separate R1/R2 files using reformat.sh.
+    private func deinterleaveFASTQ(source: URL, outputR1: URL, outputR2: URL) async throws {
+        let env = await bbToolsEnvironment()
+        let result = try await runner.run(
+            .reformat,
+            arguments: [
+                "in=\(source.path)",
+                "out1=\(outputR1.path)",
+                "out2=\(outputR2.path)",
+                "interleaved=t",
+            ],
+            environment: env,
+            timeout: 1800
+        )
+        guard result.isSuccess else {
+            throw FASTQDerivativeError.invalidOperation("reformat.sh deinterleave failed: \(result.stderr)")
+        }
     }
 
     // MARK: - BBTools Operations

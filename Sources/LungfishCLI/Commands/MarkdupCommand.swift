@@ -101,7 +101,7 @@ struct MarkdupCommand: AsyncParsableCommand {
     }
 
     private func locateSamtools() -> String? {
-        SamtoolsLocator.locate()
+        Self.locateSamtools()
     }
 
     static func locateSamtools(homeDirectory: URL = currentHomeDirectory()) -> String? {

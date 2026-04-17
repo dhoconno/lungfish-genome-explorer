@@ -11,12 +11,11 @@ public enum SamtoolsLocator {
     ///
     /// Search order:
     /// 1. Managed `~/.lungfish/conda/envs/samtools/bin/samtools`
-    /// 2. Directories from `searchPath` (defaults to the current environment's `PATH`).
-    /// 3. Bundled app resources.
-    /// 4. Stable system locations.
+    /// 2. Directories from an explicitly provided `searchPath`, when a caller
+    ///    intentionally opts into an extra fallback (for example in tests).
     public static func locate(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
-        searchPath: String? = ProcessInfo.processInfo.environment["PATH"]
+        searchPath: String? = nil
     ) -> String? {
         let fm = FileManager.default
 
@@ -37,22 +36,6 @@ public enum SamtoolsLocator {
                 if fm.isExecutableFile(atPath: candidate) {
                     return candidate
                 }
-            }
-        }
-
-        let bundledCandidates = [
-            Bundle.main.resourceURL?.appendingPathComponent("Tools/samtools").path,
-            Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent("Tools/samtools").path,
-        ]
-
-        let fixedCandidates = [
-            "/usr/bin/samtools",
-            "/usr/local/bin/samtools",
-        ]
-
-        for candidate in bundledCandidates.compactMap({ $0 }) + fixedCandidates {
-            if fm.isExecutableFile(atPath: candidate) {
-                return candidate
             }
         }
 

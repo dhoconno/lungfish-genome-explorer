@@ -9,7 +9,7 @@ import LungfishIO
 import LungfishWorkflow
 
 // Disambiguate the two SequencingPlatform types that exist in LungfishIO and LungfishWorkflow.
-private typealias WorkflowPlatform = LungfishWorkflow.SequencingPlatform
+typealias WorkflowPlatform = LungfishWorkflow.SequencingPlatform
 
 protocol ManagedDatabaseProvisioning: Sendable {
     func requiredDatabaseManifest(for id: String) async -> BundledDatabase?
@@ -206,8 +206,14 @@ extension ImportCommand {
                 }
                 resolvedPlatform = p
             } else {
-                // Auto-detect from first FASTQ header; fall back to .illumina
-                resolvedPlatform = detectPlatformFromPairs(pairs) ?? .illumina
+                do {
+                    // Auto-detect from the first FASTQ header; unknown headers still
+                    // fall back to Illumina, but managed decompression failures are fatal.
+                    resolvedPlatform = try Self.detectPlatformFromPairs(pairs) ?? .illumina
+                } catch let error as PlatformDetectionError {
+                    print(formatter.error(error.localizedDescription))
+                    throw ExitCode.failure
+                }
                 if !globalOptions.quiet {
                     print(formatter.info("Platform: \(resolvedPlatform.displayName) (auto-detected)"))
                 }
@@ -336,17 +342,25 @@ extension ImportCommand {
             var ids = Set<String>()
 
             for step in legacyRecipe?.steps ?? [] where step.kind == .humanReadScrub {
-                let databaseID = step.humanScrubDatabaseID ?? HumanScrubberDatabaseInstaller.databaseID
-                ids.insert(DatabaseRegistry.canonicalDatabaseID(for: databaseID))
+                let databaseID = step.humanScrubDatabaseID ?? DeaconPanhumanDatabaseInstaller.databaseID
+                ids.insert(Self.canonicalHumanReadRemovalDatabaseID(for: databaseID))
             }
 
             for step in newRecipe?.steps ?? [] {
                 guard Self.newRecipeStepRequiresHumanScrubber(step) else { continue }
                 let configuredID = step.params?["database"]?.stringValue ?? DeaconPanhumanDatabaseInstaller.databaseID
-                ids.insert(DatabaseRegistry.canonicalDatabaseID(for: configuredID))
+                ids.insert(Self.canonicalHumanReadRemovalDatabaseID(for: configuredID))
             }
 
             return ids.sorted()
+        }
+
+        static func canonicalHumanReadRemovalDatabaseID(for requestedID: String) -> String {
+            let canonical = DatabaseRegistry.canonicalDatabaseID(for: requestedID)
+            if canonical == HumanScrubberDatabaseInstaller.databaseID {
+                return DeaconPanhumanDatabaseInstaller.databaseID
+            }
+            return canonical
         }
 
         static func installRequiredManagedDatabases(
@@ -395,7 +409,24 @@ extension ImportCommand {
 
         /// Reads the first FASTQ header from the first pair's R1 file and attempts
         /// platform detection. Supports both plain and gzip-compressed files.
-        private func detectPlatformFromPairs(_ pairs: [SamplePair]) -> WorkflowPlatform? {
+        enum PlatformDetectionError: LocalizedError {
+            case managedPigzUnavailable(URL)
+            case managedPigzFailed(URL)
+
+            var errorDescription: String? {
+                switch self {
+                case .managedPigzUnavailable(let url):
+                    return "Managed pigz is required to auto-detect platform from compressed FASTQ \(url.lastPathComponent). Install the managed pigz environment or pass --platform explicitly."
+                case .managedPigzFailed(let url):
+                    return "Managed pigz failed while reading compressed FASTQ \(url.lastPathComponent). Reinstall the managed pigz environment or pass --platform explicitly."
+                }
+            }
+        }
+
+        static func detectPlatformFromPairs(
+            _ pairs: [SamplePair],
+            homeDirectory: URL = currentHomeDirectory()
+        ) throws -> WorkflowPlatform? {
             guard let first = pairs.first else { return nil }
 
             let r1 = first.r1
@@ -403,20 +434,31 @@ extension ImportCommand {
 
             let header: String
             if isGzipped {
-                // Use gunzip -c and read only the first 1 KB to avoid blocking
+                guard let pigzURL = Self.managedPigzExecutableURL(homeDirectory: homeDirectory) else {
+                    throw PlatformDetectionError.managedPigzUnavailable(r1)
+                }
+                // Use managed pigz -dc and read only the first 1 KB to avoid blocking.
                 let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/gunzip")
-                process.arguments = ["-c", r1.path]
+                process.executableURL = pigzURL
+                process.arguments = ["-d", "-c", r1.path]
                 let pipe = Pipe()
                 process.standardOutput = pipe
                 process.standardError = Pipe() // suppress error output
                 do {
                     try process.run()
                 } catch {
-                    return nil
+                    throw PlatformDetectionError.managedPigzFailed(r1)
                 }
                 let data = pipe.fileHandleForReading.readData(ofLength: 1024)
-                process.terminate()
+                if data.isEmpty {
+                    process.waitUntilExit()
+                    if process.terminationStatus != 0 {
+                        throw PlatformDetectionError.managedPigzFailed(r1)
+                    }
+                } else {
+                    process.terminate()
+                    process.waitUntilExit()
+                }
                 header = String(data: data, encoding: .utf8)?
                     .components(separatedBy: "\n").first ?? ""
             } else {
@@ -430,6 +472,28 @@ extension ImportCommand {
 
             return WorkflowPlatform.detect(fromFASTQHeader: header)
         }
+
+        static func managedPigzExecutableURL(
+            homeDirectory: URL = currentHomeDirectory()
+        ) -> URL? {
+            let pigzURL = CoreToolLocator.managedExecutableURL(
+                environment: "pigz",
+                executableName: "pigz",
+                homeDirectory: homeDirectory
+            )
+            guard FileManager.default.isExecutableFile(atPath: pigzURL.path) else {
+                return nil
+            }
+            return pigzURL
+        }
+
+        private static func currentHomeDirectory() -> URL {
+            if let home = ProcessInfo.processInfo.environment["HOME"], !home.isEmpty {
+                return URL(fileURLWithPath: home, isDirectory: true)
+            }
+            return FileManager.default.homeDirectoryForCurrentUser
+        }
+
         private static func newRecipeStepRequiresHumanScrubber(_ step: RecipeStep) -> Bool {
             let type = step.type.lowercased()
             return type == "human-read-scrub"

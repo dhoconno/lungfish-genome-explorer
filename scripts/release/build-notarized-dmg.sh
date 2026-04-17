@@ -94,6 +94,8 @@ require_command() {
     fi
 }
 
+require_command rg
+
 for command in xcodebuild xcrun swift codesign hdiutil ditto shasum mktemp /usr/libexec/PlistBuddy; do
     require_command "$command"
 done
@@ -120,6 +122,26 @@ mkdir -p "$(dirname "$DERIVED_DATA_PATH")"
 
 cd "$PROJECT_ROOT"
 
+resolved_build_timestamp() {
+    if [ -n "${LUNGFISH_BUILD_TIMESTAMP:-}" ]; then
+        /bin/date -j -u -f "%Y-%m-%dT%H:%M:%SZ" "$LUNGFISH_BUILD_TIMESTAMP" +"%Y-%m-%dT%H:%M:%SZ" >/dev/null
+        printf '%s\n' "$LUNGFISH_BUILD_TIMESTAMP"
+        return
+    fi
+
+    if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
+        /bin/date -u -r "$SOURCE_DATE_EPOCH" +"%Y-%m-%dT%H:%M:%SZ"
+        return
+    fi
+
+    /bin/date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
+if [ -n "${SOURCE_DATE_EPOCH:-}" ] && [ -z "${LUNGFISH_BUILD_TIMESTAMP:-}" ]; then
+    LUNGFISH_BUILD_TIMESTAMP="$(resolved_build_timestamp)"
+    export LUNGFISH_BUILD_TIMESTAMP
+fi
+
 SWIFT_BUILD_PREFIX_MAP_ARGS=(
     -Xswiftc -debug-prefix-map
     -Xswiftc "$SCRATCH_PATH=/swiftpm-build"
@@ -133,6 +155,9 @@ SWIFT_BUILD_PREFIX_MAP_ARGS=(
     -Xcc "-fdebug-prefix-map=$PROJECT_ROOT=/workspace"
 )
 
+XCODE_OTHER_SWIFT_FLAGS="-debug-prefix-map $SCRATCH_PATH=/swiftpm-build -debug-prefix-map $PROJECT_ROOT=/workspace -file-compilation-dir /workspace"
+XCODE_OTHER_CFLAGS="-ffile-prefix-map=$SCRATCH_PATH=/swiftpm-build -fdebug-prefix-map=$SCRATCH_PATH=/swiftpm-build -ffile-prefix-map=$PROJECT_ROOT=/workspace -fdebug-prefix-map=$PROJECT_ROOT=/workspace"
+
 LUNGFISH_SKIP_EMBED_LUNGFISH_CLI=1 \
 LUNGFISH_SKIP_SANITIZE_BUNDLED_TOOLS=1 \
 xcodebuild -project Lungfish.xcodeproj \
@@ -144,6 +169,9 @@ xcodebuild -project Lungfish.xcodeproj \
     ARCHS=arm64 \
     EXCLUDED_ARCHS=x86_64 \
     ONLY_ACTIVE_ARCH=YES \
+    OTHER_SWIFT_FLAGS="\$(inherited) $XCODE_OTHER_SWIFT_FLAGS" \
+    OTHER_CFLAGS="\$(inherited) $XCODE_OTHER_CFLAGS" \
+    OTHER_CPLUSPLUSFLAGS="\$(inherited) $XCODE_OTHER_CFLAGS" \
     DEVELOPMENT_TEAM="$TEAM_ID" \
     archive
 
@@ -171,7 +199,6 @@ fi
 
 /usr/bin/install -m 755 "$CLI_SOURCE" "$CLI_DEST"
 /bin/bash scripts/sanitize-bundled-tools.sh "$APP_PATH/Contents/MacOS" "$WORKFLOW_TOOLS_DIR"
-rm -f "$WORKFLOW_TOOLS_DIR/scrubber/bin/aligns_to"
 
 # Fail before codesign/notarization work if release packaging leaked build or
 # Homebrew paths back into the app bundle.
@@ -186,8 +213,7 @@ scripts/smoke-test-release-tools.sh "$APP_PATH" --portability-only
 
 # Sign every Mach-O file bundled under Resources/Tools individually.
 # `codesign --deep` is deprecated and does not recurse into resource bundles,
-# so notarization fails with "not signed with a valid Developer ID certificate"
-# on each bundled bioinformatics tool. We must sign inside-out.
+# so notarization fails unless the bootstrap binary is signed inside-out.
 if [ -d "$WORKFLOW_TOOLS_DIR" ]; then
     while IFS= read -r -d '' candidate; do
         if /usr/bin/file -b "$candidate" | grep -q '^Mach-O'; then

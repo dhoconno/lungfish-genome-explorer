@@ -28,7 +28,7 @@ struct LungfishCLI: AsyncParsableCommand {
 
             For more information, see: https://github.com/lungfish/genome-browser
             """,
-        version: "1.0.2",
+        version: "1.0.4",
         subcommands: [
             ConvertCommand.self,
             AnalyzeCommand.self,

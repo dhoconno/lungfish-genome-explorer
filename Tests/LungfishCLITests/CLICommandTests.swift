@@ -1490,6 +1490,22 @@ final class FastqCommandTests: XCTestCase {
         XCTAssertEqual(cmd.out2, "/tmp/R2.fq")
     }
 
+    /// Verifies that scrub-human canonicalizes legacy database aliases to the Deacon-managed index.
+    func testScrubHumanCanonicalizesLegacyDatabaseIDs() {
+        XCTAssertEqual(
+            FastqScrubHumanSubcommand.canonicalHumanReadRemovalDatabaseID(for: "sra-human-scrubber"),
+            "deacon-panhuman"
+        )
+        XCTAssertEqual(
+            FastqScrubHumanSubcommand.canonicalHumanReadRemovalDatabaseID(for: "human-scrubber"),
+            "deacon-panhuman"
+        )
+        XCTAssertEqual(
+            FastqScrubHumanSubcommand.canonicalHumanReadRemovalDatabaseID(for: "deacon"),
+            "deacon-panhuman"
+        )
+    }
+
     // MARK: - Interleave Argument Parsing
 
     /// Verifies that interleave parses in1 and in2 options.

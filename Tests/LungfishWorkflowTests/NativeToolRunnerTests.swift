@@ -429,8 +429,8 @@ final class NativeToolRunnerTests: XCTestCase {
     }
 
     func testAllCasesCount() {
-        // 20 bundled tools + 2 conda-managed tools = 22 total cases
-        XCTAssertEqual(NativeTool.allCases.count, 22, "Should have 22 NativeTool cases (20 bundled + 2 conda-managed)")
+        // The legacy human-scrubber executables were retired when Deacon replaced that path.
+        XCTAssertEqual(NativeTool.allCases.count, 20, "Should have 20 NativeTool cases after removing legacy scrubber executables")
     }
 
     // MARK: - Error Tests

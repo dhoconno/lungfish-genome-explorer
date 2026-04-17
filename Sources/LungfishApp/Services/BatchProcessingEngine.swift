@@ -630,8 +630,8 @@ public actor BatchProcessingEngine {
             throw BatchProcessingError.unsupportedStepInRecipe(step.kind.rawValue)
         case .humanReadScrub:
             return .humanReadScrub(
-                databaseID: step.humanScrubDatabaseID ?? "human-scrubber",
-                removeReads: step.humanScrubRemoveReads ?? false
+                databaseID: step.humanScrubDatabaseID ?? "deacon-panhuman",
+                removeReads: true
             )
         }
     }

@@ -236,20 +236,27 @@ enum ClassifierExtractionFixtures {
     /// Locates the `samtools` binary on the test host.
     ///
     /// Used by I4 invariant tests that call `MarkdupService.countReads(...)`
-    /// as a ground-truth oracle. Prefers the `NativeToolRunner` cached path
-    /// so tests match the resolver's dispatch, falling back to common
-    /// homebrew locations if the runner can't find it.
+    /// as a ground-truth oracle. Prefer the managed Lungfish environment so
+    /// tests match production tool resolution.
     static func resolveSamtoolsPath() async -> String {
         if let url = try? await NativeToolRunner.shared.findTool(.samtools) {
             return url.path
         }
-        let candidates = [
-            "/opt/homebrew/bin/samtools",
-            "/usr/local/bin/samtools",
-            "/usr/bin/samtools",
-        ]
-        for p in candidates where FileManager.default.fileExists(atPath: p) {
-            return p
+        if let path = SamtoolsLocator.locate() {
+            return path
+        }
+        if let path = ProcessInfo.processInfo.environment["PATH"] {
+            for directory in path.split(separator: ":") {
+                let candidate = String(directory) + "/samtools"
+                if FileManager.default.isExecutableFile(atPath: candidate) {
+                    return candidate
+                }
+            }
+        }
+        for candidate in ["/opt/homebrew/bin/samtools", "/usr/local/bin/samtools", "/usr/bin/samtools"] {
+            if FileManager.default.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
         }
         return "samtools"
     }

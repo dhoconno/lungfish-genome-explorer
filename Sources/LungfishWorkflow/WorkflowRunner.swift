@@ -223,6 +223,9 @@ public actor BaseWorkflowRunner {
     /// The process manager for spawning processes.
     public let processManager: ProcessManager
 
+    /// Home directory provider used for managed workflow engine lookups.
+    private let homeDirectoryProvider: @Sendable () -> URL
+
     /// Active executions indexed by execution ID.
     private var activeExecutions: [UUID: ExecutionContext] = [:]
 
@@ -264,13 +267,17 @@ public actor BaseWorkflowRunner {
     ///   - processManager: Process manager instance (defaults to shared)
     public init(
         category: String,
-        processManager: ProcessManager = .shared
+        processManager: ProcessManager = .shared,
+        homeDirectoryProvider: @escaping @Sendable () -> URL = {
+            FileManager.default.homeDirectoryForCurrentUser
+        }
     ) {
         self.logger = Logger(
             subsystem: LogSubsystem.workflow,
             category: category
         )
         self.processManager = processManager
+        self.homeDirectoryProvider = homeDirectoryProvider
 
         logger.debug("BaseWorkflowRunner initialized")
     }
@@ -385,8 +392,18 @@ public actor BaseWorkflowRunner {
     ///
     /// - Parameter engine: The engine type
     /// - Returns: The executable URL, or nil if not found
-    public nonisolated func findEngine(_ engine: WorkflowEngineType) -> URL? {
-        processManager.findExecutable(named: engine.executableName)
+    public func findEngine(_ engine: WorkflowEngineType) -> URL? {
+        switch engine {
+        case .nextflow, .snakemake:
+            let url = CoreToolLocator.executableURL(
+                environment: engine.executableName,
+                executableName: engine.executableName,
+                homeDirectory: homeDirectoryProvider()
+            )
+            return FileManager.default.isExecutableFile(atPath: url.path) ? url : nil
+        case .cwl, .wdl, .shell, .custom:
+            return processManager.findExecutable(named: engine.executableName)
+        }
     }
 
     /// Gets the version of an installed engine.

@@ -1,44 +1,43 @@
 // ProvisionToolsCommand.swift
 // LungfishCLI
 //
-// Command for provisioning native bioinformatics tools.
+// Command for provisioning the bundled micromamba bootstrap tool.
 
 import ArgumentParser
 import Foundation
 import LungfishWorkflow
 
-/// Command for provisioning native bioinformatics tools.
+/// Command for provisioning the bundled micromamba bootstrap tool.
 struct ProvisionToolsCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "provision-tools",
-        abstract: "Download and build bioinformatics tools for bundling",
+        abstract: "Provision the bundled micromamba bootstrap tool",
         discussion: """
-            Provisions the native bioinformatics tools that are bundled with Lungfish.
-            
-            Tools are compiled from source or downloaded as pre-built binaries
-            depending on the tool. This ensures consistent versions across all users.
-            
-            Supported tools:
-            - samtools (v1.21) - SAM/BAM file manipulation
-            - bcftools (v1.21) - VCF/BCF file manipulation
-            - htslib (v1.21) - bgzip, tabix utilities
-            - UCSC tools (v469) - bedToBigBed, bedGraphToBigWig
+            Provisions the bundled micromamba bootstrap binary used by Lungfish.
+
+            This copies the version pinned in the application resources into the
+            managed tools directory so conda-based workflows can bootstrap their
+            own environments consistently.
             """
     )
 
     @OptionGroup var globalOptions: GlobalOptions
 
-    @Option(name: .long, help: "Target architecture (arm64, x86_64, or universal)")
+    @Option(name: .long, help: "Target architecture (arm64, x86_64, or current)")
     var arch: String = "current"
 
     @Flag(name: .long, help: "Force rebuild even if tools are already installed")
     var forceRebuild: Bool = false
 
-    @Flag(name: .long, help: "List available tools without provisioning")
+    @Flag(name: .long, help: "List the bundled bootstrap tool without provisioning")
     var listTools: Bool = false
 
-    @Flag(name: .long, help: "Check installation status of tools")
+    @Flag(name: .long, help: "Check installation status of the bundled bootstrap tool")
     var status: Bool = false
+
+    func validate() throws {
+        _ = try resolvedArchitecture()
+    }
 
     mutating func run() async throws {
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -55,34 +54,16 @@ struct ProvisionToolsCommand: AsyncParsableCommand {
             return
         }
 
-        // Determine architecture
-        let targetArch: Architecture
-        switch arch.lowercased() {
-        case "arm64":
-            targetArch = .arm64
-        case "x86_64", "x64", "intel":
-            targetArch = .x86_64
-        case "current", "native":
-            targetArch = .current
-        case "universal":
-            // For universal, we'd need to run provisioning twice
-            // For now, just use current
-            if !globalOptions.quiet {
-                print(formatter.warning("Universal builds not yet supported via CLI. Using current architecture."))
-            }
-            targetArch = .current
-        default:
-            throw ValidationError("Unknown architecture: \(arch)")
-        }
+        let targetArch = try resolvedArchitecture()
 
         if !globalOptions.quiet {
-            print(formatter.header("Provisioning Native Tools"))
+            print(formatter.header("Provisioning Bundled Bootstrap Tool"))
             print("Target architecture: \(targetArch.rawValue)")
             print("Output directory: \(await orchestrator.getOutputDirectory().path)")
             print("")
         }
 
-        let manifest = ToolManifest(tools: BundledToolSpec.defaultTools)
+        let manifest = ToolManifest.defaultBundledManifest
 
         // Capture values before async closure to avoid self capture issues
         let isQuiet = globalOptions.quiet
@@ -105,8 +86,12 @@ struct ProvisionToolsCommand: AsyncParsableCommand {
             // Print summary
             if globalOptions.outputFormat == .json {
                 let summary = ProvisioningSummary(
-                    successful: Array(result.successful.keys),
-                    failed: result.failed.mapValues { $0.localizedDescription },
+                    successful: result.successful.keys.sorted(),
+                    failed: Dictionary(
+                        uniqueKeysWithValues: result.failed.keys.sorted().map { key in
+                            (key, result.failed[key]?.localizedDescription ?? "")
+                        }
+                    ),
                     skipped: result.skipped,
                     duration: result.duration
                 )
@@ -114,7 +99,7 @@ struct ProvisionToolsCommand: AsyncParsableCommand {
                 handler.writeData(summary, label: nil)
             } else if !globalOptions.quiet {
                 print("")
-                print(formatter.header("Provisioning Complete"))
+                print(formatter.header("Bootstrap Tool Provisioning Complete"))
                 print("Duration: \(String(format: "%.1f", result.duration)) seconds")
                 print("")
 
@@ -170,7 +155,7 @@ struct ProvisionToolsCommand: AsyncParsableCommand {
     }
 
     private func listAvailableTools(formatter: TerminalFormatter) async {
-        let tools = BundledToolSpec.defaultTools
+        let tools = ToolManifest.defaultBundledManifest.tools
 
         if globalOptions.outputFormat == .json {
             let toolInfos = tools.map { tool in
@@ -179,15 +164,15 @@ struct ProvisionToolsCommand: AsyncParsableCommand {
                     displayName: tool.displayName,
                     version: tool.version,
                     license: tool.license.spdxId,
-                    executables: tool.executables,
-                    dependencies: tool.dependencies,
+                    executables: tool.executables.sorted(),
+                    dependencies: tool.dependencies.sorted(),
                     provisioningMethod: provisioningMethodString(tool.provisioningMethod)
                 )
             }
             let handler = JSONOutputHandler()
             handler.writeData(toolInfos, label: nil)
         } else {
-            print(formatter.header("Available Tools"))
+            print(formatter.header("Bundled Bootstrap Tool"))
             print("")
 
             for tool in tools {
@@ -211,9 +196,9 @@ struct ProvisionToolsCommand: AsyncParsableCommand {
 
         if globalOptions.outputFormat == .json {
             let handler = JSONOutputHandler()
-            handler.writeData(status, label: nil)
+            handler.writeData(InstallationStatusSummary(status: status), label: nil)
         } else {
-            print(formatter.header("Tool Installation Status"))
+            print(formatter.header("Bundled Bootstrap Tool Status"))
             print("")
 
             for (name, installed) in status.sorted(by: { $0.key < $1.key }) {
@@ -235,18 +220,62 @@ struct ProvisionToolsCommand: AsyncParsableCommand {
             return "custom (\(name))"
         }
     }
+
+    private func resolvedArchitecture() throws -> Architecture {
+        switch arch.lowercased() {
+        case "arm64":
+            return .arm64
+        case "x86_64", "x64", "intel":
+            return .x86_64
+        case "current", "native":
+            return .current
+        default:
+            throw ValidationError("Unknown architecture: \(arch)")
+        }
+    }
 }
 
 // MARK: - Supporting Types
 
-private struct ProvisioningSummary: Codable {
+struct ProvisioningSummary: Encodable {
     let successful: [String]
     let failed: [String: String]
     let skipped: [String]
     let duration: TimeInterval
+
+    private enum CodingKeys: String, CodingKey {
+        case successful
+        case failed
+        case skipped
+        case duration
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(successful.sorted(), forKey: .successful)
+
+        var failedContainer = container.nestedContainer(keyedBy: DynamicCodingKey.self, forKey: .failed)
+        for key in failed.keys.sorted() {
+            try failedContainer.encode(failed[key], forKey: DynamicCodingKey(key))
+        }
+
+        try container.encode(skipped.sorted(), forKey: .skipped)
+        try container.encode(duration, forKey: .duration)
+    }
 }
 
-private struct ToolInfo: Codable {
+struct InstallationStatusSummary: Encodable {
+    let status: [String: Bool]
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: DynamicCodingKey.self)
+        for key in status.keys.sorted() {
+            try container.encode(status[key], forKey: DynamicCodingKey(key))
+        }
+    }
+}
+
+struct ToolInfo: Codable {
     let name: String
     let displayName: String
     let version: String
@@ -254,4 +283,21 @@ private struct ToolInfo: Codable {
     let executables: [String]
     let dependencies: [String]
     let provisioningMethod: String
+}
+
+private struct DynamicCodingKey: CodingKey {
+    let stringValue: String
+    let intValue: Int? = nil
+
+    init(_ stringValue: String) {
+        self.stringValue = stringValue
+    }
+
+    init?(stringValue: String) {
+        self.init(stringValue)
+    }
+
+    init?(intValue: Int) {
+        return nil
+    }
 }

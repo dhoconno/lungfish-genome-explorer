@@ -4,6 +4,7 @@
 // Defines the manifest format for bundled bioinformatics tools.
 
 import Foundation
+import LungfishCore
 
 // MARK: - ToolManifest
 
@@ -43,6 +44,42 @@ public struct ToolManifest: Codable, Sendable {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(self)
         try data.write(to: url)
+    }
+
+    /// Loads the packaged bundled-tool manifest resource when available.
+    public static var defaultBundledManifest: ToolManifest {
+        guard let manifestURL = RuntimeResourceLocator.path("Tools/tool-versions.json", in: .workflow),
+              let manifest = try? loadBundledResource(from: manifestURL) else {
+            return ToolManifest(formatVersion: "1.0", tools: BundledToolSpec.sourceDefaultTools)
+        }
+        return manifest
+    }
+
+    static func loadBundledResource(from url: URL) throws -> ToolManifest {
+        let data = try Data(contentsOf: url)
+        let manifest = try JSONDecoder().decode(ToolVersionsManifest.self, from: data)
+
+        return ToolManifest(
+            formatVersion: manifest.formatVersion,
+            lastUpdated: bundledManifestDate(from: manifest.lastUpdated),
+            tools: manifest.tools.compactMap { BundledToolSpec(packagedEntry: $0) }
+        )
+    }
+
+    private static func bundledManifestDate(from rawValue: String) -> Date {
+        let iso8601 = ISO8601DateFormatter()
+        iso8601.timeZone = TimeZone(secondsFromGMT: 0)
+        iso8601.formatOptions = [.withInternetDateTime]
+        if let parsed = iso8601.date(from: rawValue) {
+            return parsed
+        }
+
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: rawValue) ?? Date(timeIntervalSince1970: 0)
     }
 }
 
@@ -277,6 +314,31 @@ public enum BuildSystem: String, Codable, Sendable {
 // MARK: - Built-in Tool Specifications
 
 extension BundledToolSpec {
+    static var sourceDefaultTools: [BundledToolSpec] {
+        [.micromamba()]
+    }
+
+    /// micromamba - bundled bootstrap binary for conda-managed tools.
+    public static func micromamba(version: String = "2.0.5-0") -> BundledToolSpec {
+        BundledToolSpec(
+            name: "micromamba",
+            displayName: "micromamba",
+            version: version,
+            license: LicenseInfo(
+                spdxId: "BSD-3-Clause",
+                url: URL(string: "https://github.com/mamba-org/mamba/blob/main/LICENSE"),
+                summary: "BSD 3-Clause permissive license"
+            ),
+            provisioningMethod: .downloadBinary(BinaryDownload(
+                urls: [
+                    .arm64: URL(string: "https://github.com/mamba-org/micromamba-releases/releases/download/\(version)/micromamba-osx-arm64")!,
+                    .x86_64: URL(string: "https://github.com/mamba-org/micromamba-releases/releases/download/\(version)/micromamba-osx-64")!
+                ]
+            )),
+            executables: ["micromamba"],
+            notes: "Bundled bootstrap binary for managing conda-based tool environments"
+        )
+    }
 
     /// htslib - provides bgzip and tabix.
     public static func htslib(version: String = "1.21") -> BundledToolSpec {
@@ -363,11 +425,57 @@ extension BundledToolSpec {
 
     /// Returns the default set of tools for Lungfish.
     public static var defaultTools: [BundledToolSpec] {
-        [
-            .htslib(),
-            .samtools(),
-            .bcftools(),
-            .ucscTools()
-        ]
+        ToolManifest.defaultBundledManifest.tools
+    }
+
+    init?(packagedEntry: ToolVersionsManifest.ToolEntry) {
+        let provisioningMethod: ProvisioningMethod
+        switch packagedEntry.provisioningMethod {
+        case "downloadBinary":
+            guard let binaryDownload = Self.binaryDownload(for: packagedEntry) else {
+                return nil
+            }
+            provisioningMethod = .downloadBinary(binaryDownload)
+        case let customProvisioner:
+            provisioningMethod = .custom(customProvisioner)
+        }
+
+        self.init(
+            name: packagedEntry.name,
+            displayName: packagedEntry.displayName,
+            version: packagedEntry.version,
+            license: LicenseInfo(
+                spdxId: packagedEntry.licenseId,
+                url: URL(string: packagedEntry.licenseUrl),
+                summary: packagedEntry.license
+            ),
+            provisioningMethod: provisioningMethod,
+            executables: packagedEntry.executables,
+            dependencies: packagedEntry.dependencies,
+            notes: packagedEntry.notes
+        )
+    }
+
+    private static func binaryDownload(for packagedEntry: ToolVersionsManifest.ToolEntry) -> BinaryDownload? {
+        switch packagedEntry.name {
+        case "micromamba":
+            let releaseRoot = packagedEntry.releaseUrl.hasSuffix("/releases")
+                ? packagedEntry.releaseUrl
+                : packagedEntry.releaseUrl + "/releases"
+
+            guard let arm64URL = URL(string: "\(releaseRoot)/download/\(packagedEntry.version)/micromamba-osx-arm64"),
+                  let x86_64URL = URL(string: "\(releaseRoot)/download/\(packagedEntry.version)/micromamba-osx-64") else {
+                return nil
+            }
+
+            return BinaryDownload(
+                urls: [
+                    .arm64: arm64URL,
+                    .x86_64: x86_64URL,
+                ]
+            )
+        default:
+            return nil
+        }
     }
 }

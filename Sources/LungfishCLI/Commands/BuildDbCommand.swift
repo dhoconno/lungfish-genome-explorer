@@ -38,7 +38,18 @@ struct BuildDbCommand: AsyncParsableCommand {
 
 /// Locates a samtools binary using the managed-first locator.
 private func findSamtools() -> String? {
-    SamtoolsLocator.locate()
+    BuildDbCommand.locateSamtools()
+}
+
+private enum BuildDbUniqueReadsError: LocalizedError {
+    case managedSamtoolsUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .managedSamtoolsUnavailable:
+            return "Managed samtools is required to compute build-db read counts. Install the managed samtools environment and rerun build-db."
+        }
+    }
 }
 
 /// Updates the `unique_reads` column in a SQLite database for rows with BAM paths.
@@ -66,10 +77,9 @@ private func updateUniqueReadsInDB(
     bamPathResolver: (URL, String, String) -> String,
     updateAccessionLength: Bool,
     quiet: Bool
-) {
+) throws {
     guard let samtoolsPath = findSamtools() else {
-        if !quiet { print("Warning: samtools not found, skipping unique reads computation") }
-        return
+        throw BuildDbUniqueReadsError.managedSamtoolsUnavailable
     }
 
     var db: OpaquePointer?
@@ -342,7 +352,7 @@ extension BuildDbCommand {
             }
 
             // 4. Compute unique reads from BAMs and update DB
-            updateUniqueReadsInDB(
+            try updateUniqueReadsInDB(
                 dbPath: dbURL.path,
                 table: "taxonomy_rows",
                 sampleCol: "sample",
@@ -807,7 +817,7 @@ extension BuildDbCommand {
             relocateEsVirituBAMs(resultURL: resultURL)
 
             // 5. Compute unique reads from BAMs and update DB
-            updateUniqueReadsInDB(
+            try updateUniqueReadsInDB(
                 dbPath: dbURL.path,
                 table: "detection_rows",
                 sampleCol: "sample",

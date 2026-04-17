@@ -132,6 +132,23 @@ struct MetagenomicsImportServiceTests {
         // createdBAM reflects whether samtools was available in the test environment;
         // both true and false are valid outcomes after the materialization step was added.
     }
+
+    @Test
+    func managedSamtoolsExecutableURLUsesSamtoolsEnvironmentLayout() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "samtools-home-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let binDir = home.appendingPathComponent(".lungfish/conda/envs/samtools/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        let samtoolsURL = binDir.appendingPathComponent("samtools")
+        try "#!/bin/sh\nexit 0\n".write(to: samtoolsURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: samtoolsURL.path)
+
+        let resolved = MetagenomicsImportService.managedSamtoolsExecutableURL(homeDirectory: home)
+
+        #expect(resolved?.path == samtoolsURL.path)
+    }
 }
 
 private func makeTemporaryDirectory(prefix: String) -> URL {

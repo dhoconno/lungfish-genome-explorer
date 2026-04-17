@@ -2,7 +2,7 @@
 #
 # smoke-test-release-tools.sh
 #
-# Run tiny smoke tests against the bundled native tools inside a built
+# Run tiny smoke tests against the bundled bootstrap tools inside a built
 # Lungfish.app bundle.
 
 set -euo pipefail
@@ -11,9 +11,9 @@ usage() {
     cat <<'EOF'
 Usage: smoke-test-release-tools.sh <Lungfish.app> [--portability-only]
 
-Verifies that managed core tools and retired scrubber binaries are not bundled,
-scans the packaged app for leaked build/Homebrew paths, and optionally runs
-tiny-input smoke tests against the remaining bundled tools.
+Verifies that only micromamba remains bundled, scans the packaged app for
+leaked build/Homebrew paths, and optionally runs a tiny smoke test against the
+bootstrap binary.
 EOF
 }
 
@@ -56,49 +56,114 @@ if [ -z "$RG_BIN" ]; then
     exit 69
 fi
 
-if [ -e "$TOOLS_DIR/bbtools" ]; then
-    echo "bbtools should not be bundled: $TOOLS_DIR/bbtools" >&2
+if [ ! -x "$TOOLS_DIR/micromamba" ]; then
+    echo "micromamba should be bundled and executable: $TOOLS_DIR/micromamba" >&2
     exit 66
 fi
 
-if [ -e "$TOOLS_DIR/jre" ]; then
-    echo "jre should not be bundled: $TOOLS_DIR/jre" >&2
+for retired_path in \
+    "$TOOLS_DIR/bbtools" \
+    "$TOOLS_DIR/jre" \
+    "$TOOLS_DIR/fastp" \
+    "$TOOLS_DIR/seqkit" \
+    "$TOOLS_DIR/samtools" \
+    "$TOOLS_DIR/bcftools" \
+    "$TOOLS_DIR/bgzip" \
+    "$TOOLS_DIR/tabix" \
+    "$TOOLS_DIR/bedToBigBed" \
+    "$TOOLS_DIR/bedGraphToBigWig" \
+    "$TOOLS_DIR/htslib" \
+    "$TOOLS_DIR/vsearch" \
+    "$TOOLS_DIR/cutadapt" \
+    "$TOOLS_DIR/pigz" \
+    "$TOOLS_DIR/sra-human-scrubber" \
+    "$TOOLS_DIR/sra-tools" \
+    "$TOOLS_DIR/scrubber/bin/aligns_to"
+do
+    if [ -e "$retired_path" ]; then
+        echo "retired tool should not be bundled: $retired_path" >&2
+        exit 66
+    fi
+done
+
+if [ ! -f "$TOOLS_DIR/tool-versions.json" ]; then
+    echo "tool manifest missing: $TOOLS_DIR/tool-versions.json" >&2
     exit 66
 fi
 
-if [ -e "$TOOLS_DIR/fastp" ]; then
-    echo "fastp should not be bundled: $TOOLS_DIR/fastp" >&2
+if [ ! -f "$TOOLS_DIR/VERSIONS.txt" ]; then
+    echo "version summary missing: $TOOLS_DIR/VERSIONS.txt" >&2
     exit 66
 fi
 
-if [ -e "$TOOLS_DIR/scrubber/bin/aligns_to" ]; then
-    echo "aligns_to should not be bundled: $TOOLS_DIR/scrubber/bin/aligns_to" >&2
+EXPECTED_ENTRIES=(
+    "VERSIONS.txt"
+    "micromamba"
+    "tool-versions.json"
+)
+
+while IFS= read -r relative_path; do
+    if [ -z "$relative_path" ]; then
+        continue
+    fi
+
+    if ! printf '%s\n' "${EXPECTED_ENTRIES[@]}" | grep -Fx -- "$relative_path" >/dev/null 2>&1; then
+        echo "unexpected bundled tool entry: $TOOLS_DIR/$relative_path" >&2
+        exit 66
+    fi
+done < <(/usr/bin/find "$TOOLS_DIR" -mindepth 1 -print | sed "s#^$TOOLS_DIR/##" | sort)
+
+for retired_tool in \
+    '"name": "samtools"' \
+    '"name": "bcftools"' \
+    '"name": "htslib"' \
+    '"name": "ucsc-tools"' \
+    '"name": "seqkit"' \
+    '"name": "cutadapt"' \
+    '"name": "vsearch"' \
+    '"name": "pigz"' \
+    '"name": "sra-human-scrubber"' \
+    '"name": "sra-tools"'
+do
+    if "$RG_BIN" -F -q "$retired_tool" "$TOOLS_DIR/tool-versions.json"; then
+        echo "tool metadata still references retired tool: $retired_tool" >&2
+        exit 66
+    fi
+done
+
+for retired_tool in \
+    samtools \
+    bcftools \
+    tabix \
+    htslib \
+    seqkit \
+    cutadapt \
+    vsearch \
+    pigz \
+    bedToBigBed \
+    bedGraphToBigWig \
+    fasterq-dump \
+    prefetch \
+    aligns_to
+do
+    if "$RG_BIN" -F -q "$retired_tool" "$TOOLS_DIR/VERSIONS.txt"; then
+        echo "version summary still references retired tool: $retired_tool" >&2
+        exit 66
+    fi
+done
+
+if ! "$RG_BIN" -F -q '"name": "micromamba"' "$TOOLS_DIR/tool-versions.json"; then
+    echo "tool metadata missing micromamba entry" >&2
+    exit 66
+fi
+
+if ! "$RG_BIN" -F -q -- "- micromamba:" "$TOOLS_DIR/VERSIONS.txt"; then
+    echo "version summary missing micromamba entry" >&2
     exit 66
 fi
 
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
-
-cat >"$TMP_DIR/single.fq" <<'EOF'
-@r1
-ACGTACGT
-+
-FFFFFFFF
-EOF
-
-cat >"$TMP_DIR/r1.fq" <<'EOF'
-@pair1/1
-ACGTACGT
-+
-FFFFFFFF
-EOF
-
-cat >"$TMP_DIR/r2.fq" <<'EOF'
-@pair1/2
-ACGTACGT
-+
-FFFFFFFF
-EOF
 
 run_test() {
     local name="$1"
@@ -145,5 +210,4 @@ if [ "$PORTABILITY_ONLY" -eq 1 ]; then
     exit 0
 fi
 
-run_test samtools "$TOOLS_DIR/samtools" --version
-run_test seqkit "$TOOLS_DIR/seqkit" version
+run_test micromamba "$TOOLS_DIR/micromamba" --version

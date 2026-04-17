@@ -46,33 +46,50 @@ struct ReleaseBuildConfigurationTests {
         #expect(script.contains("default: arm64"))
     }
 
-    @Test("Native tool bundler applies prefix maps to scrub builder paths")
-    func nativeToolBundlerAppliesPrefixMapsToScrubBuilderPaths() throws {
+    @Test("Native tool bundler stages only micromamba")
+    func nativeToolBundlerStagesOnlyMicromamba() throws {
         let script = try String(
             contentsOf: Self.repositoryRoot()
                 .appendingPathComponent("scripts/bundle-native-tools.sh"),
             encoding: .utf8
         )
 
-        #expect(script.contains("ffile-prefix-map"))
-        #expect(script.contains("fdebug-prefix-map"))
+        #expect(script.contains("download_micromamba"))
+        #expect(script.contains("create_universal_micromamba"))
+        #expect(script.contains("remove_retired_bundle_entries"))
+        #expect(script.contains("curl --fail --location --silent --show-error"))
+        #expect(script.contains("--retry-all-errors"))
+        #expect(script.contains("SOURCE_DATE_EPOCH"))
+        #expect(script.contains("LUNGFISH_BUILD_TIMESTAMP"))
+        #expect(script.contains("RESOLVED_BUILD_TIMESTAMP_ISO"))
+        #expect(script.contains("RESOLVED_BUILD_TIMESTAMP_DISPLAY"))
+        #expect(script.contains("tool-versions.json"))
+        #expect(script.contains("%Y-%m-%dT%H:%M:%SZ"))
+        #expect(script.contains("build_samtools") == false)
+        #expect(script.contains("build_bcftools") == false)
+        #expect(script.contains("build_htslib") == false)
+        #expect(script.contains("download_ucsc_tools") == false)
     }
 
-    @Test("Bundled tool manifest excludes managed core dependencies")
-    func bundledToolManifestExcludesManagedCoreDependencies() throws {
+    @Test("Bundled tool manifest keeps only micromamba")
+    func bundledToolManifestKeepsOnlyMicromamba() throws {
         let manifest = try String(
             contentsOf: Self.repositoryRoot()
                 .appendingPathComponent("Sources/LungfishWorkflow/Resources/Tools/tool-versions.json"),
             encoding: .utf8
         )
 
-        #expect(manifest.contains(#""name": "bbtools""#) == false)
-        #expect(manifest.contains(#""name": "openjdk""#) == false)
+        #expect(manifest.contains(#""name": "micromamba""#))
+        #expect(manifest.contains(#""name": "samtools""#) == false)
+        #expect(manifest.contains(#""name": "bcftools""#) == false)
         #expect(manifest.contains(#""name": "fastp""#) == false)
+        #expect(manifest.contains(#""name": "seqkit""#) == false)
+        #expect(manifest.contains(#""name": "vsearch""#) == false)
+        #expect(manifest.contains(#""name": "cutadapt""#) == false)
     }
 
-    @Test("Release tools sanitizer preserves scrubber wrappers and strips stray resource scripts")
-    func releaseToolsSanitizerPreservesScrubberWrappersAndStripsStrayResourceScripts() throws {
+    @Test("Release tools sanitizer preserves Mach-O binaries and strips non-executables")
+    func releaseToolsSanitizerPreservesMachOBinariesAndStripsNonExecutables() throws {
         let repositoryRoot = Self.repositoryRoot()
         let sanitizerURL = repositoryRoot.appendingPathComponent("scripts/sanitize-bundled-tools.sh")
         #expect(FileManager.default.fileExists(atPath: sanitizerURL.path))
@@ -80,36 +97,47 @@ struct ReleaseBuildConfigurationTests {
         let tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let toolsRoot = tempRoot.appendingPathComponent("Tools", isDirectory: true)
-        let bbtoolsDir = toolsRoot.appendingPathComponent("bbtools", isDirectory: true)
-        let scrubberScriptsDir = toolsRoot
-            .appendingPathComponent("scrubber/scripts", isDirectory: true)
-        let configDir = bbtoolsDir.appendingPathComponent("config", isDirectory: true)
-        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: scrubberScriptsDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: toolsRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempRoot) }
 
-        let bbdukURL = bbtoolsDir.appendingPathComponent("bbduk.sh")
-        try "#!/bin/bash\nexit 0\n".write(to: bbdukURL, atomically: true, encoding: .utf8)
-        try Self.makeExecutable(bbdukURL)
+        let micromambaURL = toolsRoot.appendingPathComponent("micromamba")
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: "/bin/ls"), to: micromambaURL)
+        let scriptURL = toolsRoot.appendingPathComponent("wrapper.sh")
+        try "#!/bin/bash\nexit 0\n".write(to: scriptURL, atomically: true, encoding: .utf8)
+        try Self.makeExecutable(scriptURL)
+        let textURL = toolsRoot.appendingPathComponent("VERSIONS.txt")
+        try "micromamba only\n".write(to: textURL, atomically: true, encoding: .utf8)
 
-        let scrubberHelperURL = scrubberScriptsDir.appendingPathComponent("cut_spots_fastq.py")
-        try "#!/usr/bin/env python3\nprint('ok')\n".write(to: scrubberHelperURL, atomically: true, encoding: .utf8)
-        try Self.makeExecutable(scrubberHelperURL)
+        let binaryEmbeddedPaths = [
+            "prefix\0/Users/dho/Documents/lungfish-genome-browser/.build/tools/build\0",
+            "prefix\0/opt/homebrew/bin\0",
+        ].joined()
+        let binaryHandle = try FileHandle(forWritingTo: micromambaURL)
+        try binaryHandle.seekToEnd()
+        try binaryHandle.write(contentsOf: Data(binaryEmbeddedPaths.utf8))
+        try binaryHandle.close()
 
-        let configURL = configDir.appendingPathComponent("histograms.txt")
-        try "histogram=true\n".write(to: configURL, atomically: true, encoding: .utf8)
-        try Self.makeExecutable(configURL)
-
-        let machOURL = toolsRoot.appendingPathComponent("samtools")
-        try FileManager.default.copyItem(at: URL(fileURLWithPath: "/bin/ls"), to: machOURL)
-        try Self.makeExecutable(machOURL)
+        let scriptEmbeddedPaths = """
+        /Users/dho/Documents/lungfish-genome-browser/.build/tools/build
+        /opt/homebrew/bin
+        """
+        let scriptHandle = try FileHandle(forWritingTo: scriptURL)
+        try scriptHandle.seekToEnd()
+        try scriptHandle.write(contentsOf: Data(scriptEmbeddedPaths.utf8))
+        try scriptHandle.close()
 
         try Self.runScript(sanitizerURL, arguments: [toolsRoot.path])
 
-        #expect(FileManager.default.isExecutableFile(atPath: bbdukURL.path) == false)
-        #expect(FileManager.default.isExecutableFile(atPath: scrubberHelperURL.path))
-        #expect(FileManager.default.isExecutableFile(atPath: machOURL.path))
-        #expect(FileManager.default.isExecutableFile(atPath: configURL.path) == false)
+        #expect(FileManager.default.isExecutableFile(atPath: micromambaURL.path))
+        #expect(FileManager.default.isExecutableFile(atPath: scriptURL.path) == false)
+        #expect(FileManager.default.isExecutableFile(atPath: textURL.path) == false)
+
+        let sanitizedBinary = String(decoding: try Data(contentsOf: micromambaURL), as: UTF8.self)
+        let sanitizedScript = try String(contentsOf: scriptURL, encoding: .utf8)
+        #expect(sanitizedBinary.contains("/Users/dho") == false)
+        #expect(sanitizedBinary.contains("/opt/homebrew") == false)
+        #expect(sanitizedScript.contains("/Users/dho/Documents/lungfish-genome-browser/.build/tools/build"))
+        #expect(sanitizedScript.contains("/opt/homebrew/bin"))
     }
 
     @Test("Xcode Release build runs tools sanitizer")
@@ -182,26 +210,61 @@ struct ReleaseBuildConfigurationTests {
         #expect(sanitizeBlock.contains("LUNGFISH_SKIP_SANITIZE_BUNDLED_TOOLS"))
     }
 
-    @Test("Release smoke test asserts managed and retired tools are absent from the bundle")
-    func releaseSmokeTestAssertsManagedAndRetiredToolsAreAbsentFromTheBundle() throws {
+    @Test("Release smoke test asserts micromamba remains bundled and retired tools are absent")
+    func releaseSmokeTestAssertsMicromambaRemainsBundledAndRetiredToolsAreAbsent() throws {
         let script = try String(
             contentsOf: Self.repositoryRoot()
                 .appendingPathComponent("scripts/smoke-test-release-tools.sh"),
             encoding: .utf8
         )
 
-        #expect(script.contains(#"if [ -e "$TOOLS_DIR/bbtools" ]"#))
-        #expect(script.contains(#"if [ -e "$TOOLS_DIR/jre" ]"#))
-        #expect(script.contains(#"if [ -e "$TOOLS_DIR/fastp" ]"#))
-        #expect(script.contains(#"if [ -e "$TOOLS_DIR/scrubber/bin/aligns_to" ]"#))
-        #expect(script.contains("run_test samtools "))
-        #expect(script.contains("run_test seqkit "))
-        #expect(script.contains("run_test fastp ") == false)
-        #expect(script.contains("run_test scrub ") == false)
+        #expect(script.contains(#"if [ ! -x "$TOOLS_DIR/micromamba" ]"#))
+        #expect(script.contains("retired tool should not be bundled:"))
+        #expect(script.contains(#"$TOOLS_DIR/bbtools"#))
+        #expect(script.contains(#"$TOOLS_DIR/jre"#))
+        #expect(script.contains(#"$TOOLS_DIR/fastp"#))
+        #expect(script.contains(#"$TOOLS_DIR/samtools"#))
+        #expect(script.contains(#"$TOOLS_DIR/bgzip"#))
+        #expect(script.contains(#"$TOOLS_DIR/tabix"#))
+        #expect(script.contains(#"$TOOLS_DIR/bedToBigBed"#))
+        #expect(script.contains(#"$TOOLS_DIR/bedGraphToBigWig"#))
+        #expect(script.contains(#"$TOOLS_DIR/seqkit"#))
+        #expect(script.contains(#"$TOOLS_DIR/scrubber/bin/aligns_to"#))
+        #expect(script.contains("unexpected bundled tool entry"))
+        #expect(script.contains("tool metadata still references retired tool"))
+        #expect(script.contains("version summary still references retired tool"))
+        #expect(script.contains("bcftools \\\n    tabix \\\n    htslib"))
+        #expect(script.contains("run_test micromamba "))
+        #expect(script.contains("run_test samtools ") == false)
+        #expect(script.contains("run_test seqkit ") == false)
     }
 
-    @Test("Notarized DMG release script no longer signs JRE launchers")
-    func notarizedDMGReleaseScriptNoLongerSignsJRELaunchers() throws {
+    @Test("Update tool versions script refreshes micromamba metadata only")
+    func updateToolVersionsScriptRefreshesMicromambaMetadataOnly() throws {
+        let script = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("scripts/update-tool-versions.sh"),
+            encoding: .utf8
+        )
+
+        #expect(script.contains("micromamba is pinned at"))
+        #expect(script.contains("tool-versions.json"))
+        #expect(script.contains("VERSIONS.txt"))
+        #expect(script.contains("%Y-%m-%dT%H:%M:%SZ"))
+        #expect(script.contains(#"--arch "$target_arch""#))
+        #expect(script.contains("SOURCE_DATE_EPOCH"))
+        #expect(script.contains("LUNGFISH_BUILD_TIMESTAMP"))
+        #expect(script.contains("RESOLVED_BUILD_TIMESTAMP_ISO"))
+        #expect(script.contains("RESOLVED_BUILD_TIMESTAMP_DISPLAY"))
+        #expect(script.contains(#"export LUNGFISH_BUILD_TIMESTAMP="$RESOLVED_BUILD_TIMESTAMP_ISO""#))
+        #expect(script.contains("samtools") == false)
+        #expect(script.contains("bcftools") == false)
+        #expect(script.contains("htslib") == false)
+        #expect(script.contains("seqkit") == false)
+    }
+
+    @Test("Notarized DMG release script no longer signs retired bundled payloads")
+    func notarizedDMGReleaseScriptNoLongerSignsRetiredBundledPayloads() throws {
         let script = try String(
             contentsOf: Self.repositoryRoot()
                 .appendingPathComponent("scripts/release/build-notarized-dmg.sh"),
@@ -210,6 +273,19 @@ struct ReleaseBuildConfigurationTests {
 
         #expect(script.contains("sign_jre_launcher") == false)
         #expect(script.contains("jre/bin/java") == false)
+        #expect(script.contains("scrubber/bin/aligns_to") == false)
+        #expect(script.contains("fastp") == false)
+    }
+
+    @Test("Notarized DMG release script fails early if ripgrep is unavailable")
+    func notarizedDMGReleaseScriptFailsEarlyIfRipgrepIsUnavailable() throws {
+        let script = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("scripts/release/build-notarized-dmg.sh"),
+            encoding: .utf8
+        )
+
+        #expect(script.contains("require_command rg"))
     }
 
     @Test("Release smoke test resolves ripgrep from PATH instead of /usr/bin")
@@ -265,6 +341,7 @@ struct ReleaseBuildConfigurationTests {
         #expect(script.contains("xcodebuild -project Lungfish.xcodeproj"))
         #expect(script.contains("--product lungfish-cli"))
         #expect(script.contains("Contents/MacOS/lungfish-cli"))
+        #expect(script.contains("WORKFLOW_TOOLS_DIR"))
         #expect(script.contains("notarytool submit"))
         #expect(script.contains("stapler staple"))
         #expect(script.contains("hdiutil create"))
@@ -283,6 +360,22 @@ struct ReleaseBuildConfigurationTests {
         #expect(script.contains("-debug-prefix-map"))
         #expect(script.contains("-file-compilation-dir"))
         #expect(script.contains("ffile-prefix-map"))
+        #expect(script.contains("OTHER_SWIFT_FLAGS"))
+        #expect(script.contains("OTHER_CFLAGS"))
+        #expect(script.contains("OTHER_CPLUSPLUSFLAGS"))
+        #expect(script.contains("LUNGFISH_BUILD_TIMESTAMP"))
+        #expect(script.contains("SOURCE_DATE_EPOCH"))
+    }
+
+    @Test("Notarized DMG release script preserves inherited archive Swift flags")
+    func notarizedDMGReleaseScriptPreservesInheritedArchiveSwiftFlags() throws {
+        let script = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("scripts/release/build-notarized-dmg.sh"),
+            encoding: .utf8
+        )
+
+        #expect(script.contains("OTHER_SWIFT_FLAGS=\"\\$(inherited) $XCODE_OTHER_SWIFT_FLAGS\""))
     }
 
     @Test("Notarized DMG release script preserves derived data cache across runs")
@@ -334,8 +427,8 @@ struct ReleaseBuildConfigurationTests {
         #expect(sanitizeIndex < codesignIndex)
     }
 
-    @Test("Notarized DMG release script removes aligns_to before signing")
-    func notarizedDMGReleaseScriptRemovesAlignsToBeforeSigning() throws {
+    @Test("Notarized DMG release script no longer removes aligns_to")
+    func notarizedDMGReleaseScriptNoLongerRemovesAlignsTo() throws {
         let script = try String(
             contentsOf: Self.repositoryRoot()
                 .appendingPathComponent("scripts/release/build-notarized-dmg.sh"),
@@ -343,17 +436,7 @@ struct ReleaseBuildConfigurationTests {
         )
 
         let removalMarker = #"rm -f "$WORKFLOW_TOOLS_DIR/scrubber/bin/aligns_to""#
-        let lines = script.split(separator: "\n", omittingEmptySubsequences: false)
-        guard let removalIndex = lines.firstIndex(where: { $0.contains(removalMarker) }),
-              let codesignIndex = lines.enumerated().first(where: { _, line in
-                  line.contains(#"/usr/bin/codesign --force --sign "$SIGNING_IDENTITY""#)
-              })?.offset
-        else {
-            Issue.record("expected aligns_to removal before first codesign")
-            return
-        }
-
-        #expect(removalIndex < codesignIndex)
+        #expect(script.contains(removalMarker) == false)
     }
 
     @Test("Notarized DMG release script runs portability scan before signing")

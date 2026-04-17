@@ -718,7 +718,7 @@ public enum MetagenomicsImportService {
 
         // Materialize BAMs for this sample.
         var createdBAM = false
-        if let samtoolsPath = naomgsLocateSamtools() {
+        if let samtoolsPath = managedSamtoolsExecutableURL()?.path {
             let generated = try NaoMgsBamMaterializer.materializeAll(
                 dbPath: hitsDBURL.path,
                 resultURL: stageDir,
@@ -917,9 +917,17 @@ public enum MetagenomicsImportService {
         return result
     }
 
-    /// Locates the samtools binary for NAO-MGS BAM materialization.
-    private static func naomgsLocateSamtools() -> String? {
-        SamtoolsLocator.locate()
+    /// Resolves the managed samtools binary for NAO-MGS BAM materialization.
+    internal static func managedSamtoolsExecutableURL(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> URL? {
+        let samtoolsURL = CoreToolLocator.managedExecutableURL(
+            environment: "samtools",
+            executableName: "samtools",
+            homeDirectory: homeDirectory
+        )
+
+        return FileManager.default.isExecutableFile(atPath: samtoolsURL.path) ? samtoolsURL : nil
     }
 
     /// Resolves one or more virus_hits TSV files from a user-provided input URL.

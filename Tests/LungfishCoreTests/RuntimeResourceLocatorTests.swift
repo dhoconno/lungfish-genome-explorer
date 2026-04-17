@@ -38,7 +38,7 @@ struct RuntimeResourceLocatorTests {
         let repositoryRoot = tempRoot.appendingPathComponent("repo", isDirectory: true)
         let workingDirectory = repositoryRoot.appendingPathComponent("Sources/LungfishApp/Services", isDirectory: true)
         let expected = repositoryRoot
-            .appendingPathComponent("Sources/LungfishWorkflow/Resources/Tools/pigz")
+            .appendingPathComponent("Sources/LungfishWorkflow/Resources/Tools/micromamba")
 
         try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
@@ -54,7 +54,7 @@ struct RuntimeResourceLocatorTests {
         defer { try? FileManager.default.removeItem(at: tempRoot) }
 
         let resolved = RuntimeResourceLocator.path(
-            "Tools/pigz",
+            "Tools/micromamba",
             in: .workflow,
             mainResourceURL: nil,
             executableURL: nil,

@@ -101,6 +101,28 @@ final class HumanScrubberDatabaseTests: XCTestCase {
         }
     }
 
+    func testFASTQBatchImporterCanonicalizesLegacyHumanScrubberAliasToDeaconManagedDatabase() async throws {
+        let registry = DatabaseRegistry(
+            bundledDatabasesRoot: try bundledDatabasesRoot(),
+            userDatabasesRoot: tempDir.appendingPathComponent("empty-user-databases")
+        )
+
+        do {
+            _ = try await FASTQBatchImporter.resolveHumanScrubberDatabasePath(
+                databaseID: "sra-human-scrubber",
+                registry: registry
+            )
+            XCTFail("Expected install-required error")
+        } catch let error as HumanScrubberDatabaseError {
+            guard case .installRequired(let databaseID, let displayName) = error else {
+                XCTFail("Unexpected error: \(error)")
+                return
+            }
+            XCTAssertEqual(databaseID, "deacon-panhuman")
+            XCTAssertEqual(displayName, "Human Read Removal Data")
+        }
+    }
+
     func testFASTQBatchImporterReportsInstallRequiredWhenHumanScrubberDatabaseMissing() async throws {
         let registry = DatabaseRegistry(
             bundledDatabasesRoot: try bundledDatabasesRoot(),

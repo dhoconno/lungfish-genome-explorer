@@ -99,6 +99,12 @@ enum NaoMgsSamplePartitioner {
 
         return NaoMgsPartitionResult(sampleFiles: sampleFiles, totalRows: totalRows)
     }
+
+    static func managedDecompressorURL(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> URL? {
+        resolveManagedDecompressorURL(homeDirectory: homeDirectory)
+    }
 }
 
 private func clearExistingPartitionOutputs(in directory: URL, fileManager: FileManager) throws {
@@ -119,6 +125,7 @@ private func clearExistingPartitionOutputs(in directory: URL, fileManager: FileM
 private enum NaoMgsSamplePartitionerError: LocalizedError {
     case decodeFailed(URL)
     case gzipFailed(URL, Int32)
+    case managedPigzNotFound(URL)
     case inconsistentHeader(URL)
     case malformedRow(URL)
     case missingSampleColumn(URL)
@@ -129,6 +136,8 @@ private enum NaoMgsSamplePartitionerError: LocalizedError {
             return "NAO-MGS TSV is not valid UTF-8: \(url.lastPathComponent)"
         case .gzipFailed(let url, let status):
             return "Failed to decompress NAO-MGS gzip input \(url.lastPathComponent) (exit \(status))"
+        case .managedPigzNotFound(let url):
+            return "Managed pigz is not available for gzip-compressed NAO-MGS input \(url.lastPathComponent)"
         case .inconsistentHeader(let url):
             return "NAO-MGS TSV headers do not match across inputs: \(url.lastPathComponent)"
         case .malformedRow(let url):
@@ -155,17 +164,23 @@ private func safePartitionFileName(for sample: String) -> String {
     return "\(baseName)-\(deterministicSampleHash(sample)).tsv"
 }
 
-/// Returns the URL for pigz (parallel gzip) if available, otherwise falls back to /usr/bin/gzip.
-/// Cached after first resolution.
-private let naoMgsDecompressorURL: URL = {
-    if let bundledPigz = RuntimeResourceLocator.path("Tools/pigz", in: .workflow),
-       FileManager.default.isExecutableFile(atPath: bundledPigz.path)
-    {
-        return bundledPigz
+/// Returns the URL for pigz (parallel gzip) from the managed tool environment,
+/// or `nil` when the managed runtime is not provisioned.
+private func resolveManagedDecompressorURL(
+    homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+) -> URL? {
+    let pigzURL = CoreToolLocator.managedExecutableURL(
+        environment: "pigz",
+        executableName: "pigz",
+        homeDirectory: homeDirectory
+    )
+
+    if FileManager.default.isExecutableFile(atPath: pigzURL.path) {
+        return pigzURL
     }
 
-    return URL(fileURLWithPath: "/usr/bin/gzip")
-}()
+    return nil
+}
 
 private func deterministicSampleHash(_ sample: String) -> String {
     var hash: UInt64 = 14695981039346656037
@@ -184,9 +199,12 @@ private func streamNaoMgsLines(
     var gzipProcess: Process?
 
     if url.pathExtension.lowercased() == "gz" {
+        guard let decompressorURL = NaoMgsSamplePartitioner.managedDecompressorURL() else {
+            throw NaoMgsSamplePartitionerError.managedPigzNotFound(url)
+        }
         let processHandle = Process()
         // Prefer pigz for parallel decompression (4-8× faster on multi-core).
-        processHandle.executableURL = naoMgsDecompressorURL
+        processHandle.executableURL = decompressorURL
         processHandle.arguments = ["-dc", url.path]
         let pipe = Pipe()
         processHandle.standardOutput = pipe

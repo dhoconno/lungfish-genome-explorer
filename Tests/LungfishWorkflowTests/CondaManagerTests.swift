@@ -183,7 +183,8 @@ final class CondaManagerTests: XCTestCase {
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         let tools = json?["tools"] as? [[String: Any]]
 
-        XCTAssertTrue(tools?.contains(where: { $0["name"] as? String == "micromamba" }) == true)
+        XCTAssertEqual(tools?.count, 1)
+        XCTAssertEqual(tools?.first?["name"] as? String, "micromamba")
     }
 
     func testManagedToolLockLoadsPinnedPackageSpecsFromWorkflowResources() throws {
@@ -225,6 +226,13 @@ final class CondaManagerTests: XCTestCase {
 
         XCTAssertTrue(fileManager.fileExists(atPath: micromambaURL.path))
         XCTAssertTrue(fileManager.isExecutableFile(atPath: micromambaURL.path))
+    }
+
+    func testBundledToolsDirectoryContainsMicromambaAndMetadataOnly() throws {
+        let toolsDirectoryURL = Self.bundledToolsDirectoryURL()
+        let entries = try FileManager.default.contentsOfDirectory(atPath: toolsDirectoryURL.path).sorted()
+
+        XCTAssertEqual(entries, ["VERSIONS.txt", "micromamba", "tool-versions.json"])
     }
 
     private static func toolVersionsManifestURL() -> URL {
@@ -269,6 +277,27 @@ final class CondaManagerTests: XCTestCase {
         }
 
         fatalError("Cannot locate Sources/LungfishWorkflow/Resources/Tools/micromamba")
+    }
+
+    private static func bundledToolsDirectoryURL() -> URL {
+        if let bundleURL = Bundle.module.resourceURL?
+            .appendingPathComponent("Tools"),
+           FileManager.default.fileExists(atPath: bundleURL.path)
+        {
+            return bundleURL
+        }
+
+        var candidate = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        for _ in 0..<10 {
+            let toolsURL = candidate
+                .appendingPathComponent("Sources/LungfishWorkflow/Resources/Tools")
+            if FileManager.default.fileExists(atPath: toolsURL.path) {
+                return toolsURL
+            }
+            candidate = candidate.deletingLastPathComponent()
+        }
+
+        fatalError("Cannot locate Sources/LungfishWorkflow/Resources/Tools")
     }
 
     func testBuiltInPacksHaveUniqueIDs() {

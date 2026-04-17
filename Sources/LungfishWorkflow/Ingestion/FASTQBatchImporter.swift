@@ -130,7 +130,16 @@ public enum FASTQBatchImporter {
         databaseID: String,
         registry: DatabaseRegistry = .shared
     ) async throws -> URL {
-        try await registry.requiredDatabasePath(for: databaseID)
+        let resolvedID = canonicalHumanScrubDatabaseID(for: databaseID)
+        return try await registry.requiredDatabasePath(for: resolvedID)
+    }
+
+    private static func canonicalHumanScrubDatabaseID(for databaseID: String) -> String {
+        let canonical = DatabaseRegistry.canonicalDatabaseID(for: databaseID)
+        if canonical == HumanScrubberDatabaseInstaller.databaseID {
+            return DeaconPanhumanDatabaseInstaller.databaseID
+        }
+        return canonical
     }
 
     // MARK: - Pair Detection
@@ -981,16 +990,13 @@ public enum FASTQBatchImporter {
                 }
 
             case .humanReadScrub:
-                let dbID = step.humanScrubDatabaseID ?? HumanScrubberDatabaseInstaller.databaseID
-                let removeReads = step.humanScrubRemoveReads ?? false
+                let dbID = step.humanScrubDatabaseID ?? DeaconPanhumanDatabaseInstaller.databaseID
                 let dbPath = try await resolveHumanScrubberDatabasePath(
                     databaseID: dbID,
                     registry: databaseRegistry
                 )
-                let scrubSh = try await runner.findTool(.scrubSh)
-                let scriptsDir = scrubSh.deletingLastPathComponent()
 
-                // Decompress if gzipped (scrub.sh needs plain text)
+                // Decompress if gzipped so the paired/single-end tools can read plain text.
                 let inputForScrub: URL
                 var decompTemp: URL? = nil
                 if currentURL.pathExtension.lowercased() == "gz" {
@@ -998,7 +1004,7 @@ public enum FASTQBatchImporter {
                     let pigzResult = try await runner.runWithFileOutput(
                         .pigz, arguments: ["-d", "-c", currentURL.path], outputFile: tmp)
                     guard pigzResult.isSuccess else {
-                        throw BatchImportError.unknownRecipe("Decompression before scrub failed: \(pigzResult.stderr.suffix(500))")
+                        throw BatchImportError.unknownRecipe("Decompression before Deacon scrub failed: \(pigzResult.stderr.suffix(500))")
                     }
                     inputForScrub = tmp
                     decompTemp = tmp
@@ -1007,29 +1013,61 @@ public enum FASTQBatchImporter {
                 }
                 defer { if let t = decompTemp { try? FileManager.default.removeItem(at: t) } }
 
-                // scrub.sh writes plain FASTQ, not gzip — we'll compress after
+                // Deacon writes plain FASTQ; batch import stores gzipped outputs.
                 let scrubOutputURL = workspace.appendingPathComponent("step_\(absIndex)_\(pair.sampleName).fastq")
-                var scriptArgs = [scrubSh.path,
-                    "-i", inputForScrub.path,
-                    "-o", scrubOutputURL.path,
-                    "-d", dbPath.path,
-                    "-p", String(config.threads)]
-                if currentIsInterleaved { scriptArgs.append("-s") }
-                if removeReads { scriptArgs.append("-x") }
+                if currentIsInterleaved {
+                    let inputR1 = workspace.appendingPathComponent("scrub_in_\(UUID().uuidString)_R1.fastq")
+                    let inputR2 = workspace.appendingPathComponent("scrub_in_\(UUID().uuidString)_R2.fastq")
+                    let outputR1 = workspace.appendingPathComponent("scrub_out_\(UUID().uuidString)_R1.fastq")
+                    let outputR2 = workspace.appendingPathComponent("scrub_out_\(UUID().uuidString)_R2.fastq")
+                    defer {
+                        try? FileManager.default.removeItem(at: inputR1)
+                        try? FileManager.default.removeItem(at: inputR2)
+                        try? FileManager.default.removeItem(at: outputR1)
+                        try? FileManager.default.removeItem(at: outputR2)
+                    }
 
-                let scrubResult = try await runner.runProcess(
-                    executableURL: URL(fileURLWithPath: "/bin/bash"),
-                    arguments: scriptArgs,
-                    workingDirectory: scriptsDir,
-                    environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
-                    timeout: 7200,
-                    toolName: "scrub.sh"
-                )
-                guard scrubResult.isSuccess else {
-                    throw BatchImportError.unknownRecipe("sra-human-scrubber failed: \(scrubResult.stderr.suffix(500))")
+                    try await deinterleavePairedInput(
+                        sourceFASTQ: inputForScrub,
+                        outputR1: inputR1,
+                        outputR2: inputR2
+                    )
+
+                    let deaconResult = try await runner.run(
+                        .deacon,
+                        arguments: [
+                            "filter",
+                            "-d", dbPath.path,
+                            inputR1.path,
+                            inputR2.path,
+                            "-o", outputR1.path,
+                            "-O", outputR2.path,
+                            "-t", String(config.threads),
+                        ],
+                        timeout: 7200
+                    )
+                    guard deaconResult.isSuccess else {
+                        throw BatchImportError.unknownRecipe("deacon filter failed: \(deaconResult.stderr.suffix(500))")
+                    }
+
+                    try await interleavePairedInput(r1: outputR1, r2: outputR2, output: scrubOutputURL)
+                } else {
+                    let deaconResult = try await runner.run(
+                        .deacon,
+                        arguments: [
+                            "filter",
+                            "-d", dbPath.path,
+                            inputForScrub.path,
+                            "-o", scrubOutputURL.path,
+                            "-t", String(config.threads),
+                        ],
+                        timeout: 7200
+                    )
+                    guard deaconResult.isSuccess else {
+                        throw BatchImportError.unknownRecipe("deacon filter failed: \(deaconResult.stderr.suffix(500))")
+                    }
                 }
 
-                // Compress the scrub output
                 let compResult = try await runner.runWithFileOutput(
                     .pigz,
                     arguments: ["-p", String(config.threads), "-c", scrubOutputURL.path],
@@ -1037,7 +1075,7 @@ public enum FASTQBatchImporter {
                 )
                 try? FileManager.default.removeItem(at: scrubOutputURL)
                 guard compResult.isSuccess else {
-                    throw BatchImportError.unknownRecipe("Compression after scrub failed: \(compResult.stderr.suffix(500))")
+                    throw BatchImportError.unknownRecipe("Compression after Deacon scrub failed: \(compResult.stderr.suffix(500))")
                 }
 
             case .pairedEndMerge:
@@ -1316,6 +1354,26 @@ public enum FASTQBatchImporter {
         )
         guard result.isSuccess else {
             throw BatchImportError.unknownRecipe("reformat.sh interleave failed: \(result.stderr.suffix(500))")
+        }
+    }
+
+    /// Splits an interleaved FASTQ into separate R1/R2 files using reformat.sh.
+    private static func deinterleavePairedInput(sourceFASTQ: URL, outputR1: URL, outputR2: URL) async throws {
+        let runner = NativeToolRunner.shared
+        let env = await bbToolsEnvironment()
+        let result = try await runner.run(
+            .reformat,
+            arguments: [
+                "in=\(sourceFASTQ.path)",
+                "out1=\(outputR1.path)",
+                "out2=\(outputR2.path)",
+                "interleaved=t",
+            ],
+            environment: env,
+            timeout: 1800
+        )
+        guard result.isSuccess else {
+            throw BatchImportError.unknownRecipe("reformat.sh deinterleave failed: \(result.stderr.suffix(500))")
         }
     }
 

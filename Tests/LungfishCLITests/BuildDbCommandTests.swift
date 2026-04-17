@@ -30,6 +30,165 @@ final class BuildDbCommandTests: XCTestCase {
         return (home, samtoolsPath)
     }
 
+    private func makeFunctionalManagedSamtoolsHome() throws -> (home: URL, samtoolsPath: URL) {
+        let fixture = try makeManagedSamtoolsHome()
+        try writeScriptedSamtools(at: fixture.samtoolsPath)
+        return fixture
+    }
+
+    private func writeScriptedSamtools(at samtoolsPath: URL) throws {
+        try """
+        #!/bin/sh
+        set -eu
+
+        cmd="${1:-}"
+        if [ $# -gt 0 ]; then
+          shift
+        fi
+
+        case "$cmd" in
+          sort)
+            output=""
+            input="-"
+            while [ $# -gt 0 ]; do
+              case "$1" in
+                -o)
+                  output="$2"
+                  shift 2
+                  ;;
+                -@)
+                  shift 2
+                  ;;
+                -n|-m)
+                  shift
+                  ;;
+                -)
+                  input="-"
+                  shift
+                  ;;
+                *)
+                  input="$1"
+                  shift
+                  ;;
+              esac
+            done
+            if [ -n "$output" ]; then
+              if [ "$input" = "-" ]; then
+                cat > "$output"
+              else
+                cat "$input" > "$output"
+              fi
+            else
+              if [ "$input" = "-" ]; then
+                cat
+              else
+                cat "$input"
+              fi
+            fi
+            ;;
+          fixmate)
+            cat
+            ;;
+          markdup)
+            input="${1:--}"
+            output="${2:?missing output path}"
+            {
+              printf '@PG\\tID:samtools.markdup\\tCL:samtools markdup\\n'
+              if [ "$input" = "-" ]; then
+                cat
+              else
+                cat "$input"
+              fi
+            } > "$output"
+            ;;
+          index)
+            : > "$1.bai"
+            ;;
+          idxstats)
+            cat <<'EOF'
+        NC_045512.2	29903	31	0
+        OM695287.1	29674	26	0
+        *	0	0	0
+        EOF
+            ;;
+          view)
+            header=0
+            count=0
+            flag=""
+            bam=""
+            accession=""
+            while [ $# -gt 0 ]; do
+              case "$1" in
+                -H)
+                  header=1
+                  shift
+                  ;;
+                -c)
+                  count=1
+                  shift
+                  ;;
+                -F)
+                  flag="$2"
+                  shift 2
+                  ;;
+                *)
+                  if [ -z "$bam" ]; then
+                    bam="$1"
+                  else
+                    accession="$1"
+                  fi
+                  shift
+                  ;;
+              esac
+            done
+            if [ "$header" -eq 1 ]; then
+              printf '@HD\\tVN:1.6\\tSO:coordinate\\n'
+              if [ -n "$bam" ] && [ -f "$bam" ] && /usr/bin/grep -aq 'samtools markdup' "$bam"; then
+                printf '@PG\\tID:samtools.markdup\\tCL:samtools markdup\\n'
+              fi
+              exit 0
+            fi
+            if [ "$count" -eq 1 ]; then
+              if [ "$flag" = "1028" ]; then
+                case "$accession" in
+                  NC_045512.2) echo 25 ;;
+                  OM695287.1) echo 20 ;;
+                  "") echo 4 ;;
+                  *) echo 5 ;;
+                esac
+              else
+                case "$accession" in
+                  NC_045512.2) echo 31 ;;
+                  OM695287.1) echo 26 ;;
+                  "") echo 5 ;;
+                  *) echo 7 ;;
+                esac
+              fi
+              exit 0
+            fi
+            exit 1
+            ;;
+          *)
+            exit 1
+            ;;
+        esac
+        """.write(to: samtoolsPath, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: samtoolsPath.path)
+    }
+
+    private func withHomeDirectory<T>(_ home: URL, perform block: () async throws -> T) async throws -> T {
+        let originalHome = ProcessInfo.processInfo.environment["HOME"]
+        setenv("HOME", home.path, 1)
+        defer {
+            if let originalHome {
+                setenv("HOME", originalHome, 1)
+            } else {
+                unsetenv("HOME")
+            }
+        }
+        return try await block()
+    }
+
     /// Locates the taxtriage-mini fixture directory by walking up from the source file.
     private func findFixtureDir(_ name: String) -> URL {
         var url = URL(fileURLWithPath: #filePath)
@@ -50,14 +209,18 @@ final class BuildDbCommandTests: XCTestCase {
     func testBuildDbTaxTriage() async throws {
         let tmpDir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        defer { try? FileManager.default.removeItem(at: managedHome.home) }
 
         let fixtureDir = findFixtureDir("taxtriage-mini")
         let resultDir = tmpDir.appendingPathComponent("taxtriage")
         try FileManager.default.copyItem(at: fixtureDir, to: resultDir)
 
         // Run command with --quiet to suppress output
-        var cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
-        try await cmd.run()
+        try await withHomeDirectory(managedHome.home) {
+            var cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
+            try await cmd.run()
+        }
 
         // Verify database was created
         let dbURL = resultDir.appendingPathComponent("taxtriage.sqlite")
@@ -117,6 +280,33 @@ final class BuildDbCommandTests: XCTestCase {
         XCTAssertEqual(resolved, fixture.samtoolsPath.path)
     }
 
+    func testLocateSamtoolsIgnoresPathFallbacks() throws {
+        let home = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let fakePathDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: fakePathDir) }
+
+        let fakeSamtools = fakePathDir.appendingPathComponent("samtools")
+        try """
+        #!/bin/sh
+        exit 0
+        """.write(to: fakeSamtools, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeSamtools.path)
+
+        let originalPath = ProcessInfo.processInfo.environment["PATH"]
+        setenv("PATH", fakePathDir.path, 1)
+        defer {
+            if let originalPath {
+                setenv("PATH", originalPath, 1)
+            } else {
+                unsetenv("PATH")
+            }
+        }
+
+        XCTAssertNil(BuildDbCommand.locateSamtools(homeDirectory: home))
+    }
+
     /// Verifies that the command skips building when a database already exists
     /// and --force is not specified.
     func testBuildDbSkipsExisting() async throws {
@@ -145,6 +335,8 @@ final class BuildDbCommandTests: XCTestCase {
     func testBuildDbForceRebuild() async throws {
         let tmpDir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        defer { try? FileManager.default.removeItem(at: managedHome.home) }
 
         let fixtureDir = findFixtureDir("taxtriage-mini")
         let resultDir = tmpDir.appendingPathComponent("taxtriage")
@@ -155,8 +347,10 @@ final class BuildDbCommandTests: XCTestCase {
         FileManager.default.createFile(atPath: dbURL.path, contents: Data())
 
         // Run WITH --force — should rebuild
-        var cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "--force", "-q"])
-        try await cmd.run()
+        try await withHomeDirectory(managedHome.home) {
+            var cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "--force", "-q"])
+            try await cmd.run()
+        }
 
         // DB should now have content
         let attrs = try FileManager.default.attributesOfItem(atPath: dbURL.path)
@@ -169,6 +363,8 @@ final class BuildDbCommandTests: XCTestCase {
     func testTaxTriageCleanupRemovesIntermediateFiles() async throws {
         let tmpDir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        defer { try? FileManager.default.removeItem(at: managedHome.home) }
 
         let fixtureDir = findFixtureDir("taxtriage-mini")
         let resultDir = tmpDir.appendingPathComponent("taxtriage")
@@ -191,8 +387,10 @@ final class BuildDbCommandTests: XCTestCase {
         fm.createFile(atPath: fastpDir.appendingPathComponent("sample.fastp.json").path, contents: Data("report".utf8))
 
         // Run build-db (cleanup enabled by default)
-        var cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
-        try await cmd.run()
+        try await withHomeDirectory(managedHome.home) {
+            var cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
+            try await cmd.run()
+        }
 
         // Verify intermediate dirs are gone
         XCTAssertFalse(fm.fileExists(atPath: resultDir.appendingPathComponent("count").path),
@@ -226,13 +424,17 @@ final class BuildDbCommandTests: XCTestCase {
     func testBuildDbEsViritu() async throws {
         let tmpDir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        defer { try? FileManager.default.removeItem(at: managedHome.home) }
 
         let fixtureDir = findFixtureDir("esviritu-mini")
         let resultDir = tmpDir.appendingPathComponent("esviritu")
         try FileManager.default.copyItem(at: fixtureDir, to: resultDir)
 
-        var cmd = try BuildDbCommand.EsVirituSubcommand.parse([resultDir.path, "-q"])
-        try await cmd.run()
+        try await withHomeDirectory(managedHome.home) {
+            var cmd = try BuildDbCommand.EsVirituSubcommand.parse([resultDir.path, "-q"])
+            try await cmd.run()
+        }
 
         let dbURL = resultDir.appendingPathComponent("esviritu.sqlite")
         XCTAssertTrue(FileManager.default.fileExists(atPath: dbURL.path),
@@ -280,6 +482,8 @@ final class BuildDbCommandTests: XCTestCase {
     func testEsVirituCleanupRemovesIntermediateFiles() async throws {
         let tmpDir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        defer { try? FileManager.default.removeItem(at: managedHome.home) }
 
         let fixtureDir = findFixtureDir("esviritu-mini")
         let resultDir = tmpDir.appendingPathComponent("esviritu")
@@ -288,8 +492,10 @@ final class BuildDbCommandTests: XCTestCase {
         let fm = FileManager.default
 
         // Run build-db (cleanup enabled by default)
-        var cmd = try BuildDbCommand.EsVirituSubcommand.parse([resultDir.path, "-q"])
-        try await cmd.run()
+        try await withHomeDirectory(managedHome.home) {
+            var cmd = try BuildDbCommand.EsVirituSubcommand.parse([resultDir.path, "-q"])
+            try await cmd.run()
+        }
 
         // Verify _temp dirs are removed
         let sampleDir = resultDir.appendingPathComponent("SRR35517702")
@@ -387,6 +593,8 @@ final class BuildDbCommandTests: XCTestCase {
     func testTaxTriageNoCleanupPreservesAll() async throws {
         let tmpDir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        defer { try? FileManager.default.removeItem(at: managedHome.home) }
 
         let fixtureDir = findFixtureDir("taxtriage-mini")
         let resultDir = tmpDir.appendingPathComponent("taxtriage")
@@ -401,13 +609,40 @@ final class BuildDbCommandTests: XCTestCase {
         }
 
         // Run with --no-cleanup
-        var cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "--no-cleanup", "-q"])
-        try await cmd.run()
+        try await withHomeDirectory(managedHome.home) {
+            var cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "--no-cleanup", "-q"])
+            try await cmd.run()
+        }
 
         // All directories should still exist
         XCTAssertTrue(fm.fileExists(atPath: resultDir.appendingPathComponent("count").path),
                       "count/ should be preserved with --no-cleanup")
         XCTAssertTrue(fm.fileExists(atPath: resultDir.appendingPathComponent("filterkraken").path),
                       "filterkraken/ should be preserved with --no-cleanup")
+    }
+
+    func testBuildDbTaxTriageFailsWithoutManagedSamtools() async throws {
+        let tmpDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let home = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let fixtureDir = findFixtureDir("taxtriage-mini")
+        let resultDir = tmpDir.appendingPathComponent("taxtriage")
+        try FileManager.default.copyItem(at: fixtureDir, to: resultDir)
+
+        do {
+            try await withHomeDirectory(home) {
+                var cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
+                try await cmd.run()
+            }
+            XCTFail("Expected build-db to fail without managed samtools")
+        } catch {
+            XCTAssertTrue(
+                error.localizedDescription.contains("Managed samtools is required"),
+                "Unexpected error: \(error.localizedDescription)"
+            )
+        }
     }
 }

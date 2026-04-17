@@ -3,8 +3,7 @@
 # sanitize-bundled-tools.sh
 #
 # Release packaging helper that removes executable permissions from copied tool
-# resources that are not actual macOS executables or explicitly launched
-# wrapper scripts.
+# resources that are not actual macOS executables.
 
 set -euo pipefail
 
@@ -20,19 +19,6 @@ if [ "$#" -lt 1 ]; then
     usage
     exit 64
 fi
-
-is_allowlisted_script() {
-    case "$1" in
-        scrubber/scripts/scrub.sh|\
-        scrubber/scripts/cut_spots_fastq.py|\
-        scrubber/scripts/fastq_to_fasta.py)
-            return 0
-            ;;
-        *)
-            return 1
-            ;;
-    esac
-}
 
 rewrite_embedded_path_prefix() {
     local path="$1"
@@ -63,15 +49,15 @@ rewrite_embedded_path_prefix() {
 append_builder_root() {
     local candidate="$1"
 
-    [ -n "$candidate" ] || return
-    [ -d "$candidate" ] || return
+    [ -n "$candidate" ] || return 0
+    [ -d "$candidate" ] || return 0
     candidate="$(cd "$candidate" && pwd)"
 
     local existing
     if [ "${#BUILDER_ROOTS[@]}" -gt 0 ]; then
         for existing in "${BUILDER_ROOTS[@]}"; do
             if [ "$existing" = "$candidate" ]; then
-                return
+                return 0
             fi
         done
     fi
@@ -158,11 +144,6 @@ sanitize_file() {
         relative_path="${path#"$root"/}"
     else
         relative_path="$(basename "$path")"
-    fi
-
-    if is_allowlisted_script "$relative_path"; then
-        chmod 755 "$path"
-        return
     fi
 
     if [ ! -x "$path" ]; then

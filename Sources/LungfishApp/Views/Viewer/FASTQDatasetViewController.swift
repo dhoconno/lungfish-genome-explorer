@@ -280,7 +280,7 @@ public final class FASTQDatasetViewController: NSViewController {
             case .naoMgsImport:
                 return "Import results from the NAO metagenomic surveillance pipeline (securebio/nao-mgs-workflow). Parses virus hit tables and displays alignment data."
             case .humanReadScrub:
-                return "Remove human-derived reads using NCBI's human-scrubber database. Required before SRA submission and recommended for clinical/surveillance samples."
+                return "Remove human-derived reads using the required Human Read Removal Data. Required before SRA submission and recommended for clinical or surveillance samples."
             }
         }
 
@@ -1325,7 +1325,7 @@ public final class FASTQDatasetViewController: NSViewController {
             parameterBar.addArrangedSubview(label)
 
         case .humanReadScrub:
-            let label = NSTextField(labelWithString: "Remove human-derived reads using NCBI human-scrubber database. Required before SRA submission.")
+            let label = NSTextField(labelWithString: "Remove human-derived reads using the required Human Read Removal Data. Required before SRA submission.")
             label.font = .systemFont(ofSize: 11)
             label.textColor = .secondaryLabelColor
             parameterBar.addArrangedSubview(label)
@@ -2132,12 +2132,12 @@ public final class FASTQDatasetViewController: NSViewController {
         guard case .installRequired(let databaseID, let displayName) = requirement else {
             throw requirement
         }
-        let canonicalDatabaseID = DatabaseRegistry.canonicalDatabaseID(for: databaseID)
+        let canonicalDatabaseID = canonicalHumanReadRemovalDatabaseID(for: databaseID)
 
         let response = await promptToInstallHumanScrubberDatabase(displayName: displayName)
         guard response == .alertFirstButtonReturn else {
             throw HumanScrubberDatabaseError.installationCancelled(
-                databaseID: databaseID,
+                databaseID: canonicalDatabaseID,
                 displayName: displayName
             )
         }
@@ -2162,7 +2162,7 @@ public final class FASTQDatasetViewController: NSViewController {
             throw error
         } catch {
             throw HumanScrubberDatabaseError.installationFailed(
-                databaseID: databaseID,
+                databaseID: canonicalDatabaseID,
                 displayName: displayName,
                 reason: error.localizedDescription
             )
@@ -2181,6 +2181,14 @@ public final class FASTQDatasetViewController: NSViewController {
         alert.addButton(withTitle: "Install")
         alert.addButton(withTitle: "Cancel")
         return await alertPresenter.present(alert, on: view.window)
+    }
+
+    private func canonicalHumanReadRemovalDatabaseID(for requestedID: String) -> String {
+        let canonical = DatabaseRegistry.canonicalDatabaseID(for: requestedID)
+        if canonical == HumanScrubberDatabaseInstaller.databaseID {
+            return DeaconPanhumanDatabaseInstaller.databaseID
+        }
+        return canonical
     }
 
 
@@ -2438,7 +2446,7 @@ public final class FASTQDatasetViewController: NSViewController {
             return nil
 
         case .humanReadScrub:
-            return .humanReadScrub(databaseID: HumanScrubberDatabaseInstaller.databaseID, removeReads: true)
+            return .humanReadScrub(databaseID: DeaconPanhumanDatabaseInstaller.databaseID, removeReads: true)
 
         case .subsampleProportion:
             guard let value = Double(fieldOneInput.stringValue), value > 0, value <= 1 else {
@@ -2720,8 +2728,8 @@ public final class FASTQDatasetViewController: NSViewController {
             return "Sequence filter (\(endLabel), \(action) matched, \(seq)\(rcLabel), ov=\(minOverlap), e=\(String(format: "%.2f", errorRate)))"
         case .orient(let referenceURL, let wordLength, let dbMask, _):
             return "Orient against \(referenceURL.lastPathComponent) (w=\(wordLength), mask=\(dbMask))"
-        case .humanReadScrub(let databaseID, let removeReads):
-            return "Human read scrub (db: \(databaseID), \(removeReads ? "remove" : "mask with N"))"
+        case .humanReadScrub(let databaseID, _):
+            return "Human read removal (db: \(canonicalHumanReadRemovalDatabaseID(for: databaseID)))"
         }
     }
 

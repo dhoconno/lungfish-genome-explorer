@@ -397,8 +397,8 @@ final class FASTQDashboardTests: XCTestCase {
 
         var runCount = 0
         let recovered = try await controller.handleHumanScrubberDatabaseRequirement(
-            .installRequired(databaseID: "human-scrubber", displayName: "Human Read Scrubber Database"),
-            request: .humanReadScrub(databaseID: "human-scrubber", removeReads: true),
+            .installRequired(databaseID: "deacon-panhuman", displayName: "Human Read Removal Data"),
+            request: .humanReadScrub(databaseID: "sra-human-scrubber", removeReads: true),
             onRunOperation: { _ in
                 runCount += 1
             }
@@ -406,7 +406,9 @@ final class FASTQDashboardTests: XCTestCase {
 
         XCTAssertTrue(recovered)
         let installCallCount = await installer.currentInstallCallCount()
+        let lastInstalledDatabaseID = await installer.lastInstalledDatabaseID()
         XCTAssertEqual(installCallCount, 1)
+        XCTAssertEqual(lastInstalledDatabaseID, "deacon-panhuman")
         XCTAssertEqual(runCount, 1)
         XCTAssertEqual(alertPresenter.messageText, "Human Read Scrubber Database Required")
     }
@@ -425,8 +427,8 @@ final class FASTQDashboardTests: XCTestCase {
         var runCount = 0
         do {
             _ = try await controller.handleHumanScrubberDatabaseRequirement(
-                .installRequired(databaseID: "human-scrubber", displayName: "Human Read Scrubber Database"),
-                request: .humanReadScrub(databaseID: "human-scrubber", removeReads: true),
+                .installRequired(databaseID: "deacon-panhuman", displayName: "Human Read Removal Data"),
+                request: .humanReadScrub(databaseID: "sra-human-scrubber", removeReads: true),
                 onRunOperation: { _ in
                     runCount += 1
                 }
@@ -435,8 +437,8 @@ final class FASTQDashboardTests: XCTestCase {
         } catch let error as HumanScrubberDatabaseError {
             switch error {
             case .installationCancelled(let databaseID, let displayName):
-                XCTAssertEqual(databaseID, "human-scrubber")
-                XCTAssertEqual(displayName, "Human Read Scrubber Database")
+                XCTAssertEqual(databaseID, "deacon-panhuman")
+                XCTAssertEqual(displayName, "Human Read Removal Data")
             default:
                 XCTFail("Expected installationCancelled, got \(error)")
             }
@@ -466,7 +468,16 @@ final class FASTQDashboardTests: XCTestCase {
         let installCallCount = await installer.currentInstallCallCount()
         let lastInstalledDatabaseID = await installer.lastInstalledDatabaseID()
         XCTAssertEqual(installCallCount, 1)
-        XCTAssertEqual(lastInstalledDatabaseID, "human-scrubber")
+        XCTAssertEqual(lastInstalledDatabaseID, "deacon-panhuman")
+    }
+
+    func testHumanReadScrubBatchParametersCanonicalizeManagedRemovalMetadata() {
+        let params = FASTQDerivativeRequest
+            .humanReadScrub(databaseID: "sra-human-scrubber", removeReads: false)
+            .batchParameters
+
+        XCTAssertEqual(params["databaseID"], "deacon-panhuman")
+        XCTAssertNil(params["removeReads"])
     }
 
     func testFASTQDerivativeServiceReportsInstallRequiredWhenHumanScrubberDatabaseMissing() async throws {
@@ -482,7 +493,7 @@ final class FASTQDashboardTests: XCTestCase {
 
         do {
             _ = try await FASTQDerivativeService.resolveHumanScrubberDatabasePath(
-                databaseID: "human-scrubber",
+                databaseID: "sra-human-scrubber",
                 registry: registry
             )
             XCTFail("Expected install-required error")
@@ -491,8 +502,8 @@ final class FASTQDashboardTests: XCTestCase {
                 XCTFail("Unexpected error: \(error)")
                 return
             }
-            XCTAssertEqual(databaseID, "human-scrubber")
-            XCTAssertEqual(displayName, "Human Read Scrubber Database")
+            XCTAssertEqual(databaseID, "deacon-panhuman")
+            XCTAssertEqual(displayName, "Human Read Removal Data")
         }
     }
 
@@ -712,12 +723,18 @@ final class FASTQDashboardTests: XCTestCase {
 
     private func makeHumanScrubberBundledRoot(in tempDir: URL) throws -> URL {
         let root = tempDir.appendingPathComponent("bundled-databases", isDirectory: true)
-        let dbDir = root.appendingPathComponent("human-scrubber", isDirectory: true)
-        try FileManager.default.createDirectory(at: dbDir, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(
-            at: try humanScrubberManifestURL(),
-            to: dbDir.appendingPathComponent("manifest.json")
-        )
+        let manifests = [
+            ("human-scrubber", try humanScrubberManifestURL()),
+            ("deacon-panhuman", try deaconPanhumanManifestURL()),
+        ]
+        for (databaseID, manifestURL) in manifests {
+            let dbDir = root.appendingPathComponent(databaseID, isDirectory: true)
+            try FileManager.default.createDirectory(at: dbDir, withIntermediateDirectories: true)
+            try FileManager.default.copyItem(
+                at: manifestURL,
+                to: dbDir.appendingPathComponent("manifest.json")
+            )
+        }
         return root
     }
 
@@ -731,5 +748,17 @@ final class FASTQDashboardTests: XCTestCase {
             return candidate
         }
         throw XCTSkip("Bundled human-scrubber manifest not found at \(candidate.path)")
+    }
+
+    private func deaconPanhumanManifestURL() throws -> URL {
+        let candidate = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishWorkflow/Resources/Databases/deacon-panhuman/manifest.json")
+        if FileManager.default.fileExists(atPath: candidate.path) {
+            return candidate
+        }
+        throw XCTSkip("Bundled deacon-panhuman manifest not found at \(candidate.path)")
     }
 }

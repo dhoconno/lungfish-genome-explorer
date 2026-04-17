@@ -689,9 +689,54 @@ final class ProvisionToolsCommandRegressionTests: XCTestCase {
         XCTAssertEqual(ProvisionToolsCommand.configuration.commandName, "provision-tools")
     }
 
+    func testAbstractMentionsMicromambaBootstrap() {
+        XCTAssertTrue(ProvisionToolsCommand.configuration.abstract.contains("micromamba"))
+        XCTAssertTrue(ProvisionToolsCommand.configuration.abstract.contains("bootstrap"))
+    }
+
     func testHelpTextIsNonEmpty() {
         let help = ProvisionToolsCommand.helpMessage()
         XCTAssertFalse(help.isEmpty)
+        XCTAssertTrue(help.contains("micromamba"))
+        XCTAssertFalse(help.contains("samtools (v1.21)"))
+        XCTAssertFalse(help.contains("or universal"))
+    }
+
+    func testUniversalArchitectureIsRejected() {
+        XCTAssertThrowsError(try ProvisionToolsCommand.parse(["--arch", "universal"]))
+    }
+
+    func testProvisioningSummaryJSONIsStable() throws {
+        let summary = ProvisioningSummary(
+            successful: ["zeta", "alpha"],
+            failed: [
+                "zeta": "failed zeta",
+                "alpha": "failed alpha"
+            ],
+            skipped: ["omega", "beta"],
+            duration: 1.5
+        )
+
+        let json = try XCTUnwrap(String(data: JSONEncoder().encode(summary), encoding: .utf8))
+
+        XCTAssertLessThan(try XCTUnwrap(json.range(of: #""alpha","zeta""#)?.lowerBound),
+                          try XCTUnwrap(json.range(of: #""omega""#)?.lowerBound))
+        XCTAssertLessThan(try XCTUnwrap(json.range(of: #""alpha":"failed alpha""#)?.lowerBound),
+                          try XCTUnwrap(json.range(of: #""zeta":"failed zeta""#)?.lowerBound))
+        XCTAssertLessThan(try XCTUnwrap(json.range(of: #""beta","omega""#)?.lowerBound),
+                          try XCTUnwrap(json.range(of: #""duration":1.5"#)?.lowerBound))
+    }
+
+    func testInstallationStatusSummaryJSONIsStable() throws {
+        let status = InstallationStatusSummary(status: [
+            "zeta": false,
+            "alpha": true
+        ])
+
+        let json = try XCTUnwrap(String(data: JSONEncoder().encode(status), encoding: .utf8))
+
+        XCTAssertLessThan(try XCTUnwrap(json.range(of: #""alpha":true"#)?.lowerBound),
+                          try XCTUnwrap(json.range(of: #""zeta":false"#)?.lowerBound))
     }
 }
 

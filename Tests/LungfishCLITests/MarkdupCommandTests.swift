@@ -29,17 +29,153 @@ final class MarkdupCommandTests: XCTestCase {
         let qual: String
     }
 
-    private func locateSamtools() -> String? {
-        let candidates = [
-            "/opt/homebrew/Cellar/samtools/1.23/bin/samtools",
-            "/opt/homebrew/bin/samtools",
-            "/usr/local/bin/samtools",
-            "/usr/bin/samtools",
-        ]
-        for p in candidates where FileManager.default.fileExists(atPath: p) {
-            return p
+    private func makeManagedSamtoolsHome() throws -> (home: URL, samtoolsPath: URL) {
+        let fm = FileManager.default
+        let home = fm.temporaryDirectory
+            .appendingPathComponent("MarkdupManagedHome-\(UUID().uuidString)", isDirectory: true)
+        let samtoolsPath = home
+            .appendingPathComponent(".lungfish/conda/envs/samtools/bin/samtools", isDirectory: false)
+        try fm.createDirectory(at: samtoolsPath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        exit 0
+        """.write(to: samtoolsPath, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: samtoolsPath.path)
+        return (home, samtoolsPath)
+    }
+
+    private func makeFunctionalManagedSamtoolsHome() throws -> (home: URL, samtoolsPath: URL) {
+        let fixture = try makeManagedSamtoolsHome()
+        try writeScriptedSamtools(at: fixture.samtoolsPath)
+        return fixture
+    }
+
+    private func writeScriptedSamtools(at samtoolsPath: URL) throws {
+        try """
+        #!/bin/sh
+        set -eu
+
+        cmd="${1:-}"
+        if [ $# -gt 0 ]; then
+          shift
+        fi
+
+        case "$cmd" in
+          sort)
+            output=""
+            input="-"
+            while [ $# -gt 0 ]; do
+              case "$1" in
+                -o)
+                  output="$2"
+                  shift 2
+                  ;;
+                -@)
+                  shift 2
+                  ;;
+                -n|-m)
+                  shift
+                  ;;
+                -)
+                  input="-"
+                  shift
+                  ;;
+                *)
+                  input="$1"
+                  shift
+                  ;;
+              esac
+            done
+            if [ -n "$output" ]; then
+              if [ "$input" = "-" ]; then
+                cat > "$output"
+              else
+                cat "$input" > "$output"
+              fi
+            else
+              if [ "$input" = "-" ]; then
+                cat
+              else
+                cat "$input"
+              fi
+            fi
+            ;;
+          fixmate)
+            cat
+            ;;
+          markdup)
+            input="${1:--}"
+            output="${2:?missing output path}"
+            {
+              printf '@PG\\tID:samtools.markdup\\tCL:samtools markdup\\n'
+              if [ "$input" = "-" ]; then
+                cat
+              else
+                cat "$input"
+              fi
+            } > "$output"
+            ;;
+          index)
+            : > "$1.bai"
+            ;;
+          view)
+            header=0
+            count=0
+            while [ $# -gt 0 ]; do
+              case "$1" in
+                -H)
+                  header=1
+                  shift
+                  ;;
+                -c)
+                  count=1
+                  shift
+                  ;;
+                -F)
+                  shift 2
+                  ;;
+                *)
+                  bam="$1"
+                  shift
+                  ;;
+              esac
+            done
+            if [ "${header:-0}" -eq 1 ]; then
+              printf '@HD\\tVN:1.6\\tSO:coordinate\\n'
+              if [ -n "${bam:-}" ] && [ -f "$bam" ] && /usr/bin/grep -aq 'samtools markdup' "$bam"; then
+                printf '@PG\\tID:samtools.markdup\\tCL:samtools markdup\\n'
+              fi
+              exit 0
+            fi
+            if [ "${count:-0}" -eq 1 ]; then
+              if [ -n "${bam:-}" ] && [ -f "$bam" ] && /usr/bin/grep -aq 'samtools markdup' "$bam"; then
+                echo 4
+              else
+                echo 5
+              fi
+              exit 0
+            fi
+            exit 1
+            ;;
+          *)
+            exit 1
+            ;;
+        esac
+        """.write(to: samtoolsPath, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: samtoolsPath.path)
+    }
+
+    private func withHomeDirectory<T>(_ home: URL, perform block: () async throws -> T) async throws -> T {
+        let originalHome = ProcessInfo.processInfo.environment["HOME"]
+        setenv("HOME", home.path, 1)
+        defer {
+            if let originalHome {
+                setenv("HOME", originalHome, 1)
+            } else {
+                unsetenv("HOME")
+            }
         }
-        return nil
+        return try await block()
     }
 
     private func makeBAM(
@@ -109,17 +245,20 @@ final class MarkdupCommandTests: XCTestCase {
     // MARK: - Tests
 
     func testCliMarkdupSingleBAM() async throws {
-        guard let samtools = locateSamtools() else {
-            XCTFail("samtools not available")
-            return
-        }
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        let samtools = managedHome.samtoolsPath.path
         let dir = try makeTempDir()
-        defer { try? FileManager.default.removeItem(at: dir) }
+        defer {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.removeItem(at: managedHome.home)
+        }
         let bamURL = dir.appendingPathComponent("test.bam")
         try makeSyntheticBam(at: bamURL, samtools: samtools)
 
-        var cmd = try MarkdupCommand.parse([bamURL.path, "-q"])
-        try await cmd.run()
+        try await withHomeDirectory(managedHome.home) {
+            var cmd = try MarkdupCommand.parse([bamURL.path, "-q"])
+            try await cmd.run()
+        }
 
         XCTAssertTrue(
             MarkdupService.isAlreadyMarkduped(bamURL: bamURL, samtoolsPath: samtools),
@@ -128,65 +267,78 @@ final class MarkdupCommandTests: XCTestCase {
     }
 
     func testCliMarkdupDirectory() async throws {
-        guard let samtools = locateSamtools() else {
-            XCTFail("samtools not available")
-            return
-        }
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        let samtools = managedHome.samtoolsPath.path
         let dir = try makeTempDir()
-        defer { try? FileManager.default.removeItem(at: dir) }
+        defer {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.removeItem(at: managedHome.home)
+        }
         let bam1 = dir.appendingPathComponent("a.bam")
         let bam2 = dir.appendingPathComponent("sub/b.bam")
         try makeSyntheticBam(at: bam1, samtools: samtools)
         try makeSyntheticBam(at: bam2, samtools: samtools)
 
-        var cmd = try MarkdupCommand.parse([dir.path, "-q"])
-        try await cmd.run()
+        try await withHomeDirectory(managedHome.home) {
+            var cmd = try MarkdupCommand.parse([dir.path, "-q"])
+            try await cmd.run()
+        }
 
         XCTAssertTrue(MarkdupService.isAlreadyMarkduped(bamURL: bam1, samtoolsPath: samtools))
         XCTAssertTrue(MarkdupService.isAlreadyMarkduped(bamURL: bam2, samtoolsPath: samtools))
     }
 
     func testCliMarkdupSkipsAlreadyMarked() async throws {
-        guard let samtools = locateSamtools() else {
-            XCTFail("samtools not available")
-            return
-        }
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        let samtools = managedHome.samtoolsPath.path
         let dir = try makeTempDir()
-        defer { try? FileManager.default.removeItem(at: dir) }
+        defer {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.removeItem(at: managedHome.home)
+        }
         let bamURL = dir.appendingPathComponent("test.bam")
         try makeSyntheticBam(at: bamURL, samtools: samtools)
 
-        var cmd1 = try MarkdupCommand.parse([bamURL.path, "-q"])
-        try await cmd1.run()
+        try await withHomeDirectory(managedHome.home) {
+            var cmd1 = try MarkdupCommand.parse([bamURL.path, "-q"])
+            try await cmd1.run()
+        }
         let firstMtime = (try? FileManager.default.attributesOfItem(atPath: bamURL.path)[.modificationDate]) as? Date
 
         try await Task.sleep(nanoseconds: 1_100_000_000)
 
-        var cmd2 = try MarkdupCommand.parse([bamURL.path, "-q"])
-        try await cmd2.run()
+        try await withHomeDirectory(managedHome.home) {
+            var cmd2 = try MarkdupCommand.parse([bamURL.path, "-q"])
+            try await cmd2.run()
+        }
         let secondMtime = (try? FileManager.default.attributesOfItem(atPath: bamURL.path)[.modificationDate]) as? Date
 
         XCTAssertEqual(firstMtime, secondMtime, "File should not be rewritten on second run")
     }
 
     func testCliMarkdupForceReruns() async throws {
-        guard let samtools = locateSamtools() else {
-            XCTFail("samtools not available")
-            return
-        }
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        let samtools = managedHome.samtoolsPath.path
         let dir = try makeTempDir()
-        defer { try? FileManager.default.removeItem(at: dir) }
+        defer {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.removeItem(at: managedHome.home)
+        }
         let bamURL = dir.appendingPathComponent("test.bam")
         try makeSyntheticBam(at: bamURL, samtools: samtools)
 
-        var cmd1 = try MarkdupCommand.parse([bamURL.path, "-q"])
-        try await cmd1.run()
+        try await withHomeDirectory(managedHome.home) {
+            var cmd1 = try MarkdupCommand.parse([bamURL.path, "-q"])
+            try await cmd1.run()
+        }
         let firstMtime = (try? FileManager.default.attributesOfItem(atPath: bamURL.path)[.modificationDate]) as? Date
 
         try await Task.sleep(nanoseconds: 1_100_000_000)
 
-        var cmd2 = try MarkdupCommand.parse([bamURL.path, "--force", "-q"])
-        try await cmd2.run()
+        try await withHomeDirectory(managedHome.home) {
+            var cmd2 = try MarkdupCommand.parse([bamURL.path, "--force", "-q"])
+            try await cmd2.run()
+        }
         let secondMtime = (try? FileManager.default.attributesOfItem(atPath: bamURL.path)[.modificationDate]) as? Date
 
         XCTAssertNotEqual(firstMtime, secondMtime, "File SHOULD be rewritten on forced re-run")
