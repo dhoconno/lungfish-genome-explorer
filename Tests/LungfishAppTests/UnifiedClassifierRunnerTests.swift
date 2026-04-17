@@ -52,6 +52,9 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
         XCTAssertTrue(source.contains("UnifiedMetagenomicsWizard(inputFiles: bundleURLs, initialSelection: .classification)"))
         XCTAssertTrue(source.contains("UnifiedMetagenomicsWizard(inputFiles: bundleURLs, initialSelection: .viralDetection)"))
         XCTAssertTrue(source.contains("UnifiedMetagenomicsWizard(inputFiles: bundleURLs, initialSelection: .clinicalTriage)"))
+        XCTAssertFalse(source.contains("ClassificationWizardSheet("))
+        XCTAssertFalse(source.contains("EsVirituWizardSheet("))
+        XCTAssertFalse(source.contains("TaxTriageWizardSheet("))
     }
 
     private func loadSource(at relativePath: String) throws -> String {
