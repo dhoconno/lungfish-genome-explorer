@@ -50,9 +50,10 @@ public actor HumanScrubberDatabaseInstaller {
     }
 
     public func install(
+        reinstall: Bool = false,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> URL {
-        try await registry.installManagedDatabase(Self.databaseID, progress: progress)
+        try await registry.installManagedDatabase(Self.databaseID, reinstall: reinstall, progress: progress)
     }
 }
 
@@ -70,9 +71,10 @@ public actor DeaconPanhumanDatabaseInstaller {
     }
 
     public func install(
+        reinstall: Bool = false,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> URL {
-        try await registry.installManagedDatabase(Self.databaseID, progress: progress)
+        try await registry.installManagedDatabase(Self.databaseID, reinstall: reinstall, progress: progress)
     }
 }
 
@@ -257,10 +259,13 @@ public actor DatabaseRegistry {
     /// Downloads and installs a managed database into user storage.
     public func installManagedDatabase(
         _ id: String,
+        reinstall: Bool = false,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> URL {
         let resolvedID = Self.normalizedDatabaseID(id)
-        if let existing = effectiveDatabasePath(for: id) {
+        if reinstall {
+            try clearManagedDatabaseInstall(resolvedID)
+        } else if let existing = effectiveDatabasePath(for: id) {
             progress?(1.0, "Using installed \(manifest(for: resolvedID)?.displayName ?? resolvedID)")
             return existing
         }
@@ -552,6 +557,16 @@ public actor DatabaseRegistry {
 
     private func managedDatabaseDirectory(for id: String) -> URL? {
         userDatabasesRootProvider()?.appendingPathComponent(id, isDirectory: true)
+    }
+
+    private func clearManagedDatabaseInstall(_ id: String) throws {
+        let resolvedID = Self.normalizedDatabaseID(id)
+        if let installDirectory = managedDatabaseDirectory(for: resolvedID),
+           FileManager.default.fileExists(atPath: installDirectory.path)
+        {
+            try FileManager.default.removeItem(at: installDirectory)
+        }
+        UserDefaults.standard.removeObject(forKey: overrideFilenameKey(for: resolvedID))
     }
 
     func managedDatabaseArtifactURLs(for manifest: BundledDatabase) -> (databaseURL: URL, md5URL: URL)? {

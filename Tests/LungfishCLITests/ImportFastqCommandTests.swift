@@ -32,6 +32,7 @@ private actor StubManagedDatabaseRegistry: ManagedDatabaseProvisioning {
 
     func installManagedDatabase(
         _ id: String,
+        reinstall: Bool = false,
         progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> URL {
         installCalls.append(id)

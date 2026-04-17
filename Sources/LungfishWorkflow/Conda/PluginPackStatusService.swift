@@ -93,6 +93,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
     ) async throws -> Void
     public typealias DatabaseInstallAction = @Sendable (
         _ databaseID: String,
+        _ reinstall: Bool,
         _ progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> URL
     public typealias DatabaseInstalledCheck = @Sendable (_ databaseID: String) async -> Bool
@@ -118,8 +119,12 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                 try await condaManager.install(packages: packages, environment: environment, progress: progress)
             }
         }
-        self.databaseInstallAction = databaseInstallAction ?? { databaseID, progress in
-            try await DatabaseRegistry.shared.installManagedDatabase(databaseID, progress: progress)
+        self.databaseInstallAction = databaseInstallAction ?? { databaseID, reinstall, progress in
+            try await DatabaseRegistry.shared.installManagedDatabase(
+                databaseID,
+                reinstall: reinstall,
+                progress: progress
+            )
         }
         self.databaseInstalledCheck = databaseInstalledCheck ?? { databaseID in
             await DatabaseRegistry.shared.isDatabaseInstalled(databaseID)
@@ -201,7 +206,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                     itemFraction: 0,
                     message: "Installing \(requirement.displayName)…"
                 ))
-                _ = try await databaseInstallAction(databaseID) { fraction, message in
+                _ = try await databaseInstallAction(databaseID, reinstall) { fraction, message in
                     let scaled = base + (fraction / Double(totalSteps))
                     progress?(PluginPackInstallProgress(
                         requirementID: requirement.id,

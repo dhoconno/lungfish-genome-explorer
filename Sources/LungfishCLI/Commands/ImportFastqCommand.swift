@@ -16,6 +16,7 @@ protocol ManagedDatabaseProvisioning: Sendable {
     func isDatabaseInstalled(_ id: String) async -> Bool
     func installManagedDatabase(
         _ id: String,
+        reinstall: Bool,
         progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> URL
 }
@@ -372,7 +373,10 @@ extension ImportCommand {
                 }
 
                 do {
-                    _ = try await databaseRegistry.installManagedDatabase(databaseID) { progress, message in
+                    _ = try await databaseRegistry.installManagedDatabase(
+                        databaseID,
+                        reinstall: false
+                    ) { progress, message in
                         guard !isQuiet else { return }
                         let percent = Int(progress * 100)
                         emit(formatter.info("[\(percent)%] \(message)"))

@@ -39,7 +39,6 @@ final class NativeToolRunnerTests: XCTestCase {
 
         XCTAssertTrue(valid, "Bundled tools should still validate without BBTools/JRE in the app bundle")
         XCTAssertFalse(missing.contains(.clumpify))
-        XCTAssertFalse(missing.contains(.java))
         XCTAssertFalse(missing.contains(.fastp))
     }
 
@@ -339,23 +338,17 @@ final class NativeToolRunnerTests: XCTestCase {
         XCTAssertEqual(NativeTool.bbduk.executableName, "bbduk.sh")
         XCTAssertEqual(NativeTool.bbmerge.executableName, "bbmerge.sh")
         XCTAssertEqual(NativeTool.repair.executableName, "repair.sh")
-        XCTAssertEqual(NativeTool.java.executableName, "java")
         XCTAssertEqual(NativeTool.tadpole.executableName, "tadpole.sh")
         XCTAssertEqual(NativeTool.reformat.executableName, "reformat.sh")
         XCTAssertTrue(NativeTool.samtools.isBundled)
         XCTAssertFalse(NativeTool.fastp.isBundled)
         XCTAssertFalse(NativeTool.clumpify.isBundled)
-        XCTAssertFalse(NativeTool.java.isBundled)
     }
 
     func testManagedCoreToolLocationsUseCondaEnvironments() {
         XCTAssertEqual(
             NativeTool.clumpify.location,
             .managed(environment: "bbtools", executableName: "clumpify.sh")
-        )
-        XCTAssertEqual(
-            NativeTool.java.location,
-            .managed(environment: "bbtools", executableName: "java")
         )
         XCTAssertEqual(
             NativeTool.fastp.location,
@@ -383,8 +376,8 @@ final class NativeToolRunnerTests: XCTestCase {
     }
 
     func testAllCasesCount() {
-        // 20 bundled tools + 3 conda-managed tools = 23 total cases
-        XCTAssertEqual(NativeTool.allCases.count, 23, "Should have 23 NativeTool cases (20 bundled + 3 conda-managed)")
+        // 20 bundled tools + 2 conda-managed tools = 22 total cases
+        XCTAssertEqual(NativeTool.allCases.count, 22, "Should have 22 NativeTool cases (20 bundled + 2 conda-managed)")
     }
 
     // MARK: - Error Tests

@@ -129,7 +129,6 @@ public enum NativeTool: String, CaseIterable, Sendable {
     case repair
     case tadpole
     case reformat
-    case java
     // SRA human-read scrubber
     case alignsTo
     case scrubSh
@@ -159,7 +158,6 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .repair: return "repair.sh"
         case .tadpole: return "tadpole.sh"
         case .reformat: return "reformat.sh"
-        case .java: return "java"
         case .alignsTo: return "aligns_to"
         case .scrubSh: return "scrub.sh"
         case .fasterqDump: return "fasterq-dump"
@@ -182,8 +180,6 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return .managed(environment: "bbtools", executableName: "tadpole.sh")
         case .reformat:
             return .managed(environment: "bbtools", executableName: "reformat.sh")
-        case .java:
-            return .managed(environment: "bbtools", executableName: "java")
         case .fastp:
             return .managed(environment: "fastp", executableName: "fastp")
         case .alignsTo:
@@ -226,8 +222,6 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return "bbtools/tadpole.sh"
         case .reformat:
             return "bbtools/reformat.sh"
-        case .java:
-            return "jre/bin/java"
         case .alignsTo:
             return "scrubber/bin/aligns_to"
         case .scrubSh:
@@ -254,7 +248,6 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .vsearch: return "vsearch"
         case .cutadapt: return "cutadapt"
         case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat: return "bbmap"
-        case .java: return "openjdk"
         case .alignsTo, .scrubSh: return "sra-human-scrubber"
         case .fasterqDump, .prefetch: return "sra-tools"
         case .deacon: return "deacon"
@@ -290,8 +283,6 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return "MIT License"
         case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat:
             return "BBMap License"
-        case .java:
-            return "GPL-2.0-with-classpath-exception"
         case .alignsTo, .scrubSh:
             return "Public Domain (NCBI)"
         case .fasterqDump, .prefetch:

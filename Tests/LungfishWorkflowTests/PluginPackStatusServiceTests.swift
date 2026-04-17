@@ -436,7 +436,7 @@ final class PluginPackStatusServiceTests: XCTestCase {
         let service = PluginPackStatusService(
             condaManager: manager,
             installAction: { _, _, _, _ in },
-            databaseInstallAction: { databaseID, progress in
+            databaseInstallAction: { databaseID, _, progress in
                 await recorder.record(databaseID)
                 progress?(0.55, "Downloading Human Read Removal Data…")
                 await recorder.recordProgress(0.55)
@@ -458,6 +458,39 @@ final class PluginPackStatusServiceTests: XCTestCase {
                 && $0.requirementDisplayName == "Human Read Removal Data"
                 && abs($0.itemFraction - 0.55) < 0.0001
         })
+    }
+
+    func testInstallPackPropagatesReinstallToManagedDatabaseRequirements() async throws {
+        actor DatabaseRecorder {
+            var calls: [(databaseID: String, reinstall: Bool)] = []
+            func record(_ databaseID: String, _ reinstall: Bool) {
+                calls.append((databaseID, reinstall))
+            }
+            func recordedCalls() -> [(databaseID: String, reinstall: Bool)] { calls }
+        }
+
+        let recorder = DatabaseRecorder()
+        let manager = CondaManager(
+            rootPrefix: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),
+            bundledMicromambaProvider: { nil },
+            bundledMicromambaVersionProvider: { nil }
+        )
+
+        let service = PluginPackStatusService(
+            condaManager: manager,
+            installAction: { _, _, _, _ in },
+            databaseInstallAction: { databaseID, reinstall, _ in
+                await recorder.record(databaseID, reinstall)
+                return URL(fileURLWithPath: "/tmp/\(databaseID)")
+            }
+        )
+
+        try await service.install(pack: .requiredSetupPack, reinstall: true, progress: nil)
+
+        let calls = await recorder.recordedCalls()
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertEqual(calls.first?.databaseID, "deacon-panhuman")
+        XCTAssertEqual(calls.first?.reinstall, true)
     }
 
     func testInstallPackRunsPostInstallHooksAfterPackageInstalls() async throws {
