@@ -148,6 +148,39 @@ final class CondaManagerTests: XCTestCase {
         XCTAssertTrue(tools?.contains(where: { $0["name"] as? String == "micromamba" }) == true)
     }
 
+    func testManagedToolLockLoadsPinnedPackageSpecsFromWorkflowResources() throws {
+        let lock = try ManagedToolLock.loadFromBundle()
+
+        XCTAssertEqual(lock.packID, "lungfish-tools")
+        XCTAssertEqual(lock.displayName, "Third-Party Tools")
+        XCTAssertEqual(lock.version, "1.0.4")
+        XCTAssertEqual(lock.tools.count, 15)
+        XCTAssertEqual(lock.managedData.count, 1)
+
+        let expectedSpecs: [String: String] = [
+            "nextflow": "bioconda::nextflow=25.10.4=h2a3209d_0",
+            "snakemake": "bioconda::snakemake=9.19.0=hdfd78af_1",
+            "bbtools": "bioconda::bbmap=39.80=h2e3bd82_0",
+            "fastp": "bioconda::fastp=1.3.2=ha1d0559_0",
+            "deacon": "bioconda::deacon=0.15.0=hc0d6d67_0",
+            "samtools": "bioconda::samtools=1.23.1=hc612e98_0",
+            "bcftools": "bioconda::bcftools=1.23.1=h0ba0a6f_0",
+            "htslib": "bioconda::htslib=1.23.1=h44a9eb5_0",
+            "seqkit": "bioconda::seqkit=2.13.0=hd5f1084_0",
+            "cutadapt": "bioconda::cutadapt=5.2=py311hd78823b_1",
+            "vsearch": "bioconda::vsearch=2.30.5=h85a231e_0",
+            "pigz": "conda-forge::pigz=2.8=hfab5511_2",
+            "sra-tools": "bioconda::sra-tools=3.4.1=h4675bf2_1",
+            "ucsc-bedtobigbed": "bioconda::ucsc-bedtobigbed=482=h1643cc5_0",
+            "ucsc-bedgraphtobigwig": "bioconda::ucsc-bedgraphtobigwig=482=h1643cc5_0",
+        ]
+
+        let actualSpecs: [String: String] = Dictionary(uniqueKeysWithValues: lock.tools.map { ($0.id, $0.packageSpec) })
+        XCTAssertEqual(actualSpecs, expectedSpecs)
+        XCTAssertEqual(lock.managedData.first?.id, "deacon-panhuman")
+        XCTAssertEqual(lock.managedData.first?.displayName, "Human Read Removal Data")
+    }
+
     func testMicromambaBundledResourceIsResolvable() throws {
         let micromambaURL = Self.micromambaBundledResourceURL()
         let fileManager = FileManager.default
@@ -309,11 +342,11 @@ final class CondaManagerTests: XCTestCase {
         XCTAssertTrue(pack!.packages.contains("picard"))
     }
 
-    func testNoPackContainsNativeTierOneTools() {
-        // These tools are bundled natively and should NOT appear in any conda pack
+    func testOptionalPacksDoNotContainNativeTierOneTools() {
+        // These tools are bundled natively and should not appear in optional conda packs.
         let nativeTools = ["samtools", "bcftools", "seqkit", "cutadapt",
                            "pigz", "bgzip", "tabix"]
-        for pack in PluginPack.builtIn {
+        for pack in PluginPack.builtIn where !pack.isRequiredBeforeLaunch {
             for tool in nativeTools {
                 XCTAssertFalse(pack.packages.contains(tool),
                     "Pack '\(pack.id)' should not contain native tool '\(tool)'")

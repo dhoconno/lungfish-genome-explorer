@@ -1,0 +1,25 @@
+{
+  "packID": "lungfish-tools",
+  "displayName": "Third-Party Tools",
+  "version": "1.0.4",
+  "tools": [
+    { "id": "nextflow", "environment": "nextflow", "packageSpec": "bioconda::nextflow=25.10.4=h2a3209d_0", "executables": ["nextflow"] },
+    { "id": "snakemake", "environment": "snakemake", "packageSpec": "bioconda::snakemake=9.19.0=hdfd78af_1", "executables": ["snakemake"] },
+    { "id": "bbtools", "environment": "bbtools", "packageSpec": "bioconda::bbmap=39.80=h2e3bd82_0", "executables": ["clumpify.sh", "bbduk.sh", "bbmerge.sh", "repair.sh", "tadpole.sh", "reformat.sh", "java"] },
+    { "id": "fastp", "environment": "fastp", "packageSpec": "bioconda::fastp=1.3.2=ha1d0559_0", "executables": ["fastp"] },
+    { "id": "deacon", "environment": "deacon", "packageSpec": "bioconda::deacon=0.15.0=hc0d6d67_0", "executables": ["deacon"] },
+    { "id": "samtools", "environment": "samtools", "packageSpec": "bioconda::samtools=1.23.1=hc612e98_0", "executables": ["samtools"] },
+    { "id": "bcftools", "environment": "bcftools", "packageSpec": "bioconda::bcftools=1.23.1=h0ba0a6f_0", "executables": ["bcftools"] },
+    { "id": "htslib", "environment": "htslib", "packageSpec": "bioconda::htslib=1.23.1=h44a9eb5_0", "executables": ["bgzip", "tabix"] },
+    { "id": "seqkit", "environment": "seqkit", "packageSpec": "bioconda::seqkit=2.13.0=hd5f1084_0", "executables": ["seqkit"] },
+    { "id": "cutadapt", "environment": "cutadapt", "packageSpec": "bioconda::cutadapt=5.2=py311hd78823b_1", "executables": ["cutadapt"] },
+    { "id": "vsearch", "environment": "vsearch", "packageSpec": "bioconda::vsearch=2.30.5=h85a231e_0", "executables": ["vsearch"] },
+    { "id": "pigz", "environment": "pigz", "packageSpec": "conda-forge::pigz=2.8=hfab5511_2", "executables": ["pigz"] },
+    { "id": "sra-tools", "environment": "sra-tools", "packageSpec": "bioconda::sra-tools=3.4.1=h4675bf2_1", "executables": ["prefetch", "fasterq-dump"] },
+    { "id": "ucsc-bedtobigbed", "environment": "ucsc-bedtobigbed", "packageSpec": "bioconda::ucsc-bedtobigbed=482=h1643cc5_0", "executables": ["bedToBigBed"] },
+    { "id": "ucsc-bedgraphtobigwig", "environment": "ucsc-bedgraphtobigwig", "packageSpec": "bioconda::ucsc-bedgraphtobigwig=482=h1643cc5_0", "executables": ["bedGraphToBigWig"] }
+  ],
+  "managedData": [
+    { "id": "deacon-panhuman", "displayName": "Human Read Removal Data" }
+  ]
+}

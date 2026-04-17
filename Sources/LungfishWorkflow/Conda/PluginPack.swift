@@ -197,26 +197,24 @@ public struct PluginPack: Sendable, Codable, Identifiable, Hashable {
 }
 
 public extension PluginPack {
-    static let builtIn: [PluginPack] = [
-        PluginPack(
-            id: "lungfish-tools",
-            name: "Lungfish Tools",
+    static let requiredSetupPack: PluginPack = {
+        let lock = try! ManagedToolLock.loadFromBundle()
+        return PluginPack(
+            id: lock.packID,
+            name: lock.displayName,
             description: "Needed before you can create or open a project",
             sfSymbol: "checklist",
-            packages: ["nextflow", "snakemake", "bbtools", "fastp", "deacon"],
+            packages: lock.tools.map(\.environment),
             category: "Required Setup",
             kind: .requiredSetup,
             isActive: true,
-            requirements: [
-                .package("nextflow", displayName: "Nextflow", smokeTest: .command(arguments: ["-version"])),
-                .package("snakemake", displayName: "Snakemake", smokeTest: .command(arguments: ["--help"])),
-                .bbtools,
-                .package("fastp", displayName: "Fastp", smokeTest: .command(arguments: ["--help"])),
-                .package("deacon", displayName: "Deacon", smokeTest: .command(arguments: ["--help"])),
-                .managedDatabase("deacon-panhuman", displayName: "Human Read Removal Data"),
-            ],
-            estimatedSizeMB: 1920
-        ),
+            requirements: PackToolRequirement.from(lock: lock),
+            estimatedSizeMB: 2600
+        )
+    }()
+
+    static let builtIn: [PluginPack] = [
+        requiredSetupPack,
         PluginPack(
             id: "illumina-qc",
             name: "Illumina QC",
@@ -376,10 +374,6 @@ public extension PluginPack {
             estimatedSizeMB: 650
         ),
     ]
-
-    static var requiredSetupPack: PluginPack {
-        builtIn.first(where: \.isRequiredBeforeLaunch)!
-    }
 
     static var activeOptionalPacks: [PluginPack] {
         builtIn.filter { $0.kind == .optionalTools && $0.isActive }

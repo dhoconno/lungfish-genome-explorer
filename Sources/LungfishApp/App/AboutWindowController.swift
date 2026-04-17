@@ -260,8 +260,8 @@ final class AboutWindowController: NSWindowController {
         appendSecondary("Wisconsin National Primate Research Center")
         appendSecondary("Early testing and feedback")
 
-        // Embedded Bioinformatics Tools (from tool-versions.json manifest)
-        appendHeading("Embedded Tools")
+        // Bundled bootstrap tooling stays separate from the pinned managed pack.
+        appendHeading("Bundled Bootstrap")
 
         let versionStyle: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
@@ -285,6 +285,14 @@ final class AboutWindowController: NSWindowController {
                     attrs[.link] = url
                     credits.append(NSAttributedString(string: "\(tool.sourceUrl)\n", attributes: attrs))
                 }
+            }
+        }
+
+        if let lock = try? ManagedToolLock.loadFromBundle() {
+            appendHeading("Pinned Third-Party Tools")
+            for tool in lock.tools {
+                credits.append(NSAttributedString(string: tool.displayName, attributes: bodyStyle))
+                credits.append(NSAttributedString(string: "  \(tool.packageSpec)\n", attributes: versionStyle))
             }
         }
 
