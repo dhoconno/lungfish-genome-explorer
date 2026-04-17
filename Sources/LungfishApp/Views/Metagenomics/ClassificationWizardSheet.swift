@@ -196,8 +196,8 @@ struct ClassificationWizardSheet: View {
 
     var body: some View {
         Group {
-            if embeddedInUnifiedRunner {
-                configurationContent
+            if !embeddedInUnifiedRunner {
+                standaloneBody
             } else {
                 ScrollView {
                     configurationContent
@@ -226,6 +226,80 @@ struct ClassificationWizardSheet: View {
                 memoryMapping = true
             }
         }
+    }
+
+    private var standaloneBody: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Kraken2 Classification")
+                        .font(.headline)
+                    Text("Classify reads and estimate abundances with Bracken")
+                        .font(.caption)
+                        .foregroundStyle(Color.lungfishSecondaryText)
+                }
+                Spacer()
+                if inputFiles.count == 1 {
+                    Text(inputDisplayName)
+                        .font(.caption)
+                        .foregroundStyle(Color.lungfishSecondaryText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                } else {
+                    Text("\(groupedSamples.count) sample\(groupedSamples.count == 1 ? "" : "s")")
+                        .font(.caption)
+                        .foregroundStyle(Color.lungfishSecondaryText)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
+
+            Divider()
+
+            ScrollView {
+                configurationContent
+            }
+
+            Divider()
+
+            standaloneFooter
+        }
+        .frame(width: 520, height: 520)
+    }
+
+    private var standaloneFooter: some View {
+        HStack {
+            if !canRun && inputFiles.isEmpty {
+                Text("No input files selected")
+                    .font(.caption)
+                    .foregroundStyle(Color.lungfishOrangeFallback)
+            } else if !canRun && groupedSamples.isEmpty {
+                Text("Could not detect valid sample inputs")
+                    .font(.caption)
+                    .foregroundStyle(Color.lungfishOrangeFallback)
+            } else if !canRun && readyDatabases.isEmpty {
+                Text("No databases installed")
+                    .font(.caption)
+                    .foregroundStyle(Color.lungfishOrangeFallback)
+            }
+
+            Spacer()
+
+            Button("Cancel") {
+                onCancel?()
+            }
+            .keyboardShortcut(.cancelAction)
+
+            Button("Run") {
+                performRun()
+            }
+            .keyboardShortcut(.defaultAction)
+            .buttonStyle(.borderedProminent)
+            .disabled(!canRun)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
     }
 
     private var configurationContent: some View {

@@ -102,7 +102,7 @@ final class WindowAppearanceTests: XCTestCase {
         XCTAssertFalse(source.contains("analysisTypeSelector"))
     }
 
-    func testToolPanelsExposeOnlyEmbeddedRunnerContent() throws {
+    func testToolPanelsRetainStandaloneShellAndSizing() throws {
         let classificationSource = try String(
             contentsOf: repositoryRoot()
                 .appendingPathComponent("Sources/LungfishApp/Views/Metagenomics/ClassificationWizardSheet.swift"),
@@ -122,12 +122,32 @@ final class WindowAppearanceTests: XCTestCase {
         XCTAssertTrue(classificationSource.contains("embeddedInUnifiedRunner"))
         XCTAssertTrue(esvirituSource.contains("embeddedInUnifiedRunner"))
         XCTAssertTrue(taxtriageSource.contains("embeddedInUnifiedRunner"))
-        XCTAssertFalse(classificationSource.contains(#"Button("Cancel")"#))
-        XCTAssertFalse(esvirituSource.contains(#"Button("Cancel")"#))
-        XCTAssertFalse(taxtriageSource.contains(#"Button("Cancel")"#))
-        XCTAssertFalse(classificationSource.contains(#"Button("Run")"#))
-        XCTAssertFalse(esvirituSource.contains(#"Button("Run")"#))
-        XCTAssertFalse(taxtriageSource.contains(#"Button("Run")"#))
+        XCTAssertTrue(classificationSource.contains("if !embeddedInUnifiedRunner"))
+        XCTAssertTrue(esvirituSource.contains("if !embeddedInUnifiedRunner"))
+        XCTAssertTrue(taxtriageSource.contains("if !embeddedInUnifiedRunner"))
+        XCTAssertTrue(classificationSource.contains(#"Button("Cancel")"#))
+        XCTAssertTrue(esvirituSource.contains(#"Button("Cancel")"#))
+        XCTAssertTrue(taxtriageSource.contains(#"Button("Cancel")"#))
+        XCTAssertTrue(classificationSource.contains(#"Button("Run")"#))
+        XCTAssertTrue(esvirituSource.contains(#"Button("Run")"#))
+        XCTAssertTrue(taxtriageSource.contains(#"Button("Run")"#))
+        XCTAssertTrue(classificationSource.contains(".frame(width: 520, height: 520)"))
+        XCTAssertTrue(esvirituSource.contains(".frame(width: 520, height: 500)"))
+        XCTAssertTrue(taxtriageSource.contains(".frame(width: 520, height: 520)"))
+    }
+
+    func testEmbeddedClassificationPanelUsesScrollView() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Metagenomics/ClassificationWizardSheet.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("embeddedInUnifiedRunner"))
+        XCTAssertTrue(source.contains("standaloneBody"))
+        XCTAssertTrue(source.contains("ScrollView {"))
+        XCTAssertTrue(source.contains("configurationContent"))
+        XCTAssertTrue(source.contains("if !embeddedInUnifiedRunner"))
     }
 
     private func repositoryRoot() -> URL {

@@ -137,41 +137,12 @@ struct EsVirituWizardSheet: View {
     // MARK: - Body
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        Group {
             if !embeddedInUnifiedRunner {
-                // Header: tool identity + dataset name
-                HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("EsViritu Viral Detection")
-                            .font(.headline)
-                        Text("Identify viral sequences using the EsViritu pipeline")
-                            .font(.caption)
-                            .foregroundStyle(Color.lungfishSecondaryText)
-                    }
-                    Spacer()
-                    if inputFiles.count == 1 {
-                        Text(inputDisplayName)
-                            .font(.caption)
-                            .foregroundStyle(Color.lungfishSecondaryText)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    } else {
-                        Text("\(groupedSamples.count) sample\(groupedSamples.count == 1 ? "" : "s") \u{00B7} \(inputFiles.count) files")
-                            .font(.caption)
-                            .foregroundStyle(Color.lungfishSecondaryText)
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
-                .padding(.bottom, 12)
+                standaloneBody
+            } else {
+                embeddedBody
             }
-
-            Divider()
-
-            ScrollView {
-                configurationContent
-            }
-            Divider()
         }
         .background(Color.lungfishCanvasBackground)
         .tint(.lungfishCreamsicleFallback)
@@ -192,6 +163,58 @@ struct EsVirituWizardSheet: View {
             guard embeddedInUnifiedRunner else { return }
             performRun()
         }
+    }
+
+    private var embeddedBody: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Divider()
+
+            ScrollView {
+                configurationContent
+            }
+
+            Divider()
+        }
+    }
+
+    private var standaloneBody: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("EsViritu Viral Detection")
+                        .font(.headline)
+                    Text("Identify viral sequences using the EsViritu pipeline")
+                        .font(.caption)
+                        .foregroundStyle(Color.lungfishSecondaryText)
+                }
+                Spacer()
+                if inputFiles.count == 1 {
+                    Text(inputDisplayName)
+                        .font(.caption)
+                        .foregroundStyle(Color.lungfishSecondaryText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                } else {
+                    Text("\(groupedSamples.count) sample\(groupedSamples.count == 1 ? "" : "s") \u{00B7} \(inputFiles.count) files")
+                        .font(.caption)
+                        .foregroundStyle(Color.lungfishSecondaryText)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
+
+            Divider()
+
+            ScrollView {
+                configurationContent
+            }
+
+            Divider()
+
+            standaloneFooter
+        }
+        .frame(width: 520, height: 500)
     }
 
     private var configurationContent: some View {
@@ -377,6 +400,32 @@ struct EsVirituWizardSheet: View {
             .padding(.top, 8)
         }
         .font(.system(size: 12, weight: .medium))
+    }
+
+    private var standaloneFooter: some View {
+        HStack {
+            if !canRun {
+                Text("Finish the settings above to continue")
+                    .font(.caption)
+                    .foregroundStyle(Color.lungfishOrangeFallback)
+            }
+
+            Spacer()
+
+            Button("Cancel") {
+                onCancel?()
+            }
+            .keyboardShortcut(.cancelAction)
+
+            Button("Run") {
+                performRun()
+            }
+            .keyboardShortcut(.defaultAction)
+            .buttonStyle(.borderedProminent)
+            .disabled(!canRun)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
     }
 
     // MARK: - Actions
