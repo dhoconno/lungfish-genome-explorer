@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishIO
+import LungfishWorkflow
 import SQLite3
 #if canImport(Darwin)
 import Darwin
@@ -810,43 +811,14 @@ public enum VCFImportHelper {
     }
 
     private static func findToolExecutable(named tool: String) throws -> String {
-        let fm = FileManager.default
-        var candidates: [String] = []
-
-        if let resources = Bundle.main.resourceURL {
-            candidates.append(resources.appendingPathComponent("Tools/\(tool)").path)
+        guard let nativeTool = NativeTool(rawValue: tool),
+              let managedPath = BundleBuildHelpers.managedToolExecutablePath(nativeTool)
+        else {
+            throw VariantDatabaseError.createFailed(
+                "\(tool) not found in the managed Lungfish tool environment"
+            )
         }
-
-        if let executable = Bundle.main.executableURL?.deletingLastPathComponent() {
-            var current: URL? = executable
-            for _ in 0..<8 {
-                guard let dir = current else { break }
-                candidates.append(dir.appendingPathComponent("Tools/\(tool)").path)
-                candidates.append(dir.appendingPathComponent("Resources/Tools/\(tool)").path)
-                candidates.append(dir.appendingPathComponent("Contents/Resources/Tools/\(tool)").path)
-                current = dir.deletingLastPathComponent()
-            }
-        }
-
-        let cwd = fm.currentDirectoryPath
-        candidates.append(cwd + "/Sources/LungfishWorkflow/Resources/Tools/\(tool)")
-        candidates.append("/usr/local/bin/\(tool)")
-        candidates.append("/usr/bin/\(tool)")
-
-        if let pathEnv = ProcessInfo.processInfo.environment["PATH"] {
-            for dir in pathEnv.split(separator: ":") {
-                candidates.append(String(dir) + "/\(tool)")
-            }
-        }
-
-        var seen = Set<String>()
-        for candidate in candidates where seen.insert(candidate).inserted {
-            if fm.isExecutableFile(atPath: candidate) {
-                return candidate
-            }
-        }
-
-        throw VariantDatabaseError.createFailed("\(tool) not found. Ensure it is bundled in app Resources/Tools or installed on PATH.")
+        return managedPath
     }
 
     private static func runChromosomeChildImport(

@@ -4633,7 +4633,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     /// Locates the samtools binary for NVD import markdup.
     nonisolated private static func nvdLocateSamtools() -> String? {
-        SamtoolsLocator.locate(searchPath: ProcessInfo.processInfo.environment["PATH"])
+        BundleBuildHelpers.managedToolExecutablePath(.samtools)
     }
 
     /// Populates the `unique_reads` column in an NVD blast_hits table by running

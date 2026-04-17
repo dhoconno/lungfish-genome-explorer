@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
+@testable import LungfishWorkflow
 
 final class BAMImportServiceTests: XCTestCase {
 
@@ -126,6 +127,63 @@ final class BAMImportServiceTests: XCTestCase {
             XCTAssertNotNil(error.errorDescription, "Error case \(error) should have a description")
             XCTAssertFalse(error.errorDescription!.isEmpty, "Error case \(error) should not be empty")
         }
+    }
+
+    func testManagedToolPathUsesManagedEnvironmentLayout() throws {
+        let homeDirectory = tempDir.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: homeDirectory, withIntermediateDirectories: true)
+
+        let expectations: [(tool: NativeTool, environment: String, executableName: String)] = [
+            (.samtools, "samtools", "samtools"),
+            (.bcftools, "bcftools", "bcftools"),
+            (.bgzip, "htslib", "bgzip"),
+        ]
+
+        for item in expectations {
+            let executable = homeDirectory
+                .appendingPathComponent(".lungfish/conda/envs/\(item.environment)/bin/\(item.executableName)")
+            try FileManager.default.createDirectory(
+                at: executable.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            FileManager.default.createFile(atPath: executable.path, contents: Data("#!/bin/sh\n".utf8))
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+            let resolved = BundleBuildHelpers.managedToolExecutablePath(
+                item.tool,
+                homeDirectory: homeDirectory
+            )
+
+            XCTAssertEqual(resolved, executable.path)
+        }
+    }
+
+    func testManagedToolPathIgnoresPathFallbacks() throws {
+        let homeDirectory = tempDir.appendingPathComponent("empty-home", isDirectory: true)
+        try FileManager.default.createDirectory(at: homeDirectory, withIntermediateDirectories: true)
+
+        let fakePathDir = tempDir.appendingPathComponent("path-bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: fakePathDir, withIntermediateDirectories: true)
+        let fakeSamtools = fakePathDir.appendingPathComponent("samtools")
+        FileManager.default.createFile(atPath: fakeSamtools.path, contents: Data("#!/bin/sh\n".utf8))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeSamtools.path)
+
+        let oldPath = ProcessInfo.processInfo.environment["PATH"]
+        setenv("PATH", fakePathDir.path, 1)
+        defer {
+            if let oldPath {
+                setenv("PATH", oldPath, 1)
+            } else {
+                unsetenv("PATH")
+            }
+        }
+
+        let resolved = BundleBuildHelpers.managedToolExecutablePath(
+            .samtools,
+            homeDirectory: homeDirectory
+        )
+
+        XCTAssertNil(resolved)
     }
 
     func testBAMImportErrorConformsToLocalizedError() {

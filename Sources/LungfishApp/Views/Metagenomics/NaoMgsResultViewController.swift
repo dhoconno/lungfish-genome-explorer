@@ -1001,7 +1001,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// function only performs filesystem probes, so it's safe to run off the
     /// main actor.
     nonisolated fileprivate static func naomgsLocateSamtools() -> String? {
-        SamtoolsLocator.locate()
+        BundleBuildHelpers.managedToolExecutablePath(.samtools)
     }
 
     // MARK: - Async MiniBAM Loading

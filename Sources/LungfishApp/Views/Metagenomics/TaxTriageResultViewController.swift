@@ -1549,7 +1549,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
                 // Parse accession lengths from BAM header for this sample's references.
                 var localLengths: [String: Int] = [:]
-                if let samtools = ProcessManager.shared.findExecutable(named: "samtools") {
+                if let samtoolsPath = BundleBuildHelpers.managedToolExecutablePath(.samtools) {
+                    let samtools = URL(fileURLWithPath: samtoolsPath)
                     let proc = Process()
                     proc.executableURL = samtools
                     proc.arguments = ["view", "-H", bamURL.path]
@@ -1832,10 +1833,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             return externalIndex
         }
 
-        guard let samtools = ProcessManager.shared.findExecutable(named: "samtools") else {
+        guard let samtoolsPath = BundleBuildHelpers.managedToolExecutablePath(.samtools) else {
             logger.warning("Cannot generate BAM index: samtools not found")
             return nil
         }
+        let samtools = URL(fileURLWithPath: samtoolsPath)
 
         let proc = Process()
         proc.executableURL = samtools
@@ -1860,10 +1862,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Uses `samtools view -H` for index-independent sequence lengths and
     /// `samtools idxstats` for mapped-read counts when possible.
     private func parseBamReferenceLengths(bamURL: URL, indexURL: URL? = nil) {
-        guard let samtoolsURL = ProcessManager.shared.findExecutable(named: "samtools") else {
+        guard let samtoolsPath = BundleBuildHelpers.managedToolExecutablePath(.samtools) else {
             logger.warning("Cannot parse BAM references: samtools not found")
             return
         }
+        let samtoolsURL = URL(fileURLWithPath: samtoolsPath)
 
         func runSamtools(_ arguments: [String]) -> (status: Int32, stdout: String, stderr: String)? {
             let proc = Process()

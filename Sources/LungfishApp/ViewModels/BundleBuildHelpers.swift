@@ -352,3 +352,29 @@ enum BundleBuildHelpers {
         }
     }
 }
+
+extension BundleBuildHelpers {
+
+    /// Resolves a managed tool executable path using the Lungfish conda layout.
+    ///
+    /// This intentionally avoids PATH and bundled-location fallbacks so the app
+    /// matches the managed-tool resolution introduced for workflow execution.
+    static func managedToolExecutablePath(
+        _ tool: NativeTool,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> String? {
+        guard case .managed(let environment, let executableName) = tool.location else {
+            return nil
+        }
+
+        let executableURL = CoreToolLocator.managedExecutableURL(
+            environment: environment,
+            executableName: executableName,
+            homeDirectory: homeDirectory
+        )
+        guard FileManager.default.isExecutableFile(atPath: executableURL.path) else {
+            return nil
+        }
+        return executableURL.path
+    }
+}
