@@ -516,7 +516,7 @@ struct WelcomeView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Divider()
-                Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.1")")
+                Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.2")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
