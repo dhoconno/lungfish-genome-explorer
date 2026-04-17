@@ -32,4 +32,23 @@ public struct ToolVersionsManifest: Codable, Sendable {
         public let provisioningMethod: String
         public let notes: String?
     }
+
+    public static func loadFromBundle() -> ToolVersionsManifest? {
+        let directURL = Bundle.module.url(
+            forResource: "tool-versions",
+            withExtension: "json",
+            subdirectory: "Tools"
+        )
+
+        let fallbackURL = Bundle.module.resourceURL?
+            .appendingPathComponent("Tools")
+            .appendingPathComponent("tool-versions.json")
+
+        guard let url = directURL ?? fallbackURL,
+              let data = try? Data(contentsOf: url) else {
+            return nil
+        }
+
+        return try? JSONDecoder().decode(ToolVersionsManifest.self, from: data)
+    }
 }
