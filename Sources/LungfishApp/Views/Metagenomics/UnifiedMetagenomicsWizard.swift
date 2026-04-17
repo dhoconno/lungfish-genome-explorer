@@ -22,6 +22,7 @@ import LungfishWorkflow
 /// Hosted in an `NSPanel` via `NSHostingController` and presented with
 /// `beginSheetModal` (per macOS 26 rules -- never `runModal()`).
 struct UnifiedMetagenomicsWizard: View {
+    static let preferredContentSize = CGSize(width: 760, height: 520)
 
     /// The input FASTQ files to analyze.
     let inputFiles: [URL]
@@ -176,7 +177,10 @@ struct UnifiedMetagenomicsWizard: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        .frame(width: 760, height: 520)
+        .frame(
+            width: Self.preferredContentSize.width,
+            height: Self.preferredContentSize.height
+        )
     }
 
     // MARK: - Runner Sidebar

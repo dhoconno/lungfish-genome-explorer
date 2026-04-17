@@ -28,13 +28,7 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
     }
 
     func testWizardSourceUsesRunnerShellTermsOnly() throws {
-        let sourceURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/Views/Metagenomics/UnifiedMetagenomicsWizard.swift")
-
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let source = try loadSource(at: "Sources/LungfishApp/Views/Metagenomics/UnifiedMetagenomicsWizard.swift")
         let bodyStart = try XCTUnwrap(source.range(of: "    var body: some View {"))
         let bodyEnd = try XCTUnwrap(source.range(of: "    // MARK: - Runner Sidebar"))
         let bodySource = String(source[bodyStart.upperBound..<bodyEnd.lowerBound])
@@ -43,5 +37,20 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
         XCTAssertTrue(bodySource.contains("configurationStep"))
         XCTAssertFalse(source.contains("WizardStep"))
         XCTAssertFalse(source.contains("analysisTypeSelector"))
+    }
+
+    func testPresenterUsesUnifiedRunnerPreferredContentSize() throws {
+        let source = try loadSource(at: "Sources/LungfishApp/App/AppDelegate.swift")
+        XCTAssertTrue(source.contains("wizardPanel.setContentSize(UnifiedMetagenomicsWizard.preferredContentSize)"))
+    }
+
+    private func loadSource(at relativePath: String) throws -> String {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent(relativePath)
+
+        return try String(contentsOf: sourceURL, encoding: .utf8)
     }
 }

@@ -4987,7 +4987,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         let hostingController = NSHostingController(rootView: wizardView)
         wizardPanel.contentViewController = hostingController
-        wizardPanel.setContentSize(NSSize(width: 560, height: 680))
+        wizardPanel.setContentSize(UnifiedMetagenomicsWizard.preferredContentSize)
         Task { @MainActor in
             await window.beginSheet(wizardPanel)
         }
