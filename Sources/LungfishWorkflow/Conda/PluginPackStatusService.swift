@@ -83,12 +83,20 @@ public struct PluginPackStatus: Sendable, Codable, Hashable, Identifiable {
 public protocol PluginPackStatusProviding: Sendable {
     func visibleStatuses() async -> [PluginPackStatus]
     func status(for pack: PluginPack) async -> PluginPackStatus
+    func status(forPackID packID: String) async -> PluginPackStatus?
     func invalidateVisibleStatusesCache() async
     func install(
         pack: PluginPack,
         reinstall: Bool,
         progress: (@Sendable (PluginPackInstallProgress) -> Void)?
     ) async throws
+}
+
+public extension PluginPackStatusProviding {
+    func status(forPackID packID: String) async -> PluginPackStatus? {
+        guard let pack = PluginPack.builtInPack(id: packID) else { return nil }
+        return await status(for: pack)
+    }
 }
 
 public enum PluginPackStatusServiceError: Swift.Error, LocalizedError, Equatable {
@@ -214,6 +222,11 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             bootstrapReady: bootstrapReady,
             storageAvailability: storageAvailability
         )
+    }
+
+    public func status(forPackID packID: String) async -> PluginPackStatus? {
+        guard let pack = PluginPack.builtInPack(id: packID) else { return nil }
+        return await status(for: pack)
     }
 
     private func makePackStatus(

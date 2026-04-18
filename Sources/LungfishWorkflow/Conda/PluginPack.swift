@@ -251,6 +251,10 @@ public struct PluginPack: Sendable, Codable, Identifiable, Hashable {
 }
 
 public extension PluginPack {
+    static func builtInPack(id packID: String) -> PluginPack? {
+        builtIn.first { $0.id == packID }
+    }
+
     static let requiredSetupPack: PluginPack = {
         let lock = try! ManagedToolLock.loadFromBundle()
         return PluginPack(
