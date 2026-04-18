@@ -223,8 +223,8 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     // MARK: - Split View State
 
     /// Whether the initial divider position has been applied.
-    /// `setPosition` only works after the split view has real bounds, so
-    /// it is deferred to `viewDidLayout`.
+    /// `setPosition` only works after the split view has real bounds, so the
+    /// initial divider sizing is deferred until a later layout pass.
     private var didSetInitialSplitPosition = false
 
     // MARK: - Selection Sync
@@ -328,7 +328,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
 
     public override func viewDidLayout() {
         super.viewDidLayout()
-        applyLayoutPreference()
+        applyInitialSplitPositionIfNeeded()
     }
 
     // MARK: - Public API
@@ -971,6 +971,24 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
 
     @objc private func handleLayoutSwapRequested(_ notification: Notification) {
         applyLayoutPreference()
+    }
+
+    private func applyInitialSplitPositionIfNeeded() {
+        guard !didSetInitialSplitPosition, splitView.arrangedSubviews.count == 2 else { return }
+
+        let totalExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
+        guard totalExtent > 0 else { return }
+
+        let layout = MetagenomicsPanelLayout.current()
+        let defaultLeadingFraction: CGFloat = layout == .detailLeading ? 0.6 : 0.4
+        let clampedPosition = MetagenomicsPaneSizing.clampedDividerPosition(
+            proposed: round(totalExtent * defaultLeadingFraction),
+            containerExtent: totalExtent,
+            minimumLeadingExtent: 300,
+            minimumTrailingExtent: 260
+        )
+        splitView.setPosition(clampedPosition, ofDividerAt: 0)
+        didSetInitialSplitPosition = true
     }
 
     /// Swaps the split view pane order based on the persisted layout preference.

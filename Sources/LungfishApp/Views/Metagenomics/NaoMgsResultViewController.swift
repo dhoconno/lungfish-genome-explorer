@@ -248,7 +248,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     public override func viewDidLayout() {
         super.viewDidLayout()
-        applyLayoutPreference()
+        applyInitialSplitPositionIfNeeded()
     }
 
     // MARK: - Public API
@@ -1589,6 +1589,25 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     @objc private func handleLayoutSwapRequested(_ notification: Notification) {
         applyLayoutPreference()
+    }
+
+    private func applyInitialSplitPositionIfNeeded() {
+        guard !didSetInitialSplitPosition, splitView.arrangedSubviews.count == 2 else { return }
+
+        let totalExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
+        guard totalExtent > 0 else { return }
+
+        let layout = MetagenomicsPanelLayout.current()
+        let defaultLeadingFraction: CGFloat = layout == .detailLeading ? 0.4 : 0.6
+        let clampedPosition = MetagenomicsPaneSizing.clampedDividerPosition(
+            proposed: round(totalExtent * defaultLeadingFraction),
+            containerExtent: totalExtent,
+            minimumLeadingExtent: 250,
+            minimumTrailingExtent: 300
+        )
+        splitView.setPosition(clampedPosition, ofDividerAt: 0)
+        didSetInitialSplitPosition = true
+        resizeDetailContentToFit()
     }
 
     @objc private func handleInspectorSampleSelectionChanged(_ notification: Notification) {

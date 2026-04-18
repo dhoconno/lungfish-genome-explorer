@@ -53,4 +53,40 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         XCTAssertTrue(vc.testSplitView.arrangedSubviews[0] === vc.testOutlineContainer)
         XCTAssertTrue(vc.testSplitView.arrangedSubviews[1] === vc.testDetailContainer)
     }
+
+    func testTaxonomyViewDidLayoutDoesNotApplyNewPreferenceWithoutNotification() {
+        setLayoutPreference(.detailLeading, legacyTableOnLeft: false)
+
+        let vc = TaxonomyViewController()
+        _ = vc.view
+        vc.view.frame = NSRect(x: 0, y: 0, width: 900, height: 700)
+
+        let initialFirstPane = vc.testSplitView.arrangedSubviews[0]
+        let initialSecondPane = vc.testSplitView.arrangedSubviews[1]
+
+        setLayoutPreference(.stacked, legacyTableOnLeft: false)
+        vc.viewDidLayout()
+
+        XCTAssertTrue(vc.testSplitView.isVertical)
+        XCTAssertTrue(vc.testSplitView.arrangedSubviews[0] === initialFirstPane)
+        XCTAssertTrue(vc.testSplitView.arrangedSubviews[1] === initialSecondPane)
+    }
+
+    func testNaoMgsViewDidLayoutDoesNotApplyNewPreferenceWithoutNotification() {
+        setLayoutPreference(.detailLeading, legacyTableOnLeft: false)
+
+        let vc = NaoMgsResultViewController()
+        _ = vc.view
+        vc.view.frame = NSRect(x: 0, y: 0, width: 900, height: 700)
+
+        let initialFirstPane = vc.testSplitView.arrangedSubviews[0]
+        let initialSecondPane = vc.testSplitView.arrangedSubviews[1]
+
+        setLayoutPreference(.stacked, legacyTableOnLeft: false)
+        vc.viewDidLayout()
+
+        XCTAssertTrue(vc.testSplitView.isVertical)
+        XCTAssertTrue(vc.testSplitView.arrangedSubviews[0] === initialFirstPane)
+        XCTAssertTrue(vc.testSplitView.arrangedSubviews[1] === initialSecondPane)
+    }
 }
