@@ -4193,8 +4193,39 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             from: window,
             selectedInputURLs: selectedInputURLs,
             initialCategory: initialCategory,
-            onRun: { state in
+            onRun: { [weak self] state in
+                guard let self else { return }
                 debugLog("showFASTQOperationsDialog: confirmed \(state.selectedToolID.rawValue) for \(state.selectedInputURLs.count) input(s)")
+
+                if let config = state.pendingMinimap2Config {
+                    self.runMinimap2Mapping(config: config)
+                    return
+                }
+
+                if let config = state.pendingSPAdesConfig {
+                    AssemblyRunner.run(config: config)
+                    return
+                }
+
+                guard let viewerController = self.mainWindowController?.mainSplitViewController?.viewerController else {
+                    debugLog("showFASTQOperationsDialog: No viewer controller available for \(state.selectedToolID.rawValue)")
+                    return
+                }
+
+                if !state.pendingClassificationConfigs.isEmpty {
+                    self.runClassification(configs: state.pendingClassificationConfigs, viewerController: viewerController)
+                    return
+                }
+
+                if !state.pendingEsVirituConfigs.isEmpty {
+                    self.runEsViritu(configs: state.pendingEsVirituConfigs, viewerController: viewerController)
+                    return
+                }
+
+                if let config = state.pendingTaxTriageConfig {
+                    self.runTaxTriage(config: config, viewerController: viewerController)
+                    return
+                }
             }
         )
     }
