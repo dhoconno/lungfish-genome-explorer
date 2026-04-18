@@ -60,4 +60,40 @@ final class MetagenomicsLayoutPreferenceTests: XCTestCase {
             .detailLeading
         )
     }
+
+    func testPersistMirrorsLegacyBoolForCompatibilityWhileKeepingEnumAuthoritative() {
+        let suite = "layout-pref-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        MetagenomicsPanelLayout.detailLeading.persist(defaults: defaults)
+        XCTAssertEqual(
+            defaults.bool(forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey),
+            false
+        )
+        XCTAssertEqual(
+            defaults.string(forKey: MetagenomicsPanelLayout.defaultsKey),
+            MetagenomicsPanelLayout.detailLeading.rawValue
+        )
+
+        MetagenomicsPanelLayout.listLeading.persist(defaults: defaults)
+        XCTAssertEqual(
+            defaults.bool(forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey),
+            true
+        )
+        XCTAssertEqual(
+            defaults.string(forKey: MetagenomicsPanelLayout.defaultsKey),
+            MetagenomicsPanelLayout.listLeading.rawValue
+        )
+
+        MetagenomicsPanelLayout.stacked.persist(defaults: defaults)
+        XCTAssertEqual(
+            defaults.bool(forKey: MetagenomicsPanelLayout.legacyTableOnLeftKey),
+            false
+        )
+        XCTAssertEqual(
+            defaults.string(forKey: MetagenomicsPanelLayout.defaultsKey),
+            MetagenomicsPanelLayout.stacked.rawValue
+        )
+    }
 }
