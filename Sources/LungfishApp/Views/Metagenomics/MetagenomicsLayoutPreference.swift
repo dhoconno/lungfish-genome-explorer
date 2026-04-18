@@ -24,9 +24,5 @@ enum MetagenomicsPanelLayout: String, CaseIterable, Sendable {
     ) {
         defaults.set(rawValue, forKey: Self.defaultsKey)
         notificationCenter.post(name: .metagenomicsLayoutSwapRequested, object: nil)
-        let defaultCenter = NotificationCenter.default
-        if notificationCenter !== defaultCenter {
-            NotificationCenter.default.post(name: .metagenomicsLayoutSwapRequested, object: nil)
-        }
     }
 }
