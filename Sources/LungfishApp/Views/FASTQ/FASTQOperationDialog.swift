@@ -9,11 +9,11 @@ struct FASTQOperationDialog: View {
         DatasetOperationsDialog(
             title: state.selectedCategory.title,
             subtitle: subtitle,
-            datasetLabel: datasetLabel,
+            datasetLabel: state.datasetLabel,
             tools: state.sidebarItems,
             selectedToolID: state.selectedToolID.rawValue,
             statusText: statusText,
-            isRunEnabled: !state.selectedInputURLs.isEmpty,
+            isRunEnabled: state.isRunEnabled,
             onSelectTool: selectTool(named:),
             onCancel: onCancel,
             onRun: onRun
@@ -26,17 +26,13 @@ struct FASTQOperationDialog: View {
         "Configure \(state.selectedToolID.title) for the selected FASTQ data."
     }
 
-    private var datasetLabel: String {
-        guard let firstInput = state.selectedInputURLs.first else {
-            return "No FASTQ selected"
-        }
-
-        return firstInput.lastPathComponent
-    }
-
     private var statusText: String {
         guard !state.selectedInputURLs.isEmpty else {
             return "Select at least one FASTQ dataset."
+        }
+
+        guard state.isRunEnabled else {
+            return "Add the remaining required inputs before running."
         }
 
         if state.showsOutputStrategyPicker {

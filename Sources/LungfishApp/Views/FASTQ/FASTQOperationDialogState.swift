@@ -4,10 +4,34 @@ import Observation
 @MainActor
 @Observable
 final class FASTQOperationDialogState {
-    var selectedCategory: FASTQOperationCategoryID
-    var selectedToolID: FASTQOperationToolID
+    var selectedCategory: FASTQOperationCategoryID {
+        didSet {
+            if selectedToolID.categoryID != selectedCategory {
+                selectedToolID = selectedCategory.defaultToolID
+                return
+            }
+
+            normalizeOutputMode()
+        }
+    }
+
+    var selectedToolID: FASTQOperationToolID {
+        didSet {
+            if selectedCategory != selectedToolID.categoryID {
+                selectedCategory = selectedToolID.categoryID
+                return
+            }
+
+            normalizeOutputMode()
+        }
+    }
+
     var selectedInputURLs: [URL]
-    var outputMode: FASTQOperationOutputMode
+    var outputMode: FASTQOperationOutputMode {
+        didSet {
+            normalizeOutputMode()
+        }
+    }
 
     init(initialCategory: FASTQOperationCategoryID, selectedInputURLs: [URL]) {
         let defaultToolID = initialCategory.defaultToolID
@@ -30,11 +54,26 @@ final class FASTQOperationDialogState {
     }
 
     var showsOutputStrategyPicker: Bool {
-        outputMode != .fixedBatch
+        selectedToolID.categoryID != .classification
     }
 
     var requiredInputKinds: [FASTQOperationInputKind] {
         selectedToolID.requiredInputKinds
+    }
+
+    var isRunEnabled: Bool {
+        !selectedInputURLs.isEmpty && requiredInputKinds.allSatisfy { $0 == .fastqDataset }
+    }
+
+    var datasetLabel: String {
+        switch selectedInputURLs.count {
+        case 0:
+            return "No FASTQ selected"
+        case 1:
+            return selectedInputURLs[0].lastPathComponent
+        default:
+            return "\(selectedInputURLs.count) FASTQ datasets"
+        }
     }
 
     var sidebarItems: [DatasetOperationToolSidebarItem] {
@@ -195,14 +234,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
     }
 
     var defaultOutputMode: FASTQOperationOutputMode {
-        switch self {
-        case .refreshQCSummary, .demultiplexBarcodes, .spades, .kraken2, .esViritu, .taxTriage:
-            return .fixedBatch
-        case .minimap2:
-            return .perInput
-        default:
-            return .groupedResult
-        }
+        categoryID == .classification ? .fixedBatch : .perInput
     }
 
     var sidebarItem: DatasetOperationToolSidebarItem {
@@ -251,6 +283,15 @@ extension FASTQOperationCategoryID {
             return .spades
         case .classification:
             return .kraken2
+        }
+    }
+}
+
+private extension FASTQOperationDialogState {
+    func normalizeOutputMode() {
+        let enforcedMode = selectedToolID.defaultOutputMode
+        if outputMode != enforcedMode {
+            outputMode = enforcedMode
         }
     }
 }
