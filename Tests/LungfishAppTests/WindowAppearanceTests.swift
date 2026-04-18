@@ -119,12 +119,12 @@ final class WindowAppearanceTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(classificationSource.contains("embeddedInUnifiedRunner"))
-        XCTAssertTrue(esvirituSource.contains("embeddedInUnifiedRunner"))
-        XCTAssertTrue(taxtriageSource.contains("embeddedInUnifiedRunner"))
-        XCTAssertTrue(classificationSource.contains("if !embeddedInUnifiedRunner"))
-        XCTAssertTrue(esvirituSource.contains("if !embeddedInUnifiedRunner"))
-        XCTAssertTrue(taxtriageSource.contains("if !embeddedInUnifiedRunner"))
+        XCTAssertTrue(classificationSource.contains("embeddedInOperationsDialog"))
+        XCTAssertTrue(esvirituSource.contains("embeddedInOperationsDialog"))
+        XCTAssertTrue(taxtriageSource.contains("embeddedInOperationsDialog"))
+        XCTAssertTrue(classificationSource.contains("if !embeddedInOperationsDialog"))
+        XCTAssertTrue(esvirituSource.contains("if !embeddedInOperationsDialog"))
+        XCTAssertTrue(taxtriageSource.contains("if !embeddedInOperationsDialog"))
         XCTAssertTrue(classificationSource.contains(#"Button("Cancel")"#))
         XCTAssertTrue(esvirituSource.contains(#"Button("Cancel")"#))
         XCTAssertTrue(taxtriageSource.contains(#"Button("Cancel")"#))
@@ -143,11 +143,41 @@ final class WindowAppearanceTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("embeddedInUnifiedRunner"))
+        XCTAssertTrue(source.contains("embeddedInOperationsDialog"))
         XCTAssertTrue(source.contains("standaloneBody"))
         XCTAssertTrue(source.contains("ScrollView {"))
         XCTAssertTrue(source.contains("configurationContent"))
-        XCTAssertTrue(source.contains("if !embeddedInUnifiedRunner"))
+        XCTAssertTrue(source.contains("if !embeddedInOperationsDialog"))
+    }
+
+    func testMapReadsSheetSupportsEmbeddedOperationsDialogMode() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Metagenomics/MapReadsWizardSheet.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("embeddedInOperationsDialog"))
+        XCTAssertTrue(source.contains("embeddedRunTrigger"))
+        XCTAssertTrue(source.contains("onRunnerAvailabilityChange"))
+        XCTAssertTrue(source.contains("if embeddedInOperationsDialog"))
+        XCTAssertTrue(source.contains("ScrollView {"))
+        XCTAssertFalse(source.contains("embeddedInUnifiedRunner"))
+    }
+
+    func testAssemblySheetSupportsEmbeddedOperationsDialogMode() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Assembly/AssemblyWizardSheet.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("embeddedInOperationsDialog"))
+        XCTAssertTrue(source.contains("embeddedRunTrigger"))
+        XCTAssertTrue(source.contains("onRunnerAvailabilityChange"))
+        XCTAssertTrue(source.contains("if embeddedInOperationsDialog"))
+        XCTAssertTrue(source.contains("ScrollView {"))
+        XCTAssertFalse(source.contains("embeddedInUnifiedRunner"))
     }
 
     func testDatasetOperationsDialogUsesTwoPaneSharedShell() throws {

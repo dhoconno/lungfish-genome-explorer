@@ -62,6 +62,12 @@ struct MapReadsWizardSheet: View {
     /// The project URL for reference discovery. Nil if no project is open.
     let projectURL: URL?
 
+    /// Whether the wizard is embedded inside the shared operations dialog shell.
+    let embeddedInOperationsDialog: Bool
+
+    /// Incremented by the shared shell to request a run.
+    let embeddedRunTrigger: Int
+
     // MARK: - State
 
     /// Discovered reference candidates from the project.
@@ -101,18 +107,27 @@ struct MapReadsWizardSheet: View {
     /// Called when the user clicks Cancel.
     var onCancel: (() -> Void)?
 
+    /// Notifies the shared shell whether the current configuration can run.
+    var onRunnerAvailabilityChange: ((Bool) -> Void)?
+
     // MARK: - Initialization
 
     init(
         inputFiles: [URL],
         projectURL: URL?,
+        embeddedInOperationsDialog: Bool = false,
+        embeddedRunTrigger: Int = 0,
         onRun: ((Minimap2Config) -> Void)? = nil,
-        onCancel: (() -> Void)? = nil
+        onCancel: (() -> Void)? = nil,
+        onRunnerAvailabilityChange: ((Bool) -> Void)? = nil
     ) {
         self.inputFiles = inputFiles
         self.projectURL = projectURL
+        self.embeddedInOperationsDialog = embeddedInOperationsDialog
+        self.embeddedRunTrigger = embeddedRunTrigger
         self.onRun = onRun
         self.onCancel = onCancel
+        self.onRunnerAvailabilityChange = onRunnerAvailabilityChange
     }
 
     // MARK: - Computed Properties
@@ -146,33 +161,64 @@ struct MapReadsWizardSheet: View {
     // MARK: - Body
 
     var body: some View {
+        Group {
+            if embeddedInOperationsDialog {
+                embeddedBody
+            } else {
+                standaloneBody
+            }
+        }
+        .frame(
+            width: embeddedInOperationsDialog ? nil : 520,
+            height: embeddedInOperationsDialog ? nil : 520
+        )
+        .task {
+            await loadReferences()
+        }
+        .onAppear {
+            onRunnerAvailabilityChange?(canRun)
+        }
+        .onChange(of: canRun) { _, newValue in
+            onRunnerAvailabilityChange?(newValue)
+        }
+        .onChange(of: embeddedRunTrigger) { _, _ in
+            guard embeddedInOperationsDialog else { return }
+            performRun()
+        }
+    }
+
+    private var standaloneBody: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header
             headerSection
 
             Divider()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    referenceSection
-                    Divider()
-                    presetSection
-                    Divider()
-                    advancedSection
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
+                configurationContent
             }
 
             Divider()
 
-            // Footer
             footerSection
         }
-        .frame(width: 520, height: 520)
-        .task {
-            await loadReferences()
+    }
+
+    private var embeddedBody: some View {
+        ScrollView {
+            configurationContent
         }
+    }
+
+    private var configurationContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            referenceSection
+            Divider()
+            presetSection
+            Divider()
+            advancedSection
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
     }
 
     // MARK: - Header

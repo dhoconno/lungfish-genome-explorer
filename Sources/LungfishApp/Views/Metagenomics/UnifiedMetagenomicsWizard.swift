@@ -231,7 +231,7 @@ struct UnifiedMetagenomicsWizard: View {
             case .classification:
                 ClassificationWizardSheet(
                     inputFiles: inputFiles,
-                    embeddedInUnifiedRunner: true,
+                    embeddedInOperationsDialog: true,
                     embeddedRunTrigger: runnerRunTrigger,
                     onRun: { configs in
                         onRunClassification?(configs)
@@ -242,7 +242,7 @@ struct UnifiedMetagenomicsWizard: View {
             case .viralDetection:
                 EsVirituWizardSheet(
                     inputFiles: inputFiles,
-                    embeddedInUnifiedRunner: true,
+                    embeddedInOperationsDialog: true,
                     embeddedRunTrigger: runnerRunTrigger,
                     onRun: { configs in
                         onRunEsViritu?(configs)
@@ -253,7 +253,7 @@ struct UnifiedMetagenomicsWizard: View {
             case .clinicalTriage:
                 TaxTriageWizardSheet(
                     initialFiles: inputFiles,
-                    embeddedInUnifiedRunner: true,
+                    embeddedInOperationsDialog: true,
                     embeddedRunTrigger: runnerRunTrigger,
                     onRun: { config in
                         onRunTaxTriage?(config)

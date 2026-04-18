@@ -49,6 +49,15 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
         XCTAssertFalse(source.contains("analysisTypeSelector"))
     }
 
+    func testUnifiedClassifierWizardUsesSharedEmbeddedContractNames() throws {
+        let source = try loadSource(at: "Sources/LungfishApp/Views/Metagenomics/UnifiedMetagenomicsWizard.swift")
+
+        XCTAssertTrue(source.contains("embeddedInOperationsDialog: true"))
+        XCTAssertTrue(source.contains("embeddedRunTrigger: runnerRunTrigger"))
+        XCTAssertTrue(source.contains("onRunnerAvailabilityChange: { runnerCanRun = $0 }"))
+        XCTAssertFalse(source.contains("embeddedInUnifiedRunner"))
+    }
+
     func testPresenterUsesUnifiedRunnerPreferredContentSize() throws {
         let source = try loadSource(at: "Sources/LungfishApp/App/AppDelegate.swift")
         XCTAssertTrue(source.contains("wizardPanel.setContentSize(UnifiedMetagenomicsWizard.preferredContentSize)"))

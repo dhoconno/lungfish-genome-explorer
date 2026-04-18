@@ -58,8 +58,8 @@ struct ClassificationWizardSheet: View {
     /// The input FASTQ files to classify.
     let inputFiles: [URL]
 
-    /// Whether the wizard is embedded inside the shared classifier runner shell.
-    let embeddedInUnifiedRunner: Bool
+    /// Whether the wizard is embedded inside the shared operations dialog shell.
+    let embeddedInOperationsDialog: Bool
 
     /// Incremented by the shared shell to request a run.
     let embeddedRunTrigger: Int
@@ -97,14 +97,14 @@ struct ClassificationWizardSheet: View {
 
     init(
         inputFiles: [URL],
-        embeddedInUnifiedRunner: Bool = false,
+        embeddedInOperationsDialog: Bool = false,
         embeddedRunTrigger: Int = 0,
         onRun: (([ClassificationConfig]) -> Void)? = nil,
         onCancel: (() -> Void)? = nil,
         onRunnerAvailabilityChange: ((Bool) -> Void)? = nil
     ) {
         self.inputFiles = inputFiles
-        self.embeddedInUnifiedRunner = embeddedInUnifiedRunner
+        self.embeddedInOperationsDialog = embeddedInOperationsDialog
         self.embeddedRunTrigger = embeddedRunTrigger
         self.onRun = onRun
         self.onCancel = onCancel
@@ -209,7 +209,7 @@ struct ClassificationWizardSheet: View {
 
     var body: some View {
         Group {
-            if !embeddedInUnifiedRunner {
+            if !embeddedInOperationsDialog {
                 standaloneBody
             } else {
                 ScrollView {
@@ -230,7 +230,7 @@ struct ClassificationWizardSheet: View {
             onRunnerAvailabilityChange?(newValue)
         }
         .onChange(of: embeddedRunTrigger) { _, _ in
-            guard embeddedInUnifiedRunner else { return }
+            guard embeddedInOperationsDialog else { return }
             performRun()
         }
         .onChange(of: preset) { _, newPreset in
