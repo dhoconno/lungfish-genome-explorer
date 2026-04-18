@@ -1,5 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import LungfishIO
+import LungfishWorkflow
 
 struct FASTQOperationToolPanes: View {
     @Bindable var state: FASTQOperationDialogState
@@ -183,45 +185,294 @@ private struct FASTQOperationInputsSection: View {
 }
 
 private struct FASTQOperationPrimarySettingsSection: View {
-    let state: FASTQOperationDialogState
+    @Bindable var state: FASTQOperationDialogState
 
     var body: some View {
-        Text(primarySettingsSummary)
-            .font(.body)
-            .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 12) {
+            switch state.selectedToolID {
+            case .refreshQCSummary:
+                Text("No additional primary settings are required for this QC summary refresh.")
+                    .foregroundStyle(.secondary)
+
+            case .qualityTrim:
+                labeledTextField("Threshold", text: Self.intBinding(state, \.qualityTrimThreshold))
+                labeledTextField("Window Size", text: Self.intBinding(state, \.qualityTrimWindowSize))
+                Picker("Mode", selection: $state.qualityTrimMode) {
+                    ForEach(FASTQQualityTrimMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+            case .adapterRemoval:
+                Picker("Adapter Mode", selection: $state.adapterRemovalMode) {
+                    Text("Auto-Detect").tag(FASTQAdapterMode.autoDetect)
+                    Text("Manual Sequence").tag(FASTQAdapterMode.specified)
+                }
+                .pickerStyle(.segmented)
+                if state.adapterRemovalMode == .specified {
+                    labeledTextField("Adapter Sequence", text: $state.adapterRemovalSequence)
+                }
+
+            case .primerTrimming:
+                Picker("Primer Source", selection: $state.primerTrimmingSource) {
+                    Text("Literal Sequence").tag(FASTQPrimerSource.literal)
+                    Text("Reference FASTA").tag(FASTQPrimerSource.reference)
+                }
+                .pickerStyle(.segmented)
+                if state.primerTrimmingSource == .literal {
+                    labeledTextField("Primer Sequence", text: $state.primerTrimmingLiteralSequence)
+                } else {
+                    labeledTextField("Reference FASTA", text: $state.primerTrimmingReferencePath)
+                }
+                HStack(spacing: 12) {
+                    labeledCompactTextField("k", text: Self.intBinding(state, \.primerTrimmingKmerSize))
+                    labeledCompactTextField("mink", text: Self.intBinding(state, \.primerTrimmingMinKmer))
+                    labeledCompactTextField("hdist", text: Self.intBinding(state, \.primerTrimmingHammingDistance))
+                }
+
+            case .trimFixedBases:
+                HStack(spacing: 12) {
+                    labeledCompactTextField("5' Trim", text: Self.intBinding(state, \.trimFixedBasesFrom5Prime))
+                    labeledCompactTextField("3' Trim", text: Self.intBinding(state, \.trimFixedBasesFrom3Prime))
+                }
+
+            case .filterByReadLength:
+                HStack(spacing: 12) {
+                    labeledCompactTextField("Min Length", text: Self.optionalIntBinding(state, \.filterByReadLengthMin))
+                    labeledCompactTextField("Max Length", text: Self.optionalIntBinding(state, \.filterByReadLengthMax))
+                }
+
+            case .removeContaminants:
+                Picker("Contaminant Mode", selection: $state.removeContaminantsMode) {
+                    Text("PhiX").tag(FASTQContaminantFilterMode.phix)
+                    Text("Custom Reference").tag(FASTQContaminantFilterMode.custom)
+                }
+                .pickerStyle(.segmented)
+                HStack(spacing: 12) {
+                    labeledCompactTextField("K-mer", text: Self.intBinding(state, \.removeContaminantsKmerSize))
+                    labeledCompactTextField("Hamming Distance", text: Self.intBinding(state, \.removeContaminantsHammingDistance))
+                }
+                if state.removeContaminantsMode == .custom {
+                    Text("Select the contaminant reference FASTA in the Inputs section.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+            case .removeDuplicates:
+                Picker("Preset", selection: $state.removeDuplicatesPreset) {
+                    ForEach(FASTQDeduplicatePreset.allCases, id: \.self) { preset in
+                        Text(preset.displayName).tag(preset)
+                    }
+                }
+
+            case .mergeOverlappingPairs:
+                Picker("Strictness", selection: $state.mergeOverlappingPairsStrictness) {
+                    Text("Normal").tag(FASTQMergeStrictness.normal)
+                    Text("Strict").tag(FASTQMergeStrictness.strict)
+                }
+                .pickerStyle(.segmented)
+                labeledCompactTextField("Minimum Overlap", text: Self.intBinding(state, \.mergeOverlappingPairsMinOverlap))
+
+            case .repairPairedEndFiles:
+                Text("No additional settings are required for paired-end repair.")
+                    .foregroundStyle(.secondary)
+
+            case .orientReads:
+                labeledCompactTextField("Word Length", text: Self.intBinding(state, \.orientWordLength))
+                Picker("Database Mask", selection: $state.orientDbMask) {
+                    Text("dust").tag("dust")
+                    Text("none").tag("none")
+                }
+                .pickerStyle(.segmented)
+                Text("Select a reference sequence in the Inputs section.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+            case .correctSequencingErrors:
+                labeledCompactTextField("K-mer Size", text: Self.intBinding(state, \.correctSequencingErrorsKmerSize))
+
+            case .subsampleByProportion:
+                labeledCompactTextField("Proportion", text: Self.optionalDoubleBinding(state, \.subsampleByProportionValue))
+
+            case .subsampleByCount:
+                labeledCompactTextField("Count", text: Self.optionalIntBinding(state, \.subsampleByCountValue))
+
+            case .extractReadsByID:
+                labeledTextField("Query", text: $state.extractReadsByIDQuery)
+                Picker("Field", selection: $state.extractReadsByIDField) {
+                    Text("ID").tag(FASTQSearchField.id)
+                    Text("Description").tag(FASTQSearchField.description)
+                }
+                .pickerStyle(.segmented)
+                Toggle("Use Regular Expression", isOn: $state.extractReadsByIDRegex)
+
+            case .extractReadsByMotif:
+                labeledTextField("Pattern", text: $state.extractReadsByMotifPattern)
+                Toggle("Use Regular Expression", isOn: $state.extractReadsByMotifRegex)
+
+            case .selectReadsBySequence:
+                labeledTextField("Sequence or FASTA Path", text: $state.selectReadsBySequenceValue)
+                Picker("Search End", selection: $state.selectReadsBySequenceSearchEnd) {
+                    Text("5' End").tag(FASTQAdapterSearchEnd.fivePrime)
+                    Text("3' End").tag(FASTQAdapterSearchEnd.threePrime)
+                }
+                .pickerStyle(.segmented)
+                HStack(spacing: 12) {
+                    labeledCompactTextField("Min Overlap", text: Self.intBinding(state, \.selectReadsBySequenceMinOverlap))
+                    labeledCompactTextField("Error Rate", text: Self.doubleBinding(state, \.selectReadsBySequenceErrorRate))
+                }
+                Toggle("Keep Matched Reads", isOn: $state.selectReadsBySequenceKeepMatched)
+                Toggle("Search Reverse Complement", isOn: $state.selectReadsBySequenceSearchReverseComplement)
+
+            case .demultiplexBarcodes:
+                labeledTextField("Barcode Kit", text: $state.demultiplexKitID)
+                labeledTextField("Custom CSV Path", text: $state.demultiplexCustomCSVPath)
+                Picker("Location", selection: $state.demultiplexLocation) {
+                    Text("Both Ends").tag("bothends")
+                    Text("5' End").tag("fiveprime")
+                    Text("3' End").tag("threeprime")
+                }
+                .pickerStyle(.segmented)
+                HStack(spacing: 12) {
+                    labeledCompactTextField("5' Distance", text: Self.intBinding(state, \.demultiplexMaxDistanceFrom5Prime))
+                    labeledCompactTextField("3' Distance", text: Self.intBinding(state, \.demultiplexMaxDistanceFrom3Prime))
+                }
+                HStack(spacing: 12) {
+                    labeledCompactTextField("Error Rate", text: Self.doubleBinding(state, \.demultiplexErrorRate))
+                    Toggle("Trim Barcodes", isOn: $state.demultiplexTrimBarcodes)
+                }
+
+            case .removeHumanReads, .minimap2, .spades, .kraken2, .esViritu, .taxTriage:
+                Text("This tool uses the dedicated embedded workflow pane or the fixed database chooser above.")
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
-    private var primarySettingsSummary: String {
-        switch state.selectedToolID {
-        case .refreshQCSummary:
-            return "No additional primary settings are required for this QC summary refresh."
-        case .demultiplexBarcodes:
-            return "Choose the barcode definition input to split pooled reads into sample-specific outputs."
-        case .orientReads:
-            return "Orienting requires a reference sequence and keeps output configurable once that input is present."
-        default:
-            return "Primary settings for \(state.selectedToolID.title) will live in this standardized section."
+    private func labeledTextField(_ title: String, text: Binding<String>) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(title)
+                .frame(width: 180, alignment: .leading)
+            TextField("", text: text)
+                .textFieldStyle(.roundedBorder)
         }
+    }
+
+    private func labeledCompactTextField(_ title: String, text: Binding<String>) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(title)
+                .frame(width: 140, alignment: .leading)
+            TextField("", text: text)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 160)
+        }
+    }
+
+    private static func intBinding(_ state: FASTQOperationDialogState, _ keyPath: WritableKeyPath<FASTQOperationDialogState, Int>) -> Binding<String> {
+        Binding(
+            get: { String(state[keyPath: keyPath]) },
+            set: { newValue in
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let value = Int(trimmed) {
+                    var mutableState = state
+                    mutableState[keyPath: keyPath] = value
+                }
+            }
+        )
+    }
+
+    private static func optionalIntBinding(_ state: FASTQOperationDialogState, _ keyPath: WritableKeyPath<FASTQOperationDialogState, Int?>) -> Binding<String> {
+        Binding(
+            get: { state[keyPath: keyPath].map { String($0) } ?? "" },
+            set: { newValue in
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                var mutableState = state
+                mutableState[keyPath: keyPath] = Int(trimmed)
+            }
+        )
+    }
+
+    private static func optionalDoubleBinding(_ state: FASTQOperationDialogState, _ keyPath: WritableKeyPath<FASTQOperationDialogState, Double?>) -> Binding<String> {
+        Binding(
+            get: { state[keyPath: keyPath].map { String($0) } ?? "" },
+            set: { newValue in
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                var mutableState = state
+                mutableState[keyPath: keyPath] = trimmed.isEmpty ? nil : Double(trimmed)
+            }
+        )
+    }
+
+    private static func doubleBinding(_ state: FASTQOperationDialogState, _ keyPath: WritableKeyPath<FASTQOperationDialogState, Double>) -> Binding<String> {
+        Binding(
+            get: { String(state[keyPath: keyPath]) },
+            set: { newValue in
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let value = Double(trimmed) {
+                    var mutableState = state
+                    mutableState[keyPath: keyPath] = value
+                }
+            }
+        )
     }
 }
 
 private struct FASTQOperationAdvancedSettingsSection: View {
-    let state: FASTQOperationDialogState
+    @Bindable var state: FASTQOperationDialogState
 
     var body: some View {
-        Text(advancedSummary)
-            .font(.body)
-            .foregroundStyle(.secondary)
-    }
-
-    private var advancedSummary: String {
-        switch state.selectedToolID {
-        case .qualityTrim, .adapterRemoval, .primerTrimming, .trimFixedBases, .filterByReadLength:
-            return "Advanced trimming controls will stay grouped here instead of spilling into the dataset drawer."
-        case .removeHumanReads, .removeContaminants, .removeDuplicates:
-            return "Advanced decontamination controls will stay grouped here."
-        default:
-            return "Advanced \(state.selectedToolID.title.lowercased()) options will stay grouped here."
+        VStack(alignment: .leading, spacing: 10) {
+            switch state.selectedToolID {
+            case .qualityTrim:
+                Text("Quality trimming uses the selected threshold, window size, and mode.")
+                    .foregroundStyle(.secondary)
+            case .adapterRemoval:
+                Text("Manual adapter trimming only exposes a single literal sequence in this slice.")
+                    .foregroundStyle(.secondary)
+            case .primerTrimming:
+                Text("Primer trimming is constrained to the CLI-supported bbduk subset.")
+                    .foregroundStyle(.secondary)
+            case .trimFixedBases:
+                Text("Trim values are applied exactly as entered.")
+                    .foregroundStyle(.secondary)
+            case .filterByReadLength:
+                Text("Length filtering will use the entered minimum and maximum bounds.")
+                    .foregroundStyle(.secondary)
+            case .removeContaminants:
+                Text("Custom contaminant mode expects the reference FASTA in the Inputs section.")
+                    .foregroundStyle(.secondary)
+            case .removeDuplicates:
+                Text("The deduplication preset selects the CLI-compatible parameter set.")
+                    .foregroundStyle(.secondary)
+            case .mergeOverlappingPairs:
+                Text("Merge strictness only affects the bbmerge invocation.")
+                    .foregroundStyle(.secondary)
+            case .repairPairedEndFiles:
+                Text("Paired-end repair has no additional settings.")
+                    .foregroundStyle(.secondary)
+            case .orientReads:
+                Text("Orient reads against the selected reference sequence without saving a separate unoriented bundle.")
+                    .foregroundStyle(.secondary)
+            case .correctSequencingErrors:
+                Text("The k-mer size controls Tadpole error correction.")
+                    .foregroundStyle(.secondary)
+            case .subsampleByProportion, .subsampleByCount:
+                Text("Subsampling settings are taken directly from the values entered above.")
+                    .foregroundStyle(.secondary)
+            case .extractReadsByID, .extractReadsByMotif, .selectReadsBySequence:
+                Text("Search and sequence filtering use the literal values entered above.")
+                    .foregroundStyle(.secondary)
+            case .demultiplexBarcodes:
+                Text("Demultiplexing is constrained to kit/location/error-rate settings plus an optional custom CSV path.")
+                    .foregroundStyle(.secondary)
+            case .removeHumanReads:
+                Text("Human read removal stays fixed to the selected database input.")
+                    .foregroundStyle(.secondary)
+            case .refreshQCSummary, .minimap2, .spades, .kraken2, .esViritu, .taxTriage:
+                Text("This tool uses the embedded workflow pane.")
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }
@@ -235,6 +486,40 @@ private extension FASTQOperationOutputMode {
             return "Grouped Result"
         case .fixedBatch:
             return "Batch Output"
+        }
+    }
+}
+
+private extension FASTQQualityTrimMode {
+    var displayName: String {
+        switch self {
+        case .cutRight:
+            return "Cut Right"
+        case .cutFront:
+            return "Cut Front"
+        case .cutTail:
+            return "Cut Tail"
+        case .cutBoth:
+            return "Cut Both"
+        }
+    }
+}
+
+private extension FASTQDeduplicatePreset {
+    var displayName: String {
+        switch self {
+        case .exactPCR:
+            return "Exact PCR"
+        case .nearDuplicate1:
+            return "Near Duplicate 1"
+        case .nearDuplicate2:
+            return "Near Duplicate 2"
+        case .opticalHiSeq:
+            return "Optical HiSeq"
+        case .opticalNovaSeq:
+            return "Optical NovaSeq"
+        case .custom:
+            return "Custom"
         }
     }
 }

@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+@testable import LungfishIO
 
 final class FASTQOperationExecutionServiceTests: XCTestCase {
     func testMapLaunchBuildsTopLevelMapInvocation() throws {
@@ -66,7 +67,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             referenceURL: URL(fileURLWithPath: "/tmp/reference.fasta"),
             wordLength: 12,
             dbMask: "dust",
-            saveUnoriented: true
+            saveUnoriented: false
         ))
     }
 
@@ -88,6 +89,94 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             "-o",
             "<derived>",
         ])
+    }
+
+    func testDerivativeLaunchRejectsAdapterRequestsThatNeedMultipleAdapterShapes() {
+        let request = FASTQOperationLaunchRequest.derivative(
+            request: .adapterTrim(
+                mode: .specified,
+                sequence: "AGATCGGAAGAGC",
+                sequenceR2: "GCTCTTCCGATCT",
+                fastaFilename: nil
+            ),
+            inputURLs: [URL(fileURLWithPath: "/tmp/input.fastq")],
+            outputMode: .perInput
+        )
+
+        XCTAssertThrowsError(try FASTQOperationExecutionService().buildInvocation(for: request)) { error in
+            guard let execError = error as? FASTQOperationExecutionError else {
+                return XCTFail("Expected FASTQOperationExecutionError")
+            }
+            XCTAssertTrue(execError.errorDescription?.contains("sequenceR2") == true)
+        }
+    }
+
+    func testDerivativeLaunchRejectsPrimerRequestsOutsideTheCliSubset() {
+        let request = FASTQOperationLaunchRequest.derivative(
+            request: .primerRemoval(
+                configuration: FASTQPrimerTrimConfiguration(
+                    source: .literal,
+                    readMode: .paired,
+                    mode: .linked,
+                    forwardSequence: "AGATCGGAAGAGC",
+                    reverseSequence: "GCTCTTCCGATCT",
+                    tool: .cutadapt
+                )
+            ),
+            inputURLs: [URL(fileURLWithPath: "/tmp/input.fastq")],
+            outputMode: .perInput
+        )
+
+        XCTAssertThrowsError(try FASTQOperationExecutionService().buildInvocation(for: request)) { error in
+            guard let execError = error as? FASTQOperationExecutionError else {
+                return XCTFail("Expected FASTQOperationExecutionError")
+            }
+            XCTAssertTrue(execError.errorDescription?.contains("bbduk") == true)
+        }
+    }
+
+    func testDerivativeLaunchRejectsDemultiplexRequestsWithSampleAssignments() {
+        let request = FASTQOperationLaunchRequest.derivative(
+            request: .demultiplex(
+                kitID: "test-kit",
+                customCSVPath: nil,
+                location: "bothends",
+                symmetryMode: .symmetric,
+                maxDistanceFrom5Prime: 0,
+                maxDistanceFrom3Prime: 0,
+                errorRate: 0.15,
+                trimBarcodes: true,
+                sampleAssignments: [
+                    FASTQSampleBarcodeAssignment(sampleID: "sample-1", forwardBarcodeID: "BC01")
+                ],
+                kitOverride: nil
+            ),
+            inputURLs: [URL(fileURLWithPath: "/tmp/input.fastq")],
+            outputMode: .fixedBatch
+        )
+
+        XCTAssertThrowsError(try FASTQOperationExecutionService().buildInvocation(for: request)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("demultiplex"))
+            XCTAssertTrue(error.localizedDescription.contains("sampleAssignments"))
+        }
+    }
+
+    func testDerivativeLaunchRejectsOrientRequestsThatAskToSaveUnorientedReads() {
+        let request = FASTQOperationLaunchRequest.derivative(
+            request: .orient(
+                referenceURL: URL(fileURLWithPath: "/tmp/reference.fasta"),
+                wordLength: 12,
+                dbMask: "dust",
+                saveUnoriented: true
+            ),
+            inputURLs: [URL(fileURLWithPath: "/tmp/input.fastq")],
+            outputMode: .perInput
+        )
+
+        XCTAssertThrowsError(try FASTQOperationExecutionService().buildInvocation(for: request)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("orient"))
+            XCTAssertTrue(error.localizedDescription.contains("saveUnoriented"))
+        }
     }
 
     func testClassificationLaunchesMapToTopLevelCommands() throws {

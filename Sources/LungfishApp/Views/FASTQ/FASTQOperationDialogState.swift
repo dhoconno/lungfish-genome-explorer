@@ -45,6 +45,69 @@ final class FASTQOperationDialogState {
     var pendingEsVirituConfigs: [EsVirituConfig]
     var pendingTaxTriageConfig: TaxTriageConfig?
 
+    // Honest derivative-tool state surfaced by the modal.
+    var qualityTrimThreshold: Int
+    var qualityTrimWindowSize: Int
+    var qualityTrimMode: FASTQQualityTrimMode
+
+    var adapterRemovalMode: FASTQAdapterMode
+    var adapterRemovalSequence: String
+
+    var primerTrimmingSource: FASTQPrimerSource
+    var primerTrimmingLiteralSequence: String
+    var primerTrimmingReferencePath: String
+    var primerTrimmingKmerSize: Int
+    var primerTrimmingMinKmer: Int
+    var primerTrimmingHammingDistance: Int
+
+    var trimFixedBasesFrom5Prime: Int
+    var trimFixedBasesFrom3Prime: Int
+
+    var filterByReadLengthMin: Int?
+    var filterByReadLengthMax: Int?
+
+    var removeContaminantsMode: FASTQContaminantFilterMode
+    var removeContaminantsKmerSize: Int
+    var removeContaminantsHammingDistance: Int
+
+    var removeDuplicatesPreset: FASTQDeduplicatePreset
+    var removeDuplicatesSubstitutions: Int
+    var removeDuplicatesOptical: Bool
+    var removeDuplicatesOpticalDistance: Int
+
+    var mergeOverlappingPairsStrictness: FASTQMergeStrictness
+    var mergeOverlappingPairsMinOverlap: Int
+
+    var correctSequencingErrorsKmerSize: Int
+
+    var orientWordLength: Int
+    var orientDbMask: String
+
+    var subsampleByProportionValue: Double?
+    var subsampleByCountValue: Int?
+
+    var extractReadsByIDQuery: String
+    var extractReadsByIDField: FASTQSearchField
+    var extractReadsByIDRegex: Bool
+
+    var extractReadsByMotifPattern: String
+    var extractReadsByMotifRegex: Bool
+
+    var selectReadsBySequenceValue: String
+    var selectReadsBySequenceSearchEnd: FASTQAdapterSearchEnd
+    var selectReadsBySequenceMinOverlap: Int
+    var selectReadsBySequenceErrorRate: Double
+    var selectReadsBySequenceKeepMatched: Bool
+    var selectReadsBySequenceSearchReverseComplement: Bool
+
+    var demultiplexKitID: String
+    var demultiplexCustomCSVPath: String
+    var demultiplexLocation: String
+    var demultiplexMaxDistanceFrom5Prime: Int
+    var demultiplexMaxDistanceFrom3Prime: Int
+    var demultiplexErrorRate: Double
+    var demultiplexTrimBarcodes: Bool
+
     private var embeddedToolReady: Bool
 
     init(
@@ -70,6 +133,53 @@ final class FASTQOperationDialogState {
         self.pendingClassificationConfigs = []
         self.pendingEsVirituConfigs = []
         self.pendingTaxTriageConfig = nil
+        self.qualityTrimThreshold = 20
+        self.qualityTrimWindowSize = 4
+        self.qualityTrimMode = .cutRight
+        self.adapterRemovalMode = .autoDetect
+        self.adapterRemovalSequence = ""
+        self.primerTrimmingSource = .literal
+        self.primerTrimmingLiteralSequence = ""
+        self.primerTrimmingReferencePath = ""
+        self.primerTrimmingKmerSize = 15
+        self.primerTrimmingMinKmer = 11
+        self.primerTrimmingHammingDistance = 1
+        self.trimFixedBasesFrom5Prime = 0
+        self.trimFixedBasesFrom3Prime = 0
+        self.filterByReadLengthMin = nil
+        self.filterByReadLengthMax = nil
+        self.removeContaminantsMode = .phix
+        self.removeContaminantsKmerSize = 31
+        self.removeContaminantsHammingDistance = 1
+        self.removeDuplicatesPreset = .exactPCR
+        self.removeDuplicatesSubstitutions = 0
+        self.removeDuplicatesOptical = false
+        self.removeDuplicatesOpticalDistance = 40
+        self.mergeOverlappingPairsStrictness = .normal
+        self.mergeOverlappingPairsMinOverlap = 12
+        self.correctSequencingErrorsKmerSize = 50
+        self.orientWordLength = 12
+        self.orientDbMask = "dust"
+        self.subsampleByProportionValue = nil
+        self.subsampleByCountValue = nil
+        self.extractReadsByIDQuery = ""
+        self.extractReadsByIDField = .id
+        self.extractReadsByIDRegex = false
+        self.extractReadsByMotifPattern = ""
+        self.extractReadsByMotifRegex = false
+        self.selectReadsBySequenceValue = ""
+        self.selectReadsBySequenceSearchEnd = .fivePrime
+        self.selectReadsBySequenceMinOverlap = 16
+        self.selectReadsBySequenceErrorRate = 0.15
+        self.selectReadsBySequenceKeepMatched = true
+        self.selectReadsBySequenceSearchReverseComplement = false
+        self.demultiplexKitID = BarcodeKitRegistry.builtinKits().first?.id ?? ""
+        self.demultiplexCustomCSVPath = ""
+        self.demultiplexLocation = "bothends"
+        self.demultiplexMaxDistanceFrom5Prime = 0
+        self.demultiplexMaxDistanceFrom3Prime = 0
+        self.demultiplexErrorRate = 0.15
+        self.demultiplexTrimBarcodes = true
         self.embeddedToolReady = defaultToolID.defaultEmbeddedReadiness
     }
 
@@ -127,44 +237,97 @@ final class FASTQOperationDialogState {
             return .refreshQCSummary(inputURLs: selectedInputURLs)
 
         case .demultiplexBarcodes:
-            guard let request = concreteDemultiplexRequest() else { return nil }
+            let customCSVPath = trimmedNonEmpty(demultiplexCustomCSVPath)
+            let kitID = customCSVPath.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent }
+                ?? demultiplexKitID
             return .derivative(
-                request: request,
+                request: .demultiplex(
+                    kitID: kitID,
+                    customCSVPath: customCSVPath,
+                    location: demultiplexLocation,
+                    symmetryMode: nil,
+                    maxDistanceFrom5Prime: demultiplexMaxDistanceFrom5Prime,
+                    maxDistanceFrom3Prime: demultiplexMaxDistanceFrom3Prime,
+                    errorRate: demultiplexErrorRate,
+                    trimBarcodes: demultiplexTrimBarcodes,
+                    sampleAssignments: nil,
+                    kitOverride: nil
+                ),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
             )
 
         case .qualityTrim:
+            guard qualityTrimThreshold > 0, qualityTrimWindowSize > 0 else { return nil }
             return .derivative(
-                request: .qualityTrim(threshold: 20, windowSize: 4, mode: .cutRight),
+                request: .qualityTrim(
+                    threshold: qualityTrimThreshold,
+                    windowSize: qualityTrimWindowSize,
+                    mode: qualityTrimMode
+                ),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
             )
 
         case .adapterRemoval:
+            let sequence = trimmedNonEmpty(adapterRemovalSequence)
+            if adapterRemovalMode == .specified, sequence == nil {
+                return nil
+            }
             return .derivative(
-                request: .adapterTrim(mode: .autoDetect, sequence: nil, sequenceR2: nil, fastaFilename: nil),
+                request: .adapterTrim(
+                    mode: adapterRemovalMode,
+                    sequence: adapterRemovalMode == .specified ? sequence : nil,
+                    sequenceR2: nil,
+                    fastaFilename: nil
+                ),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
             )
 
         case .primerTrimming:
+            let literalSequence = trimmedNonEmpty(primerTrimmingLiteralSequence)
+            let referencePath = trimmedNonEmpty(primerTrimmingReferencePath)
+            switch primerTrimmingSource {
+            case .literal where literalSequence == nil:
+                return nil
+            case .reference where referencePath == nil:
+                return nil
+            default:
+                break
+            }
             return .derivative(
-                request: concretePrimerTrimRequest(),
+                request: .primerRemoval(configuration: FASTQPrimerTrimConfiguration(
+                    source: primerTrimmingSource,
+                    forwardSequence: primerTrimmingSource == .literal ? literalSequence : nil,
+                    referenceFasta: primerTrimmingSource == .reference ? referencePath : nil,
+                    tool: .bbduk,
+                    kmerSize: primerTrimmingKmerSize,
+                    minKmer: primerTrimmingMinKmer,
+                    hammingDistance: primerTrimmingHammingDistance
+                )),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
             )
 
         case .trimFixedBases:
+            guard trimFixedBasesFrom5Prime > 0 || trimFixedBasesFrom3Prime > 0 else { return nil }
             return .derivative(
-                request: .fixedTrim(from5Prime: 0, from3Prime: 0),
+                request: .fixedTrim(
+                    from5Prime: trimFixedBasesFrom5Prime,
+                    from3Prime: trimFixedBasesFrom3Prime
+                ),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
             )
 
         case .filterByReadLength:
+            guard filterByReadLengthMin != nil || filterByReadLengthMax != nil else { return nil }
+            if let min = filterByReadLengthMin, let max = filterByReadLengthMax, min > max {
+                return nil
+            }
             return .derivative(
-                request: .lengthFilter(min: nil, max: nil),
+                request: .lengthFilter(min: filterByReadLengthMin, max: filterByReadLengthMax),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
             )
@@ -172,7 +335,8 @@ final class FASTQOperationDialogState {
         case .removeHumanReads:
             return .derivative(
                 request: .humanReadScrub(
-                    databaseID: DeaconPanhumanDatabaseInstaller.databaseID,
+                    databaseID: auxiliaryInputURL(for: .database)?.deletingPathExtension().lastPathComponent
+                        ?? DeaconPanhumanDatabaseInstaller.databaseID,
                     removeReads: true
                 ),
                 inputURLs: selectedInputURLs,
@@ -181,7 +345,12 @@ final class FASTQOperationDialogState {
 
         case .removeContaminants:
             return .derivative(
-                request: concreteContaminantFilterRequest(),
+                request: .contaminantFilter(
+                    mode: removeContaminantsMode,
+                    referenceFasta: removeContaminantsMode == .custom ? auxiliaryInputURL(for: .contaminantReference)?.path : nil,
+                    kmerSize: removeContaminantsKmerSize,
+                    hammingDistance: removeContaminantsHammingDistance
+                ),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
             )
@@ -189,10 +358,10 @@ final class FASTQOperationDialogState {
         case .removeDuplicates:
             return .derivative(
                 request: .deduplicate(
-                    preset: .exactPCR,
-                    substitutions: 0,
-                    optical: false,
-                    opticalDistance: 40
+                    preset: removeDuplicatesPreset,
+                    substitutions: removeDuplicatesSubstitutions,
+                    optical: removeDuplicatesOptical,
+                    opticalDistance: removeDuplicatesOpticalDistance
                 ),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
@@ -200,7 +369,10 @@ final class FASTQOperationDialogState {
 
         case .mergeOverlappingPairs:
             return .derivative(
-                request: .pairedEndMerge(strictness: .normal, minOverlap: 12),
+                request: .pairedEndMerge(
+                    strictness: mergeOverlappingPairsStrictness,
+                    minOverlap: mergeOverlappingPairsMinOverlap
+                ),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
             )
@@ -217,9 +389,9 @@ final class FASTQOperationDialogState {
             return .derivative(
                 request: .orient(
                     referenceURL: referenceURL,
-                    wordLength: 12,
-                    dbMask: "dust",
-                    saveUnoriented: true
+                    wordLength: orientWordLength,
+                    dbMask: orientDbMask,
+                    saveUnoriented: false
                 ),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
@@ -227,49 +399,62 @@ final class FASTQOperationDialogState {
 
         case .correctSequencingErrors:
             return .derivative(
-                request: .errorCorrection(kmerSize: 50),
+                request: .errorCorrection(kmerSize: correctSequencingErrorsKmerSize),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
             )
 
         case .subsampleByProportion:
+            guard let subsampleByProportionValue, subsampleByProportionValue > 0, subsampleByProportionValue <= 1 else {
+                return nil
+            }
             return .derivative(
-                request: .subsampleProportion(0.10),
+                request: .subsampleProportion(subsampleByProportionValue),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
             )
 
         case .subsampleByCount:
+            guard let subsampleByCountValue, subsampleByCountValue > 0 else {
+                return nil
+            }
             return .derivative(
-                request: .subsampleCount(10_000),
+                request: .subsampleCount(subsampleByCountValue),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
             )
 
         case .extractReadsByID:
+            let query = trimmedNonEmpty(extractReadsByIDQuery)
+            guard let query else { return nil }
             return .derivative(
-                request: .searchText(query: "SRR1770413", field: .id, regex: false),
+                request: .searchText(query: query, field: extractReadsByIDField, regex: extractReadsByIDRegex),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
             )
 
         case .extractReadsByMotif:
+            let pattern = trimmedNonEmpty(extractReadsByMotifPattern)
+            guard let pattern else { return nil }
             return .derivative(
-                request: .searchMotif(pattern: "ATGNNNT", regex: false),
+                request: .searchMotif(pattern: pattern, regex: extractReadsByMotifRegex),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
             )
 
         case .selectReadsBySequence:
+            let sequence = trimmedNonEmpty(selectReadsBySequenceValue)
+            guard let sequence else { return nil }
+            let fastaPath = isPathLikeSequenceFilterValue(sequence) ? sequence : nil
             return .derivative(
                 request: .sequencePresenceFilter(
-                    sequence: "AGATCGGAAGAGC",
-                    fastaPath: nil,
-                    searchEnd: .fivePrime,
-                    minOverlap: 16,
-                    errorRate: 0.15,
-                    keepMatched: true,
-                    searchReverseComplement: false
+                    sequence: fastaPath == nil ? sequence : nil,
+                    fastaPath: fastaPath,
+                    searchEnd: selectReadsBySequenceSearchEnd,
+                    minOverlap: selectReadsBySequenceMinOverlap,
+                    errorRate: selectReadsBySequenceErrorRate,
+                    keepMatched: selectReadsBySequenceKeepMatched,
+                    searchReverseComplement: selectReadsBySequenceSearchReverseComplement
                 ),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
@@ -278,67 +463,6 @@ final class FASTQOperationDialogState {
         case .minimap2, .spades, .kraken2, .esViritu, .taxTriage:
             return nil
         }
-    }
-
-    private func concreteDemultiplexRequest() -> FASTQDerivativeRequest? {
-        let customCSVPath = auxiliaryInputURL(for: .barcodeDefinition)?.path
-        let defaultKitID = BarcodeKitRegistry.builtinKits().first?.id ?? customCSVPath.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent } ?? ""
-
-        return .demultiplex(
-            kitID: defaultKitID,
-            customCSVPath: customCSVPath,
-            location: "bothends",
-            symmetryMode: .symmetric,
-            maxDistanceFrom5Prime: 0,
-            maxDistanceFrom3Prime: 0,
-            errorRate: 0.15,
-            trimBarcodes: true,
-            sampleAssignments: [],
-            kitOverride: nil
-        )
-    }
-
-    private func concreteContaminantFilterRequest() -> FASTQDerivativeRequest {
-        if let referenceFasta = auxiliaryInputURL(for: .contaminantReference)?.path {
-            return .contaminantFilter(
-                mode: .custom,
-                referenceFasta: referenceFasta,
-                kmerSize: 31,
-                hammingDistance: 1
-            )
-        }
-
-        return .contaminantFilter(
-            mode: .phix,
-            referenceFasta: nil,
-            kmerSize: 31,
-            hammingDistance: 1
-        )
-    }
-
-    private func concretePrimerTrimRequest() -> FASTQDerivativeRequest {
-        let referenceFasta = auxiliaryInputURL(for: .primerSource)?.path
-        return .primerRemoval(configuration: FASTQPrimerTrimConfiguration(
-            source: referenceFasta == nil ? .literal : .reference,
-            readMode: .single,
-            mode: .fivePrime,
-            forwardSequence: nil,
-            reverseSequence: nil,
-            referenceFasta: referenceFasta,
-            anchored5Prime: true,
-            anchored3Prime: true,
-            errorRate: 0.12,
-            minimumOverlap: 12,
-            allowIndels: true,
-            keepUntrimmed: false,
-            searchReverseComplement: true,
-            pairFilter: .any,
-            tool: .cutadapt,
-            ktrimDirection: .left,
-            kmerSize: 15,
-            minKmer: 11,
-            hammingDistance: 1
-        ))
     }
 
     func captureMinimap2Config(_ config: Minimap2Config) {
@@ -447,6 +571,10 @@ final class FASTQOperationDialogState {
             return missingKind.missingSelectionText
         }
 
+        if let configurationMessage = selectedToolConfigurationReadinessText {
+            return configurationMessage
+        }
+
         if !embeddedToolReady {
             return selectedToolID.embeddedReadinessText
         }
@@ -473,6 +601,7 @@ final class FASTQOperationDialogState {
     var isRunEnabled: Bool {
         !selectedInputURLs.isEmpty
         && missingRequiredAuxiliaryInputKinds.isEmpty
+        && selectedToolConfigurationIsReady
         && embeddedToolReady
     }
 
@@ -577,6 +706,114 @@ final class FASTQOperationDialogState {
         }
     }
 
+    private var selectedToolConfigurationIsReady: Bool {
+        selectedToolConfigurationReadinessText == nil
+    }
+
+    private var selectedToolConfigurationReadinessText: String? {
+        switch selectedToolID {
+        case .qualityTrim:
+            guard qualityTrimThreshold > 0, qualityTrimWindowSize > 0 else {
+                return "Enter a positive quality threshold and window size."
+            }
+            return nil
+
+        case .adapterRemoval:
+            if adapterRemovalMode == .specified, trimmedNonEmpty(adapterRemovalSequence) == nil {
+                return "Enter an adapter sequence for manual adapter removal."
+            }
+            return nil
+
+        case .primerTrimming:
+            switch primerTrimmingSource {
+            case .literal:
+                return trimmedNonEmpty(primerTrimmingLiteralSequence) == nil
+                    ? "Enter a literal primer sequence or switch to reference mode."
+                    : nil
+            case .reference:
+                return trimmedNonEmpty(primerTrimmingReferencePath) == nil
+                    ? "Select a primer reference FASTA or switch to literal mode."
+                    : nil
+            }
+
+        case .trimFixedBases:
+            return (trimFixedBasesFrom5Prime > 0 || trimFixedBasesFrom3Prime > 0)
+                ? nil
+                : "Enter at least one fixed trim amount."
+
+        case .filterByReadLength:
+            if filterByReadLengthMin == nil, filterByReadLengthMax == nil {
+                return "Enter a minimum, a maximum, or both."
+            }
+            if let min = filterByReadLengthMin, let max = filterByReadLengthMax, min > max {
+                return "Minimum read length cannot exceed maximum read length."
+            }
+            return nil
+
+        case .removeContaminants:
+            if removeContaminantsMode == .custom, auxiliaryInputURL(for: .contaminantReference) == nil {
+                return "Select a contaminant reference FASTA for custom contaminant filtering."
+            }
+            return nil
+
+        case .removeDuplicates:
+            return nil
+
+        case .mergeOverlappingPairs:
+            return mergeOverlappingPairsMinOverlap > 0
+                ? nil
+                : "Enter a positive minimum overlap."
+
+        case .repairPairedEndFiles:
+            return nil
+
+        case .orientReads:
+            return auxiliaryInputURL(for: .referenceSequence) == nil
+                ? "Select a reference sequence to continue."
+                : nil
+
+        case .correctSequencingErrors:
+            return correctSequencingErrorsKmerSize > 0
+                ? nil
+                : "Enter a positive k-mer size."
+
+        case .subsampleByProportion:
+            guard let value = subsampleByProportionValue else {
+                return "Enter a proportion between 0 and 1."
+            }
+            return (value > 0 && value <= 1) ? nil : "Enter a proportion between 0 and 1."
+
+        case .subsampleByCount:
+            guard let value = subsampleByCountValue else {
+                return "Enter a positive read count."
+            }
+            return value > 0 ? nil : "Enter a positive read count."
+
+        case .extractReadsByID:
+            return trimmedNonEmpty(extractReadsByIDQuery) == nil
+                ? "Enter a read ID or search pattern."
+                : nil
+
+        case .extractReadsByMotif:
+            return trimmedNonEmpty(extractReadsByMotifPattern) == nil
+                ? "Enter a motif or search pattern."
+                : nil
+
+        case .selectReadsBySequence:
+            return trimmedNonEmpty(selectReadsBySequenceValue) == nil
+                ? "Enter a literal sequence or FASTA path."
+                : nil
+
+        case .demultiplexBarcodes:
+            return demultiplexKitID.isEmpty && trimmedNonEmpty(demultiplexCustomCSVPath) == nil
+                ? "Select a barcode kit or specify a custom barcode definition."
+                : nil
+
+        case .refreshQCSummary, .minimap2, .spades, .kraken2, .esViritu, .taxTriage, .removeHumanReads:
+            return nil
+        }
+    }
+
     private func normalizeSelectionState() {
         auxiliaryInputs = auxiliaryInputs.filter { requiredInputKinds.contains($0.key) }
         embeddedToolReady = selectedToolID.defaultEmbeddedReadiness
@@ -607,6 +844,20 @@ final class FASTQOperationDialogState {
         }
 
         return selectedInputURLs.first?.deletingLastPathComponent()
+    }
+
+    private func trimmedNonEmpty(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func isPathLikeSequenceFilterValue(_ value: String) -> Bool {
+        let lowercased = value.lowercased()
+        return value.contains("/")
+            || lowercased.hasSuffix(".fa")
+            || lowercased.hasSuffix(".fasta")
+            || lowercased.hasSuffix(".fna")
+            || lowercased.hasSuffix(".fas")
     }
 }
 
@@ -722,7 +973,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .refreshQCSummary:
             return [.fastqDataset]
         case .demultiplexBarcodes:
-            return [.fastqDataset, .barcodeDefinition]
+            return [.fastqDataset]
         case .qualityTrim, .adapterRemoval, .trimFixedBases, .filterByReadLength,
              .removeDuplicates, .mergeOverlappingPairs, .repairPairedEndFiles,
              .correctSequencingErrors, .subsampleByProportion, .subsampleByCount,

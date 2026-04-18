@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+@testable import LungfishIO
 @testable import LungfishWorkflow
 
 @MainActor
@@ -20,6 +21,147 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(state.outputSectionTitle, "Output")
         XCTAssertEqual(state.readinessText, "Ready to configure output.")
         XCTAssertEqual(state.outputStrategyOptions, [.perInput, .groupedResult])
+    }
+
+    func testSubsampleByProportionWaitsForARealProportionBeforeBuildingLaunchRequest() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .searchSubsetting,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+
+        state.selectTool(.subsampleByProportion)
+        state.prepareForRun()
+
+        XCTAssertFalse(state.isRunEnabled)
+        XCTAssertNil(state.pendingLaunchRequest)
+
+        state.subsampleByProportionValue = 0.25
+        state.prepareForRun()
+
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .subsampleProportion(0.25),
+                inputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+                outputMode: .perInput
+            )
+        )
+    }
+
+    func testLengthFilterRemainsDisabledUntilARealRangeIsEntered() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .searchSubsetting,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+
+        state.selectTool(.filterByReadLength)
+        state.prepareForRun()
+
+        XCTAssertFalse(state.isRunEnabled)
+        XCTAssertNil(state.pendingLaunchRequest)
+
+        state.filterByReadLengthMin = 100
+        state.filterByReadLengthMax = 500
+        state.prepareForRun()
+
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .lengthFilter(min: 100, max: 500),
+                inputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+                outputMode: .perInput
+            )
+        )
+    }
+
+    func testAdapterRemovalRequiresManualAdapterSequence() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .trimmingFiltering,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+
+        state.selectTool(.adapterRemoval)
+        state.adapterRemovalMode = .specified
+        state.prepareForRun()
+
+        XCTAssertFalse(state.isRunEnabled)
+        XCTAssertNil(state.pendingLaunchRequest)
+
+        state.adapterRemovalSequence = "AGATCGGAAGAGC"
+        state.prepareForRun()
+
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .adapterTrim(mode: .specified, sequence: "AGATCGGAAGAGC", sequenceR2: nil, fastaFilename: nil),
+                inputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+                outputMode: .perInput
+            )
+        )
+    }
+
+    func testSearchTextRemainsDisabledUntilQueryAndFieldAreSet() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .searchSubsetting,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+
+        state.selectTool(.extractReadsByID)
+        state.prepareForRun()
+
+        XCTAssertFalse(state.isRunEnabled)
+        XCTAssertNil(state.pendingLaunchRequest)
+
+        state.extractReadsByIDQuery = "SRR1770413"
+        state.extractReadsByIDField = .description
+        state.prepareForRun()
+
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .searchText(query: "SRR1770413", field: .description, regex: false),
+                inputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+                outputMode: .perInput
+            )
+        )
+    }
+
+    func testSelectReadsBySequenceUsesEnteredSequenceAndParameters() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .searchSubsetting,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+
+        state.selectTool(.selectReadsBySequence)
+        state.prepareForRun()
+
+        XCTAssertFalse(state.isRunEnabled)
+        XCTAssertNil(state.pendingLaunchRequest)
+
+        state.selectReadsBySequenceValue = "AGATCGGAAGAGC"
+        state.selectReadsBySequenceSearchEnd = .fivePrime
+        state.selectReadsBySequenceMinOverlap = 16
+        state.selectReadsBySequenceErrorRate = 0.15
+        state.selectReadsBySequenceKeepMatched = true
+        state.selectReadsBySequenceSearchReverseComplement = false
+        state.prepareForRun()
+
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .sequencePresenceFilter(
+                    sequence: "AGATCGGAAGAGC",
+                    fastaPath: nil,
+                    searchEnd: .fivePrime,
+                    minOverlap: 16,
+                    errorRate: 0.15,
+                    keepMatched: true,
+                    searchReverseComplement: false
+                ),
+                inputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+                outputMode: .perInput
+            )
+        )
     }
 
     func testOrientingRequiresReferenceSequenceBeforeRunCanProceed() {
@@ -178,6 +320,21 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertTrue(toolPanesSource.contains("embeddedRunTrigger: state.embeddedRunTrigger"))
         XCTAssertTrue(dialogSource.contains("state.prepareForRun()"))
         XCTAssertTrue(stateSource.contains("var embeddedRunTrigger"))
+    }
+
+    func testDerivativeToolPaneContainsRealHonestControls() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = root
+            .appendingPathComponent("Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("qualityTrimThreshold"))
+        XCTAssertTrue(source.contains("adapterRemovalMode"))
+        XCTAssertTrue(source.contains("selectReadsBySequenceValue"))
+        XCTAssertTrue(source.contains("demultiplexLocation"))
     }
 
     func testClassificationCapturePreservesAllBatchInputs() {

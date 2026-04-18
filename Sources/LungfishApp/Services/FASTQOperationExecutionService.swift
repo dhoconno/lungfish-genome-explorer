@@ -6,6 +6,26 @@ struct CLIInvocation: Sendable, Equatable {
     let arguments: [String]
 }
 
+enum FASTQOperationExecutionError: Error, LocalizedError {
+    case unsupportedAdapterTrim(String)
+    case unsupportedPrimerRemoval(String)
+    case unsupportedDemultiplex(String)
+    case unsupportedOrient(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unsupportedAdapterTrim(let reason):
+            return "FASTQ adapter trimming request is not supported by the CLI builder: \(reason)"
+        case .unsupportedPrimerRemoval(let reason):
+            return "FASTQ primer trimming request is not supported by the CLI builder: \(reason)"
+        case .unsupportedDemultiplex(let reason):
+            return "FASTQ demultiplex request is not supported by the CLI builder: \(reason)"
+        case .unsupportedOrient(let reason):
+            return "FASTQ orient request is not supported by the CLI builder: \(reason)"
+        }
+    }
+}
+
 struct FASTQOperationExecutionService {
     func buildInvocation(for request: FASTQOperationLaunchRequest) throws -> CLIInvocation {
         switch request {
@@ -16,7 +36,7 @@ struct FASTQOperationExecutionService {
             )
 
         case .derivative(let request, let inputURLs, _):
-            return CLIInvocation(subcommand: "fastq", arguments: fastqArguments(for: request, inputURLs: inputURLs))
+            return CLIInvocation(subcommand: "fastq", arguments: try fastqArguments(for: request, inputURLs: inputURLs))
 
         case .map(let inputURLs, let referenceURL, _):
             var arguments = inputURLs.map(\.path)
@@ -74,7 +94,7 @@ struct FASTQOperationExecutionService {
         }
     }
 
-    private func fastqArguments(for request: FASTQDerivativeRequest, inputURLs: [URL]) -> [String] {
+    private func fastqArguments(for request: FASTQDerivativeRequest, inputURLs: [URL]) throws -> [String] {
         guard let inputURL = inputURLs.first else {
             return ["qc-summary", "--output", derivedOutputPlaceholder]
         }
@@ -168,10 +188,23 @@ struct FASTQOperationExecutionService {
                 derivedOutputPlaceholder,
             ]
 
-        case .adapterTrim(let mode, let sequence, _, _):
+        case .adapterTrim(let mode, let sequence, let sequenceR2, let fastaFilename):
+            guard sequenceR2 == nil, fastaFilename == nil else {
+                throw FASTQOperationExecutionError.unsupportedAdapterTrim("sequenceR2 and fastaFilename are not encodable")
+            }
             var arguments = ["adapter-trim", inputURL.path]
-            if mode == .specified, let sequence {
+            switch mode {
+            case .autoDetect:
+                guard sequence == nil else {
+                    throw FASTQOperationExecutionError.unsupportedAdapterTrim("auto-detect cannot carry a literal adapter sequence")
+                }
+            case .specified:
+                guard let sequence else {
+                    throw FASTQOperationExecutionError.unsupportedAdapterTrim("manual adapter mode requires a literal adapter sequence")
+                }
                 arguments += ["--adapter", sequence]
+            case .fastaFile:
+                throw FASTQOperationExecutionError.unsupportedAdapterTrim("fastaFile mode is not encodable")
             }
             arguments += ["-o", derivedOutputPlaceholder]
             return arguments
@@ -228,22 +261,39 @@ struct FASTQOperationExecutionService {
             ]
 
         case .primerRemoval(let configuration):
+            guard configuration.tool == .bbduk else {
+                throw FASTQOperationExecutionError.unsupportedPrimerRemoval("only the bbduk subset is encodable")
+            }
+            guard configuration.readMode == .single,
+                  configuration.mode == .fivePrime,
+                  configuration.anchored5Prime,
+                  configuration.anchored3Prime,
+                  configuration.errorRate == 0.12,
+                  configuration.minimumOverlap == 12,
+                  configuration.allowIndels,
+                  !configuration.keepUntrimmed,
+                  configuration.searchReverseComplement,
+                  configuration.pairFilter == .any,
+                  configuration.ktrimDirection == .left
+            else {
+                throw FASTQOperationExecutionError.unsupportedPrimerRemoval("only the literal/reference bbduk subset with the default read-mode flags is encodable")
+            }
             var arguments = ["primer-remove", inputURL.path]
-            if let sequence = configuration.forwardSequence {
+            if let sequence = configuration.forwardSequence, configuration.source == .literal {
                 arguments += ["--literal", sequence]
-            } else if let referenceFasta = configuration.referenceFasta {
+            } else if let referenceFasta = configuration.referenceFasta, configuration.source == .reference {
                 arguments += ["--ref", referenceFasta]
+            } else {
+                throw FASTQOperationExecutionError.unsupportedPrimerRemoval("literal and reference primer inputs must match the selected source")
             }
-            if configuration.tool == .bbduk {
-                arguments += [
-                    "--kmer",
-                    "\(configuration.kmerSize)",
-                    "--mink",
-                    "\(configuration.minKmer)",
-                    "--hdist",
-                    "\(configuration.hammingDistance)",
-                ]
-            }
+            arguments += [
+                "--kmer",
+                "\(configuration.kmerSize)",
+                "--mink",
+                "\(configuration.minKmer)",
+                "--hdist",
+                "\(configuration.hammingDistance)",
+            ]
             arguments += ["-o", derivedOutputPlaceholder]
             return arguments
 
@@ -306,7 +356,16 @@ struct FASTQOperationExecutionService {
                 ]
             }
 
-        case .demultiplex(let kitID, let customCSVPath, let location, _, let maxDistanceFrom5Prime, let maxDistanceFrom3Prime, let errorRate, let trimBarcodes, _, _):
+        case .demultiplex(let kitID, let customCSVPath, let location, let symmetryMode, let maxDistanceFrom5Prime, let maxDistanceFrom3Prime, let errorRate, let trimBarcodes, let sampleAssignments, let kitOverride):
+            guard sampleAssignments?.isEmpty ?? true else {
+                throw FASTQOperationExecutionError.unsupportedDemultiplex("sampleAssignments are not encodable")
+            }
+            guard symmetryMode == nil else {
+                throw FASTQOperationExecutionError.unsupportedDemultiplex("symmetryMode is not encodable")
+            }
+            guard kitOverride == nil else {
+                throw FASTQOperationExecutionError.unsupportedDemultiplex("kitOverride is not encodable")
+            }
             var arguments = [
                 "demultiplex",
                 inputURL.path,
@@ -328,7 +387,10 @@ struct FASTQOperationExecutionService {
             }
             return arguments
 
-        case .orient(let referenceURL, let wordLength, let dbMask, _):
+        case .orient(let referenceURL, let wordLength, let dbMask, let saveUnoriented):
+            guard !saveUnoriented else {
+                throw FASTQOperationExecutionError.unsupportedOrient("saveUnoriented is not encodable")
+            }
             return [
                 "orient",
                 inputURL.path,
