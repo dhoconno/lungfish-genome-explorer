@@ -21,6 +21,60 @@ private func performOnMainRunLoop(_ block: @escaping @MainActor @Sendable () -> 
     }
 }
 
+private extension FASTQOperationLaunchRequest {
+    var primaryInputURL: URL? {
+        switch self {
+        case .refreshQCSummary(let inputURLs):
+            return inputURLs.first
+        case .derivative(_, let inputURLs, _):
+            return inputURLs.first
+        case .map(let inputURLs, _, _):
+            return inputURLs.first
+        case .assemble(let inputURLs, _):
+            return inputURLs.first
+        case .classify(_, let inputURLs, _):
+            return inputURLs.first
+        }
+    }
+
+    var outputMode: FASTQOperationOutputMode {
+        switch self {
+        case .refreshQCSummary:
+            return .fixedBatch
+        case .derivative(_, _, let outputMode):
+            return outputMode
+        case .map(_, _, let outputMode):
+            return outputMode
+        case .assemble(_, let outputMode):
+            return outputMode
+        case .classify:
+            return .fixedBatch
+        }
+    }
+
+    var isDemultiplexRequest: Bool {
+        if case .derivative(let request, _, _) = self, case .demultiplex = request {
+            return true
+        }
+        return false
+    }
+
+    var operationDisplayTitle: String {
+        switch self {
+        case .refreshQCSummary:
+            return "FASTQ QC Summary"
+        case .derivative(let request, _, _):
+            return request.operationLabel
+        case .map:
+            return "Map Reads"
+        case .assemble:
+            return "Assemble Reads"
+        case .classify(let tool, _, _):
+            return tool.title
+        }
+    }
+}
+
 /// Options for handling duplicate files during import
 enum DuplicateResolution {
     case replace    // Replace the existing file
@@ -3449,6 +3503,115 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         }
     }
 
+    func runFASTQOperationLaunchRequest(
+        _ request: FASTQOperationLaunchRequest,
+        preferredOutputDirectory: URL? = nil
+    ) {
+        let destinationRoot = preferredOutputDirectory?.standardizedFileURL
+            ?? sidebarController.currentProjectURL?.appendingPathComponent("Analyses", isDirectory: true)
+            ?? request.primaryInputURL?.deletingLastPathComponent().standardizedFileURL
+            ?? FileManager.default.temporaryDirectory
+
+        do {
+            try FileManager.default.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
+        } catch {
+            logger.error("runFASTQOperationLaunchRequest: Failed to create destination root: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+
+        let workingDirectory: URL
+        if request.outputMode == .groupedResult || request.isDemultiplexRequest {
+            workingDirectory = uniqueFASTQOperationOutputDirectory(
+                in: destinationRoot,
+                request: request
+            )
+        } else {
+            workingDirectory = destinationRoot
+        }
+
+        let executionService = FASTQOperationExecutionService(
+            directImporter: BundleFASTQOperationImporter(destinationDirectory: destinationRoot)
+        )
+        let cliCommand: String? = try? {
+            let invocation = try executionService.buildInvocation(for: request)
+            return ([ "lungfish-cli", invocation.subcommand ] + invocation.arguments).joined(separator: " ")
+        }()
+
+        let opTitle = "FASTQ: \(request.operationDisplayTitle)"
+        let startTime = Date()
+        let opID: UUID = OperationCenter.shared.start(
+            title: opTitle,
+            detail: "Preparing...",
+            operationType: .fastqOperation,
+            cliCommand: cliCommand
+        )
+        OperationCenter.shared.log(id: opID, level: .info, message: "Starting \(request.operationDisplayTitle)")
+
+        viewerController.updateFASTQOperationStatus("Running FASTQ operation...")
+
+        Task.detached(priority: .userInitiated) { [weak self] in
+            do {
+                let result = try await executionService.execute(
+                    request: request,
+                    workingDirectory: workingDirectory
+                )
+                let elapsed = Date().timeIntervalSince(startTime)
+                let completionTarget = result.groupedContainerURL ?? result.importedURLs.last
+
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        OperationCenter.shared.log(
+                            id: opID,
+                            level: .info,
+                            message: "Completed in \(String(format: "%.1f", elapsed))s"
+                        )
+                        OperationCenter.shared.complete(
+                            id: opID,
+                            detail: "Done in \(String(format: "%.1f", elapsed))s"
+                        )
+                        if let completionTarget {
+                            self.refreshSidebarAndSelectDerivedURL(completionTarget)
+                        } else {
+                            self.sidebarController.reloadFromFilesystem()
+                        }
+                        self.requestInspectorDocumentModeAfterDownload()
+                    }
+                }
+            } catch is CancellationError {
+                let elapsed = Date().timeIntervalSince(startTime)
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.log(
+                            id: opID,
+                            level: .info,
+                            message: "Cancelled after \(String(format: "%.1f", elapsed))s"
+                        )
+                        OperationCenter.shared.fail(id: opID, detail: "Cancelled by user")
+                    }
+                }
+            } catch {
+                let elapsed = Date().timeIntervalSince(startTime)
+                let errorDesc = error.localizedDescription
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.log(
+                            id: opID,
+                            level: .error,
+                            message: "Failed after \(String(format: "%.1f", elapsed))s: \(errorDesc)"
+                        )
+                        OperationCenter.shared.fail(
+                            id: opID,
+                            detail: "Failed after \(String(format: "%.1f", elapsed))s",
+                            errorMessage: errorDesc,
+                            errorDetail: "\(error)"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     private func selectedFASTQOperationSources(fallback sourceURL: URL) -> [URL] {
         let selected = sidebarController.selectedItems().compactMap { item -> URL? in
             guard let url = item.url?.standardizedFileURL else { return nil }
@@ -3489,6 +3652,25 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             $0.deletingLastPathComponent().standardizedFileURL == firstParent
         }
         return allShareParent ? firstParent : nil
+    }
+
+    private func uniqueFASTQOperationOutputDirectory(
+        in parentDirectory: URL,
+        request: FASTQOperationLaunchRequest
+    ) -> URL {
+        let baseName = request.operationDisplayTitle
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        let stem = baseName.isEmpty ? "fastq-operation" : baseName
+
+        var candidate = parentDirectory.appendingPathComponent(stem, isDirectory: true)
+        var counter = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = parentDirectory.appendingPathComponent("\(stem)-\(counter)", isDirectory: true)
+            counter += 1
+        }
+        return candidate
     }
 
     private func refreshSidebarAndSelectDerivedURL(_ url: URL) {

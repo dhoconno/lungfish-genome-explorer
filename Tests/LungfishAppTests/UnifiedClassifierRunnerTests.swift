@@ -90,6 +90,13 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
         XCTAssertTrue(source.contains("self.runTaxTriage(config: config, viewerController: viewerController)"))
     }
 
+    func testFASTQOperationsDialogRoutesDerivativeLaunchesThroughMainSplitExecutionPath() throws {
+        let source = try loadSource(at: "Sources/LungfishApp/App/AppDelegate.swift")
+
+        XCTAssertTrue(source.contains("if let request = state.pendingLaunchRequest"))
+        XCTAssertTrue(source.contains("runFASTQOperationLaunchRequest("))
+    }
+
     private func loadSource(at relativePath: String) throws -> String {
         let sourceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

@@ -4207,6 +4207,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     return
                 }
 
+                if let request = state.pendingLaunchRequest,
+                   state.pendingClassificationConfigs.isEmpty,
+                   state.pendingEsVirituConfigs.isEmpty,
+                   state.pendingTaxTriageConfig == nil {
+                    self.mainWindowController?.mainSplitViewController?.runFASTQOperationLaunchRequest(
+                        request,
+                        preferredOutputDirectory: state.outputDirectoryURL
+                    )
+                    return
+                }
+
                 guard let viewerController = self.mainWindowController?.mainSplitViewController?.viewerController else {
                     debugLog("showFASTQOperationsDialog: No viewer controller available for \(state.selectedToolID.rawValue)")
                     return

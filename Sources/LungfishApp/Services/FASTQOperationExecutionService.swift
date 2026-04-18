@@ -32,7 +32,8 @@ protocol FASTQOperationCommandRunning: Sendable {
 protocol FASTQOperationDirectImporting: Sendable {
     func importOutputs(
         at outputURLs: [URL],
-        for request: FASTQOperationLaunchRequest,
+        forResolvedRequest request: FASTQOperationLaunchRequest,
+        originalRequest: FASTQOperationLaunchRequest,
         outputDirectory: URL
     ) async throws -> [URL]
 }
@@ -80,10 +81,7 @@ struct FASTQOperationExecutionService {
             "materialized-inputs-\(UUID().uuidString)",
             isDirectory: true
         )
-        let outputDirectory = workingDirectory.appendingPathComponent(
-            "cli-output-\(UUID().uuidString)",
-            isDirectory: true
-        )
+        let outputDirectory = executionOutputDirectory(for: request, workingDirectory: workingDirectory)
         try FileManager.default.createDirectory(at: materializationDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
 
@@ -91,27 +89,32 @@ struct FASTQOperationExecutionService {
             request: request,
             tempDirectory: materializationDirectory
         )
-        let executionRequests = splitExecutionRequestsIfNeeded(from: resolvedRequest)
+        let executionPlans = makeExecutionPlans(
+            originalRequest: request,
+            resolvedRequest: resolvedRequest,
+            baseOutputDirectory: outputDirectory
+        )
 
         var invocations: [CLIInvocation] = []
         var outputURLs: [URL] = []
 
-        for executionRequest in executionRequests {
-            let outputTarget = executionOutputTarget(
-                for: executionRequest,
-                baseOutputDirectory: outputDirectory,
-                totalRequestCount: executionRequests.count
-            )
+        for executionPlan in executionPlans {
+            let outputParent = executionPlan.outputTarget.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: outputParent, withIntermediateDirectories: true)
             let invocation = try buildExecutionInvocation(
-                for: executionRequest,
-                outputTargetPath: outputTarget.path
+                for: executionPlan.resolvedRequest,
+                outputTargetPath: executionPlan.outputTarget.path
             )
             invocations.append(invocation)
             let result = try await commandRunner.run(
                 invocation: invocation,
-                outputDirectory: outputDirectory
+                outputDirectory: outputParent
             )
-            outputURLs.append(contentsOf: result.outputURLs)
+            if result.outputURLs.isEmpty {
+                outputURLs.append(contentsOf: discoverOutputs(for: executionPlan))
+            } else {
+                outputURLs.append(contentsOf: result.outputURLs)
+            }
         }
 
         if outputURLs.isEmpty {
@@ -136,7 +139,8 @@ struct FASTQOperationExecutionService {
         case .perInput, .fixedBatch:
             let importedURLs = try await directImporter.importOutputs(
                 at: outputURLs,
-                for: resolvedRequest,
+                forResolvedRequest: resolvedRequest,
+                originalRequest: request,
                 outputDirectory: outputDirectory
             )
             return FASTQOperationExecutionResult(
@@ -156,39 +160,131 @@ struct FASTQOperationExecutionService {
         "<derived>"
     }
 
-    private func splitExecutionRequestsIfNeeded(
-        from request: FASTQOperationLaunchRequest
-    ) -> [FASTQOperationLaunchRequest] {
-        switch request {
-        case .derivative(let derivativeRequest, let inputURLs, let outputMode)
-            where outputMode == .perInput && inputURLs.count > 1:
-            return inputURLs.map {
-                .derivative(request: derivativeRequest, inputURLs: [$0], outputMode: outputMode)
+    private func executionOutputDirectory(
+        for request: FASTQOperationLaunchRequest,
+        workingDirectory: URL
+    ) -> URL {
+        if request.outputMode == .groupedResult || request.isDemultiplexRequest {
+            return workingDirectory
+        }
+
+        return workingDirectory.appendingPathComponent(
+            "cli-output-\(UUID().uuidString)",
+            isDirectory: true
+        )
+    }
+
+    private func makeExecutionPlans(
+        originalRequest: FASTQOperationLaunchRequest,
+        resolvedRequest: FASTQOperationLaunchRequest,
+        baseOutputDirectory: URL
+    ) -> [FASTQExecutionPlan] {
+        let requestPairs = splitExecutionRequestsIfNeeded(
+            originalRequest: originalRequest,
+            resolvedRequest: resolvedRequest
+        )
+
+        return requestPairs.map { pair in
+            let outputKind = executionOutputKind(for: pair.original)
+            let parentDirectory = outputParentDirectory(
+                for: pair.original,
+                baseOutputDirectory: baseOutputDirectory,
+                totalRequestCount: requestPairs.count
+            )
+            let outputTarget: URL
+
+            switch outputKind {
+            case .directory:
+                outputTarget = parentDirectory
+            case .fastqFile:
+                outputTarget = parentDirectory.appendingPathComponent(
+                    defaultFASTQOutputFilename(for: pair.original)
+                )
+            case .jsonReport:
+                outputTarget = parentDirectory.appendingPathComponent("qc-summary.json")
             }
 
-        case .map(let inputURLs, let referenceURL, let outputMode)
-            where outputMode == .perInput && inputURLs.count > 1:
-            return inputURLs.map {
-                .map(inputURLs: [$0], referenceURL: referenceURL, outputMode: outputMode)
-            }
-
-        case .assemble(let inputURLs, let outputMode)
-            where outputMode == .perInput && inputURLs.count > 1:
-            return inputURLs.map {
-                .assemble(inputURLs: [$0], outputMode: outputMode)
-            }
-
-        default:
-            return [request]
+            return FASTQExecutionPlan(
+                originalRequest: pair.original,
+                resolvedRequest: pair.resolved,
+                outputTarget: outputTarget,
+                outputKind: outputKind
+            )
         }
     }
 
-    private func executionOutputTarget(
+    private func splitExecutionRequestsIfNeeded(
+        originalRequest: FASTQOperationLaunchRequest,
+        resolvedRequest: FASTQOperationLaunchRequest
+    ) -> [(original: FASTQOperationLaunchRequest, resolved: FASTQOperationLaunchRequest)] {
+        switch (originalRequest, resolvedRequest) {
+        case (
+            .derivative(let originalDerivative, let originalInputURLs, let outputMode),
+            .derivative(let resolvedDerivative, let resolvedInputURLs, let resolvedOutputMode)
+        )
+            where outputMode == .perInput &&
+                  resolvedOutputMode == .perInput &&
+                  originalInputURLs.count > 1 &&
+                  originalInputURLs.count == resolvedInputURLs.count:
+            return zip(originalInputURLs, resolvedInputURLs).map { originalInputURL, resolvedInputURL in
+                (
+                    .derivative(request: originalDerivative, inputURLs: [originalInputURL], outputMode: outputMode),
+                    .derivative(request: resolvedDerivative, inputURLs: [resolvedInputURL], outputMode: resolvedOutputMode)
+                )
+            }
+
+        case (
+            .map(let originalInputURLs, let referenceURL, let outputMode),
+            .map(let resolvedInputURLs, let resolvedReferenceURL, let resolvedOutputMode)
+        )
+            where outputMode == .perInput &&
+                  resolvedOutputMode == .perInput &&
+                  originalInputURLs.count > 1 &&
+                  originalInputURLs.count == resolvedInputURLs.count:
+            return zip(originalInputURLs, resolvedInputURLs).map { originalInputURL, resolvedInputURL in
+                (
+                    .map(inputURLs: [originalInputURL], referenceURL: referenceURL, outputMode: outputMode),
+                    .map(inputURLs: [resolvedInputURL], referenceURL: resolvedReferenceURL, outputMode: resolvedOutputMode)
+                )
+            }
+
+        case (
+            .assemble(let originalInputURLs, let outputMode),
+            .assemble(let resolvedInputURLs, let resolvedOutputMode)
+        )
+            where outputMode == .perInput &&
+                  resolvedOutputMode == .perInput &&
+                  originalInputURLs.count > 1 &&
+                  originalInputURLs.count == resolvedInputURLs.count:
+            return zip(originalInputURLs, resolvedInputURLs).map { originalInputURL, resolvedInputURL in
+                (
+                    .assemble(inputURLs: [originalInputURL], outputMode: outputMode),
+                    .assemble(inputURLs: [resolvedInputURL], outputMode: resolvedOutputMode)
+                )
+            }
+
+        default:
+            return [(originalRequest, resolvedRequest)]
+        }
+    }
+
+    private func executionOutputKind(for request: FASTQOperationLaunchRequest) -> FASTQExecutionOutputKind {
+        switch request {
+        case .refreshQCSummary:
+            return .jsonReport
+        case .derivative(let derivativeRequest, _, _):
+            return derivativeRequest.isDemultiplexRequest ? .directory : .fastqFile
+        case .map, .assemble, .classify:
+            return .directory
+        }
+    }
+
+    private func outputParentDirectory(
         for request: FASTQOperationLaunchRequest,
         baseOutputDirectory: URL,
         totalRequestCount: Int
     ) -> URL {
-        guard request.outputMode == .perInput, totalRequestCount > 1 else {
+        guard totalRequestCount > 1 else {
             return baseOutputDirectory
         }
 
@@ -198,7 +294,27 @@ struct FASTQOperationExecutionService {
         return baseOutputDirectory.appendingPathComponent(stem, isDirectory: true)
     }
 
-    private static func sanitizedStem(for url: URL) -> String {
+    private func defaultFASTQOutputFilename(for request: FASTQOperationLaunchRequest) -> String {
+        switch request {
+        case .derivative(let derivativeRequest, _, _):
+            return "\(derivativeRequest.operationKindString).fastq"
+        default:
+            return "output.fastq"
+        }
+    }
+
+    private func discoverOutputs(for plan: FASTQExecutionPlan) -> [URL] {
+        switch plan.outputKind {
+        case .directory:
+            return Self.discoverFASTQBundles(in: plan.outputTarget)
+        case .fastqFile, .jsonReport:
+            return FileManager.default.fileExists(atPath: plan.outputTarget.path)
+                ? [plan.outputTarget]
+                : []
+        }
+    }
+
+    fileprivate static func sanitizedStem(for url: URL) -> String {
         let stem = url.deletingPathExtension().lastPathComponent
         return stem.isEmpty ? "output" : stem
     }
@@ -694,11 +810,38 @@ struct FASTQOperationExecutionService {
     }
 }
 
+private enum FASTQExecutionOutputKind: Sendable {
+    case fastqFile
+    case directory
+    case jsonReport
+}
+
+private struct FASTQExecutionPlan: Sendable {
+    let originalRequest: FASTQOperationLaunchRequest
+    let resolvedRequest: FASTQOperationLaunchRequest
+    let outputTarget: URL
+    let outputKind: FASTQExecutionOutputKind
+}
+
 private struct FASTQSourceResolverAdapter: FASTQOperationInputResolving {
     func resolve(
         request: FASTQOperationLaunchRequest,
         tempDirectory: URL
     ) async throws -> FASTQOperationLaunchRequest {
+        if request.requiresSingleResolvedFASTQPerInput {
+            var resolvedURLs: [URL] = []
+            resolvedURLs.reserveCapacity(request.inputURLs.count)
+            for inputURL in request.inputURLs {
+                resolvedURLs.append(
+                    try await resolveSingleExecutionInput(
+                        from: inputURL,
+                        tempDirectory: tempDirectory
+                    )
+                )
+            }
+            return request.replacingInputURLs(with: resolvedURLs)
+        }
+
         let resolver = FASTQSourceResolver()
         resolver.materializer = { bundleURL, tempDir, progress in
             try await FASTQDerivativeService.shared.materializeDatasetFASTQ(
@@ -730,6 +873,83 @@ private struct FASTQSourceResolverAdapter: FASTQOperationInputResolving {
         }
 
         return request.replacingInputURLs(with: resolvedURLs)
+    }
+
+    private func resolveSingleExecutionInput(
+        from inputURL: URL,
+        tempDirectory: URL
+    ) async throws -> URL {
+        let standardizedInputURL = inputURL.standardizedFileURL
+        let bundleURL: URL?
+        if FASTQBundle.isBundleURL(standardizedInputURL) {
+            bundleURL = standardizedInputURL
+        } else {
+            let parentBundleURL = standardizedInputURL.deletingLastPathComponent()
+            bundleURL = FASTQBundle.isBundleURL(parentBundleURL) ? parentBundleURL : nil
+        }
+
+        guard let bundleURL else {
+            return standardizedInputURL
+        }
+
+        if FASTQBundle.isDerivedBundle(bundleURL) {
+            return try await FASTQDerivativeService.shared.materializeDatasetFASTQ(
+                fromBundle: bundleURL,
+                tempDirectory: tempDirectory,
+                progress: nil
+            )
+        }
+
+        if let allFASTQURLs = FASTQBundle.resolveAllFASTQURLs(for: bundleURL),
+           allFASTQURLs.count > 1 {
+            return try materializeConcatenatedFASTQ(
+                from: allFASTQURLs,
+                tempDirectory: tempDirectory
+            )
+        }
+
+        if let primaryFASTQURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL) {
+            return primaryFASTQURL
+        }
+
+        return standardizedInputURL
+    }
+
+    private func materializeConcatenatedFASTQ(
+        from inputURLs: [URL],
+        tempDirectory: URL
+    ) throws -> URL {
+        guard let firstInputURL = inputURLs.first else {
+            throw ExtractionError.noSourceFASTQ
+        }
+
+        let fileExtension: String
+        if firstInputURL.pathExtension.lowercased() == "gz" {
+            let baseExtension = firstInputURL.deletingPathExtension().pathExtension
+            fileExtension = baseExtension.isEmpty ? "fastq.gz" : "\(baseExtension).gz"
+        } else {
+            fileExtension = firstInputURL.pathExtension.isEmpty ? "fastq" : firstInputURL.pathExtension
+        }
+
+        let outputURL = tempDirectory.appendingPathComponent(
+            FASTQSourceResolver.tempFileName(extension: fileExtension)
+        )
+        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+        let outputHandle = try FileHandle(forWritingTo: outputURL)
+        defer { try? outputHandle.close() }
+
+        for inputURL in inputURLs {
+            let inputHandle = try FileHandle(forReadingFrom: inputURL)
+            defer { try? inputHandle.close() }
+
+            while true {
+                let chunk = inputHandle.readData(ofLength: 1_048_576)
+                if chunk.isEmpty { break }
+                outputHandle.write(chunk)
+            }
+        }
+
+        return outputURL
     }
 }
 
@@ -775,12 +995,170 @@ private struct LungfishCLIProcessRunner: FASTQOperationCommandRunning {
 private struct IdentityFASTQOperationImporter: FASTQOperationDirectImporting {
     func importOutputs(
         at outputURLs: [URL],
-        for request: FASTQOperationLaunchRequest,
+        forResolvedRequest request: FASTQOperationLaunchRequest,
+        originalRequest: FASTQOperationLaunchRequest,
         outputDirectory: URL
     ) async throws -> [URL] {
         _ = request
+        _ = originalRequest
         _ = outputDirectory
         return outputURLs
+    }
+}
+
+struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
+    let destinationDirectory: URL
+
+    func importOutputs(
+        at outputURLs: [URL],
+        forResolvedRequest request: FASTQOperationLaunchRequest,
+        originalRequest: FASTQOperationLaunchRequest,
+        outputDirectory: URL
+    ) async throws -> [URL] {
+        _ = request
+
+        switch originalRequest {
+        case .refreshQCSummary(let inputURLs):
+            guard let reportURL = outputURLs.first else { return inputURLs }
+            try applyQCSummaryReport(from: reportURL, to: inputURLs)
+            return inputURLs.map(selectableSourceURL(for:))
+
+        case .derivative(let derivativeRequest, _, _) where derivativeRequest.isDemultiplexRequest:
+            return [outputDirectory]
+
+        case .derivative:
+            return try importFASTQOutputs(outputURLs, originalRequest: originalRequest)
+
+        default:
+            return outputURLs
+        }
+    }
+
+    private func importFASTQOutputs(
+        _ outputURLs: [URL],
+        originalRequest: FASTQOperationLaunchRequest
+    ) throws -> [URL] {
+        guard !outputURLs.isEmpty else { return [] }
+
+        var importedBundleURLs: [URL] = []
+        for (index, outputURL) in outputURLs.enumerated() {
+            guard FASTQBundle.isFASTQFileURL(outputURL) else {
+                importedBundleURLs.append(outputURL)
+                continue
+            }
+
+            let bundleBaseName = bundleNameStem(
+                for: originalRequest,
+                outputURL: outputURL,
+                index: index
+            )
+            let bundleURL = uniqueBundleURL(named: bundleBaseName)
+            try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+            let bundledFASTQURL = bundleURL.appendingPathComponent(outputURL.lastPathComponent)
+            try FileManager.default.moveItem(at: outputURL, to: bundledFASTQURL)
+            importedBundleURLs.append(bundleURL)
+        }
+
+        return importedBundleURLs
+    }
+
+    private func bundleNameStem(
+        for request: FASTQOperationLaunchRequest,
+        outputURL: URL,
+        index: Int
+    ) -> String {
+        let inputStem = request.inputURLs[safe: index]
+            .map(FASTQOperationExecutionService.sanitizedStem(for:))
+            ?? FASTQOperationExecutionService.sanitizedStem(for: outputURL)
+        let operationStem = request.outputNameStem
+        return "\(inputStem)-\(operationStem)"
+    }
+
+    private func uniqueBundleURL(named baseName: String) -> URL {
+        let ext = FASTQBundle.directoryExtension
+        let initialURL = destinationDirectory.appendingPathComponent("\(baseName).\(ext)", isDirectory: true)
+        guard !FileManager.default.fileExists(atPath: initialURL.path) else {
+            var counter = 2
+            var candidate = destinationDirectory.appendingPathComponent("\(baseName)-\(counter).\(ext)", isDirectory: true)
+            while FileManager.default.fileExists(atPath: candidate.path) {
+                counter += 1
+                candidate = destinationDirectory.appendingPathComponent("\(baseName)-\(counter).\(ext)", isDirectory: true)
+            }
+            return candidate
+        }
+
+        return initialURL
+    }
+
+    private func applyQCSummaryReport(from reportURL: URL, to inputURLs: [URL]) throws {
+        let data = try Data(contentsOf: reportURL)
+        let report = try JSONDecoder().decode(FASTQQCSummaryReport.self, from: data)
+
+        for (entry, inputURL) in zip(report.inputs, inputURLs) {
+            if FASTQBundle.isDerivedBundle(inputURL),
+               let manifest = FASTQBundle.loadDerivedManifest(in: inputURL) {
+                let updatedManifest = FASTQDerivedBundleManifest(
+                    id: manifest.id,
+                    name: manifest.name,
+                    createdAt: manifest.createdAt,
+                    parentBundleRelativePath: manifest.parentBundleRelativePath,
+                    rootBundleRelativePath: manifest.rootBundleRelativePath,
+                    rootFASTQFilename: manifest.rootFASTQFilename,
+                    payload: manifest.payload,
+                    lineage: manifest.lineage,
+                    operation: manifest.operation,
+                    cachedStatistics: entry.statistics,
+                    pairingMode: manifest.pairingMode,
+                    readClassification: manifest.readClassification,
+                    batchOperationID: manifest.batchOperationID,
+                    sequenceFormat: manifest.sequenceFormat,
+                    provenance: manifest.provenance,
+                    payloadChecksums: manifest.payloadChecksums
+                )
+                try FASTQBundle.saveDerivedManifest(updatedManifest, in: inputURL)
+                continue
+            }
+
+            guard let fastqURL = writableFASTQURL(for: inputURL) else { continue }
+            var metadata = FASTQMetadataStore.load(for: fastqURL) ?? PersistedFASTQMetadata()
+            metadata.computedStatistics = entry.statistics
+            FASTQMetadataStore.save(metadata, for: fastqURL)
+        }
+    }
+
+    private func writableFASTQURL(for inputURL: URL) -> URL? {
+        if FASTQBundle.isFASTQFileURL(inputURL) {
+            return inputURL
+        }
+        if FASTQBundle.isBundleURL(inputURL) {
+            return FASTQBundle.resolvePrimaryFASTQURL(for: inputURL)
+        }
+        let parentBundleURL = inputURL.deletingLastPathComponent()
+        if FASTQBundle.isBundleURL(parentBundleURL) {
+            return FASTQBundle.resolvePrimaryFASTQURL(for: parentBundleURL)
+        }
+        return nil
+    }
+
+    private func selectableSourceURL(for inputURL: URL) -> URL {
+        if FASTQBundle.isBundleURL(inputURL) {
+            return inputURL
+        }
+        let parentBundleURL = inputURL.deletingLastPathComponent()
+        if FASTQBundle.isBundleURL(parentBundleURL) {
+            return parentBundleURL
+        }
+        return inputURL
+    }
+}
+
+private struct FASTQQCSummaryReport: Decodable {
+    let inputs: [Entry]
+
+    struct Entry: Decodable {
+        let input: String
+        let statistics: FASTQDatasetStatistics
     }
 }
 
@@ -877,5 +1255,51 @@ private extension FASTQOperationLaunchRequest {
         case .classify(_, _, let databaseName):
             return ["database": databaseName]
         }
+    }
+
+    var isDemultiplexRequest: Bool {
+        if case .derivative(let request, _, _) = self {
+            return request.isDemultiplexRequest
+        }
+        return false
+    }
+
+    var outputNameStem: String {
+        switch self {
+        case .refreshQCSummary:
+            return "qc-summary"
+        case .derivative(let request, _, _):
+            return request.operationKindString
+        case .map:
+            return "mapping"
+        case .assemble:
+            return "assembly"
+        case .classify(let tool, _, _):
+            return tool.title.lowercased()
+        }
+    }
+
+    var requiresSingleResolvedFASTQPerInput: Bool {
+        switch self {
+        case .refreshQCSummary, .derivative:
+            return true
+        case .map, .assemble, .classify:
+            return false
+        }
+    }
+}
+
+private extension FASTQDerivativeRequest {
+    var isDemultiplexRequest: Bool {
+        if case .demultiplex = self {
+            return true
+        }
+        return false
+    }
+}
+
+private extension Collection {
+    subscript(safe index: Index) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }
