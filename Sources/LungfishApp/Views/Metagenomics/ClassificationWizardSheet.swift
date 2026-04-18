@@ -118,10 +118,23 @@ struct ClassificationWizardSheet: View {
         let registry = MetagenomicsDatabaseRegistry.shared
         let allDbs = (try? await registry.availableDatabases()) ?? []
         let kraken2Dbs = allDbs.filter { $0.tool == "kraken2" && $0.isDownloaded }
+        let selection = Self.databaseSelectionAfterRefresh(
+            currentSelection: selectedDatabaseName,
+            databases: kraken2Dbs
+        )
         installedDatabases = kraken2Dbs
-        if selectedDatabaseName.isEmpty, let first = kraken2Dbs.first(where: { $0.status == .ready }) {
-            selectedDatabaseName = first.name
+        selectedDatabaseName = selection
+    }
+
+    static func databaseSelectionAfterRefresh(
+        currentSelection: String,
+        databases: [MetagenomicsDatabaseInfo]
+    ) -> String {
+        let readyDatabases = databases.filter { $0.status == .ready }
+        if readyDatabases.contains(where: { $0.name == currentSelection }) {
+            return currentSelection
         }
+        return readyDatabases.first?.name ?? ""
     }
 
     // MARK: - Computed Properties
@@ -207,6 +220,9 @@ struct ClassificationWizardSheet: View {
         .background(Color.lungfishCanvasBackground)
         .tint(.lungfishCreamsicleFallback)
         .task { await loadDatabases() }
+        .onReceive(NotificationCenter.default.publisher(for: .managedResourcesDidChange)) { _ in
+            Task { await loadDatabases() }
+        }
         .onAppear {
             onRunnerAvailabilityChange?(canRun)
         }

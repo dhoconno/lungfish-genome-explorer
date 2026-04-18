@@ -667,26 +667,17 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             toolVersion: nil
         )
 
-        var uniqueByAssembly: [String: Int] = [:]
-        var uniqueBySampleAssembly: [String: Int] = [:]
-        var uniqueBySampleContig: [String: Int] = [:]
-        for row in allBatchRows where selectedSet.contains(row.sample) {
-            uniqueByAssembly[row.assembly] = row.uniqueReads
-            uniqueBySampleAssembly["\(row.sample)\t\(row.assembly)"] = row.uniqueReads
-        }
-        for detection in detections {
-            let key = "\(detection.sampleId)\t\(detection.assembly)"
-            if let unique = uniqueBySampleAssembly[key] {
-                uniqueBySampleContig["\(detection.sampleId)\t\(detection.accession)"] = unique
-            }
-        }
+        let uniqueReadMaps = Self.buildBatchUniqueReadMaps(
+            rows: allBatchRows,
+            selectedSamples: selectedSet
+        )
 
         esVirituResult = result
         detectionTableView.result = result
         detectionTableView.coverageWindowsByAccession = coverageWindowsByAccession
-        detectionTableView.uniqueReadCountsByAssembly = uniqueByAssembly
-        detectionTableView.uniqueReadCountsBySampleAssembly = uniqueBySampleAssembly
-        detectionTableView.uniqueReadCountsBySampleContig = uniqueBySampleContig
+        detectionTableView.uniqueReadCountsByAssembly = uniqueReadMaps.byAssembly
+        detectionTableView.uniqueReadCountsBySampleAssembly = uniqueReadMaps.bySampleAssembly
+        detectionTableView.uniqueReadCountsBySampleContig = uniqueReadMaps.bySampleContig
         detectionTableView.metadataColumns.isMultiSampleMode = sampleIds.count > 1
         detectionTableView.metadataColumns.update(
             store: sampleMetadataStore,
@@ -706,6 +697,31 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         actionBar.updateInfoText("Select a virus to view details")
         actionBar.setBlastEnabled(false, reason: "Select a row to use BLAST Verify")
         actionBar.setExtractEnabled(false)
+    }
+
+    struct BatchUniqueReadMaps {
+        let byAssembly: [String: Int]
+        let bySampleAssembly: [String: Int]
+        let bySampleContig: [String: Int]
+    }
+
+    static func buildBatchUniqueReadMaps(
+        rows: [BatchEsVirituRow],
+        selectedSamples: Set<String>
+    ) -> BatchUniqueReadMaps {
+        var byAssembly: [String: Int] = [:]
+        var bySampleAssembly: [String: Int] = [:]
+
+        for row in rows where selectedSamples.contains(row.sample) {
+            byAssembly[row.assembly] = row.uniqueReads
+            bySampleAssembly["\(row.sample)\t\(row.assembly)"] = row.uniqueReads
+        }
+
+        return BatchUniqueReadMaps(
+            byAssembly: byAssembly,
+            bySampleAssembly: bySampleAssembly,
+            bySampleContig: [:]
+        )
     }
 
     @objc private func handleBatchSampleSelectionChanged() {

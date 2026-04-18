@@ -128,6 +128,7 @@ final class PluginManagerViewModel {
     // MARK: - Packs Tab State
 
     private let packStatusProvider: any PluginPackStatusProviding
+    private let notificationCenter: NotificationCenter
 
     /// Current status for the required setup pack.
     var requiredSetupPack: PluginPackStatus?
@@ -216,6 +217,7 @@ final class PluginManagerViewModel {
         automaticallyRefresh: Bool = true
     ) {
         self.packStatusProvider = packStatusProvider
+        self.notificationCenter = notificationCenter
         refreshStorageLocationState()
         self.storageLocationChangeObserver = StorageLocationChangeObserver(
             notificationCenter: notificationCenter
@@ -302,6 +304,7 @@ final class PluginManagerViewModel {
         packProgressMessage[pack.id] = reinstall ? "Reinstalling..." : "Installing..."
 
         Task {
+            var didSucceed = false
             defer {
                 installingPacks.remove(pack.id)
                 packProgressMessage.removeValue(forKey: pack.id)
@@ -315,11 +318,15 @@ final class PluginManagerViewModel {
                         }
                     }
                 }
+                didSucceed = true
             } catch {
                 handleError(error, context: "\(reinstall ? "reinstalling" : "installing") '\(pack.name)'")
             }
             refreshInstalled()
             refreshPackStatuses()
+            if didSucceed {
+                postManagedResourcesDidChange()
+            }
         }
     }
 
@@ -348,6 +355,7 @@ final class PluginManagerViewModel {
             await packStatusProvider.invalidateVisibleStatusesCache()
             refreshInstalled()
             refreshPackStatuses()
+            postManagedResourcesDidChange()
         }
     }
 
@@ -411,6 +419,7 @@ final class PluginManagerViewModel {
                 downloadMessage.removeValue(forKey: name)
                 logger.info("Database '\(name, privacy: .public)' downloaded successfully")
                 refreshDatabases()
+                postManagedResourcesDidChange()
             } catch is CancellationError {
                 downloadProgress.removeValue(forKey: name)
                 downloadMessage.removeValue(forKey: name)
@@ -484,6 +493,7 @@ final class PluginManagerViewModel {
                 logger.info("Removed database '\(name, privacy: .public)' from registry")
 
                 refreshDatabases()
+                postManagedResourcesDidChange()
             } catch {
                 handleError(error, context: "removing database '\(name)'")
                 refreshDatabases()
@@ -504,6 +514,10 @@ final class PluginManagerViewModel {
         case .malformedBootstrap:
             "Using default shared storage (config needs attention)"
         }
+    }
+
+    private func postManagedResourcesDidChange() {
+        notificationCenter.post(name: .managedResourcesDidChange, object: nil)
     }
 
     private func handleError(_ error: Error, context: String) {

@@ -212,4 +212,52 @@ final class PluginPackVisibilityTests: XCTestCase {
         XCTAssertEqual(invalidationCount, 1)
         XCTAssertEqual(viewModel.optionalPackStatuses.first?.state, .needsInstall)
     }
+
+    func testRemovePackPostsManagedResourcesDidChange() async {
+        let center = NotificationCenter()
+        let pack = PluginPack(
+            id: "notify-pack",
+            name: "Notify Pack",
+            description: "Test pack for notification coverage",
+            sfSymbol: "shippingbox",
+            packages: [],
+            category: "Testing"
+        )
+        let installed = PluginPackStatus(
+            pack: pack,
+            state: .ready,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+        let removed = PluginPackStatus(
+            pack: pack,
+            state: .needsInstall,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+        let provider = CacheAwarePluginManagerPackStatusProvider(
+            pack: pack,
+            installedStatuses: [installed],
+            removedStatuses: [removed]
+        )
+        let viewModel = PluginManagerViewModel(
+            packStatusProvider: provider,
+            notificationCenter: center
+        )
+
+        await viewModel.loadPackStatuses()
+
+        let exp = expectation(description: "managed resources change posted")
+        let token = center.addObserver(
+            forName: .managedResourcesDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in
+            exp.fulfill()
+        }
+        defer { center.removeObserver(token) }
+
+        viewModel.removePack(pack)
+        await fulfillment(of: [exp], timeout: 1.0)
+    }
 }

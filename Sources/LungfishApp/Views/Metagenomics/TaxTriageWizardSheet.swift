@@ -119,6 +119,9 @@ struct TaxTriageWizardSheet: View {
             checkPrerequisites()
             onRunnerAvailabilityChange?(canRun)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .managedResourcesDidChange)) { _ in
+            checkPrerequisites()
+        }
         .onChange(of: canRun) { _, newValue in
             onRunnerAvailabilityChange?(newValue)
         }
@@ -516,9 +519,10 @@ struct TaxTriageWizardSheet: View {
             let allDbs = (try? await registry.availableDatabases()) ?? []
             let kraken2Dbs = allDbs.filter { $0.tool == "kraken2" && $0.isDownloaded }
             installedDatabases = kraken2Dbs
-            if selectedDatabaseName.isEmpty, let first = kraken2Dbs.first {
-                selectedDatabaseName = first.name
-            }
+            selectedDatabaseName = ClassificationWizardSheet.databaseSelectionAfterRefresh(
+                currentSelection: selectedDatabaseName,
+                databases: kraken2Dbs
+            )
         }
     }
 

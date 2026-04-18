@@ -180,6 +180,7 @@ public final class AppSettings: Sendable {
             }
             settingsLogger.info("Database storage location set to: \(newValue.path, privacy: .public)")
             NotificationCenter.default.post(name: .databaseStorageLocationChanged, object: nil)
+            NotificationCenter.default.post(name: .managedResourcesDidChange, object: nil)
         }
     }
 
@@ -557,6 +558,7 @@ public final class AppSettings: Sendable {
         }
         UserDefaults.standard.removeObject(forKey: Self.databaseStorageLocationKey)
         NotificationCenter.default.post(name: .databaseStorageLocationChanged, object: nil)
+        NotificationCenter.default.post(name: .managedResourcesDidChange, object: nil)
     }
 
     // MARK: - Color Helpers

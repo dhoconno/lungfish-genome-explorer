@@ -370,6 +370,15 @@ final class DatabasesTabTests: XCTestCase {
         XCTAssertEqual(SettingsNavigationState.shared.selectedTab, .storage)
     }
 
+    func testDatabaseStorageLocationChangePostsManagedResourcesDidChange() {
+        let originalURL = AppSettings.shared.databaseStorageURL
+        defer { AppSettings.shared.databaseStorageURL = originalURL }
+
+        let exp = expectation(forNotification: .managedResourcesDidChange, object: nil)
+        AppSettings.shared.databaseStorageURL = tempDir.appendingPathComponent("db-storage-change")
+        wait(for: [exp], timeout: 1.0)
+    }
+
     // MARK: - Database Collection Tests
 
     /// Verifies that all DatabaseCollection cases have display names.

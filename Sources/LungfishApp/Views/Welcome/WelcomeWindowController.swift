@@ -147,8 +147,12 @@ final class WelcomeViewModel: ObservableObject {
 
     let recentProjects = RecentProjectsManager.shared
     private let statusProvider: any PluginPackStatusProviding
+<<<<<<< HEAD
     private let storageCoordinator: ManagedStorageCoordinator
     private let storageConfigStore: ManagedStorageConfigStore
+=======
+    private let notificationCenter: NotificationCenter
+>>>>>>> cc9a216b (fix: refresh metagenomics resource state in place)
 
     var onCreateProject: ((URL) -> Void)?
     var onOpenProject: ((URL) -> Void)?
@@ -158,12 +162,26 @@ final class WelcomeViewModel: ObservableObject {
     init(
         statusProvider: any PluginPackStatusProviding = PluginPackStatusService.shared,
         storageCoordinator: ManagedStorageCoordinator? = nil,
-        storageConfigStore: ManagedStorageConfigStore? = nil
+        storageConfigStore: ManagedStorageConfigStore? = nil,
+        notificationCenter: NotificationCenter = .default
     ) {
         let resolvedStorageConfigStore = storageConfigStore ?? ManagedStorageConfigStore.shared
         self.statusProvider = statusProvider
         self.storageConfigStore = resolvedStorageConfigStore
         self.storageCoordinator = storageCoordinator ?? ManagedStorageCoordinator(configStore: resolvedStorageConfigStore)
+        self.notificationCenter = notificationCenter
+        notificationCenter.addObserver(
+            self,
+            selector: #selector(handleManagedResourcesDidChange(_:)),
+            name: .managedResourcesDidChange,
+            object: nil
+        )
+    }
+
+    @objc private func handleManagedResourcesDidChange(_ notification: Notification) {
+        Task { @MainActor in
+            await refreshSetup()
+        }
     }
 
     var canLaunch: Bool {

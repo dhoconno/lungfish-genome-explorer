@@ -254,6 +254,12 @@ extension Notification.Name {
     /// Observers (e.g. ``MetagenomicsDatabaseRegistry``) should re-read the
     /// storage path from UserDefaults and update their base directory accordingly.
     public static let databaseStorageLocationChanged = Notification.Name("databaseStorageLocationChanged")
+
+    /// Posted when managed tools or databases change availability.
+    ///
+    /// Observers should re-read any tool/database readiness state they cache,
+    /// including setup surfaces and open metagenomics configuration sheets.
+    public static let managedResourcesDidChange = Notification.Name("managedResourcesDidChange")
 }
 
 // MARK: - Notification UserInfo Keys

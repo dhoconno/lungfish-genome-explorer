@@ -156,6 +156,9 @@ struct EsVirituWizardSheet: View {
             checkDatabaseStatus()
             onRunnerAvailabilityChange?(canRun)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .managedResourcesDidChange)) { _ in
+            checkDatabaseStatus()
+        }
         .onChange(of: canRun) { _, newValue in
             onRunnerAvailabilityChange?(newValue)
         }
@@ -444,6 +447,9 @@ struct EsVirituWizardSheet: View {
                     let gb = Double(info.sizeBytes) / 1_073_741_824
                     databaseSizeText = String(format: "%.1f GB", gb)
                 }
+            } else {
+                databasePath = nil
+                databaseSizeText = ""
             }
         }
     }

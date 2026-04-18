@@ -1612,6 +1612,33 @@ final class TaxTriageBatchManifestTests: XCTestCase {
 
 }
 
+@MainActor
+final class EsVirituUniqueReadMapTests: XCTestCase {
+    func testBuildBatchUniqueReadMapsDoesNotSeedPerContigValuesFromAssemblyTotals() {
+        let rows = [
+            BatchEsVirituRow(
+                sample: "SRR14420360",
+                virusName: "Segmented virus",
+                family: "Viridae",
+                assembly: "ASM1",
+                readCount: 100,
+                uniqueReads: 80,
+                rpkmf: 1.0,
+                coverageBreadth: 0.5,
+                coverageDepth: 2.0
+            ),
+        ]
+
+        let maps = EsVirituResultViewController.buildBatchUniqueReadMaps(
+            rows: rows,
+            selectedSamples: Set(["SRR14420360"])
+        )
+
+        XCTAssertEqual(maps.bySampleAssembly["SRR14420360\tASM1"], 80)
+        XCTAssertTrue(maps.bySampleContig.isEmpty)
+    }
+}
+
 // MARK: - EsVirituBatchAggregatedManifest Tests
 
 final class EsVirituBatchAggregatedManifestTests: XCTestCase {

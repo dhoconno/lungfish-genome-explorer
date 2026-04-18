@@ -318,6 +318,43 @@ final class WelcomeSetupTests: XCTestCase {
         XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["metagenomics"])
     }
 
+    func testManagedResourcesChangeRefreshesSetupInPlace() async {
+        let center = NotificationCenter()
+        let ready = PluginPackStatus(
+            pack: .requiredSetupPack,
+            state: .ready,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+        let missing = PluginPackStatus(
+            pack: .requiredSetupPack,
+            state: .needsInstall,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+        let provider = StatefulWelcomePackStatusProvider(
+            initialStatuses: [missing],
+            loadingStatuses: [ready]
+        )
+        let viewModel = WelcomeViewModel(
+            statusProvider: provider,
+            notificationCenter: center
+        )
+
+        await viewModel.refreshSetup()
+        XCTAssertEqual(viewModel.requiredSetupStatus?.state, .needsInstall)
+
+        center.post(name: .managedResourcesDidChange, object: nil)
+        for _ in 0..<10 where !viewModel.isRefreshingSetup {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(viewModel.isRefreshingSetup)
+        provider.release()
+        try? await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
+    }
+
     private func repositoryRoot() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
