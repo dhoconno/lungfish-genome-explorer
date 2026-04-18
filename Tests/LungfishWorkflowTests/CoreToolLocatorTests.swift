@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishWorkflow
+import LungfishCore
 
 final class CoreToolLocatorTests: XCTestCase {
 
@@ -52,5 +53,28 @@ final class CoreToolLocatorTests: XCTestCase {
         )
 
         XCTAssertEqual(resolved.path, fallbackJava.path)
+    }
+
+    func testManagedExecutableURLUsesConfiguredManagedStorageRoot() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "core-tool-home-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let configuredRoot = home.appendingPathComponent("managed-storage", isDirectory: true)
+        let store = ManagedStorageConfigStore(homeDirectory: home)
+        try store.setActiveRoot(configuredRoot)
+
+        let url = CoreToolLocator.executableURL(
+            environment: "bbtools",
+            executableName: "clumpify.sh",
+            homeDirectory: home
+        )
+
+        XCTAssertEqual(
+            url.standardizedFileURL.path,
+            configuredRoot
+                .appendingPathComponent("conda/envs/bbtools/bin/clumpify.sh")
+                .standardizedFileURL.path
+        )
     }
 }

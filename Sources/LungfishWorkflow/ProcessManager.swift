@@ -612,10 +612,10 @@ extension ProcessManager {
             }
         }
 
-        // Check Lungfish conda environments (~/.lungfish/conda/envs/*/bin/)
-        // Tools installed via the metagenomics pack (e.g., nextflow) live here.
-        let condaEnvsDir = fm.homeDirectoryForCurrentUser
-            .appendingPathComponent(".lungfish/conda/envs")
+        let condaEnvsDir = ManagedStorageConfigStore()
+            .currentLocation()
+            .condaRootURL
+            .appendingPathComponent("envs", isDirectory: true)
         if let envDirs = try? fm.contentsOfDirectory(
             at: condaEnvsDir,
             includingPropertiesForKeys: nil,

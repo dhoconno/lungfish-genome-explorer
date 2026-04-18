@@ -139,12 +139,15 @@ public actor CondaManager {
 
     typealias BundledMicromambaProvider = @Sendable () -> URL?
     typealias BundledMicromambaVersionProvider = @Sendable () -> String?
+    typealias RootPrefixProvider = @Sendable () -> URL
 
     /// Shared singleton instance.
     public static let shared = CondaManager()
 
     /// Root directory for all conda data.
-    public let rootPrefix: URL
+    public nonisolated var rootPrefix: URL {
+        rootPrefixProvider()
+    }
 
     /// Path to the micromamba binary.
     public var micromambaPath: URL {
@@ -158,16 +161,15 @@ public actor CondaManager {
         rootPrefix.appendingPathComponent("envs/\(name)", isDirectory: true)
     }
 
+    private let rootPrefixProvider: RootPrefixProvider
     private let bundledMicromambaProvider: BundledMicromambaProvider
     private let bundledMicromambaVersionProvider: BundledMicromambaVersionProvider
 
     private init() {
-        // Use ~/.lungfish/conda instead of ~/Library/Application Support/Lungfish/conda
-        // because many bioinformatics tools break on paths containing spaces.
-        // The "Application Support" space in the standard macOS location causes
-        // samtools, bcftools, and other tools that use internal shell pipes to fail.
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        self.rootPrefix = home.appendingPathComponent(".lungfish/conda")
+        let storageConfigStore = ManagedStorageConfigStore()
+        self.rootPrefixProvider = {
+            storageConfigStore.currentLocation().condaRootURL
+        }
         self.bundledMicromambaProvider = Self.defaultBundledMicromambaURL
         self.bundledMicromambaVersionProvider = Self.defaultBundledMicromambaVersion
     }
@@ -177,7 +179,20 @@ public actor CondaManager {
         bundledMicromambaProvider: @escaping BundledMicromambaProvider,
         bundledMicromambaVersionProvider: @escaping BundledMicromambaVersionProvider
     ) {
-        self.rootPrefix = rootPrefix
+        let resolvedRootPrefix = rootPrefix.standardizedFileURL
+        self.rootPrefixProvider = { resolvedRootPrefix }
+        self.bundledMicromambaProvider = bundledMicromambaProvider
+        self.bundledMicromambaVersionProvider = bundledMicromambaVersionProvider
+    }
+
+    init(
+        storageConfigStore: ManagedStorageConfigStore,
+        bundledMicromambaProvider: @escaping BundledMicromambaProvider,
+        bundledMicromambaVersionProvider: @escaping BundledMicromambaVersionProvider
+    ) {
+        self.rootPrefixProvider = {
+            storageConfigStore.currentLocation().condaRootURL
+        }
         self.bundledMicromambaProvider = bundledMicromambaProvider
         self.bundledMicromambaVersionProvider = bundledMicromambaVersionProvider
     }

@@ -25,12 +25,60 @@ final class SRAServicePathTests: XCTestCase {
         )
     }
 
+    func testManagedToolkitExecutableURLUsesConfiguredManagedStorageRoot() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "sra-home-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let configuredRoot = home.appendingPathComponent("shared-storage", isDirectory: true)
+        let store = ManagedStorageConfigStore(homeDirectory: home)
+        try store.setActiveRoot(configuredRoot)
+
+        let url = SRAService.managedExecutableURL(
+            executableName: "prefetch",
+            homeDirectory: home
+        )
+
+        XCTAssertEqual(
+            url.standardizedFileURL.path,
+            configuredRoot
+                .appendingPathComponent("conda/envs/sra-tools/bin/prefetch")
+                .standardizedFileURL.path
+        )
+    }
+
     func testToolkitAvailabilityUsesManagedLayout() async throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent(
             "sra-home-\(UUID().uuidString)",
             isDirectory: true
         )
         let binDir = home.appendingPathComponent(".lungfish/conda/envs/sra-tools/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try makeExecutableScript(
+            at: binDir.appendingPathComponent("prefetch"),
+            body: "#!/bin/sh\nexit 0\n"
+        )
+        try makeExecutableScript(
+            at: binDir.appendingPathComponent("fasterq-dump"),
+            body: "#!/bin/sh\nexit 0\n"
+        )
+
+        let service = SRAService(homeDirectoryProvider: { home })
+        let available = await service.isSRAToolkitAvailable
+
+        XCTAssertTrue(available)
+    }
+
+    func testToolkitAvailabilityUsesConfiguredManagedStorageRoot() async throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "sra-home-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let configuredRoot = home.appendingPathComponent("shared-storage", isDirectory: true)
+        let store = ManagedStorageConfigStore(homeDirectory: home)
+        try store.setActiveRoot(configuredRoot)
+
+        let binDir = configuredRoot.appendingPathComponent("conda/envs/sra-tools/bin", isDirectory: true)
         try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
         try makeExecutableScript(
             at: binDir.appendingPathComponent("prefetch"),

@@ -137,15 +137,7 @@ public actor MetagenomicsDatabaseRegistry {
     /// The directory and manifest file are created on first access if they do
     /// not already exist.
     public init() {
-        let base: URL
-        if let customPath = UserDefaults.standard.string(forKey: Self.storageLocationKey),
-           !customPath.isEmpty {
-            base = URL(fileURLWithPath: customPath, isDirectory: true)
-            logger.info("Using custom database storage: \(customPath, privacy: .public)")
-        } else {
-            let home = FileManager.default.homeDirectoryForCurrentUser
-            base = home.appendingPathComponent(".lungfish/databases")
-        }
+        let base = ManagedStorageConfigStore().currentLocation().databaseRootURL
         self.databasesBaseURL = base
         self.manifestURL = base.appendingPathComponent("metagenomics-db-registry.json")
     }

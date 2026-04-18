@@ -146,23 +146,24 @@ public actor DatabaseRegistry {
 
     /// User-managed database directory base.
     private let userDatabasesRootProvider: @Sendable () -> URL?
-    private static let databaseStorageLocationKey = "DatabaseStorageLocation"
 
     private init() {
+        let storageConfigStore = ManagedStorageConfigStore()
         self.userDatabasesRootProvider = {
-            if let customPath = UserDefaults.standard.string(forKey: Self.databaseStorageLocationKey),
-               !customPath.isEmpty
-            {
-                return URL(fileURLWithPath: customPath, isDirectory: true)
-            }
-            return FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".lungfish/databases")
+            storageConfigStore.currentLocation().databaseRootURL
         }
     }
 
     init(bundledDatabasesRoot: URL?, userDatabasesRoot: URL?) {
         self.bundledDatabasesRoot = bundledDatabasesRoot
         self.userDatabasesRootProvider = { userDatabasesRoot }
+    }
+
+    init(bundledDatabasesRoot: URL?, storageConfigStore: ManagedStorageConfigStore) {
+        self.bundledDatabasesRoot = bundledDatabasesRoot
+        self.userDatabasesRootProvider = {
+            storageConfigStore.currentLocation().databaseRootURL
+        }
     }
 
     // MARK: - Public API

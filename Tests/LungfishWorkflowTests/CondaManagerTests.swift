@@ -465,7 +465,7 @@ final class CondaManagerTests: XCTestCase {
 
     func testCondaManagerRootPrefix() async {
         let manager = CondaManager.shared
-        let rootPrefix = await manager.rootPrefix
+        let rootPrefix = manager.rootPrefix
 
         XCTAssertTrue(rootPrefix.path.contains(".lungfish/conda"),
                       "Root prefix should use .lungfish/conda (no spaces)")
@@ -485,6 +485,33 @@ final class CondaManagerTests: XCTestCase {
         let channels = await manager.defaultChannels
 
         XCTAssertEqual(channels, ["conda-forge", "bioconda"])
+    }
+
+    func testCondaManagerUsesConfiguredManagedStorageRoot() async throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "conda-manager-home-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let configuredRoot = home.appendingPathComponent("custom-storage", isDirectory: true)
+        let store = ManagedStorageConfigStore(homeDirectory: home)
+        try store.setActiveRoot(configuredRoot)
+
+        let manager = CondaManager(
+            storageConfigStore: store,
+            bundledMicromambaProvider: { nil },
+            bundledMicromambaVersionProvider: { nil }
+        )
+
+        let rootPrefix = manager.rootPrefix
+        let environmentURL = await manager.environmentURL(named: "sra-tools")
+
+        XCTAssertEqual(rootPrefix.standardizedFileURL.path, configuredRoot.appendingPathComponent("conda").standardizedFileURL.path)
+        XCTAssertEqual(
+            environmentURL.standardizedFileURL.path,
+            configuredRoot
+                .appendingPathComponent("conda/envs/sra-tools", isDirectory: true)
+                .standardizedFileURL.path
+        )
     }
 
     func testNextflowCondaConfig() async {

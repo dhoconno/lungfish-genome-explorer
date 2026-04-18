@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 public enum CoreToolLocator {
     public static func managedExecutableURL(
@@ -39,9 +40,7 @@ public enum CoreToolLocator {
     }
 
     public static func condaRoot(homeDirectory: URL) -> URL {
-        homeDirectory
-            .appendingPathComponent(".lungfish", isDirectory: true)
-            .appendingPathComponent("conda", isDirectory: true)
+        ManagedStorageConfigStore(homeDirectory: homeDirectory).currentLocation().condaRootURL
     }
 
     public static func environmentURL(

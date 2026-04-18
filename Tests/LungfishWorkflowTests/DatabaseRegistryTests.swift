@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishWorkflow
+import LungfishCore
 
 final class DatabaseRegistryTests: XCTestCase {
 
@@ -97,6 +98,28 @@ final class DatabaseRegistryTests: XCTestCase {
         let resolved = await registry.effectiveDatabasePath(for: "deacon-panhuman")
 
         XCTAssertNil(resolved)
+    }
+
+    func testEffectiveDatabasePathUsesConfiguredManagedStorageRoot() async throws {
+        let home = tempDir.appendingPathComponent("home", isDirectory: true)
+        let configuredRoot = home.appendingPathComponent("shared-storage", isDirectory: true)
+        let store = ManagedStorageConfigStore(homeDirectory: home)
+        try store.setActiveRoot(configuredRoot)
+
+        let bundledRoot = try makeBundledDatabasesRoot()
+        let installed = try makeInstalledHumanScrubber(
+            at: configuredRoot.appendingPathComponent("databases", isDirectory: true),
+            filename: "human_filter.db.custom-root",
+            contents: Data(repeating: 0x55, count: 32)
+        )
+        let registry = DatabaseRegistry(
+            bundledDatabasesRoot: bundledRoot,
+            storageConfigStore: store
+        )
+
+        let resolved = await registry.effectiveDatabasePath(for: "human-scrubber")
+
+        XCTAssertEqual(resolved?.standardizedFileURL.path, installed.standardizedFileURL.path)
     }
 
     private func makeBundledDatabasesRoot() throws -> URL {

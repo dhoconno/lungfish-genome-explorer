@@ -395,9 +395,9 @@ public actor SRAService {
         executableName: String,
         homeDirectory: URL
     ) -> URL {
-        homeDirectory
-            .appendingPathComponent(".lungfish", isDirectory: true)
-            .appendingPathComponent("conda", isDirectory: true)
+        ManagedStorageConfigStore(homeDirectory: homeDirectory)
+            .currentLocation()
+            .condaRootURL
             .appendingPathComponent("envs", isDirectory: true)
             .appendingPathComponent("sra-tools", isDirectory: true)
             .appendingPathComponent("bin", isDirectory: true)
