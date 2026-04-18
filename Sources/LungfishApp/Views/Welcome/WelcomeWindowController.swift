@@ -144,6 +144,9 @@ final class WelcomeViewModel: ObservableObject {
     @Published var showingStorageChooser = false
     @Published var pendingStorageSelection: URL?
     @Published var storageValidationResult: ManagedStorageLocation.ValidationResult = .valid
+    @Published private(set) var isApplyingStorageSelection = false
+    @Published private(set) var storageOperationMessage: String?
+    @Published var storageOperationErrorMessage: String?
 
     let recentProjects = RecentProjectsManager.shared
     private let statusProvider: any PluginPackStatusProviding
@@ -194,7 +197,7 @@ final class WelcomeViewModel: ObservableObject {
     }
 
     var isStorageChooserEnabled: Bool {
-        !isInstallingRequiredSetup && !isRefreshingSetup
+        !isInstallingRequiredSetup && !isRefreshingSetup && !isApplyingStorageSelection
     }
 
     var canConfirmStorageSelection: Bool {
@@ -221,6 +224,19 @@ final class WelcomeViewModel: ObservableObject {
         case .invalid(let error):
             return error.errorDescription
         }
+    }
+
+    private var pendingConfirmedStorageSelection: URL? {
+        guard isStorageChooserEnabled else {
+            return nil
+        }
+        guard case .valid = storageValidationResult, let selection = pendingStorageSelection else {
+            return nil
+        }
+        guard selection != currentStorageRootURL.resolvingSymlinksInPath().standardizedFileURL else {
+            return nil
+        }
+        return selection
     }
 
     func refreshSetup() async {
@@ -280,6 +296,8 @@ final class WelcomeViewModel: ObservableObject {
         guard isStorageChooserEnabled else { return }
         pendingStorageSelection = nil
         storageValidationResult = .valid
+        storageOperationMessage = nil
+        storageOperationErrorMessage = nil
         showingStorageChooser = true
     }
 
@@ -287,31 +305,59 @@ final class WelcomeViewModel: ObservableObject {
         let selection = url.resolvingSymlinksInPath().standardizedFileURL
         pendingStorageSelection = selection
         storageValidationResult = validateStorageSelection(selection)
+        storageOperationErrorMessage = nil
     }
 
     func dismissStorageChooser() {
         showingStorageChooser = false
         pendingStorageSelection = nil
         storageValidationResult = .valid
+        storageOperationMessage = nil
+        storageOperationErrorMessage = nil
+    }
+
+    func applyPendingStorageSelection() async -> Bool {
+        guard let selection = pendingConfirmedStorageSelection else {
+            return false
+        }
+
+        isApplyingStorageSelection = true
+        storageOperationMessage = "Applying the new storage location… Existing managed databases can take a while to copy."
+        storageOperationErrorMessage = nil
+        defer {
+            isApplyingStorageSelection = false
+            storageOperationMessage = nil
+        }
+
+        logger.info("Applying alternate storage location: \(selection.path, privacy: .public)")
+
+        do {
+            try await performStorageLocationChange(to: selection)
+            return true
+        } catch {
+            logger.error("Failed to apply alternate storage location: \(error.localizedDescription, privacy: .public)")
+            storageOperationErrorMessage = error.localizedDescription
+            return false
+        }
     }
 
     func confirmAlternateStorageLocation() async throws {
-        guard isStorageChooserEnabled else {
-            return
-        }
-        guard case .valid = storageValidationResult, let selection = pendingStorageSelection else {
-            return
-        }
-        guard selection != currentStorageRootURL.resolvingSymlinksInPath().standardizedFileURL else {
+        guard let selection = pendingConfirmedStorageSelection else {
             return
         }
 
+        try await performStorageLocationChange(to: selection)
+    }
+
+    private func performStorageLocationChange(to selection: URL) async throws {
         try await storageCoordinator.changeLocation(to: selection)
         await statusProvider.invalidateVisibleStatusesCache()
         NotificationCenter.default.post(name: .databaseStorageLocationChanged, object: nil)
         showingStorageChooser = false
         pendingStorageSelection = nil
         storageValidationResult = .valid
+        storageOperationErrorMessage = nil
+        storageOperationMessage = "Refreshing setup…"
         await refreshSetup()
     }
 }
@@ -1105,6 +1151,23 @@ private struct WelcomeStorageChooserSheet: View {
                         .foregroundStyle(Color.lungfishCreamsicleFallback)
                 }
 
+                if let operationMessage = viewModel.storageOperationMessage {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .controlSize(.small)
+
+                        Text(operationMessage)
+                            .font(.footnote)
+                    }
+                    .foregroundStyle(Color.lungfishWelcomeSecondaryText)
+                }
+
+                if let operationError = viewModel.storageOperationErrorMessage {
+                    Label(operationError, systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(Color.lungfishCreamsicleFallback)
+                }
+
                 Button("Choose Folder…") {
                     onChooseFolder()
                 }
@@ -1119,15 +1182,13 @@ private struct WelcomeStorageChooserSheet: View {
                 Button("Cancel") {
                     dismiss()
                 }
+                .disabled(viewModel.isApplyingStorageSelection)
                 .keyboardShortcut(.cancelAction)
 
                 Button("Use This Location") {
                     Task { @MainActor in
-                        do {
-                            try await viewModel.confirmAlternateStorageLocation()
+                        if await viewModel.applyPendingStorageSelection() {
                             dismiss()
-                        } catch {
-                            viewModel.setupErrorMessage = error.localizedDescription
                         }
                     }
                 }
@@ -1140,6 +1201,7 @@ private struct WelcomeStorageChooserSheet: View {
         .padding(24)
         .frame(minWidth: 560)
         .background(Color.lungfishWelcomeCardBackground)
+        .interactiveDismissDisabled(viewModel.isApplyingStorageSelection)
     }
 }
 

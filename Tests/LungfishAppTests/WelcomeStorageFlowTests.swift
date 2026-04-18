@@ -119,6 +119,34 @@ private final class DelayedRefreshWelcomeStatusProvider: @unchecked Sendable, Pl
     }
 }
 
+private final class DelayedMigrationGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var isReleased = false
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            lock.withLock {
+                if isReleased {
+                    continuation.resume()
+                    return
+                }
+                self.continuation = continuation
+            }
+        }
+    }
+
+    func release() {
+        let continuation = lock.withLock {
+            isReleased = true
+            let continuation = self.continuation
+            self.continuation = nil
+            return continuation
+        }
+        continuation?.resume()
+    }
+}
+
 final class WelcomeStorageFlowTests: XCTestCase {
     private var tempHome: URL!
 
@@ -260,6 +288,81 @@ final class WelcomeStorageFlowTests: XCTestCase {
         XCTAssertEqual(store.currentLocation().rootURL, newRoot.standardizedFileURL)
         XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
         XCTAssertFalse(viewModel.showingStorageChooser)
+    }
+
+    @MainActor
+    func testApplyPendingStorageSelectionReportsInFlightMigrationState() async {
+        let store = ManagedStorageConfigStore(homeDirectory: tempHome)
+        let newRoot = tempHome.appendingPathComponent("ExternalManagedStorage", isDirectory: true)
+        let gate = DelayedMigrationGate()
+        let coordinator = ManagedStorageCoordinator(
+            configStore: store,
+            databaseMigrator: { _, _ in
+                await gate.wait()
+            },
+            toolInstaller: { _ in },
+            verifier: { _ in }
+        )
+        let viewModel = WelcomeViewModel(
+            statusProvider: SequencedWelcomeStorageStatusProvider(sequences: [[requiredStatus(state: .needsInstall)]]),
+            storageCoordinator: coordinator,
+            storageConfigStore: store
+        )
+
+        viewModel.chooseAlternateStorageLocation()
+        viewModel.updatePendingStorageSelection(newRoot)
+
+        let applyTask = Task { await viewModel.applyPendingStorageSelection() }
+        await Task.yield()
+
+        XCTAssertTrue(viewModel.isApplyingStorageSelection)
+        XCTAssertFalse(viewModel.isStorageChooserEnabled)
+        XCTAssertFalse(viewModel.canConfirmStorageSelection)
+        XCTAssertEqual(
+            viewModel.storageOperationMessage,
+            "Applying the new storage location… Existing managed databases can take a while to copy."
+        )
+
+        gate.release()
+
+        let applied = await applyTask.value
+        XCTAssertTrue(applied)
+        XCTAssertFalse(viewModel.isApplyingStorageSelection)
+        XCTAssertNil(viewModel.storageOperationMessage)
+        XCTAssertNil(viewModel.storageOperationErrorMessage)
+    }
+
+    @MainActor
+    func testApplyPendingStorageSelectionCapturesCoordinatorErrorsForSheetPresentation() async {
+        struct ExpectedFailure: LocalizedError {
+            var errorDescription: String? { "Storage move failed for testing." }
+        }
+
+        let store = ManagedStorageConfigStore(homeDirectory: tempHome)
+        let newRoot = tempHome.appendingPathComponent("ExternalManagedStorage", isDirectory: true)
+        let coordinator = ManagedStorageCoordinator(
+            configStore: store,
+            databaseMigrator: { _, _ in
+                throw ExpectedFailure()
+            },
+            toolInstaller: { _ in },
+            verifier: { _ in }
+        )
+        let viewModel = WelcomeViewModel(
+            statusProvider: SequencedWelcomeStorageStatusProvider(sequences: [[requiredStatus(state: .needsInstall)]]),
+            storageCoordinator: coordinator,
+            storageConfigStore: store
+        )
+
+        viewModel.chooseAlternateStorageLocation()
+        viewModel.updatePendingStorageSelection(newRoot)
+
+        let applied = await viewModel.applyPendingStorageSelection()
+
+        XCTAssertFalse(applied)
+        XCTAssertFalse(viewModel.isApplyingStorageSelection)
+        XCTAssertEqual(viewModel.storageOperationErrorMessage, "Storage move failed for testing.")
+        XCTAssertTrue(viewModel.showingStorageChooser)
     }
 
     @MainActor
