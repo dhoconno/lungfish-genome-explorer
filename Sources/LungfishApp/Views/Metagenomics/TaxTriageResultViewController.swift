@@ -350,6 +350,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     /// Whether the initial divider position has been applied.
     private var didSetInitialSplitPosition = false
+    private var pendingInitialSplitValidation = false
 
     // MARK: - Callbacks
 
@@ -419,6 +420,27 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
     }
 
+    private func resetInitialSplitPositionIfNeeded() {
+        guard didSetInitialSplitPosition, !leftPaneContainer.isHidden, splitView.arrangedSubviews.count == 2 else { return }
+
+        let layout = MetagenomicsPanelLayout.current()
+        let minimumExtents = minimumExtents(for: layout)
+        let totalExtent = splitContainerExtent()
+        let minimumRequiredExtent = minimumExtents.leading + minimumExtents.trailing + splitView.dividerThickness
+        guard totalExtent >= minimumRequiredExtent else { return }
+
+        let leadingExtent = splitView.isVertical
+            ? splitView.arrangedSubviews[0].frame.width
+            : splitView.arrangedSubviews[0].frame.height
+        let trailingExtent = splitView.isVertical
+            ? splitView.arrangedSubviews[1].frame.width
+            : splitView.arrangedSubviews[1].frame.height
+
+        if leadingExtent < minimumExtents.leading || trailingExtent < minimumExtents.trailing {
+            didSetInitialSplitPosition = false
+        }
+    }
+
     private func currentMinimumExtents() -> (leading: CGFloat, trailing: CGFloat) {
         let detailIsLeading = splitView.arrangedSubviews.first === leftPaneContainer
         var minimumExtents: (leading: CGFloat, trailing: CGFloat) = detailIsLeading ? (250, 300) : (300, 250)
@@ -455,6 +477,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
 
         let minimumExtents = minimumExtents(for: layout)
+        let minimumRequiredExtent = minimumExtents.leading + minimumExtents.trailing + splitView.dividerThickness
+        guard totalExtent >= minimumRequiredExtent else {
+            didSetInitialSplitPosition = false
+            return
+        }
+
         let position = MetagenomicsPaneSizing.clampedDividerPosition(
             proposed: round(totalExtent * defaultLeadingFraction(for: layout)),
             containerExtent: totalExtent,
@@ -462,7 +490,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             minimumTrailingExtent: minimumExtents.trailing
         )
         splitView.setPosition(position, ofDividerAt: 0)
-        splitView.adjustSubviews()
         didSetInitialSplitPosition = true
     }
 
@@ -490,6 +517,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         let layout = MetagenomicsPanelLayout.current()
         let minimumExtents = minimumExtents(for: layout)
+        let minimumRequiredExtent = minimumExtents.leading + minimumExtents.trailing + splitView.dividerThickness
+        guard totalExtent >= minimumRequiredExtent else { return }
+
         let clampedPosition = MetagenomicsPaneSizing.clampedDividerPosition(
             proposed: round(totalExtent * defaultLeadingFraction(for: layout)),
             containerExtent: totalExtent,
@@ -498,6 +528,18 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         )
         splitView.setPosition(clampedPosition, ofDividerAt: 0)
         didSetInitialSplitPosition = true
+    }
+
+    private func scheduleInitialSplitValidationIfNeeded() {
+        guard !pendingInitialSplitValidation else { return }
+        pendingInitialSplitValidation = true
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.pendingInitialSplitValidation = false
+            self.resetInitialSplitPositionIfNeeded()
+            self.applyInitialSplitPositionIfNeeded()
+        }
     }
 
     /// Swaps the split view pane order based on the persisted layout preference.
@@ -532,11 +574,16 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             splitView.isVertical = desiredIsVertical
         }
 
-        splitView.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
+        splitView.setHoldingPriority(.defaultLow, forSubviewAt: 0)
         splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
 
         let totalExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
         guard totalExtent > 0 else {
+            didSetInitialSplitPosition = false
+            return
+        }
+
+        guard view.window != nil else {
             didSetInitialSplitPosition = false
             return
         }
@@ -561,7 +608,6 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             minimumTrailingExtent: minimumExtents.trailing
         )
         splitView.setPosition(clampedPosition, ofDividerAt: 0)
-        splitView.adjustSubviews()
         didSetInitialSplitPosition = true
     }
 
@@ -669,7 +715,9 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     public override func viewDidLayout() {
         super.viewDidLayout()
+        resetInitialSplitPositionIfNeeded()
         applyInitialSplitPositionIfNeeded()
+        scheduleInitialSplitValidationIfNeeded()
     }
 
 
@@ -1091,13 +1139,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             multiSelectionPlaceholder.trailingAnchor.constraint(equalTo: leftPaneContainer.trailingAnchor),
         ])
 
-        if MetagenomicsPanelLayout.current() == .detailLeading {
-            splitView.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
-            splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
-        } else {
-            splitView.setHoldingPriority(.defaultLow, forSubviewAt: 0)
-            splitView.setHoldingPriority(.defaultHigh, forSubviewAt: 1)
-        }
+        splitView.setHoldingPriority(.defaultLow, forSubviewAt: 0)
+        splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
 
         view.addSubview(splitView)
     }

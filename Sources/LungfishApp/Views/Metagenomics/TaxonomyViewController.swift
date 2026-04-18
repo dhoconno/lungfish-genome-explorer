@@ -226,6 +226,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     /// `setPosition` only works after the split view has real bounds, so the
     /// initial divider sizing is deferred until a later layout pass.
     private var didSetInitialSplitPosition = false
+    private var pendingInitialSplitValidation = false
 
     // MARK: - Selection Sync
 
@@ -328,7 +329,9 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
 
     public override func viewDidLayout() {
         super.viewDidLayout()
+        resetInitialSplitPositionIfNeeded()
         applyInitialSplitPositionIfNeeded()
+        scheduleInitialSplitValidationIfNeeded()
     }
 
     // MARK: - Public API
@@ -786,16 +789,10 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             splitView.addArrangedSubview(sunburstContainer)
         }
 
-        // Set holding priorities so the table pane is preferred to resize
-        // when the split view itself resizes (e.g., window resize). The left
-        // pane (sunburst) holds its width more firmly.
-        if MetagenomicsPanelLayout.current() == .detailLeading {
-            splitView.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
-            splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
-        } else {
-            splitView.setHoldingPriority(.defaultLow, forSubviewAt: 0)
-            splitView.setHoldingPriority(.defaultHigh, forSubviewAt: 1)
-        }
+        // Let NSSplitView size both panes from the divider position instead of
+        // locking one pane to a zero fitting size during initial layout.
+        splitView.setHoldingPriority(.defaultLow, forSubviewAt: 0)
+        splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
 
         view.addSubview(splitView)
     }
@@ -991,6 +988,39 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         }
     }
 
+    private func resetInitialSplitPositionIfNeeded() {
+        guard didSetInitialSplitPosition, splitView.arrangedSubviews.count == 2 else { return }
+
+        let layout = MetagenomicsPanelLayout.current()
+        let minimumExtents = minimumExtents(for: layout)
+        let totalExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
+        let minimumRequiredExtent = minimumExtents.leading + minimumExtents.trailing + splitView.dividerThickness
+        guard totalExtent >= minimumRequiredExtent else { return }
+
+        let leadingExtent = splitView.isVertical
+            ? splitView.arrangedSubviews[0].frame.width
+            : splitView.arrangedSubviews[0].frame.height
+        let trailingExtent = splitView.isVertical
+            ? splitView.arrangedSubviews[1].frame.width
+            : splitView.arrangedSubviews[1].frame.height
+
+        if leadingExtent < minimumExtents.leading || trailingExtent < minimumExtents.trailing {
+            didSetInitialSplitPosition = false
+        }
+    }
+
+    private func scheduleInitialSplitValidationIfNeeded() {
+        guard !pendingInitialSplitValidation else { return }
+        pendingInitialSplitValidation = true
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.pendingInitialSplitValidation = false
+            self.resetInitialSplitPositionIfNeeded()
+            self.applyInitialSplitPositionIfNeeded()
+        }
+    }
+
     private func applyInitialSplitPositionIfNeeded() {
         guard !didSetInitialSplitPosition, splitView.arrangedSubviews.count == 2 else { return }
 
@@ -999,6 +1029,9 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
 
         let layout = MetagenomicsPanelLayout.current()
         let minimumExtents = minimumExtents(for: layout)
+        let minimumRequiredExtent = minimumExtents.leading + minimumExtents.trailing + splitView.dividerThickness
+        guard totalExtent >= minimumRequiredExtent else { return }
+
         let clampedPosition = MetagenomicsPaneSizing.clampedDividerPosition(
             proposed: round(totalExtent * defaultLeadingFraction(for: layout)),
             containerExtent: totalExtent,
@@ -1040,11 +1073,19 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             splitView.isVertical = desiredIsVertical
         }
 
-        splitView.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
+        splitView.setHoldingPriority(.defaultLow, forSubviewAt: 0)
         splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
 
         let totalExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
         guard totalExtent > 0 else {
+            didSetInitialSplitPosition = false
+            return
+        }
+
+        // During initial construction AppKit has not finalized the split view's
+        // real geometry yet. Let the next layout pass apply the first divider
+        // position instead of locking in a bad pre-window size here.
+        guard view.window != nil else {
             didSetInitialSplitPosition = false
             return
         }
@@ -1062,7 +1103,6 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             minimumTrailingExtent: minimumExtents.trailing
         )
         splitView.setPosition(clampedPosition, ofDividerAt: 0)
-        splitView.adjustSubviews()
         didSetInitialSplitPosition = true
     }
 

@@ -32,6 +32,44 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         XCTAssertTrue(vc.testSplitView.arrangedSubviews[1].subviews.contains(vc.testSunburstView))
     }
 
+    func testTaxonomyLiveWindowKeepsBothPanesVisibleInStackedMode() {
+        setLayoutPreference(.stacked, legacyTableOnLeft: false)
+
+        let vc = TaxonomyViewController()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
+            styleMask: [.titled, .resizable, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = vc
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertGreaterThan(vc.testSplitView.arrangedSubviews[0].frame.height, 120)
+        XCTAssertGreaterThan(vc.testSplitView.arrangedSubviews[1].frame.height, 120)
+    }
+
+    func testTaxonomyLiveWindowKeepsBothPanesVisibleInListLeadingMode() {
+        setLayoutPreference(.listLeading, legacyTableOnLeft: true)
+
+        let vc = TaxonomyViewController()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
+            styleMask: [.titled, .resizable, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = vc
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertGreaterThan(vc.testSplitView.arrangedSubviews[0].frame.width, 180)
+        XCTAssertGreaterThan(vc.testSplitView.arrangedSubviews[1].frame.width, 180)
+    }
+
     func testNaoMgsViewStacksTaxonomyTableAboveDetailWhenLayoutIsStacked() {
         setLayoutPreference(.stacked, legacyTableOnLeft: false)
 
@@ -41,6 +79,25 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         XCTAssertFalse(vc.testSplitView.isVertical)
         XCTAssertTrue(vc.testSplitView.arrangedSubviews[0] === vc.testTableContainer)
         XCTAssertTrue(vc.testSplitView.arrangedSubviews[1] === vc.testDetailContainer)
+    }
+
+    func testNaoMgsLiveWindowKeepsBothPanesVisibleInListLeadingMode() {
+        setLayoutPreference(.listLeading, legacyTableOnLeft: true)
+
+        let vc = NaoMgsResultViewController()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
+            styleMask: [.titled, .resizable, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = vc
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertGreaterThan(vc.testSplitView.arrangedSubviews[0].frame.width, 180)
+        XCTAssertGreaterThan(vc.testSplitView.arrangedSubviews[1].frame.width, 180)
     }
 
     func testNvdViewStacksOutlineAboveDetailWhenLayoutIsStacked() {
@@ -54,6 +111,25 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         XCTAssertTrue(vc.testSplitView.arrangedSubviews[1] === vc.testDetailContainer)
     }
 
+    func testNvdLiveWindowKeepsBothPanesVisibleInListLeadingMode() {
+        setLayoutPreference(.listLeading, legacyTableOnLeft: true)
+
+        let vc = NvdResultViewController()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
+            styleMask: [.titled, .resizable, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = vc
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertGreaterThan(vc.testSplitView.arrangedSubviews[0].frame.width, 180)
+        XCTAssertGreaterThan(vc.testSplitView.arrangedSubviews[1].frame.width, 180)
+    }
+
     func testTaxTriageViewStacksListAboveDetailWhenLayoutIsStacked() {
         setLayoutPreference(.stacked, legacyTableOnLeft: false)
 
@@ -63,6 +139,44 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         XCTAssertFalse(vc.testSplitView.isVertical)
         XCTAssertTrue(vc.testSplitView.arrangedSubviews[0] === vc.testRightPaneContainer)
         XCTAssertTrue(vc.testSplitView.arrangedSubviews[1] === vc.testLeftPaneContainer)
+    }
+
+    func testTaxTriageLiveWindowKeepsBothPanesVisibleInListLeadingMode() {
+        setLayoutPreference(.listLeading, legacyTableOnLeft: true)
+
+        let vc = TaxTriageResultViewController()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
+            styleMask: [.titled, .resizable, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = vc
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertGreaterThan(vc.testSplitView.arrangedSubviews[0].frame.width, 180)
+        XCTAssertGreaterThan(vc.testSplitView.arrangedSubviews[1].frame.width, 180)
+    }
+
+    func testEsVirituLiveWindowKeepsBothPanesVisibleInListLeadingMode() {
+        setLayoutPreference(.listLeading, legacyTableOnLeft: true)
+
+        let vc = EsVirituResultViewController()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
+            styleMask: [.titled, .resizable, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = vc
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertGreaterThan(vc.testSplitView.arrangedSubviews[0].frame.width, 180)
+        XCTAssertGreaterThan(vc.testSplitView.arrangedSubviews[1].frame.width, 180)
     }
 
     func testTaxonomyViewDidLayoutDoesNotApplyNewPreferenceWithoutNotification() {

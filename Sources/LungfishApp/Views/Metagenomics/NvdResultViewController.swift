@@ -309,6 +309,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     private var detailContainer: NvdDetailContainer?
     private var outlineContainer: NSView?
     private var didSetInitialSplitPosition = false
+    private var pendingInitialSplitValidation = false
     private var splitViewBottomConstraint: NSLayoutConstraint?
 
     // MARK: - Selection Sync
@@ -342,7 +343,9 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
     public override func viewDidLayout() {
         super.viewDidLayout()
+        resetInitialSplitPositionIfNeeded()
         applyInitialSplitPositionIfNeeded()
+        scheduleInitialSplitValidationIfNeeded()
     }
 
     // MARK: - Public API: Two-Phase Loading
@@ -949,13 +952,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             multiSelectionPlaceholder.trailingAnchor.constraint(equalTo: detail.trailingAnchor),
         ])
 
-        if MetagenomicsPanelLayout.current() == .detailLeading {
-            splitView.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
-            splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
-        } else {
-            splitView.setHoldingPriority(.defaultLow, forSubviewAt: 0)
-            splitView.setHoldingPriority(.defaultHigh, forSubviewAt: 1)
-        }
+        splitView.setHoldingPriority(.defaultLow, forSubviewAt: 0)
+        splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
 
         splitView.adjustSubviews()
         view.addSubview(splitView)
@@ -1269,6 +1267,39 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         }
     }
 
+    private func resetInitialSplitPositionIfNeeded() {
+        guard didSetInitialSplitPosition, splitView.arrangedSubviews.count == 2 else { return }
+
+        let layout = MetagenomicsPanelLayout.current()
+        let minimumExtents = minimumExtents(for: layout)
+        let totalExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
+        let minimumRequiredExtent = minimumExtents.leading + minimumExtents.trailing + splitView.dividerThickness
+        guard totalExtent >= minimumRequiredExtent else { return }
+
+        let leadingExtent = splitView.isVertical
+            ? splitView.arrangedSubviews[0].frame.width
+            : splitView.arrangedSubviews[0].frame.height
+        let trailingExtent = splitView.isVertical
+            ? splitView.arrangedSubviews[1].frame.width
+            : splitView.arrangedSubviews[1].frame.height
+
+        if leadingExtent < minimumExtents.leading || trailingExtent < minimumExtents.trailing {
+            didSetInitialSplitPosition = false
+        }
+    }
+
+    private func scheduleInitialSplitValidationIfNeeded() {
+        guard !pendingInitialSplitValidation else { return }
+        pendingInitialSplitValidation = true
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.pendingInitialSplitValidation = false
+            self.resetInitialSplitPositionIfNeeded()
+            self.applyInitialSplitPositionIfNeeded()
+        }
+    }
+
     private func applyInitialSplitPositionIfNeeded() {
         guard !didSetInitialSplitPosition, splitView.arrangedSubviews.count == 2 else { return }
 
@@ -1277,6 +1308,9 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
         let layout = MetagenomicsPanelLayout.current()
         let minimumExtents = minimumExtents(for: layout)
+        let minimumRequiredExtent = minimumExtents.leading + minimumExtents.trailing + splitView.dividerThickness
+        guard totalExtent >= minimumRequiredExtent else { return }
+
         let clampedPosition = MetagenomicsPaneSizing.clampedDividerPosition(
             proposed: round(totalExtent * defaultLeadingFraction(for: layout)),
             containerExtent: totalExtent,
@@ -1334,11 +1368,16 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             splitView.isVertical = desiredIsVertical
         }
 
-        splitView.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
+        splitView.setHoldingPriority(.defaultLow, forSubviewAt: 0)
         splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
 
         let totalExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
         guard totalExtent > 0 else {
+            didSetInitialSplitPosition = false
+            return
+        }
+
+        guard view.window != nil else {
             didSetInitialSplitPosition = false
             return
         }
@@ -1356,7 +1395,6 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             minimumTrailingExtent: minimumExtents.trailing
         )
         splitView.setPosition(clampedPosition, ofDividerAt: 0)
-        splitView.adjustSubviews()
         didSetInitialSplitPosition = true
         resizeDetailContentToFit()
     }
