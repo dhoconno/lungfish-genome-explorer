@@ -41,12 +41,18 @@ public struct PackToolStatus: Sendable, Codable, Hashable, Identifiable {
     public let environmentExists: Bool
     public let missingExecutables: [String]
     public let smokeTestFailure: String?
+    public let storageUnavailablePath: String?
 
     public var id: String { requirement.id }
-    public var isReady: Bool { missingExecutables.isEmpty && smokeTestFailure == nil }
-    public var needsReinstall: Bool { environmentExists && !isReady }
+    public var isReady: Bool {
+        storageUnavailablePath == nil && missingExecutables.isEmpty && smokeTestFailure == nil
+    }
+    public var needsReinstall: Bool { storageUnavailablePath == nil && environmentExists && !isReady }
 
     public var statusText: String {
+        if storageUnavailablePath != nil {
+            return "Storage unavailable"
+        }
         if isReady {
             return "Ready"
         }
@@ -98,6 +104,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         _ progress: (@Sendable (Double, String) -> Void)?
     ) async throws -> URL
     public typealias DatabaseInstalledCheck = @Sendable (_ databaseID: String) async -> Bool
+    public typealias StorageAvailability = @Sendable () -> ManagedStorageAvailability
 
     public static let shared = PluginPackStatusService(condaManager: .shared)
 
@@ -105,6 +112,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
     private let installAction: InstallAction
     private let databaseInstallAction: DatabaseInstallAction
     private let databaseInstalledCheck: DatabaseInstalledCheck
+    private let storageAvailability: StorageAvailability
     private let cacheLifetime: TimeInterval
     private var cacheGeneration = 0
     private var cachedVisibleStatuses: (generation: Int, timestamp: Date, statuses: [PluginPackStatus])?
@@ -115,6 +123,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         installAction: InstallAction? = nil,
         databaseInstallAction: DatabaseInstallAction? = nil,
         databaseInstalledCheck: DatabaseInstalledCheck? = nil,
+        storageAvailability: StorageAvailability? = nil,
         cacheLifetime: TimeInterval = 30
     ) {
         self.condaManager = condaManager
@@ -134,6 +143,9 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         }
         self.databaseInstalledCheck = databaseInstalledCheck ?? { databaseID in
             await DatabaseRegistry.shared.isDatabaseInstalled(databaseID)
+        }
+        self.storageAvailability = storageAvailability ?? {
+            DatabaseRegistry.managedStorageAvailability()
         }
         self.cacheLifetime = cacheLifetime
     }
@@ -167,6 +179,16 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             }
         }
 
+        let storageAvailability = storageAvailability()
+        if case .unavailable(let unavailableRoot) = storageAvailability {
+            return makePackStatus(
+                pack: pack,
+                toolStatuses: unavailableToolStatuses(for: pack, root: unavailableRoot),
+                bootstrapReady: false,
+                storageAvailability: storageAvailability
+            )
+        }
+
         let bootstrapReady = await bootstrapIsReady()
         var toolStatuses: [PackToolStatus] = []
         toolStatuses.reserveCapacity(pack.toolRequirements.count)
@@ -178,15 +200,26 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         return makePackStatus(
             pack: pack,
             toolStatuses: toolStatuses,
-            bootstrapReady: bootstrapReady
+            bootstrapReady: bootstrapReady,
+            storageAvailability: storageAvailability
         )
     }
 
     private func makePackStatus(
         pack: PluginPack,
         toolStatuses: [PackToolStatus],
-        bootstrapReady: Bool
+        bootstrapReady: Bool,
+        storageAvailability: ManagedStorageAvailability
     ) -> PluginPackStatus {
+        if case .unavailable = storageAvailability {
+            return PluginPackStatus(
+                pack: pack,
+                state: .failed,
+                toolStatuses: toolStatuses,
+                failureMessage: "Storage location unavailable"
+            )
+        }
+
         let state: PluginPackState = toolStatuses.allSatisfy(\.isReady) && bootstrapReady ? .ready : .needsInstall
         let failureMessage = toolStatuses.first(where: { !$0.isReady })?.smokeTestFailure
 
@@ -265,6 +298,20 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
     }
 
     private func computeVisibleStatuses(forGeneration generation: Int) async -> [PluginPackStatus] {
+        let storageAvailability = storageAvailability()
+        if case .unavailable(let unavailableRoot) = storageAvailability {
+            let statuses = PluginPack.visibleForCLI.map { pack in
+                makePackStatus(
+                    pack: pack,
+                    toolStatuses: unavailableToolStatuses(for: pack, root: unavailableRoot),
+                    bootstrapReady: false,
+                    storageAvailability: storageAvailability
+                )
+            }
+            storeVisibleStatuses(statuses, forGeneration: generation)
+            return statuses
+        }
+
         let bootstrapReady = await bootstrapIsReady()
         var requirementCache: [PackToolRequirement: PackToolStatus] = [:]
         var statuses: [PluginPackStatus] = []
@@ -284,7 +331,8 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             statuses.append(makePackStatus(
                 pack: pack,
                 toolStatuses: toolStatuses,
-                bootstrapReady: bootstrapReady
+                bootstrapReady: bootstrapReady,
+                storageAvailability: storageAvailability
             ))
         }
         storeVisibleStatuses(statuses, forGeneration: generation)
@@ -312,7 +360,8 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                 requirement: requirement,
                 environmentExists: databaseInstalled,
                 missingExecutables: [],
-                smokeTestFailure: databaseInstalled ? nil : "\(requirement.displayName) is not installed"
+                smokeTestFailure: databaseInstalled ? nil : "\(requirement.displayName) is not installed",
+                storageUnavailablePath: nil
             )
         }
 
@@ -350,8 +399,21 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             requirement: requirement,
             environmentExists: environmentExists,
             missingExecutables: missingExecutables,
-            smokeTestFailure: smokeTestFailure
+            smokeTestFailure: smokeTestFailure,
+            storageUnavailablePath: nil
         )
+    }
+
+    private func unavailableToolStatuses(for pack: PluginPack, root: URL) -> [PackToolStatus] {
+        pack.toolRequirements.map { requirement in
+            PackToolStatus(
+                requirement: requirement,
+                environmentExists: false,
+                missingExecutables: requirement.managedDatabaseID == nil ? requirement.executables : [],
+                smokeTestFailure: nil,
+                storageUnavailablePath: root.path
+            )
+        }
     }
 
     private func runSmokeTest(

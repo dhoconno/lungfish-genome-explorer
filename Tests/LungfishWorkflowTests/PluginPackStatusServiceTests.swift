@@ -464,6 +464,30 @@ final class PluginPackStatusServiceTests: XCTestCase {
         }
     }
 
+    func testVisibleStatusesReturnStorageUnavailableWhenConfiguredRootIsMissing() async throws {
+        let manager = CondaManager(
+            rootPrefix: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),
+            bundledMicromambaProvider: { nil },
+            bundledMicromambaVersionProvider: { nil }
+        )
+
+        let service = PluginPackStatusService(
+            condaManager: manager,
+            databaseInstalledCheck: { _ in true },
+            storageAvailability: {
+                .unavailable(URL(fileURLWithPath: "/Volumes/LungfishSSD", isDirectory: true))
+            }
+        )
+
+        let statuses = await service.visibleStatuses()
+        guard let requiredSetup = statuses.first(where: { $0.pack.id == PluginPack.requiredSetupPack.id }) else {
+            return XCTFail("Expected required setup pack status")
+        }
+
+        XCTAssertEqual(requiredSetup.state, .failed)
+        XCTAssertEqual(requiredSetup.failureMessage, "Storage location unavailable")
+    }
+
     func testInstallPackUsesReinstallWhenRequested() async throws {
         actor InstallRecorder {
             var calls: [(packages: [String], environment: String, reinstall: Bool)] = []

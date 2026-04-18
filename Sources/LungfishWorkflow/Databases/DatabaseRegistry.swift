@@ -107,6 +107,11 @@ public struct BundledDatabase: Sendable, Codable {
     public let releasesUrl: String
 }
 
+public enum ManagedStorageAvailability: Sendable, Equatable {
+    case available(ManagedStorageLocation)
+    case unavailable(URL)
+}
+
 // MARK: - DatabaseRegistry
 
 /// Resolves the runtime path of reference databases.
@@ -173,6 +178,21 @@ public actor DatabaseRegistry {
         "human-scrubber",
         "deacon-panhuman",
     ]
+
+    public nonisolated static func managedStorageAvailability(
+        storageConfigStore: ManagedStorageConfigStore = ManagedStorageConfigStore(),
+        fileManager: FileManager = .default
+    ) -> ManagedStorageAvailability {
+        let location = storageConfigStore.currentLocation()
+        let defaultRoot = storageConfigStore.defaultLocation.rootURL.standardizedFileURL
+        let currentRoot = location.rootURL.standardizedFileURL
+
+        if currentRoot == defaultRoot || fileManager.fileExists(atPath: currentRoot.path) {
+            return .available(location)
+        }
+
+        return .unavailable(currentRoot)
+    }
 
     /// Returns the canonical ID for a database, mapping legacy aliases when needed.
     public static func canonicalDatabaseID(for id: String) -> String {
@@ -255,6 +275,58 @@ public actor DatabaseRegistry {
 
         let displayName = manifest(for: resolvedID)?.displayName ?? resolvedID
         throw HumanScrubberDatabaseError.installRequired(databaseID: resolvedID, displayName: displayName)
+    }
+
+    public func copyManagedDatabases(from sourceRoot: URL, to destinationRoot: URL) throws {
+        let sourceRoot = sourceRoot.standardizedFileURL
+        let destinationRoot = destinationRoot.standardizedFileURL
+        let fileManager = FileManager.default
+
+        guard fileManager.fileExists(atPath: sourceRoot.path) else {
+            return
+        }
+
+        for databaseID in Self.managedUserDataIDs.sorted() {
+            let sourceDirectory = managedDatabaseDirectory(for: databaseID, under: sourceRoot)
+            guard fileManager.fileExists(atPath: sourceDirectory.path) else {
+                continue
+            }
+
+            let destinationDirectory = managedDatabaseDirectory(for: databaseID, under: destinationRoot)
+            try fileManager.createDirectory(
+                at: destinationDirectory.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            if fileManager.fileExists(atPath: destinationDirectory.path) {
+                try fileManager.removeItem(at: destinationDirectory)
+            }
+            try fileManager.copyItem(at: sourceDirectory, to: destinationDirectory)
+        }
+    }
+
+    public func verifyManagedDatabases(at databaseRoot: URL) throws {
+        let databaseRoot = databaseRoot.standardizedFileURL
+        let fileManager = FileManager.default
+
+        for databaseID in Self.managedUserDataIDs.sorted() {
+            let directory = managedDatabaseDirectory(for: databaseID, under: databaseRoot)
+            guard fileManager.fileExists(atPath: directory.path) else {
+                continue
+            }
+
+            let contents = try fileManager.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil
+            )
+            guard contents.contains(where: isUsableInstalledDatabaseCandidate) else {
+                let displayName = manifest(for: databaseID)?.displayName ?? databaseID
+                throw HumanScrubberDatabaseError.installationFailed(
+                    databaseID: databaseID,
+                    displayName: displayName,
+                    reason: "Migrated database files are missing from \(directory.path)"
+                )
+            }
+        }
     }
 
     /// Downloads and installs a managed database into user storage.
@@ -558,6 +630,10 @@ public actor DatabaseRegistry {
 
     private func managedDatabaseDirectory(for id: String) -> URL? {
         userDatabasesRootProvider()?.appendingPathComponent(id, isDirectory: true)
+    }
+
+    private func managedDatabaseDirectory(for id: String, under databaseRoot: URL) -> URL {
+        databaseRoot.appendingPathComponent(id, isDirectory: true)
     }
 
     private func clearManagedDatabaseInstall(_ id: String) throws {
