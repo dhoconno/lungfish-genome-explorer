@@ -183,6 +183,23 @@ final class WelcomeStorageFlowTests: XCTestCase {
     }
 
     @MainActor
+    func testChooseAlternateStorageLocationPrefillsCurrentCustomRoot() throws {
+        let store = ManagedStorageConfigStore(homeDirectory: tempHome)
+        let customRoot = tempHome.appendingPathComponent("ExternalManagedStorage", isDirectory: true)
+        try store.setActiveRoot(customRoot)
+        let viewModel = WelcomeViewModel(
+            statusProvider: SequencedWelcomeStorageStatusProvider(sequences: [[requiredStatus(state: .ready)]]),
+            storageConfigStore: store
+        )
+
+        viewModel.chooseAlternateStorageLocation()
+
+        XCTAssertEqual(viewModel.pendingStorageSelection, customRoot.standardizedFileURL)
+        XCTAssertEqual(viewModel.pendingStorageSelectionPath, customRoot.path)
+        XCTAssertFalse(viewModel.canConfirmStorageSelection)
+    }
+
+    @MainActor
     func testCannotConfirmSelectionWhenResolvedPathContainsSpaces() async throws {
         let store = ManagedStorageConfigStore(homeDirectory: tempHome)
         let defaultRoot = store.defaultLocation.rootURL
@@ -363,6 +380,37 @@ final class WelcomeStorageFlowTests: XCTestCase {
         XCTAssertFalse(viewModel.isApplyingStorageSelection)
         XCTAssertEqual(viewModel.storageOperationErrorMessage, "Storage move failed for testing.")
         XCTAssertTrue(viewModel.showingStorageChooser)
+    }
+
+    @MainActor
+    func testApplyPendingStorageSelectionStartsRequiredSetupAutomatically() async {
+        let store = ManagedStorageConfigStore(homeDirectory: tempHome)
+        let newRoot = tempHome.appendingPathComponent("ExternalManagedStorage", isDirectory: true)
+        let provider = DelayedInstallWelcomeStatusProvider(statuses: [requiredStatus(state: .needsInstall)])
+        let coordinator = ManagedStorageCoordinator(
+            configStore: store,
+            databaseMigrator: { _, _ in },
+            toolInstaller: { _ in },
+            verifier: { _ in }
+        )
+        let viewModel = WelcomeViewModel(
+            statusProvider: provider,
+            storageCoordinator: coordinator,
+            storageConfigStore: store
+        )
+
+        await viewModel.refreshSetup()
+        viewModel.chooseAlternateStorageLocation()
+        viewModel.updatePendingStorageSelection(newRoot)
+
+        let applied = await viewModel.applyPendingStorageSelection()
+
+        XCTAssertTrue(applied)
+        XCTAssertTrue(viewModel.isInstallingRequiredSetup)
+        XCTAssertFalse(viewModel.showingStorageChooser)
+        XCTAssertEqual(store.currentLocation().rootURL, newRoot.standardizedFileURL)
+
+        provider.releaseInstall()
     }
 
     @MainActor

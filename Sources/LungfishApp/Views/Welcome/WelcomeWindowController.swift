@@ -239,6 +239,13 @@ final class WelcomeViewModel: ObservableObject {
         return selection
     }
 
+    private var shouldAutoInstallRequiredSetupAfterStorageSelection: Bool {
+        guard let requiredSetupStatus else {
+            return false
+        }
+        return requiredSetupStatus.state != .ready && !isInstallingRequiredSetup
+    }
+
     func refreshSetup() async {
         isRefreshingSetup = true
         requiredSetupStatus = nil
@@ -294,10 +301,17 @@ final class WelcomeViewModel: ObservableObject {
 
     func chooseAlternateStorageLocation() {
         guard isStorageChooserEnabled else { return }
-        pendingStorageSelection = nil
-        storageValidationResult = .valid
         storageOperationMessage = nil
         storageOperationErrorMessage = nil
+        let currentRoot = currentStorageRootURL.resolvingSymlinksInPath().standardizedFileURL
+        let defaultRoot = defaultStorageRootURL.resolvingSymlinksInPath().standardizedFileURL
+        if currentRoot != defaultRoot {
+            pendingStorageSelection = currentRoot
+            storageValidationResult = validateStorageSelection(currentRoot)
+        } else {
+            pendingStorageSelection = nil
+            storageValidationResult = .valid
+        }
         showingStorageChooser = true
     }
 
@@ -333,6 +347,9 @@ final class WelcomeViewModel: ObservableObject {
 
         do {
             try await performStorageLocationChange(to: selection)
+            if shouldAutoInstallRequiredSetupAfterStorageSelection {
+                installRequiredSetup()
+            }
             return true
         } catch {
             logger.error("Failed to apply alternate storage location: \(error.localizedDescription, privacy: .public)")

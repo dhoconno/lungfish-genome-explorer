@@ -34,6 +34,59 @@ struct ReleaseBuildConfigurationTests {
         #expect(script.contains(".build/arm64-apple-macosx/release"))
     }
 
+    @Test("Fallback build-app script supports debug app bundles")
+    func buildAppScriptSupportsDebugConfiguration() throws {
+        let script = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("scripts/build-app.sh"),
+            encoding: .utf8
+        )
+
+        #expect(script.contains("--configuration"))
+        #expect(script.contains(".build/arm64-apple-macosx/debug"))
+        #expect(script.contains("build/Debug/$APP_NAME.app"))
+        #expect(script.contains("swift build --arch arm64"))
+    }
+
+    @Test("Fallback build-app script copies SwiftPM runtime resource bundles")
+    func buildAppScriptCopiesSwiftPMRuntimeResourceBundles() throws {
+        let script = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("scripts/build-app.sh"),
+            encoding: .utf8
+        )
+
+        #expect(script.contains("find \"$BUILD_DIR\" -maxdepth 1 -type d -name '*.bundle'"))
+        #expect(script.contains("sanitize-bundled-tools.sh"))
+        #expect(script.contains("lungfish-cli"))
+    }
+
+    @Test("Fallback build-app script sanitizes copied workflow tools from flat SwiftPM bundles")
+    func buildAppScriptSanitizesCopiedWorkflowToolsFromFlatBundleLayout() throws {
+        let script = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("scripts/build-app.sh"),
+            encoding: .utf8
+        )
+
+        #expect(script.contains("WORKFLOW_BUNDLE_DIR=\"$RESOURCES_DIR/LungfishGenomeBrowser_LungfishWorkflow.bundle\""))
+        #expect(script.contains("WORKFLOW_TOOLS_DIR=\"$WORKFLOW_BUNDLE_DIR/Tools\""))
+        #expect(script.contains("WORKFLOW_TOOLS_DIR=\"$WORKFLOW_BUNDLE_DIR/Contents/Resources/Tools\""))
+        #expect(script.contains("sanitize-bundled-tools.sh"))
+    }
+
+    @Test("Fallback build-app script does not rewrite MacOS executables during workflow tool sanitization")
+    func buildAppScriptDoesNotRewriteMacOSExecutablesDuringWorkflowToolSanitization() throws {
+        let script = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("scripts/build-app.sh"),
+            encoding: .utf8
+        )
+
+        #expect(script.contains(#"sanitize-bundled-tools.sh" "$WORKFLOW_TOOLS_DIR""#))
+        #expect(script.contains(#"sanitize-bundled-tools.sh" "$MACOS_DIR" "$WORKFLOW_TOOLS_DIR""#) == false)
+    }
+
     @Test("Native tool bundler defaults to arm64")
     func nativeToolBundlerDefaultsToArm64() throws {
         let script = try String(

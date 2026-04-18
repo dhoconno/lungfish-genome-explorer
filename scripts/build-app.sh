@@ -10,15 +10,11 @@ APP_NAME="Lungfish"
 BUNDLE_ID="org.lungfish.genome-browser"
 VERSION="1.0.1"
 BUILD_NUMBER="7"
+CONFIGURATION="release"
 
 # Paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-BUILD_DIR="$PROJECT_ROOT/.build/arm64-apple-macosx/release"
-APP_DIR="$PROJECT_ROOT/build/$APP_NAME.app"
-CONTENTS_DIR="$APP_DIR/Contents"
-MACOS_DIR="$CONTENTS_DIR/MacOS"
-RESOURCES_DIR="$CONTENTS_DIR/Resources"
 
 # Colors for output
 RED='\033[0;31m'
@@ -26,8 +22,68 @@ GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 NC='\033[0m' # No Color
 
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [--configuration release|debug]
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --configuration)
+            if [ "$#" -lt 2 ]; then
+                echo "Missing value for --configuration" >&2
+                usage >&2
+                exit 64
+            fi
+            CONFIGURATION="$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"
+            shift 2
+            ;;
+        --debug)
+            CONFIGURATION="debug"
+            shift
+            ;;
+        --release)
+            CONFIGURATION="release"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            usage >&2
+            exit 64
+            ;;
+    esac
+done
+
+case "$CONFIGURATION" in
+    release)
+        BUILD_DIR="$PROJECT_ROOT/.build/arm64-apple-macosx/release"
+        APP_DIR="$PROJECT_ROOT/build/$APP_NAME.app"
+        BUILD_LABEL="release"
+        ;;
+    debug)
+        BUILD_DIR="$PROJECT_ROOT/.build/arm64-apple-macosx/debug"
+        APP_DIR="$PROJECT_ROOT/build/Debug/$APP_NAME.app"
+        BUILD_LABEL="debug"
+        ;;
+    *)
+        echo "Unsupported configuration: $CONFIGURATION" >&2
+        usage >&2
+        exit 64
+        ;;
+esac
+
+CONTENTS_DIR="$APP_DIR/Contents"
+MACOS_DIR="$CONTENTS_DIR/MacOS"
+RESOURCES_DIR="$CONTENTS_DIR/Resources"
+
 echo -e "${GREEN}Building Lungfish Genome Browser${NC}"
 echo "=================================="
+echo "Configuration: $BUILD_LABEL"
 
 # Clean previous build
 if [ -d "$APP_DIR" ]; then
@@ -35,10 +91,14 @@ if [ -d "$APP_DIR" ]; then
     rm -rf "$APP_DIR"
 fi
 
-# Build release executable
-echo -e "${GREEN}Building Apple Silicon release executable...${NC}"
+# Build executable
+echo -e "${GREEN}Building Apple Silicon ${BUILD_LABEL} executable...${NC}"
 cd "$PROJECT_ROOT"
-swift build -c release --arch arm64
+if [ "$CONFIGURATION" = "release" ]; then
+    swift build -c release --arch arm64
+else
+    swift build --arch arm64
+fi
 
 if [ ! -f "$BUILD_DIR/Lungfish" ]; then
     echo -e "${RED}Error: Build failed - executable not found${NC}"
@@ -47,11 +107,29 @@ fi
 
 # Create bundle structure
 echo -e "${GREEN}Creating app bundle structure...${NC}"
+mkdir -p "$(dirname "$APP_DIR")"
 mkdir -p "$MACOS_DIR"
 mkdir -p "$RESOURCES_DIR"
 
 # Copy executable
 cp "$BUILD_DIR/Lungfish" "$MACOS_DIR/"
+
+CLI_SOURCE="$BUILD_DIR/lungfish-cli"
+if [ -f "$CLI_SOURCE" ]; then
+    echo -e "${GREEN}Copying bundled CLI...${NC}"
+    /usr/bin/install -m 755 "$CLI_SOURCE" "$MACOS_DIR/lungfish-cli"
+fi
+
+echo -e "${GREEN}Copying SwiftPM resource bundles...${NC}"
+while IFS= read -r -d '' bundle; do
+    bundle_name="$(basename "$bundle")"
+    case "$bundle_name" in
+        *Tests.bundle)
+            continue
+            ;;
+    esac
+    cp -R "$bundle" "$RESOURCES_DIR/"
+done < <(/usr/bin/find "$BUILD_DIR" -maxdepth 1 -type d -name '*.bundle' -print0)
 
 # Create Info.plist
 echo -e "${GREEN}Creating Info.plist...${NC}"
@@ -374,6 +452,16 @@ if [ -d "$HELP_BOOK_SRC" ]; then
     fi
 else
     echo -e "${YELLOW}Warning: Help Book bundle not found at $HELP_BOOK_SRC${NC}"
+fi
+
+WORKFLOW_BUNDLE_DIR="$RESOURCES_DIR/LungfishGenomeBrowser_LungfishWorkflow.bundle"
+WORKFLOW_TOOLS_DIR="$WORKFLOW_BUNDLE_DIR/Tools"
+if [ ! -d "$WORKFLOW_TOOLS_DIR" ]; then
+    WORKFLOW_TOOLS_DIR="$WORKFLOW_BUNDLE_DIR/Contents/Resources/Tools"
+fi
+if [ -d "$WORKFLOW_TOOLS_DIR" ]; then
+    echo -e "${GREEN}Sanitizing bundled workflow tools...${NC}"
+    /bin/bash "$PROJECT_ROOT/scripts/sanitize-bundled-tools.sh" "$WORKFLOW_TOOLS_DIR"
 fi
 
 # Print success message
