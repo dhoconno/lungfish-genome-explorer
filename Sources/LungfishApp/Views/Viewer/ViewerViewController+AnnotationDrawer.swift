@@ -13,6 +13,9 @@ private let annotDrawerLogger = Logger(subsystem: LogSubsystem.app, category: "V
 /// Height of the annotation drawer when open.
 private let annotationDrawerHeight: CGFloat = 250
 
+/// Minimum visible content left above the annotation drawer during resize.
+private let annotationDrawerVisibleHostStrip: CGFloat = 80
+
 // MARK: - ViewerViewController Annotation Drawer Extension
 
 extension ViewerViewController: AnnotationTableDrawerDelegate {
@@ -331,7 +334,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             proposed: heightConstraint.constant + deltaY,
             containerExtent: view.bounds.height,
             minimumDrawerExtent: 100,
-            minimumSiblingExtent: 0
+            minimumSiblingExtent: annotationDrawerVisibleHostStrip
         )
         heightConstraint.constant = newHeight
         annotationDrawerBottomConstraint?.constant = 0  // Keep visible while dragging

@@ -10,6 +10,9 @@ import os.log
 private let fastqDrawerLogger = Logger(subsystem: LogSubsystem.app, category: "ViewerFASTQDrawer")
 private let fastqDrawerHeight: CGFloat = 360
 
+/// Minimum visible content left above the FASTQ drawer during resize.
+private let fastqDrawerVisibleHostStrip: CGFloat = 80
+
 extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
 
     public func toggleFASTQMetadataDrawer() {
@@ -290,7 +293,7 @@ extension ViewerViewController: FASTQMetadataDrawerViewDelegate {
             proposed: heightConstraint.constant + deltaY,
             containerExtent: view.bounds.height,
             minimumDrawerExtent: 150,
-            minimumSiblingExtent: 0
+            minimumSiblingExtent: fastqDrawerVisibleHostStrip
         )
         heightConstraint.constant = newHeight
         fastqMetadataDrawerBottomConstraint?.constant = 0  // Keep visible while dragging
