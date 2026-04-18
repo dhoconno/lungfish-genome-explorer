@@ -7,7 +7,14 @@ enum MetagenomicsPaneSizing {
         minimumDrawerExtent: CGFloat,
         minimumSiblingExtent: CGFloat
     ) -> CGFloat {
-        let maximumDrawerExtent = max(minimumDrawerExtent, containerExtent - minimumSiblingExtent)
+        let maximumDrawerExtent = max(0, containerExtent - minimumSiblingExtent)
+
+        // If the container is too small to satisfy both minima, preserve the
+        // sibling strip and let the drawer shrink below its preferred minimum.
+        if maximumDrawerExtent < minimumDrawerExtent {
+            return min(max(proposed, 0), maximumDrawerExtent)
+        }
+
         return min(max(proposed, minimumDrawerExtent), maximumDrawerExtent)
     }
 

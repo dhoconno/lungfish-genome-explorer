@@ -69,6 +69,17 @@ final class MetagenomicsPaneSizingTests: XCTestCase {
         XCTAssertEqual(height, 140)
     }
 
+    func testClampedDrawerExtentPrefersVisibleSiblingStripInUndersizedContainer() {
+        let height = MetagenomicsPaneSizing.clampedDrawerExtent(
+            proposed: 200,
+            containerExtent: 220,
+            minimumDrawerExtent: 140,
+            minimumSiblingExtent: 120
+        )
+
+        XCTAssertEqual(height, 100)
+    }
+
     func testClampedDividerPositionLeavesVisibleTrailingPane() {
         let position = MetagenomicsPaneSizing.clampedDividerPosition(
             proposed: 980,
