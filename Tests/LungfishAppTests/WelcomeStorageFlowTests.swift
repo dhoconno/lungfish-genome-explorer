@@ -54,9 +54,10 @@ private final class DelayedInstallWelcomeStatusProvider: @unchecked Sendable, Pl
         reinstall: Bool,
         progress: (@Sendable (PluginPackInstallProgress) -> Void)?
     ) async throws {
+        let activeRequirement = pack.toolRequirements.first
         progress?(PluginPackInstallProgress(
-            requirementID: nil,
-            requirementDisplayName: nil,
+            requirementID: activeRequirement?.id,
+            requirementDisplayName: activeRequirement?.displayName,
             overallFraction: 0.1,
             itemFraction: 0.1,
             message: "Installing"
@@ -445,6 +446,28 @@ final class WelcomeStorageFlowTests: XCTestCase {
         XCTAssertEqual(store.currentLocation().rootURL, newRoot.standardizedFileURL)
 
         provider.releaseInstall()
+    }
+
+    @MainActor
+    func testInstallRequiredSetupClearsStaleItemProgressAfterRefresh() async {
+        let provider = DelayedInstallWelcomeStatusProvider(statuses: [requiredStatus(state: .needsInstall)])
+        let viewModel = WelcomeViewModel(statusProvider: provider)
+
+        await viewModel.refreshSetup()
+        viewModel.installRequiredSetup()
+        await Task.yield()
+
+        for _ in 0..<10 where viewModel.requiredSetupItemProgress.isEmpty {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertFalse(viewModel.requiredSetupItemProgress.isEmpty)
+
+        provider.releaseInstall()
+        try? await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertFalse(viewModel.isInstallingRequiredSetup)
+        XCTAssertTrue(viewModel.requiredSetupItemProgress.isEmpty)
+        XCTAssertEqual(viewModel.requiredSetupStatus?.state, .needsInstall)
     }
 
     @MainActor

@@ -308,6 +308,7 @@ final class WelcomeViewModel: ObservableObject {
                     }
                 )
                 await refreshSetup()
+                requiredSetupItemProgress = [:]
                 requiredSetupProgress = nil
                 requiredSetupProgressMessage = nil
             } catch {
