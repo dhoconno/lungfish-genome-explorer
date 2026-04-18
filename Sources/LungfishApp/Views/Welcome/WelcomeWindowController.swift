@@ -153,6 +153,7 @@ final class WelcomeViewModel: ObservableObject {
     private let storageCoordinator: ManagedStorageCoordinator
     private let storageConfigStore: ManagedStorageConfigStore
     private let notificationCenter: NotificationCenter
+    private var setupRefreshSequence = 0
 
     var onCreateProject: ((URL) -> Void)?
     var onOpenProject: ((URL) -> Void)?
@@ -268,13 +269,16 @@ final class WelcomeViewModel: ObservableObject {
     }
 
     func refreshSetup() async {
+        setupRefreshSequence += 1
+        let refreshID = setupRefreshSequence
         isRefreshingSetup = true
         requiredSetupStatus = nil
         optionalPackStatuses = []
-        defer { isRefreshingSetup = false }
         let statuses = await statusProvider.visibleStatuses()
+        guard refreshID == setupRefreshSequence else { return }
         requiredSetupStatus = statuses.first(where: { $0.pack.isRequiredBeforeLaunch })
         optionalPackStatuses = statuses.filter { !$0.pack.isRequiredBeforeLaunch }
+        isRefreshingSetup = false
     }
 
     func installRequiredSetup() {

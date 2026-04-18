@@ -126,6 +126,84 @@ private final class StatefulWelcomePackStatusProvider: @unchecked Sendable, Plug
     }
 }
 
+private final class OverlappingWelcomePackStatusProvider: @unchecked Sendable, PluginPackStatusProviding {
+    private let firstStatuses: [PluginPackStatus]
+    private let secondStatuses: [PluginPackStatus]
+    private let lock = NSLock()
+    private var callCount = 0
+    private var firstContinuation: CheckedContinuation<Void, Never>?
+    private var secondContinuation: CheckedContinuation<Void, Never>?
+
+    init(firstStatuses: [PluginPackStatus], secondStatuses: [PluginPackStatus]) {
+        self.firstStatuses = firstStatuses
+        self.secondStatuses = secondStatuses
+    }
+
+    func visibleStatuses() async -> [PluginPackStatus] {
+        let statuses: [PluginPackStatus]
+        let callIndex = lock.withLock {
+            callCount += 1
+            return callCount
+        }
+
+        switch callIndex {
+        case 1:
+            statuses = firstStatuses
+            await withCheckedContinuation { continuation in
+                lock.withLock {
+                    firstContinuation = continuation
+                }
+            }
+        case 2:
+            statuses = secondStatuses
+            await withCheckedContinuation { continuation in
+                lock.withLock {
+                    secondContinuation = continuation
+                }
+            }
+        default:
+            statuses = secondStatuses
+        }
+
+        return statuses
+    }
+
+    func status(for pack: PluginPack) async -> PluginPackStatus {
+        secondStatuses.first(where: { $0.pack.id == pack.id })
+            ?? firstStatuses.first(where: { $0.pack.id == pack.id })!
+    }
+
+    func invalidateVisibleStatusesCache() async {}
+
+    func install(
+        pack: PluginPack,
+        reinstall: Bool,
+        progress: (@Sendable (PluginPackInstallProgress) -> Void)?
+    ) async throws {}
+
+    func releaseFirst() {
+        let continuation = lock.withLock {
+            let continuation = firstContinuation
+            firstContinuation = nil
+            return continuation
+        }
+        continuation?.resume()
+    }
+
+    func releaseSecond() {
+        let continuation = lock.withLock {
+            let continuation = secondContinuation
+            secondContinuation = nil
+            return continuation
+        }
+        continuation?.resume()
+    }
+
+    func recordedCallCount() -> Int {
+        lock.withLock { callCount }
+    }
+}
+
 @MainActor
 final class WelcomeSetupTests: XCTestCase {
 
@@ -351,6 +429,46 @@ final class WelcomeSetupTests: XCTestCase {
         XCTAssertTrue(viewModel.isRefreshingSetup)
         provider.release()
         try? await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
+    }
+
+    func testRefreshSetupIgnoresStaleOverlappingResults() async {
+        let stale = PluginPackStatus(
+            pack: .requiredSetupPack,
+            state: .needsInstall,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+        let fresh = PluginPackStatus(
+            pack: .requiredSetupPack,
+            state: .ready,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+
+        let provider = OverlappingWelcomePackStatusProvider(
+            firstStatuses: [stale],
+            secondStatuses: [fresh]
+        )
+        let viewModel = WelcomeViewModel(statusProvider: provider)
+
+        let firstRefresh = Task { await viewModel.refreshSetup() }
+        await Task.yield()
+
+        let secondRefresh = Task { await viewModel.refreshSetup() }
+        for _ in 0..<20 where provider.recordedCallCount() < 2 {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(provider.recordedCallCount(), 2)
+
+        provider.releaseSecond()
+        await secondRefresh.value
+
+        XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
+
+        provider.releaseFirst()
+        await firstRefresh.value
 
         XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
     }
