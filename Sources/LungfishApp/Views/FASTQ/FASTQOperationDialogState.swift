@@ -100,6 +100,7 @@ final class FASTQOperationDialogState {
     var selectReadsBySequenceKeepMatched: Bool
     var selectReadsBySequenceSearchReverseComplement: Bool
 
+    var demultiplexBarcodeSource: FASTQDemultiplexBarcodeSource
     var demultiplexKitID: String
     var demultiplexCustomCSVPath: String
     var demultiplexLocation: String
@@ -173,6 +174,7 @@ final class FASTQOperationDialogState {
         self.selectReadsBySequenceErrorRate = 0.15
         self.selectReadsBySequenceKeepMatched = true
         self.selectReadsBySequenceSearchReverseComplement = false
+        self.demultiplexBarcodeSource = .builtinKit
         self.demultiplexKitID = BarcodeKitRegistry.builtinKits().first?.id ?? ""
         self.demultiplexCustomCSVPath = ""
         self.demultiplexLocation = "bothends"
@@ -237,13 +239,15 @@ final class FASTQOperationDialogState {
             return .refreshQCSummary(inputURLs: selectedInputURLs)
 
         case .demultiplexBarcodes:
-            let customCSVPath = trimmedNonEmpty(demultiplexCustomCSVPath)
-            let kitID = customCSVPath.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent }
-                ?? demultiplexKitID
+            let customCSVPath = selectedBarcodeDefinitionPath
+            let kitID = demultiplexBarcodeSource == .customDefinition
+                ? customCSVPath.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent }
+                : trimmedNonEmpty(demultiplexKitID)
+            guard let kitID else { return nil }
             return .derivative(
                 request: .demultiplex(
                     kitID: kitID,
-                    customCSVPath: customCSVPath,
+                    customCSVPath: demultiplexBarcodeSource == .customDefinition ? customCSVPath : nil,
                     location: demultiplexLocation,
                     symmetryMode: nil,
                     maxDistanceFrom5Prime: demultiplexMaxDistanceFrom5Prime,
@@ -287,7 +291,7 @@ final class FASTQOperationDialogState {
 
         case .primerTrimming:
             let literalSequence = trimmedNonEmpty(primerTrimmingLiteralSequence)
-            let referencePath = trimmedNonEmpty(primerTrimmingReferencePath)
+            let referencePath = selectedPrimerReferencePath
             switch primerTrimmingSource {
             case .literal where literalSequence == nil:
                 return nil
@@ -356,12 +360,13 @@ final class FASTQOperationDialogState {
             )
 
         case .removeDuplicates:
+            let deduplicateParameters = resolvedDeduplicateParameters()
             return .derivative(
                 request: .deduplicate(
                     preset: removeDuplicatesPreset,
-                    substitutions: removeDuplicatesSubstitutions,
-                    optical: removeDuplicatesOptical,
-                    opticalDistance: removeDuplicatesOpticalDistance
+                    substitutions: deduplicateParameters.substitutions,
+                    optical: deduplicateParameters.optical,
+                    opticalDistance: deduplicateParameters.opticalDistance
                 ),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
@@ -595,7 +600,22 @@ final class FASTQOperationDialogState {
     }
 
     var requiredInputKinds: [FASTQOperationInputKind] {
-        selectedToolID.requiredInputKinds
+        switch selectedToolID {
+        case .primerTrimming:
+            return primerTrimmingSource == .reference
+                ? [.fastqDataset, .primerSource]
+                : [.fastqDataset]
+        case .removeContaminants:
+            return removeContaminantsMode == .custom
+                ? [.fastqDataset, .contaminantReference]
+                : [.fastqDataset]
+        case .demultiplexBarcodes:
+            return demultiplexBarcodeSource == .customDefinition
+                ? [.fastqDataset, .barcodeDefinition]
+                : [.fastqDataset]
+        default:
+            return selectedToolID.requiredInputKinds
+        }
     }
 
     var isRunEnabled: Bool {
@@ -731,9 +751,7 @@ final class FASTQOperationDialogState {
                     ? "Enter a literal primer sequence or switch to reference mode."
                     : nil
             case .reference:
-                return trimmedNonEmpty(primerTrimmingReferencePath) == nil
-                    ? "Select a primer reference FASTA or switch to literal mode."
-                    : nil
+                return nil
             }
 
         case .trimFixedBases:
@@ -751,9 +769,6 @@ final class FASTQOperationDialogState {
             return nil
 
         case .removeContaminants:
-            if removeContaminantsMode == .custom, auxiliaryInputURL(for: .contaminantReference) == nil {
-                return "Select a contaminant reference FASTA for custom contaminant filtering."
-            }
             return nil
 
         case .removeDuplicates:
@@ -805,9 +820,10 @@ final class FASTQOperationDialogState {
                 : nil
 
         case .demultiplexBarcodes:
-            return demultiplexKitID.isEmpty && trimmedNonEmpty(demultiplexCustomCSVPath) == nil
-                ? "Select a barcode kit or specify a custom barcode definition."
-                : nil
+            if demultiplexBarcodeSource == .builtinKit, trimmedNonEmpty(demultiplexKitID) == nil {
+                return "Select a built-in barcode kit or switch to a custom definition."
+            }
+            return nil
 
         case .refreshQCSummary, .minimap2, .spades, .kraken2, .esViritu, .taxTriage, .removeHumanReads:
             return nil
@@ -815,7 +831,6 @@ final class FASTQOperationDialogState {
     }
 
     private func normalizeSelectionState() {
-        auxiliaryInputs = auxiliaryInputs.filter { requiredInputKinds.contains($0.key) }
         embeddedToolReady = selectedToolID.defaultEmbeddedReadiness
         embeddedRunTrigger = 0
         pendingLaunchRequest = nil
@@ -849,6 +864,35 @@ final class FASTQOperationDialogState {
     private func trimmedNonEmpty(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private var selectedPrimerReferencePath: String? {
+        auxiliaryInputURL(for: .primerSource)?.path
+    }
+
+    private var selectedBarcodeDefinitionPath: String? {
+        auxiliaryInputURL(for: .barcodeDefinition)?.path
+    }
+
+    private func resolvedDeduplicateParameters() -> (substitutions: Int, optical: Bool, opticalDistance: Int) {
+        switch removeDuplicatesPreset {
+        case .exactPCR:
+            return (0, false, 40)
+        case .nearDuplicate1:
+            return (1, false, 40)
+        case .nearDuplicate2:
+            return (2, false, 40)
+        case .opticalHiSeq:
+            return (0, true, 40)
+        case .opticalNovaSeq:
+            return (0, true, 12000)
+        case .custom:
+            return (
+                removeDuplicatesSubstitutions,
+                removeDuplicatesOptical,
+                removeDuplicatesOpticalDistance
+            )
+        }
     }
 
     private func isPathLikeSequenceFilterValue(_ value: String) -> Bool {
@@ -973,7 +1017,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .refreshQCSummary:
             return [.fastqDataset]
         case .demultiplexBarcodes:
-            return [.fastqDataset]
+            return [.fastqDataset, .barcodeDefinition]
         case .qualityTrim, .adapterRemoval, .trimFixedBases, .filterByReadLength,
              .removeDuplicates, .mergeOverlappingPairs, .repairPairedEndFiles,
              .correctSequencingErrors, .subsampleByProportion, .subsampleByCount,
@@ -1058,7 +1102,7 @@ enum FASTQOperationInputKind: String, CaseIterable, Sendable {
         case .barcodeDefinition:
             return "Barcode Definition"
         case .primerSource:
-            return "Primer Source"
+            return "Primer Reference"
         case .contaminantReference:
             return "Contaminant Reference"
         }
@@ -1071,9 +1115,9 @@ enum FASTQOperationInputKind: String, CaseIterable, Sendable {
         case .database:
             return "Select a database to continue."
         case .barcodeDefinition:
-            return "Select a barcode definition to continue."
+            return "Select a custom barcode definition to continue."
         case .primerSource:
-            return "Select a primer source to continue."
+            return "Select a primer reference FASTA to continue."
         case .contaminantReference:
             return "Select a contaminant reference to continue."
         case .fastqDataset:
@@ -1093,10 +1137,17 @@ enum FASTQOperationInputKind: String, CaseIterable, Sendable {
             return fastaLike.contains(ext)
         case .database:
             return url.hasDirectoryPath || ext.isEmpty || ["db", "k2d", "sqlite", "json"].contains(ext)
-        case .barcodeDefinition, .primerSource:
+        case .barcodeDefinition:
             return textLike.contains(ext)
+        case .primerSource:
+            return fastaLike.contains(ext)
         }
     }
+}
+
+enum FASTQDemultiplexBarcodeSource: String, CaseIterable, Sendable {
+    case builtinKit
+    case customDefinition
 }
 
 enum FASTQOperationOutputMode: String, CaseIterable, Sendable {

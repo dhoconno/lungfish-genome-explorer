@@ -100,6 +100,90 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         )
     }
 
+    func testPrimerTrimmingLiteralModeDoesNotRequireAuxiliaryPrimerInput() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .trimmingFiltering,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+
+        state.selectTool(.primerTrimming)
+
+        XCTAssertEqual(state.requiredInputKinds, [.fastqDataset])
+        XCTAssertFalse(state.isRunEnabled)
+
+        state.primerTrimmingLiteralSequence = "AGATCGGAAGAGC"
+        state.prepareForRun()
+
+        XCTAssertTrue(state.isRunEnabled)
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .primerRemoval(configuration: FASTQPrimerTrimConfiguration(
+                    source: .literal,
+                    forwardSequence: "AGATCGGAAGAGC",
+                    tool: .bbduk,
+                    kmerSize: 15,
+                    minKmer: 11,
+                    hammingDistance: 1
+                )),
+                inputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+                outputMode: .perInput
+            )
+        )
+    }
+
+    func testPrimerTrimmingReferenceModeRequiresPrimerInputSelection() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .trimmingFiltering,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+
+        state.selectTool(.primerTrimming)
+        state.primerTrimmingSource = .reference
+
+        XCTAssertEqual(state.requiredInputKinds, [.fastqDataset, .primerSource])
+        XCTAssertFalse(state.isRunEnabled)
+
+        state.setAuxiliaryInput(URL(fileURLWithPath: "/tmp/primers.fasta"), for: .primerSource)
+        state.prepareForRun()
+
+        XCTAssertTrue(state.isRunEnabled)
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .primerRemoval(configuration: FASTQPrimerTrimConfiguration(
+                    source: .reference,
+                    referenceFasta: "/tmp/primers.fasta",
+                    tool: .bbduk,
+                    kmerSize: 15,
+                    minKmer: 11,
+                    hammingDistance: 1
+                )),
+                inputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+                outputMode: .perInput
+            )
+        )
+    }
+
+    func testSwitchingAwayAndBackPreservesSpecializedAuxiliarySelections() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .trimmingFiltering,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+        let primerURL = URL(fileURLWithPath: "/tmp/primers.fasta")
+
+        state.selectTool(.primerTrimming)
+        state.primerTrimmingSource = .reference
+        state.setAuxiliaryInput(primerURL, for: .primerSource)
+
+        state.selectTool(.qualityTrim)
+        state.selectTool(.primerTrimming)
+        state.primerTrimmingSource = .reference
+
+        XCTAssertEqual(state.auxiliaryInputURL(for: .primerSource), primerURL)
+        XCTAssertTrue(state.isRunEnabled)
+    }
+
     func testSearchTextRemainsDisabledUntilQueryAndFieldAreSet() {
         let state = FASTQOperationDialogState(
             initialCategory: .searchSubsetting,
@@ -198,6 +282,162 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertFalse(state.isAuxiliaryInputValid(for: .referenceSequence))
         XCTAssertFalse(state.isRunEnabled)
         XCTAssertEqual(state.readinessText, "Select a reference sequence to continue.")
+    }
+
+    func testPhixContaminantModeDoesNotRequireCustomReferenceSelection() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .decontamination,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+
+        state.selectTool(.removeContaminants)
+
+        XCTAssertEqual(state.requiredInputKinds, [.fastqDataset])
+        XCTAssertTrue(state.isRunEnabled)
+
+        state.prepareForRun()
+
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .contaminantFilter(
+                    mode: .phix,
+                    referenceFasta: nil,
+                    kmerSize: 31,
+                    hammingDistance: 1
+                ),
+                inputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+                outputMode: .perInput
+            )
+        )
+    }
+
+    func testCustomContaminantModeRequiresReferenceSelection() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .decontamination,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+
+        state.selectTool(.removeContaminants)
+        state.removeContaminantsMode = .custom
+
+        XCTAssertEqual(state.requiredInputKinds, [.fastqDataset, .contaminantReference])
+        XCTAssertFalse(state.isRunEnabled)
+
+        state.setAuxiliaryInput(URL(fileURLWithPath: "/tmp/contaminants.fasta"), for: .contaminantReference)
+        state.prepareForRun()
+
+        XCTAssertTrue(state.isRunEnabled)
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .contaminantFilter(
+                    mode: .custom,
+                    referenceFasta: "/tmp/contaminants.fasta",
+                    kmerSize: 31,
+                    hammingDistance: 1
+                ),
+                inputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+                outputMode: .perInput
+            )
+        )
+    }
+
+    func testDemultiplexBuiltInKitDoesNotRequireBarcodeDefinitionSelection() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .demultiplexing,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+
+        state.selectTool(.demultiplexBarcodes)
+        state.demultiplexKitID = "rapid-kit"
+
+        XCTAssertEqual(state.requiredInputKinds, [.fastqDataset])
+        XCTAssertTrue(state.isRunEnabled)
+
+        state.prepareForRun()
+
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .demultiplex(
+                    kitID: "rapid-kit",
+                    customCSVPath: nil,
+                    location: "bothends",
+                    symmetryMode: nil,
+                    maxDistanceFrom5Prime: 0,
+                    maxDistanceFrom3Prime: 0,
+                    errorRate: 0.15,
+                    trimBarcodes: true,
+                    sampleAssignments: nil,
+                    kitOverride: nil
+                ),
+                inputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+                outputMode: .perInput
+            )
+        )
+    }
+
+    func testDemultiplexCustomBarcodeDefinitionUsesAuxiliaryInput() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .demultiplexing,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+
+        state.selectTool(.demultiplexBarcodes)
+        state.demultiplexBarcodeSource = .customDefinition
+
+        XCTAssertEqual(state.requiredInputKinds, [.fastqDataset, .barcodeDefinition])
+        XCTAssertFalse(state.isRunEnabled)
+
+        state.setAuxiliaryInput(URL(fileURLWithPath: "/tmp/barcodes.csv"), for: .barcodeDefinition)
+        state.prepareForRun()
+
+        XCTAssertTrue(state.isRunEnabled)
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .demultiplex(
+                    kitID: "barcodes",
+                    customCSVPath: "/tmp/barcodes.csv",
+                    location: "bothends",
+                    symmetryMode: nil,
+                    maxDistanceFrom5Prime: 0,
+                    maxDistanceFrom3Prime: 0,
+                    errorRate: 0.15,
+                    trimBarcodes: true,
+                    sampleAssignments: nil,
+                    kitOverride: nil
+                ),
+                inputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+                outputMode: .perInput
+            )
+        )
+    }
+
+    func testDeduplicatePresetSynthesizesCliCompatibleValues() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .decontamination,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+
+        state.selectTool(.removeDuplicates)
+        state.removeDuplicatesPreset = .opticalNovaSeq
+        state.prepareForRun()
+
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .deduplicate(
+                    preset: .opticalNovaSeq,
+                    substitutions: 0,
+                    optical: true,
+                    opticalDistance: 12000
+                ),
+                inputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+                outputMode: .perInput
+            )
+        )
     }
 
     func testClassificationToolsUseFixedBatchOutputModeAndHideOutputStrategyPicker() {
@@ -335,6 +575,20 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertTrue(source.contains("adapterRemovalMode"))
         XCTAssertTrue(source.contains("selectReadsBySequenceValue"))
         XCTAssertTrue(source.contains("demultiplexLocation"))
+    }
+
+    func testDerivativeToolPaneExposesEditableControlsForCustomDeduplication() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = root
+            .appendingPathComponent("Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("removeDuplicatesSubstitutions"))
+        XCTAssertTrue(source.contains("removeDuplicatesOptical"))
+        XCTAssertTrue(source.contains("removeDuplicatesOpticalDistance"))
     }
 
     func testClassificationCapturePreservesAllBatchInputs() {

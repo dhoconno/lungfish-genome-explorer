@@ -223,7 +223,9 @@ private struct FASTQOperationPrimarySettingsSection: View {
                 if state.primerTrimmingSource == .literal {
                     labeledTextField("Primer Sequence", text: $state.primerTrimmingLiteralSequence)
                 } else {
-                    labeledTextField("Reference FASTA", text: $state.primerTrimmingReferencePath)
+                    Text("Select the primer reference FASTA in the Inputs section.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 HStack(spacing: 12) {
                     labeledCompactTextField("k", text: Self.intBinding(state, \.primerTrimmingKmerSize))
@@ -263,6 +265,13 @@ private struct FASTQOperationPrimarySettingsSection: View {
                 Picker("Preset", selection: $state.removeDuplicatesPreset) {
                     ForEach(FASTQDeduplicatePreset.allCases, id: \.self) { preset in
                         Text(preset.displayName).tag(preset)
+                    }
+                }
+                if state.removeDuplicatesPreset == .custom {
+                    labeledCompactTextField("Substitutions", text: Self.intBinding(state, \.removeDuplicatesSubstitutions))
+                    Toggle("Optical Duplicates", isOn: $state.removeDuplicatesOptical)
+                    if state.removeDuplicatesOptical {
+                        labeledCompactTextField("Optical Distance", text: Self.intBinding(state, \.removeDuplicatesOpticalDistance))
                     }
                 }
 
@@ -326,8 +335,22 @@ private struct FASTQOperationPrimarySettingsSection: View {
                 Toggle("Search Reverse Complement", isOn: $state.selectReadsBySequenceSearchReverseComplement)
 
             case .demultiplexBarcodes:
-                labeledTextField("Barcode Kit", text: $state.demultiplexKitID)
-                labeledTextField("Custom CSV Path", text: $state.demultiplexCustomCSVPath)
+                Picker("Barcode Source", selection: $state.demultiplexBarcodeSource) {
+                    Text("Built-In Kit").tag(FASTQDemultiplexBarcodeSource.builtinKit)
+                    Text("Custom Definition").tag(FASTQDemultiplexBarcodeSource.customDefinition)
+                }
+                .pickerStyle(.segmented)
+                if state.demultiplexBarcodeSource == .builtinKit {
+                    Picker("Built-In Kit", selection: $state.demultiplexKitID) {
+                        ForEach(BarcodeKitRegistry.builtinKits()) { kit in
+                            Text(kit.displayName).tag(kit.id)
+                        }
+                    }
+                } else {
+                    Text("Select the barcode definition CSV in the Inputs section.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Picker("Location", selection: $state.demultiplexLocation) {
                     Text("Both Ends").tag("bothends")
                     Text("5' End").tag("fiveprime")
@@ -464,7 +487,7 @@ private struct FASTQOperationAdvancedSettingsSection: View {
                 Text("Search and sequence filtering use the literal values entered above.")
                     .foregroundStyle(.secondary)
             case .demultiplexBarcodes:
-                Text("Demultiplexing is constrained to kit/location/error-rate settings plus an optional custom CSV path.")
+                Text("Demultiplexing uses either a built-in kit or a custom barcode definition from the Inputs section.")
                     .foregroundStyle(.secondary)
             case .removeHumanReads:
                 Text("Human read removal stays fixed to the selected database input.")
