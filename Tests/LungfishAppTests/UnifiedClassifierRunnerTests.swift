@@ -63,12 +63,13 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
         XCTAssertTrue(source.contains("wizardPanel.setContentSize(UnifiedMetagenomicsWizard.preferredContentSize)"))
     }
 
-    func testClassifierLaunchRoutingUsesUnifiedRunnerSelection() throws {
+    func testClassifierLaunchRoutingUsesOperationsDialogForClassificationAndUnifiedRunnerForOthers() throws {
         let source = try loadSource(at: "Sources/LungfishApp/App/AppDelegate.swift")
 
-        XCTAssertTrue(source.contains("UnifiedMetagenomicsWizard(inputFiles: bundleURLs, initialSelection: .classification)"))
+        XCTAssertTrue(source.contains("showFASTQOperationsDialog(sender, initialCategory: .classification)"))
         XCTAssertTrue(source.contains("UnifiedMetagenomicsWizard(inputFiles: bundleURLs, initialSelection: .viralDetection)"))
         XCTAssertTrue(source.contains("UnifiedMetagenomicsWizard(inputFiles: bundleURLs, initialSelection: .clinicalTriage)"))
+        XCTAssertFalse(source.contains("UnifiedMetagenomicsWizard(inputFiles: bundleURLs, initialSelection: .classification)"))
         XCTAssertFalse(source.contains("ClassificationWizardSheet("))
         XCTAssertFalse(source.contains("EsVirituWizardSheet("))
         XCTAssertFalse(source.contains("TaxTriageWizardSheet("))
