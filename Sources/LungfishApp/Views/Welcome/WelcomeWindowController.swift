@@ -178,14 +178,21 @@ final class WelcomeViewModel: ObservableObject {
         storageConfigStore.defaultLocation.rootURL
     }
 
+    var isStorageChooserEnabled: Bool {
+        !isInstallingRequiredSetup && !isRefreshingSetup
+    }
+
     var canConfirmStorageSelection: Bool {
         guard let pendingStorageSelection else {
+            return false
+        }
+        guard isStorageChooserEnabled else {
             return false
         }
         guard case .valid = storageValidationResult else {
             return false
         }
-        return pendingStorageSelection.standardizedFileURL != currentStorageRootURL.standardizedFileURL
+        return pendingStorageSelection != currentStorageRootURL.resolvingSymlinksInPath().standardizedFileURL
     }
 
     var pendingStorageSelectionPath: String {
@@ -268,13 +275,14 @@ final class WelcomeViewModel: ObservableObject {
     }
 
     func chooseAlternateStorageLocation() {
+        guard isStorageChooserEnabled else { return }
         pendingStorageSelection = nil
         storageValidationResult = .valid
         showingStorageChooser = true
     }
 
     func updatePendingStorageSelection(_ url: URL) {
-        let selection = url.standardizedFileURL
+        let selection = url.resolvingSymlinksInPath().standardizedFileURL
         pendingStorageSelection = selection
         storageValidationResult = validateStorageSelection(selection)
     }
@@ -286,10 +294,13 @@ final class WelcomeViewModel: ObservableObject {
     }
 
     func confirmAlternateStorageLocation() async throws {
+        guard isStorageChooserEnabled else {
+            return
+        }
         guard case .valid = storageValidationResult, let selection = pendingStorageSelection else {
             return
         }
-        guard selection.standardizedFileURL != currentStorageRootURL.standardizedFileURL else {
+        guard selection != currentStorageRootURL.resolvingSymlinksInPath().standardizedFileURL else {
             return
         }
 
@@ -517,7 +528,8 @@ struct WelcomeView: View {
                         activeItemID: viewModel.requiredSetupActiveItemID,
                         showingDetails: $viewModel.showingSetupDetails,
                         onInstall: { viewModel.installRequiredSetup() },
-                        onChooseAlternateStorage: { viewModel.chooseAlternateStorageLocation() }
+                        onChooseAlternateStorage: { viewModel.chooseAlternateStorageLocation() },
+                        isStorageChooserEnabled: viewModel.isStorageChooserEnabled
                     )
                 }
             }
@@ -571,7 +583,8 @@ struct WelcomeView: View {
                     activeItemID: viewModel.requiredSetupActiveItemID,
                     showingDetails: $viewModel.showingSetupDetails,
                     onInstall: { viewModel.installRequiredSetup() },
-                    onChooseAlternateStorage: { viewModel.chooseAlternateStorageLocation() }
+                    onChooseAlternateStorage: { viewModel.chooseAlternateStorageLocation() },
+                    isStorageChooserEnabled: viewModel.isStorageChooserEnabled
                 )
             }
 
@@ -855,6 +868,7 @@ private struct RequiredSetupCard: View {
     @Binding var showingDetails: Bool
     let onInstall: () -> Void
     let onChooseAlternateStorage: () -> Void
+    let isStorageChooserEnabled: Bool
 
     private var isReady: Bool {
         status.state == .ready
@@ -915,6 +929,7 @@ private struct RequiredSetupCard: View {
                     onChooseAlternateStorage()
                 }
                 .buttonStyle(.link)
+                .disabled(!isStorageChooserEnabled)
             }
 
             if isInstalling {
@@ -1093,6 +1108,7 @@ private struct WelcomeStorageChooserSheet: View {
                 }
                 .buttonStyle(.bordered)
                 .tint(.lungfishCreamsicleFallback)
+                .disabled(!viewModel.isStorageChooserEnabled)
             }
 
             HStack {

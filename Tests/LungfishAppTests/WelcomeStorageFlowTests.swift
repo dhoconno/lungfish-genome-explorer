@@ -30,6 +30,95 @@ private actor SequencedWelcomeStorageStatusProvider: PluginPackStatusProviding {
     ) async throws {}
 }
 
+private final class DelayedInstallWelcomeStatusProvider: @unchecked Sendable, PluginPackStatusProviding {
+    let statuses: [PluginPackStatus]
+    private let lock = NSLock()
+    private var installContinuation: CheckedContinuation<Void, Never>?
+
+    init(statuses: [PluginPackStatus]) {
+        self.statuses = statuses
+    }
+
+    func visibleStatuses() async -> [PluginPackStatus] {
+        statuses
+    }
+
+    func status(for pack: PluginPack) async -> PluginPackStatus {
+        statuses.first(where: { $0.pack.id == pack.id })!
+    }
+
+    func invalidateVisibleStatusesCache() async {}
+
+    func install(
+        pack: PluginPack,
+        reinstall: Bool,
+        progress: (@Sendable (PluginPackInstallProgress) -> Void)?
+    ) async throws {
+        progress?(PluginPackInstallProgress(
+            requirementID: nil,
+            requirementDisplayName: nil,
+            overallFraction: 0.1,
+            itemFraction: 0.1,
+            message: "Installing"
+        ))
+
+        await withCheckedContinuation { continuation in
+            lock.withLock {
+                installContinuation = continuation
+            }
+        }
+    }
+
+    func releaseInstall() {
+        let continuation = lock.withLock {
+            let continuation = installContinuation
+            installContinuation = nil
+            return continuation
+        }
+        continuation?.resume()
+    }
+}
+
+private final class DelayedRefreshWelcomeStatusProvider: @unchecked Sendable, PluginPackStatusProviding {
+    let statuses: [PluginPackStatus]
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    init(statuses: [PluginPackStatus]) {
+        self.statuses = statuses
+    }
+
+    func visibleStatuses() async -> [PluginPackStatus] {
+        await withCheckedContinuation { continuation in
+            lock.withLock {
+                self.continuation = continuation
+            }
+        }
+        return statuses
+    }
+
+    func status(for pack: PluginPack) async -> PluginPackStatus {
+        statuses.first(where: { $0.pack.id == pack.id })!
+    }
+
+    func invalidateVisibleStatusesCache() async {}
+
+    func install(
+        pack: PluginPack,
+        reinstall: Bool,
+        progress: (@Sendable (PluginPackInstallProgress) -> Void)?
+    ) async throws {}
+
+    func release() {
+        let continuation = lock.withLock {
+            let continuation = self.continuation
+            self.continuation = nil
+            return continuation
+        }
+        continuation?.resume()
+    }
+}
+
 final class WelcomeStorageFlowTests: XCTestCase {
     private var tempHome: URL!
 
@@ -96,6 +185,46 @@ final class WelcomeStorageFlowTests: XCTestCase {
     }
 
     @MainActor
+    func testResolvedSelectionMatchingCurrentRootIsRejected() async throws {
+        let store = ManagedStorageConfigStore(homeDirectory: tempHome)
+        let currentRoot = store.defaultLocation.rootURL
+        try FileManager.default.createDirectory(at: currentRoot, withIntermediateDirectories: true)
+
+        let symlinkRoot = tempHome.appendingPathComponent("current-root-link", isDirectory: false)
+        try FileManager.default.createSymbolicLink(
+            at: symlinkRoot,
+            withDestinationURL: currentRoot
+        )
+
+        let coordinator = ManagedStorageCoordinator(
+            configStore: store,
+            databaseMigrator: { _, _ in
+                XCTFail("Migration should not run when the resolved selection matches the current root")
+            },
+            toolInstaller: { _ in
+                XCTFail("Tool install should not run when the resolved selection matches the current root")
+            },
+            verifier: { _ in
+                XCTFail("Verification should not run when the resolved selection matches the current root")
+            }
+        )
+        let viewModel = WelcomeViewModel(
+            statusProvider: SequencedWelcomeStorageStatusProvider(sequences: [[requiredStatus(state: .needsInstall)]]),
+            storageCoordinator: coordinator,
+            storageConfigStore: store
+        )
+
+        viewModel.chooseAlternateStorageLocation()
+        viewModel.updatePendingStorageSelection(symlinkRoot)
+        try await viewModel.confirmAlternateStorageLocation()
+
+        XCTAssertEqual(viewModel.pendingStorageSelection, currentRoot.resolvingSymlinksInPath().standardizedFileURL)
+        XCTAssertEqual(viewModel.storageValidationResult, .valid)
+        XCTAssertFalse(viewModel.canConfirmStorageSelection)
+        XCTAssertEqual(store.currentLocation().rootURL, currentRoot)
+    }
+
+    @MainActor
     func testConfirmAlternateStorageLocationChangesStorageAndRefreshesSetup() async throws {
         let store = ManagedStorageConfigStore(homeDirectory: tempHome)
         let newRoot = tempHome.appendingPathComponent("ExternalManagedStorage", isDirectory: true)
@@ -125,6 +254,48 @@ final class WelcomeStorageFlowTests: XCTestCase {
         XCTAssertEqual(store.currentLocation().rootURL, newRoot.standardizedFileURL)
         XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
         XCTAssertFalse(viewModel.showingStorageChooser)
+    }
+
+    @MainActor
+    func testChooseAlternateStorageLocationIsRejectedWhileInstallIsActive() async throws {
+        let provider = DelayedInstallWelcomeStatusProvider(statuses: [requiredStatus(state: .needsInstall)])
+        let viewModel = WelcomeViewModel(statusProvider: provider)
+        let alternateRoot = tempHome.appendingPathComponent("AlternateManagedRoot", isDirectory: true)
+
+        await viewModel.refreshSetup()
+        viewModel.updatePendingStorageSelection(alternateRoot)
+        XCTAssertTrue(viewModel.canConfirmStorageSelection)
+
+        viewModel.installRequiredSetup()
+        await Task.yield()
+
+        XCTAssertTrue(viewModel.isInstallingRequiredSetup)
+
+        viewModel.chooseAlternateStorageLocation()
+
+        XCTAssertFalse(viewModel.showingStorageChooser)
+        XCTAssertFalse(viewModel.canConfirmStorageSelection)
+
+        provider.releaseInstall()
+    }
+
+    @MainActor
+    func testChooseAlternateStorageLocationIsRejectedWhileRefreshIsActive() async {
+        let provider = DelayedRefreshWelcomeStatusProvider(statuses: [requiredStatus(state: .needsInstall)])
+        let viewModel = WelcomeViewModel(statusProvider: provider)
+
+        let refreshTask = Task { await viewModel.refreshSetup() }
+        await Task.yield()
+
+        XCTAssertTrue(viewModel.isRefreshingSetup)
+
+        viewModel.chooseAlternateStorageLocation()
+
+        XCTAssertFalse(viewModel.showingStorageChooser)
+        XCTAssertFalse(viewModel.canConfirmStorageSelection)
+
+        provider.release()
+        await refreshTask.value
     }
 
     private func requiredStatus(state: PluginPackState) -> PluginPackStatus {

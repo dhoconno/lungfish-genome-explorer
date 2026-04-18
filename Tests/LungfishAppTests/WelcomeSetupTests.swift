@@ -189,7 +189,10 @@ final class WelcomeSetupTests: XCTestCase {
         )
 
         XCTAssertTrue(source.contains("Need more space? Choose another storage location…"))
+        XCTAssertTrue(source.contains("url.resolvingSymlinksInPath().standardizedFileURL"))
+        XCTAssertTrue(source.contains("var isStorageChooserEnabled: Bool"))
         XCTAssertTrue(source.contains("Button(\"Use This Location\")"))
+        XCTAssertTrue(source.contains(".disabled(!viewModel.isStorageChooserEnabled)"))
         XCTAssertTrue(source.contains(".disabled(!viewModel.canConfirmStorageSelection)"))
     }
 
