@@ -162,6 +162,14 @@ final class WindowAppearanceTests: XCTestCase {
         XCTAssertTrue(source.contains("onRunnerAvailabilityChange"))
         XCTAssertTrue(source.contains("if embeddedInOperationsDialog"))
         XCTAssertTrue(source.contains("ScrollView {"))
+        XCTAssertTrue(source.contains(".onChange(of: embeddedRunTrigger)"))
+        XCTAssertTrue(source.contains("performRun()"))
+        XCTAssertTrue(source.contains("onRunnerAvailabilityChange?(canRun)"))
+        XCTAssertTrue(source.contains("onRunnerAvailabilityChange?(newValue)"))
+        XCTAssertTrue(source.contains("headerSection"))
+        XCTAssertTrue(source.contains("footerSection"))
+        XCTAssertTrue(source.contains("width: embeddedInOperationsDialog ? nil : 520"))
+        XCTAssertTrue(source.contains("height: embeddedInOperationsDialog ? nil : 520"))
         XCTAssertFalse(source.contains("embeddedInUnifiedRunner"))
     }
 
@@ -177,6 +185,14 @@ final class WindowAppearanceTests: XCTestCase {
         XCTAssertTrue(source.contains("onRunnerAvailabilityChange"))
         XCTAssertTrue(source.contains("if embeddedInOperationsDialog"))
         XCTAssertTrue(source.contains("ScrollView {"))
+        XCTAssertTrue(source.contains(".onChange(of: embeddedRunTrigger)"))
+        XCTAssertTrue(source.contains("performRun()"))
+        XCTAssertTrue(source.contains("onRunnerAvailabilityChange?(canRun)"))
+        XCTAssertTrue(source.contains("onRunnerAvailabilityChange?(newValue)"))
+        XCTAssertTrue(source.contains("headerSection"))
+        XCTAssertTrue(source.contains("footerSection"))
+        XCTAssertTrue(source.contains("width: embeddedInOperationsDialog ? nil : 520"))
+        XCTAssertTrue(source.contains("height: embeddedInOperationsDialog ? nil : 520"))
         XCTAssertFalse(source.contains("embeddedInUnifiedRunner"))
     }
 
