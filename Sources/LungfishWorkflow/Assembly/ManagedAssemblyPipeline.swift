@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishIO
 
 public struct ManagedAssemblyCommand: Sendable, Equatable {
     public let executable: String
@@ -30,6 +31,8 @@ public struct ManagedAssemblyCommand: Sendable, Equatable {
 public enum ManagedAssemblyPipelineError: Error, LocalizedError {
     case incompatibleSelection(String)
     case unsupportedInputTopology(String)
+    case stagingFailed(String)
+    case executionFailed(tool: String, exitCode: Int32, detail: String)
 
     public var errorDescription: String? {
         switch self {
@@ -37,8 +40,17 @@ public enum ManagedAssemblyPipelineError: Error, LocalizedError {
             return message
         case .unsupportedInputTopology(let message):
             return message
+        case .stagingFailed(let message):
+            return message
+        case .executionFailed(let tool, let exitCode, let detail):
+            return "\(tool) failed (exit \(exitCode)): \(detail)"
         }
     }
+}
+
+private struct PreparedManagedAssemblyExecution {
+    let request: AssemblyRunRequest
+    let redirectRoot: URL?
 }
 
 public struct ManagedAssemblyPipeline: Sendable {
@@ -80,7 +92,14 @@ public struct ManagedAssemblyPipeline: Sendable {
         request: AssemblyRunRequest,
         progress: ProgressHandler? = nil
     ) async throws -> AssemblyResult {
-        let command = try Self.buildCommand(for: request)
+        let preparedExecution = try Self.prepareExecution(for: request)
+        defer {
+            if let redirectRoot = preparedExecution.redirectRoot {
+                try? FileManager.default.removeItem(at: redirectRoot)
+            }
+        }
+
+        let command = try Self.buildCommand(for: preparedExecution.request)
         let start = Date()
 
         progress?(0, "Launching \(request.tool.displayName)...")
@@ -95,7 +114,7 @@ public struct ManagedAssemblyPipeline: Sendable {
             }
         )
 
-        let logPath = request.outputDirectory.appendingPathComponent("assembly.log")
+        let logPath = preparedExecution.request.outputDirectory.appendingPathComponent("assembly.log")
         let logBody = [result.stdout, result.stderr]
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
@@ -103,11 +122,35 @@ public struct ManagedAssemblyPipeline: Sendable {
             try logBody.write(to: logPath, atomically: true, encoding: .utf8)
         }
 
+        if result.exitCode != 0 {
+            try Self.repatriateOutputsIfNeeded(
+                from: preparedExecution.request.outputDirectory,
+                to: request.outputDirectory,
+                redirectRoot: preparedExecution.redirectRoot
+            )
+            throw ManagedAssemblyPipelineError.executionFailed(
+                tool: request.tool.displayName,
+                exitCode: result.exitCode,
+                detail: Self.failureDetail(
+                    tool: request.tool,
+                    outputDirectory: request.outputDirectory,
+                    stdout: result.stdout,
+                    stderr: result.stderr
+                )
+            )
+        }
+
         let version = await detectToolVersion(
             toolName: command.executable,
             environment: command.environment,
             condaManager: condaManager,
             flags: versionFlags(for: request.tool)
+        )
+
+        try Self.repatriateOutputsIfNeeded(
+            from: preparedExecution.request.outputDirectory,
+            to: request.outputDirectory,
+            redirectRoot: preparedExecution.redirectRoot
         )
         progress?(0.9, "Normalizing \(request.tool.displayName) output...")
 
@@ -261,6 +304,131 @@ public struct ManagedAssemblyPipeline: Sendable {
         return (request.inputURLs[0], request.inputURLs[1])
     }
 
+    private static func prepareExecution(
+        for request: AssemblyRunRequest
+    ) throws -> PreparedManagedAssemblyExecution {
+        let needsRedirect = request.outputDirectory.path.contains(" ")
+            || request.inputURLs.contains(where: { $0.path.contains(" ") })
+        guard needsRedirect else {
+            return PreparedManagedAssemblyExecution(
+                request: request,
+                redirectRoot: nil
+            )
+        }
+
+        let fm = FileManager.default
+        let safeRoot = try ProjectTempDirectory.create(
+            prefix: "managed-assembly-",
+            contextURL: request.outputDirectory,
+            policy: .systemOnly
+        )
+        guard !safeRoot.path.contains(" ") else {
+            try? fm.removeItem(at: safeRoot)
+            throw ManagedAssemblyPipelineError.stagingFailed(
+                "Unable to create a space-free temporary assembly workspace."
+            )
+        }
+
+        let stagedInputsDirectory = safeRoot.appendingPathComponent("inputs", isDirectory: true)
+        let stagedOutputDirectory = safeRoot.appendingPathComponent("output", isDirectory: true)
+        try fm.createDirectory(at: stagedInputsDirectory, withIntermediateDirectories: true)
+        try fm.createDirectory(at: stagedOutputDirectory, withIntermediateDirectories: true)
+
+        let stagedInputs = try request.inputURLs.enumerated().map { index, inputURL -> URL in
+            guard inputURL.path.contains(" ") else { return inputURL }
+            let linkURL = stagedInputsDirectory.appendingPathComponent(
+                stagedLeafName(for: inputURL, index: index)
+            )
+            try? fm.removeItem(at: linkURL)
+            try fm.createSymbolicLink(at: linkURL, withDestinationURL: inputURL)
+            return linkURL
+        }
+
+        return PreparedManagedAssemblyExecution(
+            request: request
+                .replacingInputURLs(with: stagedInputs)
+                .replacingOutputDirectory(with: stagedOutputDirectory),
+            redirectRoot: safeRoot
+        )
+    }
+
+    private static func stagedLeafName(for url: URL, index: Int) -> String {
+        "\(index)-\(url.lastPathComponent.replacingOccurrences(of: " ", with: "_"))"
+    }
+
+    private static func repatriateOutputsIfNeeded(
+        from stagedOutputDirectory: URL,
+        to finalOutputDirectory: URL,
+        redirectRoot: URL?
+    ) throws {
+        guard redirectRoot != nil else { return }
+
+        let fm = FileManager.default
+        try fm.createDirectory(at: finalOutputDirectory, withIntermediateDirectories: true)
+        let contents = try fm.contentsOfDirectory(
+            at: stagedOutputDirectory,
+            includingPropertiesForKeys: nil,
+            options: []
+        )
+
+        for item in contents {
+            let destination = finalOutputDirectory.appendingPathComponent(item.lastPathComponent)
+            if fm.fileExists(atPath: destination.path) {
+                try fm.removeItem(at: destination)
+            }
+            do {
+                try fm.moveItem(at: item, to: destination)
+            } catch {
+                try fm.copyItem(at: item, to: destination)
+                try? fm.removeItem(at: item)
+            }
+        }
+    }
+
+    private static func failureDetail(
+        tool: AssemblyTool,
+        outputDirectory: URL,
+        stdout: String,
+        stderr: String
+    ) -> String {
+        if tool == .spades,
+           let spadesDetail = spadesFailureDetail(
+                from: outputDirectory.appendingPathComponent("spades.log")
+           ) {
+            return spadesDetail
+        }
+
+        return lastNonEmptyLine(in: stderr)
+            ?? lastNonEmptyLine(in: stdout)
+            ?? "No additional error details were reported."
+    }
+
+    private static func spadesFailureDetail(from logURL: URL) -> String? {
+        guard let logBody = try? String(contentsOf: logURL, encoding: .utf8) else {
+            return nil
+        }
+
+        let lines = logBody
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        for phrase in ["Exception caught", "== Error ==", "finished abnormally"] {
+            if let line = lines.reversed().first(where: { $0.localizedCaseInsensitiveContains(phrase) }) {
+                return line
+            }
+        }
+
+        return lines.last
+    }
+
+    private static func lastNonEmptyLine(in text: String) -> String? {
+        text
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .last(where: { !$0.isEmpty })
+    }
+
     private func versionFlags(for tool: AssemblyTool) -> [String] {
         switch tool {
         case .spades, .megahit, .flye:
@@ -270,5 +438,39 @@ public struct ManagedAssemblyPipeline: Sendable {
         case .hifiasm:
             return ["--version", "-h"]
         }
+    }
+}
+
+private extension AssemblyRunRequest {
+    func replacingInputURLs(with inputURLs: [URL]) -> AssemblyRunRequest {
+        AssemblyRunRequest(
+            tool: tool,
+            readType: readType,
+            inputURLs: inputURLs,
+            projectName: projectName,
+            outputDirectory: outputDirectory,
+            pairedEnd: pairedEnd,
+            threads: threads,
+            memoryGB: memoryGB,
+            minContigLength: minContigLength,
+            selectedProfileID: selectedProfileID,
+            extraArguments: extraArguments
+        )
+    }
+
+    func replacingOutputDirectory(with outputDirectory: URL) -> AssemblyRunRequest {
+        AssemblyRunRequest(
+            tool: tool,
+            readType: readType,
+            inputURLs: inputURLs,
+            projectName: projectName,
+            outputDirectory: outputDirectory,
+            pairedEnd: pairedEnd,
+            threads: threads,
+            memoryGB: memoryGB,
+            minContigLength: minContigLength,
+            selectedProfileID: selectedProfileID,
+            extraArguments: extraArguments
+        )
     }
 }

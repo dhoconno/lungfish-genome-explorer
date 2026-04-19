@@ -150,6 +150,7 @@ final class WelcomeViewModel: ObservableObject {
 
     let recentProjects = RecentProjectsManager.shared
     private let statusProvider: any PluginPackStatusProviding
+    private let debugLaunchConfiguration: AppDebugLaunchConfiguration
     private let storageCoordinator: ManagedStorageCoordinator
     private let storageConfigStore: ManagedStorageConfigStore
     private let notificationCenter: NotificationCenter
@@ -162,12 +163,14 @@ final class WelcomeViewModel: ObservableObject {
 
     init(
         statusProvider: any PluginPackStatusProviding = PluginPackStatusService.shared,
+        debugLaunchConfiguration: AppDebugLaunchConfiguration = .current,
         storageCoordinator: ManagedStorageCoordinator? = nil,
         storageConfigStore: ManagedStorageConfigStore? = nil,
         notificationCenter: NotificationCenter = .default
     ) {
         let resolvedStorageConfigStore = storageConfigStore ?? ManagedStorageConfigStore.shared
         self.statusProvider = statusProvider
+        self.debugLaunchConfiguration = debugLaunchConfiguration
         self.storageConfigStore = resolvedStorageConfigStore
         self.storageCoordinator = storageCoordinator ?? ManagedStorageCoordinator(configStore: resolvedStorageConfigStore)
         self.notificationCenter = notificationCenter
@@ -186,7 +189,8 @@ final class WelcomeViewModel: ObservableObject {
     }
 
     var canLaunch: Bool {
-        requiredSetupStatus?.state == .ready && !isInstallingRequiredSetup
+        let requiredSetupReady = requiredSetupStatus?.state == .ready
+        return (requiredSetupReady || debugLaunchConfiguration.bypassRequiredSetup) && !isInstallingRequiredSetup
     }
 
     var currentStorageRootURL: URL {

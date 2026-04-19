@@ -6522,18 +6522,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         // Copy all files first
         for (index, tempURL) in tempFileURLs.enumerated() {
-            // Skip copy if file is already inside the project directory (e.g. extraction bundles
-            // saved directly to Extractions folder). Just use the URL as-is.
-            let alreadyInProject: Bool
-            if let projectURL = DocumentManager.shared.activeProject?.url,
-               isURL(tempURL, inside: projectURL) {
-                alreadyInProject = true
-            } else if let workingURL = workingDirectoryURL,
-                      isURL(tempURL, inside: workingURL) {
-                alreadyInProject = true
-            } else {
-                alreadyInProject = false
-            }
+            // Keep bundles in place only when they already live in a visible
+            // project folder. Project-local staging under `.tmp/` must still be
+            // copied into Downloads so the sidebar can surface it.
+            let alreadyInProject = DownloadImportRouting.shouldPreserveInPlace(
+                downloadedURL: tempURL,
+                projectURL: DocumentManager.shared.activeProject?.url,
+                workingDirectoryURL: workingDirectoryURL
+            )
 
             if alreadyInProject {
                 debugLog("handleMultipleDownloadsSync: \(tempURL.lastPathComponent) already in project, skipping copy")

@@ -261,12 +261,15 @@ public actor SRAService {
         let sraFile = outputDirectory
             .appendingPathComponent(accession)
             .appendingPathComponent("\(accession).sra")
+        let fasterqTempDirectory = try Self.createFasterqTempDirectory(for: outputDirectory)
+        defer { try? FileManager.default.removeItem(at: fasterqTempDirectory) }
 
         let fasterqResult = try await runCommand(
             toolkit.fasterqDump.path,
             arguments: [
                 sraFile.path,
                 "-O", outputDirectory.path,
+                "-t", fasterqTempDirectory.path,
                 "--split-files",  // Split paired reads
                 "--threads", "4"
             ]
@@ -413,6 +416,44 @@ public actor SRAService {
             .appendingPathComponent("sra-tools", isDirectory: true)
             .appendingPathComponent("bin", isDirectory: true)
             .appendingPathComponent(executableName)
+    }
+
+    internal static func createFasterqTempDirectory(for outputDirectory: URL) throws -> URL {
+        let fm = FileManager.default
+        let baseDirectory: URL
+        if let projectRoot = findProjectRoot(containing: outputDirectory) {
+            baseDirectory = projectRoot.appendingPathComponent(".tmp", isDirectory: true)
+        } else {
+            baseDirectory = outputDirectory
+        }
+
+        try fm.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
+        let tempDirectory = baseDirectory.appendingPathComponent(
+            "fasterq-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fm.createDirectory(at: tempDirectory, withIntermediateDirectories: false)
+        return tempDirectory
+    }
+
+    internal static func findProjectRoot(containing url: URL) -> URL? {
+        let fm = FileManager.default
+        var current = url.standardizedFileURL
+        var isDirectory: ObjCBool = false
+        if fm.fileExists(atPath: current.path, isDirectory: &isDirectory), !isDirectory.boolValue {
+            current = current.deletingLastPathComponent()
+        }
+
+        while true {
+            if current.pathExtension.lowercased() == "lungfish" {
+                return current
+            }
+            let parent = current.deletingLastPathComponent()
+            if parent.standardizedFileURL == current {
+                return nil
+            }
+            current = parent
+        }
     }
 
     private func resolvedSRAToolkitExecutables() -> (prefetch: URL, fasterqDump: URL)? {

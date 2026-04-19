@@ -348,6 +348,29 @@ final class WelcomeSetupTests: XCTestCase {
         XCTAssertTrue(viewModel.canLaunch)
     }
 
+    func testDebugBypassAllowsLaunchWhenRequiredSetupNeedsInstall() async {
+        let required = PluginPackStatus(
+            pack: .requiredSetupPack,
+            state: .needsInstall,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+
+        let viewModel = WelcomeViewModel(
+            statusProvider: StubWelcomePackStatusProvider(statuses: [required]),
+            debugLaunchConfiguration: AppDebugLaunchConfiguration(
+                environment: ["LUNGFISH_DEBUG_BYPASS_REQUIRED_SETUP": "1"]
+            )
+        )
+        await viewModel.refreshSetup()
+
+        #if DEBUG
+        XCTAssertTrue(viewModel.canLaunch)
+        #else
+        XCTAssertFalse(viewModel.canLaunch)
+        #endif
+    }
+
     func testRefreshSetupExposesLoadingStateWhileStatusesArePending() async {
         let required = PluginPackStatus(
             pack: .requiredSetupPack,

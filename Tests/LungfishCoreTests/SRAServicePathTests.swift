@@ -136,6 +136,65 @@ final class SRAServicePathTests: XCTestCase {
             ["SRR000001_1.fastq", "SRR000001_2.fastq"]
         )
     }
+
+    func testDownloadFASTQUsesProjectScopedTempDirectoryForFasterqDump() async throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "sra-home-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let binDir = home.appendingPathComponent(".lungfish/conda/envs/sra-tools/bin", isDirectory: true)
+        let projectDir = home.appendingPathComponent("Project With Spaces.lungfish", isDirectory: true)
+        let outputDir = projectDir.appendingPathComponent("Imports", isDirectory: true)
+        let argsLog = home.appendingPathComponent("fasterq-args.txt")
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+
+        try makeExecutableScript(
+            at: binDir.appendingPathComponent("prefetch"),
+            body: """
+            #!/bin/sh
+            mkdir -p "$3/$1"
+            touch "$3/$1/$1.sra"
+            exit 0
+            """
+        )
+        try makeExecutableScript(
+            at: binDir.appendingPathComponent("fasterq-dump"),
+            body: """
+            #!/bin/sh
+            printf '%s\n' "$@" > '\(argsLog.path)'
+            accession="$(basename "$1" .sra)"
+            outdir=""
+            prev=""
+            for arg in "$@"; do
+                if [ "$prev" = "-O" ]; then
+                    outdir="$arg"
+                fi
+                prev="$arg"
+            done
+            touch "$outdir/${accession}_1.fastq"
+            touch "$outdir/${accession}_2.fastq"
+            exit 0
+            """
+        )
+
+        let service = SRAService(homeDirectoryProvider: { home })
+        _ = try await service.downloadFASTQ(
+            accession: "SRR38159018",
+            outputDir: outputDir
+        )
+
+        let args = try String(contentsOf: argsLog, encoding: .utf8)
+            .split(separator: "\n")
+            .map(String.init)
+        let tempIndex = try XCTUnwrap(args.firstIndex(of: "-t"))
+        let tempDirectory = args[tempIndex + 1]
+
+        XCTAssertTrue(
+            tempDirectory.hasPrefix(projectDir.appendingPathComponent(".tmp", isDirectory: true).path),
+            "Expected fasterq-dump temp dir to live under the project .tmp folder"
+        )
+    }
 }
 
 private func makeExecutableScript(at url: URL, body: String) throws {
