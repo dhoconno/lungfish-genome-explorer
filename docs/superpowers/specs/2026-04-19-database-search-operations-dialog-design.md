@@ -38,6 +38,8 @@ This rollout does not cover:
 - The footer must match the operations dialog pattern:
   - left side for readiness or status text
   - right side for `Cancel` and the primary action
+- Existing visual-language frameworks, shared styles, and reusable shell components from the launch splash screen and current tool operation dialogs must be reused where they already exist.
+- If those surfaces still rely on local one-off styling in places needed by this refactor, the rollout must extract shared launcher-style primitives instead of introducing search-specific styling that cannot be reused.
 
 ### Navigation Model
 
@@ -84,6 +86,8 @@ This yields:
 - minimal new shell-specific styling
 
 The database search refactor must adapt itself to the shared shell instead of building another bespoke sheet.
+
+Where the welcome screen or operations surfaces already define the desired visual treatment, the refactor must consume those shared assets directly. Where the treatment exists only inline in one surface, the refactor must extract the minimum shared primitives needed so the database search dialog and future launcher-style tools can use the same visual language.
 
 ### 2. Search Dialog State Model
 
@@ -230,3 +234,4 @@ Add or update coverage for:
 - Prefer extracting reusable destination-specific panes and shared subviews over leaving a single monolithic search view in place.
 - Keep the current search services and import pipeline stable while the UI shell changes.
 - Match the existing operations dialog and welcome-splash visual language so the search browser no longer reads as a special-case surface.
+- Treat this refactor as an opportunity to strengthen shared launcher-style UI infrastructure: reuse existing framework pieces first, then extract missing ones into reusable components or styling primitives rather than hard-coding them inside the database search dialog.
