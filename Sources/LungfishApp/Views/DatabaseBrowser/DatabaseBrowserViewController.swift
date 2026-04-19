@@ -1145,19 +1145,24 @@ public class DatabaseBrowserViewModel: ObservableObject {
         selectedRecords = []
 
         if let automationBackend {
-            currentSearchTask = Task { [weak self] in
-                guard let self else { return }
+            let currentSource = source
+            let currentSearchType = ncbiSearchType
+            let currentSearchText = searchText
 
+            // Match the live path's detached execution so UI-test searches still
+            // progress reliably while the browser is presented in a modal sheet.
+            currentSearchTask = Task.detached { [weak self] in
                 do {
                     let response = try await automationBackend.search(
                         DatabaseSearchAutomationRequest(
-                            source: self.source,
-                            ncbiSearchType: self.ncbiSearchType,
-                            searchText: self.searchText
+                            source: currentSource,
+                            ncbiSearchType: currentSearchType,
+                            searchText: currentSearchText
                         )
                     )
 
                     await MainActor.run {
+                        guard let self else { return }
                         self.errorMessage = nil
                         self.results = response.records
                         self.selectedRecord = nil
@@ -1169,6 +1174,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                     }
                 } catch {
                     await MainActor.run {
+                        guard let self else { return }
                         self.errorMessage = error.localizedDescription
                         self.searchPhase = .failed(error.localizedDescription)
                         self.currentSearchTask = nil
@@ -1973,12 +1979,16 @@ public class DatabaseBrowserViewModel: ObservableObject {
         }
 
         if let automationBackend {
+            let currentSource = source
             onDownloadStarted?()
-            Task { [weak self] in
+
+            // Use the same detached scheduling model as the live download path so
+            // UI tests don't depend on modal-sheet MainActor behavior.
+            Task.detached { [weak self] in
                 do {
                     try await automationBackend.simulateDownload(
                         records: recordsToDownload,
-                        source: self?.source ?? .ncbi
+                        source: currentSource
                     )
                 } catch {
                     await MainActor.run {

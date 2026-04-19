@@ -11,27 +11,57 @@ enum DatabaseSearchUITestScenario: String, Sendable {
     case basic = "database-search-basic"
 }
 
+enum DatabaseSearchAutomationBackendError: LocalizedError, Sendable {
+    case misconfigured(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .misconfigured(let message):
+            return message
+        }
+    }
+}
+
 struct DatabaseSearchAutomationBackend: Sendable {
-    let scenario: DatabaseSearchUITestScenario
+    private enum Mode: Sendable {
+        case scenario(DatabaseSearchUITestScenario)
+        case misconfigured(String)
+    }
+
+    private let mode: Mode
 
     init?(scenarioName: String) {
         guard let scenario = DatabaseSearchUITestScenario(rawValue: scenarioName) else {
             return nil
         }
 
-        self.scenario = scenario
+        self.mode = .scenario(scenario)
     }
 
     init?(configuration: AppUITestConfiguration) {
-        guard configuration.isEnabled,
-              let scenarioName = configuration.scenarioName else {
+        guard configuration.isEnabled else {
             return nil
         }
 
-        self.init(scenarioName: scenarioName)
+        guard let scenarioName = configuration.scenarioName else {
+            self.mode = .misconfigured(
+                "UI test mode requires LUNGFISH_UI_TEST_SCENARIO to select a deterministic database-search scenario."
+            )
+            return
+        }
+
+        guard let scenario = DatabaseSearchUITestScenario(rawValue: scenarioName) else {
+            self.mode = .misconfigured(
+                "Unknown database-search UI-test scenario '\(scenarioName)'."
+            )
+            return
+        }
+
+        self.mode = .scenario(scenario)
     }
 
     func search(_ request: DatabaseSearchAutomationRequest) async throws -> SearchResults {
+        let scenario = try resolvedScenario()
         let records: [SearchResultRecord]
 
         switch (scenario, request.source, request.ncbiSearchType) {
@@ -94,6 +124,16 @@ struct DatabaseSearchAutomationBackend: Sendable {
     }
 
     func simulateDownload(records: [SearchResultRecord], source: DatabaseSource) async throws {
+        _ = try resolvedScenario()
         _ = (records, source)
+    }
+
+    private func resolvedScenario() throws -> DatabaseSearchUITestScenario {
+        switch mode {
+        case .scenario(let scenario):
+            return scenario
+        case .misconfigured(let message):
+            throw DatabaseSearchAutomationBackendError.misconfigured(message)
+        }
     }
 }
