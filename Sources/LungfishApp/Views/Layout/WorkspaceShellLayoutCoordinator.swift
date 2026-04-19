@@ -69,22 +69,71 @@ final class WorkspaceShellLayoutCoordinator {
         currentInspectorWidth: CGFloat,
         totalWidth: CGFloat
     ) -> Decision {
-        _ = event
-        _ = totalWidth
-        _ = viewerMinWidth
+        switch event {
+        case .shellDidResize, .recommendationArrived:
+            return Decision(
+                shouldSetSidebarDividerSynchronously: false,
+                sidebarWidthToPersist: nil,
+                inspectorWidthToPersist: nil
+            )
 
-        return Decision(
-            shouldSetSidebarDividerSynchronously: false,
-            sidebarWidthToPersist: clampSidebarWidth(currentSidebarWidth),
-            inspectorWidthToPersist: clampInspectorWidth(currentInspectorWidth)
-        )
+        case .userDraggedSidebar:
+            return Decision(
+                shouldSetSidebarDividerSynchronously: false,
+                sidebarWidthToPersist: clampSidebarWidth(
+                    currentSidebarWidth,
+                    totalWidth: totalWidth,
+                    currentInspectorWidth: currentInspectorWidth
+                ),
+                inspectorWidthToPersist: nil
+            )
+
+        case .userDraggedInspector:
+            return Decision(
+                shouldSetSidebarDividerSynchronously: false,
+                sidebarWidthToPersist: nil,
+                inspectorWidthToPersist: clampInspectorWidth(
+                    currentInspectorWidth,
+                    totalWidth: totalWidth,
+                    currentSidebarWidth: currentSidebarWidth
+                )
+            )
+        }
     }
 
-    private func clampSidebarWidth(_ width: CGFloat) -> CGFloat {
-        min(max(width, sidebarMinWidth), sidebarMaxWidth)
+    private func clampSidebarWidth(
+        _ width: CGFloat,
+        totalWidth: CGFloat? = nil,
+        currentInspectorWidth: CGFloat? = nil
+    ) -> CGFloat {
+        let constrainedMaxWidth: CGFloat
+        if let totalWidth {
+            let visibleInspectorWidth = state.isInspectorVisible ? (currentInspectorWidth ?? 0) : 0
+            let availableWidth = totalWidth - viewerMinWidth - visibleInspectorWidth
+            constrainedMaxWidth = min(sidebarMaxWidth, availableWidth)
+        } else {
+            constrainedMaxWidth = sidebarMaxWidth
+        }
+
+        let maxWidth = max(sidebarMinWidth, constrainedMaxWidth)
+        return min(max(width, sidebarMinWidth), maxWidth)
     }
 
-    private func clampInspectorWidth(_ width: CGFloat) -> CGFloat {
-        min(max(width, inspectorMinWidth), inspectorMaxWidth)
+    private func clampInspectorWidth(
+        _ width: CGFloat,
+        totalWidth: CGFloat? = nil,
+        currentSidebarWidth: CGFloat? = nil
+    ) -> CGFloat {
+        let constrainedMaxWidth: CGFloat
+        if let totalWidth {
+            let visibleSidebarWidth = state.isSidebarVisible ? (currentSidebarWidth ?? 0) : 0
+            let availableWidth = totalWidth - viewerMinWidth - visibleSidebarWidth
+            constrainedMaxWidth = min(inspectorMaxWidth, availableWidth)
+        } else {
+            constrainedMaxWidth = inspectorMaxWidth
+        }
+
+        let maxWidth = max(inspectorMinWidth, constrainedMaxWidth)
+        return min(max(width, inspectorMinWidth), maxWidth)
     }
 }

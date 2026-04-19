@@ -183,6 +183,7 @@ public class MainSplitViewController: NSSplitViewController {
 
     /// Minimum viewer width
     private let viewerMinWidth: CGFloat = 400
+    private let shellDividerDragDetectionTolerance: CGFloat = 24
 
     private lazy var shellLayoutCoordinator = WorkspaceShellLayoutCoordinator(
         sidebarMinWidth: sidebarMinWidth,
@@ -1491,12 +1492,48 @@ public class MainSplitViewController: NSSplitViewController {
     // assertion failure on macOS Tahoe. Use NSSplitViewItem properties instead:
     //   - canCollapse, minimumThickness, maximumThickness (set in configureChildControllers)
 
+    private func resizeEventForCurrentInteraction() -> WorkspaceShellLayoutCoordinator.Event {
+        guard let event = NSApp.currentEvent else { return .shellDidResize }
+        guard event.type == .leftMouseDragged || event.type == .leftMouseDown else { return .shellDidResize }
+
+        let locationInSplitView = splitView.convert(event.locationInWindow, from: nil)
+        let expandedBounds = splitView.bounds.insetBy(
+            dx: -shellDividerDragDetectionTolerance,
+            dy: -shellDividerDragDetectionTolerance
+        )
+        guard expandedBounds.contains(locationInSplitView) else { return .shellDidResize }
+
+        let dividerThickness = splitView.dividerThickness
+        var closestEvent: WorkspaceShellLayoutCoordinator.Event = .shellDidResize
+        var closestDistance = CGFloat.greatestFiniteMagnitude
+
+        if splitView.subviews.count > 1, !sidebarItem.isCollapsed {
+            let sidebarDividerCenter = splitView.subviews[0].frame.maxX + (dividerThickness / 2)
+            let distance = abs(locationInSplitView.x - sidebarDividerCenter)
+            if distance <= shellDividerDragDetectionTolerance, distance < closestDistance {
+                closestEvent = .userDraggedSidebar
+                closestDistance = distance
+            }
+        }
+
+        if splitView.subviews.count > 2, !inspectorItem.isCollapsed {
+            let inspectorDividerCenter = splitView.subviews[2].frame.minX - (dividerThickness / 2)
+            let distance = abs(locationInSplitView.x - inspectorDividerCenter)
+            if distance <= shellDividerDragDetectionTolerance, distance < closestDistance {
+                closestEvent = .userDraggedInspector
+                closestDistance = distance
+            }
+        }
+
+        return closestEvent
+    }
+
     public override func splitViewDidResizeSubviews(_ notification: Notification) {
         let sidebarWidth = splitView.subviews.count > 1 && !sidebarItem.isCollapsed ? splitView.subviews[0].frame.width : 0
         let inspectorWidth = splitView.subviews.count > 2 && !inspectorItem.isCollapsed ? splitView.subviews[2].frame.width : 0
         let totalWidth = splitView.bounds.width
         let decision = shellLayoutCoordinator.resizeDecision(
-            event: .shellDidResize,
+            event: resizeEventForCurrentInteraction(),
             currentSidebarWidth: sidebarWidth,
             currentInspectorWidth: inspectorWidth,
             totalWidth: totalWidth

@@ -21,7 +21,7 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         )
 
         XCTAssertFalse(decision.shouldSetSidebarDividerSynchronously)
-        XCTAssertEqual(decision.sidebarWidthToPersist, 260)
+        XCTAssertNil(decision.sidebarWidthToPersist)
     }
 
     func testCoordinatorPrefersRecordedUserWidthOverLateRecommendation() {
@@ -37,5 +37,46 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         coordinator.recordUserSidebarWidth(220)
 
         XCTAssertEqual(coordinator.resolvedSidebarWidth(currentWidth: 220), 220)
+    }
+
+    func testCoordinatorDoesNotOverwriteUserOwnedWidthDuringOrdinaryShellResize() {
+        let coordinator = WorkspaceShellLayoutCoordinator(
+            sidebarMinWidth: 180,
+            sidebarMaxWidth: 420,
+            inspectorMinWidth: 240,
+            inspectorMaxWidth: 450,
+            viewerMinWidth: 400
+        )
+
+        coordinator.recordUserSidebarWidth(260)
+        let decision = coordinator.resizeDecision(
+            event: .shellDidResize,
+            currentSidebarWidth: 310,
+            currentInspectorWidth: 300,
+            totalWidth: 1500
+        )
+
+        XCTAssertNil(decision.sidebarWidthToPersist)
+        XCTAssertEqual(coordinator.resolvedSidebarWidth(currentWidth: 310), 260)
+    }
+
+    func testCoordinatorPersistsSidebarWidthOnlyForExplicitUserDragIntent() {
+        let coordinator = WorkspaceShellLayoutCoordinator(
+            sidebarMinWidth: 180,
+            sidebarMaxWidth: 420,
+            inspectorMinWidth: 240,
+            inspectorMaxWidth: 450,
+            viewerMinWidth: 400
+        )
+
+        let decision = coordinator.resizeDecision(
+            event: .userDraggedSidebar,
+            currentSidebarWidth: 310,
+            currentInspectorWidth: 300,
+            totalWidth: 1500
+        )
+
+        XCTAssertEqual(decision.sidebarWidthToPersist, 310)
+        XCTAssertNil(decision.inspectorWidthToPersist)
     }
 }
