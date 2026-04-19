@@ -6,12 +6,9 @@
 // text generation for all top-level CLI commands. Uses ArgumentParser's
 // parse() method -- NEVER creates GlobalOptions() directly (see MEMORY.md).
 //
-// NOTE: AssembleCommand, ClassifyCommand, MapCommand, and OrientCommand each
-// define a local --threads option AND include GlobalOptions (which also has
-// --threads). This is a pre-existing duplicate-option bug. Calling
-// helpMessage() or parse() on those commands triggers a fatalError from
-// ArgumentParser validation. Tests for those commands avoid helpMessage()
-// and parse(), testing only static configuration properties.
+// NOTE: ClassifyCommand, MapCommand, and OrientCommand still have a duplicate
+// local/global --threads bug. AssembleCommand no longer does, so it can be
+// exercised with real help/parse coverage.
 
 import ArgumentParser
 import XCTest
@@ -569,8 +566,6 @@ final class TaxTriageCommandRegressionTests: XCTestCase {
 }
 
 // MARK: - AssembleCommand
-// NOTE: Has duplicate --threads option (own + GlobalOptions). helpMessage()/parse()
-// triggers fatalError in ArgumentParser validation. Test configuration only.
 
 final class AssembleCommandRegressionTests: XCTestCase {
 
@@ -580,6 +575,61 @@ final class AssembleCommandRegressionTests: XCTestCase {
 
     func testAbstractIsNonEmpty() {
         XCTAssertFalse(AssembleCommand.configuration.abstract.isEmpty)
+    }
+
+    func testHelpMessageUsesManagedAssemblySurface() {
+        let help = AssembleCommand.helpMessage()
+        XCTAssertTrue(help.contains("--assembler"))
+        XCTAssertTrue(help.contains("--read-type"))
+        XCTAssertTrue(help.contains("--profile"))
+        XCTAssertFalse(help.localizedCaseInsensitiveContains("Apple Containers"))
+    }
+
+    func testParsingManagedAssemblyArguments() throws {
+        let command = try AssembleCommand.parse([
+            "reads.fastq.gz",
+            "--assembler", "flye",
+            "--read-type", "ont-reads",
+            "--project-name", "demo",
+            "--threads", "12",
+            "--memory-gb", "32",
+            "--profile", "nano-hq",
+            "--extra-arg", "--meta",
+        ])
+
+        XCTAssertEqual(command.assembler, "flye")
+        XCTAssertEqual(command.readType, "ont-reads")
+        XCTAssertEqual(command.projectName, "demo")
+        XCTAssertEqual(command.globalOptions.threads, 12)
+        XCTAssertEqual(command.memoryGB, 32)
+        XCTAssertEqual(command.profile, "nano-hq")
+        XCTAssertEqual(command.extraArg, ["--meta"])
+    }
+
+    func testInvalidReadTypeIsRejectedBeforeFallbackInference() async {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("assemble-invalid-read-type-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fastqURL = tempDir.appendingPathComponent("reads.fastq")
+        try? "@read1\nACGT\n+\nIIII\n".write(to: fastqURL, atomically: true, encoding: .utf8)
+
+        let command = try? AssembleCommand.parse([
+            fastqURL.path,
+            "--assembler", "spades",
+            "--read-type", "not-a-read-type",
+        ])
+        XCTAssertNotNil(command)
+
+        do {
+            try await command?.run()
+            XCTFail("Expected invalid read type to fail")
+        } catch is ExitCode {
+            // Expected
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
     }
 
     func testSourceIncludesManagedAssemblyLaunchAliases() throws {
@@ -594,6 +644,8 @@ final class AssembleCommandRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains(#"customLong("read-type")"#))
         XCTAssertTrue(source.contains(#"customLong("project-name")"#))
         XCTAssertTrue(source.contains(#"customLong("output")"#))
+        XCTAssertTrue(source.contains(#"customLong("profile")"#))
+        XCTAssertTrue(source.contains("ManagedAssemblyPipeline"))
     }
 }
 

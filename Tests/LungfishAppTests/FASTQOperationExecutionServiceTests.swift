@@ -540,7 +540,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertFalse(invocation.arguments.contains("--paired"))
     }
 
-    func testAssemblyLaunchRejectsNonSpadesToolsInLegacyCLIPath() {
+    func testAssemblyLaunchBuildsGenericManagedInvocationForMegahit() throws {
         let request = FASTQOperationLaunchRequest.assemble(
             request: AssemblyRunRequest(
                 tool: .megahit,
@@ -549,23 +549,32 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
                 projectName: "Demo",
                 outputDirectory: URL(fileURLWithPath: "/tmp/assembly-out"),
                 threads: 8,
-                memoryGB: nil,
-                minContigLength: nil,
-                selectedProfileID: nil,
-                extraArguments: []
+                memoryGB: 24,
+                minContigLength: 1000,
+                selectedProfileID: "meta-sensitive",
+                extraArguments: ["--k-min", "21"]
             ),
             outputMode: .groupedResult
         )
 
-        XCTAssertThrowsError(try FASTQOperationExecutionService().buildInvocation(for: request)) { error in
-            guard let executionError = error as? FASTQOperationExecutionError else {
-                return XCTFail("Expected FASTQOperationExecutionError, got \(error)")
-            }
-            XCTAssertEqual(
-                executionError.errorDescription,
-                "FASTQ assembly request is not supported by the CLI builder: only SPAdes is encodable until the managed assembly execution path lands"
-            )
-        }
+        let invocation = try FASTQOperationExecutionService().buildInvocation(for: request)
+
+        XCTAssertEqual(
+            invocation.arguments,
+            [
+                "/tmp/sample.fastq.gz",
+                "--assembler", "megahit",
+                "--read-type", "illumina-short-reads",
+                "--project-name", "Demo",
+                "--threads", "8",
+                "--output", "<derived>",
+                "--memory-gb", "24",
+                "--min-contig-length", "1000",
+                "--profile", "meta-sensitive",
+                "--extra-arg", "--k-min",
+                "--extra-arg", "21",
+            ]
+        )
     }
 
     func testExecuteKeepsPairedAssemblyAsSinglePerInputPlan() async throws {

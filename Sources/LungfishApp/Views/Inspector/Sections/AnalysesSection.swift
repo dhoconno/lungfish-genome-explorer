@@ -137,7 +137,7 @@ private struct AnalysisRow: View {
         case "esviritu": return "e.circle.fill"
         case "taxtriage": return "t.circle.fill"
         case "naomgs": return "n.circle.fill"
-        case "spades", "megahit", "flye": return "s.circle.fill"
+        case "spades", "megahit", "skesa", "flye", "hifiasm": return "s.circle.fill"
         case "minimap2", "bwa-mem2", "bowtie2": return "m.circle.fill"
         default: return "gearshape.fill"
         }

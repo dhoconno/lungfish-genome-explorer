@@ -67,6 +67,32 @@ public enum AssemblyReadType: String, CaseIterable, Codable, Sendable {
         return allCases.filter { detected.contains($0) }
     }
 
+    /// Stable CLI spelling for the shared assembly surface.
+    public var cliArgument: String {
+        switch self {
+        case .illuminaShortReads:
+            return "illumina-short-reads"
+        case .ontReads:
+            return "ont-reads"
+        case .pacBioHiFi:
+            return "pacbio-hifi"
+        }
+    }
+
+    /// Parses the CLI spelling used by the app and CLI entry points.
+    public init?(cliArgument: String) {
+        switch cliArgument {
+        case "illumina-short-reads":
+            self = .illuminaShortReads
+        case "ont-reads":
+            self = .ontReads
+        case "pacbio-hifi":
+            self = .pacBioHiFi
+        default:
+            return nil
+        }
+    }
+
     /// Best-effort header-based detection that only promotes PacBio reads when CCS is explicit.
     public static func detect(fromFASTQHeader header: String) -> Self? {
         let stripped = header.hasPrefix("@") ? String(header.dropFirst()) : header

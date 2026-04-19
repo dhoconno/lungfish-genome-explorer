@@ -376,11 +376,6 @@ struct FASTQOperationExecutionService {
             return CLIInvocation(subcommand: "map", arguments: arguments)
 
         case .assemble(let request, _):
-            guard request.tool == .spades else {
-                throw FASTQOperationExecutionError.unsupportedAssembly(
-                    "only SPAdes is encodable until the managed assembly execution path lands"
-                )
-            }
             var arguments = request.inputURLs.map(\.path)
             if request.pairedEnd {
                 arguments.append("--paired")
@@ -390,18 +385,20 @@ struct FASTQOperationExecutionService {
                 "--read-type", request.readType.cliArgument,
                 "--project-name", request.projectName,
                 "--threads", "\(request.threads)",
+                "--output", outputTargetPath,
             ]
             if let memoryGB = request.memoryGB {
-                arguments += ["--memory", "\(memoryGB)"]
+                arguments += ["--memory-gb", "\(memoryGB)"]
             }
             if let minContigLength = request.minContigLength {
                 arguments += ["--min-contig-length", "\(minContigLength)"]
             }
             if let selectedProfileID = request.selectedProfileID {
-                arguments += ["--mode", selectedProfileID]
+                arguments += ["--profile", selectedProfileID]
             }
-            arguments += request.extraArguments
-            arguments += ["--output", outputTargetPath]
+            for extraArgument in request.extraArguments {
+                arguments += ["--extra-arg", extraArgument]
+            }
             return CLIInvocation(subcommand: "assemble", arguments: arguments)
 
         case .classify(let tool, let inputURLs, let databaseName):
@@ -1340,19 +1337,6 @@ private extension AssemblyRunRequest {
             selectedProfileID: selectedProfileID,
             extraArguments: extraArguments
         )
-    }
-}
-
-private extension AssemblyReadType {
-    var cliArgument: String {
-        switch self {
-        case .illuminaShortReads:
-            return "illumina-short-reads"
-        case .ontReads:
-            return "ont-reads"
-        case .pacBioHiFi:
-            return "pacbio-hifi"
-        }
     }
 }
 

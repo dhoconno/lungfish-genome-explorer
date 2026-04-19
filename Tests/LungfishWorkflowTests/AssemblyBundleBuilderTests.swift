@@ -101,11 +101,17 @@ final class AssemblyBundleBuilderTests: XCTestCase {
     // MARK: - InputFileRecord Tests
 
     func testInputFileRecordEncoding() throws {
-        let record = InputFileRecord(filename: "reads.fq.gz", sha256: "abcdef1234", sizeBytes: 1_000_000)
+        let record = InputFileRecord(
+            filename: "reads.fq.gz",
+            originalPath: "/tmp/reads.fq.gz",
+            sha256: "abcdef1234",
+            sizeBytes: 1_000_000
+        )
         let encoder = JSONEncoder()
         let data = try encoder.encode(record)
         let decoded = try JSONDecoder().decode(InputFileRecord.self, from: data)
         XCTAssertEqual(decoded.filename, "reads.fq.gz")
+        XCTAssertEqual(decoded.originalPath, "/tmp/reads.fq.gz")
         XCTAssertEqual(decoded.sha256, "abcdef1234")
         XCTAssertEqual(decoded.sizeBytes, 1_000_000)
     }

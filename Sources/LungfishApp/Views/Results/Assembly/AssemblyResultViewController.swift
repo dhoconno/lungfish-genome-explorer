@@ -10,10 +10,7 @@
 // integration in a future session.
 //
 // ## Viewport class conventions
-// All assembly tools share this single viewport. The ResultType is
-// SPAdesAssemblyResult because SPAdes is the first tool in this class.
-// Future tools will contribute a common AssemblyResult wrapper once those
-// pipelines are added.
+// All assembly tools share this single viewport through AssemblyResult.
 //
 // ## BLAST integration (Track C)
 // Contig rows support right-click context menu BLAST submission via the
@@ -49,7 +46,7 @@ import LungfishIO
 /// ## Usage
 /// ```swift
 /// let vc = AssemblyResultViewController()
-/// vc.configure(result: spadesResult)
+/// vc.configure(result: assemblyResult)
 /// vc.onBlastVerification = { request in /* route to BlastService */ }
 /// addChild(vc)
 /// ```
@@ -59,7 +56,7 @@ public final class AssemblyResultViewController: NSViewController {
     // MARK: - Result storage
 
     /// The most recently configured assembly result.
-    private(set) var currentResult: SPAdesAssemblyResult?
+    private(set) var currentResult: AssemblyResult?
 
     // MARK: - BlastVerifiable callback
 
@@ -313,7 +310,7 @@ public final class AssemblyResultViewController: NSViewController {
     /// chromosomes) when a full contig list is available, or falls back to a
     /// single aggregate row derived from `AssemblyStatistics`.
     ///
-    /// Because `SPAdesAssemblyResult` does not embed per-contig lengths
+    /// Because `AssemblyResult` does not embed per-contig lengths
     /// (only aggregate `AssemblyStatistics`), this stub populates the table
     /// with a single summary row until the bundle or contig FASTA is parsed.
     /// A future session will wire the parsed contig FASTA for per-row display.
@@ -371,17 +368,17 @@ public final class AssemblyResultViewController: NSViewController {
 
 extension AssemblyResultViewController: ResultViewportController {
 
-    public typealias ResultType = SPAdesAssemblyResult
+    public typealias ResultType = AssemblyResult
 
     /// Display name used in menus, window titles, and export dialogs.
     public static var resultTypeName: String { "Assembly Results" }
 
-    /// Configure the viewport with a SPAdes (or compatible) assembly result.
+    /// Configure the viewport with an assembly result.
     ///
     /// Stores the result, rebuilds the contig table, and updates the summary
     /// bar and statistics label.
-    /// - Parameter result: The `SPAdesAssemblyResult` to display.
-    public func configure(result: SPAdesAssemblyResult) {
+    /// - Parameter result: The `AssemblyResult` to display.
+    public func configure(result: AssemblyResult) {
         currentResult = result
         rebuildContigRows()
         updateSummaryBar()

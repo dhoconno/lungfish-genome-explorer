@@ -1,238 +1,121 @@
-// AssembleCommand.swift - CLI command for de novo assembly with SPAdes
-// Copyright (c) 2025 Lungfish Contributors
+// AssembleCommand.swift - CLI command for managed de novo assembly
+// Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
 import ArgumentParser
 import Foundation
-import LungfishWorkflow
-import LungfishIO
 import LungfishCore
+import LungfishIO
+import LungfishWorkflow
 
-/// Run de novo genome assembly using SPAdes.
-///
-/// ## Examples
-///
-/// ```
-/// # Assemble with bacterial isolate preset
-/// lungfish assemble sample_R1.fastq sample_R2.fastq --paired --preset isolate
-///
-/// # Metagenome assembly with custom resources
-/// lungfish assemble reads.fastq --preset meta --memory 32 --threads 16
-///
-/// # Viral assembly with custom output directory
-/// lungfish assemble R1.fq R2.fq --paired --preset viral -o my-assembly/
-/// ```
 struct AssembleCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "assemble",
-        abstract: "Run de novo genome assembly with SPAdes",
+        abstract: "Run de novo genome assembly with the managed assembly pack",
         discussion: """
-            Assemble reads into contigs and scaffolds using SPAdes. Supports
-            bacterial isolate, metagenome, plasmid, RNA, and biosynthetic modes.
-            Requires Apple Containers runtime (macOS 26+).
+            Assemble FASTQ reads with a managed assembler from the Genome Assembly pack.
+            The CLI uses the same tool/read-type compatibility model as the app.
             """
     )
 
-    // MARK: - Arguments
-
-    @Argument(help: "Input FASTQ file(s). Provide two files for paired-end.")
+    @Argument(help: "Input FASTQ file(s). Provide two files with --paired for paired-end Illumina reads.")
     var fastqFiles: [String]
 
-    @Option(name: .customLong("assembler"), help: "Managed assembler to use (currently only spades is available here)")
-    var assembler: String?
+    @Option(name: .customLong("assembler"), help: "Assembler to run: spades, megahit, skesa, flye, hifiasm")
+    var assembler: String = "spades"
 
-    @Option(name: .customLong("read-type"), help: "Managed assembly read class (accepted for app compatibility)")
+    @Option(name: .customLong("read-type"), help: "Read class: illumina-short-reads, ont-reads, pacbio-hifi")
     var readType: String?
 
-    @Option(name: .customLong("preset"), help: "Assembly preset: isolate, meta, viral (default: isolate)")
-    var preset: AssemblyPresetArgument = .isolate
-
-    @Option(name: .customLong("mode"), help: "SPAdes mode: isolate, meta, plasmid, rna, bio")
-    var mode: String?
-
-    @Option(name: [.customLong("output-dir"), .customLong("output"), .customShort("o")], help: "Output directory (default: ./assembly-<name>)")
+    @Option(name: [.customLong("output"), .customLong("output-dir"), .customShort("o")], help: "Output directory")
     var outputDir: String?
 
-    @Option(name: .customLong("name"), help: "Project name for the assembly")
+    @Option(name: [.customLong("project-name"), .customLong("name")], help: "Project name for the assembly")
     var projectName: String?
 
-    @Option(name: .customLong("project-name"), help: "Alias for --name")
-    var projectNameAlias: String?
-
-    @Flag(name: .customLong("paired"), help: "Input files are paired-end reads")
+    @Flag(name: .customLong("paired"), help: "Treat the two input FASTQ files as paired-end mates")
     var pairedEnd: Bool = false
 
-    @Option(name: .customLong("memory"), help: "Maximum memory in GB (default: 8)")
-    var memory: Int = 8
+    @Option(name: [.customLong("memory-gb"), .customLong("memory")], help: "Memory budget in GB when the selected assembler supports it")
+    var memoryGB: Int?
 
-    @Option(name: .customLong("threads"), help: "Number of threads (default: 4)")
-    var threads: Int = 4
+    @Option(name: .customLong("min-contig-length"), help: "Minimum contig length when the selected assembler supports it")
+    var minContigLength: Int?
 
-    @Option(name: .customLong("kmers"), help: "Custom k-mer sizes (comma-separated, e.g. '21,33,55')")
-    var kmers: String?
+    @Option(name: .customLong("profile"), help: "Curated assembler profile, such as meta-sensitive or nano-hq")
+    var profile: String?
 
-    @Flag(name: .customLong("no-error-correction"), help: "Skip error correction step")
-    var noErrorCorrection: Bool = false
-
-    @Flag(name: .customLong("careful"), help: "Enable careful mode (mismatch correction)")
-    var careful: Bool = false
-
-    @Option(name: .customLong("min-contig-length"), help: "Minimum contig length in bp (default: 500)")
-    var minContigLength: Int = 500
+    @Option(name: .customLong("extra-arg"), parsing: .unconditionalSingleValue, help: "Additional assembler argument (repeatable)")
+    var extraArg: [String] = []
 
     @OptionGroup var globalOptions: GlobalOptions
-
-    // MARK: - Execution
 
     func run() async throws {
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
-        if let assembler, assembler.lowercased() != "spades" {
-            print(formatter.error(
-                "Assembler '\(assembler)' is not available in this SPAdes-only execution path."
-            ))
+        guard let tool = AssemblyTool(rawValue: assembler.lowercased()) else {
+            print(formatter.error("Unknown assembler: \(assembler)"))
             throw ExitCode.failure
         }
-        _ = readType
 
-        // Resolve input files -- keep original paths (including .gz) for
-        // existence checks and SPAdes, which handles gzip natively.
-        let inputURLs = fastqFiles.map { path -> URL in
-            URL(fileURLWithPath: path)
-        }
-        for url in inputURLs {
-            guard FileManager.default.fileExists(atPath: url.path) else {
-                print(formatter.error("Input file not found: \(url.path)"))
-                throw ExitCode.failure
-            }
+        let inputURLs = fastqFiles.map { URL(fileURLWithPath: $0) }
+        for inputURL in inputURLs where !FileManager.default.fileExists(atPath: inputURL.path) {
+            print(formatter.error("Input file not found: \(inputURL.path)"))
+            throw ExitCode.failure
         }
 
-        // Resolve mode from preset or explicit flag
-        let spadesMode: SPAdesMode
-        if let modeStr = mode {
-            guard let m = SPAdesMode(rawValue: modeStr) else {
-                print(formatter.error("Unknown SPAdes mode: \(modeStr)"))
-                print(formatter.info("Valid modes: isolate, meta, plasmid, rna, bio"))
-                throw ExitCode.failure
-            }
-            spadesMode = m
-        } else {
-            spadesMode = preset.toSPAdesMode()
+        if pairedEnd && inputURLs.count != 2 {
+            print(formatter.error("Paired-end assembly requires exactly two FASTQ inputs."))
+            throw ExitCode.failure
         }
 
-        // Resolve project name -- strip .gz then .fastq for a clean name
-        let name: String
-        if let explicit = projectNameAlias ?? projectName {
-            name = explicit
-        } else if let firstURL = inputURLs.first {
-            var detectURL = firstURL
-            if detectURL.pathExtension.lowercased() == "gz" {
-                detectURL = detectURL.deletingPathExtension()
-            }
-            name = detectURL.deletingPathExtension().lastPathComponent
-        } else {
-            name = "assembly"
+        let readType = try resolveReadType(for: tool, inputURLs: inputURLs, formatter: formatter)
+        guard AssemblyCompatibility.isSupported(tool: tool, for: readType) else {
+            print(formatter.error("\(tool.displayName) is not available for \(readType.displayName) in v1."))
+            throw ExitCode.failure
         }
 
-        // Resolve output directory
-        let outputDirectory: URL
-        if let dir = outputDir {
-            outputDirectory = URL(fileURLWithPath: dir)
-        } else {
-            outputDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-                .appendingPathComponent("assembly-\(name)")
-        }
-
-        // Parse k-mers
-        let kmerSizes: [Int]?
-        if let kmersStr = kmers {
-            kmerSizes = kmersStr.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
-            if kmerSizes?.isEmpty ?? true {
-                print(formatter.error("Invalid k-mer sizes: \(kmersStr)"))
-                throw ExitCode.failure
-            }
-        } else {
-            kmerSizes = nil
-        }
-
-        // Split input files into forward/reverse/unpaired
-        let forwardReads: [URL]
-        let reverseReads: [URL]
-        let unpairedReads: [URL]
-        if pairedEnd && inputURLs.count == 2 {
-            forwardReads = [inputURLs[0]]
-            reverseReads = [inputURLs[1]]
-            unpairedReads = []
-        } else {
-            forwardReads = []
-            reverseReads = []
-            unpairedReads = inputURLs
-        }
-
-        // Build config
-        let config = SPAdesAssemblyConfig(
-            mode: spadesMode,
-            forwardReads: forwardReads,
-            reverseReads: reverseReads,
-            unpairedReads: unpairedReads,
-            kmerSizes: kmerSizes,
-            memoryGB: memory,
-            threads: threads,
-            minContigLength: minContigLength,
-            skipErrorCorrection: noErrorCorrection,
-            careful: careful && spadesMode != .isolate,
+        let projectName = resolvedProjectName(from: inputURLs)
+        let outputDirectory = resolvedOutputDirectory(projectName: projectName)
+        let request = AssemblyRunRequest(
+            tool: tool,
+            readType: readType,
+            inputURLs: inputURLs,
+            projectName: projectName,
             outputDirectory: outputDirectory,
-            projectName: name
+            pairedEnd: pairedEnd,
+            threads: globalOptions.effectiveThreads,
+            memoryGB: memoryGB,
+            minContigLength: minContigLength,
+            selectedProfileID: profile,
+            extraArguments: extraArg
         )
 
-        // Print configuration
-        print(formatter.header("SPAdes Assembly"))
+        print(formatter.header("Managed Assembly"))
         print("")
         print(formatter.keyValueTable([
-            ("Input files", inputURLs.map(\.lastPathComponent).joined(separator: ", ")),
+            ("Assembler", tool.displayName),
+            ("Read type", readType.displayName),
+            ("Inputs", inputURLs.map(\.lastPathComponent).joined(separator: ", ")),
             ("Paired-end", pairedEnd ? "yes" : "no"),
-            ("Mode", spadesMode.displayName),
-            ("Memory", "\(memory) GB"),
-            ("Threads", "\(threads)"),
-            ("Error correction", noErrorCorrection ? "no" : "yes"),
-            ("Careful mode", careful ? "yes" : "no"),
-            ("K-mer sizes", kmers ?? "auto"),
-            ("Min contig", "\(minContigLength) bp"),
+            ("Threads", "\(request.threads)"),
+            ("Memory", memoryGB.map { "\($0) GB" } ?? "default"),
+            ("Profile", profile ?? "default"),
             ("Output", outputDirectory.path),
         ]))
         print("")
 
-        // Create container runtime
-        guard let runtime = await NewContainerRuntimeFactory.createRuntime() else {
-            print(formatter.error("No container runtime available. SPAdes requires Apple Containers (macOS 26+)."))
-            throw ExitCode.failure
-        }
-
-        // SPAdesAssemblyPipeline requires AppleContainerRuntime specifically
-        guard let appleRuntime = runtime as? AppleContainerRuntime else {
-            print(formatter.error(
-                "SPAdes requires Apple Containers runtime, but got \(type(of: runtime)). "
-                + "Ensure you are running macOS 26+ with Apple Containers enabled."
-            ))
-            throw ExitCode.failure
-        }
-
-        // Run pipeline
-        let pipeline = SPAdesAssemblyPipeline()
-        let result = try await pipeline.run(
-            config: config,
-            runtime: appleRuntime
-        ) { fraction, message in
+        let result = try await ManagedAssemblyPipeline().run(request: request) { _, message in
             if !globalOptions.quiet {
                 print("\r\(formatter.info(message))", terminator: "")
             }
         }
 
-        // Clear progress line
-        print("")
-        print("")
+        if !globalOptions.quiet {
+            print("")
+            print("")
+        }
 
-        // Print results
         let stats = result.statistics
         print(formatter.header("Assembly Results"))
         print("")
@@ -244,31 +127,87 @@ struct AssembleCommand: AsyncParsableCommand {
             ("GC content", String(format: "%.1f%%", stats.gcPercent)),
         ]))
         print("")
-
-        // Print output files
-        print(formatter.header("Output Files"))
-        print("  Contigs:    \(formatter.path(result.contigsPath.path))")
-        if let scaffolds = result.scaffoldsPath {
-            print("  Scaffolds:  \(formatter.path(scaffolds.path))")
+        print("Contigs: \(formatter.path(result.contigsPath.path))")
+        if let graphPath = result.graphPath {
+            print("Graph:   \(formatter.path(graphPath.path))")
+        }
+        if let logPath = result.logPath {
+            print("Log:     \(formatter.path(logPath.path))")
         }
         print("")
         print(formatter.success("Assembly completed in \(String(format: "%.1f", result.wallTimeSeconds))s"))
     }
-}
 
-// MARK: - AssemblyPresetArgument
-
-/// ArgumentParser-compatible wrapper for assembly presets.
-enum AssemblyPresetArgument: String, ExpressibleByArgument, CaseIterable {
-    case isolate
-    case meta
-    case viral
-
-    func toSPAdesMode() -> SPAdesMode {
-        switch self {
-        case .isolate: return .isolate
-        case .meta: return .meta
-        case .viral: return .isolate  // Viral uses isolate mode with small resources
+    private func resolveReadType(
+        for tool: AssemblyTool,
+        inputURLs: [URL],
+        formatter: TerminalFormatter
+    ) throws -> AssemblyReadType {
+        if let readType {
+            guard let parsedReadType = AssemblyReadType(cliArgument: readType) else {
+                print(formatter.error("Unknown read type: \(readType)"))
+                throw ExitCode.failure
+            }
+            return parsedReadType
         }
+
+        let detectedReadTypes = inputURLs.compactMap(AssemblyReadType.detect(fromFASTQ:))
+        let evaluation = AssemblyCompatibility.evaluate(detectedReadTypes: detectedReadTypes)
+        let hasKnownAndUnknownMix = !detectedReadTypes.isEmpty && detectedReadTypes.count < inputURLs.count
+
+        if let blockingMessage = evaluation.blockingMessage {
+            print(formatter.error(blockingMessage))
+            throw ExitCode.failure
+        }
+
+        if hasKnownAndUnknownMix {
+            print(formatter.error("Selected FASTQ inputs mix detected and unclassified read classes. Select one read class per run."))
+            throw ExitCode.failure
+        }
+
+        if let resolvedReadType = evaluation.resolvedReadType {
+            return resolvedReadType
+        }
+
+        switch tool {
+        case .spades, .megahit, .skesa:
+            return .illuminaShortReads
+        case .flye:
+            return .ontReads
+        case .hifiasm:
+            return .pacBioHiFi
+        }
+    }
+
+    private func resolvedProjectName(from inputURLs: [URL]) -> String {
+        if let projectName, !projectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return projectName
+        }
+
+        guard let firstURL = inputURLs.first else {
+            return "assembly"
+        }
+
+        var detectURL = firstURL
+        if detectURL.pathExtension.lowercased() == "gz" {
+            detectURL = detectURL.deletingPathExtension()
+        }
+
+        return detectURL
+            .deletingPathExtension()
+            .lastPathComponent
+            .replacingOccurrences(of: "_R1", with: "")
+            .replacingOccurrences(of: "_R2", with: "")
+            .replacingOccurrences(of: "_1", with: "")
+            .replacingOccurrences(of: "_2", with: "")
+    }
+
+    private func resolvedOutputDirectory(projectName: String) -> URL {
+        if let outputDir {
+            return URL(fileURLWithPath: outputDir)
+        }
+
+        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("assembly-\(projectName)")
     }
 }

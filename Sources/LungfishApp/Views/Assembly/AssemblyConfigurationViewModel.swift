@@ -1,4 +1,4 @@
-// AssemblyConfigurationViewModel.swift - Assembly execution runner for SPAdes
+// AssemblyConfigurationViewModel.swift - Assembly execution runner
 // Copyright (c) 2025 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -15,7 +15,7 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "AssemblyRunn
 
 // MARK: - AssemblyRunner
 
-/// Runs a SPAdes assembly as a background operation tracked by ``OperationCenter``.
+/// Runs an assembly as a background operation tracked by ``OperationCenter``.
 ///
 /// The runner registers the assembly with ``OperationCenter`` so that
 /// progress is visible in the Operations Panel and the task survives
@@ -25,13 +25,95 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "AssemblyRunn
 /// ## Usage
 ///
 /// ```swift
-/// AssemblyRunner.run(config: config)
+/// AssemblyRunner.run(request: request)
 /// ```
 ///
 /// The method returns immediately. Assembly progress and completion are
 /// reported through ``OperationCenter``.
 @MainActor
 public enum AssemblyRunner {
+
+    /// Launches a managed assembly request in the background.
+    ///
+    /// Task 4 routes the shared UI through ``AssemblyRunRequest`` even while
+    /// the standalone execution backend is being generalized.
+    public static func run(request: AssemblyRunRequest) {
+        let projectName = request.projectName
+
+        if Bundle.main.bundleIdentifier != nil {
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, error in
+                if let error { logger.warning("Notification authorization error: \(error)") }
+            }
+        }
+
+        let baseOutputDirectory = request.outputDirectory
+        let diskCheck = checkDiskSpace(
+            inputFiles: request.inputURLs,
+            outputDirectory: baseOutputDirectory
+        )
+        if !diskCheck.sufficient {
+            let requiredStr = ByteCountFormatter.string(fromByteCount: diskCheck.requiredBytes, countStyle: .file)
+            let availableStr = ByteCountFormatter.string(fromByteCount: diskCheck.availableBytes, countStyle: .file)
+            showDiskSpaceAlert(required: requiredStr, available: availableStr)
+            return
+        }
+
+        let executionRequest = AssemblyRunRequest(
+            tool: request.tool,
+            readType: request.readType,
+            inputURLs: request.inputURLs,
+            projectName: request.projectName,
+            outputDirectory: baseOutputDirectory.appendingPathComponent(projectName, isDirectory: true),
+            pairedEnd: request.pairedEnd,
+            threads: request.threads,
+            memoryGB: request.memoryGB,
+            minContigLength: request.minContigLength,
+            selectedProfileID: request.selectedProfileID,
+            extraArguments: request.extraArguments
+        )
+
+        logger.info("Starting managed assembly: tool=\(request.tool.displayName, privacy: .public), project=\(projectName, privacy: .public)")
+
+        let task = Task.detached {
+            await runManagedAssemblyOperation(
+                request: executionRequest,
+                baseOutputDirectory: baseOutputDirectory,
+                projectName: projectName
+            )
+        }
+
+        var args = request.inputURLs.map(\.path)
+        if request.pairedEnd {
+            args.append("--paired")
+        }
+        args += [
+            "--assembler", request.tool.rawValue,
+            "--read-type", request.readType.cliArgument,
+            "--project-name", request.projectName,
+            "--threads", "\(request.threads)",
+        ]
+        if let memoryGB = request.memoryGB {
+            args += ["--memory-gb", "\(memoryGB)"]
+        }
+        if let minContigLength = request.minContigLength {
+            args += ["--min-contig-length", "\(minContigLength)"]
+        }
+        if let profile = request.selectedProfileID {
+            args += ["--profile", profile]
+        }
+        for extraArg in request.extraArguments {
+            args += ["--extra-arg", extraArg]
+        }
+        args += ["--output", executionRequest.outputDirectory.path]
+
+        _ = OperationCenter.shared.start(
+            title: "\(request.tool.displayName) Assembly: \(projectName)",
+            detail: "Initializing...",
+            operationType: .assembly,
+            cliCommand: "# " + OperationCenter.buildCLICommand(subcommand: "assemble", args: args),
+            onCancel: { task.cancel() }
+        )
+    }
 
     /// Launches a SPAdes assembly in the background.
     ///
@@ -84,7 +166,118 @@ public enum AssemblyRunner {
         )
     }
 
+    private static func spadesConfig(from request: AssemblyRunRequest) -> SPAdesAssemblyConfig? {
+        guard request.tool == .spades else { return nil }
+
+        let pairedReads: ([URL], [URL], [URL])
+        if request.pairedEnd, request.inputURLs.count == 2 {
+            pairedReads = ([request.inputURLs[0]], [request.inputURLs[1]], [])
+        } else {
+            pairedReads = ([], [], request.inputURLs)
+        }
+
+        return SPAdesAssemblyConfig(
+            mode: SPAdesMode(rawValue: request.selectedProfileID ?? "isolate") ?? .isolate,
+            forwardReads: pairedReads.0,
+            reverseReads: pairedReads.1,
+            unpairedReads: pairedReads.2,
+            memoryGB: request.memoryGB ?? 8,
+            threads: request.threads,
+            minContigLength: request.minContigLength ?? 500,
+            skipErrorCorrection: request.extraArguments.contains("--only-assembler"),
+            careful: request.extraArguments.contains("--careful"),
+            customArgs: request.extraArguments.filter { $0 != "--only-assembler" && $0 != "--careful" },
+            outputDirectory: request.outputDirectory,
+            projectName: request.projectName
+        )
+    }
+
     // MARK: - Pipeline Execution
+
+    private static func runManagedAssemblyOperation(
+        request: AssemblyRunRequest,
+        baseOutputDirectory: URL,
+        projectName: String
+    ) async {
+        let operationID: UUID? = await MainActor.run {
+            OperationCenter.shared.items.first(where: {
+                $0.title == "\(request.tool.displayName) Assembly: \(projectName)" && $0.state == .running
+            })?.id
+        }
+
+        guard let opID = operationID else {
+            logger.error("Managed assembly operation not found in OperationCenter")
+            return
+        }
+
+        do {
+            await MainActor.run {
+                OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Running \(request.tool.displayName)...")
+                OperationCenter.shared.log(id: opID, level: .info, message: "Launching managed assembly pipeline")
+            }
+
+            let pipeline = ManagedAssemblyPipeline()
+            let result = try await pipeline.run(request: request) { fraction, message in
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        let scaledProgress = 0.05 + fraction * 0.85
+                        OperationCenter.shared.update(id: opID, progress: scaledProgress, detail: message)
+                        OperationCenter.shared.log(id: opID, level: .info, message: message)
+                    }
+                }
+            }
+
+            await MainActor.run {
+                OperationCenter.shared.update(id: opID, progress: 0.92, detail: "Creating reference bundle...")
+                OperationCenter.shared.log(id: opID, level: .info, message: "Creating reference bundle")
+            }
+
+            let provenance = ProvenanceBuilder.build(
+                request: request,
+                result: result,
+                inputRecords: request.inputURLs.map { url in
+                    ProvenanceBuilder.inputRecord(for: url)
+                }
+            )
+
+            let bundleBuilder = AssemblyBundleBuilder()
+            let bundleURL = try await bundleBuilder.build(
+                result: result,
+                request: request,
+                provenance: provenance,
+                outputDirectory: baseOutputDirectory,
+                bundleName: projectName
+            ) { fraction, message in
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        let scaledProgress = 0.92 + fraction * 0.08
+                        OperationCenter.shared.update(id: opID, progress: scaledProgress, detail: message)
+                        OperationCenter.shared.log(id: opID, level: .info, message: message)
+                    }
+                }
+            }
+
+            await MainActor.run {
+                OperationCenter.shared.complete(id: opID, detail: "Assembly complete", bundleURLs: [bundleURL])
+            }
+
+            postNotification(
+                title: "Assembly Complete",
+                body: "\(request.tool.displayName) finished for \(projectName).",
+                isSuccess: true
+            )
+        } catch {
+            await MainActor.run {
+                OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                OperationCenter.shared.log(id: opID, level: .error, message: error.localizedDescription)
+            }
+            postNotification(
+                title: "Assembly Failed",
+                body: error.localizedDescription,
+                isSuccess: false
+            )
+        }
+    }
 
     /// Runs the assembly pipeline and reports progress to ``OperationCenter``.
     ///

@@ -39,6 +39,7 @@ extension ViewerViewController {
         hideTaxTriageView()
         hideNaoMgsView()
         hideNvdView()
+        hideAssemblyView()
         contentMode = .metagenomics
 
         let controller = TaxTriageResultViewController()

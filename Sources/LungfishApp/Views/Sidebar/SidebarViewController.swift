@@ -1449,7 +1449,7 @@ public class SidebarViewController: NSViewController {
             let badge = classifierBatchBadge(for: info.tool)
             let item: SidebarItem
             if let badge {
-                item = SidebarItem(
+                let sidebarItem = SidebarItem(
                     title: title,
                     type: analysisItemType(for: info.tool),
                     customImage: TextBadgeIcon.image(text: badge, size: NSSize(width: 16, height: 16)),
@@ -1457,8 +1457,10 @@ public class SidebarViewController: NSViewController {
                     url: info.url,
                     subtitle: AnalysesFolder.formatTimestamp(info.timestamp)
                 )
+                sidebarItem.userInfo["analysisTool"] = info.tool
+                item = sidebarItem
             } else {
-                item = SidebarItem(
+                let sidebarItem = SidebarItem(
                     title: title,
                     type: analysisItemType(for: info.tool),
                     icon: icon,
@@ -1466,6 +1468,8 @@ public class SidebarViewController: NSViewController {
                     url: info.url,
                     subtitle: AnalysesFolder.formatTimestamp(info.timestamp)
                 )
+                sidebarItem.userInfo["analysisTool"] = info.tool
+                item = sidebarItem
             }
             // For single results, add a subtitle from the sidecar if available
             if info.tool == "esviritu" {
@@ -1672,7 +1676,7 @@ public class SidebarViewController: NSViewController {
         case "esviritu": return "e.circle"
         case "kraken2": return "k.circle"
         case "taxtriage": return "t.circle"
-        case "spades", "megahit": return "s.circle"
+        case "spades", "megahit", "skesa", "flye", "hifiasm": return "s.circle"
         case "minimap2": return "m.circle"
         case "naomgs": return "n.circle"
         default: return "circle"
@@ -3677,6 +3681,13 @@ extension SidebarViewController: NSMenuDelegate {
 
         // Try to locate original input files from provenance
         let inputFiles = provenance.inputs.compactMap { record -> URL? in
+            if let originalPath = record.originalPath {
+                let originalURL = URL(fileURLWithPath: originalPath)
+                if FileManager.default.fileExists(atPath: originalURL.path) {
+                    return originalURL
+                }
+            }
+
             // Look for files relative to current project
             if let projectURL = self.projectURL {
                 let candidates = [
@@ -3691,11 +3702,16 @@ extension SidebarViewController: NSMenuDelegate {
 
         guard let window = self.view.window else { return }
         let outputDir = bundleURL.deletingLastPathComponent()
+        let initialTool = AssemblyTool(
+            rawValue: provenance.assembler.lowercased()
+                .replacingOccurrences(of: " ", with: "")
+        ) ?? .spades
 
         AssemblySheetPresenter.present(
             from: window,
             inputFiles: inputFiles,
             outputDirectory: outputDir,
+            initialTool: initialTool,
             onCancel: nil
         )
     }

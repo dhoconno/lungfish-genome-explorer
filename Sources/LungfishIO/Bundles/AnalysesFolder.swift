@@ -23,7 +23,7 @@ public enum AnalysesFolder {
     /// The set of recognised tool names used to parse directory entries.
     public static let knownTools: Set<String> = [
         "esviritu", "kraken2", "taxtriage", "minimap2",
-        "spades", "megahit", "naomgs", "nvd",
+        "spades", "megahit", "skesa", "flye", "hifiasm", "naomgs", "nvd",
     ]
 
     /// Tools whose imported results use `{tool}-{sampleName}` naming
@@ -83,6 +83,9 @@ public enum AnalysesFolder {
         case "taxtriage": return "TaxTriage"
         case "spades": return "SPAdes"
         case "megahit": return "MEGAHIT"
+        case "skesa": return "SKESA"
+        case "flye": return "Flye"
+        case "hifiasm": return "Hifiasm"
         case "minimap2": return "Minimap2"
         case "naomgs": return "NAO-MGS"
         case "nvd": return "NVD"
@@ -273,10 +276,26 @@ public enum AnalysesFolder {
         let manifest = url.appendingPathComponent("manifest.json")
         let hitsSqlite = url.appendingPathComponent("hits.sqlite")
         let classificationResult = url.appendingPathComponent("classification-result.json")
+        let assemblyResult = url.appendingPathComponent("assembly-result.json")
 
         // Kraken2: has classification-result.json
         if fm.fileExists(atPath: classificationResult.path) {
             return "kraken2"
+        }
+
+        // Assembly tools: managed sidecars store `tool`; legacy schema v1 implies SPAdes.
+        if fm.fileExists(atPath: assemblyResult.path),
+           let data = fm.contents(atPath: assemblyResult.path),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let tool = json["tool"] as? String, knownTools.contains(tool) {
+                return tool
+            }
+            if let schemaVersion = json["schemaVersion"] as? Int, schemaVersion == 1 {
+                return "spades"
+            }
+            if json["spadesVersion"] != nil || json["contigsPath"] != nil {
+                return "spades"
+            }
         }
 
         // NAO-MGS vs NVD: both have manifest.json + hits.sqlite.

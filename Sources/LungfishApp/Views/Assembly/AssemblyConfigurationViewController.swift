@@ -1,4 +1,4 @@
-// AssemblyConfigurationViewController.swift - Sheet presenter for SPAdes assembly wizard
+// AssemblyConfigurationViewController.swift - Sheet presenter for shared assembly wizard
 // Copyright (c) 2025 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -13,7 +13,7 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "AssemblyShee
 
 // MARK: - AssemblySheetPresenter
 
-/// Presents the SPAdes assembly wizard as an `NSPanel` sheet.
+/// Presents the shared assembly wizard as an `NSPanel` sheet.
 ///
 /// The presenter creates an ``AssemblyWizardSheet`` SwiftUI view, wraps it
 /// in an `NSHostingController`, and attaches it as a sheet to the given
@@ -31,27 +31,28 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "AssemblyShee
 ///     inputFiles: fastqURLs,
 ///     outputDirectory: assembliesDir,
 ///     onRun: { config in
-///         AssemblyRunner.run(config: config)
+///         AssemblyRunner.run(request: request)
 ///     }
 /// )
 /// ```
 @MainActor
 public struct AssemblySheetPresenter {
 
-    /// Presents the SPAdes assembly configuration sheet.
+    /// Presents the assembly configuration sheet.
     ///
     /// - Parameters:
     ///   - window: The parent window to attach the sheet to.
     ///   - inputFiles: FASTQ file URLs to assemble.
     ///   - outputDirectory: Directory for assembly output (e.g. project's Assemblies/).
-    ///   - onRun: Called with the assembled ``SPAdesAssemblyConfig`` when the user clicks Run.
-    ///            If nil, defaults to ``AssemblyRunner/run(config:)``.
+    ///   - onRun: Called with the assembled ``AssemblyRunRequest`` when the user clicks Run.
+    ///            If nil, defaults to ``AssemblyRunner/run(request:)``.
     ///   - onCancel: Called when the user cancels.
     public static func present(
         from window: NSWindow,
         inputFiles: [URL],
         outputDirectory: URL?,
-        onRun: ((SPAdesAssemblyConfig) -> Void)? = nil,
+        initialTool: AssemblyTool = .spades,
+        onRun: ((AssemblyRunRequest) -> Void)? = nil,
         onCancel: (() -> Void)? = nil
     ) {
         let wizardPanel = NSPanel(
@@ -60,18 +61,19 @@ public struct AssemblySheetPresenter {
             backing: .buffered,
             defer: true
         )
-        wizardPanel.title = "SPAdes Assembly"
+        wizardPanel.title = "Genome Assembly"
         wizardPanel.isReleasedWhenClosed = false
 
         let sheet = AssemblyWizardSheet(
             inputFiles: inputFiles,
             outputDirectory: outputDirectory,
+            initialTool: initialTool,
             onRun: { config in
                 window.endSheet(wizardPanel)
                 if let onRun {
                     onRun(config)
                 } else {
-                    AssemblyRunner.run(config: config)
+                    AssemblyRunner.run(request: config)
                 }
             },
             onCancel: {

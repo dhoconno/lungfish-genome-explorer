@@ -249,6 +249,45 @@ final class AnalysesFolderTests: XCTestCase {
         XCTAssertEqual(analyses.first?.tool, "taxtriage")
     }
 
+    func testListAnalysesDetectsRenamedAssemblyByResultSidecar() throws {
+        let analysesDir = try AnalysesFolder.url(for: tempDir)
+        let renamed = analysesDir.appendingPathComponent("LongReadAssembly")
+        try FileManager.default.createDirectory(at: renamed, withIntermediateDirectories: true)
+        try """
+        {
+          "schemaVersion": 2,
+          "tool": "flye",
+          "readType": "ontReads",
+          "contigsPath": "assembly.fasta",
+          "commandLine": "flye --nano-hq reads.fastq.gz",
+          "outputDirectory": "\(renamed.path)",
+          "statistics": {
+            "contigCount": 1,
+            "scaffoldCount": 0,
+            "totalLengthBP": 12000,
+            "n50": 12000,
+            "n90": 12000,
+            "l50": 1,
+            "l90": 1,
+            "largestContigBP": 12000,
+            "smallestContigBP": 12000,
+            "meanContigBP": 12000.0,
+            "medianContigBP": 12000.0,
+            "gcPercent": 50.0
+          },
+          "wallTimeSeconds": 15.0
+        }
+        """.write(
+            to: renamed.appendingPathComponent("assembly-result.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let analyses = try AnalysesFolder.listAnalyses(in: tempDir)
+        XCTAssertEqual(analyses.count, 1)
+        XCTAssertEqual(analyses.first?.tool, "flye")
+    }
+
     func testListAnalysesStillIgnoresEmptyRenamedDirectories() throws {
         let analysesDir = try AnalysesFolder.url(for: tempDir)
         // Empty directory with no tool-prefix and no signature files

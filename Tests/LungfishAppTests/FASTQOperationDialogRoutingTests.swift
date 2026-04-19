@@ -493,7 +493,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         )
     }
 
-    func testAssemblyCategorySeedsSpadesAsDefaultTool() {
+    func testAssemblyCategorySeedsSpadesAsDefaultToolAndRequiresEmbeddedConfiguration() {
         let state = FASTQOperationDialogState(
             initialCategory: .assembly,
             selectedInputURLs: [illuminaFASTQFixtureURL]
@@ -501,7 +501,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
 
         XCTAssertEqual(state.selectedToolID, .spades)
         XCTAssertEqual(state.outputMode, .perInput)
-        XCTAssertTrue(state.isRunEnabled)
+        XCTAssertFalse(state.isRunEnabled)
     }
 
     func testCaptureAssemblyRequestStoresGenericAssemblyRequest() {
@@ -689,7 +689,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertTrue(source.contains("embeddedInOperationsDialog: true"))
     }
 
-    func testToolPaneFileKeepsNonSpadesAssemblersOutOfTheSpadesWizard() throws {
+    func testToolPaneFileRoutesAllAssemblyToolsThroughSharedAssemblyWizard() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -698,9 +698,10 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             .appendingPathComponent("Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
-        XCTAssertTrue(source.contains("case .spades:"))
-        XCTAssertTrue(source.contains("case .megahit, .skesa, .flye, .hifiasm:"))
-        XCTAssertTrue(source.contains("Embedded managed assembly execution is not available in this FASTQ dialog yet."))
+        XCTAssertTrue(source.contains("case .spades, .megahit, .skesa, .flye, .hifiasm:"))
+        XCTAssertTrue(source.contains("initialTool: state.selectedToolID.assemblyTool ?? .spades"))
+        XCTAssertTrue(source.contains("onRun: state.captureAssemblyRequest(_:),"))
+        XCTAssertFalse(source.contains("Embedded managed assembly execution is not available in this FASTQ dialog yet."))
     }
 
     func testDerivativeToolPaneProvidesAuxiliaryInputChooser() throws {

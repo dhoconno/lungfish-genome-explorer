@@ -33,6 +33,7 @@ extension ViewerViewController {
         hideTaxTriageView()
         hideNaoMgsView()
         hideNvdView()
+        hideAssemblyView()
         contentMode = .metagenomics
 
         addChild(controller)

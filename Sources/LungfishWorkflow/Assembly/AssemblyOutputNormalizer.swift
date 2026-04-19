@@ -1,0 +1,94 @@
+// AssemblyOutputNormalizer.swift - Normalize tool-specific assembly outputs
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
+import Foundation
+import LungfishIO
+
+public enum AssemblyOutputNormalizerError: Error, LocalizedError {
+    case missingPrimaryOutput(URL)
+
+    public var errorDescription: String? {
+        switch self {
+        case .missingPrimaryOutput(let url):
+            return "Expected assembly output was not produced: \(url.path)"
+        }
+    }
+}
+
+public enum AssemblyOutputNormalizer {
+    public static func normalize(
+        request: AssemblyRunRequest,
+        primaryOutputDirectory: URL,
+        commandLine: String,
+        wallTimeSeconds: TimeInterval,
+        assemblerVersion: String? = nil
+    ) throws -> AssemblyResult {
+        let fm = FileManager.default
+
+        let contigsPath: URL
+        let graphPath: URL?
+        let scaffoldsPath: URL?
+        let paramsPath: URL?
+
+        switch request.tool {
+        case .spades:
+            contigsPath = primaryOutputDirectory.appendingPathComponent("contigs.fasta")
+            graphPath = primaryOutputDirectory.appendingPathComponent("assembly_graph.gfa")
+            scaffoldsPath = primaryOutputDirectory.appendingPathComponent("scaffolds.fasta")
+            paramsPath = primaryOutputDirectory.appendingPathComponent("params.txt")
+        case .megahit:
+            contigsPath = primaryOutputDirectory.appendingPathComponent("final.contigs.fa")
+            graphPath = nil
+            scaffoldsPath = nil
+            paramsPath = nil
+        case .skesa:
+            contigsPath = primaryOutputDirectory.appendingPathComponent("contigs.fasta")
+            graphPath = nil
+            scaffoldsPath = nil
+            paramsPath = nil
+        case .flye:
+            contigsPath = primaryOutputDirectory.appendingPathComponent("assembly.fasta")
+            graphPath = primaryOutputDirectory.appendingPathComponent("assembly_graph.gfa")
+            scaffoldsPath = nil
+            paramsPath = nil
+        case .hifiasm:
+            let gfaPath = primaryOutputDirectory.appendingPathComponent("\(request.projectName).bp.p_ctg.gfa")
+            let fastaPath = primaryOutputDirectory.appendingPathComponent("contigs.fasta")
+            if fm.fileExists(atPath: gfaPath.path), !fm.fileExists(atPath: fastaPath.path) {
+                try GFASegmentFASTAWriter.writePrimaryContigs(from: gfaPath, to: fastaPath)
+            }
+            contigsPath = fastaPath
+            graphPath = gfaPath
+            scaffoldsPath = nil
+            paramsPath = nil
+        }
+
+        guard fm.fileExists(atPath: contigsPath.path) else {
+            throw AssemblyOutputNormalizerError.missingPrimaryOutput(contigsPath)
+        }
+
+        let statistics = try AssemblyStatisticsCalculator.compute(from: contigsPath)
+        let logPath = primaryOutputDirectory.appendingPathComponent("assembly.log")
+
+        return AssemblyResult(
+            tool: request.tool,
+            readType: request.readType,
+            contigsPath: contigsPath,
+            graphPath: existingURL(graphPath),
+            logPath: existingURL(logPath),
+            assemblerVersion: assemblerVersion,
+            commandLine: commandLine,
+            outputDirectory: primaryOutputDirectory,
+            statistics: statistics,
+            wallTimeSeconds: wallTimeSeconds,
+            scaffoldsPath: existingURL(scaffoldsPath),
+            paramsPath: existingURL(paramsPath)
+        )
+    }
+
+    private static func existingURL(_ url: URL?) -> URL? {
+        guard let url else { return nil }
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+}

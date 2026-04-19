@@ -11,7 +11,7 @@ private let logger = Logger(subsystem: LogSubsystem.workflow, category: "Assembl
 
 // MARK: - AssemblyBundleBuilder
 
-/// Creates a `.lungfishref` bundle from SPAdes assembly output.
+/// Creates a `.lungfishref` bundle from normalized assembly output.
 ///
 /// Takes the contigs/scaffolds FASTA, compresses with bgzip, indexes with
 /// samtools, copies assembly artifacts (log, graph, params), writes provenance,
@@ -42,7 +42,7 @@ public final class AssemblyBundleBuilder: @unchecked Sendable {
 
     // MARK: - Build
 
-    /// Creates a `.lungfishref` bundle from assembly results.
+    /// Creates a `.lungfishref` bundle from a legacy SPAdes result.
     ///
     /// - Parameters:
     ///   - result: The SPAdes assembly result
@@ -55,6 +55,40 @@ public final class AssemblyBundleBuilder: @unchecked Sendable {
     public func build(
         result: SPAdesAssemblyResult,
         config: SPAdesAssemblyConfig,
+        provenance: AssemblyProvenance,
+        outputDirectory: URL,
+        bundleName: String,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> URL {
+        let request = AssemblyRunRequest(
+            tool: .spades,
+            readType: .illuminaShortReads,
+            inputURLs: config.allInputFiles,
+            projectName: config.projectName,
+            outputDirectory: config.outputDirectory,
+            pairedEnd: !config.forwardReads.isEmpty
+                && config.forwardReads.count == config.reverseReads.count
+                && config.unpairedReads.isEmpty,
+            threads: config.threads,
+            memoryGB: config.memoryGB,
+            minContigLength: config.minContigLength,
+            selectedProfileID: config.mode.rawValue,
+            extraArguments: config.customArgs
+        )
+        return try await build(
+            result: AssemblyResult.fromLegacy(result),
+            request: request,
+            provenance: provenance,
+            outputDirectory: outputDirectory,
+            bundleName: bundleName,
+            progress: progress
+        )
+    }
+
+    /// Creates a `.lungfishref` bundle from a normalized assembly result.
+    public func build(
+        result: AssemblyResult,
+        request: AssemblyRunRequest,
         provenance: AssemblyProvenance,
         outputDirectory: URL,
         bundleName: String,
@@ -93,7 +127,7 @@ public final class AssemblyBundleBuilder: @unchecked Sendable {
             progress(0.75, "Building metadata...")
             let metadataGroups = buildMetadataGroups(
                 result: result,
-                config: config,
+                request: request,
                 provenance: provenance
             )
 
@@ -102,12 +136,12 @@ public final class AssemblyBundleBuilder: @unchecked Sendable {
             let manifest = BundleManifest(
                 name: bundleName,
                 identifier: "org.lungfish.assembly.\(safeName.lowercased())",
-                description: "De novo assembly using \(config.mode.displayName) mode",
+                description: "De novo assembly using \(result.tool.displayName)",
                 source: SourceInfo(
                     organism: bundleName,
                     assembly: safeName,
-                    database: "SPAdes \(provenance.assemblerVersion ?? "unknown")",
-                    notes: "Assembled from \(config.allInputFiles.count) input file(s)"
+                    database: "\(result.tool.displayName) \(provenance.assemblerVersion ?? "unknown")",
+                    notes: "Assembled from \(request.inputURLs.count) input file(s)"
                 ),
                 genome: genomeInfo,
                 metadata: metadataGroups
@@ -291,7 +325,7 @@ public final class AssemblyBundleBuilder: @unchecked Sendable {
 
     // MARK: - Private: Assembly Artifacts
 
-    private func copyAssemblyArtifacts(result: SPAdesAssemblyResult, bundleURL: URL) throws {
+    private func copyAssemblyArtifacts(result: AssemblyResult, bundleURL: URL) throws {
         let assemblyDir = bundleURL.appendingPathComponent("assembly")
         let fm = FileManager.default
 
@@ -313,11 +347,12 @@ public final class AssemblyBundleBuilder: @unchecked Sendable {
             )
         }
 
-        // Copy SPAdes log
-        if fm.fileExists(atPath: result.logPath.path) {
+        // Copy assembler log if present
+        if let logPath = result.logPath,
+           fm.fileExists(atPath: logPath.path) {
             try fm.copyItem(
-                at: result.logPath,
-                to: assemblyDir.appendingPathComponent("spades.log")
+                at: logPath,
+                to: assemblyDir.appendingPathComponent("assembly.log")
             )
         }
 
@@ -334,8 +369,8 @@ public final class AssemblyBundleBuilder: @unchecked Sendable {
     // MARK: - Private: Metadata
 
     private func buildMetadataGroups(
-        result: SPAdesAssemblyResult,
-        config: SPAdesAssemblyConfig,
+        result: AssemblyResult,
+        request: AssemblyRunRequest,
         provenance: AssemblyProvenance
     ) -> [MetadataGroup] {
         var groups: [MetadataGroup] = []
@@ -361,14 +396,18 @@ public final class AssemblyBundleBuilder: @unchecked Sendable {
 
         // Assembly Parameters group
         var paramItems: [MetadataItem] = [
-            MetadataItem(label: "Assembler", value: "SPAdes \(provenance.assemblerVersion ?? "unknown")"),
-            MetadataItem(label: "Mode", value: config.mode.displayName),
-            MetadataItem(label: "K-mer Sizes", value: config.kmerSizes.map { $0.map(String.init).joined(separator: ", ") } ?? "auto"),
-            MetadataItem(label: "Memory", value: "\(config.memoryGB) GB"),
-            MetadataItem(label: "Threads", value: "\(config.threads)"),
+            MetadataItem(label: "Assembler", value: "\(result.tool.displayName) \(provenance.assemblerVersion ?? "unknown")"),
+            MetadataItem(label: "Read Type", value: request.readType.displayName),
+            MetadataItem(label: "Threads", value: "\(request.threads)"),
         ]
-        if config.skipErrorCorrection {
-            paramItems.append(MetadataItem(label: "Error Correction", value: "Skipped"))
+        if let profile = request.selectedProfileID, !profile.isEmpty {
+            paramItems.append(MetadataItem(label: "Profile", value: profile))
+        }
+        if let memoryGB = request.memoryGB {
+            paramItems.append(MetadataItem(label: "Memory", value: "\(memoryGB) GB"))
+        }
+        if let minContigLength = request.minContigLength {
+            paramItems.append(MetadataItem(label: "Min Contig Length", value: "\(minContigLength) bp"))
         }
 
         let minutes = Int(result.wallTimeSeconds) / 60
@@ -381,7 +420,7 @@ public final class AssemblyBundleBuilder: @unchecked Sendable {
         groups.append(MetadataGroup(name: "Assembly Parameters", items: paramItems))
 
         // Input Files group
-        let inputItems = config.allInputFiles.map { url in
+        let inputItems = request.inputURLs.map { url in
             MetadataItem(label: url.lastPathComponent, value: "input")
         }
         if !inputItems.isEmpty {

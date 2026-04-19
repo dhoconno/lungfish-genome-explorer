@@ -8,10 +8,6 @@ import LungfishWorkflow
 final class FASTQOperationDialogState {
     private static let mixedDetectedAndUnclassifiedAssemblyInputsMessage =
         "Selected FASTQ inputs mix detected and unclassified read classes. Select one read class per run."
-    private static let undetectedAssemblyReadTypeMessage =
-        "Lungfish could not determine whether the selected FASTQ inputs are Illumina, ONT, or HiFi. Select FASTQ inputs with a detectable read class."
-    private static let embeddedManagedAssemblyUnavailableMessage =
-        "Embedded managed assembly execution is not available in this FASTQ dialog yet."
 
     var selectedCategory: FASTQOperationCategoryID {
         didSet {
@@ -857,16 +853,10 @@ final class FASTQOperationDialogState {
             if let mismatchMessage = assemblyReadClassMismatchMessage {
                 return mismatchMessage
             }
-            if assemblyCompatibilityEvaluation.requiresReadTypeConfirmation {
-                return Self.undetectedAssemblyReadTypeMessage
-            }
             if let assemblyTool = selectedToolID.assemblyTool,
                let detectedAssemblyReadType,
                !AssemblyCompatibility.isSupported(tool: assemblyTool, for: detectedAssemblyReadType) {
-                return "\(assemblyTool.displayName) is not available for \(detectedAssemblyReadType.displayName.lowercased())."
-            }
-            if selectedToolID != .spades {
-                return Self.embeddedManagedAssemblyUnavailableMessage
+                return "\(assemblyTool.displayName) is not available for \(detectedAssemblyReadType.displayName) in v1."
             }
             return nil
 
@@ -1162,7 +1152,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
 
     var defaultEmbeddedReadiness: Bool {
         switch self {
-        case .minimap2, .kraken2, .esViritu, .taxTriage:
+        case .minimap2, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
             return false
         default:
             return true
