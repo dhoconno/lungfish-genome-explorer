@@ -6471,18 +6471,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         // Present as sheet
         let browserWindow = NSWindow(contentViewController: browserController)
-        let title: String
-        switch source {
-        case .ncbi:
-            title = "Search NCBI"
-        case .ena:
-            title = "Search SRA"
-        case .pathoplexus:
-            title = "Search Pathoplexus"
-        default:
-            title = "Search \(source.displayName)"
-        }
-        browserWindow.title = title
+        browserWindow.title = "Search Online Databases"
 
         window.beginSheet(browserWindow) { _ in
             debugLog("Sheet dismissed callback executing")

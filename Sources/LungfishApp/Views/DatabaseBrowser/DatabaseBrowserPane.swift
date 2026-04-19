@@ -23,9 +23,20 @@ struct DatabaseBrowserPane<Accessory: View>: View {
         VStack(alignment: .leading, spacing: 16) {
             header
             accessoryControls()
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.lungfishCardBackground)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.lungfishStroke, lineWidth: 1)
+                )
             searchControls
             resultsSection
         }
+        .padding(16)
+        .background(Color.lungfishCanvasBackground)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
@@ -55,15 +66,25 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                     viewModel.performSearch()
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(.lungfishCreamsicleFallback)
                 .disabled(!viewModel.isSearchTextValid || viewModel.isSearching || viewModel.isDownloading)
             }
 
             if viewModel.searchScope != .all {
                 Text(viewModel.searchScope.helpText)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.lungfishSecondaryText)
             }
         }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.lungfishCardBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.lungfishStroke, lineWidth: 1)
+        )
     }
 
     @ViewBuilder
@@ -76,11 +97,11 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                 ProgressView()
                 Text(viewModel.statusMessage ?? "Working…")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.lungfishSecondaryText)
             } else if viewModel.filteredResults.isEmpty {
                 Text(emptyStateText)
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.lungfishSecondaryText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
                 List(viewModel.filteredResults) { record in
@@ -96,10 +117,22 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                 .listStyle(.plain)
             }
         }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.lungfishCardBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.lungfishStroke, lineWidth: 1)
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var searchPlaceholder: String {
+        if viewModel.isPathoplexusSearch {
+            return "Browse records or search by accession"
+        }
         switch viewModel.searchScope {
         case .all:
             return "Search by accession, organism, or title"
@@ -117,6 +150,12 @@ struct DatabaseBrowserPane<Accessory: View>: View {
     }
 
     private var emptyStateText: String {
+        if viewModel.isPathoplexusSearch {
+            if let organism = viewModel.pathoplexusOrganism {
+                return "Browsing open \(organism.displayName) records. Enter a search term to narrow results further."
+            }
+            return "Choose an organism or enter a search term to browse Pathoplexus records."
+        }
         if viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "Enter a search term to find records."
         }
@@ -141,7 +180,7 @@ struct DatabaseSearchResultRow: View {
         Button(action: onToggle) {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(isSelected ? Color.lungfishCreamsicleFallback : Color.lungfishSecondaryText)
                     .font(.title3)
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -151,13 +190,13 @@ struct DatabaseSearchResultRow: View {
                         if let sourceDatabase = record.sourceDatabase, !sourceDatabase.isEmpty {
                             Text(sourceDatabase)
                                 .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Color.lungfishSecondaryText)
                         }
                         Spacer()
                         if let length = record.length {
                             Text("\(length) bp")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Color.lungfishSecondaryText)
                         }
                     }
 
@@ -169,7 +208,7 @@ struct DatabaseSearchResultRow: View {
                     if let organism = record.organism, !organism.isEmpty {
                         Text(organism)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.lungfishSecondaryText)
                             .lineLimit(1)
                     }
                 }

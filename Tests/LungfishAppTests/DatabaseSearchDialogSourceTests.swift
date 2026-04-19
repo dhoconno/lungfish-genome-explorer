@@ -50,17 +50,80 @@ final class DatabaseSearchDialogSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("ProgressView"))
         XCTAssertTrue(source.contains("List"))
         XCTAssertTrue(source.contains("DatabaseSearchResultRow"))
+        XCTAssertTrue(source.contains(".tint(.lungfishCreamsicleFallback)"))
     }
 
-    func testPathoplexusPaneNotesTheTaskThreeScope() throws {
+    func testUnifiedSearchFilesDoNotUseLegacyAccentColor() throws {
+        let files = [
+            "Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserPane.swift",
+            "Sources/LungfishApp/Views/DatabaseBrowser/GenBankGenomesSearchPane.swift",
+            "Sources/LungfishApp/Views/DatabaseBrowser/SRARunsSearchPane.swift",
+            "Sources/LungfishApp/Views/DatabaseBrowser/PathoplexusSearchPane.swift",
+        ]
+
+        for file in files {
+            let source = try String(
+                contentsOf: repositoryRoot().appendingPathComponent(file),
+                encoding: .utf8
+            )
+            XCTAssertFalse(source.contains("Color.accentColor"), file)
+        }
+    }
+
+    func testPathoplexusPaneKeepsConsentGateAndOrganismSelector() throws {
         let source = try String(
             contentsOf: repositoryRoot()
                 .appendingPathComponent("Sources/LungfishApp/Views/DatabaseBrowser/PathoplexusSearchPane.swift"),
             encoding: .utf8
         )
 
+        XCTAssertTrue(source.contains("isShowingPathoplexusConsent"))
+        XCTAssertTrue(source.contains("I Understand and Agree"))
+        XCTAssertTrue(source.contains("Cancel"))
+        XCTAssertTrue(source.contains("Organism"))
+        XCTAssertTrue(source.contains("pathoplexusOrganisms"))
+        XCTAssertTrue(source.contains("PathoplexusChipFlowLayout"))
         XCTAssertTrue(source.contains("consent-aware browsing"))
         XCTAssertTrue(source.contains("organism targeting"))
+    }
+
+    func testDatabaseBrowserControllerHostsUnifiedSearchDialog() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("DatabaseSearchDialog(state: dialogState)"))
+        XCTAssertFalse(source.contains("public struct DatabaseBrowserView: View"))
+    }
+
+    func testUnifiedSearchFilesDoNotUseLegacyDecorativeSystemImages() throws {
+        let files = [
+            "Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserPane.swift",
+            "Sources/LungfishApp/Views/DatabaseBrowser/GenBankGenomesSearchPane.swift",
+            "Sources/LungfishApp/Views/DatabaseBrowser/SRARunsSearchPane.swift",
+            "Sources/LungfishApp/Views/DatabaseBrowser/PathoplexusSearchPane.swift",
+        ]
+        let bannedSymbols = [
+            "doc.text.magnifyingglass",
+            "building.columns",
+            "globe.europe.africa",
+            "microbe",
+            "clock.arrow.circlepath",
+            "line.3.horizontal.decrease.circle",
+            "slider.horizontal.3",
+        ]
+
+        for file in files {
+            let source = try String(
+                contentsOf: repositoryRoot().appendingPathComponent(file),
+                encoding: .utf8
+            )
+            for symbol in bannedSymbols {
+                XCTAssertFalse(source.contains(#"Image(systemName: "\#(symbol)")"#), "\(file) contains \(symbol)")
+            }
+        }
     }
 
     private func repositoryRoot() -> URL {

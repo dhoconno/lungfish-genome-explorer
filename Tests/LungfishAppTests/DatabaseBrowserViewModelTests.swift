@@ -97,6 +97,12 @@ final class DatabaseBrowserViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.isSearchTextValid)
     }
 
+    func testPathoplexusAllowsEmptySearchTextForBrowseMode() {
+        let pathoplexusViewModel = DatabaseBrowserViewModel(source: .pathoplexus)
+        pathoplexusViewModel.searchText = ""
+        XCTAssertTrue(pathoplexusViewModel.isSearchTextValid)
+    }
+
     func testSearchTextValidationWithLeadingSpaces() {
         viewModel.searchText = "  ebola  "
         XCTAssertTrue(viewModel.isSearchTextValid)

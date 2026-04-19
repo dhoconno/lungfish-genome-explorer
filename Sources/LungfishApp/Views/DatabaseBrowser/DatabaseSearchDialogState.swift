@@ -45,13 +45,6 @@ enum DatabaseSearchDestination: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-struct DatabaseSearchSidebarItem: Identifiable, Equatable, Sendable {
-    let id: String
-    let title: String
-    let subtitle: String
-    let destination: DatabaseSearchDestination
-}
-
 @MainActor
 @Observable
 final class DatabaseSearchDialogState {
@@ -61,8 +54,12 @@ final class DatabaseSearchDialogState {
     let sraRunsViewModel = DatabaseBrowserViewModel(source: .ena)
     let pathoplexusViewModel = DatabaseBrowserViewModel(source: .pathoplexus)
 
-    init(selectedDestination: DatabaseSearchDestination = .genBankGenomes) {
-        self.selectedDestination = selectedDestination
+    init(initialDestination: DatabaseSearchDestination = .genBankGenomes) {
+        self.selectedDestination = initialDestination
+    }
+
+    convenience init(selectedDestination: DatabaseSearchDestination = .genBankGenomes) {
+        self.init(initialDestination: selectedDestination)
     }
 
     var dialogTitle: String {

@@ -155,10 +155,10 @@ public class DatabaseBrowserViewController: NSViewController {
     public let databaseSource: DatabaseSource
 
     /// The SwiftUI hosting view
-    private var hostingView: NSHostingView<DatabaseBrowserView>!
+    private var hostingView: NSHostingView<DatabaseSearchDialog>!
 
-    /// View model for the browser
-    private var viewModel: DatabaseBrowserViewModel!
+    /// Shared dialog state backing the hosted SwiftUI dialog.
+    private var dialogState: DatabaseSearchDialogState!
 
     /// Completion handler called when user cancels
     public var onCancel: (() -> Void)?
@@ -189,35 +189,34 @@ public class DatabaseBrowserViewController: NSViewController {
     // MARK: - Lifecycle
 
     public override func loadView() {
-        viewModel = DatabaseBrowserViewModel(source: databaseSource)
+        dialogState = DatabaseSearchDialogState(
+            initialDestination: DatabaseSearchDestination(databaseSource: databaseSource)
+        )
 
-        // Apply initial search type if specified.
         if let searchType = initialSearchType {
-            viewModel.ncbiSearchType = searchType
+            dialogState.genBankGenomesViewModel.ncbiSearchType = searchType
         }
 
-        // Set up download started callback — dismiss sheet immediately
-        viewModel.onDownloadStarted = { [weak self] in
-            guard let self = self else { return }
-            self.onDownloadStarted?()
-        }
-
-        // Set up cancel callback
-        viewModel.onCancel = { [weak self] in
-            guard let self = self else { return }
-            if let window = self.view.window {
-                if let parent = window.sheetParent {
-                    parent.endSheet(window)
-                } else {
-                    window.close()
+        dialogState.applyCallbacks(
+            onCancel: { [weak self] in
+                guard let self = self else { return }
+                if let window = self.view.window {
+                    if let parent = window.sheetParent {
+                        parent.endSheet(window)
+                    } else {
+                        window.close()
+                    }
                 }
+                self.onCancel?()
+            },
+            onDownloadStarted: { [weak self] in
+                guard let self = self else { return }
+                self.onDownloadStarted?()
             }
-            self.onCancel?()
-        }
+        )
 
-        let browserView = DatabaseBrowserView(viewModel: viewModel)
-        hostingView = NSHostingView(rootView: browserView)
-        hostingView.frame = NSRect(x: 0, y: 0, width: 750, height: 550)
+        hostingView = NSHostingView(rootView: DatabaseSearchDialog(state: dialogState))
+        hostingView.frame = NSRect(x: 0, y: 0, width: 900, height: 620)
         self.view = hostingView
     }
 
@@ -2910,10 +2909,11 @@ struct AppKitTextField: NSViewRepresentable {
     }
 }
 
+#if false
 // MARK: - DatabaseBrowserView
 
 /// SwiftUI view for the database browser.
-public struct DatabaseBrowserView: View {
+public struct DatabaseBrowserLegacyView: View {
     @ObservedObject var viewModel: DatabaseBrowserViewModel
 
     public var body: some View {
@@ -4620,6 +4620,8 @@ struct AutocompleteRow: View {
         }
     }
 }
+
+#endif
 
 // MARK: - Streaming Download Helper
 
