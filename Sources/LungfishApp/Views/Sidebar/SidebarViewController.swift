@@ -14,6 +14,11 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "SidebarViewC
 /// Pasteboard type for internal sidebar item dragging
 private let sidebarItemPasteboardType = NSPasteboard.PasteboardType("com.lungfish.browser.sidebaritem")
 
+private enum SidebarAccessibilityIdentifier {
+    static let outline = "sidebar-outline"
+    static let analysesGroup = "sidebar-group-analyses"
+}
+
 // MARK: - Sidebar Drop Target View
 
 /// Custom NSView subclass that acts as a fallback drag destination for the sidebar.
@@ -207,6 +212,7 @@ public class SidebarViewController: NSViewController {
 
         // Create outline view
         outlineView = NSOutlineView()
+        outlineView.setAccessibilityIdentifier(SidebarAccessibilityIdentifier.outline)
         outlineView.headerView = nil  // No header for sidebar
         outlineView.rowHeight = 24
         outlineView.indentationPerLevel = 14
@@ -1048,6 +1054,7 @@ public class SidebarViewController: NSViewController {
                     children: analysesChildren,
                     url: projectURL.appendingPathComponent(AnalysesFolder.directoryName)
                 )
+                analysesGroup.userInfo["accessibilityIdentifier"] = SidebarAccessibilityIdentifier.analysesGroup
                 items.insert(analysesGroup, at: 0)
             }
 
@@ -2866,6 +2873,11 @@ extension SidebarViewController: NSOutlineViewDelegate {
 
         // Configure cell
         cellView?.textField?.stringValue = sidebarItem.title
+
+        if let accessibilityIdentifier = sidebarItem.userInfo["accessibilityIdentifier"] {
+            cellView?.setAccessibilityIdentifier(accessibilityIdentifier)
+            cellView?.textField?.setAccessibilityIdentifier(accessibilityIdentifier)
+        }
 
         // Update subtitle field if present
         if let subtitleField = cellView?.viewWithTag(999) as? NSTextField {

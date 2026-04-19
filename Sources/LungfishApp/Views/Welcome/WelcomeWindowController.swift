@@ -415,6 +415,15 @@ enum WelcomeAction: String, Identifiable, CaseIterable {
 
     var id: String { rawValue }
 
+    var accessibilityIdentifier: String {
+        switch self {
+        case .createProject:
+            return "welcome-create-project"
+        case .openProject:
+            return "welcome-open-project"
+        }
+    }
+
     var icon: String {
         switch self {
         case .createProject: return "folder.badge.plus"
@@ -602,6 +611,7 @@ struct WelcomeView: View {
                             isEnabled: viewModel.canLaunch,
                             onTap: { performAction(action) }
                         )
+                        .accessibilityIdentifier(action.accessibilityIdentifier)
                         .onHover { isHovered in
                             hoveredAction = isHovered ? action : nil
                         }
@@ -797,6 +807,18 @@ struct WelcomeView: View {
     }
 
     private func showCreateProjectPanel() async {
+        recordUITestEvent("welcome.dialog.create.requested")
+
+        let uiTestConfiguration = AppUITestConfiguration.current
+        if uiTestConfiguration.isEnabled,
+           uiTestConfiguration.backendMode == .deterministic,
+           let projectURL = uiTestConfiguration.welcomeCreateProjectPath {
+            viewModel.onCreateProject?(
+                projectURL.deletingPathExtension().appendingPathExtension("lungfish")
+            )
+            return
+        }
+
         let savePanel = NSSavePanel()
         savePanel.title = "Create New Project"
         savePanel.message = "Choose a location for your new Lungfish project"
@@ -816,6 +838,16 @@ struct WelcomeView: View {
     }
 
     private func showOpenProjectPanel() async {
+        recordUITestEvent("welcome.dialog.open.requested")
+
+        let uiTestConfiguration = AppUITestConfiguration.current
+        if uiTestConfiguration.isEnabled,
+           uiTestConfiguration.backendMode == .deterministic,
+           let projectURL = uiTestConfiguration.welcomeOpenProjectPath {
+            viewModel.onOpenProject?(projectURL)
+            return
+        }
+
         let openPanel = NSOpenPanel()
         openPanel.title = "Open Project"
         openPanel.message = "Select a Lungfish project folder"
@@ -829,6 +861,10 @@ struct WelcomeView: View {
         if response == .OK, let url = openPanel.url {
             viewModel.onOpenProject?(url)
         }
+    }
+
+    private func recordUITestEvent(_ event: String) {
+        AppUITestConfiguration.current.appendEvent(event)
     }
 
     private func showStorageLocationPanel() async {
@@ -1407,6 +1443,7 @@ public final class WelcomeWindowController: NSWindowController {
         window.center()
 
         super.init(window: window)
+        window.setAccessibilityIdentifier("welcome-window")
 
         setupContent()
     }

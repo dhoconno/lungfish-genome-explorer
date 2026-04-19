@@ -33,6 +33,15 @@ public class MainWindowController: NSWindowController {
         static let flexibleSpace = NSToolbarItem.Identifier.flexibleSpace
     }
 
+    private enum AccessibilityIdentifier {
+        static let toggleSidebar = "main-window-toggle-sidebar"
+        static let toggleInspector = "main-window-toggle-inspector"
+        static let toggleChromosomeDrawer = "main-window-toggle-chromosome-drawer"
+        static let toggleAnnotationDrawer = "main-window-toggle-annotation-drawer"
+        static let translateTool = "main-window-translate-tool"
+        static let operations = "main-window-operations"
+    }
+
     // MARK: - Toolbar State
 
     /// Annotation search index for the current bundle.
@@ -259,7 +268,12 @@ public class MainWindowController: NSWindowController {
         return generated
     }
 
-    private func makeToolbarButton(symbolName: String, fallbacks: [String], accessibilityLabel: String) -> NSButton {
+    private func makeToolbarButton(
+        symbolName: String,
+        fallbacks: [String],
+        accessibilityLabel: String,
+        accessibilityIdentifier: String
+    ) -> NSButton {
         let button = NSButton(frame: NSRect(x: 0, y: 0, width: 38, height: 24))
         button.setButtonType(.momentaryPushIn)
         button.bezelStyle = .toolbar
@@ -268,6 +282,7 @@ public class MainWindowController: NSWindowController {
         button.isContinuous = false
         button.sendAction(on: [.leftMouseUp])
         button.setAccessibilityLabel(accessibilityLabel)
+        button.setAccessibilityIdentifier(accessibilityIdentifier)
         return button
     }
 
@@ -436,7 +451,8 @@ extension MainWindowController: NSToolbarDelegate {
             let button = makeToolbarButton(
                 symbolName: "sidebar.leading",
                 fallbacks: ["sidebar.left", "sidebar.squares.leading", "list.bullet"],
-                accessibilityLabel: "Toggle Sidebar"
+                accessibilityLabel: "Toggle Sidebar",
+                accessibilityIdentifier: AccessibilityIdentifier.toggleSidebar
             )
             button.target = self
             button.action = #selector(toggleSidebar(_:))
@@ -451,7 +467,8 @@ extension MainWindowController: NSToolbarDelegate {
             let button = makeToolbarButton(
                 symbolName: "sidebar.trailing",
                 fallbacks: ["sidebar.right", "info.circle"],
-                accessibilityLabel: "Toggle Inspector"
+                accessibilityLabel: "Toggle Inspector",
+                accessibilityIdentifier: AccessibilityIdentifier.toggleInspector
             )
             button.target = self
             button.action = #selector(toggleInspector(_:))
@@ -466,7 +483,8 @@ extension MainWindowController: NSToolbarDelegate {
             let button = makeToolbarButton(
                 symbolName: "list.bullet.rectangle",
                 fallbacks: ["rectangle.split.3x1", "list.bullet"],
-                accessibilityLabel: "Toggle Chromosome Drawer"
+                accessibilityLabel: "Toggle Chromosome Drawer",
+                accessibilityIdentifier: AccessibilityIdentifier.toggleChromosomeDrawer
             )
             button.target = self
             button.action = #selector(toggleChromosomeDrawer(_:))
@@ -481,7 +499,8 @@ extension MainWindowController: NSToolbarDelegate {
             let button = makeToolbarButton(
                 symbolName: "tablecells",
                 fallbacks: ["tablecells.badge.ellipsis", "list.dash"],
-                accessibilityLabel: "Toggle Bottom Drawer"
+                accessibilityLabel: "Toggle Bottom Drawer",
+                accessibilityIdentifier: AccessibilityIdentifier.toggleAnnotationDrawer
             )
             button.target = self
             button.action = #selector(toggleAnnotationDrawer(_:))
@@ -498,7 +517,8 @@ extension MainWindowController: NSToolbarDelegate {
             let button = makeToolbarButton(
                 symbolName: "character.textbox",
                 fallbacks: ["textformat.abc", "text.alignleft"],
-                accessibilityLabel: "Translation Tool"
+                accessibilityLabel: "Translation Tool",
+                accessibilityIdentifier: AccessibilityIdentifier.translateTool
             )
             button.target = self
             button.action = #selector(showTranslationTool(_:))
@@ -513,7 +533,8 @@ extension MainWindowController: NSToolbarDelegate {
             let button = makeToolbarButton(
                 symbolName: "list.bullet.rectangle.portrait",
                 fallbacks: ["list.bullet.rectangle", "list.bullet"],
-                accessibilityLabel: "Operations"
+                accessibilityLabel: "Operations",
+                accessibilityIdentifier: AccessibilityIdentifier.operations
             )
             button.target = self
             button.action = #selector(showOperationsPanel(_:))

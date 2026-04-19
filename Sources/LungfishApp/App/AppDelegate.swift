@@ -354,6 +354,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
 
         // Check for --skip-welcome argument
+        let uiTestConfiguration = AppUITestConfiguration.current
+        if uiTestConfiguration.isEnabled,
+           let projectURL = uiTestConfiguration.projectPath {
+            showMainWindowWithProject(projectURL)
+            return
+        }
+
         if args.contains("--skip-welcome") {
             showMainWindowWithoutProject()
             return

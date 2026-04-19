@@ -4157,10 +4157,24 @@ extension MainSplitViewController: SidebarSelectionDelegate {
 
         Task.detached(priority: .userInitiated) { [weak self] in
             do {
-                let result = try await executionService.execute(
-                    request: request,
-                    workingDirectory: workingDirectory
-                )
+                let result: FASTQOperationExecutionResult
+                if AppUITestConfiguration.current.isEnabled,
+                   AppUITestConfiguration.current.backendMode == .deterministic,
+                   case .assemble(let assemblyRequest, let outputMode) = request {
+                    let uiTestRequest = assemblyRequest.replacingOutputDirectory(with: workingDirectory)
+                    try AppUITestAssemblyBackend.writeResult(for: uiTestRequest)
+                    result = FASTQOperationExecutionResult(
+                        resolvedRequest: .assemble(request: uiTestRequest, outputMode: outputMode),
+                        executedInvocations: [],
+                        importedURLs: [workingDirectory],
+                        groupedContainerURL: outputMode == .groupedResult ? workingDirectory : nil
+                    )
+                } else {
+                    result = try await executionService.execute(
+                        request: request,
+                        workingDirectory: workingDirectory
+                    )
+                }
                 let elapsed = Date().timeIntervalSince(startTime)
                 let completionTarget = result.groupedContainerURL ?? result.importedURLs.last
 

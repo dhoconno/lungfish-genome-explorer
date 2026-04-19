@@ -27,6 +27,25 @@ annotations match the genome — so you can test the full pipeline end-to-end.
 
 **Total: ~85 KB** — small enough to commit to git.
 
+## analyses/
+
+Reusable imported-analysis fixtures for UI, integration, and sidebar tests.
+
+| Path | Description |
+|------|-------------|
+| `spades-2026-01-15T13-00-00/` | Small SPAdes result fixture used to seed `Analyses/` in deterministic project fixtures |
+
+## assembly-ui/
+
+Small read fixtures used by deterministic assembly UI and XCUI coverage.
+
+| Path | Description |
+|------|-------------|
+| `illumina/reads_R1.fastq` | Short paired-end Illumina R1 example |
+| `illumina/reads_R2.fastq` | Short paired-end Illumina R2 example |
+| `ont/reads.fastq` | ONT-style single-read example with nanopore header |
+| `pacbio-hifi/reads.fastq` | PacBio HiFi example with `/ccs` header |
+
 ## Usage in Tests
 
 ```swift
