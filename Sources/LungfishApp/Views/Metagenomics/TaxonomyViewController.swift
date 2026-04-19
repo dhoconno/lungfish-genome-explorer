@@ -143,8 +143,8 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     private let summaryBar = TaxonomySummaryBar()
     private let breadcrumbBar = TaxonomyBreadcrumbBar()
     let splitView = NSSplitView()
-    private let sunburstContainer = NSView()
-    private let tableContainer = NSView()
+    private let sunburstContainer = SplitPaneFillContainerView()
+    private let tableContainer = SplitPaneFillContainerView()
     private let sunburstView = TaxonomySunburstView()
     private let taxonomyTableView = TaxonomyTableView()
     let actionBar = ClassifierActionBar()
@@ -766,6 +766,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         // translatesAutoresizingMaskIntoConstraints on the container.
         sunburstView.autoresizingMask = [.width, .height]
         sunburstContainer.addSubview(sunburstView)
+        sunburstContainer.fillSubview = sunburstView
 
         // Multi-selection placeholder overlay on the sunburst container
         sunburstContainer.addSubview(multiSelectionPlaceholder)
@@ -779,6 +780,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         // Table container (list pane in list-leading / stacked mode).
         taxonomyTableView.autoresizingMask = [.width, .height]
         tableContainer.addSubview(taxonomyTableView)
+        tableContainer.fillSubview = taxonomyTableView
 
         if MetagenomicsPanelLayout.current() == .detailLeading {
             splitView.addArrangedSubview(sunburstContainer)

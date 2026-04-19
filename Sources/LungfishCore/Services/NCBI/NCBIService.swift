@@ -970,6 +970,37 @@ public actor NCBIService: DatabaseService {
         return allAccessions
     }
 
+    /// Fetches detailed SRA run info rows via EFetch runinfo CSV.
+    ///
+    /// The `id` parameter accepted by NCBI EFetch works with either SRA UIDs
+    /// returned by ESearch or run accessions such as `SRR12345678`.
+    public func sraEFetchRunInfo(ids: [String]) async throws -> [SRARunInfo] {
+        guard !ids.isEmpty else { return [] }
+
+        var allRuns: [SRARunInfo] = []
+        let chunkSize = 200
+        for chunkStart in stride(from: 0, to: ids.count, by: chunkSize) {
+            let chunkEnd = min(chunkStart + chunkSize, ids.count)
+            let chunk = Array(ids[chunkStart..<chunkEnd])
+
+            var components = URLComponents(url: baseURL.appendingPathComponent("efetch.fcgi"), resolvingAgainstBaseURL: false)!
+            components.queryItems = [
+                URLQueryItem(name: "db", value: "sra"),
+                URLQueryItem(name: "id", value: chunk.joined(separator: ",")),
+                URLQueryItem(name: "rettype", value: "runinfo"),
+                URLQueryItem(name: "retmode", value: "csv")
+            ]
+            if let apiKey = apiKey {
+                components.queryItems?.append(URLQueryItem(name: "api_key", value: apiKey))
+            }
+
+            let data = try await makeRequest(url: components.url!)
+            let csvText = String(data: data, encoding: .utf8) ?? ""
+            allRuns.append(contentsOf: Self.parseRunInfoRows(csvText))
+        }
+        return allRuns
+    }
+
     /// Parses NCBI SRA EFetch runinfo CSV to extract run accessions.
     ///
     /// Only returns values that match SRA run accession patterns (SRR/ERR/DRR + digits).
@@ -984,6 +1015,90 @@ public actor NCBIService: DatabaseService {
             guard !run.isEmpty, run.wholeMatch(of: runPattern) != nil else { return nil }
             return run
         }
+    }
+
+    static func parseRunInfoRows(_ csv: String) -> [SRARunInfo] {
+        let lines = csv.components(separatedBy: "\n")
+        guard !lines.isEmpty else { return [] }
+
+        let firstLine = lines[0]
+        let hasHeader = firstLine.hasPrefix("Run,")
+
+        let runIdx = 0
+        let releaseDateIdx = 1
+        let spotsIdx = 3
+        let basesIdx = 4
+        let avgLengthIdx = 6
+        let sizeMBIdx = 7
+        let experimentIdx = 10
+        let libraryStrategyIdx = 12
+        let librarySourceIdx = 14
+        let libraryLayoutIdx = 15
+        let platformIdx = 18
+        let studyIdx = 20
+        let bioprojectIdx = 21
+        let sampleIdx = 24
+        let biosampleIdx = 25
+        let scientificNameIdx = 28
+
+        let dataLines = hasHeader ? Array(lines.dropFirst()) : lines
+
+        return dataLines.compactMap { line -> SRARunInfo? in
+            guard !line.isEmpty else { return nil }
+            let fields = Self.parseRunInfoLine(line)
+            guard fields.count > runIdx, !fields[runIdx].isEmpty else { return nil }
+            let field: (Int) -> String? = { index in
+                guard index >= 0 && index < fields.count else { return nil }
+                return fields[index]
+            }
+
+            let run = SRARunInfo(
+                accession: field(runIdx) ?? "",
+                experiment: field(experimentIdx),
+                sample: field(sampleIdx),
+                study: field(studyIdx),
+                bioproject: field(bioprojectIdx),
+                biosample: field(biosampleIdx),
+                organism: field(scientificNameIdx),
+                platform: field(platformIdx),
+                libraryStrategy: field(libraryStrategyIdx),
+                librarySource: field(librarySourceIdx),
+                libraryLayout: field(libraryLayoutIdx),
+                spots: Int(field(spotsIdx) ?? ""),
+                bases: Int(field(basesIdx) ?? ""),
+                avgLength: Int(field(avgLengthIdx) ?? ""),
+                size: Int(field(sizeMBIdx) ?? ""),
+                releaseDate: Self.parseRunInfoDate(field(releaseDateIdx))
+            )
+
+            return run.accession.isEmpty ? nil : run
+        }
+    }
+
+    private static func parseRunInfoLine(_ line: String) -> [String] {
+        var fields: [String] = []
+        var current = ""
+        var inQuotes = false
+
+        for char in line {
+            if char == "\"" {
+                inQuotes.toggle()
+            } else if char == "," && !inQuotes {
+                fields.append(current)
+                current = ""
+            } else {
+                current.append(char)
+            }
+        }
+        fields.append(current)
+        return fields
+    }
+
+    private static func parseRunInfoDate(_ dateStr: String?) -> Date? {
+        guard let str = dateStr, !str.isEmpty else { return nil }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return formatter.date(from: str)
     }
 
     /// Retrieves document summaries for UIDs.

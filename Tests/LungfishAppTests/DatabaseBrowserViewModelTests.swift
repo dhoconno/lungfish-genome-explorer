@@ -634,4 +634,107 @@ final class DatabaseBrowserViewModelTests: XCTestCase {
         XCTAssertEqual(enaViewModel.sraLayoutFilter, .any)
         XCTAssertEqual(enaViewModel.sraMinMbases, "")
     }
+
+    func testSRASearchUsesNCBIBasesWhenENAReportsZeroMetadata() async throws {
+        let mockClient = DatabaseBrowserMockHTTPClient()
+        let ncbiService = NCBIService(httpClient: mockClient)
+        let enaService = ENAService(httpClient: mockClient)
+
+        await mockClient.register(
+            pattern: "esearch.fcgi",
+            response: .text(#"{"esearchresult":{"count":"1","retmax":"1","retstart":"0","idlist":["44036162"]}}"#)
+        )
+        await mockClient.register(
+            pattern: "efetch.fcgi",
+            response: .text("""
+            Run,ReleaseDate,LoadDate,spots,bases,spots_with_mates,avgLength,size_MB,AssemblyName,download_path,Experiment,LibraryName,LibraryStrategy,LibrarySelection,LibrarySource,LibraryLayout,InsertSize,InsertDev,Platform,Model,SRAStudy,BioProject,Study_Pubmed_id,ProjectID,Sample,BioSample,SampleType,TaxID,ScientificName,SampleName,g1k_pop_code,source,g1k_analysis_group,Subject_ID,Sex,Disease,Tumor,Affection_Status,Analyte_Type,Histological_Type,Body_Site,CenterName,Submission,dbgap_study_accession,Consent,RunHash,ReadHash
+            SRR38099052,2026-04-14 14:09:49,2026-04-14 14:07:16,19482145,3896429000,19482145,200,2481,,https://example.invalid/SRR38099052.sra,SRX32946020,COVID-19 WGS,AMPLICON,RT-PCR,VIRAL RNA,PAIRED,0,0,ELEMENT,Element AVITI,SRP446588,PRJNA989177,,989177,SRS28785912,SAMN57267219,simple,2697049,Severe acute respiratory syndrome coronavirus 2,SARS-CoV-2/human/USA/CA-GBW-AVWWAAA13329/2026,,,,,,,no,,,,,GBW,SRA2374150,,public,hash,hash
+            """)
+        )
+        await mockClient.register(
+            pattern: "portal/api/filereport",
+            response: .json([[
+                "run_accession": "SRR38099052",
+                "experiment_title": "COVID-19 WGS",
+                "library_layout": "PAIRED",
+                "library_strategy": "AMPLICON",
+                "instrument_platform": "ELEMENT",
+                "base_count": "0",
+                "read_count": "0",
+                "fastq_ftp": "",
+                "fastq_bytes": "",
+                "first_public": "2026-04-16"
+            ]])
+        )
+
+        let enaViewModel = DatabaseBrowserViewModel(
+            source: .ena,
+            ncbiService: ncbiService,
+            enaService: enaService
+        )
+        enaViewModel.clearSearchHistory()
+        enaViewModel.searchText = "PRJNA989177"
+
+        enaViewModel.performSearch()
+        try await waitForSearchResults(in: enaViewModel)
+
+        let record = try XCTUnwrap(enaViewModel.results.first)
+        XCTAssertEqual(record.accession, "SRR38099052")
+        XCTAssertEqual(record.length, 3_896_429_000)
+        XCTAssertEqual(record.organism, "Severe acute respiratory syndrome coronavirus 2")
+    }
+}
+
+@MainActor
+private func waitForSearchResults(
+    in viewModel: DatabaseBrowserViewModel,
+    timeout: TimeInterval = 2.0
+) async throws {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if !viewModel.results.isEmpty || viewModel.errorMessage != nil || !viewModel.isSearching {
+            break
+        }
+        try await Task.sleep(nanoseconds: 20_000_000)
+    }
+}
+
+private actor DatabaseBrowserMockHTTPClient: HTTPClient {
+    struct MockResponse {
+        let data: Data
+        let statusCode: Int
+        let headers: [String: String]
+
+        static func text(_ string: String, statusCode: Int = 200) -> MockResponse {
+            MockResponse(data: Data(string.utf8), statusCode: statusCode, headers: [:])
+        }
+
+        static func json(_ object: Any, statusCode: Int = 200) -> MockResponse {
+            MockResponse(
+                data: try! JSONSerialization.data(withJSONObject: object),
+                statusCode: statusCode,
+                headers: ["Content-Type": "application/json"]
+            )
+        }
+    }
+
+    private var responses: [(pattern: String, response: MockResponse)] = []
+
+    func register(pattern: String, response: MockResponse) {
+        responses.append((pattern, response))
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        let urlString = request.url?.absoluteString ?? ""
+        for (pattern, response) in responses where urlString.contains(pattern) {
+            let urlResponse = HTTPURLResponse(
+                url: request.url!,
+                statusCode: response.statusCode,
+                httpVersion: "HTTP/1.1",
+                headerFields: response.headers
+            )!
+            return (response.data, urlResponse)
+        }
+        throw URLError(.badURL)
+    }
 }

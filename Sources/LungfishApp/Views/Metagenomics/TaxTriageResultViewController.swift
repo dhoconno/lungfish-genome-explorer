@@ -11,52 +11,6 @@ import os.log
 
 private let logger = Logger(subsystem: "com.lungfish.app", category: "TaxTriageResultVC")
 
-/// Split-pane shells should let the divider, not Auto Layout fitting size,
-/// determine their width inside raw `NSSplitView` layouts.
-private class SplitPaneContainerView: NSView {
-    var fillSubview: NSView? {
-        didSet {
-            syncFillSubviewFrameIfNeeded()
-        }
-    }
-
-    override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(newSize)
-        syncFillSubviewFrameIfNeeded()
-    }
-
-    override func setFrameOrigin(_ newOrigin: NSPoint) {
-        super.setFrameOrigin(newOrigin)
-        syncFillSubviewFrameIfNeeded()
-    }
-
-    override func layout() {
-        super.layout()
-        syncFillSubviewFrameIfNeeded()
-    }
-
-    override func resizeSubviews(withOldSize oldSize: NSSize) {
-        super.resizeSubviews(withOldSize: oldSize)
-        syncFillSubviewFrameIfNeeded()
-    }
-
-    private func syncFillSubviewFrameIfNeeded() {
-        guard let fillSubview else { return }
-        guard abs(fillSubview.frame.width - bounds.width) > 0.5
-                || abs(fillSubview.frame.height - bounds.height) > 0.5
-        else { return }
-        fillSubview.frame = bounds
-        fillSubview.needsLayout = true
-        fillSubview.layoutSubtreeIfNeeded()
-    }
-}
-
-/// Flipped container so Auto Layout `topAnchor` maps to visual top in AppKit.
-private final class FlippedPaneContainerView: SplitPaneContainerView {
-    override var isFlipped: Bool { true }
-}
-
-
 // MARK: - TaxTriageResultViewController
 
 /// A full-screen clinical triage result browser for TaxTriage pipeline output.
@@ -260,14 +214,14 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     /// Container for the right pane content (organism table, batch overview, or batch flat table).
     /// Stored as an instance property so `setupBatchFlatTableView()` can add to it.
-    private let rightPaneContainer = SplitPaneContainerView()
+    private let rightPaneContainer = SplitPaneFillContainerView()
 
     // MARK: - Child Views
 
     private let summaryBar = TaxTriageSummaryBar()
     private let sampleFilterControl = NSSegmentedControl()
     let splitView = TrackedDividerSplitView()
-    private let leftPaneContainer = FlippedPaneContainerView()
+    private let leftPaneContainer = FlippedSplitPaneFillContainerView()
     private var miniBAMController: MiniBAMViewController?
     private let organismTableView = TaxTriageOrganismTableView()
     private let batchOverviewView = TaxTriageBatchOverviewView()

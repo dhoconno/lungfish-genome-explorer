@@ -435,7 +435,7 @@ extension MainWindowController: NSToolbarDelegate {
             item.toolTip = "Show or hide the sidebar"
             let button = makeToolbarButton(
                 symbolName: "sidebar.leading",
-                fallbacks: ["sidebar.left", "sidebar.squares.leading"],
+                fallbacks: ["sidebar.left", "sidebar.squares.leading", "list.bullet"],
                 accessibilityLabel: "Toggle Sidebar"
             )
             button.target = self

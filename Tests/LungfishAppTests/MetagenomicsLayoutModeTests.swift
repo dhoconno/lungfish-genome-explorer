@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+@testable import LungfishIO
 import ObjectiveC.runtime
 
 private final class SplitViewPositionSpy: NSSplitView {
@@ -13,6 +14,120 @@ private final class SplitViewPositionSpy: NSSplitView {
 
 @MainActor
 final class MetagenomicsLayoutModeTests: XCTestCase {
+    private func makeEsVirituDetection() -> ViralDetection {
+        ViralDetection(
+            sampleId: "sample-1",
+            name: "Example virus",
+            description: "Example virus contig",
+            length: 1_000,
+            segment: nil,
+            accession: "NC_000001",
+            assembly: "GCF_000001",
+            assemblyLength: 1_000,
+            kingdom: "Viruses",
+            phylum: nil,
+            tclass: nil,
+            order: nil,
+            family: "ExampleFamily",
+            genus: "ExampleGenus",
+            species: "Example species",
+            subspecies: nil,
+            rpkmf: 10.0,
+            readCount: 100,
+            coveredBases: 900,
+            meanCoverage: 12.5,
+            avgReadIdentity: 0.98,
+            pi: 0.01,
+            filteredReadsInSample: 100_000
+        )
+    }
+
+    private func makeEsVirituAssembly() -> ViralAssembly {
+        let detection = makeEsVirituDetection()
+        return ViralAssembly(
+            assembly: detection.assembly,
+            assemblyLength: detection.assemblyLength,
+            name: detection.name,
+            family: detection.family,
+            genus: detection.genus,
+            species: detection.species,
+            totalReads: detection.readCount,
+            rpkmf: detection.rpkmf,
+            meanCoverage: detection.meanCoverage,
+            avgReadIdentity: detection.avgReadIdentity,
+            contigs: [detection]
+        )
+    }
+
+    private func makeNvdManifest() -> NvdManifest {
+        NvdManifest(
+            experiment: "exp-1",
+            sampleCount: 1,
+            contigCount: 1,
+            hitCount: 1,
+            blastDbVersion: nil,
+            snakemakeRunId: nil,
+            sourceDirectoryPath: "/tmp/nvd",
+            samples: [
+                NvdSampleSummary(
+                    sampleId: "sample-1",
+                    contigCount: 1,
+                    hitCount: 1,
+                    totalReads: 100,
+                    bamRelativePath: "sample-1.sorted.bam",
+                    fastaRelativePath: "sample-1.fasta"
+                )
+            ],
+            cachedTopContigs: nil
+        )
+    }
+
+    private func makeNvdRow() -> NvdContigRow {
+        NvdContigRow(
+            sampleId: "sample-1",
+            qseqid: "NODE_1",
+            qlen: 1000,
+            adjustedTaxidName: "Example virus",
+            adjustedTaxidRank: "species",
+            sseqid: "NC_000001.1",
+            stitle: "Example virus reference",
+            pident: 99.0,
+            evalue: 0,
+            bitscore: 1000,
+            mappedReads: 50,
+            readsPerBillion: 1_000_000
+        )
+    }
+
+    private func makeNaoMgsManifest() -> NaoMgsManifest {
+        NaoMgsManifest(
+            sampleName: "sample-1",
+            sourceFilePath: "/tmp/naomgs.tsv",
+            hitCount: 10,
+            taxonCount: 1,
+            topTaxon: "Example virus",
+            topTaxonId: 1234
+        )
+    }
+
+    private func makeNaoMgsRow() -> NaoMgsTaxonSummaryRow {
+        NaoMgsTaxonSummaryRow(
+            sample: "sample-1",
+            taxId: 1234,
+            name: "Example virus",
+            hitCount: 10,
+            uniqueReadCount: 8,
+            avgIdentity: 99.5,
+            avgBitScore: 200,
+            avgEditDistance: 1,
+            pcrDuplicateCount: 0,
+            accessionCount: 1,
+            topAccessions: ["NC_000001.1"],
+            bamPath: nil,
+            bamIndexPath: nil
+        )
+    }
+
     private func setLayoutPreference(
         _ layout: MetagenomicsPanelLayout,
         legacyTableOnLeft: Bool
@@ -226,6 +341,40 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         vc.view.layoutSubtreeIfNeeded()
 
         XCTAssertEqual(vc.testSplitView.arrangedSubviews[0].frame.width, movedWidth, accuracy: 2)
+    }
+
+    func testNvdLiveWindowResizesDetailDocumentWidthAfterDividerMove() throws {
+        setLayoutPreference(.detailLeading, legacyTableOnLeft: false)
+
+        let vc = NvdResultViewController()
+        _ = vc.view
+        vc.configureWithCachedRows([makeNvdRow()], manifest: makeNvdManifest(), bundleURL: URL(fileURLWithPath: "/tmp/nvd"))
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
+            styleMask: [.titled, .resizable, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = vc
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        let detailContainer = try XCTUnwrap(vc.testDetailContainer)
+        let scrollView = try XCTUnwrap(detailContainer.subviews.first as? NSScrollView)
+        let documentView = try XCTUnwrap(scrollView.documentView)
+        documentView.frame = NSRect(x: 0, y: 0, width: scrollView.contentView.bounds.width, height: 400)
+        let initialWidth = scrollView.contentView.bounds.width
+
+        vc.testSplitView.setPosition(initialWidth + 160, ofDividerAt: 0)
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        let resizedWidth = scrollView.contentView.bounds.width
+        XCTAssertGreaterThan(abs(resizedWidth - initialWidth), 80)
+        XCTAssertEqual(documentView.frame.width, resizedWidth, accuracy: 2)
     }
 
     func testTaxTriageViewStacksListAboveDetailWhenLayoutIsStacked() {
@@ -535,6 +684,49 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         XCTAssertEqual(vc.testSplitView.arrangedSubviews[0].frame.width, movedWidth, accuracy: 2)
     }
 
+    func testEsVirituDetailPaneTracksDocumentWidthToClipViewAfterResize() throws {
+        let pane = EsVirituDetailPane(frame: NSRect(x: 0, y: 0, width: 420, height: 280))
+        let miniBAM = MiniBAMViewController()
+        _ = miniBAM.view
+        pane.miniBAMViewController = miniBAM
+
+        let host = NSView(frame: pane.frame)
+        pane.autoresizingMask = [.width, .height]
+        host.addSubview(pane)
+
+        let window = NSWindow(
+            contentRect: host.frame,
+            styleMask: [.titled, .resizable, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = host
+
+        pane.showVirusDetail(
+            assembly: makeEsVirituAssembly(),
+            coverageWindows: [:],
+            bamURL: URL(fileURLWithPath: "/tmp/esviritu-placeholder.bam")
+        )
+
+        window.layoutIfNeeded()
+        host.layoutSubtreeIfNeeded()
+        pane.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        let scrollContainer = try XCTUnwrap(pane.subviews.first as? ScrollViewSplitPaneContainerView)
+        let scrollView = try XCTUnwrap(scrollContainer.subviews.first as? NSScrollView)
+        let documentView = try XCTUnwrap(scrollView.documentView)
+        XCTAssertEqual(documentView.frame.width, scrollView.contentView.bounds.width, accuracy: 2)
+
+        host.setFrameSize(NSSize(width: 620, height: 280))
+        window.layoutIfNeeded()
+        host.layoutSubtreeIfNeeded()
+        pane.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(documentView.frame.width, scrollView.contentView.bounds.width, accuracy: 2)
+    }
+
     func testEsVirituImmediateUserDividerMoveSurvivesDeferredValidation() {
         setLayoutPreference(.listLeading, legacyTableOnLeft: true)
 
@@ -634,6 +826,78 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         XCTAssertTrue(vc.testSplitView.isVertical)
         XCTAssertTrue(vc.testSplitView.arrangedSubviews[0] === initialFirstPane)
         XCTAssertTrue(vc.testSplitView.arrangedSubviews[1] === initialSecondPane)
+    }
+
+    func testNaoMgsLiveWindowResizesDetailDocumentWidthAfterDividerMove() throws {
+        setLayoutPreference(.detailLeading, legacyTableOnLeft: false)
+
+        let vc = NaoMgsResultViewController()
+        _ = vc.view
+        vc.configureWithCachedRows([makeNaoMgsRow()], manifest: makeNaoMgsManifest())
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
+            styleMask: [.titled, .resizable, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = vc
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        let detailContainer = try XCTUnwrap(vc.testDetailContainer)
+        let scrollView = try XCTUnwrap(detailContainer.subviews.first as? NSScrollView)
+        let documentView = try XCTUnwrap(scrollView.documentView)
+        documentView.frame = NSRect(x: 0, y: 0, width: scrollView.contentView.bounds.width, height: 400)
+        let initialWidth = scrollView.contentView.bounds.width
+
+        vc.testSplitView.setPosition(initialWidth + 160, ofDividerAt: 0)
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        let resizedWidth = scrollView.contentView.bounds.width
+        XCTAssertGreaterThan(abs(resizedWidth - initialWidth), 80)
+        XCTAssertEqual(documentView.frame.width, resizedWidth, accuracy: 2)
+    }
+
+    func testNaoMgsListLeadingDividerCanRecoverAfterExtremeCollapseDrag() {
+        setLayoutPreference(.listLeading, legacyTableOnLeft: true)
+
+        let vc = NaoMgsResultViewController()
+        _ = vc.view
+        vc.configureWithCachedRows([makeNaoMgsRow()], manifest: makeNaoMgsManifest())
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
+            styleMask: [.titled, .resizable, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = vc
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        vc.testSplitView.setPosition(0, ofDividerAt: 0)
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        let collapsedWidth = vc.testSplitView.arrangedSubviews[0].frame.width
+        XCTAssertGreaterThanOrEqual(collapsedWidth, 298)
+
+        let restoredTarget = collapsedWidth + 180
+        vc.testSplitView.setPosition(restoredTarget, ofDividerAt: 0)
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertGreaterThan(
+            vc.testSplitView.arrangedSubviews[0].frame.width,
+            collapsedWidth + 120
+        )
     }
 
     func testTaxTriageLayoutChangeResetsCollapsedStackedPaneToSensibleWidth() {

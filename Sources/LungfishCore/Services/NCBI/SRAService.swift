@@ -280,8 +280,19 @@ public actor SRAService {
         progress?(0.9)
 
         // Find the output FASTQ files
-        let files = try FileManager.default.contentsOfDirectory(at: outputDirectory, includingPropertiesForKeys: nil)
-        let fastqFiles = files.filter { $0.pathExtension == "fastq" || $0.lastPathComponent.contains(accession) }
+        let files = try FileManager.default.contentsOfDirectory(
+            at: outputDirectory,
+            includingPropertiesForKeys: [.isDirectoryKey]
+        )
+        let fastqFiles = files.filter { url in
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
+            guard values?.isDirectory != true else { return false }
+            let lowercaseName = url.lastPathComponent.lowercased()
+            return lowercaseName.hasSuffix(".fastq")
+                || lowercaseName.hasSuffix(".fq")
+                || lowercaseName.hasSuffix(".fastq.gz")
+                || lowercaseName.hasSuffix(".fq.gz")
+        }
 
         progress?(1.0)
 

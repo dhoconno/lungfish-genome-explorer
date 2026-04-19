@@ -213,6 +213,9 @@ public class MainSplitViewController: NSSplitViewController {
         viewerMinWidth: viewerMinWidth
     )
 
+    /// Tracks sidebar width recommendations versus explicit user drags.
+    private let sidebarWidthCoordinator = SplitShellWidthCoordinator()
+
     // MARK: - Lifecycle
 
     public override func viewDidLoad() {
@@ -284,6 +287,9 @@ public class MainSplitViewController: NSSplitViewController {
         viewerController = ViewerViewController()
         inspectorController = InspectorViewController()
         _ = inspectorController.view
+        let sidebarView = sidebarController.view
+        sidebarView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        sidebarView.setContentHuggingPriority(.defaultLow, for: .horizontal)
         logger.info("configureChildControllers: Created all three view controllers")
 
         // Set up delegate for direct selection handling (avoids async Task issues)
@@ -320,6 +326,7 @@ public class MainSplitViewController: NSSplitViewController {
         addSplitViewItem(sidebarItem)
         addSplitViewItem(viewerItem)
         addSplitViewItem(inspectorItem)
+        sidebarWidthCoordinator.noteObservedWidth(sidebarDefaultWidth)
         logger.info("configureChildControllers: Added all three split view items, count=\(self.splitViewItems.count)")
 
         ensureShellWidthConstraints()
@@ -1278,13 +1285,22 @@ public class MainSplitViewController: NSSplitViewController {
 
     @objc private func handleSidebarPreferredWidthRecommended(_ notification: Notification) {
         guard let rawWidth = notification.userInfo?["width"] as? CGFloat else { return }
-        applySidebarPreferredWidth(rawWidth, allowShrink: false)
+        applySidebarPreferredWidth(rawWidth, allowShrink: false, isRecommendation: true)
+    }
+
+    private func sidebarWidthBounds() -> (minimum: CGFloat, maximum: CGFloat)? {
+        guard splitView.subviews.count >= 2 else { return nil }
+        let minimum = max(sidebarMinWidth, splitView.minPossiblePositionOfDivider(at: 0))
+        let maximum = min(sidebarMaxWidth, splitView.maxPossiblePositionOfDivider(at: 0))
+        guard maximum >= minimum else { return nil }
+        return (minimum, maximum)
     }
 
     private func applySidebarPreferredWidth(
         _ width: CGFloat,
         allowShrink: Bool,
-        scheduleAsync: Bool = true
+        scheduleAsync: Bool = true,
+        isRecommendation: Bool = false
     ) {
         shellLayoutCoordinator.recordRecommendation(width)
         ensureShellWidthConstraints()
@@ -1295,17 +1311,26 @@ public class MainSplitViewController: NSSplitViewController {
             guard let self else { return }
             guard let sidebarContainerView = self.sidebarContainerView else { return }
             guard !self.sidebarItem.isCollapsed else { return }
+            guard let widthBounds = self.sidebarWidthBounds() else { return }
 
             let liveCurrentWidth = sidebarContainerView.frame.width
             let resolved = self.shellLayoutCoordinator.resolvedSidebarWidth(currentWidth: liveCurrentWidth)
-            let target = allowShrink ? resolved : max(liveCurrentWidth, resolved)
-            guard abs(target - liveCurrentWidth) >= 1 else { return }
+            guard let target = self.sidebarWidthCoordinator.recommendedWidthToApply(
+                proposedWidth: resolved,
+                minimumWidth: widthBounds.minimum,
+                maximumWidth: widthBounds.maximum,
+                currentWidth: liveCurrentWidth,
+                allowShrink: allowShrink
+            ) else { return }
+            guard !(!allowShrink && isRecommendation && target < liveCurrentWidth) else { return }
 
             self.withProgrammaticShellResizeSuppression {
+                self.sidebarWidthCoordinator.noteProgrammaticWidth(target)
                 self.sidebarWidthConstraint?.constant = target
                 self.splitView.adjustSubviews()
                 self.view.layoutSubtreeIfNeeded()
             }
+            self.sidebarWidthCoordinator.finishProgrammaticWidth()
         }
 
         if scheduleAsync {
@@ -1477,6 +1502,26 @@ public class MainSplitViewController: NSSplitViewController {
         splitView.layoutSubtreeIfNeeded()
         view.layoutSubtreeIfNeeded()
         isApplyingProgrammaticShellDividerMove = false
+    }
+
+    private func restoreSidebarWidthIfNeeded(currentWidth: CGFloat) {
+        guard !sidebarItem.isCollapsed else { return }
+        guard currentWidth >= sidebarMinWidth - 1 else { return }
+        guard let widthBounds = sidebarWidthBounds() else { return }
+        guard let target = sidebarWidthCoordinator.restoredUserWidthToApply(
+            currentWidth: currentWidth,
+            minimumWidth: widthBounds.minimum,
+            maximumWidth: widthBounds.maximum
+        ) else { return }
+
+        ensureShellWidthConstraints()
+        withProgrammaticShellResizeSuppression {
+            sidebarWidthCoordinator.noteProgrammaticWidth(target)
+            sidebarWidthConstraint?.constant = target
+            splitView.adjustSubviews()
+            view.layoutSubtreeIfNeeded()
+        }
+        sidebarWidthCoordinator.finishProgrammaticWidth()
     }
 
     // MARK: - Panel State
@@ -1888,6 +1933,11 @@ public class MainSplitViewController: NSSplitViewController {
         guard !isApplyingProgrammaticShellDividerMove else { return proposedPosition }
         guard !isSuppressingProgrammaticShellResize else { return proposedPosition }
 
+        let clampedPosition = min(
+            max(proposedPosition, splitView.minPossiblePositionOfDivider(at: dividerIndex)),
+            splitView.maxPossiblePositionOfDivider(at: dividerIndex)
+        )
+
         switch dividerIndex {
         case 0:
             pendingShellResizeEvent = .userDraggedSidebar
@@ -1897,10 +1947,18 @@ public class MainSplitViewController: NSSplitViewController {
             pendingShellResizeEvent = .shellDidResize
         }
 
-        return proposedPosition
+        if dividerIndex == 0,
+           !sidebarItem.isCollapsed,
+           !sidebarWidthCoordinator.isApplyingProgrammaticWidth {
+            sidebarWidthCoordinator.noteUserRequestedWidth(clampedPosition)
+        }
+
+        return clampedPosition
     }
 
     public override func splitViewDidResizeSubviews(_ notification: Notification) {
+        guard notification.object as? NSSplitView === splitView else { return }
+
         let sidebarWidth = !sidebarItem.isCollapsed ? (sidebarContainerView?.frame.width ?? 0) : 0
         let inspectorWidth = !inspectorItem.isCollapsed ? (inspectorContainerView?.frame.width ?? 0) : 0
         let totalWidth = currentShellContentWidth()
@@ -1925,8 +1983,12 @@ public class MainSplitViewController: NSSplitViewController {
             savePanelState()
         }
 
-        schedulePendingRevealRestoreIfNeeded()
+        if !sidebarItem.isCollapsed {
+            sidebarWidthCoordinator.noteObservedWidth(sidebarWidth)
+            restoreSidebarWidthIfNeeded(currentWidth: sidebarWidth)
+        }
 
+        schedulePendingRevealRestoreIfNeeded()
         guard inspectorTransitionInFlight else { return }
         guard let targetCollapsed = inspectorTransitionTargetCollapsedState else { return }
         guard inspectorItem.isCollapsed == targetCollapsed else { return }

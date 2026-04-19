@@ -99,7 +99,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     // MARK: - Child Views
 
     private let summaryBar = NaoMgsSummaryBar()
-    let splitView = NSSplitView()
+    let splitView = TrackedDividerSplitView()
     private let taxonomyTableScrollView = NSScrollView()
     private let taxonomyTableView = NSTableView()
     private let taxonomyFilterBar = NSStackView()
@@ -184,15 +184,13 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     // MARK: - Split View State
 
     /// The left (detail) pane container in the split view.
-    private var detailContainer: NaoMgsDetailContainer?
+    private var detailContainer: ScrollViewSplitPaneContainerView?
 
     /// The right (table) pane container in the split view.
     private var tableContainer: NSView?
 
-    /// Whether the initial divider position has been applied.
-    private var didSetInitialSplitPosition = false
-    private var needsInitialSplitValidation = true
-    private var pendingInitialSplitValidation = false
+    /// Shared raw split-view coordinator for pane ordering and divider state.
+    private let splitCoordinator = TwoPaneTrackedSplitCoordinator()
 
     /// Active bottom constraint for the split view. Re-pinned when BLAST drawer opens.
     private var splitViewBottomConstraint: NSLayoutConstraint?
@@ -250,8 +248,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     public override func viewDidLayout() {
         super.viewDidLayout()
-        guard needsInitialSplitValidation else { return }
-        resetInitialSplitPositionIfNeeded()
+        guard splitCoordinator.needsInitialSplitValidation else { return }
         scheduleInitialSplitValidationIfNeeded()
     }
 
@@ -1290,7 +1287,10 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         splitView.delegate = self
 
         // Detail pane in detail-leading mode.
-        let detail = NaoMgsDetailContainer(scrollView: detailScrollView, contentView: detailContentView)
+        let detail = ScrollViewSplitPaneContainerView(
+            scrollView: detailScrollView,
+            documentView: detailContentView
+        )
         detailContainer = detail
 
         // Table pane in list-leading / stacked mode.
@@ -1479,36 +1479,10 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     }
 
     private func applySplitPositionIfNeeded(force: Bool) {
-        guard splitView.arrangedSubviews.count >= 2 else { return }
-        let totalExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
-        guard totalExtent > 0 else {
-            if force {
-                didSetInitialSplitPosition = false
-            }
-            return
+        if force {
+            splitCoordinator.invalidateInitialSplitPosition()
         }
-
-        guard force || !didSetInitialSplitPosition else { return }
-
-        let layout = MetagenomicsPanelLayout.current()
-        let minimumExtents = minimumExtents(for: layout)
-        let minimumRequiredExtent = minimumExtents.leading + minimumExtents.trailing + splitView.dividerThickness
-        guard totalExtent >= minimumRequiredExtent else {
-            if force {
-                didSetInitialSplitPosition = false
-            }
-            return
-        }
-
-        let position = MetagenomicsPaneSizing.clampedDividerPosition(
-            proposed: round(totalExtent * defaultLeadingFraction(for: layout)),
-            containerExtent: totalExtent,
-            minimumLeadingExtent: minimumExtents.leading,
-            minimumTrailingExtent: minimumExtents.trailing
-        )
-        splitView.setPosition(position, ofDividerAt: 0)
-        didSetInitialSplitPosition = true
-        resizeDetailContentToFit()
+        applyInitialSplitPositionIfNeeded()
     }
 
     // MARK: - Callback Wiring
@@ -1624,84 +1598,44 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     }
 
     private func resetInitialSplitPositionIfNeeded() {
-        guard didSetInitialSplitPosition, splitView.arrangedSubviews.count == 2 else { return }
-
-        let layout = MetagenomicsPanelLayout.current()
-        let minimumExtents = minimumExtents(for: layout)
-        let totalExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
-        let minimumRequiredExtent = minimumExtents.leading + minimumExtents.trailing + splitView.dividerThickness
-        guard totalExtent >= minimumRequiredExtent else { return }
-
-        let leadingExtent = splitView.isVertical
-            ? splitView.arrangedSubviews[0].frame.width
-            : splitView.arrangedSubviews[0].frame.height
-        let trailingExtent = splitView.isVertical
-            ? splitView.arrangedSubviews[1].frame.width
-            : splitView.arrangedSubviews[1].frame.height
-
-        if leadingExtent < minimumExtents.leading || trailingExtent < minimumExtents.trailing {
-            didSetInitialSplitPosition = false
-        }
+        splitCoordinator.resetInitialSplitPositionIfNeeded(
+            in: splitView,
+            minimumExtents: minimumExtents(for: MetagenomicsPanelLayout.current())
+        )
     }
 
     private func hasValidInitialSplitPosition() -> Bool {
-        guard splitView.arrangedSubviews.count == 2 else { return false }
-
-        let totalExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
-        guard totalExtent > 0 else { return false }
-
-        let minimumExtents: (leading: CGFloat, trailing: CGFloat) = splitView.arrangedSubviews.first === detailContainer
-            ? (250, 300)
-            : (300, 250)
-        let minimumRequiredExtent = minimumExtents.leading + minimumExtents.trailing + splitView.dividerThickness
-        guard totalExtent >= minimumRequiredExtent else { return false }
-
-        let leadingExtent = splitView.isVertical
-            ? splitView.arrangedSubviews[0].frame.width
-            : splitView.arrangedSubviews[0].frame.height
-        let trailingExtent = splitView.isVertical
-            ? splitView.arrangedSubviews[1].frame.width
-            : splitView.arrangedSubviews[1].frame.height
-
-        return leadingExtent >= minimumExtents.leading && trailingExtent >= minimumExtents.trailing
+        splitCoordinator.hasValidInitialSplitPosition(
+            in: splitView,
+            minimumExtents: minimumExtents(for: MetagenomicsPanelLayout.current())
+        )
     }
 
     private func scheduleInitialSplitValidationIfNeeded() {
-        guard needsInitialSplitValidation, view.window != nil, !pendingInitialSplitValidation else { return }
-        pendingInitialSplitValidation = true
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.pendingInitialSplitValidation = false
-            guard self.view.window != nil else { return }
-            guard self.needsInitialSplitValidation else { return }
-            self.resetInitialSplitPositionIfNeeded()
-            self.applyInitialSplitPositionIfNeeded()
-            self.needsInitialSplitValidation = !self.hasValidInitialSplitPosition()
-        }
+        splitCoordinator.scheduleInitialSplitValidationIfNeeded(
+            ownerView: view,
+            splitView: splitView,
+            minimumExtents: { [weak self] in
+                self?.minimumExtents(for: MetagenomicsPanelLayout.current()) ?? (250, 300)
+            },
+            defaultLeadingFraction: { [weak self] in
+                self?.defaultLeadingFraction(for: MetagenomicsPanelLayout.current()) ?? 0.4
+            },
+            afterApply: { [weak self] in
+                self?.resizeDetailContentToFit()
+            }
+        )
     }
 
     private func applyInitialSplitPositionIfNeeded() {
-        guard !didSetInitialSplitPosition, splitView.arrangedSubviews.count == 2 else { return }
-
-        let totalExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
-        guard totalExtent > 0 else { return }
-
-        let layout = MetagenomicsPanelLayout.current()
-        let minimumExtents = minimumExtents(for: layout)
-        let minimumRequiredExtent = minimumExtents.leading + minimumExtents.trailing + splitView.dividerThickness
-        guard totalExtent >= minimumRequiredExtent else { return }
-
-        let clampedPosition = MetagenomicsPaneSizing.clampedDividerPosition(
-            proposed: round(totalExtent * defaultLeadingFraction(for: layout)),
-            containerExtent: totalExtent,
-            minimumLeadingExtent: minimumExtents.leading,
-            minimumTrailingExtent: minimumExtents.trailing
+        splitCoordinator.applyInitialSplitPositionIfNeeded(
+            to: splitView,
+            defaultLeadingFraction: defaultLeadingFraction(for: MetagenomicsPanelLayout.current()),
+            minimumExtents: minimumExtents(for: MetagenomicsPanelLayout.current()),
+            afterApply: { [weak self] in
+                self?.resizeDetailContentToFit()
+            }
         )
-        splitView.setPosition(clampedPosition, ofDividerAt: 0)
-        didSetInitialSplitPosition = true
-        needsInitialSplitValidation = false
-        resizeDetailContentToFit()
     }
 
     @objc private func handleInspectorSampleSelectionChanged(_ notification: Notification) {
@@ -1725,61 +1659,18 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         let desiredIsVertical = layout != .stacked
         let desiredFirstPane: NSView = layout == .detailLeading ? detailContainer! : tableContainer!
         let desiredSecondPane: NSView = layout == .detailLeading ? tableContainer! : detailContainer!
-
-        let currentFirstPane = splitView.arrangedSubviews[0]
-        let currentSecondPane = splitView.arrangedSubviews[1]
-        let currentExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
-        let orientationChanged = splitView.isVertical != desiredIsVertical
-        let currentFirstExtent = splitView.isVertical ? currentFirstPane.frame.width : currentFirstPane.frame.height
-        let currentSecondExtent = max(0, currentExtent - currentFirstExtent)
-        let needsRebuild = orientationChanged
-            || splitView.arrangedSubviews[0] !== desiredFirstPane
-            || splitView.arrangedSubviews[1] !== desiredSecondPane
-
-        if needsRebuild {
-            splitView.removeArrangedSubview(currentFirstPane)
-            splitView.removeArrangedSubview(currentSecondPane)
-            currentFirstPane.removeFromSuperview()
-            currentSecondPane.removeFromSuperview()
-
-            splitView.isVertical = desiredIsVertical
-            splitView.addArrangedSubview(desiredFirstPane)
-            splitView.addArrangedSubview(desiredSecondPane)
-        } else {
-            splitView.isVertical = desiredIsVertical
-        }
-
-        splitView.setHoldingPriority(.defaultLow, forSubviewAt: 0)
-        splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
-
-        let totalExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
-        guard totalExtent > 0 else {
-            didSetInitialSplitPosition = false
-            needsInitialSplitValidation = true
-            return
-        }
-
-        guard view.window != nil else {
-            didSetInitialSplitPosition = false
-            needsInitialSplitValidation = true
-            return
-        }
-
-        let minimumExtents = minimumExtents(for: layout)
-        let defaultLeadingExtent = round(totalExtent * defaultLeadingFraction(for: layout))
-        let leadingExtent = !orientationChanged && currentFirstExtent > 0 && currentSecondExtent > 0
-            ? (desiredFirstPane === currentFirstPane ? currentFirstExtent : currentSecondExtent)
-            : defaultLeadingExtent
-
-        let clampedPosition = MetagenomicsPaneSizing.clampedDividerPosition(
-            proposed: leadingExtent,
-            containerExtent: totalExtent,
-            minimumLeadingExtent: minimumExtents.leading,
-            minimumTrailingExtent: minimumExtents.trailing
+        splitCoordinator.applyLayoutPreference(
+            to: splitView,
+            desiredIsVertical: desiredIsVertical,
+            desiredFirstPane: desiredFirstPane,
+            desiredSecondPane: desiredSecondPane,
+            defaultLeadingFraction: defaultLeadingFraction(for: layout),
+            minimumExtents: minimumExtents(for: layout),
+            isViewInWindow: view.window != nil,
+            afterApply: { [weak self] in
+                self?.resizeDetailContentToFit()
+            }
         )
-        splitView.setPosition(clampedPosition, ofDividerAt: 0)
-        didSetInitialSplitPosition = true
-        needsInitialSplitValidation = false
     }
 
     // MARK: - BLAST Drawer
@@ -2213,10 +2104,13 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     public func splitViewDidResizeSubviews(_ notification: Notification) {
         guard notification.object as? NSSplitView === splitView else { return }
-        if hasValidInitialSplitPosition() {
-            didSetInitialSplitPosition = true
-            needsInitialSplitValidation = false
-        }
+        splitCoordinator.splitViewDidResizeSubviews(
+            splitView,
+            minimumExtents: minimumExtents(for: MetagenomicsPanelLayout.current()),
+            afterResize: { [weak self] in
+                self?.resizeDetailContentToFit()
+            }
+        )
     }
 
     // MARK: - Testing Accessors

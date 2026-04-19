@@ -948,7 +948,7 @@ public enum FASTQBatchImporter {
                             "-w", String(config.threads), "--json", "/dev/null", "--html", "/dev/null"]
                 if currentIsInterleaved {
                     args += ["--interleaved_in"]
-                    args += ["-I", currentURL.path, "-O", r2OutputURL.path]
+                    args += ["-O", r2OutputURL.path]
                 }
                 let result = try await runner.run(.fastp, arguments: args, timeout: 3600)
                 guard result.isSuccess else {
@@ -975,7 +975,13 @@ public enum FASTQBatchImporter {
                             "--json", "/dev/null", "--html", "/dev/null"]
                 if currentIsInterleaved {
                     args += ["--interleaved_in"]
-                    args += ["-I", currentURL.path, "-O", r2OutputURL.path]
+                    args += ["-O", r2OutputURL.path]
+                }
+                switch step.qualityTrimMode ?? .cutRight {
+                case .cutRight: args.append("--cut_right")
+                case .cutFront: args.append("--cut_front")
+                case .cutTail: args.append("--cut_tail")
+                case .cutBoth: args += ["--cut_front", "--cut_right"]
                 }
                 let result = try await runner.run(.fastp, arguments: args, timeout: 3600)
                 guard result.isSuccess else {
@@ -1082,14 +1088,12 @@ public enum FASTQBatchImporter {
                 let strictness = step.mergeStrictness ?? .normal
                 let minOverlap = step.mergeMinOverlap ?? 12
                 let mergedURL = workspace.appendingPathComponent("step_\(absIndex)_merged.fastq")
-                let unmergedR1URL = workspace.appendingPathComponent("step_\(absIndex)_unmerged_R1.fastq")
-                let unmergedR2URL = workspace.appendingPathComponent("step_\(absIndex)_unmerged_R2.fastq")
+                let unmergedURL = workspace.appendingPathComponent("step_\(absIndex)_unmerged.fastq")
 
                 var args = [
                     "in=\(currentURL.path)",
                     "out=\(mergedURL.path)",
-                    "outu1=\(unmergedR1URL.path)",
-                    "outu2=\(unmergedR2URL.path)",
+                    "outu=\(unmergedURL.path)",
                     "minoverlap=\(minOverlap)",
                     "threads=\(config.threads)",
                 ]
@@ -1101,22 +1105,16 @@ public enum FASTQBatchImporter {
                     throw BatchImportError.unknownRecipe("bbmerge failed: \(mergeResult.stderr.suffix(500))")
                 }
 
-                // Re-interleave unmerged + append merged into a single output file
-                // If we have unmerged pairs, interleave them first
-                let hasUnmergedR1 = FileManager.default.fileExists(atPath: unmergedR1URL.path)
-                let hasUnmergedR2 = FileManager.default.fileExists(atPath: unmergedR2URL.path)
+                // Concatenate interleaved unmerged reads and merged reads into a single output file.
+                let hasUnmerged = FileManager.default.fileExists(atPath: unmergedURL.path)
                 let hasMerged = FileManager.default.fileExists(atPath: mergedURL.path)
 
                 let combinedURL = workspace.appendingPathComponent("step_\(absIndex)_combined.fastq")
 
-                if hasUnmergedR1 && hasUnmergedR2 {
-                    let interleavedUnmergedURL = workspace.appendingPathComponent("step_\(absIndex)_unmerged_il.fastq")
-                    try await interleavePairedInput(r1: unmergedR1URL, r2: unmergedR2URL, output: interleavedUnmergedURL)
-                    // Cat interleaved unmerged + merged into combined
-                    var catParts: [URL] = [interleavedUnmergedURL]
+                if hasUnmerged {
+                    var catParts: [URL] = [unmergedURL]
                     if hasMerged { catParts.append(mergedURL) }
                     try concatenateFiles(catParts, to: combinedURL)
-                    try? FileManager.default.removeItem(at: interleavedUnmergedURL)
                 } else if hasMerged {
                     try FileManager.default.copyItem(at: mergedURL, to: combinedURL)
                 }
@@ -1128,8 +1126,7 @@ public enum FASTQBatchImporter {
                 )
                 try? FileManager.default.removeItem(at: combinedURL)
                 try? FileManager.default.removeItem(at: mergedURL)
-                try? FileManager.default.removeItem(at: unmergedR1URL)
-                try? FileManager.default.removeItem(at: unmergedR2URL)
+                try? FileManager.default.removeItem(at: unmergedURL)
                 guard compResult.isSuccess else {
                     throw BatchImportError.unknownRecipe("Compression after merge failed: \(compResult.stderr.suffix(500))")
                 }

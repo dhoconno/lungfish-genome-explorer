@@ -72,6 +72,10 @@ public final class EsVirituDetailPane: NSView {
 
     // MARK: - Subviews
 
+    private lazy var scrollContainer = ScrollViewSplitPaneContainerView(
+        scrollView: scrollView,
+        documentView: contentView
+    )
     private let scrollView = NSScrollView()
     private let contentView = FlippedDetailContentView()
 
@@ -98,22 +102,14 @@ public final class EsVirituDetailPane: NSView {
     }
 
     private func commonInit() {
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = false
-        addSubview(scrollView)
-
-        contentView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.documentView = contentView
+        scrollContainer.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(scrollContainer)
 
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: topAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            contentView.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
+            scrollContainer.topAnchor.constraint(equalTo: topAnchor),
+            scrollContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
 
         setupOverviewSubviews()

@@ -94,6 +94,48 @@ final class SRAServicePathTests: XCTestCase {
 
         XCTAssertTrue(available)
     }
+
+    func testDownloadFASTQReturnsOnlyFASTQFiles() async throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "sra-home-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let binDir = home.appendingPathComponent(".lungfish/conda/envs/sra-tools/bin", isDirectory: true)
+        let outputDir = home.appendingPathComponent("downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+
+        try makeExecutableScript(
+            at: binDir.appendingPathComponent("prefetch"),
+            body: """
+            #!/bin/sh
+            mkdir -p "$3/$1"
+            touch "$3/$1/$1.sra"
+            exit 0
+            """
+        )
+        try makeExecutableScript(
+            at: binDir.appendingPathComponent("fasterq-dump"),
+            body: """
+            #!/bin/sh
+            accession="$(basename "$1" .sra)"
+            touch "$3/${accession}_1.fastq"
+            touch "$3/${accession}_2.fastq"
+            exit 0
+            """
+        )
+
+        let service = SRAService(homeDirectoryProvider: { home })
+        let files = try await service.downloadFASTQ(
+            accession: "SRR000001",
+            outputDir: outputDir
+        )
+
+        XCTAssertEqual(
+            files.map(\.lastPathComponent).sorted(),
+            ["SRR000001_1.fastq", "SRR000001_2.fastq"]
+        )
+    }
 }
 
 private func makeExecutableScript(at url: URL, body: String) throws {

@@ -119,8 +119,8 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
     private let summaryBar = EsVirituSummaryBar()
     let splitView = TrackedDividerSplitView()
-    private let detailContainer = NSView()
-    private let rightPaneContainer = NSView()
+    private let detailContainer = SplitPaneFillContainerView()
+    private let rightPaneContainer = SplitPaneFillContainerView()
     private let detailPane = EsVirituDetailPane()
     private let detectionTableView = ViralDetectionTableView()
     let actionBar = ClassifierActionBar()
@@ -177,12 +177,8 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
     // MARK: - Split View State
 
-    /// Whether the initial divider position has been applied.
-    private var didSetInitialSplitPosition = false
-    private var needsInitialSplitValidation = true
-    private var pendingInitialSplitValidation = false
-    private var pendingInitialValidationLeadingExtent: CGFloat?
-    private var isSynchronizingTrackedSplitPosition = false
+    /// Shared raw split-view coordinator for pane ordering and divider state.
+    private let splitCoordinator = TwoPaneTrackedSplitCoordinator()
 
     // MARK: - Selection Sync
 
@@ -334,8 +330,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
     public override func viewDidLayout() {
         super.viewDidLayout()
-        guard needsInitialSplitValidation else { return }
-        resetInitialSplitPositionIfNeeded()
+        guard splitCoordinator.needsInitialSplitValidation else { return }
         scheduleInitialSplitValidationIfNeeded()
     }
 
@@ -944,6 +939,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         detailPane.setContentHuggingPriority(.defaultLow, for: .horizontal)
         detailPane.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         detailContainer.addSubview(detailPane)
+        detailContainer.fillSubview = detailPane
 
         // Multi-selection placeholder overlay on the detail container
         detailContainer.addSubview(multiSelectionPlaceholder)
@@ -960,6 +956,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         detectionTableView.setContentHuggingPriority(.defaultLow, for: .horizontal)
         detectionTableView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         rightPaneContainer.addSubview(detectionTableView)
+        rightPaneContainer.fillSubview = detectionTableView
 
         if MetagenomicsPanelLayout.current() == .detailLeading {
             splitView.addArrangedSubview(detailContainer)
@@ -1237,123 +1234,46 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         }
     }
 
+    private func minimumExtents(for layout: MetagenomicsPanelLayout) -> (leading: CGFloat, trailing: CGFloat) {
+        switch layout {
+        case .detailLeading, .listLeading, .stacked:
+            return (250, 250)
+        }
+    }
+
     private func applyInitialSplitPositionIfNeeded() {
-        guard !didSetInitialSplitPosition, splitView.arrangedSubviews.count == 2 else { return }
-
-        let totalExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
-        guard totalExtent > 0 else { return }
-        let minimumRequiredExtent: CGFloat = 250 + 250 + splitView.dividerThickness
-        guard totalExtent >= minimumRequiredExtent else { return }
-
-        let layout = MetagenomicsPanelLayout.current()
-        let clampedPosition = MetagenomicsPaneSizing.clampedDividerPosition(
-            proposed: round(totalExtent * defaultLeadingFraction(for: layout)),
-            containerExtent: totalExtent,
-            minimumLeadingExtent: 250,
-            minimumTrailingExtent: 250
+        splitCoordinator.applyInitialSplitPositionIfNeeded(
+            to: splitView,
+            defaultLeadingFraction: defaultLeadingFraction(for: MetagenomicsPanelLayout.current()),
+            minimumExtents: minimumExtents(for: MetagenomicsPanelLayout.current())
         )
-        splitView.setPosition(clampedPosition, ofDividerAt: 0)
-        didSetInitialSplitPosition = true
-        needsInitialSplitValidation = false
-    }
-
-    private func currentDividerPosition() -> CGFloat? {
-        guard splitView.arrangedSubviews.count == 2 else { return nil }
-        return splitView.isVertical
-            ? splitView.arrangedSubviews[0].frame.width
-            : splitView.arrangedSubviews[0].frame.height
-    }
-
-    private func synchronizeTrackedSplitPositionIfNeeded() {
-        guard !isSynchronizingTrackedSplitPosition,
-              let requestedPosition = splitView.requestedDividerPosition(at: 0),
-              let currentPosition = currentDividerPosition()
-        else { return }
-
-        let extent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
-        let clampedPosition = MetagenomicsPaneSizing.clampedDividerPosition(
-            proposed: requestedPosition,
-            containerExtent: extent,
-            minimumLeadingExtent: 250,
-            minimumTrailingExtent: 250
-        )
-        guard abs(currentPosition - clampedPosition) > 1 else { return }
-
-        isSynchronizingTrackedSplitPosition = true
-        splitView.setPosition(clampedPosition, ofDividerAt: 0)
-        isSynchronizingTrackedSplitPosition = false
     }
 
     private func resetInitialSplitPositionIfNeeded() {
-        guard didSetInitialSplitPosition, splitView.arrangedSubviews.count == 2 else { return }
-
-        let totalExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
-        let minimumRequiredExtent: CGFloat = 250 + 250 + splitView.dividerThickness
-        guard totalExtent >= minimumRequiredExtent else { return }
-
-        let leadingExtent = splitView.isVertical
-            ? splitView.arrangedSubviews[0].frame.width
-            : splitView.arrangedSubviews[0].frame.height
-        let trailingExtent = splitView.isVertical
-            ? splitView.arrangedSubviews[1].frame.width
-            : splitView.arrangedSubviews[1].frame.height
-
-        if leadingExtent < 250 || trailingExtent < 250 {
-            didSetInitialSplitPosition = false
-        }
+        splitCoordinator.resetInitialSplitPositionIfNeeded(
+            in: splitView,
+            minimumExtents: minimumExtents(for: MetagenomicsPanelLayout.current())
+        )
     }
 
     private func hasValidInitialSplitPosition() -> Bool {
-        guard splitView.arrangedSubviews.count == 2 else { return false }
-
-        let totalExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
-        guard totalExtent > 0 else { return false }
-
-        let minimumRequiredExtent: CGFloat = 250 + 250 + splitView.dividerThickness
-        guard totalExtent >= minimumRequiredExtent else { return false }
-
-        let leadingExtent = splitView.isVertical
-            ? splitView.arrangedSubviews[0].frame.width
-            : splitView.arrangedSubviews[0].frame.height
-        let trailingExtent = splitView.isVertical
-            ? splitView.arrangedSubviews[1].frame.width
-            : splitView.arrangedSubviews[1].frame.height
-
-        return leadingExtent >= 250 && trailingExtent >= 250
+        splitCoordinator.hasValidInitialSplitPosition(
+            in: splitView,
+            minimumExtents: minimumExtents(for: MetagenomicsPanelLayout.current())
+        )
     }
 
     private func scheduleInitialSplitValidationIfNeeded() {
-        guard needsInitialSplitValidation, view.window != nil, !pendingInitialSplitValidation else { return }
-        pendingInitialSplitValidation = true
-        pendingInitialValidationLeadingExtent = splitView.arrangedSubviews.count == 2
-            ? (splitView.isVertical ? splitView.arrangedSubviews[0].frame.width : splitView.arrangedSubviews[0].frame.height)
-            : nil
-
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.pendingInitialSplitValidation = false
-            let scheduledLeadingExtent = self.pendingInitialValidationLeadingExtent
-            self.pendingInitialValidationLeadingExtent = nil
-            let requestedDividerPosition = self.splitView.requestedDividerPosition(at: 0)
-            guard self.view.window != nil else { return }
-            guard self.needsInitialSplitValidation else { return }
-            if let requestedDividerPosition,
-               let scheduledLeadingExtent,
-               abs(requestedDividerPosition - scheduledLeadingExtent) > 2,
-               self.splitView.arrangedSubviews.count == 2 {
-                let currentLeadingExtent = self.splitView.isVertical
-                    ? self.splitView.arrangedSubviews[0].frame.width
-                    : self.splitView.arrangedSubviews[0].frame.height
-                if abs(currentLeadingExtent - scheduledLeadingExtent) > 2 {
-                    self.didSetInitialSplitPosition = true
-                    self.needsInitialSplitValidation = false
-                    return
-                }
+        splitCoordinator.scheduleInitialSplitValidationIfNeeded(
+            ownerView: view,
+            splitView: splitView,
+            minimumExtents: { [weak self] in
+                self?.minimumExtents(for: MetagenomicsPanelLayout.current()) ?? (250, 250)
+            },
+            defaultLeadingFraction: { [weak self] in
+                self?.defaultLeadingFraction(for: MetagenomicsPanelLayout.current()) ?? 0.4
             }
-            self.resetInitialSplitPositionIfNeeded()
-            self.applyInitialSplitPositionIfNeeded()
-            self.needsInitialSplitValidation = !self.hasValidInitialSplitPosition()
-        }
+        )
     }
 
     /// Swaps the split view pane order based on the persisted layout preference.
@@ -1364,60 +1284,15 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         let desiredIsVertical = layout != .stacked
         let desiredFirstPane: NSView = layout == .detailLeading ? detailContainer : rightPaneContainer
         let desiredSecondPane: NSView = layout == .detailLeading ? rightPaneContainer : detailContainer
-
-        let currentFirstPane = splitView.arrangedSubviews[0]
-        let currentSecondPane = splitView.arrangedSubviews[1]
-        let currentExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
-        let orientationChanged = splitView.isVertical != desiredIsVertical
-        let currentFirstExtent = splitView.isVertical ? currentFirstPane.frame.width : currentFirstPane.frame.height
-        let currentSecondExtent = max(0, currentExtent - currentFirstExtent)
-        let needsRebuild = orientationChanged
-            || splitView.arrangedSubviews[0] !== desiredFirstPane
-            || splitView.arrangedSubviews[1] !== desiredSecondPane
-
-        if needsRebuild {
-            splitView.removeArrangedSubview(currentFirstPane)
-            splitView.removeArrangedSubview(currentSecondPane)
-            currentFirstPane.removeFromSuperview()
-            currentSecondPane.removeFromSuperview()
-
-            splitView.isVertical = desiredIsVertical
-            splitView.addArrangedSubview(desiredFirstPane)
-            splitView.addArrangedSubview(desiredSecondPane)
-        } else {
-            splitView.isVertical = desiredIsVertical
-        }
-
-        splitView.setHoldingPriority(.defaultLow, forSubviewAt: 0)
-        splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
-
-        let totalExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
-        guard totalExtent > 0 else {
-            didSetInitialSplitPosition = false
-            needsInitialSplitValidation = true
-            return
-        }
-
-        guard view.window != nil else {
-            didSetInitialSplitPosition = false
-            needsInitialSplitValidation = true
-            return
-        }
-
-        let defaultLeadingExtent = round(totalExtent * defaultLeadingFraction(for: layout))
-        let leadingExtent = !orientationChanged && currentFirstExtent > 0 && currentSecondExtent > 0
-            ? (desiredFirstPane === currentFirstPane ? currentFirstExtent : currentSecondExtent)
-            : defaultLeadingExtent
-
-        let clampedPosition = MetagenomicsPaneSizing.clampedDividerPosition(
-            proposed: leadingExtent,
-            containerExtent: totalExtent,
-            minimumLeadingExtent: 250,
-            minimumTrailingExtent: 250
+        splitCoordinator.applyLayoutPreference(
+            to: splitView,
+            desiredIsVertical: desiredIsVertical,
+            desiredFirstPane: desiredFirstPane,
+            desiredSecondPane: desiredSecondPane,
+            defaultLeadingFraction: defaultLeadingFraction(for: layout),
+            minimumExtents: minimumExtents(for: layout),
+            isViewInWindow: view.window != nil
         )
-        splitView.setPosition(clampedPosition, ofDividerAt: 0)
-        didSetInitialSplitPosition = true
-        needsInitialSplitValidation = false
     }
 
     private func resolveAssembly(for detection: ViralDetection) -> ViralAssembly? {
@@ -1570,16 +1445,10 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
     public func splitViewDidResizeSubviews(_ notification: Notification) {
         guard notification.object as? NSSplitView === splitView else { return }
-        if !isSynchronizingTrackedSplitPosition,
-           didSetInitialSplitPosition,
-           !needsInitialSplitValidation,
-           let currentPosition = currentDividerPosition() {
-            splitView.recordObservedDividerPosition(currentPosition)
-        }
-        if hasValidInitialSplitPosition() {
-            didSetInitialSplitPosition = true
-            needsInitialSplitValidation = false
-        }
+        splitCoordinator.splitViewDidResizeSubviews(
+            splitView,
+            minimumExtents: minimumExtents(for: MetagenomicsPanelLayout.current())
+        )
     }
 
     // MARK: - Multi-Selection Helpers
@@ -1853,7 +1722,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     var testRequestedDividerPosition: CGFloat? { splitView.requestedDividerPosition(at: 0) }
 
     /// Returns whether initial split validation is still pending for testing.
-    var testNeedsInitialSplitValidation: Bool { needsInitialSplitValidation }
+    var testNeedsInitialSplitValidation: Bool { splitCoordinator.needsInitialSplitValidation }
 
     /// Returns the shared BLAST drawer container for testing.
     var testBlastDrawerContainer: BlastResultsDrawerContainerView? { blastDrawerContainer }
