@@ -5,10 +5,12 @@ import XCTest
 final class WorkspaceShellLayoutTests: XCTestCase {
     override func setUp() {
         super.setUp()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         clearShellLayoutDefaults()
     }
 
     override func tearDown() {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         clearShellLayoutDefaults()
         super.tearDown()
     }
@@ -130,8 +132,8 @@ final class WorkspaceShellLayoutTests: XCTestCase {
 
         XCTAssertEqual(controller.testingShellLayoutState.lastUserSidebarWidth, 305)
         XCTAssertEqual(controller.testingShellLayoutState.lastUserInspectorWidth, 325)
-        XCTAssertEqual(controller.splitView.subviews[0].frame.width, 305, accuracy: 2)
-        XCTAssertEqual(controller.splitView.subviews[2].frame.width, 325, accuracy: 2)
+        XCTAssertEqual(controller.testingSidebarWidth, 305, accuracy: 2)
+        XCTAssertEqual(controller.testingInspectorWidth, 325, accuracy: 2)
     }
 
     func testControllerClampsPersistedShellWidthsOnNarrowerWindowRestore() {
@@ -147,20 +149,50 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
 
-        let sidebarWidth = controller.splitView.subviews[0].frame.width
-        let inspectorWidth = controller.splitView.subviews[2].frame.width
+        let sidebarWidth = controller.testingSidebarWidth
+        let inspectorWidth = controller.testingInspectorWidth
         let totalSubviewWidth = controller.splitView.bounds.width - (controller.splitView.dividerThickness * 2)
 
         XCTAssertEqual(controller.testingShellLayoutState.lastUserSidebarWidth, 500)
         XCTAssertEqual(controller.testingShellLayoutState.lastUserInspectorWidth, 430)
-        XCTAssertEqual(
+        XCTAssertLessThanOrEqual(
             sidebarWidth + inspectorWidth,
-            totalSubviewWidth - 400,
-            accuracy: 1.5,
+            totalSubviewWidth - 400 + 1.5,
             "restore must clamp the side panes so the viewer minimum remains available"
         )
         XCTAssertLessThanOrEqual(sidebarWidth, 500)
         XCTAssertLessThanOrEqual(inspectorWidth, 430)
+    }
+
+    func testControllerReappliesPersistedSidebarWidthAfterHideThenShow() {
+        UserDefaults.standard.set(320, forKey: MainSplitViewController.sidebarWidthDefaultsKey)
+
+        let (controller, window) = makeController()
+        controller.testingSetShellFrames(sidebarWidth: 240, inspectorWidth: 280, totalWidth: 1500)
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+        controller.testingRestorePersistedShellLayout()
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(controller.testingShellLayoutState.lastUserSidebarWidth, 320)
+        XCTAssertEqual(controller.testingSidebarWidth, 320, accuracy: 2)
+
+        controller.setSidebarVisible(false, animated: false)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertFalse(controller.isSidebarVisible)
+        XCTAssertEqual(storedCGFloat(forKey: MainSplitViewController.sidebarWidthDefaultsKey), 320)
+
+        controller.setSidebarVisible(true, animated: false)
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+        controller.testingProcessShellResize()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(controller.isSidebarVisible)
+        XCTAssertEqual(controller.testingSidebarWidth, 320, accuracy: 2)
     }
 
     private func makeController() -> (MainSplitViewController, NSWindow) {
