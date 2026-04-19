@@ -23,6 +23,47 @@ final class DatasetOperationsDialogTests: XCTestCase {
     }
 
     @MainActor
+    func testPrimaryActionTitleDefaultsToRun() {
+        let dialog = DatasetOperationsDialog(
+            title: "Operations",
+            subtitle: "Configure a tool",
+            datasetLabel: "sample.fastq",
+            tools: [],
+            selectedToolID: "tool",
+            statusText: "Ready",
+            isRunEnabled: true,
+            onSelectTool: { _ in },
+            onCancel: {},
+            onRun: {}
+        ) {
+            EmptyView()
+        }
+
+        XCTAssertEqual(dialog.primaryActionTitle, "Run")
+    }
+
+    @MainActor
+    func testPrimaryActionTitleCanBeCustomized() {
+        let dialog = DatasetOperationsDialog(
+            title: "Operations",
+            subtitle: "Configure a tool",
+            datasetLabel: "sample.fastq",
+            tools: [],
+            selectedToolID: "tool",
+            statusText: "Ready",
+            isRunEnabled: true,
+            primaryActionTitle: "Search",
+            onSelectTool: { _ in },
+            onCancel: {},
+            onRun: {}
+        ) {
+            EmptyView()
+        }
+
+        XCTAssertEqual(dialog.primaryActionTitle, "Search")
+    }
+
+    @MainActor
     func testSelectingUnavailableToolDoesNotCallSelectionHandler() {
         var selectedToolIDs: [String] = []
         let availableTool = DatasetOperationToolSidebarItem(

@@ -8,10 +8,40 @@ struct DatasetOperationsDialog<Detail: View>: View {
     let selectedToolID: String
     let statusText: String
     let isRunEnabled: Bool
+    let primaryActionTitle: String
     let onSelectTool: (String) -> Void
     let onCancel: () -> Void
     let onRun: () -> Void
     @ViewBuilder let detail: () -> Detail
+
+    @MainActor
+    init(
+        title: String,
+        subtitle: String,
+        datasetLabel: String,
+        tools: [DatasetOperationToolSidebarItem],
+        selectedToolID: String,
+        statusText: String,
+        isRunEnabled: Bool,
+        primaryActionTitle: String = "Run",
+        onSelectTool: @escaping (String) -> Void,
+        onCancel: @escaping () -> Void,
+        onRun: @escaping () -> Void,
+        @ViewBuilder detail: @escaping () -> Detail
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.datasetLabel = datasetLabel
+        self.tools = tools
+        self.selectedToolID = selectedToolID
+        self.statusText = statusText
+        self.isRunEnabled = isRunEnabled
+        self.primaryActionTitle = primaryActionTitle
+        self.onSelectTool = onSelectTool
+        self.onCancel = onCancel
+        self.onRun = onRun
+        self.detail = detail
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -88,7 +118,7 @@ struct DatasetOperationsDialog<Detail: View>: View {
                 .foregroundStyle(isRunEnabled ? Color.lungfishSecondaryText : Color.lungfishOrangeFallback)
             Spacer()
             Button("Cancel", action: onCancel)
-            Button("Run", action: runIfEnabled)
+            Button(primaryActionTitle, action: runIfEnabled)
                 .buttonStyle(.borderedProminent)
                 .tint(.lungfishCreamsicleFallback)
                 .disabled(!isRunEnabled)
