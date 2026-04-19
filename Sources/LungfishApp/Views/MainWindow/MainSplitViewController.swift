@@ -1351,15 +1351,29 @@ public class MainSplitViewController: NSSplitViewController {
     }
 
     private func restorePersistedShellLayout() {
+        let resolvedWidths = shellLayoutCoordinator.resolvedShellWidths(
+            currentSidebarWidth: splitView.subviews.first?.frame.width ?? sidebarDefaultWidth,
+            currentInspectorWidth: splitView.subviews.count > 2 ? splitView.subviews[2].frame.width : inspectorDefaultWidth,
+            totalWidth: currentShellContentWidth()
+        )
+
+        sidebarWidthConstraint?.constant = resolvedWidths.sidebarWidth
+        inspectorWidthConstraint?.constant = resolvedWidths.inspectorWidth
+
         if !sidebarItem.isCollapsed {
-            sidebarWidthConstraint?.constant = shellLayoutCoordinator.resolvedSidebarWidth(
-                currentWidth: splitView.subviews.first?.frame.width ?? sidebarDefaultWidth
+            setShellDividerPosition(
+                resolvedWidths.sidebarWidth,
+                ofDividerAt: 0
             )
         }
 
         if !inspectorItem.isCollapsed {
-            inspectorWidthConstraint?.constant = shellLayoutCoordinator.resolvedInspectorWidth(
-                currentWidth: splitView.subviews.count > 2 ? splitView.subviews[2].frame.width : inspectorDefaultWidth
+            let inspectorDividerPosition = splitView.bounds.width
+                - resolvedWidths.inspectorWidth
+                - splitView.dividerThickness
+            setShellDividerPosition(
+                inspectorDividerPosition,
+                ofDividerAt: 1
             )
         }
 
@@ -1370,10 +1384,9 @@ public class MainSplitViewController: NSSplitViewController {
 
     private func setShellDividerPosition(
         _ position: CGFloat,
-        ofDividerAt dividerIndex: Int,
-        event: WorkspaceShellLayoutCoordinator.Event
+        ofDividerAt dividerIndex: Int
     ) {
-        pendingShellResizeEvent = event
+        pendingShellResizeEvent = .shellDidResize
         isApplyingProgrammaticShellDividerMove = true
         splitView.setPosition(position, ofDividerAt: dividerIndex)
         splitView.adjustSubviews()
@@ -1429,6 +1442,15 @@ public class MainSplitViewController: NSSplitViewController {
     private func persistedWidth(forKey key: String) -> CGFloat? {
         guard let number = UserDefaults.standard.object(forKey: key) as? NSNumber else { return nil }
         return CGFloat(number.doubleValue)
+    }
+
+    private func currentShellContentWidth() -> CGFloat {
+        let visiblePaneCount = [!sidebarItem.isCollapsed, true, !inspectorItem.isCollapsed]
+            .filter { $0 }
+            .count
+        let visibleDividerCount = max(0, visiblePaneCount - 1)
+        let dividerWidth = CGFloat(visibleDividerCount) * splitView.dividerThickness
+        return max(0, splitView.bounds.width - dividerWidth)
     }
 
     // MARK: - Public API
@@ -1646,7 +1668,7 @@ public class MainSplitViewController: NSSplitViewController {
     public override func splitViewDidResizeSubviews(_ notification: Notification) {
         let sidebarWidth = splitView.subviews.count > 1 && !sidebarItem.isCollapsed ? splitView.subviews[0].frame.width : 0
         let inspectorWidth = splitView.subviews.count > 2 && !inspectorItem.isCollapsed ? splitView.subviews[2].frame.width : 0
-        let totalWidth = splitView.bounds.width
+        let totalWidth = currentShellContentWidth()
         let resizeEvent = pendingShellResizeEvent
         pendingShellResizeEvent = .shellDidResize
         let decision = shellLayoutCoordinator.resizeDecision(

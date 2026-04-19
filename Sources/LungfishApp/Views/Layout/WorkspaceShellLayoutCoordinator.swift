@@ -4,9 +4,13 @@ import CoreGraphics
 final class WorkspaceShellLayoutCoordinator {
     enum Event {
         case shellDidResize
-        case recommendationArrived
         case userDraggedSidebar
         case userDraggedInspector
+    }
+
+    struct ResolvedWidths: Equatable {
+        var sidebarWidth: CGFloat
+        var inspectorWidth: CGFloat
     }
 
     struct Decision: Equatable {
@@ -57,14 +61,76 @@ final class WorkspaceShellLayoutCoordinator {
     }
 
     func resolvedSidebarWidth(currentWidth: CGFloat) -> CGFloat {
-        state.lastUserSidebarWidth
-            ?? state.pendingRecommendedSidebarWidth
-            ?? clampSidebarWidth(currentWidth)
+        preferredSidebarWidth(currentWidth: currentWidth)
     }
 
     func resolvedInspectorWidth(currentWidth: CGFloat) -> CGFloat {
-        state.lastUserInspectorWidth
-            ?? clampInspectorWidth(currentWidth)
+        preferredInspectorWidth(currentWidth: currentWidth)
+    }
+
+    func resolvedShellWidths(
+        currentSidebarWidth: CGFloat,
+        currentInspectorWidth: CGFloat,
+        totalWidth: CGFloat
+    ) -> ResolvedWidths {
+        var sidebarWidth = state.isSidebarVisible ? preferredSidebarWidth(currentWidth: currentSidebarWidth) : 0
+        var inspectorWidth = state.isInspectorVisible ? preferredInspectorWidth(currentWidth: currentInspectorWidth) : 0
+        let availablePanelWidth = max(0, totalWidth - viewerMinWidth)
+
+        guard sidebarWidth + inspectorWidth > availablePanelWidth else {
+            return ResolvedWidths(
+                sidebarWidth: sidebarWidth,
+                inspectorWidth: inspectorWidth
+            )
+        }
+
+        let minimumSidebarWidth = state.isSidebarVisible ? sidebarMinWidth : 0
+        let minimumInspectorWidth = state.isInspectorVisible ? inspectorMinWidth : 0
+        let minimumCombinedWidth = minimumSidebarWidth + minimumInspectorWidth
+
+        if availablePanelWidth >= minimumCombinedWidth {
+            let sidebarFlex = max(0, sidebarWidth - minimumSidebarWidth)
+            let inspectorFlex = max(0, inspectorWidth - minimumInspectorWidth)
+            let totalFlex = sidebarFlex + inspectorFlex
+
+            if totalFlex > 0 {
+                let overflow = (sidebarWidth + inspectorWidth) - availablePanelWidth
+                let sidebarReduction = min(
+                    sidebarFlex,
+                    overflow * (sidebarFlex / totalFlex)
+                )
+                let inspectorReduction = min(
+                    inspectorFlex,
+                    overflow * (inspectorFlex / totalFlex)
+                )
+
+                sidebarWidth -= sidebarReduction
+                inspectorWidth -= inspectorReduction
+            }
+
+            let remainingOverflow = max(0, (sidebarWidth + inspectorWidth) - availablePanelWidth)
+            if remainingOverflow > 0 {
+                let extraSidebarReduction = min(
+                    max(0, sidebarWidth - minimumSidebarWidth),
+                    remainingOverflow
+                )
+                sidebarWidth -= extraSidebarReduction
+                inspectorWidth -= min(
+                    max(0, inspectorWidth - minimumInspectorWidth),
+                    remainingOverflow - extraSidebarReduction
+                )
+            }
+        } else {
+            let visibleTargetWidth = max(1, sidebarWidth + inspectorWidth)
+            let scale = availablePanelWidth / visibleTargetWidth
+            sidebarWidth *= scale
+            inspectorWidth *= scale
+        }
+
+        return ResolvedWidths(
+            sidebarWidth: sidebarWidth,
+            inspectorWidth: inspectorWidth
+        )
     }
 
     func resizeDecision(
@@ -74,7 +140,7 @@ final class WorkspaceShellLayoutCoordinator {
         totalWidth: CGFloat
     ) -> Decision {
         switch event {
-        case .shellDidResize, .recommendationArrived:
+        case .shellDidResize:
             return Decision(
                 sidebarWidthToPersist: nil,
                 inspectorWidthToPersist: nil
@@ -100,6 +166,21 @@ final class WorkspaceShellLayoutCoordinator {
                 )
             )
         }
+    }
+
+    private func preferredSidebarWidth(currentWidth: CGFloat) -> CGFloat {
+        clampSidebarWidth(
+            state.lastUserSidebarWidth
+                ?? state.pendingRecommendedSidebarWidth
+                ?? currentWidth
+        )
+    }
+
+    private func preferredInspectorWidth(currentWidth: CGFloat) -> CGFloat {
+        clampInspectorWidth(
+            state.lastUserInspectorWidth
+                ?? currentWidth
+        )
     }
 
     private func clampSidebarWidth(
