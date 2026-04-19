@@ -476,6 +476,98 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         )
     }
 
+    func testAssemblyLaunchPreservesExplicitPairedTopology() throws {
+        let request = FASTQOperationLaunchRequest.assemble(
+            request: AssemblyRunRequest(
+                tool: .spades,
+                readType: .illuminaShortReads,
+                inputURLs: [
+                    URL(fileURLWithPath: "/tmp/sample_R1.fastq.gz"),
+                    URL(fileURLWithPath: "/tmp/sample_R2.fastq.gz"),
+                ],
+                projectName: "Demo",
+                outputDirectory: URL(fileURLWithPath: "/tmp/assembly-out"),
+                pairedEnd: true,
+                threads: 8,
+                memoryGB: nil,
+                minContigLength: nil,
+                selectedProfileID: nil,
+                extraArguments: []
+            ),
+            outputMode: .groupedResult
+        )
+
+        let invocation = try FASTQOperationExecutionService().buildInvocation(for: request)
+
+        XCTAssertEqual(
+            invocation.arguments,
+            [
+                "/tmp/sample_R1.fastq.gz",
+                "/tmp/sample_R2.fastq.gz",
+                "--paired",
+                "--assembler", "spades",
+                "--read-type", "illumina-short-reads",
+                "--project-name", "Demo",
+                "--threads", "8",
+                "--output", "<derived>",
+            ]
+        )
+    }
+
+    func testAssemblyLaunchDoesNotInferPairedFromTwoInputFilesAlone() throws {
+        let request = FASTQOperationLaunchRequest.assemble(
+            request: AssemblyRunRequest(
+                tool: .spades,
+                readType: .illuminaShortReads,
+                inputURLs: [
+                    URL(fileURLWithPath: "/tmp/chunk-a.fastq.gz"),
+                    URL(fileURLWithPath: "/tmp/chunk-b.fastq.gz"),
+                ],
+                projectName: "Demo",
+                outputDirectory: URL(fileURLWithPath: "/tmp/assembly-out"),
+                pairedEnd: false,
+                threads: 8,
+                memoryGB: nil,
+                minContigLength: nil,
+                selectedProfileID: nil,
+                extraArguments: []
+            ),
+            outputMode: .groupedResult
+        )
+
+        let invocation = try FASTQOperationExecutionService().buildInvocation(for: request)
+
+        XCTAssertFalse(invocation.arguments.contains("--paired"))
+    }
+
+    func testAssemblyLaunchRejectsNonSpadesToolsInLegacyCLIPath() {
+        let request = FASTQOperationLaunchRequest.assemble(
+            request: AssemblyRunRequest(
+                tool: .megahit,
+                readType: .illuminaShortReads,
+                inputURLs: [URL(fileURLWithPath: "/tmp/sample.fastq.gz")],
+                projectName: "Demo",
+                outputDirectory: URL(fileURLWithPath: "/tmp/assembly-out"),
+                threads: 8,
+                memoryGB: nil,
+                minContigLength: nil,
+                selectedProfileID: nil,
+                extraArguments: []
+            ),
+            outputMode: .groupedResult
+        )
+
+        XCTAssertThrowsError(try FASTQOperationExecutionService().buildInvocation(for: request)) { error in
+            guard let executionError = error as? FASTQOperationExecutionError else {
+                return XCTFail("Expected FASTQOperationExecutionError, got \(error)")
+            }
+            XCTAssertEqual(
+                executionError.errorDescription,
+                "FASTQ assembly request is not supported by the CLI builder: only SPAdes is encodable until the managed assembly execution path lands"
+            )
+        }
+    }
+
     func testRefreshQCSummaryLaunchBuildsFastqQCSummaryInvocation() throws {
         let request = FASTQOperationLaunchRequest.refreshQCSummary(
             inputURLs: [

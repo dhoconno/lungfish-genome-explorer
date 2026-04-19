@@ -11,6 +11,7 @@ public struct AssemblyRunRequest: Sendable, Codable, Equatable {
     public let inputURLs: [URL]
     public let projectName: String
     public let outputDirectory: URL
+    public let pairedEnd: Bool
     public let threads: Int
     public let memoryGB: Int?
     public let minContigLength: Int?
@@ -23,6 +24,7 @@ public struct AssemblyRunRequest: Sendable, Codable, Equatable {
         inputURLs: [URL],
         projectName: String,
         outputDirectory: URL,
+        pairedEnd: Bool = false,
         threads: Int,
         memoryGB: Int? = nil,
         minContigLength: Int? = nil,
@@ -34,6 +36,7 @@ public struct AssemblyRunRequest: Sendable, Codable, Equatable {
         self.inputURLs = inputURLs
         self.projectName = projectName
         self.outputDirectory = outputDirectory
+        self.pairedEnd = pairedEnd
         self.threads = threads
         self.memoryGB = memoryGB
         self.minContigLength = minContigLength

@@ -496,7 +496,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
     func testAssemblyCategorySeedsSpadesAsDefaultTool() {
         let state = FASTQOperationDialogState(
             initialCategory: .assembly,
-            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+            selectedInputURLs: [illuminaFASTQFixtureURL]
         )
 
         XCTAssertEqual(state.selectedToolID, .spades)
@@ -595,6 +595,72 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertFalse(state.isRunEnabled)
     }
 
+    func testUnknownOnlyAssemblyInputsStayBlockedUntilReadTypeIsConfirmed() throws {
+        let pacBioSubreadsFASTQ = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQOperationDialogRoutingTests-\(UUID().uuidString).fastq")
+        defer { try? FileManager.default.removeItem(at: pacBioSubreadsFASTQ) }
+
+        let fastq = """
+        @m64001_190101_000000/123/subreads
+        ACGT
+        +
+        !!!!
+        """
+        try Data(fastq.utf8).write(to: pacBioSubreadsFASTQ)
+
+        let state = FASTQOperationDialogState(
+            initialCategory: .assembly,
+            selectedInputURLs: [pacBioSubreadsFASTQ]
+        )
+
+        XCTAssertNil(state.detectedAssemblyReadType)
+        XCTAssertNil(state.assemblyReadClassMismatchMessage)
+        XCTAssertFalse(state.isRunEnabled)
+    }
+
+    func testNonSpadesAssemblersStayDisabledInEmbeddedFASTQDialog() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .assembly,
+            selectedInputURLs: [illuminaFASTQFixtureURL]
+        )
+
+        state.selectTool(.megahit)
+
+        XCTAssertFalse(state.isRunEnabled)
+    }
+
+    func testCaptureAssemblyWizardConfigPreservesPairedEndTopology() {
+        let forward = illuminaFASTQFixtureURL
+        let reverse = illuminaFASTQFixtureURL
+        let state = FASTQOperationDialogState(
+            initialCategory: .assembly,
+            selectedInputURLs: [forward, reverse]
+        )
+
+        state.captureAssemblyWizardConfig(
+            SPAdesAssemblyConfig(
+                mode: .meta,
+                forwardReads: [forward],
+                reverseReads: [reverse],
+                unpairedReads: [],
+                kmerSizes: nil,
+                memoryGB: 16,
+                threads: 8,
+                minContigLength: 500,
+                skipErrorCorrection: false,
+                careful: false,
+                outputDirectory: URL(fileURLWithPath: "/tmp/assembly-out"),
+                projectName: "Demo"
+            )
+        )
+
+        guard case .assemble(let request, _) = state.pendingLaunchRequest else {
+            return XCTFail("Expected paired assembly launch request")
+        }
+
+        XCTAssertTrue(request.pairedEnd)
+    }
+
     func testDatasetLabelSummarizesMultipleSelectedInputs() {
         let state = FASTQOperationDialogState(
             initialCategory: .assembly,
@@ -621,6 +687,20 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertTrue(source.contains("AssemblyWizardSheet("))
         XCTAssertTrue(source.contains("ClassificationWizardSheet("))
         XCTAssertTrue(source.contains("embeddedInOperationsDialog: true"))
+    }
+
+    func testToolPaneFileKeepsNonSpadesAssemblersOutOfTheSpadesWizard() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = root
+            .appendingPathComponent("Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("case .spades:"))
+        XCTAssertTrue(source.contains("case .megahit, .skesa, .flye, .hifiasm:"))
+        XCTAssertTrue(source.contains("Embedded managed assembly execution is not available in this FASTQ dialog yet."))
     }
 
     func testDerivativeToolPaneProvidesAuxiliaryInputChooser() throws {

@@ -43,6 +43,7 @@ enum FASTQOperationExecutionError: Error, LocalizedError {
     case unsupportedPrimerRemoval(String)
     case unsupportedDemultiplex(String)
     case unsupportedOrient(String)
+    case unsupportedAssembly(String)
 
     var errorDescription: String? {
         switch self {
@@ -54,6 +55,8 @@ enum FASTQOperationExecutionError: Error, LocalizedError {
             return "FASTQ demultiplex request is not supported by the CLI builder: \(reason)"
         case .unsupportedOrient(let reason):
             return "FASTQ orient request is not supported by the CLI builder: \(reason)"
+        case .unsupportedAssembly(let reason):
+            return "FASTQ assembly request is not supported by the CLI builder: \(reason)"
         }
     }
 }
@@ -371,8 +374,13 @@ struct FASTQOperationExecutionService {
             return CLIInvocation(subcommand: "map", arguments: arguments)
 
         case .assemble(let request, _):
+            guard request.tool == .spades else {
+                throw FASTQOperationExecutionError.unsupportedAssembly(
+                    "only SPAdes is encodable until the managed assembly execution path lands"
+                )
+            }
             var arguments = request.inputURLs.map(\.path)
-            if request.inputURLs.count == 2 {
+            if request.pairedEnd {
                 arguments.append("--paired")
             }
             arguments += [

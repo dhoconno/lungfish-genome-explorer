@@ -17,7 +17,7 @@ struct FASTQOperationToolPanes: View {
                 onRun: state.captureMinimap2Config(_:),
                 onRunnerAvailabilityChange: state.updateEmbeddedReadiness(_:)
             )
-        case .spades, .megahit, .skesa, .flye, .hifiasm:
+        case .spades:
             AssemblyWizardSheet(
                 inputFiles: state.selectedInputURLs,
                 outputDirectory: state.outputDirectoryURL,
@@ -26,6 +26,8 @@ struct FASTQOperationToolPanes: View {
                 onRun: state.captureAssemblyWizardConfig(_:),
                 onRunnerAvailabilityChange: state.updateEmbeddedReadiness(_:)
             )
+        case .megahit, .skesa, .flye, .hifiasm:
+            unavailableEmbeddedAssemblyPane
         case .kraken2:
             ClassificationWizardSheet(
                 inputFiles: state.selectedInputURLs,
@@ -52,6 +54,29 @@ struct FASTQOperationToolPanes: View {
             )
         default:
             derivativePane
+        }
+    }
+
+    private var unavailableEmbeddedAssemblyPane: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                section(DatasetOperationSection.overview.title) {
+                    Text(state.selectedToolSummary)
+                        .font(.body)
+                        .foregroundStyle(Color.lungfishSecondaryText)
+                }
+
+                section(DatasetOperationSection.readiness.title) {
+                    Text("Embedded managed assembly execution is not available in this FASTQ dialog yet.")
+                        .font(.callout)
+                        .foregroundStyle(Color.lungfishOrangeFallback)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 20)
+        }
+        .onAppear {
+            state.updateEmbeddedReadiness(false)
         }
     }
 

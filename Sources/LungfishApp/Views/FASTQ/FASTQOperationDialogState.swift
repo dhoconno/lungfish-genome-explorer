@@ -8,6 +8,10 @@ import LungfishWorkflow
 final class FASTQOperationDialogState {
     private static let mixedDetectedAndUnclassifiedAssemblyInputsMessage =
         "Selected FASTQ inputs mix detected and unclassified read classes. Select one read class per run."
+    private static let undetectedAssemblyReadTypeMessage =
+        "Lungfish could not determine whether the selected FASTQ inputs are Illumina, ONT, or HiFi. Select FASTQ inputs with a detectable read class."
+    private static let embeddedManagedAssemblyUnavailableMessage =
+        "Embedded managed assembly execution is not available in this FASTQ dialog yet."
 
     var selectedCategory: FASTQOperationCategoryID {
         didSet {
@@ -853,10 +857,16 @@ final class FASTQOperationDialogState {
             if let mismatchMessage = assemblyReadClassMismatchMessage {
                 return mismatchMessage
             }
+            if assemblyCompatibilityEvaluation.requiresReadTypeConfirmation {
+                return Self.undetectedAssemblyReadTypeMessage
+            }
             if let assemblyTool = selectedToolID.assemblyTool,
                let detectedAssemblyReadType,
                !AssemblyCompatibility.isSupported(tool: assemblyTool, for: detectedAssemblyReadType) {
                 return "\(assemblyTool.displayName) is not available for \(detectedAssemblyReadType.displayName.lowercased())."
+            }
+            if selectedToolID != .spades {
+                return Self.embeddedManagedAssemblyUnavailableMessage
             }
             return nil
 
@@ -928,9 +938,8 @@ final class FASTQOperationDialogState {
     }
 
     private func assemblyRequest(from config: SPAdesAssemblyConfig) -> AssemblyRunRequest? {
-        guard let tool = selectedToolID.assemblyTool else { return nil }
-
-        let readType = detectedAssemblyReadType ?? tool.defaultReadType
+        guard let tool = selectedToolID.assemblyTool, tool == .spades else { return nil }
+        guard let readType = detectedAssemblyReadType else { return nil }
         guard AssemblyCompatibility.isSupported(tool: tool, for: readType) else {
             return nil
         }
@@ -941,6 +950,9 @@ final class FASTQOperationDialogState {
             inputURLs: config.allInputFiles,
             projectName: config.projectName,
             outputDirectory: config.outputDirectory,
+            pairedEnd: !config.forwardReads.isEmpty
+                && config.forwardReads.count == config.reverseReads.count
+                && config.unpairedReads.isEmpty,
             threads: config.threads,
             memoryGB: config.memoryGB,
             minContigLength: config.minContigLength,
