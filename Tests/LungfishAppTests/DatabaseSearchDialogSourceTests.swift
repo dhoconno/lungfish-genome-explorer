@@ -16,6 +16,44 @@ final class DatabaseSearchDialogSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("switch state.selectedDestination"))
     }
 
+    func testDatabaseSearchDialogDeclaresReusableXCUIIdentifiers() throws {
+        let shellSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Operations/DatasetOperationsDialog.swift"),
+            encoding: .utf8
+        )
+        let dialogSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/DatabaseBrowser/DatabaseSearchDialog.swift"),
+            encoding: .utf8
+        )
+        let paneSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserPane.swift"),
+            encoding: .utf8
+        )
+        let genbankSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/DatabaseBrowser/GenBankGenomesSearchPane.swift"),
+            encoding: .utf8
+        )
+        let pathoplexusSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/DatabaseBrowser/PathoplexusSearchPane.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(shellSource.contains("accessibilityNamespace"))
+        XCTAssertTrue(dialogSource.contains("accessibilityNamespace: \"database-search\""))
+        XCTAssertTrue(shellSource.contains("accessibilitySlug"))
+        XCTAssertTrue(paneSource.contains("database-search-query-field"))
+        XCTAssertTrue(paneSource.contains("database-search-results-list"))
+        XCTAssertTrue(paneSource.contains("database-search-result-"))
+        XCTAssertTrue(genbankSource.contains("database-search-ncbi-mode-picker"))
+        XCTAssertTrue(pathoplexusSource.contains("database-search-pathoplexus-consent-accept"))
+        XCTAssertTrue(pathoplexusSource.contains("database-search-pathoplexus-consent-cancel"))
+    }
+
     func testGenBankGenomesPaneExposesNCBIModePicker() throws {
         let source = try String(
             contentsOf: repositoryRoot()

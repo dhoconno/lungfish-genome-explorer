@@ -43,6 +43,7 @@ private struct DatabaseSearchDialogShell<Detail: View>: View {
             statusText: statusText,
             isRunEnabled: isPrimaryActionEnabled,
             primaryActionTitle: primaryActionTitle,
+            accessibilityNamespace: "database-search",
             onSelectTool: state.selectDestination(named:),
             onCancel: state.cancel,
             onRun: state.performPrimaryAction

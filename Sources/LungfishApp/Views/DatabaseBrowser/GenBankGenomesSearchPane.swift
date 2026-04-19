@@ -16,6 +16,7 @@ struct GenBankGenomesSearchPane: View {
                     Text("Genome").tag(NCBISearchType.genome)
                     Text("Virus").tag(NCBISearchType.virus)
                 }
+                .accessibilityIdentifier("database-search-ncbi-mode-picker")
                 .pickerStyle(.segmented)
 
                 if viewModel.ncbiSearchType == .virus || viewModel.ncbiSearchType == .nucleotide {

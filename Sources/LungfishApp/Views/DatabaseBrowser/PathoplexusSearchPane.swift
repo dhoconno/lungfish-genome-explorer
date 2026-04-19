@@ -95,8 +95,10 @@ private struct PathoplexusConsentPanel: View {
 
             HStack {
                 Button("Cancel", action: onCancel)
+                    .accessibilityIdentifier("database-search-pathoplexus-consent-cancel")
                 Spacer()
                 Button("I Understand and Agree", action: onAccept)
+                    .accessibilityIdentifier("database-search-pathoplexus-consent-accept")
                     .buttonStyle(.borderedProminent)
                     .tint(.lungfishCreamsicleFallback)
             }

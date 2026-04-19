@@ -108,6 +108,7 @@ struct DatabaseBrowserPane<Accessory: View>: View {
             AppKitTextField(
                 text: $viewModel.searchText,
                 placeholder: searchPlaceholder,
+                accessibilityIdentifier: "database-search-query-field",
                 onSubmit: {
                     viewModel.performSearch()
                 }
@@ -567,6 +568,7 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                     )
                     .listRowSeparator(.hidden)
                 }
+                .accessibilityIdentifier("database-search-results-list")
                 .listStyle(.plain)
             }
         }
@@ -684,6 +686,7 @@ struct DatabaseSearchResultRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("database-search-result-\(record.accession)")
     }
 }
 
@@ -691,6 +694,7 @@ struct DatabaseSearchResultRow: View {
 struct AppKitTextField: NSViewRepresentable {
     @Binding var text: String
     var placeholder: String
+    var accessibilityIdentifier: String?
     var onSubmit: (() -> Void)?
 
     func makeNSView(context: Context) -> NSTextField {
@@ -705,6 +709,9 @@ struct AppKitTextField: NSViewRepresentable {
         textField.cell?.sendsActionOnEndEditing = false
         textField.target = context.coordinator
         textField.action = #selector(Coordinator.textFieldAction(_:))
+        if let accessibilityIdentifier {
+            textField.setAccessibilityIdentifier(accessibilityIdentifier)
+        }
         return textField
     }
 
@@ -714,6 +721,9 @@ struct AppKitTextField: NSViewRepresentable {
         }
         if nsView.placeholderString != placeholder {
             nsView.placeholderString = placeholder
+        }
+        if nsView.accessibilityIdentifier() != accessibilityIdentifier {
+            nsView.setAccessibilityIdentifier(accessibilityIdentifier)
         }
     }
 
