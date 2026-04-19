@@ -73,6 +73,18 @@ public struct AssemblyCompatibilityEvaluation: Sendable, Equatable {
     public let supportedTools: [AssemblyTool]
     public let blockingMessage: String?
 
+    public init(
+        detectedReadTypes: [AssemblyReadType],
+        resolvedReadType: AssemblyReadType?,
+        supportedTools: [AssemblyTool],
+        blockingMessage: String?
+    ) {
+        self.detectedReadTypes = detectedReadTypes
+        self.resolvedReadType = resolvedReadType
+        self.supportedTools = supportedTools
+        self.blockingMessage = blockingMessage
+    }
+
     /// Whether the current combination should be blocked before launch.
     public var isBlocked: Bool {
         blockingMessage != nil

@@ -581,6 +581,20 @@ final class AssembleCommandRegressionTests: XCTestCase {
     func testAbstractIsNonEmpty() {
         XCTAssertFalse(AssembleCommand.configuration.abstract.isEmpty)
     }
+
+    func testSourceIncludesManagedAssemblyLaunchAliases() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishCLI/Commands/AssembleCommand.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains(#"customLong("assembler")"#))
+        XCTAssertTrue(source.contains(#"customLong("read-type")"#))
+        XCTAssertTrue(source.contains(#"customLong("project-name")"#))
+        XCTAssertTrue(source.contains(#"customLong("output")"#))
+    }
 }
 
 // MARK: - OrientCommand

@@ -388,7 +388,7 @@ struct FASTQOperationExecutionService {
                 arguments += ["--min-contig-length", "\(minContigLength)"]
             }
             if let selectedProfileID = request.selectedProfileID {
-                arguments += ["--profile", selectedProfileID]
+                arguments += ["--mode", selectedProfileID]
             }
             arguments += request.extraArguments
             arguments += ["--output", outputTargetPath]

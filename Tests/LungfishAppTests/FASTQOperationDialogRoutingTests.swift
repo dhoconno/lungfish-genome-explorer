@@ -569,6 +569,32 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertFalse(state.isRunEnabled)
     }
 
+    func testKnownAndUnclassifiedAssemblyReadTypesAreBlocked() throws {
+        let pacBioSubreadsFASTQ = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQOperationDialogRoutingTests-\(UUID().uuidString).fastq")
+        defer { try? FileManager.default.removeItem(at: pacBioSubreadsFASTQ) }
+
+        let fastq = """
+        @m64001_190101_000000/123/subreads
+        ACGT
+        +
+        !!!!
+        """
+        try Data(fastq.utf8).write(to: pacBioSubreadsFASTQ)
+
+        let state = FASTQOperationDialogState(
+            initialCategory: .assembly,
+            selectedInputURLs: [illuminaFASTQFixtureURL, pacBioSubreadsFASTQ]
+        )
+
+        XCTAssertNil(state.detectedAssemblyReadType)
+        XCTAssertEqual(
+            state.assemblyReadClassMismatchMessage,
+            "Selected FASTQ inputs mix detected and unclassified read classes. Select one read class per run."
+        )
+        XCTAssertFalse(state.isRunEnabled)
+    }
+
     func testDatasetLabelSummarizesMultipleSelectedInputs() {
         let state = FASTQOperationDialogState(
             initialCategory: .assembly,

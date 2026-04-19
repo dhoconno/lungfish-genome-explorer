@@ -38,17 +38,26 @@ struct AssembleCommand: AsyncParsableCommand {
     @Argument(help: "Input FASTQ file(s). Provide two files for paired-end.")
     var fastqFiles: [String]
 
+    @Option(name: .customLong("assembler"), help: "Managed assembler to use (currently only spades is available here)")
+    var assembler: String?
+
+    @Option(name: .customLong("read-type"), help: "Managed assembly read class (accepted for app compatibility)")
+    var readType: String?
+
     @Option(name: .customLong("preset"), help: "Assembly preset: isolate, meta, viral (default: isolate)")
     var preset: AssemblyPresetArgument = .isolate
 
     @Option(name: .customLong("mode"), help: "SPAdes mode: isolate, meta, plasmid, rna, bio")
     var mode: String?
 
-    @Option(name: [.customLong("output-dir"), .customShort("o")], help: "Output directory (default: ./assembly-<name>)")
+    @Option(name: [.customLong("output-dir"), .customLong("output"), .customShort("o")], help: "Output directory (default: ./assembly-<name>)")
     var outputDir: String?
 
     @Option(name: .customLong("name"), help: "Project name for the assembly")
     var projectName: String?
+
+    @Option(name: .customLong("project-name"), help: "Alias for --name")
+    var projectNameAlias: String?
 
     @Flag(name: .customLong("paired"), help: "Input files are paired-end reads")
     var pairedEnd: Bool = false
@@ -78,6 +87,14 @@ struct AssembleCommand: AsyncParsableCommand {
     func run() async throws {
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
+        if let assembler, assembler.lowercased() != "spades" {
+            print(formatter.error(
+                "Assembler '\(assembler)' is not available in this SPAdes-only execution path."
+            ))
+            throw ExitCode.failure
+        }
+        _ = readType
+
         // Resolve input files -- keep original paths (including .gz) for
         // existence checks and SPAdes, which handles gzip natively.
         let inputURLs = fastqFiles.map { path -> URL in
@@ -105,7 +122,7 @@ struct AssembleCommand: AsyncParsableCommand {
 
         // Resolve project name -- strip .gz then .fastq for a clean name
         let name: String
-        if let explicit = projectName {
+        if let explicit = projectNameAlias ?? projectName {
             name = explicit
         } else if let firstURL = inputURLs.first {
             var detectURL = firstURL

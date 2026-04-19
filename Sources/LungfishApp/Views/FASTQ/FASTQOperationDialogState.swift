@@ -6,6 +6,9 @@ import LungfishWorkflow
 @MainActor
 @Observable
 final class FASTQOperationDialogState {
+    private static let mixedDetectedAndUnclassifiedAssemblyInputsMessage =
+        "Selected FASTQ inputs mix detected and unclassified read classes. Select one read class per run."
+
     var selectedCategory: FASTQOperationCategoryID {
         didSet {
             if selectedToolID.categoryID != selectedCategory {
@@ -907,8 +910,20 @@ final class FASTQOperationDialogState {
     }
 
     private var assemblyCompatibilityEvaluation: AssemblyCompatibilityEvaluation {
-        AssemblyCompatibility.evaluate(
-            detectedReadTypes: selectedInputURLs.compactMap(AssemblyReadType.detect(fromFASTQ:))
+        let detectedReadTypes = selectedInputURLs.compactMap(AssemblyReadType.detect(fromFASTQ:))
+        let evaluation = AssemblyCompatibility.evaluate(detectedReadTypes: detectedReadTypes)
+
+        let hasKnownAndUnknownMix =
+            !detectedReadTypes.isEmpty && detectedReadTypes.count < selectedInputURLs.count
+        guard !evaluation.isBlocked, hasKnownAndUnknownMix else {
+            return evaluation
+        }
+
+        return AssemblyCompatibilityEvaluation(
+            detectedReadTypes: evaluation.detectedReadTypes,
+            resolvedReadType: nil,
+            supportedTools: [],
+            blockingMessage: Self.mixedDetectedAndUnclassifiedAssemblyInputsMessage
         )
     }
 
