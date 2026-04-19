@@ -10,7 +10,6 @@ final class WorkspaceShellLayoutCoordinator {
     }
 
     struct Decision: Equatable {
-        var shouldSetSidebarDividerSynchronously: Bool
         var sidebarWidthToPersist: CGFloat?
         var inspectorWidthToPersist: CGFloat?
     }
@@ -63,6 +62,11 @@ final class WorkspaceShellLayoutCoordinator {
             ?? clampSidebarWidth(currentWidth)
     }
 
+    func resolvedInspectorWidth(currentWidth: CGFloat) -> CGFloat {
+        state.lastUserInspectorWidth
+            ?? clampInspectorWidth(currentWidth)
+    }
+
     func resizeDecision(
         event: Event,
         currentSidebarWidth: CGFloat,
@@ -72,14 +76,12 @@ final class WorkspaceShellLayoutCoordinator {
         switch event {
         case .shellDidResize, .recommendationArrived:
             return Decision(
-                shouldSetSidebarDividerSynchronously: false,
                 sidebarWidthToPersist: nil,
                 inspectorWidthToPersist: nil
             )
 
         case .userDraggedSidebar:
             return Decision(
-                shouldSetSidebarDividerSynchronously: false,
                 sidebarWidthToPersist: clampSidebarWidth(
                     currentSidebarWidth,
                     totalWidth: totalWidth,
@@ -90,7 +92,6 @@ final class WorkspaceShellLayoutCoordinator {
 
         case .userDraggedInspector:
             return Decision(
-                shouldSetSidebarDividerSynchronously: false,
                 sidebarWidthToPersist: nil,
                 inspectorWidthToPersist: clampInspectorWidth(
                     currentInspectorWidth,

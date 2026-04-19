@@ -3,6 +3,16 @@ import XCTest
 
 @MainActor
 final class WorkspaceShellLayoutTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        clearShellLayoutDefaults()
+    }
+
+    override func tearDown() {
+        clearShellLayoutDefaults()
+        super.tearDown()
+    }
+
     func testCoordinatorDoesNotRequestDividerMoveFromResizeCallback() {
         let coordinator = WorkspaceShellLayoutCoordinator(
             sidebarMinWidth: 180,
@@ -20,7 +30,6 @@ final class WorkspaceShellLayoutTests: XCTestCase {
             totalWidth: 1500
         )
 
-        XCTAssertFalse(decision.shouldSetSidebarDividerSynchronously)
         XCTAssertNil(decision.sidebarWidthToPersist)
     }
 
@@ -78,5 +87,78 @@ final class WorkspaceShellLayoutTests: XCTestCase {
 
         XCTAssertEqual(decision.sidebarWidthToPersist, 310)
         XCTAssertNil(decision.inspectorWidthToPersist)
+    }
+
+    func testControllerPersistsUserDraggedShellWidthsAndIgnoresOrdinaryResizeCallbacks() {
+        let (controller, window) = makeController()
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.testingSetShellFrames(sidebarWidth: 310, inspectorWidth: 280, totalWidth: 1500)
+        _ = controller.splitView(controller.splitView, constrainSplitPosition: 310, ofSubviewAt: 0)
+        controller.testingProcessShellResize()
+
+        XCTAssertEqual(storedCGFloat(forKey: MainSplitViewController.sidebarWidthDefaultsKey), 310)
+        XCTAssertNil(storedCGFloat(forKey: MainSplitViewController.inspectorWidthDefaultsKey))
+
+        controller.testingSetShellFrames(sidebarWidth: 310, inspectorWidth: 330, totalWidth: 1500)
+        _ = controller.splitView(controller.splitView, constrainSplitPosition: 1170, ofSubviewAt: 1)
+        controller.testingProcessShellResize()
+
+        XCTAssertEqual(storedCGFloat(forKey: MainSplitViewController.sidebarWidthDefaultsKey), 310)
+        XCTAssertEqual(storedCGFloat(forKey: MainSplitViewController.inspectorWidthDefaultsKey), 330)
+
+        controller.testingSetShellFrames(sidebarWidth: 360, inspectorWidth: 300, totalWidth: 1700)
+        controller.testingProcessShellResize()
+
+        XCTAssertEqual(storedCGFloat(forKey: MainSplitViewController.sidebarWidthDefaultsKey), 310)
+        XCTAssertEqual(storedCGFloat(forKey: MainSplitViewController.inspectorWidthDefaultsKey), 330)
+    }
+
+    func testControllerRestoresPersistedShellWidthsFromDefaults() {
+        UserDefaults.standard.set(305, forKey: MainSplitViewController.sidebarWidthDefaultsKey)
+        UserDefaults.standard.set(325, forKey: MainSplitViewController.inspectorWidthDefaultsKey)
+
+        let (controller, window) = makeController()
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        controller.testingRestorePersistedShellLayout()
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(controller.testingShellLayoutState.lastUserSidebarWidth, 305)
+        XCTAssertEqual(controller.testingShellLayoutState.lastUserInspectorWidth, 325)
+        XCTAssertEqual(controller.splitView.subviews[0].frame.width, 305, accuracy: 2)
+        XCTAssertEqual(controller.splitView.subviews[2].frame.width, 325, accuracy: 2)
+    }
+
+    private func makeController() -> (MainSplitViewController, NSWindow) {
+        let controller = MainSplitViewController()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1500, height: 900),
+            styleMask: [.titled, .resizable, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = controller
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        return (controller, window)
+    }
+
+    private nonisolated func clearShellLayoutDefaults() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: MainSplitViewController.sidebarCollapsedDefaultsKey)
+        defaults.removeObject(forKey: MainSplitViewController.inspectorCollapsedDefaultsKey)
+        defaults.removeObject(forKey: MainSplitViewController.sidebarWidthDefaultsKey)
+        defaults.removeObject(forKey: MainSplitViewController.inspectorWidthDefaultsKey)
+        defaults.removeObject(forKey: "NSSplitView Subview Frames \(MainSplitViewController.legacyShellAutosaveName)")
+    }
+
+    private nonisolated func storedCGFloat(forKey key: String) -> CGFloat? {
+        guard let number = UserDefaults.standard.object(forKey: key) as? NSNumber else { return nil }
+        return CGFloat(number.doubleValue)
     }
 }

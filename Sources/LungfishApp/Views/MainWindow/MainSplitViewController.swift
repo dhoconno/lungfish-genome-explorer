@@ -95,6 +95,11 @@ enum DuplicateResolution {
 /// ```
 @MainActor
 public class MainSplitViewController: NSSplitViewController {
+    nonisolated static let legacyShellAutosaveName = "MainSplitView"
+    nonisolated static let sidebarCollapsedDefaultsKey = "SidebarCollapsed"
+    nonisolated static let inspectorCollapsedDefaultsKey = "InspectorCollapsed"
+    nonisolated static let sidebarWidthDefaultsKey = "WorkspaceShellSidebarWidth"
+    nonisolated static let inspectorWidthDefaultsKey = "WorkspaceShellInspectorWidth"
 
     // MARK: - Child View Controllers
 
@@ -115,6 +120,8 @@ public class MainSplitViewController: NSSplitViewController {
     private var sidebarItem: NSSplitViewItem!
     private var viewerItem: NSSplitViewItem!
     private var inspectorItem: NSSplitViewItem!
+    private var sidebarWidthConstraint: NSLayoutConstraint?
+    private var inspectorWidthConstraint: NSLayoutConstraint?
 
     // MARK: - Inspector Toggle State
 
@@ -132,6 +139,9 @@ public class MainSplitViewController: NSSplitViewController {
 
     /// Collapsed target for the active inspector transition.
     private var inspectorTransitionTargetCollapsedState: Bool?
+
+    /// True once the initial persisted shell widths have been re-applied after layout.
+    private var hasAppliedInitialShellLayout = false
 
     // MARK: - Selection State
 
@@ -183,7 +193,9 @@ public class MainSplitViewController: NSSplitViewController {
 
     /// Minimum viewer width
     private let viewerMinWidth: CGFloat = 400
-    private let shellDividerDragDetectionTolerance: CGFloat = 24
+
+    private var pendingShellResizeEvent: WorkspaceShellLayoutCoordinator.Event = .shellDidResize
+    private var isApplyingProgrammaticShellDividerMove = false
 
     private lazy var shellLayoutCoordinator = WorkspaceShellLayoutCoordinator(
         sidebarMinWidth: sidebarMinWidth,
@@ -203,21 +215,26 @@ public class MainSplitViewController: NSSplitViewController {
         configureActivityIndicator()
         configureNotifications()
         restorePanelState()
-        DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated {
-                self?.applySidebarPreferredWidth(self?.sidebarDefaultWidth ?? 240, allowShrink: true)
-            }
-        }
         // One-time migration: clear stale split view autosave from broken TARIC configuration
         let autosaveMigrationKey = "com.lungfish.splitview.autosave.v2.migrated"
         if !UserDefaults.standard.bool(forKey: autosaveMigrationKey) {
-            if let autosaveName = splitView.autosaveName {
-                UserDefaults.standard.removeObject(forKey: "NSSplitView Subview Frames \(autosaveName)")
-            }
+            UserDefaults.standard.removeObject(
+                forKey: "NSSplitView Subview Frames \(Self.legacyShellAutosaveName)"
+            )
             UserDefaults.standard.set(true, forKey: autosaveMigrationKey)
         }
 
         logger.info("viewDidLoad: MainSplitViewController setup complete")
+    }
+
+    public override func viewDidLayout() {
+        super.viewDidLayout()
+
+        guard !hasAppliedInitialShellLayout else { return }
+        hasAppliedInitialShellLayout = true
+        performOnMainRunLoop { [weak self] in
+            self?.restorePersistedShellLayout()
+        }
     }
 
     deinit {
@@ -233,8 +250,8 @@ public class MainSplitViewController: NSSplitViewController {
         // Vertical splits (side by side)
         splitView.isVertical = true
 
-        // Autosave configuration
-        splitView.autosaveName = "MainSplitView"
+        // Shell widths are user-owned and persisted explicitly rather than via NSSplitView autosave.
+        splitView.autosaveName = nil
     }
 
     private func configureActivityIndicator() {
@@ -296,6 +313,14 @@ public class MainSplitViewController: NSSplitViewController {
         addSplitViewItem(viewerItem)
         addSplitViewItem(inspectorItem)
         logger.info("configureChildControllers: Added all three split view items, count=\(self.splitViewItems.count)")
+
+        sidebarWidthConstraint = splitView.subviews[0].widthAnchor.constraint(equalToConstant: sidebarDefaultWidth)
+        sidebarWidthConstraint?.priority = .required
+        sidebarWidthConstraint?.isActive = true
+
+        inspectorWidthConstraint = splitView.subviews[2].widthAnchor.constraint(equalToConstant: inspectorDefaultWidth)
+        inspectorWidthConstraint?.priority = .required
+        inspectorWidthConstraint?.isActive = true
 
         // Inspector starts visible by default
         inspectorItem.isCollapsed = false
@@ -1254,7 +1279,11 @@ public class MainSplitViewController: NSSplitViewController {
         applySidebarPreferredWidth(rawWidth, allowShrink: false)
     }
 
-    private func applySidebarPreferredWidth(_ width: CGFloat, allowShrink: Bool) {
+    private func applySidebarPreferredWidth(
+        _ width: CGFloat,
+        allowShrink: Bool,
+        scheduleAsync: Bool = true
+    ) {
         shellLayoutCoordinator.recordRecommendation(width)
         guard splitView.subviews.count > 1 else { return }
         guard !sidebarItem.isCollapsed else { return }
@@ -1264,7 +1293,7 @@ public class MainSplitViewController: NSSplitViewController {
         let target = allowShrink ? resolved : max(current, resolved)
         guard abs(target - current) >= 1 else { return }
 
-        DispatchQueue.main.async { [weak self] in
+        let applyPosition = { [weak self] in
             guard let self else { return }
             guard self.splitView.subviews.count > 1 else { return }
             guard !self.sidebarItem.isCollapsed else { return }
@@ -1272,32 +1301,134 @@ public class MainSplitViewController: NSSplitViewController {
             let liveCurrentWidth = self.splitView.subviews[0].frame.width
             guard abs(target - liveCurrentWidth) >= 1 else { return }
 
-            self.splitView.setPosition(target, ofDividerAt: 0)
+            self.sidebarWidthConstraint?.constant = target
+            self.splitView.adjustSubviews()
+            self.view.layoutSubtreeIfNeeded()
         }
+
+        if scheduleAsync {
+            performOnMainRunLoop {
+                applyPosition()
+            }
+        } else {
+            applyPosition()
+        }
+    }
+
+    private func applyInspectorPreferredWidth(
+        _ width: CGFloat,
+        allowShrink: Bool,
+        scheduleAsync: Bool = true
+    ) {
+        guard splitView.subviews.count > 2 else { return }
+        guard !inspectorItem.isCollapsed else { return }
+
+        let current = splitView.subviews[2].frame.width
+        let resolved = shellLayoutCoordinator.resolvedInspectorWidth(currentWidth: current)
+        let target = allowShrink ? resolved : max(current, resolved)
+        guard abs(target - current) >= 1 else { return }
+
+        let applyPosition = { [weak self] in
+            guard let self else { return }
+            guard self.splitView.subviews.count > 2 else { return }
+            guard !self.inspectorItem.isCollapsed else { return }
+
+            let liveCurrentWidth = self.splitView.subviews[2].frame.width
+            guard abs(target - liveCurrentWidth) >= 1 else { return }
+
+            self.inspectorWidthConstraint?.constant = target
+            self.splitView.adjustSubviews()
+            self.view.layoutSubtreeIfNeeded()
+        }
+
+        if scheduleAsync {
+            performOnMainRunLoop {
+                applyPosition()
+            }
+        } else {
+            applyPosition()
+        }
+    }
+
+    private func restorePersistedShellLayout() {
+        if !sidebarItem.isCollapsed {
+            sidebarWidthConstraint?.constant = shellLayoutCoordinator.resolvedSidebarWidth(
+                currentWidth: splitView.subviews.first?.frame.width ?? sidebarDefaultWidth
+            )
+        }
+
+        if !inspectorItem.isCollapsed {
+            inspectorWidthConstraint?.constant = shellLayoutCoordinator.resolvedInspectorWidth(
+                currentWidth: splitView.subviews.count > 2 ? splitView.subviews[2].frame.width : inspectorDefaultWidth
+            )
+        }
+
+        splitView.adjustSubviews()
+        splitView.layoutSubtreeIfNeeded()
+        view.layoutSubtreeIfNeeded()
+    }
+
+    private func setShellDividerPosition(
+        _ position: CGFloat,
+        ofDividerAt dividerIndex: Int,
+        event: WorkspaceShellLayoutCoordinator.Event
+    ) {
+        pendingShellResizeEvent = event
+        isApplyingProgrammaticShellDividerMove = true
+        splitView.setPosition(position, ofDividerAt: dividerIndex)
+        splitView.adjustSubviews()
+        splitView.layoutSubtreeIfNeeded()
+        view.layoutSubtreeIfNeeded()
+        isApplyingProgrammaticShellDividerMove = false
     }
 
     // MARK: - Panel State
 
     private func savePanelState() {
         let defaults = UserDefaults.standard
-        defaults.set(sidebarItem.isCollapsed, forKey: "SidebarCollapsed")
-        defaults.set(inspectorItem.isCollapsed, forKey: "InspectorCollapsed")
+        defaults.set(sidebarItem.isCollapsed, forKey: Self.sidebarCollapsedDefaultsKey)
+        defaults.set(inspectorItem.isCollapsed, forKey: Self.inspectorCollapsedDefaultsKey)
+
+        if let sidebarWidth = shellLayoutCoordinator.state.lastUserSidebarWidth {
+            defaults.set(sidebarWidth, forKey: Self.sidebarWidthDefaultsKey)
+        } else {
+            defaults.removeObject(forKey: Self.sidebarWidthDefaultsKey)
+        }
+
+        if let inspectorWidth = shellLayoutCoordinator.state.lastUserInspectorWidth {
+            defaults.set(inspectorWidth, forKey: Self.inspectorWidthDefaultsKey)
+        } else {
+            defaults.removeObject(forKey: Self.inspectorWidthDefaultsKey)
+        }
     }
 
     private func restorePanelState() {
         let defaults = UserDefaults.standard
 
         // Restore sidebar state (default: visible)
-        if defaults.object(forKey: "SidebarCollapsed") != nil {
-            sidebarItem.isCollapsed = defaults.bool(forKey: "SidebarCollapsed")
+        if defaults.object(forKey: Self.sidebarCollapsedDefaultsKey) != nil {
+            sidebarItem.isCollapsed = defaults.bool(forKey: Self.sidebarCollapsedDefaultsKey)
         }
         shellLayoutCoordinator.setSidebarVisible(!sidebarItem.isCollapsed)
 
         // Restore inspector state (default: visible)
-        if defaults.object(forKey: "InspectorCollapsed") != nil {
-            inspectorItem.isCollapsed = defaults.bool(forKey: "InspectorCollapsed")
+        if defaults.object(forKey: Self.inspectorCollapsedDefaultsKey) != nil {
+            inspectorItem.isCollapsed = defaults.bool(forKey: Self.inspectorCollapsedDefaultsKey)
         }
         shellLayoutCoordinator.setInspectorVisible(!inspectorItem.isCollapsed)
+
+        if let sidebarWidth = persistedWidth(forKey: Self.sidebarWidthDefaultsKey) {
+            shellLayoutCoordinator.recordUserSidebarWidth(sidebarWidth)
+        }
+
+        if let inspectorWidth = persistedWidth(forKey: Self.inspectorWidthDefaultsKey) {
+            shellLayoutCoordinator.recordUserInspectorWidth(inspectorWidth)
+        }
+    }
+
+    private func persistedWidth(forKey key: String) -> CGFloat? {
+        guard let number = UserDefaults.standard.object(forKey: key) as? NSNumber else { return nil }
+        return CGFloat(number.doubleValue)
     }
 
     // MARK: - Public API
@@ -1492,48 +1623,34 @@ public class MainSplitViewController: NSSplitViewController {
     // assertion failure on macOS Tahoe. Use NSSplitViewItem properties instead:
     //   - canCollapse, minimumThickness, maximumThickness (set in configureChildControllers)
 
-    private func resizeEventForCurrentInteraction() -> WorkspaceShellLayoutCoordinator.Event {
-        guard let event = NSApp.currentEvent else { return .shellDidResize }
-        guard event.type == .leftMouseDragged || event.type == .leftMouseDown else { return .shellDidResize }
+    public override func splitView(
+        _ splitView: NSSplitView,
+        constrainSplitPosition proposedPosition: CGFloat,
+        ofSubviewAt dividerIndex: Int
+    ) -> CGFloat {
+        guard splitView === self.splitView else { return proposedPosition }
+        guard !isApplyingProgrammaticShellDividerMove else { return proposedPosition }
 
-        let locationInSplitView = splitView.convert(event.locationInWindow, from: nil)
-        let expandedBounds = splitView.bounds.insetBy(
-            dx: -shellDividerDragDetectionTolerance,
-            dy: -shellDividerDragDetectionTolerance
-        )
-        guard expandedBounds.contains(locationInSplitView) else { return .shellDidResize }
-
-        let dividerThickness = splitView.dividerThickness
-        var closestEvent: WorkspaceShellLayoutCoordinator.Event = .shellDidResize
-        var closestDistance = CGFloat.greatestFiniteMagnitude
-
-        if splitView.subviews.count > 1, !sidebarItem.isCollapsed {
-            let sidebarDividerCenter = splitView.subviews[0].frame.maxX + (dividerThickness / 2)
-            let distance = abs(locationInSplitView.x - sidebarDividerCenter)
-            if distance <= shellDividerDragDetectionTolerance, distance < closestDistance {
-                closestEvent = .userDraggedSidebar
-                closestDistance = distance
-            }
+        switch dividerIndex {
+        case 0:
+            pendingShellResizeEvent = .userDraggedSidebar
+        case 1:
+            pendingShellResizeEvent = .userDraggedInspector
+        default:
+            pendingShellResizeEvent = .shellDidResize
         }
 
-        if splitView.subviews.count > 2, !inspectorItem.isCollapsed {
-            let inspectorDividerCenter = splitView.subviews[2].frame.minX - (dividerThickness / 2)
-            let distance = abs(locationInSplitView.x - inspectorDividerCenter)
-            if distance <= shellDividerDragDetectionTolerance, distance < closestDistance {
-                closestEvent = .userDraggedInspector
-                closestDistance = distance
-            }
-        }
-
-        return closestEvent
+        return proposedPosition
     }
 
     public override func splitViewDidResizeSubviews(_ notification: Notification) {
         let sidebarWidth = splitView.subviews.count > 1 && !sidebarItem.isCollapsed ? splitView.subviews[0].frame.width : 0
         let inspectorWidth = splitView.subviews.count > 2 && !inspectorItem.isCollapsed ? splitView.subviews[2].frame.width : 0
         let totalWidth = splitView.bounds.width
+        let resizeEvent = pendingShellResizeEvent
+        pendingShellResizeEvent = .shellDidResize
         let decision = shellLayoutCoordinator.resizeDecision(
-            event: resizeEventForCurrentInteraction(),
+            event: resizeEvent,
             currentSidebarWidth: sidebarWidth,
             currentInspectorWidth: inspectorWidth,
             totalWidth: totalWidth
@@ -1541,10 +1658,14 @@ public class MainSplitViewController: NSSplitViewController {
 
         if let sidebarWidth = decision.sidebarWidthToPersist, !sidebarItem.isCollapsed {
             shellLayoutCoordinator.recordUserSidebarWidth(sidebarWidth)
+            sidebarWidthConstraint?.constant = sidebarWidth
+            savePanelState()
         }
 
         if let inspectorWidth = decision.inspectorWidthToPersist, !inspectorItem.isCollapsed {
             shellLayoutCoordinator.recordUserInspectorWidth(inspectorWidth)
+            inspectorWidthConstraint?.constant = inspectorWidth
+            savePanelState()
         }
 
         guard inspectorTransitionInFlight else { return }
@@ -1558,6 +1679,49 @@ public class MainSplitViewController: NSSplitViewController {
             serial: inspectorTransitionSerial,
             source: "splitViewDidResizeSubviews"
         )
+    }
+
+    var testingShellLayoutState: WorkspaceShellLayoutState {
+        shellLayoutCoordinator.state
+    }
+
+    func testingSetShellFrames(
+        sidebarWidth: CGFloat,
+        inspectorWidth: CGFloat,
+        totalWidth: CGFloat,
+        height: CGFloat = 900
+    ) {
+        guard splitView.subviews.count > 2 else { return }
+
+        let dividerThickness = splitView.dividerThickness
+        let viewerWidth = totalWidth - sidebarWidth - inspectorWidth - (dividerThickness * 2)
+        let resolvedViewerWidth = max(viewerWidth, viewerMinWidth)
+        let resolvedTotalWidth = sidebarWidth + resolvedViewerWidth + inspectorWidth + (dividerThickness * 2)
+        view.frame = NSRect(x: 0, y: 0, width: resolvedTotalWidth, height: height)
+        splitView.frame = view.bounds
+        splitView.bounds = view.bounds
+        splitView.subviews[0].frame = NSRect(x: 0, y: 0, width: sidebarWidth, height: height)
+        splitView.subviews[1].frame = NSRect(
+            x: sidebarWidth + dividerThickness,
+            y: 0,
+            width: resolvedViewerWidth,
+            height: height
+        )
+        splitView.subviews[2].frame = NSRect(
+            x: resolvedTotalWidth - inspectorWidth,
+            y: 0,
+            width: inspectorWidth,
+            height: height
+        )
+    }
+
+    func testingProcessShellResize() {
+        splitViewDidResizeSubviews(Notification(name: Notification.Name("WorkspaceShellLayoutTests.Resize"), object: splitView))
+    }
+
+    func testingRestorePersistedShellLayout() {
+        restorePanelState()
+        restorePersistedShellLayout()
     }
 }
 
