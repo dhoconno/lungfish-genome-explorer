@@ -257,6 +257,8 @@ struct FASTQOperationExecutionService {
         )
             where outputMode == .perInput &&
                   resolvedOutputMode == .perInput &&
+                  !originalAssemblyRequest.pairedEnd &&
+                  !resolvedAssemblyRequest.pairedEnd &&
                   originalAssemblyRequest.inputURLs.count > 1 &&
                   originalAssemblyRequest.inputURLs.count == resolvedAssemblyRequest.inputURLs.count:
             return zip(originalAssemblyRequest.inputURLs, resolvedAssemblyRequest.inputURLs).map { originalInputURL, resolvedInputURL in

@@ -568,6 +568,60 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         }
     }
 
+    func testExecuteKeepsPairedAssemblyAsSinglePerInputPlan() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecService")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let assemblyRequest = FASTQOperationLaunchRequest.assemble(
+            request: AssemblyRunRequest(
+                tool: .spades,
+                readType: .illuminaShortReads,
+                inputURLs: [
+                    URL(fileURLWithPath: "/tmp/sample_R1.fastq.gz"),
+                    URL(fileURLWithPath: "/tmp/sample_R2.fastq.gz"),
+                ],
+                projectName: "Demo",
+                outputDirectory: URL(fileURLWithPath: "/tmp/assembly-out"),
+                pairedEnd: true,
+                threads: 8,
+                memoryGB: nil,
+                minContigLength: nil,
+                selectedProfileID: nil,
+                extraArguments: []
+            ),
+            outputMode: .perInput
+        )
+
+        let resolver = SpyInputResolver(resolvedRequest: assemblyRequest)
+        let runner = SpyCommandRunner { invocation, outputDirectory in
+            let reportedOutput = outputDirectory.appendingPathComponent("assembly-result")
+            try FileManager.default.createDirectory(at: reportedOutput, withIntermediateDirectories: true)
+            return FASTQCLIExecutionResult(outputURLs: [reportedOutput])
+        }
+        let importer = SpyDirectImporter()
+        importer.resultURLs = [tempDir.appendingPathComponent("imported-result")]
+        let service = FASTQOperationExecutionService(
+            inputResolver: resolver,
+            commandRunner: runner,
+            directImporter: importer
+        )
+
+        _ = try await service.execute(
+            request: assemblyRequest,
+            workingDirectory: tempDir
+        )
+
+        XCTAssertEqual(runner.invocations.count, 1)
+        XCTAssertEqual(
+            runner.invocations[0].arguments.prefix(3),
+            [
+                "/tmp/sample_R1.fastq.gz",
+                "/tmp/sample_R2.fastq.gz",
+                "--paired",
+            ]
+        )
+    }
+
     func testRefreshQCSummaryLaunchBuildsFastqQCSummaryInvocation() throws {
         let request = FASTQOperationLaunchRequest.refreshQCSummary(
             inputURLs: [
