@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishIO
+import LungfishWorkflow
 
 final class FASTQOperationExecutionServiceTests: XCTestCase {
     func testExecuteDerivativeDiscoversStagedFASTQFileAndImportsIt() async throws {
@@ -438,6 +439,41 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             "/tmp/ref.fasta",
             "--paired",
         ])
+    }
+
+    func testAssemblyLaunchBuildsAssemblerAwareInvocation() throws {
+        let request = FASTQOperationLaunchRequest.assemble(
+            request: AssemblyRunRequest(
+                tool: .spades,
+                readType: .illuminaShortReads,
+                inputURLs: [URL(fileURLWithPath: "/tmp/sample.fastq.gz")],
+                projectName: "Demo",
+                outputDirectory: URL(fileURLWithPath: "/tmp/assembly-out"),
+                threads: 8,
+                memoryGB: nil,
+                minContigLength: nil,
+                selectedProfileID: nil,
+                extraArguments: []
+            ),
+            outputMode: .groupedResult
+        )
+
+        let invocation = try FASTQOperationExecutionService().buildInvocation(for: request)
+
+        XCTAssertEqual(
+            invocation,
+            CLIInvocation(
+                subcommand: "assemble",
+                arguments: [
+                    "/tmp/sample.fastq.gz",
+                    "--assembler", "spades",
+                    "--read-type", "illumina-short-reads",
+                    "--project-name", "Demo",
+                    "--threads", "8",
+                    "--output", "<derived>",
+                ]
+            )
+        )
     }
 
     func testRefreshQCSummaryLaunchBuildsFastqQCSummaryInvocation() throws {

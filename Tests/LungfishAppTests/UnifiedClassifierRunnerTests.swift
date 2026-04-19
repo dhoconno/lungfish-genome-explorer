@@ -75,13 +75,13 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
         XCTAssertFalse(source.contains("TaxTriageWizardSheet("))
     }
 
-    func testFASTQOperationsDialogRunDispatchesEmbeddedConfigsThroughExistingRunners() throws {
+    func testFASTQOperationsDialogRunDispatchesOnlyMappingAndClassifierEmbedsDirectly() throws {
         let source = try loadSource(at: "Sources/LungfishApp/App/AppDelegate.swift")
 
         XCTAssertTrue(source.contains("if let config = state.pendingMinimap2Config"))
         XCTAssertTrue(source.contains("self.runMinimap2Mapping(config: config)"))
-        XCTAssertTrue(source.contains("if let config = state.pendingSPAdesConfig"))
-        XCTAssertTrue(source.contains("AssemblyRunner.run(config: config)"))
+        XCTAssertFalse(source.contains("pendingSPAdesConfig"))
+        XCTAssertFalse(source.contains("AssemblyRunner.run(config:"))
         XCTAssertTrue(source.contains("if !state.pendingClassificationConfigs.isEmpty"))
         XCTAssertTrue(source.contains("self.runClassification(configs: state.pendingClassificationConfigs, viewerController: viewerController)"))
         XCTAssertTrue(source.contains("if !state.pendingEsVirituConfigs.isEmpty"))

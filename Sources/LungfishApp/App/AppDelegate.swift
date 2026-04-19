@@ -4202,11 +4202,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     return
                 }
 
-                if let config = state.pendingSPAdesConfig {
-                    AssemblyRunner.run(config: config)
-                    return
-                }
-
                 if let request = state.pendingLaunchRequest,
                    state.pendingClassificationConfigs.isEmpty,
                    state.pendingEsVirituConfigs.isEmpty,

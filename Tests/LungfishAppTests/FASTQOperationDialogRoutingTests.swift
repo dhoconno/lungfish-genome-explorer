@@ -486,6 +486,13 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(state.outputMode, .groupedResult)
     }
 
+    func testAssemblyCategoryExposesAllV1Assemblers() {
+        XCTAssertEqual(
+            FASTQOperationDialogState.toolIDs(for: .assembly),
+            [.spades, .megahit, .skesa, .flye, .hifiasm]
+        )
+    }
+
     func testAssemblyCategorySeedsSpadesAsDefaultTool() {
         let state = FASTQOperationDialogState(
             initialCategory: .assembly,
@@ -495,6 +502,71 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(state.selectedToolID, .spades)
         XCTAssertEqual(state.outputMode, .perInput)
         XCTAssertTrue(state.isRunEnabled)
+    }
+
+    func testCaptureAssemblyRequestStoresGenericAssemblyRequest() {
+        let sampleFASTQ = illuminaFASTQFixtureURL
+        let state = FASTQOperationDialogState(
+            initialCategory: .assembly,
+            selectedInputURLs: [sampleFASTQ]
+        )
+        let request = AssemblyRunRequest(
+            tool: .spades,
+            readType: .illuminaShortReads,
+            inputURLs: [sampleFASTQ],
+            projectName: "Demo",
+            outputDirectory: URL(fileURLWithPath: "/tmp/assembly-out"),
+            threads: 8,
+            memoryGB: nil,
+            minContigLength: nil,
+            selectedProfileID: nil,
+            extraArguments: []
+        )
+
+        state.captureAssemblyRequest(request)
+
+        XCTAssertEqual(state.pendingAssemblyRequest, request)
+        guard case .assemble(let storedRequest, let outputMode) = state.pendingLaunchRequest else {
+            return XCTFail("Expected generic assembly request")
+        }
+        XCTAssertEqual(storedRequest, request)
+        XCTAssertEqual(outputMode, .perInput)
+    }
+
+    func testAssemblyReadTypeDetectionUsesSelectedFASTQs() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .assembly,
+            selectedInputURLs: [illuminaFASTQFixtureURL]
+        )
+
+        XCTAssertEqual(state.detectedAssemblyReadType, .illuminaShortReads)
+        XCTAssertNil(state.assemblyReadClassMismatchMessage)
+    }
+
+    func testMixedAssemblyReadTypesExposeHybridBlockMessage() throws {
+        let ontFASTQ = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQOperationDialogRoutingTests-\(UUID().uuidString).fastq")
+        defer { try? FileManager.default.removeItem(at: ontFASTQ) }
+
+        let fastq = """
+        @9b50942a-4ec6-48d2-8f3b-4ff4f63cb17a runid=2de0f6d4 sampleid=sample1 read=1 ch=12 start_time=2024-01-01T00:00:00Z flow_cell_id=FLO-MIN114
+        ACGT
+        +
+        !!!!
+        """
+        try Data(fastq.utf8).write(to: ontFASTQ)
+
+        let state = FASTQOperationDialogState(
+            initialCategory: .assembly,
+            selectedInputURLs: [illuminaFASTQFixtureURL, ontFASTQ]
+        )
+
+        XCTAssertNil(state.detectedAssemblyReadType)
+        XCTAssertEqual(
+            state.assemblyReadClassMismatchMessage,
+            AssemblyCompatibility.hybridAssemblyUnsupportedMessage
+        )
+        XCTAssertFalse(state.isRunEnabled)
     }
 
     func testDatasetLabelSummarizesMultipleSelectedInputs() {
@@ -628,5 +700,13 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
                 databaseName: "standard"
             )
         )
+    }
+
+    private var illuminaFASTQFixtureURL: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Tests/Fixtures/sarscov2/test_1.fastq.gz")
     }
 }
