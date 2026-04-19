@@ -17,6 +17,11 @@ struct GenBankGenomesSearchPane: View {
                     Text("Virus").tag(NCBISearchType.virus)
                 }
                 .pickerStyle(.segmented)
+
+                if viewModel.ncbiSearchType == .virus || viewModel.ncbiSearchType == .nucleotide {
+                    Toggle("RefSeq Only", isOn: $viewModel.refseqOnly)
+                        .toggleStyle(.checkbox)
+                }
             }
         }
     }

@@ -105,13 +105,19 @@ final class DatabaseSearchDialogState {
     }
 
     var isPrimaryActionEnabled: Bool {
-        if activeViewModel.selectedRecords.isEmpty {
-            return activeViewModel.isSearchTextValid && !activeViewModel.isSearching
+        if activeViewModel.isShowingPathoplexusConsent {
+            return false
         }
-        return !activeViewModel.isDownloading
+        if activeViewModel.selectedRecords.isEmpty {
+            return activeViewModel.isSearchTextValid && !activeViewModel.isSearching && !activeViewModel.isDownloading
+        }
+        return !activeViewModel.isDownloading && !activeViewModel.isSearching
     }
 
     var statusText: String {
+        if activeViewModel.isShowingPathoplexusConsent {
+            return "Review the Pathoplexus access notice to continue."
+        }
         if let errorMessage = activeViewModel.errorMessage, !errorMessage.isEmpty {
             return errorMessage
         }
@@ -149,6 +155,9 @@ final class DatabaseSearchDialogState {
     }
 
     func performPrimaryAction() {
+        guard !activeViewModel.isShowingPathoplexusConsent else {
+            return
+        }
         if activeViewModel.selectedRecords.isEmpty {
             activeViewModel.performSearch()
         } else {

@@ -9,7 +9,9 @@ final class DatabaseSearchDialogSourceTests: XCTestCase {
         )
 
         XCTAssertTrue(source.contains("DatasetOperationsDialog("))
-        XCTAssertTrue(source.contains("primaryActionTitle: state.primaryActionTitle"))
+        XCTAssertTrue(source.contains("DatabaseSearchDialogShell"))
+        XCTAssertTrue(source.contains("@ObservedObject var viewModel: DatabaseBrowserViewModel"))
+        XCTAssertTrue(source.contains("primaryActionTitle: primaryActionTitle"))
         XCTAssertTrue(source.contains("onRun: state.performPrimaryAction"))
         XCTAssertTrue(source.contains("switch state.selectedDestination"))
     }
@@ -25,6 +27,7 @@ final class DatabaseSearchDialogSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("Nucleotide"))
         XCTAssertTrue(source.contains("Genome"))
         XCTAssertTrue(source.contains("Virus"))
+        XCTAssertTrue(source.contains("RefSeq Only"))
     }
 
     func testSRARunsPaneImportsAccessionListsExplicitly() throws {
@@ -51,6 +54,9 @@ final class DatabaseSearchDialogSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("List"))
         XCTAssertTrue(source.contains("DatabaseSearchResultRow"))
         XCTAssertTrue(source.contains(".tint(.lungfishCreamsicleFallback)"))
+        XCTAssertTrue(source.contains("SearchScope.allCases"))
+        XCTAssertTrue(source.contains("Advanced Search Filters"))
+        XCTAssertTrue(source.contains("viewModel.clearFilters()"))
     }
 
     func testUnifiedSearchFilesDoNotUseLegacyAccentColor() throws {
@@ -96,6 +102,8 @@ final class DatabaseSearchDialogSourceTests: XCTestCase {
 
         XCTAssertTrue(source.contains("DatabaseSearchDialog(state: dialogState)"))
         XCTAssertFalse(source.contains("public struct DatabaseBrowserView: View"))
+        XCTAssertFalse(source.contains("DatabaseBrowserLegacyView"))
+        XCTAssertFalse(source.contains("#if false"))
     }
 
     func testUnifiedSearchFilesDoNotUseLegacyDecorativeSystemImages() throws {

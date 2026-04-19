@@ -84,4 +84,16 @@ final class DatabaseSearchDialogStateTests: XCTestCase {
         XCTAssertEqual(cancelCount, 3)
         XCTAssertEqual(downloadCount, 3)
     }
+
+    func testPathoplexusConsentBlocksPrimaryActionUntilAccepted() {
+        let state = DatabaseSearchDialogState(initialDestination: .pathoplexus)
+        state.pathoplexusViewModel.hasAcceptedPathoplexusConsent = false
+
+        XCTAssertFalse(state.isPrimaryActionEnabled)
+
+        state.performPrimaryAction()
+
+        XCTAssertEqual(state.pathoplexusViewModel.searchPhase, .idle)
+        XCTAssertEqual(state.statusText, "Review the Pathoplexus access notice to continue.")
+    }
 }
