@@ -77,6 +77,7 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         hideNaoMgsView()
         hideNvdView()
         hideAssemblyView()
+        hideMappingView()
 
         // Get chromosome list: from genome if available, otherwise synthesize from variant databases
         var chromosomes = manifest.genome?.chromosomes ?? []

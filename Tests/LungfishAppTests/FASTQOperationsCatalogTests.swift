@@ -60,14 +60,14 @@ final class FASTQOperationsCatalogTests: XCTestCase {
         XCTAssertEqual(category.disabledReason, "Requires Metagenomics Pack")
     }
 
-    func testMappingCategoryUsesAlignmentPackIDEvenThoughTitleIsMapping() async throws {
-        let provider = StubPackStatusProvider(states: ["alignment": .ready])
+    func testMappingCategoryUsesReadMappingPackID() async throws {
+        let provider = StubPackStatusProvider(states: ["read-mapping": .ready])
         let catalog = FASTQOperationsCatalog(statusProvider: provider)
 
         let resolvedCategory = await catalog.category(id: .mapping)
         let category = try XCTUnwrap(resolvedCategory)
         XCTAssertTrue(category.isEnabled)
-        XCTAssertEqual(category.requiredPackIDs, ["alignment"])
+        XCTAssertEqual(category.requiredPackIDs, ["read-mapping"])
     }
 
     func testAssemblyCategoryUsesBuiltInPackNameForDisabledReason() async throws {

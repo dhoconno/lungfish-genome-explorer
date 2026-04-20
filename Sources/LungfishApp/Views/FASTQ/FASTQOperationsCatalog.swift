@@ -31,7 +31,7 @@ enum FASTQOperationCategoryID: String, CaseIterable, Sendable {
         case .qcReporting, .demultiplexing, .trimmingFiltering, .decontamination, .readProcessing, .searchSubsetting:
             return []
         case .mapping:
-            return ["alignment"]
+            return ["read-mapping"]
         case .assembly:
             return ["assembly"]
         case .classification:

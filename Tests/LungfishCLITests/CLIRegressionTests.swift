@@ -675,6 +675,13 @@ final class MapCommandRegressionTests: XCTestCase {
     func testAbstractIsNonEmpty() {
         XCTAssertFalse(MapCommand.configuration.abstract.isEmpty)
     }
+
+    func testHelpMentionsMapperAndReadMappingPack() {
+        let help = MapCommand.helpMessage()
+
+        XCTAssertTrue(help.contains("--mapper"))
+        XCTAssertTrue(help.contains("read-mapping"))
+    }
 }
 
 // MARK: - ImportCommand

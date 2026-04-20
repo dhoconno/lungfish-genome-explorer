@@ -15,7 +15,7 @@ public enum ReferenceCandidate: Sendable, Identifiable, Equatable {
     case projectReference(url: URL, manifest: ReferenceSequenceManifest)
 
     /// A FASTA file from a `.lungfishref` genome bundle (e.g., from Downloads).
-    case genomeBundleFASTA(url: URL, displayName: String)
+    case genomeBundleFASTA(fastaURL: URL, bundleURL: URL, displayName: String)
 
     /// A standalone FASTA file found in the project tree.
     case standaloneFASTA(url: URL)
@@ -28,7 +28,7 @@ public enum ReferenceCandidate: Sendable, Identifiable, Equatable {
         switch self {
         case .projectReference(_, let manifest):
             return manifest.name
-        case .genomeBundleFASTA(_, let name):
+        case .genomeBundleFASTA(_, _, let name):
             return name
         case .standaloneFASTA(let url):
             return url.deletingPathExtension().lastPathComponent
@@ -40,10 +40,22 @@ public enum ReferenceCandidate: Sendable, Identifiable, Equatable {
         switch self {
         case .projectReference(let url, let manifest):
             return url.appendingPathComponent(manifest.fastaFilename)
-        case .genomeBundleFASTA(let url, _):
-            return url
+        case .genomeBundleFASTA(let fastaURL, _, _):
+            return fastaURL
         case .standaloneFASTA(let url):
             return url
+        }
+    }
+
+    /// The originating bundle when the selection comes from a `.lungfishref`.
+    public var sourceBundleURL: URL? {
+        switch self {
+        case .projectReference(let url, _):
+            return url
+        case .genomeBundleFASTA(_, let bundleURL, _):
+            return bundleURL
+        case .standaloneFASTA:
+            return nil
         }
     }
 

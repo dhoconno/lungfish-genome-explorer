@@ -130,6 +130,8 @@ public enum NativeTool: String, CaseIterable, Sendable {
     case repair
     case tadpole
     case reformat
+    case bbmap
+    case mapPacBio
     // SRA toolkit
     case fasterqDump
     case prefetch
@@ -156,6 +158,8 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .repair: return "repair.sh"
         case .tadpole: return "tadpole.sh"
         case .reformat: return "reformat.sh"
+        case .bbmap: return "bbmap.sh"
+        case .mapPacBio: return "mapPacBio.sh"
         case .fasterqDump: return "fasterq-dump"
         case .prefetch: return "prefetch"
         case .deacon: return "deacon"
@@ -198,6 +202,10 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return .managed(environment: "bbtools", executableName: "tadpole.sh")
         case .reformat:
             return .managed(environment: "bbtools", executableName: "reformat.sh")
+        case .bbmap:
+            return .managed(environment: "bbtools", executableName: "bbmap.sh")
+        case .mapPacBio:
+            return .managed(environment: "bbtools", executableName: "mapPacBio.sh")
         case .fasterqDump:
             return .managed(environment: "sra-tools", executableName: "fasterq-dump")
         case .prefetch:
@@ -232,6 +240,10 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return "bbtools/tadpole.sh"
         case .reformat:
             return "bbtools/reformat.sh"
+        case .bbmap:
+            return "bbtools/bbmap.sh"
+        case .mapPacBio:
+            return "bbtools/mapPacBio.sh"
         case .fasterqDump:
             return "sra-tools/fasterq-dump"
         case .prefetch:
@@ -253,7 +265,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .fastp: return "fastp"
         case .vsearch: return "vsearch"
         case .cutadapt: return "cutadapt"
-        case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat: return "bbmap"
+        case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat, .bbmap, .mapPacBio: return "bbmap"
         case .fasterqDump, .prefetch: return "sra-tools"
         case .deacon: return "deacon"
         }
@@ -264,7 +276,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
     /// temporary symlinks for any arguments containing spaces.
     public var isBBToolsShellScript: Bool {
         switch self {
-        case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat: return true
+        case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat, .bbmap, .mapPacBio: return true
         default: return false
         }
     }
@@ -286,7 +298,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return "GPL-3.0 or BSD-2-Clause (dual)"
         case .cutadapt:
             return "MIT License"
-        case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat:
+        case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat, .bbmap, .mapPacBio:
             return "BBMap License"
         case .fasterqDump, .prefetch:
             return "Public Domain (NCBI)"

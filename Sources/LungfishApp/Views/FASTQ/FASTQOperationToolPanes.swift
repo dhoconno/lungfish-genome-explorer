@@ -8,13 +8,14 @@ struct FASTQOperationToolPanes: View {
 
     var body: some View {
         switch state.selectedToolID {
-        case .minimap2:
-            MapReadsWizardSheet(
+        case .minimap2, .bwaMem2, .bowtie2, .bbmap:
+            MappingWizardSheet(
                 inputFiles: state.selectedInputURLs,
                 projectURL: state.projectURL,
+                initialTool: state.selectedToolID.mappingTool ?? .minimap2,
                 embeddedInOperationsDialog: true,
                 embeddedRunTrigger: state.embeddedRunTrigger,
-                onRun: state.captureMinimap2Config(_:),
+                onRun: state.captureMappingRequest(_:),
                 onRunnerAvailabilityChange: state.updateEmbeddedReadiness(_:)
             )
         case .spades, .megahit, .skesa, .flye, .hifiasm:
@@ -368,7 +369,7 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     Toggle("Trim Barcodes", isOn: $state.demultiplexTrimBarcodes)
                 }
 
-            case .removeHumanReads, .minimap2, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
+            case .removeHumanReads, .minimap2, .bwaMem2, .bowtie2, .bbmap, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
                 Text("This tool uses the dedicated embedded workflow pane or the fixed database chooser above.")
                     .foregroundStyle(.secondary)
             }
@@ -494,7 +495,7 @@ private struct FASTQOperationAdvancedSettingsSection: View {
             case .removeHumanReads:
                 Text("Human read removal stays fixed to the selected database input.")
                     .foregroundStyle(.secondary)
-            case .refreshQCSummary, .minimap2, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
+            case .refreshQCSummary, .minimap2, .bwaMem2, .bowtie2, .bbmap, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
                 Text("This tool uses the embedded workflow pane.")
                     .foregroundStyle(.secondary)
             }

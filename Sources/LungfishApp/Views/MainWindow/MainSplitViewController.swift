@@ -2308,9 +2308,11 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 || toolId.hasPrefix("flye")
                 || toolId.hasPrefix("hifiasm") {
                 displayAssemblyAnalysisFromSidebar(at: url)
-            } else if toolId.hasPrefix("minimap2") {
-                logger.info("displayContent: Alignment viewer not yet available for '\(dirName, privacy: .public)'")
-                viewerController.clearViewport(statusMessage: "Viewer for this analysis type is not yet available.")
+            } else if toolId == MappingTool.minimap2.rawValue
+                || toolId == MappingTool.bwaMem2.rawValue
+                || toolId == MappingTool.bowtie2.rawValue
+                || toolId == MappingTool.bbmap.rawValue {
+                displayMappingAnalysisFromSidebar(at: url)
             } else {
                 logger.warning("displayContent: Unknown analysis type for '\(dirName, privacy: .public)'")
             }
@@ -2389,6 +2391,20 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 "displayAssemblyAnalysis: Failed to load result from \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
             )
             viewerController.clearViewport(statusMessage: "Unable to load assembly result.")
+        }
+    }
+
+    private func displayMappingAnalysisFromSidebar(at url: URL) {
+        logger.info("displayMappingAnalysis: Opening '\(url.lastPathComponent, privacy: .public)'")
+
+        do {
+            let result = try MappingResult.load(from: url)
+            viewerController.displayMappingResult(result)
+        } catch {
+            logger.error(
+                "displayMappingAnalysis: Failed to load result from \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+            viewerController.clearViewport(statusMessage: "Unable to load mapping result.")
         }
     }
 

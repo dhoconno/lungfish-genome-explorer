@@ -21,7 +21,8 @@ final class ReferenceCandidateTests: XCTestCase {
 
     func testGenomeBundleDisplayName() {
         let candidate = ReferenceCandidate.genomeBundleFASTA(
-            url: URL(fileURLWithPath: "/project/downloads/genome.fasta"),
+            fastaURL: URL(fileURLWithPath: "/project/downloads/genome.fasta"),
+            bundleURL: URL(fileURLWithPath: "/project/downloads/genome.lungfishref"),
             displayName: "Macaca mulatta"
         )
         XCTAssertEqual(candidate.displayName, "Macaca mulatta")
@@ -71,7 +72,9 @@ final class ReferenceCandidateTests: XCTestCase {
         )
         XCTAssertEqual(
             ReferenceCandidate.genomeBundleFASTA(
-                url: URL(fileURLWithPath: "/b"), displayName: "test"
+                fastaURL: URL(fileURLWithPath: "/b/genome.fa"),
+                bundleURL: URL(fileURLWithPath: "/b"),
+                displayName: "test"
             ).sourceCategory,
             .genomeBundles
         )

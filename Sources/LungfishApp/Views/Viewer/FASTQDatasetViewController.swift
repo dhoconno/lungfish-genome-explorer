@@ -175,7 +175,7 @@ public final class FASTQDatasetViewController: NSViewController {
             case .orient: return "Orient to Reference Strand"
             case .demultiplex: return "Demultiplex by Barcodes\u{2026}"
             case .assembleReads: return "Assemble Reads (SPAdes)"
-            case .mapReads: return "Map Reads (minimap2)"
+            case .mapReads: return "Map Reads"
             case .classifyReads: return "Classify & Profile (Kraken2)"
             case .detectViruses: return "Detect Viruses (EsViritu)"
             case .comprehensiveTriage: return "Detect Pathogens (TaxTriage)"
@@ -223,7 +223,7 @@ public final class FASTQDatasetViewController: NSViewController {
             case .pairedEndMerge, .pairedEndRepair, .orient, .errorCorrection: return "READ PROCESSING"
             case .subsampleProportion, .subsampleCount, .searchText, .searchMotif, .sequencePresenceFilter: return "SAMPLING & SEARCH"
             case .assembleReads: return "ASSEMBLY"
-            case .mapReads: return "ALIGNMENT"
+            case .mapReads: return "MAPPING"
             case .classifyReads, .detectViruses, .comprehensiveTriage, .naoMgsImport: return "CLASSIFICATION"
             }
         }
@@ -270,7 +270,7 @@ public final class FASTQDatasetViewController: NSViewController {
             case .assembleReads:
                 return "Assemble reads de novo into contigs and scaffolds using SPAdes. Supports bacterial isolate, metagenome, and viral assembly modes."
             case .mapReads:
-                return "Map reads to a reference genome using minimap2. Produces a sorted, indexed BAM file. Supports Illumina, ONT, and PacBio platforms."
+                return "Map reads to a reference genome with the shared mapping tools. Produces a sorted, indexed BAM file for viewport display and region-based browsing."
             case .classifyReads:
                 return "Assign each read to a taxonomic group using Kraken2. Produces abundance profiles at species level and optional Bracken-refined estimates."
             case .detectViruses:
@@ -328,7 +328,7 @@ public final class FASTQDatasetViewController: NSViewController {
         ("DECONTAMINATION", [.humanReadScrub, .contaminantFilter, .deduplicate]),
         ("READ PROCESSING", [.pairedEndMerge, .pairedEndRepair, .orient, .errorCorrection]),
         ("SAMPLING & SEARCH", [.subsampleProportion, .subsampleCount, .searchText, .searchMotif, .sequencePresenceFilter]),
-        ("ALIGNMENT", [.mapReads]),
+        ("MAPPING", [.mapReads]),
         ("ASSEMBLY", [.assembleReads]),
         ("CLASSIFICATION", [.classifyReads, .detectViruses, .comprehensiveTriage]),
     ]
@@ -1301,7 +1301,7 @@ public final class FASTQDatasetViewController: NSViewController {
             parameterBar.addArrangedSubview(label)
 
         case .mapReads:
-            let label = NSTextField(labelWithString: "Map reads to a reference genome using minimap2. Produces a sorted, indexed BAM file.")
+            let label = NSTextField(labelWithString: "Map reads to a reference genome with the shared mapping tools. Produces a sorted, indexed BAM file.")
             label.font = .systemFont(ofSize: 11)
             label.textColor = .secondaryLabelColor
             parameterBar.addArrangedSubview(label)
@@ -2612,7 +2612,7 @@ public final class FASTQDatasetViewController: NSViewController {
             return nil
 
         case .mapReads:
-            // Map Reads is dispatched via the MapReadsWizardSheet; not a derivative operation
+            // Map Reads is dispatched via the shared MappingWizardSheet; not a derivative operation
             return nil
 
         case .naoMgsImport:

@@ -173,7 +173,13 @@ public enum ReferenceSequenceScanner {
                     if let resolved = resolveFASTAInBundle(url) {
                         let alreadyAdded = candidates.contains { $0.fastaURL == resolved.fastaURL }
                         if !alreadyAdded {
-                            candidates.append(.genomeBundleFASTA(url: resolved.fastaURL, displayName: resolved.displayName))
+                            candidates.append(
+                                .genomeBundleFASTA(
+                                    fastaURL: resolved.fastaURL,
+                                    bundleURL: url,
+                                    displayName: resolved.displayName
+                                )
+                            )
                         }
                     }
                 }
@@ -220,7 +226,13 @@ public enum ReferenceSequenceScanner {
             if isDir.boolValue {
                 if url.pathExtension == "lungfishref" {
                     if let resolved = resolveFASTAInBundle(url) {
-                        continuation.yield(.genomeBundleFASTA(url: resolved.fastaURL, displayName: resolved.displayName))
+                        continuation.yield(
+                            .genomeBundleFASTA(
+                                fastaURL: resolved.fastaURL,
+                                bundleURL: url,
+                                displayName: resolved.displayName
+                            )
+                        )
                     }
                 } else if url.pathExtension != "lungfishfastq" {
                     scanDirectoryAsync(url, projectURL: projectURL, continuation: continuation, depth: depth + 1)

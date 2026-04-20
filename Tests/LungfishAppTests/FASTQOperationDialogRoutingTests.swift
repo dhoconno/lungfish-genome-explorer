@@ -474,6 +474,42 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(state.outputMode, .groupedResult)
     }
 
+    func testMappingCategoryExposesAllV1Mappers() {
+        XCTAssertEqual(
+            FASTQOperationDialogState.toolIDs(for: .mapping),
+            [.minimap2, .bwaMem2, .bowtie2, .bbmap]
+        )
+    }
+
+    func testCaptureMappingRequestStoresSharedMappingRequest() {
+        let sampleFASTQ = illuminaFASTQFixtureURL
+        let state = FASTQOperationDialogState(
+            initialCategory: .mapping,
+            selectedInputURLs: [sampleFASTQ]
+        )
+
+        let request = MappingRunRequest(
+            tool: .bowtie2,
+            modeID: MappingMode.defaultShortRead.id,
+            inputFASTQURLs: [sampleFASTQ],
+            referenceFASTAURL: URL(fileURLWithPath: "/tmp/reference.fa"),
+            outputDirectory: URL(fileURLWithPath: "/tmp/mapping-out"),
+            sampleName: "Demo",
+            pairedEnd: false,
+            threads: 8
+        )
+
+        state.captureMappingRequest(request)
+
+        XCTAssertEqual(state.pendingMappingRequest, request)
+        guard case .map(let inputURLs, let referenceURL, let outputMode) = state.pendingLaunchRequest else {
+            return XCTFail("Expected mapping launch request")
+        }
+        XCTAssertEqual(inputURLs, [sampleFASTQ])
+        XCTAssertEqual(referenceURL, URL(fileURLWithPath: "/tmp/reference.fa"))
+        XCTAssertEqual(outputMode, .perInput)
+    }
+
     func testAssemblyAllowsGroupedResultOutputMode() {
         let state = FASTQOperationDialogState(
             initialCategory: .assembly,
@@ -761,7 +797,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             .appendingPathComponent("Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
-        XCTAssertTrue(source.contains("MapReadsWizardSheet("))
+        XCTAssertTrue(source.contains("MappingWizardSheet("))
         XCTAssertTrue(source.contains("AssemblyWizardSheet("))
         XCTAssertTrue(source.contains("ClassificationWizardSheet("))
         XCTAssertTrue(source.contains("embeddedInOperationsDialog: true"))

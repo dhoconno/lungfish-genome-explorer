@@ -22,7 +22,7 @@ public enum AnalysesFolder {
 
     /// The set of recognised tool names used to parse directory entries.
     public static let knownTools: Set<String> = [
-        "esviritu", "kraken2", "taxtriage", "minimap2",
+        "esviritu", "kraken2", "taxtriage", "minimap2", "bwa-mem2", "bowtie2", "bbmap",
         "spades", "megahit", "skesa", "flye", "hifiasm", "naomgs", "nvd",
     ]
 
@@ -87,6 +87,9 @@ public enum AnalysesFolder {
         case "flye": return "Flye"
         case "hifiasm": return "Hifiasm"
         case "minimap2": return "Minimap2"
+        case "bwa-mem2": return "BWA-MEM2"
+        case "bowtie2": return "Bowtie2"
+        case "bbmap": return "BBMap"
         case "naomgs": return "NAO-MGS"
         case "nvd": return "NVD"
         default: return tool.capitalized
@@ -277,6 +280,7 @@ public enum AnalysesFolder {
         let hitsSqlite = url.appendingPathComponent("hits.sqlite")
         let classificationResult = url.appendingPathComponent("classification-result.json")
         let assemblyResult = url.appendingPathComponent("assembly-result.json")
+        let mappingResult = url.appendingPathComponent("mapping-result.json")
 
         // Kraken2: has classification-result.json
         if fm.fileExists(atPath: classificationResult.path) {
@@ -296,6 +300,15 @@ public enum AnalysesFolder {
             if json["spadesVersion"] != nil || json["contigsPath"] != nil {
                 return "spades"
             }
+        }
+
+        // Mapping tools: infer from the persisted mapping sidecar.
+        if fm.fileExists(atPath: mappingResult.path),
+           let data = fm.contents(atPath: mappingResult.path),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let mapper = json["mapper"] as? String,
+           knownTools.contains(mapper) {
+            return mapper
         }
 
         // NAO-MGS vs NVD: both have manifest.json + hits.sqlite.

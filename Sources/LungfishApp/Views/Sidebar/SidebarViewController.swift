@@ -1684,7 +1684,7 @@ public class SidebarViewController: NSViewController {
         case "kraken2": return "k.circle"
         case "taxtriage": return "t.circle"
         case "spades", "megahit", "skesa", "flye", "hifiasm": return "s.circle"
-        case "minimap2": return "m.circle"
+        case "minimap2", "bwa-mem2", "bowtie2", "bbmap": return "m.circle"
         case "naomgs": return "n.circle"
         default: return "circle"
         }

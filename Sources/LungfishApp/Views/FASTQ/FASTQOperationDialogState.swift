@@ -43,6 +43,7 @@ final class FASTQOperationDialogState {
     var outputDirectoryURL: URL?
     var pendingLaunchRequest: FASTQOperationLaunchRequest?
     var pendingMinimap2Config: Minimap2Config?
+    var pendingMappingRequest: MappingRunRequest?
     var pendingAssemblyRequest: AssemblyRunRequest?
     var pendingClassificationConfigs: [ClassificationConfig]
     var pendingEsVirituConfigs: [EsVirituConfig]
@@ -133,6 +134,7 @@ final class FASTQOperationDialogState {
         )
         self.pendingLaunchRequest = nil
         self.pendingMinimap2Config = nil
+        self.pendingMappingRequest = nil
         self.pendingAssemblyRequest = nil
         self.pendingClassificationConfigs = []
         self.pendingEsVirituConfigs = []
@@ -237,6 +239,7 @@ final class FASTQOperationDialogState {
         }
 
         pendingMinimap2Config = nil
+        pendingMappingRequest = nil
         pendingAssemblyRequest = nil
         pendingClassificationConfigs = []
         pendingEsVirituConfigs = []
@@ -476,7 +479,7 @@ final class FASTQOperationDialogState {
                 outputMode: outputMode
             )
 
-        case .minimap2, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
+        case .minimap2, .bwaMem2, .bowtie2, .bbmap, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
             return nil
         }
     }
@@ -484,6 +487,7 @@ final class FASTQOperationDialogState {
     func captureMinimap2Config(_ config: Minimap2Config) {
         setAuxiliaryInput(config.referenceURL, for: .referenceSequence)
         pendingMinimap2Config = config
+        pendingMappingRequest = nil
         pendingAssemblyRequest = nil
         pendingClassificationConfigs = []
         pendingEsVirituConfigs = []
@@ -496,9 +500,26 @@ final class FASTQOperationDialogState {
         embeddedToolReady = true
     }
 
+    func captureMappingRequest(_ request: MappingRunRequest) {
+        setAuxiliaryInput(request.referenceFASTAURL, for: .referenceSequence)
+        pendingMinimap2Config = nil
+        pendingMappingRequest = request
+        pendingAssemblyRequest = nil
+        pendingClassificationConfigs = []
+        pendingEsVirituConfigs = []
+        pendingTaxTriageConfig = nil
+        pendingLaunchRequest = .map(
+            inputURLs: request.inputFASTQURLs,
+            referenceURL: request.referenceFASTAURL,
+            outputMode: outputMode
+        )
+        embeddedToolReady = true
+    }
+
     func captureAssemblyRequest(_ request: AssemblyRunRequest) {
         outputDirectoryURL = request.outputDirectory
         pendingMinimap2Config = nil
+        pendingMappingRequest = nil
         pendingAssemblyRequest = request
         pendingClassificationConfigs = []
         pendingEsVirituConfigs = []
@@ -519,6 +540,7 @@ final class FASTQOperationDialogState {
         guard let first = configs.first else { return }
         setAuxiliaryInput(first.databasePath, for: .database)
         pendingMinimap2Config = nil
+        pendingMappingRequest = nil
         pendingAssemblyRequest = nil
         pendingClassificationConfigs = configs
         pendingEsVirituConfigs = []
@@ -535,6 +557,7 @@ final class FASTQOperationDialogState {
         guard let first = configs.first else { return }
         setAuxiliaryInput(first.databasePath, for: .database)
         pendingMinimap2Config = nil
+        pendingMappingRequest = nil
         pendingAssemblyRequest = nil
         pendingClassificationConfigs = []
         pendingEsVirituConfigs = configs
@@ -552,6 +575,7 @@ final class FASTQOperationDialogState {
             setAuxiliaryInput(databasePath, for: .database)
         }
         pendingMinimap2Config = nil
+        pendingMappingRequest = nil
         pendingAssemblyRequest = nil
         pendingClassificationConfigs = []
         pendingEsVirituConfigs = []
@@ -708,6 +732,12 @@ final class FASTQOperationDialogState {
             return "Keep reads matching a target sequence."
         case .minimap2:
             return "Configure minimap2 mapping against a reference sequence."
+        case .bwaMem2:
+            return "Configure BWA-MEM2 short-read mapping against a reference sequence."
+        case .bowtie2:
+            return "Configure Bowtie2 short-read mapping against a reference sequence."
+        case .bbmap:
+            return "Configure BBMap reference-guided mapping against a reference sequence."
         case .spades:
             return "Configure a SPAdes assembly run."
         case .megahit:
@@ -742,7 +772,7 @@ final class FASTQOperationDialogState {
         case .searchSubsetting:
             return [.subsampleByProportion, .subsampleByCount, .extractReadsByID, .extractReadsByMotif, .selectReadsBySequence]
         case .mapping:
-            return [.minimap2]
+            return [.minimap2, .bwaMem2, .bowtie2, .bbmap]
         case .assembly:
             return [.spades, .megahit, .skesa, .flye, .hifiasm]
         case .classification:
@@ -870,7 +900,7 @@ final class FASTQOperationDialogState {
             }
             return nil
 
-        case .refreshQCSummary, .minimap2, .kraken2, .esViritu, .taxTriage, .removeHumanReads:
+        case .refreshQCSummary, .minimap2, .bwaMem2, .bowtie2, .bbmap, .kraken2, .esViritu, .taxTriage, .removeHumanReads:
             return nil
         }
     }
@@ -880,6 +910,7 @@ final class FASTQOperationDialogState {
         embeddedRunTrigger = 0
         pendingLaunchRequest = nil
         pendingMinimap2Config = nil
+        pendingMappingRequest = nil
         pendingAssemblyRequest = nil
         pendingClassificationConfigs = []
         pendingEsVirituConfigs = []
@@ -1058,6 +1089,9 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
     case extractReadsByMotif
     case selectReadsBySequence
     case minimap2
+    case bwaMem2 = "bwa-mem2"
+    case bowtie2
+    case bbmap
     case spades
     case megahit
     case skesa
@@ -1089,6 +1123,9 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .extractReadsByMotif: return "Extract Reads by Motif"
         case .selectReadsBySequence: return "Select Reads by Sequence"
         case .minimap2: return "minimap2"
+        case .bwaMem2: return "BWA-MEM2"
+        case .bowtie2: return "Bowtie2"
+        case .bbmap: return "BBMap"
         case .spades: return "SPAdes"
         case .megahit: return "MEGAHIT"
         case .skesa: return "SKESA"
@@ -1121,7 +1158,10 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .extractReadsByID: return "Select reads matching identifiers."
         case .extractReadsByMotif: return "Select reads containing a motif."
         case .selectReadsBySequence: return "Select reads matching a sequence."
-        case .minimap2: return "Map reads to a reference sequence."
+        case .minimap2: return "Map reads to a reference sequence with minimap2."
+        case .bwaMem2: return "Map Illumina short reads with BWA-MEM2."
+        case .bowtie2: return "Map Illumina short reads with Bowtie2."
+        case .bbmap: return "Map reads to a reference sequence with BBMap."
         case .spades: return "Assemble reads into contigs."
         case .megahit: return "Assemble short reads with a compact de Bruijn graph."
         case .skesa: return "Assemble isolate-focused short reads conservatively."
@@ -1147,7 +1187,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return .readProcessing
         case .subsampleByProportion, .subsampleByCount, .extractReadsByID, .extractReadsByMotif, .selectReadsBySequence:
             return .searchSubsetting
-        case .minimap2:
+        case .minimap2, .bwaMem2, .bowtie2, .bbmap:
             return .mapping
         case .spades, .megahit, .skesa, .flye, .hifiasm:
             return .assembly
@@ -1174,7 +1214,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return [.fastqDataset, .database]
         case .removeContaminants:
             return [.fastqDataset, .contaminantReference]
-        case .orientReads, .minimap2:
+        case .orientReads, .minimap2, .bwaMem2, .bowtie2, .bbmap:
             return [.fastqDataset, .referenceSequence]
         }
     }
@@ -1196,7 +1236,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
 
     var usesEmbeddedConfiguration: Bool {
         switch self {
-        case .minimap2, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
+        case .minimap2, .bwaMem2, .bowtie2, .bbmap, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
             return true
         default:
             return false
@@ -1209,7 +1249,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
 
     var defaultEmbeddedReadiness: Bool {
         switch self {
-        case .minimap2, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
+        case .minimap2, .bwaMem2, .bowtie2, .bbmap, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
             return false
         default:
             return true
@@ -1220,6 +1260,8 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         switch self {
         case .minimap2:
             return "Select a reference sequence to continue."
+        case .bwaMem2, .bowtie2, .bbmap:
+            return "Complete the mapping settings to continue."
         case .kraken2, .esViritu, .taxTriage:
             return "Complete the classifier settings to continue."
         case .spades, .megahit, .skesa, .flye, .hifiasm:
@@ -1236,6 +1278,16 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .skesa: return .skesa
         case .flye: return .flye
         case .hifiasm: return .hifiasm
+        default: return nil
+        }
+    }
+
+    var mappingTool: MappingTool? {
+        switch self {
+        case .minimap2: return .minimap2
+        case .bwaMem2: return .bwaMem2
+        case .bowtie2: return .bowtie2
+        case .bbmap: return .bbmap
         default: return nil
         }
     }

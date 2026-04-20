@@ -1,65 +1,40 @@
-// MapCommand.swift - CLI command for minimap2 read mapping
-// Copyright (c) 2025 Lungfish Contributors
+// MapCommand.swift - CLI command for shared read mapping
+// Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
 import ArgumentParser
 import Foundation
-import LungfishWorkflow
 import LungfishCore
+import LungfishWorkflow
 
-/// Map reads to a reference genome with minimap2.
-///
-/// This subcommand checks that minimap2 is installed via the Alignment
-/// plugin pack, configures the mapping pipeline, and runs minimap2
-/// followed by samtools sort and index to produce a sorted BAM.
-///
-/// ## Examples
-///
-/// ```
-/// # Illumina paired-end mapping
-/// lungfish map R1.fastq.gz R2.fastq.gz --reference genome.fasta --paired
-///
-/// # Nanopore long reads
-/// lungfish map reads.fastq --reference ref.fa --preset map-ont
-///
-/// # PacBio HiFi with custom output directory
-/// lungfish map ccs.fastq.gz --reference ref.fasta --preset map-hifi \
-///     --output-dir results/ --sample-name MySample
-///
-/// # Illumina with 4 threads and secondary alignments
-/// lungfish map R1.fq R2.fq --reference ref.fa --paired --threads 4 --secondary
-/// ```
+/// Map reads to a reference genome with a managed mapper.
 struct MapCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "map",
-        abstract: "Map reads to a reference genome with minimap2",
+        abstract: "Map reads to a reference genome with minimap2, BWA-MEM2, Bowtie2, or BBMap",
         discussion: """
-        Align sequencing reads to a reference genome using minimap2.
-        Produces a coordinate-sorted, indexed BAM file. minimap2 must
-        be installed via the Alignment plugin pack (Plugin Manager or
-        `lungfish conda install alignment`).
-
-        The output is a sorted BAM + BAI pair suitable for visualization
-        in Lungfish or import into any BAM-compatible tool.
+        Map sequencing reads to a reference genome using one of the managed read mappers.
+        Produces a coordinate-sorted, indexed BAM file. Install the tools through the
+        read-mapping plugin pack (`lungfish conda install read-mapping`). BBMap is exposed
+        from the required BBTools environment and is available once the managed toolchain
+        is provisioned.
         """
     )
 
-    // MARK: - Arguments
-
-    @Argument(help: "Input FASTQ file(s). Provide two files for paired-end.")
+    @Argument(help: "Input FASTQ file(s). Provide two files for paired-end mapping.")
     var fastqFiles: [String]
 
-    @Option(
-        name: .customLong("reference"),
-        help: "Reference FASTA file to align against"
-    )
+    @Option(name: .customLong("reference"), help: "Reference FASTA file to align against")
     var reference: String
+
+    @Option(name: .customLong("mapper"), help: "Mapper: minimap2, bwa-mem2, bowtie2, bbmap")
+    var mapper: String = MappingTool.minimap2.rawValue
 
     @Option(
         name: .customLong("preset"),
-        help: "Alignment preset: sr, map-ont, map-hifi, map-pb, asm5, asm20, splice, splice:hq (default: sr)"
+        help: "Mode/preset. minimap2: sr, map-ont, map-hifi, map-pb. bbmap: bbmap-standard, bbmap-pacbio."
     )
-    var preset: String = "sr"
+    var preset: String?
 
     @Option(
         name: [.customLong("output-dir"), .customShort("o")],
@@ -69,67 +44,46 @@ struct MapCommand: AsyncParsableCommand {
 
     @Option(
         name: .customLong("sample-name"),
-        help: "Sample name for BAM read group (default: derived from first input filename)"
+        help: "Sample name for BAM read groups and output naming"
     )
     var sampleName: String?
 
-    @Flag(
-        name: .customLong("paired"),
-        help: "Input files are paired-end reads"
-    )
+    @Flag(name: .customLong("paired"), help: "Input files are paired-end reads")
     var pairedEnd: Bool = false
 
-    @Option(
-        name: .customLong("threads"),
-        help: "Number of threads (default: all available cores)"
-    )
-    var threads: Int = ProcessInfo.processInfo.processorCount
-
-    @Flag(
-        name: .customLong("secondary"),
-        help: "Include secondary alignments"
-    )
+    @Flag(name: .customLong("secondary"), help: "Keep secondary alignments in the normalized BAM")
     var secondary: Bool = false
 
-    @Flag(
-        name: .customLong("no-supplementary"),
-        help: "Exclude supplementary (chimeric) alignments"
-    )
+    @Flag(name: .customLong("no-supplementary"), help: "Exclude supplementary alignments from the normalized BAM")
     var noSupplementary: Bool = false
 
-    @Option(
-        name: .customLong("min-mapq"),
-        help: "Minimum mapping quality to retain (default: 0)"
-    )
+    @Option(name: .customLong("min-mapq"), help: "Minimum mapping quality to retain in the normalized BAM")
     var minMapQ: Int = 0
 
-    // Advanced scoring overrides
-    @Option(name: .customLong("match-score"), help: "Match score (-A)")
+    @Option(name: .customLong("match-score"), help: "minimap2 only: override match score (-A)")
     var matchScore: Int?
 
-    @Option(name: .customLong("mismatch-penalty"), help: "Mismatch penalty (-B)")
+    @Option(name: .customLong("mismatch-penalty"), help: "minimap2 only: override mismatch penalty (-B)")
     var mismatchPenalty: Int?
 
-    @Option(name: .customLong("gap-open"), help: "Gap open penalty (-O), e.g. '4' or '4,24'")
+    @Option(name: .customLong("gap-open"), help: "minimap2 only: override gap open penalty (-O)")
     var gapOpen: String?
 
-    @Option(name: .customLong("gap-ext"), help: "Gap extension penalty (-E), e.g. '2' or '2,1'")
+    @Option(name: .customLong("gap-ext"), help: "minimap2 only: override gap extension penalty (-E)")
     var gapExt: String?
 
-    @Option(name: .customLong("seed-length"), help: "Minimum seed length (-k)")
+    @Option(name: .customLong("seed-length"), help: "minimap2 only: override minimum seed length (-k)")
     var seedLength: Int?
 
-    @Option(name: .customLong("bandwidth"), help: "Chaining/alignment bandwidth (-r)")
+    @Option(name: .customLong("bandwidth"), help: "minimap2 only: override chaining bandwidth (-r)")
     var bandwidth: Int?
 
     @OptionGroup var globalOptions: GlobalOptions
 
-    // MARK: - Execution
-
     func run() async throws {
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+        let threadCount = globalOptions.effectiveThreads
 
-        // Validate input files exist.
         let inputURLs = fastqFiles.map { URL(fileURLWithPath: $0) }
         for url in inputURLs {
             guard FileManager.default.fileExists(atPath: url.path) else {
@@ -138,89 +92,74 @@ struct MapCommand: AsyncParsableCommand {
             }
         }
 
-        // Validate paired-end consistency.
         if pairedEnd && inputURLs.count != 2 {
-            print(formatter.error("Paired-end mode requires exactly 2 input files, got \(inputURLs.count)"))
+            print(formatter.error("Paired-end mode requires exactly 2 FASTQ inputs, got \(inputURLs.count)"))
             throw ExitCode.failure
         }
 
-        // Validate reference exists.
         let referenceURL = URL(fileURLWithPath: reference)
         guard FileManager.default.fileExists(atPath: referenceURL.path) else {
-            print(formatter.error("Reference file not found: \(reference)"))
+            print(formatter.error("Reference file not found: \(referenceURL.path)"))
             throw ExitCode.failure
         }
 
-        // Resolve preset.
-        guard let minimap2Preset = Minimap2Preset(rawValue: preset) else {
-            let valid = Minimap2Preset.allCases.map(\.rawValue).joined(separator: ", ")
-            print(formatter.error("Invalid preset '\(preset)'. Valid presets: \(valid)"))
+        guard let selectedTool = MappingTool(rawValue: mapper) else {
+            let valid = MappingTool.allCases.map(\.rawValue).joined(separator: ", ")
+            print(formatter.error("Invalid mapper '\(mapper)'. Valid mappers: \(valid)"))
             throw ExitCode.failure
         }
 
-        // Resolve output directory.
+        let selectedMode: MappingMode
+        do {
+            selectedMode = try resolveMode(tool: selectedTool, preset: preset)
+        } catch {
+            print(formatter.error(error.localizedDescription))
+            throw ExitCode.failure
+        }
+
+        if selectedTool != .minimap2,
+           matchScore != nil || mismatchPenalty != nil || gapOpen != nil || gapExt != nil || seedLength != nil || bandwidth != nil
+        {
+            print(formatter.error("Advanced scoring overrides are only supported for minimap2."))
+            throw ExitCode.failure
+        }
+
         let outputDirectory: URL
-        if let dir = outputDir {
-            outputDirectory = URL(fileURLWithPath: dir)
+        if let outputDir {
+            outputDirectory = URL(fileURLWithPath: outputDir)
         } else {
             let runToken = String(UUID().uuidString.prefix(8))
             outputDirectory = inputURLs.first!.deletingLastPathComponent()
                 .appendingPathComponent("mapping-\(runToken)")
         }
 
-        // Derive sample name from first input filename if not provided.
-        let effectiveSampleName: String
-        if let name = sampleName {
-            effectiveSampleName = name
-        } else {
-            var name = inputURLs.first!.deletingPathExtension().lastPathComponent
-            // Strip .gz, .fastq etc.
-            if name.lowercased().hasSuffix(".gz") {
-                name = URL(fileURLWithPath: name).deletingPathExtension().lastPathComponent
-            }
-            if name.lowercased().hasSuffix(".fastq") || name.lowercased().hasSuffix(".fq") {
-                name = URL(fileURLWithPath: name).deletingPathExtension().lastPathComponent
-            }
-            // Strip _R1, _1 suffixes for paired-end
-            if pairedEnd {
-                let suffixes = ["_R1", "_1", "_R1_001", ".R1"]
-                for suffix in suffixes where name.hasSuffix(suffix) {
-                    name = String(name.dropLast(suffix.count))
-                    break
-                }
-            }
-            effectiveSampleName = name
-        }
+        let effectiveSampleName = sampleName ?? deriveSampleName(from: inputURLs.first!, pairedEnd: pairedEnd)
+        let advancedArguments = makeAdvancedArguments(for: selectedTool)
 
-        // Build config.
-        let config = Minimap2Config(
-            inputFiles: inputURLs,
-            referenceURL: referenceURL,
-            preset: minimap2Preset,
-            threads: threads,
-            includeSecondary: secondary,
-            includeSupplementary: !noSupplementary,
-            minMappingQuality: minMapQ,
-            isPairedEnd: pairedEnd,
+        let request = MappingRunRequest(
+            tool: selectedTool,
+            modeID: selectedMode.id,
+            inputFASTQURLs: inputURLs,
+            referenceFASTAURL: referenceURL,
             outputDirectory: outputDirectory,
             sampleName: effectiveSampleName,
-            matchScore: matchScore,
-            mismatchPenalty: mismatchPenalty,
-            gapOpenPenalty: gapOpen,
-            gapExtensionPenalty: gapExt,
-            seedLength: seedLength,
-            bandwidth: bandwidth
+            pairedEnd: pairedEnd,
+            threads: threadCount,
+            includeSecondary: secondary,
+            includeSupplementary: !noSupplementary,
+            minimumMappingQuality: minMapQ,
+            advancedArguments: advancedArguments
         )
 
-        // Print configuration.
-        print(formatter.header("minimap2 Read Mapping"))
+        print(formatter.header("Read Mapping"))
         print("")
         print(formatter.keyValueTable([
+            ("Mapper", selectedTool.displayName),
+            ("Mode", selectedMode.displayName),
             ("Input files", inputURLs.map(\.lastPathComponent).joined(separator: ", ")),
             ("Paired-end", pairedEnd ? "yes" : "no"),
             ("Reference", referenceURL.lastPathComponent),
-            ("Preset", "\(minimap2Preset.rawValue) (\(minimap2Preset.displayName))"),
-            ("Threads", String(threads)),
+            ("Threads", String(threadCount)),
             ("Secondary", secondary ? "yes" : "no"),
             ("Supplementary", noSupplementary ? "no" : "yes"),
             ("Min MAPQ", String(minMapQ)),
@@ -229,21 +168,17 @@ struct MapCommand: AsyncParsableCommand {
         ]))
         print("")
 
-        // Run pipeline.
-        let pipeline = Minimap2Pipeline()
-
-        let result = try await pipeline.run(config: config) { fraction, message in
+        let pipeline = ManagedMappingPipeline()
+        let result = try await pipeline.run(request: request) { _, message in
             if !globalOptions.quiet {
                 print("\r\(formatter.info(message))", terminator: "")
                 fflush(stdout)
             }
         }
 
-        // Clear progress line.
         print("")
         print("")
 
-        // Print results.
         let mappingPct = result.totalReads > 0
             ? String(format: "%.2f%%", Double(result.mappedReads) / Double(result.totalReads) * 100)
             : "N/A"
@@ -255,24 +190,77 @@ struct MapCommand: AsyncParsableCommand {
             ("Mapped reads", "\(result.mappedReads) (\(mappingPct))"),
             ("Unmapped reads", String(result.unmappedReads)),
             ("Runtime", String(format: "%.1fs", result.wallClockSeconds)),
+            ("Sorted BAM", result.bamURL.path),
+            ("BAI", result.baiURL.path),
         ]))
         print("")
-
-        print(formatter.header("Output Files"))
-        print("  BAM:   \(formatter.path(result.bamURL.path))")
-        print("  Index: \(formatter.path(result.baiURL.path))")
-        print("")
-        print(formatter.success(
-            "Read mapping completed in \(String(format: "%.1f", result.wallClockSeconds))s"
-        ))
     }
-}
 
-// MARK: - Minimap2Preset + ExpressibleByArgument
+    private func resolveMode(tool: MappingTool, preset: String?) throws -> MappingMode {
+        switch tool {
+        case .minimap2:
+            let rawValue = preset ?? MappingMode.defaultShortRead.rawValue
+            guard let mode = MappingMode(rawValue: rawValue), mode.isValid(for: tool) else {
+                throw ValidationError("Invalid minimap2 preset '\(rawValue)'. Use sr, map-ont, map-hifi, or map-pb.")
+            }
+            return mode
+        case .bwaMem2, .bowtie2:
+            guard preset == nil || preset == "sr" || preset == MappingMode.defaultShortRead.rawValue else {
+                throw ValidationError("\(tool.displayName) only supports short-read mode in v1.")
+            }
+            return .defaultShortRead
+        case .bbmap:
+            let normalized = (preset ?? MappingMode.bbmapStandard.rawValue).lowercased()
+            switch normalized {
+            case "standard", MappingMode.bbmapStandard.rawValue:
+                return .bbmapStandard
+            case "pacbio", MappingMode.bbmapPacBio.rawValue:
+                return .bbmapPacBio
+            default:
+                throw ValidationError("Invalid BBMap preset '\(normalized)'. Use bbmap-standard or bbmap-pacbio.")
+            }
+        }
+    }
 
-extension Minimap2Preset: ExpressibleByArgument {
-    /// Allows ArgumentParser to parse preset values from the command line.
-    public init?(argument: String) {
-        self.init(rawValue: argument)
+    private func deriveSampleName(from inputURL: URL, pairedEnd: Bool) -> String {
+        var name = inputURL.deletingPathExtension().lastPathComponent
+        if name.lowercased().hasSuffix(".gz") {
+            name = URL(fileURLWithPath: name).deletingPathExtension().lastPathComponent
+        }
+        if name.lowercased().hasSuffix(".fastq") || name.lowercased().hasSuffix(".fq") {
+            name = URL(fileURLWithPath: name).deletingPathExtension().lastPathComponent
+        }
+        if pairedEnd {
+            for suffix in ["_R1", "_1", "_R1_001", ".R1"] where name.hasSuffix(suffix) {
+                name = String(name.dropLast(suffix.count))
+                break
+            }
+        }
+        return name
+    }
+
+    private func makeAdvancedArguments(for tool: MappingTool) -> [String] {
+        guard tool == .minimap2 else { return [] }
+
+        var arguments: [String] = []
+        if let matchScore {
+            arguments += ["-A", String(matchScore)]
+        }
+        if let mismatchPenalty {
+            arguments += ["-B", String(mismatchPenalty)]
+        }
+        if let gapOpen {
+            arguments += ["-O", gapOpen]
+        }
+        if let gapExt {
+            arguments += ["-E", gapExt]
+        }
+        if let seedLength {
+            arguments += ["-k", String(seedLength)]
+        }
+        if let bandwidth {
+            arguments += ["-r", String(bandwidth)]
+        }
+        return arguments
     }
 }

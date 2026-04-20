@@ -168,7 +168,7 @@ public struct PackToolRequirement: Sendable, Codable, Hashable, Identifiable {
         installPackages: ["bbmap"],
         executables: [
             "clumpify.sh", "bbduk.sh", "bbmerge.sh",
-            "repair.sh", "tadpole.sh", "reformat.sh", "java",
+            "repair.sh", "tadpole.sh", "reformat.sh", "bbmap.sh", "mapPacBio.sh", "java",
         ],
         fallbackExecutablePaths: [
             "java": ["lib/jvm/bin/java"],
@@ -283,13 +283,66 @@ public extension PluginPack {
             estimatedSizeMB: 1000
         ),
         PluginPack(
-            id: "alignment",
-            name: "Alignment",
-            description: "Map short and long reads to reference genomes",
+            id: "read-mapping",
+            name: "Read Mapping",
+            description: "Reference-guided mapping for short and long sequencing reads",
             sfSymbol: "arrow.left.and.right.text.vertical",
-            packages: ["bwa-mem2", "minimap2", "bowtie2", "hisat2"],
-            category: "Alignment",
-            estimatedSizeMB: 220
+            packages: ["minimap2", "bwa-mem2", "bowtie2"],
+            category: "Mapping",
+            isActive: true,
+            requirements: [
+                PackToolRequirement(
+                    id: "minimap2",
+                    displayName: "minimap2",
+                    environment: "minimap2",
+                    installPackages: ["bioconda::minimap2=2.30"],
+                    executables: ["minimap2"],
+                    smokeTest: .command(
+                        executable: "minimap2",
+                        arguments: ["--help"],
+                        timeoutSeconds: 10,
+                        acceptedExitCodes: [0, 1],
+                        requiredOutputSubstring: "Usage"
+                    ),
+                    version: "2.30",
+                    license: "MIT",
+                    sourceURL: "https://github.com/lh3/minimap2"
+                ),
+                PackToolRequirement(
+                    id: "bwa-mem2",
+                    displayName: "BWA-MEM2",
+                    environment: "bwa-mem2",
+                    installPackages: ["bioconda::bwa-mem2=2.3"],
+                    executables: ["bwa-mem2"],
+                    smokeTest: .command(
+                        executable: "bwa-mem2",
+                        arguments: ["version"],
+                        timeoutSeconds: 10,
+                        requiredOutputSubstring: "bwa-mem2"
+                    ),
+                    version: "2.3",
+                    license: "MIT",
+                    sourceURL: "https://github.com/bwa-mem2/bwa-mem2"
+                ),
+                PackToolRequirement(
+                    id: "bowtie2",
+                    displayName: "Bowtie2",
+                    environment: "bowtie2",
+                    installPackages: ["bioconda::bowtie2=2.5.4"],
+                    executables: ["bowtie2", "bowtie2-build"],
+                    smokeTest: .command(
+                        executable: "bowtie2",
+                        arguments: ["--help"],
+                        timeoutSeconds: 10,
+                        acceptedExitCodes: [0, 1],
+                        requiredOutputSubstring: "bowtie2"
+                    ),
+                    version: "2.5.4",
+                    license: "GPL-3.0",
+                    sourceURL: "https://bowtie-bio.sourceforge.net/bowtie2/manual.shtml"
+                ),
+            ],
+            estimatedSizeMB: 260
         ),
         PluginPack(
             id: "variant-calling",

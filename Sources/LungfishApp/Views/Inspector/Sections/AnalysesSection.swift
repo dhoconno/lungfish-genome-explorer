@@ -18,7 +18,7 @@ struct AnalysesSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             if analyses.isEmpty {
-                Text("No analyses performed yet. Use the Operations panel to run classifications, assemblies, or alignments.")
+                Text("No analyses performed yet. Use the Operations panel to run classifications, assemblies, or mappings.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -138,7 +138,7 @@ private struct AnalysisRow: View {
         case "taxtriage": return "t.circle.fill"
         case "naomgs": return "n.circle.fill"
         case "spades", "megahit", "skesa", "flye", "hifiasm": return "s.circle.fill"
-        case "minimap2", "bwa-mem2", "bowtie2": return "m.circle.fill"
+        case "minimap2", "bwa-mem2", "bowtie2", "bbmap": return "m.circle.fill"
         default: return "gearshape.fill"
         }
     }

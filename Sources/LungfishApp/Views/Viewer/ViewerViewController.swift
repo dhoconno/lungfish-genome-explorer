@@ -77,6 +77,9 @@ public class ViewerViewController: NSViewController {
     /// Assembly result browser (shown in place of the sequence viewer for assembly analyses)
     var assemblyResultController: AssemblyResultViewController?
 
+    /// Mapping result browser (shown in place of the sequence viewer for mapping analyses)
+    var mappingResultController: MappingResultViewController?
+
     // MARK: - State
 
     /// The current viewport content mode (genomics, FASTQ, metagenomics, or empty).
@@ -945,6 +948,7 @@ public class ViewerViewController: NSViewController {
         hideNaoMgsView()
         hideNvdView()
         hideAssemblyView()
+        hideMappingView()
         contentMode = .fastq
 
         let controller = FASTQDatasetViewController()
@@ -1076,6 +1080,7 @@ public class ViewerViewController: NSViewController {
         hideNaoMgsView()
         hideNvdView()
         hideAssemblyView()
+        hideMappingView()
 
         let controller = VCFDatasetViewController()
         controller.onDownloadReferenceRequested = onDownloadReference
@@ -1170,6 +1175,7 @@ public class ViewerViewController: NSViewController {
         hideNaoMgsView()
         hideNvdView()
         hideAssemblyView()
+        hideMappingView()
 
         let controller = FASTACollectionViewController()
         addChild(controller)
@@ -1432,6 +1438,7 @@ public class ViewerViewController: NSViewController {
         hideNaoMgsView()
         hideNvdView()
         hideAssemblyView()
+        hideMappingView()
 
         // Clear bundle display state (chromosome navigator, data provider)
         clearBundleDisplay()
@@ -1496,6 +1503,7 @@ public class ViewerViewController: NSViewController {
         hideNaoMgsView()
         hideNvdView()
         hideAssemblyView()
+        hideMappingView()
 
         // Clear any stale reference bundle state so the viewer uses
         // the document's sequences instead of trying to fetch from a bundle
@@ -1611,6 +1619,7 @@ public class ViewerViewController: NSViewController {
         hideNaoMgsView()
         hideNvdView()
         hideAssemblyView()
+        hideMappingView()
 
         // Hide the progress overlay first - it may be covering the view area
         hideProgress()

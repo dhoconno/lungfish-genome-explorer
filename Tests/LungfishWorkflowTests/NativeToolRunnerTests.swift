@@ -52,6 +52,27 @@ final class NativeToolRunnerTests: XCTestCase {
         }
     }
 
+    func testBBMapToolsResolveFromManagedBBToolsEnvironment() {
+        switch NativeTool.bbmap.location {
+        case .managed(let environment, let executableName):
+            XCTAssertEqual(environment, "bbtools")
+            XCTAssertEqual(executableName, "bbmap.sh")
+        default:
+            XCTFail("BBMap should resolve from the managed BBTools environment")
+        }
+
+        switch NativeTool.mapPacBio.location {
+        case .managed(let environment, let executableName):
+            XCTAssertEqual(environment, "bbtools")
+            XCTAssertEqual(executableName, "mapPacBio.sh")
+        default:
+            XCTFail("mapPacBio should resolve from the managed BBTools environment")
+        }
+
+        XCTAssertTrue(NativeTool.bbmap.isBBToolsShellScript)
+        XCTAssertTrue(NativeTool.mapPacBio.isBBToolsShellScript)
+    }
+
     func testFindToolReturnsExecutableURLForBundledTools() async throws {
         let runner = NativeToolRunner()
 
@@ -430,7 +451,7 @@ final class NativeToolRunnerTests: XCTestCase {
 
     func testAllCasesCount() {
         // The legacy human-scrubber executables were retired when Deacon replaced that path.
-        XCTAssertEqual(NativeTool.allCases.count, 20, "Should have 20 NativeTool cases after removing legacy scrubber executables")
+        XCTAssertEqual(NativeTool.allCases.count, 22, "Should have 22 NativeTool cases after adding BBMap shell wrappers to the managed tool surface")
     }
 
     // MARK: - Error Tests

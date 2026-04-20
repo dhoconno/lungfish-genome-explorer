@@ -22,6 +22,7 @@ extension ViewerViewController {
         hideNaoMgsView()
         hideNvdView()
         hideAssemblyView()
+        hideMappingView()
         clearBundleDisplay()
         hideCollectionBackButton()
         contentMode = .genomics

@@ -4204,6 +4204,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 guard let self else { return }
                 debugLog("showFASTQOperationsDialog: confirmed \(state.selectedToolID.rawValue) for \(state.selectedInputURLs.count) input(s)")
 
+                if let request = state.pendingMappingRequest {
+                    self.runManagedMapping(request: request)
+                    return
+                }
+
                 if let config = state.pendingMinimap2Config {
                     self.runMinimap2Mapping(config: config)
                     return
@@ -4945,6 +4950,185 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 }}
             }
         }
+    }
+
+    private func runManagedMapping(request: MappingRunRequest) {
+        var request = request
+        let projectURL = mainWindowController?.mainSplitViewController?.sidebarController?.currentProjectURL ?? request.projectURL
+        if let projectURL,
+           let analysisDir = try? AnalysesFolder.createAnalysisDirectory(tool: request.tool.rawValue, in: projectURL) {
+            request = request.withOutputDirectory(analysisDir)
+        }
+
+        let opID = OperationCenter.shared.start(
+            title: "Map Reads (\(request.tool.displayName))",
+            detail: "Mapping \(request.inputFASTQURLs.count) file(s) to \(request.referenceFASTAURL.lastPathComponent)"
+        )
+
+        Task.detached { [weak self] in
+            do {
+                let materializeTempDir = try ProjectTempDirectory.createFromContext(
+                    prefix: "\(request.tool.rawValue)-",
+                    contextURL: request.inputFASTQURLs.first ?? request.referenceFASTAURL
+                )
+                defer { try? FileManager.default.removeItem(at: materializeTempDir) }
+
+                let resolvedFiles = try await self?.resolveInputFiles(
+                    request.inputFASTQURLs,
+                    tempDirectory: materializeTempDir,
+                    progress: { message in
+                        DispatchQueue.main.async { MainActor.assumeIsolated {
+                            OperationCenter.shared.update(id: opID, progress: 0, detail: message)
+                            OperationCenter.shared.log(id: opID, level: .info, message: message)
+                        }}
+                    }
+                ) ?? request.inputFASTQURLs
+
+                let resolvedRequest = request.withInputFASTQURLs(resolvedFiles)
+                let pipeline = ManagedMappingPipeline()
+                let result = try await pipeline.run(request: resolvedRequest) { fraction, message in
+                    DispatchQueue.main.async { MainActor.assumeIsolated {
+                        OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
+                        OperationCenter.shared.log(id: opID, level: .info, message: message)
+                    }}
+                }
+
+                var finalResult = result
+                if let self {
+                    do {
+                        if let preparedResult = try await self.prepareMappingViewerBundleIfPossible(
+                            result: result,
+                            request: resolvedRequest,
+                            opID: opID
+                        ) {
+                            finalResult = preparedResult
+                        }
+                    } catch {
+                        DispatchQueue.main.async { MainActor.assumeIsolated {
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .warning,
+                                message: "Reference viewer bundle could not be prepared: \(error.localizedDescription)"
+                            )
+                        }}
+                    }
+                }
+
+                let capturedRequest = request
+                DispatchQueue.main.async { MainActor.assumeIsolated {
+                    OperationCenter.shared.complete(
+                        id: opID,
+                        detail: "Mapping complete: \(finalResult.mappedReads)/\(finalResult.totalReads) reads mapped",
+                        bundleURLs: [finalResult.viewerBundleURL ?? finalResult.bamURL]
+                    )
+
+                    if let bundleURL = Self.findSourceBundle(for: capturedRequest.inputFASTQURLs) {
+                        let entry = AnalysisManifestEntry(
+                            tool: capturedRequest.tool.rawValue,
+                            analysisDirectoryName: capturedRequest.outputDirectory.lastPathComponent,
+                            displayName: "\(capturedRequest.tool.displayName) Mapping",
+                            parameters: capturedRequest.summaryParameters(),
+                            summary: "\(finalResult.mappedReads)/\(finalResult.totalReads) reads mapped",
+                            status: .completed
+                        )
+                        do {
+                            try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleURL)
+                        } catch {
+                            appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)")
+                        }
+                    }
+
+                    AppDelegate.shared?.mainWindowController?.mainSplitViewController?
+                        .sidebarController.reloadFromFilesystem()
+                }}
+            } catch {
+                DispatchQueue.main.async { MainActor.assumeIsolated {
+                    OperationCenter.shared.fail(id: opID, detail: "\(error)")
+                }}
+            }
+        }
+    }
+
+    private func prepareMappingViewerBundleIfPossible(
+        result: MappingResult,
+        request: MappingRunRequest,
+        opID: UUID
+    ) async throws -> MappingResult? {
+        guard let sourceBundleURL = request.sourceReferenceBundleURL,
+              FileManager.default.fileExists(atPath: sourceBundleURL.path) else {
+            return nil
+        }
+
+        let viewerBundleURL = request.outputDirectory.appendingPathComponent(
+            sourceBundleURL.lastPathComponent,
+            isDirectory: true
+        )
+        let fm = FileManager.default
+
+        DispatchQueue.main.async { MainActor.assumeIsolated {
+            OperationCenter.shared.update(
+                id: opID,
+                progress: 0.93,
+                detail: "Preparing reference mapping viewer..."
+            )
+            OperationCenter.shared.log(
+                id: opID,
+                level: .info,
+                message: "Copying reference bundle for integrated BAM viewing."
+            )
+        }}
+
+        if fm.fileExists(atPath: viewerBundleURL.path) {
+            try fm.removeItem(at: viewerBundleURL)
+        }
+        try fm.copyItem(at: sourceBundleURL, to: viewerBundleURL)
+        try sanitizeCopiedMappingViewerBundle(at: viewerBundleURL)
+
+        _ = try await BAMImportService.importBAM(
+            bamURL: result.bamURL,
+            bundleURL: viewerBundleURL,
+            name: "\(request.tool.displayName) Mapping",
+            progressHandler: { fraction, message in
+                let progress = 0.93 + (fraction * 0.06)
+                DispatchQueue.main.async { MainActor.assumeIsolated {
+                    OperationCenter.shared.update(id: opID, progress: progress, detail: message)
+                    OperationCenter.shared.log(id: opID, level: .info, message: message)
+                }}
+            }
+        )
+
+        let preparedResult = result.withViewerBundle(
+            viewerBundleURL: viewerBundleURL,
+            sourceReferenceBundleURL: sourceBundleURL
+        )
+        try preparedResult.save(to: request.outputDirectory)
+        return preparedResult
+    }
+
+    private func sanitizeCopiedMappingViewerBundle(at bundleURL: URL) throws {
+        let fm = FileManager.default
+        let alignmentsURL = bundleURL.appendingPathComponent("alignments", isDirectory: true)
+        if fm.fileExists(atPath: alignmentsURL.path) {
+            try fm.removeItem(at: alignmentsURL)
+        }
+
+        let manifest = try BundleManifest.load(from: bundleURL)
+        let sanitizedManifest = BundleManifest(
+            formatVersion: manifest.formatVersion,
+            name: manifest.name,
+            identifier: manifest.identifier,
+            description: manifest.description,
+            createdDate: manifest.createdDate,
+            modifiedDate: Date(),
+            source: manifest.source,
+            genome: manifest.genome,
+            annotations: manifest.annotations,
+            variants: manifest.variants,
+            tracks: manifest.tracks,
+            alignments: [],
+            metadata: manifest.metadata
+        )
+        try sanitizedManifest.save(to: bundleURL)
     }
 
     private func runOrientReads(config: OrientConfig) {

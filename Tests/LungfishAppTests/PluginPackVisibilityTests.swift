@@ -118,6 +118,10 @@ private actor CacheAwarePluginManagerPackStatusProvider: PluginPackStatusProvidi
 final class PluginPackVisibilityTests: XCTestCase {
 
     func testViewModelExposesRequiredSetupSeparatelyFromOptionalPacks() async {
+        guard let readMapping = PluginPack.activeOptionalPacks.first(where: { $0.id == "read-mapping" }) else {
+            XCTFail("Expected active read-mapping pack")
+            return
+        }
         guard let assembly = PluginPack.activeOptionalPacks.first(where: { $0.id == "assembly" }) else {
             XCTFail("Expected active assembly pack")
             return
@@ -128,6 +132,12 @@ final class PluginPackVisibilityTests: XCTestCase {
         }
         let required = PluginPackStatus(
             pack: .requiredSetupPack,
+            state: .needsInstall,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+        let readMappingStatus = PluginPackStatus(
+            pack: readMapping,
             state: .needsInstall,
             toolStatuses: [],
             failureMessage: nil
@@ -145,13 +155,13 @@ final class PluginPackVisibilityTests: XCTestCase {
             failureMessage: nil
         )
         let viewModel = PluginManagerViewModel(
-            packStatusProvider: StubPluginManagerPackStatusProvider(statuses: [required, assemblyStatus, metagenomicsStatus])
+            packStatusProvider: StubPluginManagerPackStatusProvider(statuses: [required, readMappingStatus, assemblyStatus, metagenomicsStatus])
         )
 
         await viewModel.loadPackStatuses()
 
         XCTAssertEqual(viewModel.requiredSetupPack?.pack.id, "lungfish-tools")
-        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["assembly", "metagenomics"])
+        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["read-mapping", "assembly", "metagenomics"])
     }
 
     func testFocusPackSelectsPacksTabAndStoresPackID() {

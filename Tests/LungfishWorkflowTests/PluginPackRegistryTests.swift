@@ -37,7 +37,7 @@ final class PluginPackRegistryTests: XCTestCase {
         )
         XCTAssertEqual(pack.toolRequirements.first(where: { $0.environment == "bbtools" })?.executables, [
             "clumpify.sh", "bbduk.sh", "bbmerge.sh",
-            "repair.sh", "tadpole.sh", "reformat.sh", "java",
+            "repair.sh", "tadpole.sh", "reformat.sh", "bbmap.sh", "mapPacBio.sh", "java",
         ])
         XCTAssertEqual(pack.toolRequirements.first(where: { $0.environment == "fastp" })?.executables, ["fastp"])
         XCTAssertEqual(pack.toolRequirements.first(where: { $0.environment == "deacon" })?.executables, ["deacon"])
@@ -179,8 +179,19 @@ final class PluginPackRegistryTests: XCTestCase {
         }
     }
 
-    func testActiveOptionalPacksExposeAssemblyAndMetagenomics() {
-        XCTAssertEqual(PluginPack.activeOptionalPacks.map(\.id), ["assembly", "metagenomics"])
+    func testReadMappingPackDefinesExpectedToolsAndMetadata() throws {
+        let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "read-mapping" }))
+
+        XCTAssertEqual(pack.name, "Read Mapping")
+        XCTAssertEqual(pack.description, "Reference-guided mapping for short and long sequencing reads")
+        XCTAssertEqual(pack.packages, ["minimap2", "bwa-mem2", "bowtie2"])
+        XCTAssertEqual(pack.category, "Mapping")
+        XCTAssertEqual(pack.toolRequirements.map(\.environment), ["minimap2", "bwa-mem2", "bowtie2"])
+        XCTAssertFalse(pack.toolRequirements.contains(where: { $0.id == "hisat2" }))
+    }
+
+    func testActiveOptionalPacksExposeReadMappingAssemblyAndMetagenomics() {
+        XCTAssertEqual(PluginPack.activeOptionalPacks.map(\.id), ["read-mapping", "assembly", "metagenomics"])
     }
 
     func testActiveMetagenomicsPackUsesUnifiedClassifierDescription() throws {
@@ -193,6 +204,6 @@ final class PluginPackRegistryTests: XCTestCase {
     }
 
     func testVisibleCLIPacksIncludeRequiredAndActiveOptional() {
-        XCTAssertEqual(PluginPack.visibleForCLI.map(\.id), ["lungfish-tools", "assembly", "metagenomics"])
+        XCTAssertEqual(PluginPack.visibleForCLI.map(\.id), ["lungfish-tools", "read-mapping", "assembly", "metagenomics"])
     }
 }

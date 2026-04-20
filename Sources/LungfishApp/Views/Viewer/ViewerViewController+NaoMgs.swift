@@ -34,6 +34,7 @@ extension ViewerViewController {
         hideNaoMgsView()
         hideNvdView()
         hideAssemblyView()
+        hideMappingView()
         contentMode = .metagenomics
 
         addChild(controller)
