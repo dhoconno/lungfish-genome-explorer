@@ -294,11 +294,47 @@ public extension PluginPack {
         PluginPack(
             id: "variant-calling",
             name: "Variant Calling",
-            description: "Discover SNPs, indels, and structural variants from aligned reads",
+            description: "Viral BAM variant calling from bundle-owned alignment tracks",
             sfSymbol: "diamond.fill",
-            packages: ["freebayes", "lofreq", "gatk4", "ivar"],
+            packages: ["lofreq", "ivar", "medaka"],
             category: "Variant Calling",
-            estimatedSizeMB: 850
+            isActive: true,
+            requirements: [
+                PackToolRequirement(
+                    id: "lofreq",
+                    displayName: "LoFreq",
+                    environment: "lofreq",
+                    installPackages: ["bioconda::lofreq=2.1.5"],
+                    executables: ["lofreq"],
+                    smokeTest: .command(arguments: ["--help"]),
+                    version: "2.1.5",
+                    license: "MIT",
+                    sourceURL: "https://csb5.github.io/lofreq/"
+                ),
+                PackToolRequirement(
+                    id: "ivar",
+                    displayName: "iVar",
+                    environment: "ivar",
+                    installPackages: ["bioconda::ivar=1.4.4"],
+                    executables: ["ivar"],
+                    smokeTest: .command(arguments: ["version"]),
+                    version: "1.4.4",
+                    license: "GPL-3.0-or-later",
+                    sourceURL: "https://andersen-lab.github.io/ivar/html/"
+                ),
+                PackToolRequirement(
+                    id: "medaka",
+                    displayName: "Medaka",
+                    environment: "medaka",
+                    installPackages: ["bioconda::medaka=2.1.1"],
+                    executables: ["medaka"],
+                    smokeTest: .command(arguments: ["--help"]),
+                    version: "2.1.1",
+                    license: "MPL-2.0",
+                    sourceURL: "https://github.com/nanoporetech/medaka"
+                ),
+            ],
+            estimatedSizeMB: 260
         ),
         PluginPack(
             id: "assembly",

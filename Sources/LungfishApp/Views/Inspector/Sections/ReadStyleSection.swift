@@ -155,6 +155,9 @@ public final class ReadStyleSectionViewModel {
     /// Called to build a separate deduplicated bundle.
     public var onCreateDeduplicatedBundleRequested: (() -> Void)?
 
+    /// Called to launch the BAM-backed variant calling workflow for the loaded bundle.
+    public var onCallVariantsRequested: (() -> Void)?
+
     /// Whether duplicate workflow is currently running.
     public var isDuplicateWorkflowRunning: Bool = false
 
@@ -761,6 +764,11 @@ public struct ReadStyleSection: View {
             Text("Duplicate Handling")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            Button("Call Variants…") {
+                viewModel.onCallVariantsRequested?()
+            }
+            .disabled(!viewModel.hasAlignmentTracks)
 
             Button("Mark Duplicates in Bundle Tracks") {
                 viewModel.onMarkDuplicatesRequested?()

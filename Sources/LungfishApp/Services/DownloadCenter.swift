@@ -21,6 +21,7 @@ public enum OperationType: String, Sendable {
     case taxonomyExtraction = "Extraction"
     case classification = "Classification"
     case blastVerification = "BLAST"
+    case variantCalling = "Variant Calling"
 }
 
 /// A timestamped log entry recorded during an operation's lifecycle.

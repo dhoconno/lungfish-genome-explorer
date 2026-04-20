@@ -179,8 +179,34 @@ final class PluginPackRegistryTests: XCTestCase {
         }
     }
 
-    func testActiveOptionalPacksExposeAssemblyAndMetagenomics() {
-        XCTAssertEqual(PluginPack.activeOptionalPacks.map(\.id), ["assembly", "metagenomics"])
+    func testVariantCallingPackDefinesViralToolMetadata() throws {
+        let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "variant-calling" }))
+
+        XCTAssertEqual(pack.description, "Viral BAM variant calling from bundle-owned alignment tracks")
+        XCTAssertEqual(pack.toolRequirements.map(\.environment), ["lofreq", "ivar", "medaka"])
+        XCTAssertTrue(pack.toolRequirements.allSatisfy { $0.smokeTest != nil })
+
+        let lofreq = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "lofreq" }))
+        XCTAssertEqual(lofreq.installPackages, ["bioconda::lofreq=2.1.5"])
+        XCTAssertEqual(lofreq.version, "2.1.5")
+        XCTAssertEqual(lofreq.license, "MIT")
+        XCTAssertEqual(lofreq.sourceURL, "https://csb5.github.io/lofreq/")
+
+        let ivar = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "ivar" }))
+        XCTAssertEqual(ivar.installPackages, ["bioconda::ivar=1.4.4"])
+        XCTAssertEqual(ivar.version, "1.4.4")
+        XCTAssertEqual(ivar.license, "GPL-3.0-or-later")
+        XCTAssertEqual(ivar.sourceURL, "https://andersen-lab.github.io/ivar/html/")
+
+        let medaka = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "medaka" }))
+        XCTAssertEqual(medaka.installPackages, ["bioconda::medaka=2.1.1"])
+        XCTAssertEqual(medaka.version, "2.1.1")
+        XCTAssertEqual(medaka.license, "MPL-2.0")
+        XCTAssertEqual(medaka.sourceURL, "https://github.com/nanoporetech/medaka")
+    }
+
+    func testActiveOptionalPacksExposeVariantCallingAssemblyAndMetagenomics() {
+        XCTAssertEqual(PluginPack.activeOptionalPacks.map(\.id), ["variant-calling", "assembly", "metagenomics"])
     }
 
     func testActiveMetagenomicsPackUsesUnifiedClassifierDescription() throws {
@@ -193,6 +219,6 @@ final class PluginPackRegistryTests: XCTestCase {
     }
 
     func testVisibleCLIPacksIncludeRequiredAndActiveOptional() {
-        XCTAssertEqual(PluginPack.visibleForCLI.map(\.id), ["lungfish-tools", "assembly", "metagenomics"])
+        XCTAssertEqual(PluginPack.visibleForCLI.map(\.id), ["lungfish-tools", "variant-calling", "assembly", "metagenomics"])
     }
 }

@@ -14,9 +14,11 @@ private let logger = Logger(
 
 /// A reason the shared BAM→FASTQ converter failed. Callers map this to their
 /// own error domain (`ExtractionError`, `ClassifierExtractionError`, …).
-enum BAMToFASTQConversionError: Error {
+public enum BAMToFASTQConversionError: Error {
     /// A samtools invocation exited non-zero. The captured stderr is attached.
     case samtoolsFailed(stderr: String)
+    /// All sidecar outputs were empty and the caller disallowed stdout fallback.
+    case emptySidecarOutputs
 }
 
 // MARK: - convertBAMToSingleFASTQ
@@ -63,14 +65,15 @@ enum BAMToFASTQConversionError: Error {
 ///
 /// This helper is shared by ``ReadExtractionService/convertBAMToFASTQSingleFile``
 /// and ``ClassifierReadResolver``; do not duplicate the 4-file-split logic elsewhere.
-func convertBAMToSingleFASTQ(
+public func convertBAMToSingleFASTQ(
     inputBAM: URL,
     outputFASTQ: URL,
     tempDir: URL,
     sidecarPrefix: String,
     flagFilter: Int,
     timeout: TimeInterval,
-    toolRunner: NativeToolRunner
+    toolRunner: NativeToolRunner,
+    allowStdoutFallback: Bool = true
 ) async throws {
     let fm = FileManager.default
 
@@ -125,6 +128,9 @@ func convertBAMToSingleFASTQ(
 
     let mergedSize = (try? fm.attributesOfItem(atPath: outputFASTQ.path)[.size] as? UInt64) ?? 0
     if mergedSize == 0 {
+        guard allowStdoutFallback else {
+            throw BAMToFASTQConversionError.emptySidecarOutputs
+        }
         // Sidecar outputs were all empty — retry capturing stdout. This covers
         // oddball BAMs (e.g. single-end with unusual flag patterns) that produce
         // reads on stdout but nothing into the named sidecars.

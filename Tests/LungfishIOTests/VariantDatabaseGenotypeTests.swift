@@ -89,12 +89,17 @@ final class VariantDatabaseGenotypeTests: XCTestCase {
         return url
     }
 
-    private func createDatabase(from vcfContent: String, parseGenotypes: Bool = true) throws -> (VariantDatabase, URL) {
+    private func createDatabase(
+        from vcfContent: String,
+        parseGenotypes: Bool = true,
+        importSemantics: VCFImportSemantics = .standard
+    ) throws -> (VariantDatabase, URL) {
         let vcfURL = try createTempVCF(content: vcfContent)
         let dbURL = tempDir.appendingPathComponent("test.db")
         try VariantDatabase.createFromVCF(
             vcfURL: vcfURL, outputURL: dbURL,
-            parseGenotypes: parseGenotypes
+            parseGenotypes: parseGenotypes,
+            importSemantics: importSemantics
         )
         let db = try VariantDatabase(url: dbURL)
         return (db, dbURL)
@@ -136,6 +141,27 @@ final class VariantDatabaseGenotypeTests: XCTestCase {
         // No-sample VCFs now create a synthetic sample for source-file tracking
         XCTAssertEqual(db.sampleCount(), 1)
         XCTAssertEqual(db.sampleNames().first, "test")
+    }
+
+    func testNoSampleVCFInViralFrequencyModeKeepsSamplesEmpty() throws {
+        let (db, dbURL) = try createDatabase(from: noSampleVCF, importSemantics: .viralFrequency)
+
+        XCTAssertEqual(db.sampleCount(), 0)
+        XCTAssertEqual(db.sampleNames(), [])
+        XCTAssertEqual(db.sampleNames(chromosome: "chr1"), [])
+        XCTAssertEqual(VariantDatabase.metadataValue(at: dbURL, key: "import_semantics"), "viral-frequency")
+    }
+
+    func testNoSampleVCFInViralFrequencyModeKeepsSampleCountAndGenotypesEmpty() throws {
+        let (db, _) = try createDatabase(from: noSampleVCF, importSemantics: .viralFrequency)
+
+        let variants = db.query(chromosome: "chr1", start: 0, end: 1_000)
+        XCTAssertEqual(variants.count, 2)
+        XCTAssertTrue(variants.allSatisfy { $0.sampleCount == 0 })
+
+        for variant in variants {
+            XCTAssertEqual(db.genotypes(forVariantId: try XCTUnwrap(variant.id)), [])
+        }
     }
 
     func testImportWithLowMemoryProfile() throws {

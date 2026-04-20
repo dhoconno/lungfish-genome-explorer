@@ -105,6 +105,57 @@ private final class TailBuffer: @unchecked Sendable {
     var data: Data { buffer }
 }
 
+private final class ProcessCancellationState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var processes: [Process] = []
+    private var timeoutWorkItems: [DispatchWorkItem] = []
+    private var cancelled = false
+
+    func register(process: Process) {
+        lock.lock()
+        processes.append(process)
+        let shouldCancel = cancelled
+        lock.unlock()
+
+        if shouldCancel, process.isRunning {
+            process.terminate()
+        }
+    }
+
+    func register(timeoutWorkItem: DispatchWorkItem) {
+        lock.lock()
+        timeoutWorkItems.append(timeoutWorkItem)
+        let shouldCancel = cancelled
+        lock.unlock()
+
+        if shouldCancel {
+            timeoutWorkItem.cancel()
+        }
+    }
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    func cancel() {
+        let processesToTerminate: [Process]
+        let workItemsToCancel: [DispatchWorkItem]
+
+        lock.lock()
+        cancelled = true
+        processesToTerminate = processes
+        workItemsToCancel = timeoutWorkItems
+        lock.unlock()
+
+        workItemsToCancel.forEach { $0.cancel() }
+        for process in processesToTerminate where process.isRunning {
+            process.terminate()
+        }
+    }
+}
+
 // MARK: - NativeTool
 
 /// Represents a native bioinformatics tool required by the app.
@@ -135,6 +186,9 @@ public enum NativeTool: String, CaseIterable, Sendable {
     case prefetch
     // Deacon human-read scrubber (conda-installed, not bundled)
     case deacon
+    case lofreq
+    case ivar
+    case medaka
 
     /// The executable name for this tool.
     public var executableName: String {
@@ -159,6 +213,9 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .fasterqDump: return "fasterq-dump"
         case .prefetch: return "prefetch"
         case .deacon: return "deacon"
+        case .lofreq: return "lofreq"
+        case .ivar: return "ivar"
+        case .medaka: return "medaka"
         }
     }
 
@@ -204,6 +261,12 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return .managed(environment: "sra-tools", executableName: "prefetch")
         case .deacon:
             return .managed(environment: "deacon", executableName: "deacon")
+        case .lofreq:
+            return .managed(environment: "lofreq", executableName: "lofreq")
+        case .ivar:
+            return .managed(environment: "ivar", executableName: "ivar")
+        case .medaka:
+            return .managed(environment: "medaka", executableName: "medaka")
         }
     }
 
@@ -256,6 +319,9 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat: return "bbmap"
         case .fasterqDump, .prefetch: return "sra-tools"
         case .deacon: return "deacon"
+        case .lofreq: return "lofreq"
+        case .ivar: return "ivar"
+        case .medaka: return "medaka"
         }
     }
 
@@ -292,6 +358,12 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return "Public Domain (NCBI)"
         case .deacon:
             return "MIT License"
+        case .lofreq:
+            return "MIT License"
+        case .ivar:
+            return "GPL-3.0-or-later"
+        case .medaka:
+            return "MPL-2.0"
         }
     }
 
@@ -527,8 +599,12 @@ public actor NativeToolRunner {
     ) async throws -> NativeToolResult {
         let name = toolName ?? executableURL.lastPathComponent
         let actualTimeout = timeout ?? defaultTimeout
-        
-        return try await withCheckedThrowingContinuation { continuation in
+        let cancellationState = ProcessCancellationState()
+
+        try Task.checkCancellation()
+
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
             let process = Process()
             process.executableURL = executableURL
             process.arguments = arguments
@@ -550,19 +626,24 @@ public actor NativeToolRunner {
             let stderrPipe = Pipe()
             process.standardOutput = stdoutPipe
             process.standardError = stderrPipe
-            
+            cancellationState.register(process: process)
+
             // Timeout handling
             let timeoutWorkItem = DispatchWorkItem {
                 if process.isRunning {
                     process.terminate()
                 }
             }
+            cancellationState.register(timeoutWorkItem: timeoutWorkItem)
             DispatchQueue.global().asyncAfter(
                 deadline: .now() + actualTimeout,
                 execute: timeoutWorkItem
             )
-            
+
             do {
+                if cancellationState.isCancelled {
+                    throw CancellationError()
+                }
                 try process.run()
 
                 // Drain pipes concurrently to avoid deadlock when output exceeds
@@ -596,6 +677,11 @@ public actor NativeToolRunner {
                 drainGroup.wait()
                 timeoutWorkItem.cancel()
 
+                if cancellationState.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+
                 let stdout = String(data: stdoutBox.value, encoding: .utf8) ?? ""
                 let stderr = String(data: stderrBox.value, encoding: .utf8) ?? ""
 
@@ -613,12 +699,30 @@ public actor NativeToolRunner {
 
                 continuation.resume(returning: result)
 
+            } catch is CancellationError {
+                timeoutWorkItem.cancel()
+                if process.isRunning {
+                    process.terminate()
+                }
+                continuation.resume(throwing: CancellationError())
             } catch {
                 timeoutWorkItem.cancel()
-                continuation.resume(throwing: NativeToolError.executionFailed(
-                    name, -1, error.localizedDescription
-                ))
+                if cancellationState.isCancelled {
+                    if process.isRunning {
+                        process.terminate()
+                    }
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                continuation.resume(
+                    throwing: NativeToolError.executionFailed(
+                        name, -1, error.localizedDescription
+                    )
+                )
             }
+        }
+        } onCancel: {
+            cancellationState.cancel()
         }
     }
 
@@ -651,8 +755,12 @@ public actor NativeToolRunner {
         let toolPath = try findTool(tool)
         let actualTimeout = timeout ?? defaultTimeout
         logger.info("Running \(tool.rawValue): \(arguments.joined(separator: " ")) > \(outputFile.path, privacy: .public)")
+        let cancellationState = ProcessCancellationState()
 
-        return try await withCheckedThrowingContinuation { continuation in
+        try Task.checkCancellation()
+
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
             let process = Process()
             process.executableURL = toolPath
             process.arguments = arguments
@@ -681,18 +789,23 @@ public actor NativeToolRunner {
 
             let stderrPipe = Pipe()
             process.standardError = stderrPipe
+            cancellationState.register(process: process)
 
             let timeoutWorkItem = DispatchWorkItem {
                 if process.isRunning {
                     process.terminate()
                 }
             }
+            cancellationState.register(timeoutWorkItem: timeoutWorkItem)
             DispatchQueue.global().asyncAfter(
                 deadline: .now() + actualTimeout,
                 execute: timeoutWorkItem
             )
 
             do {
+                if cancellationState.isCancelled {
+                    throw CancellationError()
+                }
                 try process.run()
 
                 // Drain stderr concurrently to avoid deadlock on large output.
@@ -709,6 +822,11 @@ public actor NativeToolRunner {
                 timeoutWorkItem.cancel()
 
                 try? outputHandle.close()
+
+                if cancellationState.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
                 let stderr = String(data: stderrBox.value, encoding: .utf8) ?? ""
 
                 let result = NativeToolResult(
@@ -725,13 +843,32 @@ public actor NativeToolRunner {
 
                 continuation.resume(returning: result)
 
+            } catch is CancellationError {
+                timeoutWorkItem.cancel()
+                if process.isRunning {
+                    process.terminate()
+                }
+                try? outputHandle.close()
+                continuation.resume(throwing: CancellationError())
             } catch {
                 timeoutWorkItem.cancel()
                 try? outputHandle.close()
-                continuation.resume(throwing: NativeToolError.executionFailed(
-                    tool.rawValue, -1, error.localizedDescription
-                ))
+                if cancellationState.isCancelled {
+                    if process.isRunning {
+                        process.terminate()
+                    }
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                continuation.resume(
+                    throwing: NativeToolError.executionFailed(
+                        tool.rawValue, -1, error.localizedDescription
+                    )
+                )
             }
+        }
+        } onCancel: {
+            cancellationState.cancel()
         }
     }
 
@@ -802,12 +939,17 @@ public actor NativeToolRunner {
 
     /// Checks if the tools directory exists and contains expected tools.
     public func validateBundledToolsInstallation() -> (valid: Bool, missing: [NativeTool]) {
+        let bundledTools = NativeTool.allCases.filter(\.isBundled)
+        guard !bundledTools.isEmpty else {
+            return (true, [])
+        }
+
         guard let toolsDir = toolsDirectory else {
-            return (false, NativeTool.allCases.filter(\.isBundled))
+            return (false, bundledTools)
         }
 
         var missingTools: [NativeTool] = []
-        for tool in NativeTool.allCases where tool.isBundled {
+        for tool in bundledTools {
             let toolPath = toolsDir.appendingPathComponent(tool.relativeExecutablePath)
             if !FileManager.default.isExecutableFile(atPath: toolPath.path) {
                 missingTools.append(tool)
@@ -908,8 +1050,12 @@ extension NativeToolRunner {
         let actualTimeout = timeout ?? defaultTimeout
         let stageNames = stages.map(\.tool.rawValue).joined(separator: " | ")
         logger.info("Running pipeline: \(stageNames)")
+        let cancellationState = ProcessCancellationState()
 
-        return try await withCheckedThrowingContinuation { continuation in
+        try Task.checkCancellation()
+
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
             var processes: [Process] = []
             var interStagePipes: [Pipe] = []
             var stderrPipes: [Pipe] = []
@@ -952,6 +1098,7 @@ extension NativeToolRunner {
                 }
 
                 processes.append(process)
+                cancellationState.register(process: process)
             }
 
             // Timeout for the whole pipeline
@@ -960,6 +1107,7 @@ extension NativeToolRunner {
                     process.terminate()
                 }
             }
+            cancellationState.register(timeoutWorkItem: timeoutWorkItem)
             DispatchQueue.global().asyncAfter(
                 deadline: .now() + actualTimeout,
                 execute: timeoutWorkItem
@@ -968,6 +1116,9 @@ extension NativeToolRunner {
             do {
                 // Launch all processes (first to last)
                 for process in processes {
+                    if cancellationState.isCancelled {
+                        throw CancellationError()
+                    }
                     try process.run()
                 }
 
@@ -999,6 +1150,11 @@ extension NativeToolRunner {
                 drainGroup.wait()
                 timeoutWorkItem.cancel()
 
+                if cancellationState.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+
                 let exitCodes = processes.map(\.terminationStatus)
                 let stderrStrings = stderrBoxes.map { String(data: $0.value, encoding: .utf8) ?? "" }
                 let stdout = String(data: stdoutBox.value, encoding: .utf8) ?? ""
@@ -1017,15 +1173,30 @@ extension NativeToolRunner {
 
                 continuation.resume(returning: result)
 
+            } catch is CancellationError {
+                timeoutWorkItem.cancel()
+                for process in processes where process.isRunning {
+                    process.terminate()
+                }
+                continuation.resume(throwing: CancellationError())
             } catch {
                 timeoutWorkItem.cancel()
                 for process in processes where process.isRunning {
                     process.terminate()
                 }
-                continuation.resume(throwing: NativeToolError.executionFailed(
-                    stageNames, -1, error.localizedDescription
-                ))
+                if cancellationState.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                continuation.resume(
+                    throwing: NativeToolError.executionFailed(
+                        stageNames, -1, error.localizedDescription
+                    )
+                )
             }
+        }
+        } onCancel: {
+            cancellationState.cancel()
         }
     }
 
@@ -1052,8 +1223,12 @@ extension NativeToolRunner {
         let actualTimeout = timeout ?? defaultTimeout
         let stageNames = stages.map(\.tool.rawValue).joined(separator: " | ")
         logger.info("Running pipeline (file output): \(stageNames) > \(outputFile.lastPathComponent)")
+        let cancellationState = ProcessCancellationState()
 
-        return try await withCheckedThrowingContinuation { continuation in
+        try Task.checkCancellation()
+
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
             var processes: [Process] = []
             var interStagePipes: [Pipe] = []
             var stderrPipes: [Pipe] = []
@@ -1103,6 +1278,7 @@ extension NativeToolRunner {
                 }
 
                 processes.append(process)
+                cancellationState.register(process: process)
             }
 
             let timeoutWorkItem = DispatchWorkItem {
@@ -1110,6 +1286,7 @@ extension NativeToolRunner {
                     process.terminate()
                 }
             }
+            cancellationState.register(timeoutWorkItem: timeoutWorkItem)
             DispatchQueue.global().asyncAfter(
                 deadline: .now() + actualTimeout,
                 execute: timeoutWorkItem
@@ -1117,6 +1294,9 @@ extension NativeToolRunner {
 
             do {
                 for process in processes {
+                    if cancellationState.isCancelled {
+                        throw CancellationError()
+                    }
                     try process.run()
                 }
 
@@ -1141,6 +1321,11 @@ extension NativeToolRunner {
 
                 try? outputHandle?.close()
 
+                if cancellationState.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+
                 let exitCodes = processes.map(\.terminationStatus)
                 let stderrStrings = stderrBoxes.map { String(data: $0.value, encoding: .utf8) ?? "" }
 
@@ -1158,16 +1343,32 @@ extension NativeToolRunner {
 
                 continuation.resume(returning: result)
 
+            } catch is CancellationError {
+                timeoutWorkItem.cancel()
+                try? outputHandle?.close()
+                for process in processes where process.isRunning {
+                    process.terminate()
+                }
+                continuation.resume(throwing: CancellationError())
             } catch {
                 timeoutWorkItem.cancel()
                 try? outputHandle?.close()
                 for process in processes where process.isRunning {
                     process.terminate()
                 }
-                continuation.resume(throwing: NativeToolError.executionFailed(
-                    stageNames, -1, error.localizedDescription
-                ))
+                if cancellationState.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                continuation.resume(
+                    throwing: NativeToolError.executionFailed(
+                        stageNames, -1, error.localizedDescription
+                    )
+                )
             }
+        }
+        } onCancel: {
+            cancellationState.cancel()
         }
     }
 }

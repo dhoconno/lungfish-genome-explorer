@@ -296,6 +296,10 @@ final class WelcomeSetupTests: XCTestCase {
     }
 
     func testLaunchRemainsDisabledUntilRequiredSetupIsReady() async {
+        guard let variantCalling = PluginPack.activeOptionalPacks.first(where: { $0.id == "variant-calling" }) else {
+            XCTFail("Expected active variant-calling pack")
+            return
+        }
         guard let assembly = PluginPack.activeOptionalPacks.first(where: { $0.id == "assembly" }) else {
             XCTFail("Expected active assembly pack")
             return
@@ -306,6 +310,12 @@ final class WelcomeSetupTests: XCTestCase {
         }
         let required = PluginPackStatus(
             pack: .requiredSetupPack,
+            state: .needsInstall,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+        let variantCallingStatus = PluginPackStatus(
+            pack: variantCalling,
             state: .needsInstall,
             toolStatuses: [],
             failureMessage: nil
@@ -324,12 +334,12 @@ final class WelcomeSetupTests: XCTestCase {
         )
 
         let viewModel = WelcomeViewModel(
-            statusProvider: StubWelcomePackStatusProvider(statuses: [required, assemblyStatus, metagenomicsStatus])
+            statusProvider: StubWelcomePackStatusProvider(statuses: [required, variantCallingStatus, assemblyStatus, metagenomicsStatus])
         )
         await viewModel.refreshSetup()
 
         XCTAssertFalse(viewModel.canLaunch)
-        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["assembly", "metagenomics"])
+        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["variant-calling", "assembly", "metagenomics"])
     }
 
     func testLaunchEnablesWhenRequiredSetupIsReady() async {
@@ -396,6 +406,10 @@ final class WelcomeSetupTests: XCTestCase {
     }
 
     func testRefreshSetupClearsLoadedStatusesWhileReloading() async {
+        guard let variantCalling = PluginPack.activeOptionalPacks.first(where: { $0.id == "variant-calling" }) else {
+            XCTFail("Expected active variant-calling pack")
+            return
+        }
         guard let assembly = PluginPack.activeOptionalPacks.first(where: { $0.id == "assembly" }) else {
             XCTFail("Expected active assembly pack")
             return
@@ -406,6 +420,12 @@ final class WelcomeSetupTests: XCTestCase {
         }
         let required = PluginPackStatus(
             pack: .requiredSetupPack,
+            state: .ready,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+        let variantCallingStatus = PluginPackStatus(
+            pack: variantCalling,
             state: .ready,
             toolStatuses: [],
             failureMessage: nil
@@ -424,14 +444,14 @@ final class WelcomeSetupTests: XCTestCase {
         )
 
         let provider = StatefulWelcomePackStatusProvider(
-            initialStatuses: [required, assemblyStatus, metagenomicsStatus],
-            loadingStatuses: [required, assemblyStatus, metagenomicsStatus]
+            initialStatuses: [required, variantCallingStatus, assemblyStatus, metagenomicsStatus],
+            loadingStatuses: [required, variantCallingStatus, assemblyStatus, metagenomicsStatus]
         )
         let viewModel = WelcomeViewModel(statusProvider: provider)
 
         await viewModel.refreshSetup()
         XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
-        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["assembly", "metagenomics"])
+        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["variant-calling", "assembly", "metagenomics"])
 
         let refreshTask = Task { await viewModel.refreshSetup() }
         await Task.yield()
@@ -449,7 +469,7 @@ final class WelcomeSetupTests: XCTestCase {
         await refreshTask.value
 
         XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
-        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["assembly", "metagenomics"])
+        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["variant-calling", "assembly", "metagenomics"])
     }
 
     func testManagedResourcesChangeRefreshesSetupInPlace() async {
