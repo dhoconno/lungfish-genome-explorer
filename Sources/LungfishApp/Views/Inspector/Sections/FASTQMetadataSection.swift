@@ -4,6 +4,7 @@
 
 import SwiftUI
 import LungfishIO
+import LungfishWorkflow
 
 // MARK: - FASTQMetadataSectionViewModel
 
@@ -34,8 +35,39 @@ public final class FASTQMetadataSectionViewModel {
     /// Filenames of attachments in the bundle.
     var attachmentFilenames: [String] = []
 
+    /// Optional persisted assembly read type for this dataset.
+    var assemblyReadType: FASTQAssemblyReadType?
+
     /// Whether there are unsaved changes since last save.
-    var hasUnsavedChanges: Bool { metadata != lastSavedMetadata }
+    var hasUnsavedChanges: Bool {
+        metadata != lastSavedMetadata || assemblyReadType != lastSavedAssemblyReadType
+    }
+
+    /// Effective assembly read type after combining persisted override and fallback detection.
+    var effectiveAssemblyReadType: AssemblyReadType? {
+        if let assemblyReadType {
+            return AssemblyReadType(persistedReadType: assemblyReadType)
+        }
+        guard let bundleURL else { return nil }
+        return AssemblyReadType.detect(fromInputURL: bundleURL)
+    }
+
+    /// Human-readable compatibility summary for the current effective read type.
+    var assemblyCompatibilitySummary: String {
+        guard let readType = effectiveAssemblyReadType else {
+            return "No dataset read type is saved. Set one here to constrain assembly tools."
+        }
+
+        let assemblers = AssemblyCompatibility.supportedTools(for: readType)
+            .map(\.displayName)
+            .joined(separator: ", ")
+
+        if assemblyReadType != nil {
+            return "Compatible assemblers: \(assemblers)."
+        }
+
+        return "Auto-detected \(readType.displayName). Compatible assemblers: \(assemblers)."
+    }
 
     // MARK: - Internal State
 
@@ -48,6 +80,9 @@ public final class FASTQMetadataSectionViewModel {
     /// Snapshot of metadata at last save, for revert support.
     private var lastSavedMetadata: FASTQSampleMetadata?
 
+    /// Snapshot of the persisted read type at last save.
+    private var lastSavedAssemblyReadType: FASTQAssemblyReadType?
+
     /// Debounce work item for autosave.
     private var autosaveWorkItem: DispatchWorkItem?
 
@@ -56,6 +91,9 @@ public final class FASTQMetadataSectionViewModel {
 
     /// Attachment manager for the current bundle.
     private var attachmentManager: BundleAttachmentManager?
+
+    /// Primary FASTQ payload inside the current bundle, when available.
+    private var primaryFASTQURL: URL?
 
     // MARK: - Callbacks
 
@@ -76,6 +114,9 @@ public final class FASTQMetadataSectionViewModel {
         }
 
         lastSavedMetadata = metadata
+        primaryFASTQURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL)
+        assemblyReadType = primaryFASTQURL.flatMap { FASTQMetadataStore.load(for: $0)?.assemblyReadType }
+        lastSavedAssemblyReadType = assemblyReadType
         attachmentManager = BundleAttachmentManager(bundleURL: bundleURL)
         attachmentFilenames = attachmentManager?.listAttachments() ?? []
     }
@@ -85,7 +126,10 @@ public final class FASTQMetadataSectionViewModel {
         metadata = nil
         bundleURL = nil
         lastSavedMetadata = nil
+        assemblyReadType = nil
+        lastSavedAssemblyReadType = nil
         attachmentManager = nil
+        primaryFASTQURL = nil
         attachmentFilenames = []
         autosaveWorkItem?.cancel()
     }
@@ -108,8 +152,14 @@ public final class FASTQMetadataSectionViewModel {
     func performSave() {
         guard let bundleURL, let metadata else { return }
         lastSavedMetadata = metadata
+        lastSavedAssemblyReadType = assemblyReadType
         let legacyCSV = metadata.toLegacyCSV()
         try? FASTQBundleCSVMetadata.save(legacyCSV, to: bundleURL)
+        if let primaryFASTQURL {
+            var sidecarMetadata = FASTQMetadataStore.load(for: primaryFASTQURL) ?? PersistedFASTQMetadata()
+            sidecarMetadata.assemblyReadType = assemblyReadType
+            FASTQMetadataStore.save(sidecarMetadata, for: primaryFASTQURL)
+        }
         onSave?(bundleURL, metadata)
     }
 
@@ -117,12 +167,14 @@ public final class FASTQMetadataSectionViewModel {
     func revertToLastSaved() {
         guard let lastSavedMetadata else { return }
         metadata = lastSavedMetadata
+        assemblyReadType = lastSavedAssemblyReadType
     }
 
     /// Clears all metadata fields except sample name, resetting to defaults.
     func clearAllMetadata() {
         guard let currentName = metadata?.sampleName else { return }
         metadata = FASTQSampleMetadata(sampleName: currentName)
+        assemblyReadType = nil
         scheduleAutosave()
     }
 
@@ -136,6 +188,12 @@ public final class FASTQMetadataSectionViewModel {
     /// Sets the metadata template and triggers autosave.
     func setTemplate(_ template: MetadataTemplate) {
         metadata?.metadataTemplate = template
+        scheduleAutosave()
+    }
+
+    /// Sets the persisted assembly read type and triggers autosave.
+    func setAssemblyReadType(_ readType: FASTQAssemblyReadType?) {
+        assemblyReadType = readType
         scheduleAutosave()
     }
 
@@ -281,6 +339,26 @@ public struct FASTQMetadataSection: View {
             if template == .clinical || template == .wastewater || template == .custom {
                 fieldRow("Organism", binding: metaBinding(\.organism))
             }
+
+            HStack {
+                Text("Read Type")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 90, alignment: .trailing)
+                Picker("", selection: assemblyReadTypeBinding) {
+                    Text("Auto").tag(Optional<FASTQAssemblyReadType>.none)
+                    ForEach(FASTQAssemblyReadType.allCases, id: \.self) { readType in
+                        Text(readType.displayName).tag(Optional(readType))
+                    }
+                }
+                .labelsHidden()
+                .controlSize(.small)
+            }
+
+            Text(viewModel.assemblyCompatibilitySummary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -489,6 +567,13 @@ public struct FASTQMetadataSection: View {
         Binding(
             get: { viewModel.metadata?.metadataTemplate ?? .clinical },
             set: { viewModel.setTemplate($0) }
+        )
+    }
+
+    private var assemblyReadTypeBinding: Binding<FASTQAssemblyReadType?> {
+        Binding(
+            get: { viewModel.assemblyReadType },
+            set: { viewModel.setAssemblyReadType($0) }
         )
     }
 

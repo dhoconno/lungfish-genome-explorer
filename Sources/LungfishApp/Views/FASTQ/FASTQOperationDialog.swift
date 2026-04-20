@@ -14,6 +14,9 @@ struct FASTQOperationDialog: View {
             selectedToolID: state.selectedToolID.rawValue,
             statusText: statusText,
             isRunEnabled: state.isRunEnabled,
+            accessibilityNamespace: state.selectedToolID.categoryID == .assembly
+                ? "fastq-operations-assembly"
+                : nil,
             onSelectTool: selectTool(named:),
             onCancel: onCancel,
             onRun: handleRun

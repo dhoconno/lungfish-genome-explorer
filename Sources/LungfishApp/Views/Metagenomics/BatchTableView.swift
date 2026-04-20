@@ -8,6 +8,24 @@ import os.log
 
 // MARK: - BatchColumnSpec
 
+@MainActor
+private final class BatchQuickCopyTextField: NSTextField {
+    var pasteboard: PasteboardWriting?
+    var copiedValue: (() -> String)?
+
+    override func mouseDown(with event: NSEvent) {
+        guard event.modifierFlags.contains(.command),
+              let value = copiedValue?(),
+              !value.isEmpty,
+              let pasteboard else {
+            super.mouseDown(with: event)
+            return
+        }
+
+        pasteboard.setString(value)
+    }
+}
+
 /// Column specification for a batch table.
 ///
 /// Each entry describes one fixed column in a ``BatchTableView`` subclass.
@@ -58,6 +76,21 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
 
     /// Placeholder string for the search field. Defaults to `"Filter…"`.
     var searchPlaceholder: String { "Filter\u{2026}" }
+
+    /// Optional accessibility identifier for the search field.
+    var searchAccessibilityIdentifier: String? { nil }
+
+    /// Optional accessibility label for the search field.
+    var searchAccessibilityLabel: String? { nil }
+
+    /// Optional accessibility identifier for the table view.
+    var tableAccessibilityIdentifier: String? { nil }
+
+    /// Optional accessibility label for the table view.
+    var tableAccessibilityLabel: String? { nil }
+
+    /// Optional pasteboard used for command-click scalar copy in visible cells.
+    var cellCopyPasteboard: PasteboardWriting? { nil }
 
     /// The list of standard (non-metadata) column titles registered with
     /// ``metadataColumns``. Defaults to the ``columnSpecs`` titles.
@@ -140,6 +173,13 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
     /// Controller for dynamic sample-metadata columns (from imported CSV/TSV).
     let metadataColumns = MetadataColumnController()
 
+    /// Optional contextual menu assigned to the table.
+    var tableContextMenu: NSMenu? {
+        didSet {
+            tableView?.menu = tableContextMenu
+        }
+    }
+
     // MARK: - Child Views
 
     /// The table view. Accessible to subclasses for targeted column reloads.
@@ -174,6 +214,12 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
         sf.target = self
         sf.action = #selector(filterChanged(_:))
         sf.sendsSearchStringImmediately = true
+        if let searchAccessibilityIdentifier {
+            sf.setAccessibilityIdentifier(searchAccessibilityIdentifier)
+        }
+        if let searchAccessibilityLabel {
+            sf.setAccessibilityLabel(searchAccessibilityLabel)
+        }
         addSubview(sf)
         self.searchField = sf
 
@@ -211,6 +257,13 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
         tv.columnAutoresizingStyle = .noColumnAutoresizing
         tv.setContentHuggingPriority(.defaultLow, for: .horizontal)
         tv.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        if let tableAccessibilityIdentifier {
+            tv.setAccessibilityIdentifier(tableAccessibilityIdentifier)
+        }
+        if let tableAccessibilityLabel {
+            tv.setAccessibilityLabel(tableAccessibilityLabel)
+        }
+        tv.menu = tableContextMenu
         self.tableView = tv
 
         addFixedColumns()
@@ -325,7 +378,9 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
     func makeCellView(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
         let cell = NSTableCellView()
         cell.identifier = identifier
-        let tf = NSTextField(labelWithString: "")
+        let tf = BatchQuickCopyTextField(labelWithString: "")
+        tf.pasteboard = cellCopyPasteboard
+        tf.copiedValue = { [weak tf] in tf?.stringValue ?? "" }
         tf.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         tf.lineBreakMode = .byTruncatingTail
         tf.translatesAutoresizingMaskIntoConstraints = false
@@ -529,6 +584,9 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
         let (text, alignment, font) = cellContent(for: id, row: rowData)
         cellView.textField?.stringValue = text
         cellView.textField?.alignment   = alignment
+        if let copyField = cellView.textField as? BatchQuickCopyTextField {
+            copyField.pasteboard = cellCopyPasteboard
+        }
         if let font {
             cellView.textField?.font = font
         }
@@ -555,6 +613,13 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
         }
     }
 }
+
+#if DEBUG
+extension BatchTableView {
+    var testSearchField: NSSearchField { searchField }
+    var testTableView: NSTableView { tableView }
+}
+#endif
 
 // MARK: - Shared Helpers
 

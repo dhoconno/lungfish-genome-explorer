@@ -27,6 +27,7 @@ struct FASTQOperationToolPanes: View {
                 onRun: state.captureAssemblyRequest(_:),
                 onRunnerAvailabilityChange: state.updateEmbeddedReadiness(_:)
             )
+            .id(state.selectedToolID.rawValue)
         case .kraken2:
             ClassificationWizardSheet(
                 inputFiles: state.selectedInputURLs,

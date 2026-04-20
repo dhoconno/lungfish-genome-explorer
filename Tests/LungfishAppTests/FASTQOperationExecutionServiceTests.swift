@@ -631,6 +631,136 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         )
     }
 
+    func testExecuteDiscoversAssemblyResultDirectoryWhenAssemblerWritesSidecar() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecService")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let outputDirectory = tempDir.appendingPathComponent("analysis-output", isDirectory: true)
+        let request = FASTQOperationLaunchRequest.assemble(
+            request: AssemblyRunRequest(
+                tool: .megahit,
+                readType: .illuminaShortReads,
+                inputURLs: [
+                    URL(fileURLWithPath: "/tmp/sample_R1.fastq.gz"),
+                    URL(fileURLWithPath: "/tmp/sample_R2.fastq.gz"),
+                ],
+                projectName: "Demo",
+                outputDirectory: outputDirectory,
+                pairedEnd: true,
+                threads: 2,
+                memoryGB: nil,
+                minContigLength: nil,
+                selectedProfileID: nil,
+                extraArguments: []
+            ),
+            outputMode: .perInput
+        )
+
+        let resolver = SpyInputResolver(resolvedRequest: request)
+        let runner = SpyCommandRunner { _, workingDirectory in
+            try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+            let contigsURL = workingDirectory.appendingPathComponent("contigs.fasta")
+            try ">contig1\nAACCGGTT\n".write(to: contigsURL, atomically: true, encoding: .utf8)
+            let result = AssemblyResult(
+                tool: .megahit,
+                readType: .illuminaShortReads,
+                contigsPath: contigsURL,
+                graphPath: nil,
+                logPath: nil,
+                assemblerVersion: "test",
+                commandLine: "megahit",
+                outputDirectory: workingDirectory,
+                statistics: try AssemblyStatisticsCalculator.compute(from: contigsURL),
+                wallTimeSeconds: 1
+            )
+            try result.save(to: workingDirectory)
+            return FASTQCLIExecutionResult(outputURLs: [])
+        }
+        let importer = SpyDirectImporter()
+        let service = FASTQOperationExecutionService(
+            inputResolver: resolver,
+            commandRunner: runner,
+            directImporter: importer
+        )
+
+        let result = try await service.execute(
+            request: request,
+            workingDirectory: outputDirectory
+        )
+
+        XCTAssertEqual(result.importedURLs, [outputDirectory])
+        XCTAssertEqual(importer.calls, [[outputDirectory]])
+    }
+
+    func testExecuteDiscoversAssemblyResultFromInvocationOutputDirectory() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecService")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let outputDirectory = tempDir.appendingPathComponent("analysis-output", isDirectory: true)
+        let request = FASTQOperationLaunchRequest.assemble(
+            request: AssemblyRunRequest(
+                tool: .megahit,
+                readType: .illuminaShortReads,
+                inputURLs: [
+                    URL(fileURLWithPath: "/tmp/sample_R1.fastq.gz"),
+                    URL(fileURLWithPath: "/tmp/sample_R2.fastq.gz"),
+                ],
+                projectName: "Demo",
+                outputDirectory: outputDirectory,
+                pairedEnd: true,
+                threads: 2,
+                memoryGB: nil,
+                minContigLength: nil,
+                selectedProfileID: nil,
+                extraArguments: []
+            ),
+            outputMode: .perInput
+        )
+
+        let resolver = SpyInputResolver(resolvedRequest: request)
+        let runner = SpyCommandRunner { invocation, workingDirectory in
+            let outputFlagIndex = try XCTUnwrap(invocation.arguments.firstIndex(of: "--output"))
+            let resultDirectory = URL(
+                fileURLWithPath: invocation.arguments[outputFlagIndex + 1],
+                isDirectory: true
+            )
+
+            XCTAssertEqual(workingDirectory.standardizedFileURL, outputDirectory.standardizedFileURL)
+
+            try FileManager.default.createDirectory(at: resultDirectory, withIntermediateDirectories: true)
+            let contigsURL = resultDirectory.appendingPathComponent("contigs.fasta")
+            try ">contig1\nAACCGGTT\n".write(to: contigsURL, atomically: true, encoding: .utf8)
+            let result = AssemblyResult(
+                tool: .megahit,
+                readType: .illuminaShortReads,
+                contigsPath: contigsURL,
+                graphPath: nil,
+                logPath: nil,
+                assemblerVersion: "test",
+                commandLine: "megahit",
+                outputDirectory: resultDirectory,
+                statistics: try AssemblyStatisticsCalculator.compute(from: contigsURL),
+                wallTimeSeconds: 1
+            )
+            try result.save(to: resultDirectory)
+            return FASTQCLIExecutionResult(outputURLs: [])
+        }
+        let importer = SpyDirectImporter()
+        let service = FASTQOperationExecutionService(
+            inputResolver: resolver,
+            commandRunner: runner,
+            directImporter: importer
+        )
+
+        let result = try await service.execute(
+            request: request,
+            workingDirectory: outputDirectory
+        )
+
+        XCTAssertEqual(result.importedURLs, [outputDirectory])
+        XCTAssertEqual(importer.calls, [[outputDirectory]])
+    }
+
     func testRefreshQCSummaryLaunchBuildsFastqQCSummaryInvocation() throws {
         let request = FASTQOperationLaunchRequest.refreshQCSummary(
             inputURLs: [

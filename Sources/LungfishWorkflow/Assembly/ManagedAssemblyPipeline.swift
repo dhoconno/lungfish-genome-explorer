@@ -169,6 +169,8 @@ public struct ManagedAssemblyPipeline: Sendable {
         let paired = try pairedReadsIfNeeded(for: request)
         var arguments: [String] = []
         switch request.selectedProfileID ?? "isolate" {
+        case "isolate":
+            arguments.append("--isolate")
         case "meta":
             arguments.append("--meta")
         case "plasmid":
@@ -274,7 +276,7 @@ public struct ManagedAssemblyPipeline: Sendable {
     private static func buildHifiasmCommand(for request: AssemblyRunRequest) throws -> ManagedAssemblyCommand {
         guard request.inputURLs.count == 1, let inputURL = request.inputURLs.first else {
             throw ManagedAssemblyPipelineError.unsupportedInputTopology(
-                "Hifiasm expects a single PacBio HiFi FASTQ input in v1."
+                "Hifiasm expects a single PacBio HiFi/CCS FASTQ input in v1."
             )
         }
         try FileManager.default.createDirectory(
@@ -307,8 +309,11 @@ public struct ManagedAssemblyPipeline: Sendable {
     private static func prepareExecution(
         for request: AssemblyRunRequest
     ) throws -> PreparedManagedAssemblyExecution {
+        let requiresFreshOutputDirectory = toolRequiresFreshOutputDirectory(request.tool)
+        let outputDirectoryAlreadyExists = FileManager.default.fileExists(atPath: request.outputDirectory.path)
         let needsRedirect = request.outputDirectory.path.contains(" ")
             || request.inputURLs.contains(where: { $0.path.contains(" ") })
+            || (requiresFreshOutputDirectory && outputDirectoryAlreadyExists)
         guard needsRedirect else {
             return PreparedManagedAssemblyExecution(
                 request: request,
@@ -332,7 +337,9 @@ public struct ManagedAssemblyPipeline: Sendable {
         let stagedInputsDirectory = safeRoot.appendingPathComponent("inputs", isDirectory: true)
         let stagedOutputDirectory = safeRoot.appendingPathComponent("output", isDirectory: true)
         try fm.createDirectory(at: stagedInputsDirectory, withIntermediateDirectories: true)
-        try fm.createDirectory(at: stagedOutputDirectory, withIntermediateDirectories: true)
+        if !requiresFreshOutputDirectory {
+            try fm.createDirectory(at: stagedOutputDirectory, withIntermediateDirectories: true)
+        }
 
         let stagedInputs = try request.inputURLs.enumerated().map { index, inputURL -> URL in
             guard inputURL.path.contains(" ") else { return inputURL }
@@ -354,6 +361,18 @@ public struct ManagedAssemblyPipeline: Sendable {
 
     private static func stagedLeafName(for url: URL, index: Int) -> String {
         "\(index)-\(url.lastPathComponent.replacingOccurrences(of: " ", with: "_"))"
+    }
+
+    private static func toolRequiresFreshOutputDirectory(_ tool: AssemblyTool) -> Bool {
+        switch tool {
+        case .megahit:
+            // MEGAHIT rejects an output directory that already exists, so project-backed
+            // app runs need a staging directory even though the final analysis folder is
+            // pre-created for sidebar tracking.
+            return true
+        case .spades, .skesa, .flye, .hifiasm:
+            return false
+        }
     }
 
     private static func repatriateOutputsIfNeeded(

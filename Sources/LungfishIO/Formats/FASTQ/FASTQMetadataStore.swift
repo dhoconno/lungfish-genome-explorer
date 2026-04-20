@@ -8,6 +8,29 @@ import os.log
 
 private let logger = Logger(subsystem: "com.lungfish.io", category: "FASTQMetadataStore")
 
+// MARK: - Persisted Assembly Read Type
+
+/// Explicit dataset-level read type used to constrain assembly tool selection.
+///
+/// Stored in the FASTQ sidecar so the app can remember a user-confirmed assembly
+/// class independently of sample metadata CSV fields.
+public enum FASTQAssemblyReadType: String, Codable, Sendable, CaseIterable {
+    case illuminaShortReads
+    case ontReads
+    case pacBioHiFi
+
+    public var displayName: String {
+        switch self {
+        case .illuminaShortReads:
+            return "Illumina short reads"
+        case .ontReads:
+            return "ONT reads"
+        case .pacBioHiFi:
+            return "PacBio HiFi/CCS"
+        }
+    }
+}
+
 // MARK: - Persisted FASTQ Metadata
 
 /// Metadata persisted alongside a FASTQ file as a sidecar JSON.
@@ -51,6 +74,12 @@ public struct PersistedFASTQMetadata: Codable, Sendable {
     /// Used to select appropriate adapter contexts and error rates.
     public var sequencingPlatform: SequencingPlatform?
 
+    /// Optional user-confirmed assembly read type for this dataset.
+    ///
+    /// This is narrower than `sequencingPlatform`: PacBio datasets are only
+    /// represented here when the user explicitly confirms HiFi/CCS suitability.
+    public var assemblyReadType: FASTQAssemblyReadType?
+
     public init(
         computedStatistics: FASTQDatasetStatistics? = nil,
         sraRunInfo: SRARunInfo? = nil,
@@ -61,7 +90,8 @@ public struct PersistedFASTQMetadata: Codable, Sendable {
         seqkitStats: SeqkitStatsMetadata? = nil,
         readClassification: ReadClassification? = nil,
         demultiplexMetadata: FASTQDemultiplexMetadata? = nil,
-        sequencingPlatform: SequencingPlatform? = nil
+        sequencingPlatform: SequencingPlatform? = nil,
+        assemblyReadType: FASTQAssemblyReadType? = nil
     ) {
         self.computedStatistics = computedStatistics
         self.sraRunInfo = sraRunInfo
@@ -73,6 +103,7 @@ public struct PersistedFASTQMetadata: Codable, Sendable {
         self.readClassification = readClassification
         self.demultiplexMetadata = demultiplexMetadata
         self.sequencingPlatform = sequencingPlatform
+        self.assemblyReadType = assemblyReadType
     }
 }
 

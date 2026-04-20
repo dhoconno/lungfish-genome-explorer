@@ -198,7 +198,8 @@ final class FASTQMetadataStoreTests: XCTestCase {
             sraRunInfo: makeSampleSRARunInfo(),
             enaReadRecord: makeSampleENAReadRecord(),
             downloadDate: Date(timeIntervalSince1970: 1700000000),
-            downloadSource: "NCBI SRA"
+            downloadSource: "NCBI SRA",
+            assemblyReadType: .illuminaShortReads
         )
 
         FASTQMetadataStore.save(metadata, for: fastqURL)
@@ -208,6 +209,7 @@ final class FASTQMetadataStoreTests: XCTestCase {
         XCTAssertNotNil(loaded?.computedStatistics)
         XCTAssertNotNil(loaded?.sraRunInfo)
         XCTAssertNotNil(loaded?.enaReadRecord)
+        XCTAssertEqual(loaded?.assemblyReadType, .illuminaShortReads)
         XCTAssertEqual(loaded?.downloadSource, "NCBI SRA")
     }
 
@@ -303,6 +305,23 @@ final class FASTQMetadataStoreTests: XCTestCase {
         XCTAssertNil(decoded.computedStatistics)
         XCTAssertNotNil(decoded.downloadDate)
         XCTAssertEqual(decoded.downloadSource, "manual")
+    }
+
+    func testPersistedMetadataAssemblyReadTypeCodable() throws {
+        let metadata = PersistedFASTQMetadata(
+            assemblyReadType: .pacBioHiFi
+        )
+
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(metadata)
+
+        let decoded = try JSONDecoder().decode(PersistedFASTQMetadata.self, from: data)
+
+        XCTAssertEqual(decoded.assemblyReadType, .pacBioHiFi)
+    }
+
+    func testPersistedAssemblyReadTypeDisplayNameUsesHiFiCCSLabel() {
+        XCTAssertEqual(FASTQAssemblyReadType.pacBioHiFi.displayName, "PacBio HiFi/CCS")
     }
 
     // MARK: - SRARunInfo Codable

@@ -29,6 +29,7 @@ final class ManagedAssemblyPipelineTests: XCTestCase {
         XCTAssertEqual(command.executable, "spades.py")
         XCTAssertEqual(command.environment, "spades")
         XCTAssertEqual(command.workingDirectory, tempDir.deletingLastPathComponent())
+        XCTAssertTrue(command.arguments.contains("--isolate"))
         XCTAssertTrue(command.arguments.contains("--threads"))
         XCTAssertTrue(command.arguments.contains("--memory"))
         XCTAssertTrue(command.arguments.contains("-1"))
@@ -92,6 +93,61 @@ final class ManagedAssemblyPipelineTests: XCTestCase {
         XCTAssertTrue(command.arguments.contains("--min-contig-len"))
     }
 
+    func testRunStagesMegahitIntoFreshWorkspaceWhenFinalOutputDirectoryAlreadyExists() async throws {
+        let tempRoot = try makeTempDirectory(prefix: "managed assembly megahit")
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let bundledMicromamba = tempRoot.appendingPathComponent("bundled-micromamba")
+        let argsLog = tempRoot.appendingPathComponent("megahit-args.log")
+        try writeExecutableScript(
+            at: bundledMicromamba,
+            body: megahitMicromambaScript(argsLog: argsLog)
+        )
+
+        let pipeline = ManagedAssemblyPipeline(
+            condaManager: CondaManager(
+                rootPrefix: tempRoot.appendingPathComponent("conda-root", isDirectory: true),
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "2.0.0" }
+            )
+        )
+
+        let input1 = tempRoot.appendingPathComponent("R1.fastq.gz")
+        let input2 = tempRoot.appendingPathComponent("R2.fastq.gz")
+        try Data("ACGT".utf8).write(to: input1)
+        try Data("TGCA".utf8).write(to: input2)
+
+        let outputDir = tempRoot
+            .appendingPathComponent("Analyses", isDirectory: true)
+            .appendingPathComponent("megahit-2026-04-19T18-54-52", isDirectory: true)
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+
+        let request = AssemblyRunRequest(
+            tool: .megahit,
+            readType: .illuminaShortReads,
+            inputURLs: [input1, input2],
+            projectName: "megahit-demo",
+            outputDirectory: outputDir,
+            pairedEnd: true,
+            threads: 4
+        )
+
+        let result = try await pipeline.run(request: request)
+
+        XCTAssertEqual(
+            result.contigsPath.standardizedFileURL,
+            outputDir.appendingPathComponent("final.contigs.fa").standardizedFileURL
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputDir.appendingPathComponent("assembly-result.json").path))
+
+        let args = try String(contentsOf: argsLog, encoding: .utf8)
+            .split(separator: "\n")
+            .map(String.init)
+        let outputIndex = try XCTUnwrap(args.firstIndex(of: "-o"))
+        XCTAssertNotEqual(args[outputIndex + 1], outputDir.path)
+        XCTAssertTrue(args[outputIndex + 1].contains("managed-assembly-"))
+    }
+
     func testRejectsIncompatibleToolReadType() {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("managed-assembly-invalid-\(UUID().uuidString)")
@@ -110,6 +166,31 @@ final class ManagedAssemblyPipelineTests: XCTestCase {
             XCTAssertEqual(
                 error.localizedDescription,
                 "Flye is not available for Illumina short reads in v1."
+            )
+        }
+    }
+
+    func testHifiasmTopologyErrorUsesHiFiCCSLabel() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("managed-assembly-hifiasm-invalid-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let request = AssemblyRunRequest(
+            tool: .hifiasm,
+            readType: .pacBioHiFi,
+            inputURLs: [
+                URL(fileURLWithPath: "/tmp/sample-1.fastq.gz"),
+                URL(fileURLWithPath: "/tmp/sample-2.fastq.gz"),
+            ],
+            projectName: "bad-hifiasm-demo",
+            outputDirectory: tempDir,
+            threads: 8
+        )
+
+        XCTAssertThrowsError(try ManagedAssemblyPipeline.buildCommand(for: request)) { error in
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Hifiasm expects a single PacBio HiFi/CCS FASTQ input in v1."
             )
         }
     }
@@ -280,6 +361,63 @@ final class ManagedAssemblyPipelineTests: XCTestCase {
 
         mkdir -p "$outdir"
         \(failureBody)
+        """
+    }
+
+    private func megahitMicromambaScript(argsLog: URL? = nil) -> String {
+        let argsLogPath = argsLog?.path ?? "/dev/null"
+        return """
+        #!/bin/sh
+        if [ "$1" = "--version" ]; then
+            printf '%s\\n' '2.0.0'
+            exit 0
+        fi
+
+        if [ "$1" != "run" ] || [ "$2" != "-n" ]; then
+            printf '%s\\n' "unexpected micromamba invocation: $*" >&2
+            exit 64
+        fi
+
+        tool="$4"
+        shift 4
+
+        if [ "$tool" = "megahit" ] && { [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ]; }; then
+            printf '%s\\n' 'MEGAHIT v1.2.9'
+            exit 0
+        fi
+
+        if [ "$tool" != "megahit" ]; then
+            printf '%s\\n' "unexpected tool: $tool" >&2
+            exit 65
+        fi
+
+        : > '\(argsLogPath)'
+        for arg in "$@"; do
+            printf '%s\\n' "$arg" >> '\(argsLogPath)'
+        done
+
+        outdir=""
+        prev=""
+        for arg in "$@"; do
+            if [ "$prev" = "-o" ]; then
+                outdir="$arg"
+            fi
+            prev="$arg"
+        done
+
+        if [ -z "$outdir" ]; then
+            printf '%s\\n' 'missing -o argument' >&2
+            exit 66
+        fi
+
+        if [ -e "$outdir" ]; then
+            printf '%s\\n' "megahit: Output directory $outdir already exists, please change the parameter -o to another value to avoid overwriting." >&2
+            exit 1
+        fi
+
+        mkdir -p "$outdir"
+        printf '>contig1\\nACGT\\n' > "$outdir/final.contigs.fa"
+        exit 0
         """
     }
 }

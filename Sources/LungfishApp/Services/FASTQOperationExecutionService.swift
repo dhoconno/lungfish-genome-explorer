@@ -102,8 +102,8 @@ struct FASTQOperationExecutionService {
         var outputURLs: [URL] = []
 
         for executionPlan in executionPlans {
-            let outputParent = executionPlan.outputTarget.deletingLastPathComponent()
-            try FileManager.default.createDirectory(at: outputParent, withIntermediateDirectories: true)
+            let executionDirectory = executionDirectory(for: executionPlan)
+            try FileManager.default.createDirectory(at: executionDirectory, withIntermediateDirectories: true)
             let invocation = try buildExecutionInvocation(
                 for: executionPlan.resolvedRequest,
                 outputTargetPath: executionPlan.outputTarget.path
@@ -111,10 +111,10 @@ struct FASTQOperationExecutionService {
             invocations.append(invocation)
             let result = try await commandRunner.run(
                 invocation: invocation,
-                outputDirectory: outputParent
+                outputDirectory: executionDirectory
             )
             if result.outputURLs.isEmpty {
-                outputURLs.append(contentsOf: discoverOutputs(for: executionPlan))
+                outputURLs.append(contentsOf: discoverOutputs(for: executionPlan, in: executionDirectory))
             } else {
                 outputURLs.append(contentsOf: result.outputURLs)
             }
@@ -168,6 +168,10 @@ struct FASTQOperationExecutionService {
         workingDirectory: URL
     ) -> URL {
         if request.outputMode == .groupedResult || request.isDemultiplexRequest {
+            return workingDirectory
+        }
+
+        if case .assemble = request {
             return workingDirectory
         }
 
@@ -314,14 +318,27 @@ struct FASTQOperationExecutionService {
         }
     }
 
-    private func discoverOutputs(for plan: FASTQExecutionPlan) -> [URL] {
+    private func discoverOutputs(for plan: FASTQExecutionPlan, in outputDirectory: URL) -> [URL] {
         switch plan.outputKind {
         case .directory:
-            return Self.discoverFASTQBundles(in: plan.outputTarget)
+            let directory = plan.outputTarget.standardizedFileURL
+            if (try? AssemblyResult.load(from: directory)) != nil {
+                return [directory]
+            }
+            return Self.discoverFASTQBundles(in: directory)
         case .fastqFile, .jsonReport:
             return FileManager.default.fileExists(atPath: plan.outputTarget.path)
                 ? [plan.outputTarget]
                 : []
+        }
+    }
+
+    private func executionDirectory(for plan: FASTQExecutionPlan) -> URL {
+        switch plan.outputKind {
+        case .directory:
+            return plan.outputTarget
+        case .fastqFile, .jsonReport:
+            return plan.outputTarget.deletingLastPathComponent()
         }
     }
 

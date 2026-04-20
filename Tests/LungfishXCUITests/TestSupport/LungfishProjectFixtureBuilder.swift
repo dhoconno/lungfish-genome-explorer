@@ -18,6 +18,11 @@ enum LungfishProjectFixtureBuilder {
         let tool: String
     }
 
+    private enum FixtureCopyTarget {
+        case projectRoot
+        case directory(name: String)
+    }
+
     static func makeAnalysesProject(named name: String = "FixtureProject") throws -> URL {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
@@ -39,6 +44,66 @@ enum LungfishProjectFixtureBuilder {
         try fileManager.copyItem(at: source, to: destination)
         try writeProjectMetadata(to: projectURL, name: name)
         try writeAnalysisMetadata(to: destination, tool: "spades")
+        return projectURL
+    }
+
+    static func makeIlluminaAssemblyProject(named name: String = "IlluminaAssemblyFixture") throws -> URL {
+        try makeProject(
+            named: name,
+            fixtures: [
+                (LungfishFixtureCatalog.sarscov2.appendingPathComponent("test_1.fastq.gz"), .projectRoot),
+                (LungfishFixtureCatalog.sarscov2.appendingPathComponent("test_2.fastq.gz"), .projectRoot),
+            ]
+        )
+    }
+
+    static func makeOntAssemblyProject(named name: String = "OntAssemblyFixture") throws -> URL {
+        try makeProject(
+            named: name,
+            fixtures: [
+                (LungfishFixtureCatalog.assemblyUI.appendingPathComponent("ont/reads.fastq"), .projectRoot),
+            ]
+        )
+    }
+
+    static func makePacBioHiFiAssemblyProject(named name: String = "HiFiAssemblyFixture") throws -> URL {
+        try makeProject(
+            named: name,
+            fixtures: [
+                (LungfishFixtureCatalog.assemblyUI.appendingPathComponent("pacbio-hifi/reads.fastq"), .projectRoot),
+            ]
+        )
+    }
+
+    private static func makeProject(
+        named name: String,
+        fixtures: [(source: URL, target: FixtureCopyTarget)]
+    ) throws -> URL {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "lungfish-xcui-project-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let projectURL = root.appendingPathComponent("\(name).lungfish", isDirectory: true)
+        try fileManager.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        try writeProjectMetadata(to: projectURL, name: name)
+
+        for fixture in fixtures {
+            let destinationDirectory: URL
+            switch fixture.target {
+            case .projectRoot:
+                destinationDirectory = projectURL
+            case .directory(let name):
+                destinationDirectory = projectURL.appendingPathComponent(name, isDirectory: true)
+                try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+            }
+
+            try fileManager.copyItem(
+                at: fixture.source,
+                to: destinationDirectory.appendingPathComponent(fixture.source.lastPathComponent)
+            )
+        }
+
         return projectURL
     }
 

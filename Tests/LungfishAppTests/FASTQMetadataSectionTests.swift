@@ -72,12 +72,18 @@ final class FASTQMetadataSectionViewModelTests: XCTestCase {
     func testSavePersistsMetadata() throws {
         let bundleDir = tmpDir.appendingPathComponent("Persist.lungfishfastq")
         try FileManager.default.createDirectory(at: bundleDir, withIntermediateDirectories: true)
+        try "@read1\nACGT\n+\nIIII\n".write(
+            to: bundleDir.appendingPathComponent("reads.fastq"),
+            atomically: true,
+            encoding: .utf8
+        )
 
         let vm = FASTQMetadataSectionViewModel()
         vm.load(from: bundleDir)
 
         vm.metadata?.sampleType = "Blood"
         vm.metadata?.collectionDate = "2026-03-25"
+        vm.assemblyReadType = .pacBioHiFi
         vm.performSave()
 
         XCTAssertEqual(vm.metadata?.sampleType, "Blood")
@@ -89,6 +95,31 @@ final class FASTQMetadataSectionViewModelTests: XCTestCase {
         let restored = FASTQSampleMetadata(from: loaded!, fallbackName: "Persist")
         XCTAssertEqual(restored.sampleType, "Blood")
         XCTAssertEqual(restored.collectionDate, "2026-03-25")
+        let primaryFASTQURL = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleDir))
+        XCTAssertEqual(
+            FASTQMetadataStore.load(for: primaryFASTQURL)?.assemblyReadType,
+            .pacBioHiFi
+        )
+    }
+
+    func testLoadReadsPersistedAssemblyReadTypeFromSidecar() throws {
+        let bundleDir = tmpDir.appendingPathComponent("ReadType.lungfishfastq")
+        try FileManager.default.createDirectory(at: bundleDir, withIntermediateDirectories: true)
+        let fastqURL = bundleDir.appendingPathComponent("reads.fastq")
+        try "@read1\nACGT\n+\nIIII\n".write(
+            to: fastqURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(assemblyReadType: .ontReads),
+            for: fastqURL
+        )
+
+        let vm = FASTQMetadataSectionViewModel()
+        vm.load(from: bundleDir)
+
+        XCTAssertEqual(vm.assemblyReadType, .ontReads)
     }
 
     func testSaveCallsOnSaveCallback() throws {

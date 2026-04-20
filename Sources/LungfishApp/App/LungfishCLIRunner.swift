@@ -16,6 +16,12 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "LungfishCLIR
 /// parsing/SQL code into the GUI target.
 enum LungfishCLIRunner {
 
+    struct Output: Sendable, Equatable {
+        let stdout: String
+        let stderr: String
+        let status: Int32
+    }
+
     /// An error returned from a CLI invocation.
     enum RunError: Error, LocalizedError {
         case cliNotFound
@@ -58,6 +64,68 @@ enum LungfishCLIRunner {
         CLIImportRunner.cliBinaryPath()
     }
 
+    /// Runs the CLI with the supplied arguments and captures stdout/stderr.
+    ///
+    /// - Parameter arguments: Arguments passed to `lungfish-cli`.
+    /// - Returns: The process output and termination status.
+    /// - Throws: ``RunError`` on missing CLI, launch failure, or non-zero exit.
+    static func run(arguments: [String]) throws -> Output {
+        guard let cliURL = findCLI() else {
+            let execDir = Bundle.main.executableURL?.deletingLastPathComponent().path ?? "<nil>"
+            let bundleDir = Bundle.main.bundleURL.path
+            logger.error(
+                "run: lungfish-cli not found. executableDirectory=\(execDir, privacy: .public), bundleURL=\(bundleDir, privacy: .public)"
+            )
+            throw RunError.cliNotFound
+        }
+
+        let process = Process()
+        process.executableURL = cliURL
+        process.arguments = arguments
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        let outputGroup = DispatchGroup()
+        let stdoutCapture = OutputCapture()
+        let stderrCapture = OutputCapture()
+
+        outputGroup.enter()
+        DispatchQueue(label: "com.lungfish.app.cli-runner-stdout", qos: .userInitiated).async {
+            stdoutCapture.data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            outputGroup.leave()
+        }
+
+        outputGroup.enter()
+        DispatchQueue(label: "com.lungfish.app.cli-runner-stderr", qos: .userInitiated).async {
+            stderrCapture.data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            outputGroup.leave()
+        }
+
+        do {
+            try process.run()
+        } catch {
+            logger.error("run: Failed to launch CLI: \(error.localizedDescription, privacy: .public)")
+            throw RunError.launchFailed(error.localizedDescription)
+        }
+
+        process.waitUntilExit()
+        outputGroup.wait()
+
+        let stdoutText = String(data: stdoutCapture.data, encoding: .utf8) ?? ""
+        let stderrText = String(data: stderrCapture.data, encoding: .utf8) ?? ""
+
+        if process.terminationStatus != 0 {
+            logger.error(
+                "run: CLI exited with status \(process.terminationStatus, privacy: .public): \(stderrText, privacy: .public)"
+            )
+            throw RunError.nonZeroExit(status: process.terminationStatus, stderr: stderrText)
+        }
+
+        return Output(stdout: stdoutText, stderr: stderrText, status: process.terminationStatus)
+    }
+
     /// Runs `lungfish-cli build-db <tool> <resultDir>` synchronously.
     ///
     /// Intended to be called from a background `Task.detached` context at the
@@ -81,40 +149,20 @@ enum LungfishCLIRunner {
         logger.info(
             "buildClassifierDatabase: Launching '\(cliURL.path, privacy: .public)' build-db \(tool, privacy: .public) '\(resultURL.path, privacy: .public)'"
         )
-
-        let process = Process()
-        process.executableURL = cliURL
         var arguments = ["build-db", tool, resultURL.path]
         if force {
             arguments.append("--force")
         }
-        process.arguments = arguments
 
-        let stderrPipe = Pipe()
-        let stdoutPipe = Pipe()
-        process.standardError = stderrPipe
-        process.standardOutput = stdoutPipe
-
-        do {
-            try process.run()
-        } catch {
-            logger.error(
-                "buildClassifierDatabase: Failed to launch CLI: \(error.localizedDescription, privacy: .public)"
-            )
-            throw RunError.launchFailed(error.localizedDescription)
-        }
-
-        process.waitUntilExit()
-
-        if process.terminationStatus != 0 {
-            let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-            let stderrText = String(data: stderrData, encoding: .utf8) ?? ""
-            logger.error(
-                "buildClassifierDatabase: CLI exited with status \(process.terminationStatus, privacy: .public): \(stderrText, privacy: .public)"
-            )
-            throw RunError.nonZeroExit(status: process.terminationStatus, stderr: stderrText)
+        let output = try run(arguments: arguments)
+        if !output.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            logger.info("buildClassifierDatabase: CLI stdout: \(output.stdout, privacy: .public)")
         }
 
         logger.info("buildClassifierDatabase: Build succeeded for \(tool, privacy: .public)")
     }
+}
+
+private final class OutputCapture: @unchecked Sendable {
+    var data = Data()
 }

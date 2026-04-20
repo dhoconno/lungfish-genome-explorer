@@ -186,11 +186,19 @@ final class FASTQOperationDialogState {
         self.demultiplexErrorRate = 0.15
         self.demultiplexTrimBarcodes = true
         self.embeddedToolReady = defaultToolID.defaultEmbeddedReadiness
+
+        if initialCategory == .assembly {
+            self.selectedToolID = Self.defaultAssemblyTool(for: self.detectedAssemblyReadType)
+        }
     }
 
     func selectCategory(_ category: FASTQOperationCategoryID) {
         selectedCategory = category
-        selectedToolID = category.defaultToolID
+        if category == .assembly {
+            selectedToolID = Self.defaultAssemblyTool(for: detectedAssemblyReadType)
+        } else {
+            selectedToolID = category.defaultToolID
+        }
         normalizeSelectionState()
     }
 
@@ -653,7 +661,9 @@ final class FASTQOperationDialogState {
     }
 
     var sidebarItems: [DatasetOperationToolSidebarItem] {
-        Self.toolIDs(for: selectedCategory).map(\.sidebarItem)
+        Self.toolIDs(for: selectedCategory).map { toolID in
+            toolID.sidebarItem(availability: availability(for: toolID))
+        }
     }
 
     var selectedToolSummary: String {
@@ -910,7 +920,7 @@ final class FASTQOperationDialogState {
     }
 
     private var assemblyCompatibilityEvaluation: AssemblyCompatibilityEvaluation {
-        let detectedReadTypes = selectedInputURLs.compactMap(AssemblyReadType.detect(fromFASTQ:))
+        let detectedReadTypes = selectedInputURLs.compactMap(AssemblyReadType.detect(fromInputURL:))
         let evaluation = AssemblyCompatibility.evaluate(detectedReadTypes: detectedReadTypes)
 
         let hasKnownAndUnknownMix =
@@ -925,6 +935,51 @@ final class FASTQOperationDialogState {
             supportedTools: [],
             blockingMessage: Self.mixedDetectedAndUnclassifiedAssemblyInputsMessage
         )
+    }
+
+    private func availability(for toolID: FASTQOperationToolID) -> DatasetOperationAvailability {
+        guard selectedCategory == .assembly,
+              let assemblyTool = toolID.assemblyTool,
+              let readType = detectedAssemblyReadType else {
+            return .available
+        }
+
+        guard !AssemblyCompatibility.isSupported(tool: assemblyTool, for: readType) else {
+            return .available
+        }
+
+        return .disabled(reason: Self.requiredReadTypeBadge(for: assemblyTool))
+    }
+
+    private static func defaultAssemblyTool(for readType: AssemblyReadType?) -> FASTQOperationToolID {
+        guard let readType,
+              let preferredTool = AssemblyCompatibility.supportedTools(for: readType).first else {
+            return .spades
+        }
+
+        switch preferredTool {
+        case .spades:
+            return .spades
+        case .megahit:
+            return .megahit
+        case .skesa:
+            return .skesa
+        case .flye:
+            return .flye
+        case .hifiasm:
+            return .hifiasm
+        }
+    }
+
+    private static func requiredReadTypeBadge(for tool: AssemblyTool) -> String {
+        switch tool {
+        case .spades, .megahit, .skesa:
+            return "Requires Illumina"
+        case .flye:
+            return "Requires ONT"
+        case .hifiasm:
+            return "Requires HiFi/CCS"
+        }
     }
 
     private func assemblyRequest(from config: SPAdesAssemblyConfig) -> AssemblyRunRequest? {
@@ -1071,7 +1126,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .megahit: return "Assemble short reads with a compact de Bruijn graph."
         case .skesa: return "Assemble isolate-focused short reads conservatively."
         case .flye: return "Assemble ONT long reads into contigs."
-        case .hifiasm: return "Assemble PacBio HiFi reads into phased contigs."
+        case .hifiasm: return "Assemble PacBio HiFi/CCS reads into phased contigs."
         case .kraken2: return "Classify reads taxonomically."
         case .esViritu: return "Detect viruses and report coverage."
         case .taxTriage: return "Run the TaxTriage pathogen workflow."
@@ -1128,12 +1183,14 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         categoryID == .classification ? .fixedBatch : .perInput
     }
 
-    var sidebarItem: DatasetOperationToolSidebarItem {
+    func sidebarItem(
+        availability: DatasetOperationAvailability = .available
+    ) -> DatasetOperationToolSidebarItem {
         DatasetOperationToolSidebarItem(
             id: rawValue,
             title: title,
             subtitle: subtitle,
-            availability: .available
+            availability: availability
         )
     }
 

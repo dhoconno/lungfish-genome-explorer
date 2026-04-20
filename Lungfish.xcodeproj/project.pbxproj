@@ -30,6 +30,8 @@
 		F1E2D3C4B5A6978877665591 /* MainWindowRobot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A6978877665599 /* MainWindowRobot.swift */; };
 		F1E2D3C4B5A6978877665592 /* ProjectLifecycleRobot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A697887766559A /* ProjectLifecycleRobot.swift */; };
 		F1E2D3C4B5A6978877665593 /* SystemPanelRobot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A697887766559B /* SystemPanelRobot.swift */; };
+		F1E2D3C4B5A697887766559C /* AssemblyXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A697887766559D /* AssemblyXCUITests.swift */; };
+		F1E2D3C4B5A697887766559E /* AssemblyRobot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A697887766559F /* AssemblyRobot.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -47,6 +49,8 @@
 		F1E2D3C4B5A6978877665599 /* MainWindowRobot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/TestSupport/MainWindowRobot.swift; sourceTree = SOURCE_ROOT; };
 		F1E2D3C4B5A697887766559A /* ProjectLifecycleRobot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/TestSupport/ProjectLifecycleRobot.swift; sourceTree = SOURCE_ROOT; };
 		F1E2D3C4B5A697887766559B /* SystemPanelRobot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/TestSupport/SystemPanelRobot.swift; sourceTree = SOURCE_ROOT; };
+		F1E2D3C4B5A697887766559D /* AssemblyXCUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/AssemblyXCUITests.swift; sourceTree = SOURCE_ROOT; };
+		F1E2D3C4B5A697887766559F /* AssemblyRobot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/TestSupport/AssemblyRobot.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -106,6 +110,7 @@
 		F1E2D3C4B5A6978877665578 /* LungfishXCUITests */ = {
 			isa = PBXGroup;
 			children = (
+				F1E2D3C4B5A697887766559D /* AssemblyXCUITests.swift */,
 				F1E2D3C4B5A6978877665573 /* DatabaseSearchXCUITests.swift */,
 				F1E2D3C4B5A6978877665595 /* MainWindowNavigationXCUITests.swift */,
 				F1E2D3C4B5A6978877665594 /* ProjectLifecycleXCUITests.swift */,
@@ -117,6 +122,7 @@
 		F1E2D3C4B5A6978877665579 /* TestSupport */ = {
 			isa = PBXGroup;
 			children = (
+				F1E2D3C4B5A697887766559F /* AssemblyRobot.swift */,
 				F1E2D3C4B5A6978877665597 /* LungfishFixtureCatalog.swift */,
 				F1E2D3C4B5A6978877665574 /* LungfishAppRobot.swift */,
 				F1E2D3C4B5A6978877665598 /* LungfishProjectFixtureBuilder.swift */,
@@ -325,6 +331,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F1E2D3C4B5A697887766559C /* AssemblyXCUITests.swift in Sources */,
+				F1E2D3C4B5A697887766559E /* AssemblyRobot.swift in Sources */,
 				F1E2D3C4B5A6978877665571 /* DatabaseSearchXCUITests.swift in Sources */,
 				F1E2D3C4B5A6978877665572 /* LungfishAppRobot.swift in Sources */,
 				F1E2D3C4B5A6978877665589 /* LungfishFixtureCatalog.swift in Sources */,

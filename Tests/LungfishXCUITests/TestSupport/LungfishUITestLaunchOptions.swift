@@ -11,6 +11,7 @@ struct LungfishUITestLaunchOptions {
         "LUNGFISH_UI_TEST_WELCOME_OPEN_PROJECT_PATH",
         "LUNGFISH_UI_TEST_WELCOME_CREATE_PROJECT_PATH",
         "LUNGFISH_UI_TEST_EVENT_LOG_PATH",
+        "LUNGFISH_CLI_PATH",
     ]
 
     var scenario: String?
@@ -21,6 +22,7 @@ struct LungfishUITestLaunchOptions {
     var welcomeOpenProjectPath: URL?
     var welcomeCreateProjectPath: URL?
     var eventLogPath: URL?
+    var cliPath: URL?
 
     func apply(to app: XCUIApplication) {
         var arguments = ["--ui-test-mode"]
@@ -52,6 +54,9 @@ struct LungfishUITestLaunchOptions {
         }
         if let eventLogPath {
             environment["LUNGFISH_UI_TEST_EVENT_LOG_PATH"] = eventLogPath.path
+        }
+        if let cliPath {
+            environment["LUNGFISH_CLI_PATH"] = cliPath.path
         }
         app.launchEnvironment = environment
     }

@@ -4113,8 +4113,9 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         _ request: FASTQOperationLaunchRequest,
         preferredOutputDirectory: URL? = nil
     ) {
+        let currentProjectURL = sidebarController.currentProjectURL?.standardizedFileURL
         let destinationRoot = preferredOutputDirectory?.standardizedFileURL
-            ?? sidebarController.currentProjectURL?.appendingPathComponent("Analyses", isDirectory: true)
+            ?? currentProjectURL?.appendingPathComponent("Analyses", isDirectory: true)
             ?? request.primaryInputURL?.deletingLastPathComponent().standardizedFileURL
             ?? FileManager.default.temporaryDirectory
 
@@ -4126,7 +4127,18 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         }
 
         let workingDirectory: URL
-        if request.outputMode == .groupedResult || request.isDemultiplexRequest {
+        if case .assemble(let assemblyRequest, _) = request,
+           let currentProjectURL {
+            do {
+                workingDirectory = try AnalysesFolder.createAnalysisDirectory(
+                    tool: assemblyRequest.tool.rawValue,
+                    in: currentProjectURL
+                )
+            } catch {
+                logger.error("runFASTQOperationLaunchRequest: Failed to create analysis directory: \(error.localizedDescription, privacy: .public)")
+                return
+            }
+        } else if request.outputMode == .groupedResult || request.isDemultiplexRequest {
             workingDirectory = uniqueFASTQOperationOutputDirectory(
                 in: destinationRoot,
                 request: request

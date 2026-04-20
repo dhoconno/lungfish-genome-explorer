@@ -17,7 +17,7 @@ public enum AssemblyReadType: String, CaseIterable, Codable, Sendable {
         switch self {
         case .illuminaShortReads: return "Illumina short reads"
         case .ontReads: return "ONT reads"
-        case .pacBioHiFi: return "PacBio HiFi"
+        case .pacBioHiFi: return "PacBio HiFi/CCS"
         }
     }
 
@@ -29,7 +29,7 @@ public enum AssemblyReadType: String, CaseIterable, Codable, Sendable {
         case .ontReads:
             return "Single-file Oxford Nanopore long reads."
         case .pacBioHiFi:
-            return "Single-file PacBio HiFi long reads."
+            return "Single-file PacBio HiFi/CCS long reads."
         }
     }
 
@@ -61,6 +61,33 @@ public enum AssemblyReadType: String, CaseIterable, Codable, Sendable {
         return detect(fromFASTQHeader: header)
     }
 
+    /// Best-effort detection for an app-selected assembly input.
+    ///
+    /// Supports raw FASTQ files, `.lungfishfastq` bundles, and files inside bundles.
+    /// Falls back to persisted sequencing-platform metadata when header sniffing
+    /// is inconclusive.
+    public static func detect(fromInputURL url: URL) -> Self? {
+        guard let fastqURL = resolveFASTQURL(forInputURL: url) else {
+            return nil
+        }
+
+        let persistedMetadata = FASTQMetadataStore.load(for: fastqURL)
+
+        if let explicitReadType = persistedMetadata?.assemblyReadType.flatMap(Self.init(persistedReadType:)) {
+            return explicitReadType
+        }
+
+        if let detected = detect(fromFASTQ: fastqURL) {
+            return detected
+        }
+
+        if let platform = persistedMetadata?.sequencingPlatform {
+            return detect(from: platform)
+        }
+
+        return nil
+    }
+
     /// Best-effort multi-input detection, preserving stable case order.
     public static func detectAll(fromFASTQs urls: [URL]) -> [Self] {
         let detected = Set(urls.compactMap(detect(fromFASTQ:)))
@@ -90,6 +117,17 @@ public enum AssemblyReadType: String, CaseIterable, Codable, Sendable {
             self = .pacBioHiFi
         default:
             return nil
+        }
+    }
+
+    public init?(persistedReadType: FASTQAssemblyReadType) {
+        switch persistedReadType {
+        case .illuminaShortReads:
+            self = .illuminaShortReads
+        case .ontReads:
+            self = .ontReads
+        case .pacBioHiFi:
+            self = .pacBioHiFi
         }
     }
 
@@ -159,5 +197,15 @@ public enum AssemblyReadType: String, CaseIterable, Codable, Sendable {
         }
         guard size > 0 else { return nil }
         return output.prefix(size)
+    }
+
+    private static func resolveFASTQURL(forInputURL url: URL) -> URL? {
+        let standardizedURL = url.standardizedFileURL
+        if let resolved = FASTQBundle.resolvePrimaryFASTQURL(for: standardizedURL) {
+            return resolved
+        }
+
+        let parentURL = standardizedURL.deletingLastPathComponent().standardizedFileURL
+        return FASTQBundle.resolvePrimaryFASTQURL(for: parentURL)
     }
 }

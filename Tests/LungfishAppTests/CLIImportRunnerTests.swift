@@ -230,6 +230,22 @@ final class CLIImportRunnerTests: XCTestCase {
         XCTAssertEqual(resolved, debugCLI)
     }
 
+    func testResolveCLIPathPrefersExplicitEnvironmentOverride() throws {
+        let tempDir = try makeTemporaryDirectory()
+        let explicitCLI = tempDir.appendingPathComponent("lungfish-cli")
+        FileManager.default.createFile(atPath: explicitCLI.path, contents: Data())
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: explicitCLI.path)
+
+        let resolved = CLIImportRunner.resolveCLIPath(
+            mainExecutableURL: nil,
+            currentWorkingDirectoryURL: nil,
+            environment: ["LUNGFISH_CLI_PATH": explicitCLI.path],
+            pathLookup: { nil }
+        )
+
+        XCTAssertEqual(resolved, explicitCLI)
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

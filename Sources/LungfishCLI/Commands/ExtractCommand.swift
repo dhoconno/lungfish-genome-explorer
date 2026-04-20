@@ -16,10 +16,12 @@ struct ExtractCommand: AsyncParsableCommand {
             Subcommands:
               sequence  Extract subsequences from FASTA files by region
               reads     Extract reads from FASTQ, BAM, or database sources
+              contigs   Extract selected contigs from assemblies
             """,
         subcommands: [
             ExtractSequenceSubcommand.self,
             ExtractReadsSubcommand.self,
+            ExtractContigsSubcommand.self,
         ],
         defaultSubcommand: ExtractSequenceSubcommand.self
     )
