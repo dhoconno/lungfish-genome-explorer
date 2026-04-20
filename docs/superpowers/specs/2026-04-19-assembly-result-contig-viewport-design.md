@@ -26,6 +26,7 @@ All sequence-materialization actions must be backed by `lungfish-cli`, not by ad
 
 - Replace the current placeholder assembly viewport with a production-quality result browser.
 - Follow the multi-part classifier viewport style: summary strip, filtered list, detail pane, and action surface.
+- Support the same movable pane layouts the classifier views already expose.
 - Make assembled contigs explorable as first-class project outputs.
 - Keep the visible field set biologically and bioinformatically defensible.
 - Support multi-selection for downstream reuse of selected contigs.
@@ -71,6 +72,10 @@ This means the missing work is not “invent an assembly browser from nothing.�
 
 Use a classifier-like multi-part shell, but keep the assembly-specific emphasis on `list first, sequence second`.
 
+The assembly viewport must not lock users into a single left/right arrangement. It should follow the same pane-layout model as the classifier views.
+
+`List | Detail`
+
 ```text
 +---------------------------------------------------------------+
 | Summary Strip                                                 |
@@ -86,7 +91,62 @@ Use a classifier-like multi-part shell, but keep the assembly-specific emphasis 
 +---------------------------------------------------------------+
 ```
 
+`Detail | List`
+
+```text
++---------------------------------------------------------------+
+| Summary Strip                                                 |
++---------------------------------------------------------------+
+| Contig Detail                 | Contig List + Filters         |
+|                               |                               |
+| overview                      | classifier-style table        |
+| sequence                      | per-column filters            |
+| assembly context              | multi-select                  |
+| source artifacts              | keyboard + pointer            |
++---------------------------------------------------------------+
+| Action Bar                                                    |
++---------------------------------------------------------------+
+```
+
+`List Over Detail`
+
+```text
++---------------------------------------------------------------+
+| Summary Strip                                                 |
++---------------------------------------------------------------+
+| Contig List + Filters                                         |
+| classifier-style table                                        |
+| per-column filters                                            |
+| multi-select                                                  |
++---------------------------------------------------------------+
+| Contig Detail                                                 |
+| overview, sequence, assembly context, source artifacts        |
++---------------------------------------------------------------+
+| Action Bar                                                    |
++---------------------------------------------------------------+
+```
+
 The global app inspector remains separate. The assembly viewport’s own detail pane lives inside the main viewer content area and is not a replacement for the app-level inspector.
+
+### Pane Layout Modes
+
+The assembly viewport should inherit the same layout modes already used by the classifier views:
+
+- `Detail | List`
+- `List | Detail`
+- `List Over Detail`
+
+This should use the shared pane-layout foundation rather than a custom assembly-only implementation.
+
+For the first pass, the assembly viewport should honor the same persisted layout preference the classifier views already use, unless that preference is later generalized into a broader viewer-wide setting.
+
+Requirements:
+
+- the selected layout persists across launches
+- switching layouts preserves the current row selection, filters, and detail state
+- divider positions follow the same clamp and restoration rules as the classifier views
+- the action bar remains bottom-anchored in all three layouts
+- accessibility identifiers remain stable enough that layout changes do not break automation
 
 ## Viewport Structure
 
@@ -363,7 +423,7 @@ The viewport should explicitly borrow the classifier browser vocabulary:
 
 - concise summary bar at the top
 - searchable table with visible filtering affordances
-- split-pane detail presentation
+- split-pane detail presentation with the same movable layout modes as classifier views
 - bottom action bar for selection-scoped actions
 - accessible multi-selection behavior
 
