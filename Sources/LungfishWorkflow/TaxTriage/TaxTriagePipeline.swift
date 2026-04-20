@@ -104,6 +104,12 @@ public actor TaxTriagePipeline {
         }
     }
 
+    struct PreparedPipelineProjectSource {
+        let launchTarget: String
+        let revision: String?
+        let cleanupDirectory: URL?
+    }
+
     /// Shared instance for convenience.
     public static let shared = TaxTriagePipeline()
 
@@ -277,10 +283,6 @@ public actor TaxTriagePipeline {
             in: effectiveConfig.outputDirectory,
             useNextflowConda: useNextflowConda
         )
-        let arguments = buildNextflowLaunchArguments(
-            config: effectiveConfig,
-            runtimeConfigURL: runtimeConfigURL
-        )
         let logFile = config.outputDirectory.appendingPathComponent("nextflow.log")
 
         // Prepare environment
@@ -290,7 +292,6 @@ public actor TaxTriagePipeline {
         // has the conda prefix hardcoded into NXF_DIST without proper quoting.
         // Patch the script to quote the NXF_DIST assignment.
         patchNextflowScript(at: nextflowPath)
-        patchTaxTriageDownloadScript()
 
         // Run Nextflow via micromamba to ensure the conda environment is activated
         let condaManager = CondaManager.shared
@@ -304,6 +305,19 @@ public actor TaxTriagePipeline {
             nextflowEnvName = "nextflow"
         }
 
+        let pipelineProjectSource = try await preparePipelineProjectSource(forRevision: effectiveConfig.revision)
+        defer {
+            if let cleanupDirectory = pipelineProjectSource.cleanupDirectory {
+                try? FileManager.default.removeItem(at: cleanupDirectory)
+            }
+        }
+
+        let arguments = buildNextflowLaunchArguments(
+            config: effectiveConfig,
+            runtimeConfigURL: runtimeConfigURL,
+            pipelineLaunchTarget: pipelineProjectSource.launchTarget,
+            pipelineRevision: pipelineProjectSource.revision
+        )
         let micromambaArgs = ["run", "-n", nextflowEnvName, "nextflow"] + arguments
         let launchCommand = shellCommand(executablePath: micromambaPath.path, arguments: micromambaArgs)
         logger.info("TaxTriage launch command: \(launchCommand, privacy: .public)")
@@ -588,6 +602,117 @@ public actor TaxTriagePipeline {
         }
     }
 
+    /// Creates an isolated local project snapshot for the requested revision when a cached
+    /// Nextflow TaxTriage asset checkout is available.
+    ///
+    /// This avoids `nextflow run ... -r <revision>` failing against a dirty shared cache checkout.
+    func preparePipelineProjectSource(forRevision revision: String) async throws -> PreparedPipelineProjectSource {
+        let cachedRepositoryURL = cachedTaxTriageRepositoryURL()
+        guard FileManager.default.fileExists(atPath: cachedRepositoryURL.appendingPathComponent(".git").path) else {
+            return PreparedPipelineProjectSource(
+                launchTarget: TaxTriageConfig.pipelineRepository,
+                revision: revision,
+                cleanupDirectory: nil
+            )
+        }
+
+        guard await cachedRepositoryContainsRevision(cachedRepositoryURL, revision: revision) else {
+            return PreparedPipelineProjectSource(
+                launchTarget: TaxTriageConfig.pipelineRepository,
+                revision: revision,
+                cleanupDirectory: nil
+            )
+        }
+
+        let exportDirectory = try ProjectTempDirectory.create(
+            prefix: "taxtriage-project-",
+            contextURL: nil,
+            policy: .systemOnly
+        )
+
+        do {
+            try await exportTaxTriageProject(
+                atRevision: revision,
+                from: cachedRepositoryURL,
+                to: exportDirectory
+            )
+            patchTaxTriageDownloadScript(in: exportDirectory)
+            return PreparedPipelineProjectSource(
+                launchTarget: exportDirectory.path,
+                revision: nil,
+                cleanupDirectory: exportDirectory
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: exportDirectory)
+            throw TaxTriagePipelineError.prerequisiteFailed(
+                tool: "TaxTriage source staging",
+                reason: error.localizedDescription
+            )
+        }
+    }
+
+    private func cachedRepositoryContainsRevision(_ repositoryURL: URL, revision: String) async -> Bool {
+        let gitURL = URL(fileURLWithPath: "/usr/bin/git")
+        do {
+            let result = try await processManager.runAndWait(
+                executable: gitURL,
+                arguments: ["-C", repositoryURL.path, "rev-parse", "--verify", "\(revision)^{commit}"],
+                workingDirectory: repositoryURL
+            )
+            return result.exitCode == 0
+        } catch {
+            logger.warning("Failed to inspect cached TaxTriage revision \(revision, privacy: .public): \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func exportTaxTriageProject(
+        atRevision revision: String,
+        from repositoryURL: URL,
+        to exportDirectory: URL
+    ) async throws {
+        let gitURL = URL(fileURLWithPath: "/usr/bin/git")
+        let tarURL = URL(fileURLWithPath: "/usr/bin/tar")
+        let archiveURL = exportDirectory.deletingLastPathComponent()
+            .appendingPathComponent("taxtriage-\(UUID().uuidString).tar", isDirectory: false)
+        defer { try? FileManager.default.removeItem(at: archiveURL) }
+
+        let archiveResult = try await processManager.runAndWait(
+            executable: gitURL,
+            arguments: [
+                "-C", repositoryURL.path,
+                "archive",
+                "--format=tar",
+                "--output", archiveURL.path,
+                revision,
+            ],
+            workingDirectory: repositoryURL
+        )
+        guard archiveResult.exitCode == 0 else {
+            throw TaxTriagePipelineError.prerequisiteFailed(
+                tool: "TaxTriage source archive",
+                reason: archiveResult.stderr.isEmpty ? archiveResult.stdout : archiveResult.stderr
+            )
+        }
+
+        let extractResult = try await processManager.runAndWait(
+            executable: tarURL,
+            arguments: ["-xf", archiveURL.path, "-C", exportDirectory.path],
+            workingDirectory: exportDirectory
+        )
+        guard extractResult.exitCode == 0 else {
+            throw TaxTriagePipelineError.prerequisiteFailed(
+                tool: "TaxTriage source extract",
+                reason: extractResult.stderr.isEmpty ? extractResult.stdout : extractResult.stderr
+            )
+        }
+    }
+
+    private func cachedTaxTriageRepositoryURL() -> URL {
+        homeDirectoryProvider()
+            .appendingPathComponent(".nextflow/assets/jhuapl-bio/taxtriage", isDirectory: true)
+    }
+
     /// Patches the TaxTriage download_fastas.py script to fix a bug where
     /// `os.path.basename()` returns empty string for paths with trailing slashes.
     ///
@@ -598,9 +723,8 @@ public actor TaxTriagePipeline {
     ///
     /// Fix: strip trailing slashes before calling basename.
     /// Upstream issue: https://github.com/jhuapl-bio/taxtriage
-    private func patchTaxTriageDownloadScript() {
-        let home = homeDirectoryProvider()
-        let scriptPath = home.appendingPathComponent(".nextflow/assets/jhuapl-bio/taxtriage/bin/download_fastas.py")
+    private func patchTaxTriageDownloadScript(in projectRoot: URL) {
+        let scriptPath = projectRoot.appendingPathComponent("bin/download_fastas.py")
 
         guard FileManager.default.fileExists(atPath: scriptPath.path) else { return }
 
@@ -633,10 +757,25 @@ public actor TaxTriagePipeline {
     }
 
     func buildNextflowArguments(config: TaxTriageConfig) -> [String] {
+        buildNextflowArguments(
+            config: config,
+            pipelineLaunchTarget: TaxTriageConfig.pipelineRepository,
+            pipelineRevision: config.revision
+        )
+    }
+
+    func buildNextflowArguments(
+        config: TaxTriageConfig,
+        pipelineLaunchTarget: String,
+        pipelineRevision: String?
+    ) -> [String] {
         var args: [String] = ["run"]
 
         // Pipeline source and revision
-        args += [TaxTriageConfig.pipelineRepository, "-r", config.revision]
+        args.append(pipelineLaunchTarget)
+        if let pipelineRevision {
+            args += ["-r", pipelineRevision]
+        }
 
         // Profile
         args += ["-profile", config.profile]
@@ -682,7 +821,25 @@ public actor TaxTriagePipeline {
         config: TaxTriageConfig,
         runtimeConfigURL: URL
     ) -> [String] {
-        ["-c", runtimeConfigURL.path] + buildNextflowArguments(config: config)
+        buildNextflowLaunchArguments(
+            config: config,
+            runtimeConfigURL: runtimeConfigURL,
+            pipelineLaunchTarget: TaxTriageConfig.pipelineRepository,
+            pipelineRevision: config.revision
+        )
+    }
+
+    func buildNextflowLaunchArguments(
+        config: TaxTriageConfig,
+        runtimeConfigURL: URL,
+        pipelineLaunchTarget: String,
+        pipelineRevision: String?
+    ) -> [String] {
+        ["-c", runtimeConfigURL.path] + buildNextflowArguments(
+            config: config,
+            pipelineLaunchTarget: pipelineLaunchTarget,
+            pipelineRevision: pipelineRevision
+        )
     }
 
     // MARK: - Output Collection

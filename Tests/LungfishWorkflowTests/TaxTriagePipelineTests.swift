@@ -7,6 +7,112 @@ import XCTest
 
 final class TaxTriagePipelineTests: XCTestCase {
 
+    private func makeTempDirectory(prefix: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    @discardableResult
+    private func runCommand(
+        _ executable: String,
+        _ arguments: [String],
+        workingDirectory: URL? = nil
+    ) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        process.currentDirectoryURL = workingDirectory
+
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = output
+
+        try process.run()
+        process.waitUntilExit()
+
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        let text = String(data: data, encoding: .utf8) ?? ""
+        guard process.terminationStatus == 0 else {
+            throw NSError(
+                domain: "TaxTriagePipelineTests",
+                code: Int(process.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: text]
+            )
+        }
+        return text
+    }
+
+    private func createDirtyCachedTaxTriageRepository(in home: URL) throws -> (repoURL: URL, revision: String) {
+        let repoURL = home
+            .appendingPathComponent(".nextflow", isDirectory: true)
+            .appendingPathComponent("assets", isDirectory: true)
+            .appendingPathComponent("jhuapl-bio", isDirectory: true)
+            .appendingPathComponent("taxtriage", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: repoURL.appendingPathComponent("bin", isDirectory: true), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: repoURL.appendingPathComponent("workflows", isDirectory: true), withIntermediateDirectories: true)
+
+        let downloadScript = """
+        def get_url(utl, id):
+            bb = os.path.basename(utl)
+            return utl+"/"+bb+"_genomic.fna.gz"
+        """
+        try downloadScript.write(
+            to: repoURL.appendingPathComponent("bin/download_fastas.py"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let workflow = """
+        workflow TAXTRIAGE {
+            if (!ch_assembly_txt) {
+                GET_ASSEMBLIES()
+            }
+        }
+        """
+        try workflow.write(
+            to: repoURL.appendingPathComponent("workflows/taxtriage.nf"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        try runCommand("/usr/bin/git", ["init", "--initial-branch=main"], workingDirectory: repoURL)
+        try runCommand("/usr/bin/git", ["config", "user.email", "codex@example.com"], workingDirectory: repoURL)
+        try runCommand("/usr/bin/git", ["config", "user.name", "Codex"], workingDirectory: repoURL)
+        try runCommand("/usr/bin/git", ["add", "."], workingDirectory: repoURL)
+        try runCommand("/usr/bin/git", ["commit", "-m", "Initial"], workingDirectory: repoURL)
+        let revision = try runCommand("/usr/bin/git", ["rev-parse", "HEAD"], workingDirectory: repoURL)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let dirtyDownloadScript = """
+        def get_url(utl, id):
+            bb = os.path.basename(utl.rstrip('/'))
+            return utl.rstrip("/")+"/"+bb+"_genomic.fna.gz"
+        """
+        try dirtyDownloadScript.write(
+            to: repoURL.appendingPathComponent("bin/download_fastas.py"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let dirtyWorkflow = """
+        workflow TAXTRIAGE {
+            if (!ch_assembly_txt && !params.skip_refpull && !params.skip_realignment) {
+                GET_ASSEMBLIES()
+            }
+        }
+        """
+        try dirtyWorkflow.write(
+            to: repoURL.appendingPathComponent("workflows/taxtriage.nf"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        return (repoURL, revision)
+    }
+
     func testParseIgnoredFailuresFromNextflowLog() {
         let log = """
         [aa/111111] Submitted process > NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:MINIMAP2_ALIGN (SRR35517992.SRR35517992.dwnld.references)
@@ -798,6 +904,30 @@ final class TaxTriagePipelineTests: XCTestCase {
         XCTAssertEqual(args.prefix(4), ["-c", runtimeConfigURL.path, "run", "jhuapl-bio/taxtriage"])
     }
 
+    func testBuildNextflowArgumentsWithLocalProjectSourceOmitsRevisionFlag() async {
+        let pipeline = TaxTriagePipeline()
+        let sample = TaxTriageSample(
+            sampleId: "Test",
+            fastq1: URL(fileURLWithPath: "/data/reads.fq.gz"),
+            platform: .illumina
+        )
+        let config = TaxTriageConfig(
+            samples: [sample],
+            outputDirectory: URL(fileURLWithPath: "/output"),
+            revision: "deadbeef"
+        )
+
+        let args = await pipeline.buildNextflowArguments(
+            config: config,
+            pipelineLaunchTarget: "/tmp/taxtriage-export",
+            pipelineRevision: nil
+        )
+
+        XCTAssertEqual(args[0], "run")
+        XCTAssertEqual(args[1], "/tmp/taxtriage-export")
+        XCTAssertFalse(args.contains("-r"))
+    }
+
     func testUsesNextflowCondaOnlyWhenCondaProfileIsSelected() {
         XCTAssertFalse(TaxTriagePipeline.usesNextflowConda(profile: "docker"))
         XCTAssertFalse(TaxTriagePipeline.usesNextflowConda(profile: "podman"))
@@ -876,6 +1006,38 @@ final class TaxTriagePipelineTests: XCTestCase {
             execution.redirectDirectory?.path.contains(" ") ?? true,
             "Redirect directory itself must be space-free for TaxTriage schema validation"
         )
+    }
+
+    func testPreparePipelineProjectSourceExportsPinnedRevisionFromDirtyCache() async throws {
+        let home = try makeTempDirectory(prefix: "taxtriage-home")
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let (repoURL, revision) = try createDirtyCachedTaxTriageRepository(in: home)
+
+        let pipeline = TaxTriagePipeline(homeDirectoryProvider: { home })
+        let prepared = try await pipeline.preparePipelineProjectSource(forRevision: revision)
+        defer {
+            if let cleanupDirectory = prepared.cleanupDirectory {
+                try? FileManager.default.removeItem(at: cleanupDirectory)
+            }
+        }
+
+        XCTAssertNotEqual(prepared.launchTarget, TaxTriageConfig.pipelineRepository)
+        XCTAssertNil(prepared.revision)
+
+        let exportedProject = URL(fileURLWithPath: prepared.launchTarget)
+        let exportedWorkflow = try String(
+            contentsOf: exportedProject.appendingPathComponent("workflows/taxtriage.nf"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(exportedWorkflow.contains("if (!ch_assembly_txt) {"))
+        XCTAssertFalse(exportedWorkflow.contains("!params.skip_refpull"))
+
+        let cachedWorkflow = try String(
+            contentsOf: repoURL.appendingPathComponent("workflows/taxtriage.nf"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(cachedWorkflow.contains("!params.skip_refpull"))
     }
 
     func testCheckPrerequisitesUsesManagedNextflowOutsidePATH() async throws {
