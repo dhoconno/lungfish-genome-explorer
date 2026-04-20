@@ -528,7 +528,7 @@ public actor TaxTriagePipeline {
 
     /// Builds the full argument array for the `nextflow` command.
     ///
-    /// Produces: `["run", "jhuapl-bio/taxtriage", "-r", "main", "-profile", "docker",
+    /// Produces: `["run", "jhuapl-bio/taxtriage", "-r", "<revision>", "-profile", "docker",
     ///   "--input", "samplesheet.csv", "--outdir", "/path/to/output", ...]`
     ///
     /// - Parameter config: The pipeline configuration.

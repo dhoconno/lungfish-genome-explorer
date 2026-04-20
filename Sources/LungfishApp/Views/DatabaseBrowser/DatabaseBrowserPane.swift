@@ -30,6 +30,8 @@ struct DatabaseBrowserPane<Accessory: View>: View {
         .padding(16)
         .background(Color.lungfishCanvasBackground)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(databaseAccessibilityIdentifier("database-browser-pane"))
     }
 
     private var header: some View {
@@ -78,6 +80,9 @@ struct DatabaseBrowserPane<Accessory: View>: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.lungfishStroke, lineWidth: 1)
         )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Search controls")
+        .accessibilityIdentifier(databaseAccessibilityIdentifier("database-search-shell"))
     }
 
     private var primarySearchBar: some View {
@@ -87,6 +92,7 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                     Button(scope.rawValue) {
                         viewModel.searchScope = scope
                     }
+                    .accessibilityIdentifier(databaseAccessibilityIdentifier("database-search-scope", scope.rawValue))
                 }
             } label: {
                 Text(viewModel.searchScope.rawValue)
@@ -104,6 +110,9 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                     )
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Search scope")
+            .accessibilityValue(viewModel.searchScope.rawValue)
+            .accessibilityIdentifier(databaseAccessibilityIdentifier("database-search-scope-menu"))
 
             AppKitTextField(
                 text: $viewModel.searchText,
@@ -121,6 +130,7 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Color.lungfishSecondaryText)
+                .accessibilityIdentifier(databaseAccessibilityIdentifier("database-search-clear-query-button"))
             }
 
             Button("Search") {
@@ -129,6 +139,7 @@ struct DatabaseBrowserPane<Accessory: View>: View {
             .buttonStyle(.borderedProminent)
             .tint(.lungfishCreamsicleFallback)
             .disabled(!viewModel.isSearchTextValid || viewModel.isSearching || viewModel.isDownloading)
+            .accessibilityIdentifier(databaseAccessibilityIdentifier("database-search-submit-button"))
         }
     }
 
@@ -172,6 +183,7 @@ struct DatabaseBrowserPane<Accessory: View>: View {
             .buttonStyle(.plain)
             .font(.caption)
             .foregroundStyle(Color.lungfishCreamsicleFallback)
+            .accessibilityIdentifier(databaseAccessibilityIdentifier("database-search-scope-all-fields-button"))
         }
     }
 
@@ -214,6 +226,7 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                 .buttonStyle(.plain)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Color.lungfishCreamsicleFallback)
+                .accessibilityIdentifier(databaseAccessibilityIdentifier("database-search-advanced-toggle"))
             }
 
             if viewModel.isAdvancedExpanded {
@@ -230,6 +243,9 @@ struct DatabaseBrowserPane<Accessory: View>: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.lungfishStroke, lineWidth: 1)
         )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Advanced search filters")
+        .accessibilityIdentifier(databaseAccessibilityIdentifier("database-search-advanced-controls"))
     }
 
     @ViewBuilder
@@ -251,11 +267,13 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                 filterField("Host") {
                     TextField("e.g., Homo sapiens", text: $viewModel.virusHostFilter)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-virus-host"))
                 }
 
                 filterField("Geographic Location") {
                     TextField("e.g., USA, China", text: $viewModel.virusGeoLocationFilter)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-virus-geographic-location"))
                 }
             }
 
@@ -267,11 +285,13 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                         }
                     }
                     .pickerStyle(.menu)
+                    .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-virus-completeness"))
                 }
 
                 filterField("Released Since") {
                     TextField("YYYY-MM-DD", text: $viewModel.virusReleasedSinceFilter)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-virus-released-since"))
                 }
             }
 
@@ -294,11 +314,13 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                 filterField("Country") {
                     TextField("e.g., USA, Germany", text: $viewModel.pathoplexusCountryFilter)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-pathoplexus-country"))
                 }
 
                 filterField("Host") {
                     TextField("e.g., Homo sapiens", text: $viewModel.pathoplexusHostFilter)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-pathoplexus-host"))
                 }
             }
 
@@ -306,11 +328,13 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                 filterField("Clade") {
                     TextField("e.g., IIb", text: $viewModel.pathoplexusCladeFilter)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-pathoplexus-clade"))
                 }
 
                 filterField("Lineage") {
                     TextField("e.g., B.1", text: $viewModel.pathoplexusLineageFilter)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-pathoplexus-lineage"))
                 }
             }
 
@@ -318,11 +342,13 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                 filterField("Nucleotide Mutations") {
                     TextField("e.g., C180T, A200G", text: $viewModel.pathoplexusNucMutationsFilter)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-pathoplexus-nucleotide-mutations"))
                 }
 
                 filterField("Amino Acid Mutations") {
                     TextField("e.g., GP:440G", text: $viewModel.pathoplexusAAMutationsFilter)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-pathoplexus-amino-acid-mutations"))
                 }
             }
 
@@ -331,10 +357,12 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                     HStack(spacing: 8) {
                         TextField("From", text: $viewModel.pathoplexusDateFrom)
                             .textFieldStyle(.roundedBorder)
+                            .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-pathoplexus-collection-date-from"))
                         Text("to")
                             .foregroundStyle(Color.lungfishSecondaryText)
                         TextField("To", text: $viewModel.pathoplexusDateTo)
                             .textFieldStyle(.roundedBorder)
+                            .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-pathoplexus-collection-date-to"))
                     }
                 }
 
@@ -342,10 +370,12 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                     HStack(spacing: 8) {
                         TextField("Min", text: $viewModel.minLength)
                             .textFieldStyle(.roundedBorder)
+                            .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-pathoplexus-sequence-length-min"))
                         Text("to")
                             .foregroundStyle(Color.lungfishSecondaryText)
                         TextField("Max", text: $viewModel.maxLength)
                             .textFieldStyle(.roundedBorder)
+                            .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-pathoplexus-sequence-length-max"))
                         Text("bp")
                             .font(.caption)
                             .foregroundStyle(Color.lungfishSecondaryText)
@@ -360,6 +390,7 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-pathoplexus-insdc-source"))
             }
 
             Text("Pathoplexus filters combine with AND logic across organism, provenance, and sequence attributes.")
@@ -374,11 +405,13 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                 filterField("Organism") {
                     TextField("e.g., Ebolavirus", text: $viewModel.organismFilter)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-organism"))
                 }
 
                 filterField("Location") {
                     TextField("e.g., Africa", text: $viewModel.locationFilter)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-location"))
                 }
             }
 
@@ -386,16 +419,19 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                 filterField("Gene") {
                     TextField("e.g., S", text: $viewModel.geneFilter)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-gene"))
                 }
 
                 filterField("Author") {
                     TextField("e.g., Wu F", text: $viewModel.authorFilter)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-author"))
                 }
 
                 filterField("Journal") {
                     TextField("e.g., Nature", text: $viewModel.journalFilter)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-journal"))
                 }
             }
 
@@ -407,16 +443,19 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                         }
                     }
                     .pickerStyle(.menu)
+                    .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-molecule-type"))
                 }
 
                 filterField("Sequence Length") {
                     HStack(spacing: 8) {
                         TextField("Min", text: $viewModel.minLength)
                             .textFieldStyle(.roundedBorder)
+                            .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-sequence-length-min"))
                         Text("to")
                             .foregroundStyle(Color.lungfishSecondaryText)
                         TextField("Max", text: $viewModel.maxLength)
                             .textFieldStyle(.roundedBorder)
+                            .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-sequence-length-max"))
                         Text("bp")
                             .font(.caption)
                             .foregroundStyle(Color.lungfishSecondaryText)
@@ -428,10 +467,12 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                 HStack(spacing: 8) {
                     TextField("From", text: $viewModel.pubDateFrom)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-publication-date-from"))
                     Text("to")
                         .foregroundStyle(Color.lungfishSecondaryText)
                     TextField("To", text: $viewModel.pubDateTo)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-publication-date-to"))
                 }
             }
 
@@ -456,6 +497,7 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                                 .font(.caption)
                         }
                         .toggleStyle(.checkbox)
+                        .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-sequence-properties", property.rawValue))
                     }
                 }
             }
@@ -476,6 +518,7 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                         }
                     }
                     .pickerStyle(.menu)
+                    .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-sra-platform"))
                 }
 
                 filterField("Strategy") {
@@ -485,6 +528,7 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                         }
                     }
                     .pickerStyle(.menu)
+                    .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-sra-strategy"))
                 }
 
                 filterField("Layout") {
@@ -494,6 +538,7 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                         }
                     }
                     .pickerStyle(.menu)
+                    .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-sra-layout"))
                 }
             }
 
@@ -501,16 +546,19 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                 filterField("Min Size (Mbases)") {
                     TextField("e.g., 10", text: $viewModel.sraMinMbases)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-sra-min-size-mbases"))
                 }
 
                 filterField("Publication Date") {
                     HStack(spacing: 8) {
                         TextField("From", text: $viewModel.sraPubDateFrom)
                             .textFieldStyle(.roundedBorder)
+                            .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-sra-publication-date-from"))
                         Text("to")
                             .foregroundStyle(Color.lungfishSecondaryText)
                         TextField("To", text: $viewModel.sraPubDateTo)
                             .textFieldStyle(.roundedBorder)
+                            .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-sra-publication-date-to"))
                     }
                 }
 
@@ -523,6 +571,7 @@ struct DatabaseBrowserPane<Accessory: View>: View {
                         Text("1000").tag(1000)
                     }
                     .pickerStyle(.menu)
+                    .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter-sra-max-results"))
                 }
             }
         }
@@ -637,6 +686,21 @@ struct DatabaseBrowserPane<Accessory: View>: View {
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(title)
+        .accessibilityIdentifier(databaseAccessibilityIdentifier("database-filter", title))
+    }
+
+    private func databaseAccessibilityIdentifier(_ components: String...) -> String {
+        components
+            .map { component in
+                component
+                    .lowercased()
+                    .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+            }
+            .filter { !$0.isEmpty }
+            .joined(separator: "-")
     }
 }
 

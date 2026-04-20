@@ -31,6 +31,7 @@ struct StorageSettingsTab: View {
     @State private var showingErrorAlert: Bool = false
     @State private var errorMessage: String = ""
     @State private var isWorking: Bool = false
+    @State private var canRevealCurrentLocation: Bool = false
 
     private let storageCoordinator: ManagedStorageCoordinator
 
@@ -43,8 +44,9 @@ struct StorageSettingsTab: View {
         configStore: ManagedStorageConfigStore = ManagedStorageConfigStore.shared,
         fileManager: FileManager = .default
     ) -> ViewState {
+        let bootstrapState = configStore.bootstrapConfigLoadState()
         let displayState: ManagedStorageDisplayState
-        switch configStore.bootstrapConfigLoadState() {
+        switch bootstrapState {
         case .malformed:
             displayState = .malformedBootstrap
         case .loaded(let config):
@@ -69,7 +71,7 @@ struct StorageSettingsTab: View {
         }
 
         let previousRootPath: String?
-        if case .loaded(let config) = configStore.bootstrapConfigLoadState(),
+        if case .loaded(let config) = bootstrapState,
            config.migrationState == .completed,
            let candidatePath = config.previousRootPath,
            !candidatePath.isEmpty {
@@ -125,6 +127,7 @@ struct StorageSettingsTab: View {
                             .lineLimit(2)
                             .truncationMode(.middle)
                             .textSelection(.enabled)
+                            .accessibilityIdentifier(SettingsAccessibilityID.storagePath)
 
                         Spacer(minLength: 12)
 
@@ -136,6 +139,7 @@ struct StorageSettingsTab: View {
                             .padding(.vertical, 4)
                             .background(locationBadgeBackground)
                             .clipShape(Capsule())
+                            .accessibilityIdentifier(SettingsAccessibilityID.storageBadge)
                     }
                     .padding(10)
                     .background(Color(nsColor: .controlBackgroundColor))
@@ -144,11 +148,13 @@ struct StorageSettingsTab: View {
                     Text(locationStatusDescription)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .accessibilityIdentifier(SettingsAccessibilityID.storageStatus)
 
                     if let currentOperationMessage {
                         Label(currentOperationMessage, systemImage: "arrow.triangle.2.circlepath")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .accessibilityIdentifier(SettingsAccessibilityID.storageOperation)
                     }
 
                     if case .malformedBootstrap = displayState {
@@ -158,6 +164,7 @@ struct StorageSettingsTab: View {
                         )
                         .font(.caption)
                         .foregroundStyle(.orange)
+                        .accessibilityIdentifier(SettingsAccessibilityID.storageWarning)
                     }
 
                     if let previousRootPath {
@@ -167,6 +174,7 @@ struct StorageSettingsTab: View {
                         )
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .accessibilityIdentifier(SettingsAccessibilityID.storagePreviousRoot)
                     }
 
                     HStack(spacing: 12) {
@@ -174,17 +182,20 @@ struct StorageSettingsTab: View {
                             chooseDirectory()
                         }
                         .disabled(isWorking)
+                        .accessibilityIdentifier(SettingsAccessibilityID.storageChangeLocationButton)
 
                         Button("Reveal in Finder") {
                             revealCurrentLocation()
                         }
                         .disabled(!canRevealCurrentLocation || isWorking)
+                        .accessibilityIdentifier(SettingsAccessibilityID.storageRevealButton)
 
                         if displayState != .defaultRoot {
                             Button("Use Default Location") {
                                 moveToDefaultLocation()
                             }
                             .disabled(isWorking)
+                            .accessibilityIdentifier(SettingsAccessibilityID.storageUseDefaultButton)
                         }
 
                         Spacer()
@@ -194,6 +205,7 @@ struct StorageSettingsTab: View {
                                 showingCleanupConfirmation = true
                             }
                             .disabled(isWorking)
+                            .accessibilityIdentifier(SettingsAccessibilityID.storageCleanupButton)
                         }
                     }
                 }
@@ -214,6 +226,7 @@ struct StorageSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .accessibilityIdentifier(SettingsAccessibilityID.storageForm)
         .onAppear {
             refreshDisplay()
         }
@@ -235,10 +248,6 @@ struct StorageSettingsTab: View {
         } message: {
             Text(errorMessage)
         }
-    }
-
-    private var canRevealCurrentLocation: Bool {
-        FileManager.default.fileExists(atPath: displayPath)
     }
 
     private var locationBadgeText: String {
@@ -294,13 +303,15 @@ struct StorageSettingsTab: View {
         panel.prompt = "Choose"
         panel.message = "Select a storage location for managed tools and databases. The full resolved path cannot contain spaces."
 
-        panel.begin { response in
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    guard response == .OK, let url = panel.url else { return }
-                    updateManagedStorageLocation(to: url)
-                }
-            }
+        let completionHandler: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK, let url = panel.url else { return }
+            updateManagedStorageLocation(to: url)
+        }
+
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            panel.beginSheetModal(for: window, completionHandler: completionHandler)
+        } else {
+            panel.begin(completionHandler: completionHandler)
         }
     }
 
@@ -378,5 +389,6 @@ struct StorageSettingsTab: View {
         displayPath = viewState.displayPath
         displayState = viewState.displayState
         previousRootPath = viewState.previousRootPath
+        canRevealCurrentLocation = viewState.canRevealCurrentLocation
     }
 }

@@ -857,6 +857,9 @@ final class ClassificationPipelineIntegrationTests: XCTestCase {
     func testClassifyWithViralDatabase() async throws {
         // Skip if kraken2 is not installed.
         let condaManager = CondaManager.shared
+        let micromambaAvailable = FileManager.default.fileExists(atPath: await condaManager.micromambaPath.path)
+        try XCTSkipUnless(micromambaAvailable, "micromamba not installed in managed tool environment")
+
         let kraken2Available: Bool
         do {
             _ = try await condaManager.toolPath(
@@ -937,6 +940,9 @@ final class ClassificationPipelineIntegrationTests: XCTestCase {
             // An empty report from kraken2 is acceptable: the random test sequences
             // are not expected to match anything in the viral database.
             let desc = String(describing: error)
+            if desc.contains("micromambaNotFound") {
+                throw XCTSkip("micromamba not installed in managed tool environment")
+            }
             XCTAssertTrue(
                 desc.contains("emptyReport") || desc.contains("kreportNotProduced"),
                 "Unexpected pipeline error: \(error)"

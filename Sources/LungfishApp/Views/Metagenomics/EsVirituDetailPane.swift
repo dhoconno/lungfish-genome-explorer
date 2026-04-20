@@ -21,9 +21,10 @@ private final class FlippedDetailContentView: NSView {
 ///
 /// - **No selection (overview)**: Summary statistics with a mini bar chart
 ///   of the top detected viruses by read count.
-/// - **Virus selected**: Full-width genome coverage plot rendered with
-///   CoreGraphics, plus key metrics (reads, RPKMF, identity, Pi) and
-///   a "View in BAM Viewer" button if BAM data is available.
+/// - **Virus selected with BAM**: Mini-BAM viewer fills the pane so it resizes
+///   like the TaxTriage left pane.
+/// - **Virus selected without BAM**: Full-width genome coverage plot rendered
+///   with CoreGraphics, plus key metrics (reads, RPKMF, identity, Pi).
 ///
 /// ## CoreGraphics Coverage Plot
 ///
@@ -51,20 +52,11 @@ public final class EsVirituDetailPane: NSView {
     // Virus detail data
     private var selectedAssembly: ViralAssembly?
     private var selectedCoverageWindows: [String: [ViralCoverageWindow]] = [:]
-    private var selectedBAMAccession: String?
     private var bamAvailable: Bool = false
-    private var currentBAMURL: URL?
-    private var miniBAMPreferredHeight: CGFloat = 320
-    private var miniBAMHeightConstraint: NSLayoutConstraint?
-    private let miniBAMMinHeight: CGFloat = 220
-    private let miniBAMMaxHeight: CGFloat = 900
 
     /// The mini BAM view controller (child VC managed by the parent result VC).
     /// Set by the parent so we can embed the BAM pileup in the detail pane.
     public var miniBAMViewController: MiniBAMViewController?
-
-    /// Called when the user clicks "View in BAM Viewer" for detailed inspection.
-    public var onViewBAM: ((String) -> Void)?  // accession
 
     /// Called when the user selects a virus and BAM is available — triggers
     /// automatic alignment loading in the detail pane.
@@ -85,9 +77,7 @@ public final class EsVirituDetailPane: NSView {
 
     // Detail subviews
     private let virusNameLabel = NSTextField(labelWithString: "")
-    private let metricsGrid = NSGridView()
     private let coveragePlotView = CoverageAreaChartView()
-    private let bamButton = NSButton(title: "View Alignments", target: nil, action: nil)
 
     // MARK: - Init
 
@@ -133,14 +123,6 @@ public final class EsVirituDetailPane: NSView {
         virusNameLabel.translatesAutoresizingMaskIntoConstraints = false
 
         coveragePlotView.translatesAutoresizingMaskIntoConstraints = false
-
-        bamButton.bezelStyle = .rounded
-        bamButton.controlSize = .regular
-        bamButton.image = NSImage(systemSymbolName: "eye", accessibilityDescription: "View")
-        bamButton.imagePosition = .imageLeading
-        bamButton.target = self
-        bamButton.action = #selector(viewBAMClicked)
-        bamButton.translatesAutoresizingMaskIntoConstraints = false
     }
 
     // MARK: - Public API
@@ -153,7 +135,6 @@ public final class EsVirituDetailPane: NSView {
     ) {
         overviewResult = result
         selectedAssembly = nil
-        selectedBAMAccession = nil
         bamAvailable = bamURL != nil
         displayMode = .overview
         rebuildContent()
@@ -169,10 +150,8 @@ public final class EsVirituDetailPane: NSView {
         selectedAssembly = assembly
         selectedCoverageWindows = coverageWindows
         bamAvailable = bamURL != nil
-        currentBAMURL = bamURL
 
         let selectedContig = assembly.contigs.first { $0.accession == focusedContigAccession } ?? assembly.contigs.first
-        selectedBAMAccession = selectedContig?.accession
 
         displayMode = .virusDetail
         rebuildContent()
@@ -196,7 +175,6 @@ public final class EsVirituDetailPane: NSView {
         for subview in contentView.subviews {
             subview.removeFromSuperview()
         }
-        miniBAMHeightConstraint = nil
 
         switch displayMode {
         case .overview:
@@ -254,30 +232,13 @@ public final class EsVirituDetailPane: NSView {
 
     private func buildDetailContent() {
         guard let assembly = selectedAssembly else { return }
-        let isSegmented = assembly.contigs.count > 1 && assembly.contigs.contains(where: { $0.segment != nil })
-
-        // 1. BAM pileup at top of left pane (when available).
-        var topAlignedBAMView: NSView?
         if bamAvailable, let miniBAM = miniBAMViewController {
-            let bamView = miniBAM.view
-            bamView.translatesAutoresizingMaskIntoConstraints = false
-            contentView.addSubview(bamView)
-            miniBAM.onResizeBy = { [weak self] deltaY in
-                self?.adjustMiniBAMHeight(by: deltaY)
-            }
-            let bamHeight = bamView.heightAnchor.constraint(equalToConstant: miniBAMPreferredHeight)
-            miniBAMHeightConstraint = bamHeight
-
-            NSLayoutConstraint.activate([
-                bamView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
-                bamView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
-                bamView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -4),
-                bamHeight,
-            ])
-            topAlignedBAMView = bamView
-        } else {
-            miniBAMViewController?.onResizeBy = nil
+            buildMiniBAMOnlyDetailContent(using: miniBAM)
+            return
         }
+
+        let isSegmented = assembly.contigs.count > 1 && assembly.contigs.contains(where: { $0.segment != nil })
+        miniBAMViewController?.onResizeBy = nil
 
         // 2. Confidence badge + Virus name + Family
         let headerStack = NSView()
@@ -357,9 +318,8 @@ public final class EsVirituDetailPane: NSView {
         }
 
         // Main layout constraints
-        let headerTopAnchor = topAlignedBAMView?.bottomAnchor ?? contentView.topAnchor
         let constraints = [
-            headerStack.topAnchor.constraint(equalTo: headerTopAnchor, constant: 12),
+            headerStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
             headerStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             headerStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
 
@@ -373,21 +333,18 @@ public final class EsVirituDetailPane: NSView {
         NSLayoutConstraint.activate(constraints)
     }
 
-    private func adjustMiniBAMHeight(by deltaY: CGFloat) {
-        guard let constraint = miniBAMHeightConstraint else { return }
+    private func buildMiniBAMOnlyDetailContent(using miniBAM: MiniBAMViewController) {
+        let bamView = miniBAM.view
+        bamView.translatesAutoresizingMaskIntoConstraints = false
+        miniBAM.onResizeBy = nil
+        contentView.addSubview(bamView)
 
-        let availableHeight: CGFloat
-        if contentView.bounds.height > 0 {
-            availableHeight = contentView.bounds.height - 120
-        } else if bounds.height > 0 {
-            availableHeight = bounds.height - 120
-        } else {
-            availableHeight = miniBAMMaxHeight
-        }
-        let maxHeight = max(miniBAMMinHeight, min(miniBAMMaxHeight, availableHeight))
-        miniBAMPreferredHeight = min(max(miniBAMMinHeight, miniBAMPreferredHeight + deltaY), maxHeight)
-        constraint.constant = miniBAMPreferredHeight
-        contentView.layoutSubtreeIfNeeded()
+        NSLayoutConstraint.activate([
+            bamView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            bamView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            bamView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            bamView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+        ])
     }
 
     private func buildMetricsView(for assembly: ViralAssembly) -> NSView {
@@ -492,17 +449,7 @@ public final class EsVirituDetailPane: NSView {
         return imageView
     }
 
-    // MARK: - Actions
-
-    @objc private func viewBAMClicked() {
-        guard let assembly = selectedAssembly else { return }
-        let accession = selectedBAMAccession ?? assembly.contigs.first?.accession ?? assembly.assembly
-        onViewBAM?(accession)
-    }
-
     // MARK: - Testing Accessors
-
-    var testSelectedBAMAccession: String? { selectedBAMAccession }
 
     var testIsShowingOverview: Bool {
         if case .overview = displayMode {

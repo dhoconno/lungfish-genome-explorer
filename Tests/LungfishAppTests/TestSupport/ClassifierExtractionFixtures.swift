@@ -111,7 +111,9 @@ enum ClassifierExtractionFixtures {
             return (resultPath: resultDir.appendingPathComponent("fake.sqlite"), projectRoot: projectRoot)
 
         case .nvd:
-            let bam = resultDir.appendingPathComponent("\(sampleId).bam")
+            let subdir = resultDir.appendingPathComponent("bam")
+            try fm.createDirectory(at: subdir, withIntermediateDirectories: true)
+            let bam = subdir.appendingPathComponent("\(sampleId).filtered.bam")
             try fm.copyItem(at: sarscov2BAM, to: bam)
             try fm.copyItem(at: sarscov2BAMIndex, to: bam.appendingPathExtension("bai"))
             return (resultPath: resultDir.appendingPathComponent("fake.sqlite"), projectRoot: projectRoot)
@@ -184,7 +186,9 @@ enum ClassifierExtractionFixtures {
                 try fm.copyItem(at: sarscov2BAM, to: bam)
                 try fm.copyItem(at: sarscov2BAMIndex, to: bam.appendingPathExtension("bai"))
             case .nvd:
-                let bam = resultDir.appendingPathComponent("\(sid).bam")
+                let subdir = resultDir.appendingPathComponent("bam")
+                try fm.createDirectory(at: subdir, withIntermediateDirectories: true)
+                let bam = subdir.appendingPathComponent("\(sid).filtered.bam")
                 try fm.copyItem(at: sarscov2BAM, to: bam)
                 try fm.copyItem(at: sarscov2BAMIndex, to: bam.appendingPathExtension("bai"))
             case .kraken2:

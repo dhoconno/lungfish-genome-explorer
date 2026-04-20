@@ -136,6 +136,45 @@ final class ProjectFileTests: XCTestCase {
         XCTAssertEqual(versions[1].message, "Change 2")
     }
 
+    func testAddSequenceWithHistoryUsesHistoryOriginalContentAndHashesIncrementally() throws {
+        let projectURL = tempDirectory.appendingPathComponent("ImportedHistoryTest.lungfish")
+        let project = try ProjectFile.create(at: projectURL, name: "Imported History Test")
+
+        let originalContent = "AAAA"
+        let version1Content = "AABB"
+        let version2Content = "AABBCC"
+
+        let importedSequence = try Sequence(
+            name: "imported_history_seq",
+            alphabet: .dna,
+            bases: version2Content
+        )
+
+        let history = VersionHistory(
+            originalSequence: originalContent,
+            sequenceName: "imported_history_seq"
+        )
+        try history.commit(newSequence: version1Content, message: "Change 1")
+        try history.commit(newSequence: version2Content, message: "Change 2")
+
+        let sequenceId = try project.addSequence(importedSequence, withHistory: history)
+
+        let stored = try XCTUnwrap(project.getSequence(id: sequenceId))
+        XCTAssertEqual(stored.originalContent, originalContent)
+        XCTAssertEqual(stored.currentVersionIndex, history.currentVersionIndex)
+        XCTAssertEqual(stored.currentVersionHash, Version.computeHash(version2Content))
+
+        let versions = try project.getVersionHistory(for: sequenceId)
+        XCTAssertEqual(versions.map(\.contentHash), [
+            Version.computeHash(version1Content),
+            Version.computeHash(version2Content),
+        ])
+
+        XCTAssertEqual(try project.getSequenceContent(id: sequenceId, atVersion: 0), originalContent)
+        XCTAssertEqual(try project.getSequenceContent(id: sequenceId, atVersion: 1), version1Content)
+        XCTAssertEqual(try project.getSequenceContent(id: sequenceId, atVersion: 2), version2Content)
+    }
+
     func testGetSequenceContent() throws {
         let projectURL = tempDirectory.appendingPathComponent("ContentTest.lungfish")
         let project = try ProjectFile.create(at: projectURL, name: "Content Test")

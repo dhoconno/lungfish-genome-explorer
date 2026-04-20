@@ -92,6 +92,7 @@ struct TranslationToolView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    .accessibilityIdentifier("translation-tool-mode-picker")
 
                     if mode == .singleFrame {
                         Picker("Frame", selection: $singleFrame) {
@@ -99,6 +100,7 @@ struct TranslationToolView: View {
                                 Text(frame.rawValue).tag(frame)
                             }
                         }
+                        .accessibilityIdentifier("translation-tool-frame-picker")
                     }
                 } header: {
                     Text("Reading Frames")
@@ -111,6 +113,7 @@ struct TranslationToolView: View {
                             Text(codonTableNames[i]).tag(i)
                         }
                     }
+                    .accessibilityIdentifier("translation-tool-codon-table-picker")
                 } header: {
                     Text("Codon Table")
                 }
@@ -122,14 +125,17 @@ struct TranslationToolView: View {
                             Text(scheme.displayName).tag(scheme)
                         }
                     }
+                    .accessibilityIdentifier("translation-tool-color-scheme-picker")
 
                     Toggle("Show Stop Codons", isOn: $showStopCodons)
+                        .accessibilityIdentifier("translation-tool-stop-codons-toggle")
                 } header: {
                     Text("Display Options")
                 }
             }
             .formStyle(.grouped)
             .scrollDisabled(true)
+            .accessibilityIdentifier("translation-tool-sheet")
 
             Divider()
 
@@ -146,6 +152,7 @@ struct TranslationToolView: View {
                     onCancel?()
                 }
                 .keyboardShortcut(.cancelAction)
+                .accessibilityIdentifier("translation-tool-cancel-button")
 
                 Spacer()
 
@@ -158,6 +165,7 @@ struct TranslationToolView: View {
                     )
                     onApply?(config)
                 }
+                .accessibilityIdentifier("translation-tool-hide-button")
 
                 Button("Apply") {
                     let frames = mode.frames(singleFrame: singleFrame)
@@ -170,6 +178,7 @@ struct TranslationToolView: View {
                     onApply?(config)
                 }
                 .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier("translation-tool-apply-button")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import Darwin
 import os.log
 import LungfishCore
 import LungfishIO
@@ -105,11 +106,103 @@ private final class TailBuffer: @unchecked Sendable {
     var data: Data { buffer }
 }
 
+private enum ProcessCancellationReason {
+    case task
+    case timeout
+}
+
+private func processExists(pid: Int32) -> Bool {
+    guard pid > 0 else { return false }
+    if kill(pid, 0) == 0 {
+        return true
+    }
+    return errno != ESRCH
+}
+
+private func descendantProcessIDs(of rootPID: Int32) -> [Int32] {
+    guard rootPID > 0 else { return [] }
+
+    let ps = Process()
+    ps.executableURL = URL(fileURLWithPath: "/bin/ps")
+    ps.arguments = ["-Ao", "pid=,ppid="]
+
+    let stdoutPipe = Pipe()
+    ps.standardOutput = stdoutPipe
+    ps.standardError = Pipe()
+
+    do {
+        try ps.run()
+    } catch {
+        return []
+    }
+
+    let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+    ps.waitUntilExit()
+
+    guard ps.terminationStatus == 0, let output = String(data: data, encoding: .utf8) else {
+        return []
+    }
+
+    var childrenByParent: [Int32: [Int32]] = [:]
+    for line in output.split(separator: "\n") {
+        let fields = line.split(whereSeparator: \.isWhitespace)
+        guard fields.count == 2,
+              let pid = Int32(fields[0]),
+              let ppid = Int32(fields[1]) else {
+            continue
+        }
+        childrenByParent[ppid, default: []].append(pid)
+    }
+
+    var descendants: [Int32] = []
+    var queue: [Int32] = [rootPID]
+    var seen: Set<Int32> = [rootPID]
+
+    while !queue.isEmpty {
+        let parent = queue.removeFirst()
+        for child in childrenByParent[parent, default: []] where seen.insert(child).inserted {
+            descendants.append(child)
+            queue.append(child)
+        }
+    }
+
+    return descendants
+}
+
+private func terminateProcessTree(rootProcess: Process) {
+    let rootPID = rootProcess.processIdentifier
+    guard rootPID > 0 else {
+        if rootProcess.isRunning {
+            rootProcess.terminate()
+        }
+        return
+    }
+
+    var orderedPIDs = descendantProcessIDs(of: rootPID)
+    orderedPIDs.append(rootPID)
+
+    var seen = Set<Int32>()
+    orderedPIDs = orderedPIDs.filter { pid in
+        pid > 0 && seen.insert(pid).inserted
+    }
+
+    for pid in orderedPIDs.reversed() where processExists(pid: pid) {
+        kill(pid, SIGTERM)
+    }
+
+    usleep(200_000)
+
+    for pid in orderedPIDs.reversed() where processExists(pid: pid) {
+        kill(pid, SIGKILL)
+    }
+}
+
 private final class ProcessCancellationState: @unchecked Sendable {
     private let lock = NSLock()
     private var processes: [Process] = []
     private var timeoutWorkItems: [DispatchWorkItem] = []
     private var cancelled = false
+    private var cancellationReason: ProcessCancellationReason?
 
     func register(process: Process) {
         lock.lock()
@@ -117,8 +210,8 @@ private final class ProcessCancellationState: @unchecked Sendable {
         let shouldCancel = cancelled
         lock.unlock()
 
-        if shouldCancel, process.isRunning {
-            process.terminate()
+        if shouldCancel {
+            terminateProcessTree(rootProcess: process)
         }
     }
 
@@ -139,19 +232,42 @@ private final class ProcessCancellationState: @unchecked Sendable {
         return cancelled
     }
 
+    var didTimeOut: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancellationReason == .timeout
+    }
+
     func cancel() {
+        cancel(reason: .task)
+    }
+
+    func cancelForTimeout() {
+        cancel(reason: .timeout)
+    }
+
+    private func cancel(reason: ProcessCancellationReason) {
         let processesToTerminate: [Process]
         let workItemsToCancel: [DispatchWorkItem]
+        let alreadyCancelled: Bool
 
         lock.lock()
+        alreadyCancelled = cancelled
         cancelled = true
+        if cancellationReason == nil || reason == .timeout {
+            cancellationReason = reason
+        }
         processesToTerminate = processes
         workItemsToCancel = timeoutWorkItems
         lock.unlock()
 
+        if alreadyCancelled {
+            return
+        }
+
         workItemsToCancel.forEach { $0.cancel() }
-        for process in processesToTerminate where process.isRunning {
-            process.terminate()
+        for process in processesToTerminate {
+            terminateProcessTree(rootProcess: process)
         }
     }
 }
@@ -418,20 +534,23 @@ public actor NativeToolRunner {
 
     /// Bundled tool versions, loaded from tool-versions.json at launch.
     public static let bundledVersions: [String: String] = {
-        if let url = RuntimeResourceLocator.path("Tools/tool-versions.json", in: .workflow),
-           let data = try? Data(contentsOf: url),
-           let manifest = try? JSONDecoder().decode(ToolVersionsManifest.self, from: data) {
+        if let manifest = loadBundledToolManifest() {
             return Dictionary(uniqueKeysWithValues: manifest.tools.map { ($0.name, $0.version) })
         }
         return [:]
     }()
 
     /// Full tool manifest with license and source info, loaded from tool-versions.json.
-    public static let toolManifest: ToolVersionsManifest? = {
-        guard let url = RuntimeResourceLocator.path("Tools/tool-versions.json", in: .workflow),
-              let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(ToolVersionsManifest.self, from: data)
-    }()
+    public static let toolManifest: ToolVersionsManifest? = loadBundledToolManifest()
+
+    private static func loadBundledToolManifest() -> ToolVersionsManifest? {
+        if let url = RuntimeResourceLocator.path("Tools/tool-versions.json", in: .workflow),
+           let data = try? Data(contentsOf: url),
+           let manifest = try? JSONDecoder().decode(ToolVersionsManifest.self, from: data) {
+            return manifest
+        }
+        return ToolVersionsManifest.loadFromBundle()
+    }
 
     // MARK: - Initialization
 
@@ -642,9 +761,7 @@ public actor NativeToolRunner {
 
             // Timeout handling
             let timeoutWorkItem = DispatchWorkItem {
-                if process.isRunning {
-                    process.terminate()
-                }
+                cancellationState.cancelForTimeout()
             }
             cancellationState.register(timeoutWorkItem: timeoutWorkItem)
             DispatchQueue.global().asyncAfter(
@@ -689,6 +806,11 @@ public actor NativeToolRunner {
                 drainGroup.wait()
                 timeoutWorkItem.cancel()
 
+                if cancellationState.didTimeOut {
+                    continuation.resume(throwing: NativeToolError.timeout(name, actualTimeout))
+                    return
+                }
+
                 if cancellationState.isCancelled {
                     continuation.resume(throwing: CancellationError())
                     return
@@ -713,17 +835,19 @@ public actor NativeToolRunner {
 
             } catch is CancellationError {
                 timeoutWorkItem.cancel()
-                if process.isRunning {
-                    process.terminate()
+                if cancellationState.didTimeOut {
+                    continuation.resume(throwing: NativeToolError.timeout(name, actualTimeout))
+                    return
                 }
                 continuation.resume(throwing: CancellationError())
             } catch {
                 timeoutWorkItem.cancel()
                 if cancellationState.isCancelled {
-                    if process.isRunning {
-                        process.terminate()
+                    if cancellationState.didTimeOut {
+                        continuation.resume(throwing: NativeToolError.timeout(name, actualTimeout))
+                    } else {
+                        continuation.resume(throwing: CancellationError())
                     }
-                    continuation.resume(throwing: CancellationError())
                     return
                 }
                 continuation.resume(
@@ -804,9 +928,7 @@ public actor NativeToolRunner {
             cancellationState.register(process: process)
 
             let timeoutWorkItem = DispatchWorkItem {
-                if process.isRunning {
-                    process.terminate()
-                }
+                cancellationState.cancelForTimeout()
             }
             cancellationState.register(timeoutWorkItem: timeoutWorkItem)
             DispatchQueue.global().asyncAfter(
@@ -835,6 +957,11 @@ public actor NativeToolRunner {
 
                 try? outputHandle.close()
 
+                if cancellationState.didTimeOut {
+                    continuation.resume(throwing: NativeToolError.timeout(tool.rawValue, actualTimeout))
+                    return
+                }
+
                 if cancellationState.isCancelled {
                     continuation.resume(throwing: CancellationError())
                     return
@@ -857,19 +984,21 @@ public actor NativeToolRunner {
 
             } catch is CancellationError {
                 timeoutWorkItem.cancel()
-                if process.isRunning {
-                    process.terminate()
-                }
                 try? outputHandle.close()
+                if cancellationState.didTimeOut {
+                    continuation.resume(throwing: NativeToolError.timeout(tool.rawValue, actualTimeout))
+                    return
+                }
                 continuation.resume(throwing: CancellationError())
             } catch {
                 timeoutWorkItem.cancel()
                 try? outputHandle.close()
                 if cancellationState.isCancelled {
-                    if process.isRunning {
-                        process.terminate()
+                    if cancellationState.didTimeOut {
+                        continuation.resume(throwing: NativeToolError.timeout(tool.rawValue, actualTimeout))
+                    } else {
+                        continuation.resume(throwing: CancellationError())
                     }
-                    continuation.resume(throwing: CancellationError())
                     return
                 }
                 continuation.resume(
@@ -1115,9 +1244,7 @@ extension NativeToolRunner {
 
             // Timeout for the whole pipeline
             let timeoutWorkItem = DispatchWorkItem {
-                for process in processes where process.isRunning {
-                    process.terminate()
-                }
+                cancellationState.cancelForTimeout()
             }
             cancellationState.register(timeoutWorkItem: timeoutWorkItem)
             DispatchQueue.global().asyncAfter(
@@ -1162,6 +1289,11 @@ extension NativeToolRunner {
                 drainGroup.wait()
                 timeoutWorkItem.cancel()
 
+                if cancellationState.didTimeOut {
+                    continuation.resume(throwing: NativeToolError.timeout(stageNames, actualTimeout))
+                    return
+                }
+
                 if cancellationState.isCancelled {
                     continuation.resume(throwing: CancellationError())
                     return
@@ -1187,17 +1319,19 @@ extension NativeToolRunner {
 
             } catch is CancellationError {
                 timeoutWorkItem.cancel()
-                for process in processes where process.isRunning {
-                    process.terminate()
+                if cancellationState.didTimeOut {
+                    continuation.resume(throwing: NativeToolError.timeout(stageNames, actualTimeout))
+                    return
                 }
                 continuation.resume(throwing: CancellationError())
             } catch {
                 timeoutWorkItem.cancel()
-                for process in processes where process.isRunning {
-                    process.terminate()
-                }
                 if cancellationState.isCancelled {
-                    continuation.resume(throwing: CancellationError())
+                    if cancellationState.didTimeOut {
+                        continuation.resume(throwing: NativeToolError.timeout(stageNames, actualTimeout))
+                    } else {
+                        continuation.resume(throwing: CancellationError())
+                    }
                     return
                 }
                 continuation.resume(
@@ -1294,9 +1428,7 @@ extension NativeToolRunner {
             }
 
             let timeoutWorkItem = DispatchWorkItem {
-                for process in processes where process.isRunning {
-                    process.terminate()
-                }
+                cancellationState.cancelForTimeout()
             }
             cancellationState.register(timeoutWorkItem: timeoutWorkItem)
             DispatchQueue.global().asyncAfter(
@@ -1333,6 +1465,11 @@ extension NativeToolRunner {
 
                 try? outputHandle?.close()
 
+                if cancellationState.didTimeOut {
+                    continuation.resume(throwing: NativeToolError.timeout(stageNames, actualTimeout))
+                    return
+                }
+
                 if cancellationState.isCancelled {
                     continuation.resume(throwing: CancellationError())
                     return
@@ -1358,18 +1495,20 @@ extension NativeToolRunner {
             } catch is CancellationError {
                 timeoutWorkItem.cancel()
                 try? outputHandle?.close()
-                for process in processes where process.isRunning {
-                    process.terminate()
+                if cancellationState.didTimeOut {
+                    continuation.resume(throwing: NativeToolError.timeout(stageNames, actualTimeout))
+                    return
                 }
                 continuation.resume(throwing: CancellationError())
             } catch {
                 timeoutWorkItem.cancel()
                 try? outputHandle?.close()
-                for process in processes where process.isRunning {
-                    process.terminate()
-                }
                 if cancellationState.isCancelled {
-                    continuation.resume(throwing: CancellationError())
+                    if cancellationState.didTimeOut {
+                        continuation.resume(throwing: NativeToolError.timeout(stageNames, actualTimeout))
+                    } else {
+                        continuation.resume(throwing: CancellationError())
+                    }
                     return
                 }
                 continuation.resume(

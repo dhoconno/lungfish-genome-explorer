@@ -72,6 +72,36 @@ public final class ProjectStore {
     /// Schema version for migrations
     private static let schemaVersion = 1
 
+    private static let iso8601FormatterWithFractionalSeconds: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let iso8601Formatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    private static let sqliteDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return formatter
+    }()
+
+    private static let sqliteDateFormatterWithFractionalSeconds: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+        return formatter
+    }()
+
     // MARK: - Initialization
 
     /// Creates or opens a project store at the specified location.
@@ -664,8 +694,19 @@ public final class ProjectStore {
     }
 
     private func parseDate(_ string: String) -> Date {
-        let formatter = ISO8601DateFormatter()
-        return formatter.date(from: string) ?? Date()
+        if let date = Self.iso8601FormatterWithFractionalSeconds.date(from: string)
+            ?? Self.iso8601Formatter.date(from: string)
+            ?? Self.sqliteDateFormatterWithFractionalSeconds.date(from: string)
+            ?? Self.sqliteDateFormatter.date(from: string) {
+            return date
+        }
+
+        if let unixTimestamp = Double(string) {
+            return Date(timeIntervalSince1970: unixTimestamp)
+        }
+
+        Self.logger.warning("Failed to parse stored date '\(string, privacy: .public)'; falling back to current time")
+        return Date()
     }
 
     private func parseStoredSequence(from stmt: OpaquePointer?) throws -> StoredSequence {

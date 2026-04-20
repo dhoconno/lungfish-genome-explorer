@@ -78,10 +78,6 @@ private func updateUniqueReadsInDB(
     updateAccessionLength: Bool,
     quiet: Bool
 ) throws {
-    guard let samtoolsPath = findSamtools() else {
-        throw BuildDbUniqueReadsError.managedSamtoolsUnavailable
-    }
-
     var db: OpaquePointer?
     guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
         if !quiet { print("Warning: could not open database for unique reads update") }
@@ -121,6 +117,10 @@ private func updateUniqueReadsInDB(
     guard !rowsToProcess.isEmpty else {
         if !quiet { print("  No rows with BAM paths found, skipping unique reads") }
         return
+    }
+
+    guard let samtoolsPath = findSamtools() else {
+        throw BuildDbUniqueReadsError.managedSamtoolsUnavailable
     }
 
     // Step 1: Run markdup on each unique BAM file
@@ -314,20 +314,13 @@ extension BuildDbCommand {
                 return
             }
 
-            // 1. Locate confidence TSV
-            let confidenceURL = resultURL
-                .appendingPathComponent("report")
-                .appendingPathComponent("multiqc_data")
-                .appendingPathComponent("multiqc_confidences.txt")
-            guard FileManager.default.fileExists(atPath: confidenceURL.path) else {
-                throw ValidationError("Confidence file not found: \(confidenceURL.path)")
-            }
-
-            // 2. Parse confidence TSV and resolve BAM/accession data
-            let (rows, accessionMap) = try parseConfidenceTSV(at: confidenceURL, resultURL: resultURL)
+            // 1. Locate a supported taxonomy report
+            let resolvedInput = try resolveTaxonomyRows(resultURL: resultURL)
+            let rows = resolvedInput.rows
+            let accessionMap = resolvedInput.accessionMap
 
             if !globalOptions.quiet {
-                print("Parsed \(rows.count) taxonomy rows, \(accessionMap.count) accession entries from confidence report")
+                print("Parsed \(rows.count) taxonomy rows, \(accessionMap.count) accession entries from \(resolvedInput.sourceDescription)")
             }
 
             // 3. Build database
@@ -438,6 +431,34 @@ extension BuildDbCommand {
 
 extension BuildDbCommand.TaxTriageSubcommand {
 
+    private func resolveTaxonomyRows(
+        resultURL: URL
+    ) throws -> (
+        rows: [TaxTriageTaxonomyRow],
+        accessionMap: [TaxTriageAccessionEntry],
+        sourceDescription: String
+    ) {
+        let confidenceURL = resultURL
+            .appendingPathComponent("report")
+            .appendingPathComponent("multiqc_data")
+            .appendingPathComponent("multiqc_confidences.txt")
+        if FileManager.default.fileExists(atPath: confidenceURL.path) {
+            let parsed = try parseConfidenceTSV(at: confidenceURL, resultURL: resultURL)
+            return (parsed.rows, parsed.accessionMap, "confidence report")
+        }
+
+        let topDir = resultURL.appendingPathComponent("top")
+        let topReportFiles = taxTriageTopReportFiles(in: topDir)
+        guard !topReportFiles.isEmpty else {
+            throw ValidationError(
+                "No supported TaxTriage taxonomy report found in \(resultURL.path). Expected report/multiqc_data/multiqc_confidences.txt or top/*.top_report.tsv"
+            )
+        }
+
+        let parsed = try parseTopReportTSVs(at: topReportFiles, resultURL: resultURL)
+        return (parsed.rows, parsed.accessionMap, "top report fallback")
+    }
+
     /// Parses the TaxTriage multiqc_confidences.txt TSV into taxonomy rows.
     ///
     /// Also resolves BAM paths and primary accession from gcfmap files.
@@ -510,21 +531,7 @@ extension BuildDbCommand.TaxTriageSubcommand {
             let sampleType = optionalField(fields, colIndex["sample type"])
 
             // Resolve BAM path
-            let bamRelative = "minimap2/\(sample).\(sample).dwnld.references.bam"
-            let bamURL = resultURL.appendingPathComponent(bamRelative)
-            var bamPath: String?
-            var bamIndexPath: String?
-            if FileManager.default.fileExists(atPath: bamURL.path) {
-                bamPath = bamRelative
-                // Check for .bai or .csi index
-                let baiURL = URL(fileURLWithPath: bamURL.path + ".bai")
-                let csiURL = URL(fileURLWithPath: bamURL.path + ".csi")
-                if FileManager.default.fileExists(atPath: baiURL.path) {
-                    bamIndexPath = bamRelative + ".bai"
-                } else if FileManager.default.fileExists(atPath: csiURL.path) {
-                    bamIndexPath = bamRelative + ".csi"
-                }
-            }
+            let (bamPath, bamIndexPath) = resolveTaxTriageBAMPaths(sample: sample, resultURL: resultURL)
 
             // Resolve primary accession from gcfmap
             var primaryAccession: String?
@@ -594,6 +601,120 @@ extension BuildDbCommand.TaxTriageSubcommand {
         return (rows: rows, accessionMap: accessionEntries)
     }
 
+    /// Parses one or more TaxTriage `top/*.top_report.tsv` files into reduced taxonomy rows.
+    ///
+    /// This is a compatibility fallback for newer pipeline revisions that no longer emit
+    /// `multiqc_confidences.txt`. The imported rows intentionally preserve only the fields
+    /// that are present in the top-report schema.
+    func parseTopReportTSVs(
+        at urls: [URL],
+        resultURL: URL
+    ) throws -> (rows: [TaxTriageTaxonomyRow], accessionMap: [TaxTriageAccessionEntry]) {
+        let sortedURLs = urls.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let gcfmapDir = resultURL.appendingPathComponent("combine")
+        var gcfmapCache: [String: [(accession: String, organism: String)]] = [:]
+        var rows: [TaxTriageTaxonomyRow] = []
+
+        for url in sortedURLs {
+            let sample = topReportSampleID(from: url)
+            guard !sample.isEmpty else { continue }
+
+            let content = try String(contentsOf: url, encoding: .utf8)
+            let lines = content.components(separatedBy: .newlines)
+                .filter { !$0.isEmpty }
+            guard lines.count >= 2 else { continue }
+
+            let header = lines[0].split(separator: "\t", omittingEmptySubsequences: false)
+                .map { String($0) }
+            let colIndex = buildColumnIndex(from: header)
+            let nameIndex = colIndex["name"] ?? colIndex["detected organism"]
+            let taxIDIndex = colIndex["taxid"] ?? colIndex["taxonomic id #"]
+            let readsAlignedIndex = colIndex["clade_fragments_covered"] ?? colIndex["# reads aligned"]
+            let abundanceIndex = colIndex["abundance"] ?? colIndex["% reads"]
+            let k2ReadsIndex = colIndex["number_fragments_assigned"] ?? colIndex["k2 reads"]
+            let rankIndex = colIndex["rank"]
+
+            if gcfmapCache[sample] == nil {
+                gcfmapCache[sample] = loadGCFMap(
+                    at: gcfmapDir.appendingPathComponent("\(sample).combined.gcfmap.tsv")
+                )
+            }
+
+            let (bamPath, bamIndexPath) = resolveTaxTriageBAMPaths(sample: sample, resultURL: resultURL)
+
+            for line in lines.dropFirst() {
+                let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
+                    .map { String($0) }
+                let rawOrganism = field(fields, nameIndex)
+                let organism = cleanOrganismName(rawOrganism)
+                guard !organism.isEmpty else { continue }
+
+                let taxID = parseInt(fields, taxIDIndex)
+                let readsAligned = parseInt(fields, readsAlignedIndex) ?? 0
+                let pctReads = parseNumericValue(optionalField(fields, abundanceIndex))
+                let k2Reads = parseInt(fields, k2ReadsIndex)
+                let rank = optionalField(fields, rankIndex)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .uppercased()
+                let primaryAccession = gcfmapCache[sample].flatMap { findAccession(for: organism, in: $0) }
+
+                rows.append(TaxTriageTaxonomyRow(
+                    sample: sample,
+                    organism: organism,
+                    taxId: taxID,
+                    status: nil,
+                    tassScore: 0.0,
+                    readsAligned: readsAligned,
+                    uniqueReads: nil,
+                    pctReads: pctReads,
+                    pctAlignedReads: nil,
+                    coverageBreadth: nil,
+                    meanCoverage: nil,
+                    meanDepth: nil,
+                    confidence: nil,
+                    k2Reads: k2Reads,
+                    parentK2Reads: nil,
+                    giniCoefficient: nil,
+                    meanBaseQ: nil,
+                    meanMapQ: nil,
+                    mapqScore: nil,
+                    disparityScore: nil,
+                    minhashScore: nil,
+                    diamondIdentity: nil,
+                    k2DisparityScore: nil,
+                    siblingsScore: nil,
+                    breadthWeightScore: nil,
+                    hhsPercentile: nil,
+                    isAnnotated: nil,
+                    annClass: nil,
+                    microbialCategory: nil,
+                    highConsequence: nil,
+                    isSpecies: rank == "S",
+                    pathogenicSubstrains: nil,
+                    sampleType: nil,
+                    bamPath: bamPath,
+                    bamIndexPath: bamIndexPath,
+                    primaryAccession: primaryAccession,
+                    accessionLength: nil
+                ))
+            }
+        }
+
+        var accessionEntries: [TaxTriageAccessionEntry] = []
+        for (sampleID, gcfEntries) in gcfmapCache {
+            for entry in gcfEntries {
+                accessionEntries.append(TaxTriageAccessionEntry(
+                    sample: sampleID,
+                    organism: entry.organism,
+                    accession: entry.accession,
+                    description: nil
+                ))
+            }
+        }
+
+        return (rows: rows, accessionMap: accessionEntries)
+    }
+
     // MARK: - Column Index Builder
 
     /// Builds a case-insensitive column name -> index mapping from the TSV header.
@@ -651,6 +772,16 @@ extension BuildDbCommand.TaxTriageSubcommand {
         case "false": return false
         default: return nil
         }
+    }
+
+    private func parseNumericValue(_ value: String?) -> Double? {
+        guard let value else { return nil }
+        let normalized = value
+            .replacingOccurrences(of: "%", with: "")
+            .replacingOccurrences(of: ",", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return nil }
+        return Double(normalized)
     }
 
     // MARK: - Organism Name Cleanup
@@ -713,6 +844,46 @@ extension BuildDbCommand.TaxTriageSubcommand {
             return match.accession
         }
         return nil
+    }
+
+    private func taxTriageTopReportFiles(in topDir: URL) -> [URL] {
+        guard let urls = try? FileManager.default.contentsOfDirectory(
+            at: topDir,
+            includingPropertiesForKeys: nil
+        ) else {
+            return []
+        }
+        return urls.filter { $0.lastPathComponent.hasSuffix(".top_report.tsv") }
+    }
+
+    private func topReportSampleID(from url: URL) -> String {
+        let filename = url.lastPathComponent
+        let suffix = ".top_report.tsv"
+        guard filename.hasSuffix(suffix) else {
+            return url.deletingPathExtension().deletingPathExtension().lastPathComponent
+        }
+        return String(filename.dropLast(suffix.count))
+    }
+
+    private func resolveTaxTriageBAMPaths(
+        sample: String,
+        resultURL: URL
+    ) -> (bamPath: String?, bamIndexPath: String?) {
+        let bamRelative = "minimap2/\(sample).\(sample).dwnld.references.bam"
+        let bamURL = resultURL.appendingPathComponent(bamRelative)
+        guard FileManager.default.fileExists(atPath: bamURL.path) else {
+            return (nil, nil)
+        }
+
+        let baiURL = URL(fileURLWithPath: bamURL.path + ".bai")
+        let csiURL = URL(fileURLWithPath: bamURL.path + ".csi")
+        if FileManager.default.fileExists(atPath: baiURL.path) {
+            return (bamRelative, bamRelative + ".bai")
+        }
+        if FileManager.default.fileExists(atPath: csiURL.path) {
+            return (bamRelative, bamRelative + ".csi")
+        }
+        return (bamRelative, nil)
     }
 }
 

@@ -22,6 +22,11 @@ struct MainWindowRobot {
         app.launchEnvironment["LUNGFISH_DEBUG_BYPASS_REQUIRED_SETUP"] = "1"
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10), file: file, line: line)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["main-window-shell"].waitForExistence(timeout: 10),
+            file: file,
+            line: line
+        )
     }
 
     func toolbarButton(

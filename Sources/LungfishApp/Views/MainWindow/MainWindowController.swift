@@ -34,6 +34,8 @@ public class MainWindowController: NSWindowController {
     }
 
     private enum AccessibilityIdentifier {
+        static let window = "main-window"
+        static let shell = "main-window-shell"
         static let toggleSidebar = "main-window-toggle-sidebar"
         static let toggleInspector = "main-window-toggle-inspector"
         static let toggleChromosomeDrawer = "main-window-toggle-chromosome-drawer"
@@ -103,6 +105,8 @@ public class MainWindowController: NSWindowController {
         window.titlebarAppearsTransparent = false
         window.titleVisibility = .visible
         window.toolbarStyle = .unified
+        window.setAccessibilityIdentifier(AccessibilityIdentifier.window)
+        window.setAccessibilityLabel("Main window")
 
         window.collectionBehavior = [.fullScreenPrimary]
         window.tabbingMode = .automatic
@@ -117,6 +121,9 @@ public class MainWindowController: NSWindowController {
 
         mainSplitViewController = MainSplitViewController()
         window.contentViewController = mainSplitViewController
+        mainSplitViewController.view.setAccessibilityElement(true)
+        mainSplitViewController.view.setAccessibilityIdentifier(AccessibilityIdentifier.shell)
+        mainSplitViewController.view.setAccessibilityLabel("Main window shell")
 
         configureToolbar()
         setupNotificationObservers()

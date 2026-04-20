@@ -464,8 +464,9 @@ final class CLIJSONResultTests: XCTestCase {
     /// Verifies that CLIJSONMetadata contains version, timestamp, and platform fields.
     func testCLIJSONMetadata() throws {
         let metadata = CLIJSONMetadata()
+        let expectedVersion = LungfishCLI.configuration.version
 
-        XCTAssertEqual(metadata.version, "1.0.1")
+        XCTAssertEqual(metadata.version, expectedVersion)
         XCTAssertFalse(metadata.timestamp.isEmpty, "Timestamp should not be empty")
         XCTAssertFalse(metadata.platform.isEmpty, "Platform should not be empty")
         XCTAssertTrue(metadata.platform.contains("macOS"), "Platform should mention macOS")
@@ -490,15 +491,16 @@ final class CLIJSONResultTests: XCTestCase {
             command: "test",
             data: "hello"
         )
+        let expectedVersion = LungfishCLI.configuration.version
 
-        XCTAssertEqual(result.metadata.version, "1.0.1")
+        XCTAssertEqual(result.metadata.version, expectedVersion)
         XCTAssertFalse(result.metadata.timestamp.isEmpty)
 
         let data = try JSONEncoder().encode(result)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         let metadataDict = json?["metadata"] as? [String: Any]
         XCTAssertNotNil(metadataDict)
-        XCTAssertEqual(metadataDict?["version"] as? String, "1.0.1")
+        XCTAssertEqual(metadataDict?["version"] as? String, expectedVersion)
     }
 
     /// Verifies that CLIJSONError correctly formats the exit code as a string.
@@ -1243,10 +1245,10 @@ final class FastqCommandTests: XCTestCase {
         XCTAssertEqual(FastqCommand.configuration.commandName, "fastq")
     }
 
-    /// Verifies that FastqCommand has all 21 subcommands registered.
+    /// Verifies that FastqCommand has all 22 subcommands registered.
     func testFastqSubcommandCount() {
         let subcommands = FastqCommand.configuration.subcommands
-        XCTAssertEqual(subcommands.count, 21, "FastqCommand should have 21 subcommands")
+        XCTAssertEqual(subcommands.count, 22, "FastqCommand should have 22 subcommands")
     }
 
     /// Verifies that all expected subcommand names are registered.

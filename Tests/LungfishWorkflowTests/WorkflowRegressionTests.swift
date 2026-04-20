@@ -1311,8 +1311,12 @@ final class ToolManifestRegressionTests: XCTestCase {
     }
 
     func testDefaultBundledManifestUsesPackagedResource() throws {
-        let resourceURL = try XCTUnwrap(RuntimeResourceLocator.path("Tools/tool-versions.json", in: .workflow))
-        let resourceManifest = try ToolManifest.loadBundledResource(from: resourceURL)
+        let packagedManifest = try XCTUnwrap(ToolVersionsManifest.loadFromBundle())
+        let resourceManifest = ToolManifest(
+            formatVersion: packagedManifest.formatVersion,
+            lastUpdated: Date(timeIntervalSince1970: 0),
+            tools: packagedManifest.tools.compactMap { BundledToolSpec(packagedEntry: $0) }
+        )
         let defaultManifest = ToolManifest.defaultBundledManifest
 
         XCTAssertEqual(defaultManifest.formatVersion, resourceManifest.formatVersion)
@@ -1915,7 +1919,8 @@ final class TaxTriageConfigRegressionTests: XCTestCase {
         XCTAssertEqual(config.maxMemory, "16.GB")
         XCTAssertEqual(config.profile, "docker")
         XCTAssertNil(config.containerRuntime)
-        XCTAssertEqual(config.revision, "main")
+        XCTAssertEqual(config.revision, TaxTriageConfig.defaultRevision)
+        XCTAssertNotEqual(config.revision, "main")
     }
 
     func testPlatformAllCases() {
@@ -1958,7 +1963,7 @@ final class TaxTriageConfigRegressionTests: XCTestCase {
         let args = config.nextflowArguments()
         XCTAssertTrue(args.contains("jhuapl-bio/taxtriage"))
         XCTAssertTrue(args.contains("-r"))
-        XCTAssertTrue(args.contains("main"))
+        XCTAssertTrue(args.contains(TaxTriageConfig.defaultRevision))
         XCTAssertTrue(args.contains("-profile"))
         XCTAssertTrue(args.contains("--input"))
         XCTAssertTrue(args.contains("--outdir"))

@@ -114,6 +114,9 @@ public final class MiniBAMViewController: NSViewController {
     private var clipBoundsObserver: NSObjectProtocol?
     private var clipFrameObserver: NSObjectProtocol?
     private var loadTask: Task<Void, Never>?
+    private var pendingViewportResizeTask: Task<Void, Never>?
+    private var deferredReferenceTask: Task<Void, Never>?
+    private var loadGeneration: Int = 0
 
     // MARK: - Read Cache
 
@@ -154,6 +157,9 @@ public final class MiniBAMViewController: NSViewController {
 
     public override func loadView() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        container.setAccessibilityElement(true)
+        container.setAccessibilityIdentifier("mini-bam-view")
+        container.setAccessibilityLabel("Mini BAM Viewer")
         view = container
 
         setupScrollView()
@@ -208,15 +214,21 @@ public final class MiniBAMViewController: NSViewController {
         super.viewDidDisappear()
         removeLocalKeyMonitor()
         removeClipViewObservers()
+        pendingViewportResizeTask?.cancel()
+        pendingViewportResizeTask = nil
+        deferredReferenceTask?.cancel()
+        deferredReferenceTask = nil
     }
 
     deinit {
         loadTask?.cancel()
+        pendingViewportResizeTask?.cancel()
+        deferredReferenceTask?.cancel()
     }
 
     public override func viewDidLayout() {
         super.viewDidLayout()
-        updatePileupForViewportResizeIfNeeded()
+        scheduleViewportResizeUpdate()
     }
 
     /// Index of the currently selected read (for context menu operations).
@@ -270,6 +282,8 @@ public final class MiniBAMViewController: NSViewController {
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = false
         scrollView.drawsBackground = false
+        scrollView.setAccessibilityIdentifier("mini-bam-scroll-view")
+        scrollView.setAccessibilityLabel("Mini BAM Scroll View")
         // Do NOT use allowsMagnification — it just scales pixels.
         // We implement semantic zoom by changing bpPerPixel and re-rendering.
         scrollView.allowsMagnification = false
@@ -279,12 +293,16 @@ public final class MiniBAMViewController: NSViewController {
 
         resizeHandleView.translatesAutoresizingMaskIntoConstraints = false
         resizeHandleView.isHidden = true
+        resizeHandleView.setAccessibilityIdentifier("mini-bam-resize-handle")
+        resizeHandleView.setAccessibilityLabel("Mini BAM Resize Handle")
         view.addSubview(resizeHandleView)
 
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         statusLabel.font = .systemFont(ofSize: 10)
         statusLabel.textColor = .tertiaryLabelColor
         statusLabel.alignment = .center
+        statusLabel.setAccessibilityIdentifier("mini-bam-status-label")
+        statusLabel.setAccessibilityLabel("Mini BAM Status")
         view.addSubview(statusLabel)
 
         NSLayoutConstraint.activate([
@@ -368,14 +386,10 @@ public final class MiniBAMViewController: NSViewController {
         zoomLevel = newZoom
 
         // Re-render with new zoom level
-        pileupView.configure(
-            reads: reads,
-            contigName: contigName,
-            contigLength: contigLength,
+        pileupView.updateViewport(
             viewportWidth: viewportWidth,
             viewportHeight: viewportHeight,
-            zoomLevel: zoomLevel,
-            rebuildReference: false
+            zoomLevel: zoomLevel
         )
         lastKnownViewportSize = CGSize(width: viewportWidth, height: viewportHeight)
 
@@ -403,14 +417,10 @@ public final class MiniBAMViewController: NSViewController {
 
         guard !reads.isEmpty else { return }
 
-        pileupView.configure(
-            reads: reads,
-            contigName: contigName,
-            contigLength: contigLength,
+        pileupView.updateViewport(
             viewportWidth: viewportWidth,
             viewportHeight: viewportHeight,
-            zoomLevel: zoomLevel,
-            rebuildReference: false
+            zoomLevel: zoomLevel
         )
 
         let newBpPerPx = pileupView.bpPerPixel
@@ -456,6 +466,9 @@ public final class MiniBAMViewController: NSViewController {
         readNameAllowlist: Set<String>? = nil
     ) {
         loadTask?.cancel()
+        deferredReferenceTask?.cancel()
+        loadGeneration &+= 1
+        let generation = loadGeneration
         self.bamURL = bamURL
         self.contigName = contig
         self.contigLength = contigLength
@@ -494,6 +507,11 @@ public final class MiniBAMViewController: NSViewController {
             updatePileup()
             scrollToTop()
             updateZoomStatus()
+            scheduleDeferredReferenceInferenceIfNeeded(
+                reads: cached.reads,
+                requestedContig: contig,
+                generation: generation
+            )
             logger.info("Cache hit: \(cached.reads.count) reads for \(contig, privacy: .public)")
             return
         }
@@ -536,6 +554,11 @@ public final class MiniBAMViewController: NSViewController {
                 // Keep the coverage/reference tracks pinned at the top of the viewport.
                 self.scrollToTop()
                 self.updateZoomStatus()
+                self.scheduleDeferredReferenceInferenceIfNeeded(
+                    reads: visibleReads,
+                    requestedContig: requestedContig,
+                    generation: generation
+                )
 
                 // Store in cache for instant re-display on repeated selections.
                 if readNameAllowlist == nil {
@@ -628,6 +651,16 @@ public final class MiniBAMViewController: NSViewController {
         self.keyMonitorToken = nil
     }
 
+    private func scheduleViewportResizeUpdate() {
+        pendingViewportResizeTask?.cancel()
+        pendingViewportResizeTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            self?.pendingViewportResizeTask = nil
+            self?.updatePileupForViewportResizeIfNeeded()
+        }
+    }
+
     private func installClipViewObserversIfNeeded() {
         guard clipBoundsObserver == nil, clipFrameObserver == nil else { return }
         scrollView.contentView.postsBoundsChangedNotifications = true
@@ -639,7 +672,7 @@ public final class MiniBAMViewController: NSViewController {
             queue: nil
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.updatePileupForViewportResizeIfNeeded()
+                self?.scheduleViewportResizeUpdate()
             }
         }
         clipFrameObserver = NotificationCenter.default.addObserver(
@@ -648,7 +681,7 @@ public final class MiniBAMViewController: NSViewController {
             queue: nil
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.updatePileupForViewportResizeIfNeeded()
+                self?.scheduleViewportResizeUpdate()
             }
         }
     }
@@ -731,6 +764,9 @@ public final class MiniBAMViewController: NSViewController {
     public func clear() {
         loadTask?.cancel()
         loadTask = nil
+        deferredReferenceTask?.cancel()
+        deferredReferenceTask = nil
+        loadGeneration &+= 1
         reads = []
         depthPoints = []
         uniqueReadCount = 0
@@ -763,6 +799,33 @@ public final class MiniBAMViewController: NSViewController {
             referenceSequence: referenceSequence
         )
         lastKnownViewportSize = CGSize(width: viewportWidth, height: viewportHeight)
+    }
+
+    private func scheduleDeferredReferenceInferenceIfNeeded(
+        reads: [AlignedRead],
+        requestedContig: String,
+        generation: Int
+    ) {
+        deferredReferenceTask?.cancel()
+        deferredReferenceTask = nil
+
+        guard referenceSequence == nil, !reads.isEmpty else { return }
+        let contigLength = self.contigLength
+
+        deferredReferenceTask = Task.detached(priority: .utility) { [reads] in
+            let inferredBases = MiniPileupView.inferReferenceBases(reads: reads, contigLength: contigLength)
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                guard self.loadGeneration == generation else { return }
+                guard self.contigName == requestedContig else { return }
+                guard self.referenceSequence == nil else { return }
+
+                self.pileupView.applyInferredReferenceBases(inferredBases)
+                self.deferredReferenceTask = nil
+            }
+        }
     }
 
 }
@@ -811,6 +874,7 @@ final class MiniPileupView: NSView {
 
     /// Per-position inferred reference bases from aligned reads and MD tags.
     private var inferredReferenceBases: [Int: Character] = [:]
+    private var packInvocationCount: Int = 0
 
     // MARK: - Configuration
 
@@ -831,18 +895,32 @@ final class MiniPileupView: NSView {
             if let referenceSequence, !referenceSequence.isEmpty {
                 inferredReferenceBases = Self.referenceBaseMap(from: referenceSequence)
             } else {
-                inferredReferenceBases = inferReferenceBases()
+                inferredReferenceBases = [:]
             }
         }
 
+        packReads()
+        applyViewport(viewportWidth: viewportWidth, viewportHeight: viewportHeight, zoomLevel: zoomLevel)
+    }
+
+    func updateViewport(
+        viewportWidth: CGFloat,
+        viewportHeight: CGFloat,
+        zoomLevel: Double = 1.0
+    ) {
+        applyViewport(viewportWidth: viewportWidth, viewportHeight: viewportHeight, zoomLevel: zoomLevel)
+    }
+
+    private func applyViewport(
+        viewportWidth: CGFloat,
+        viewportHeight: CGFloat,
+        zoomLevel: Double
+    ) {
         // Compute bp/px: at zoom=1.0, entire contig fits in viewport.
         // Higher zoom = fewer bp/px = more detail.
         let effectiveWidth = max(1, viewportWidth - leftMargin * 2)
         let baseBpPerPx = Double(contigLength) / Double(effectiveWidth)
         bpPerPixel = max(0.1, baseBpPerPx / zoomLevel)  // min 0.1 bp/px (~10 px per base)
-
-        // Pack reads into rows (greedy left-to-right packing)
-        packReads()
 
         // Set frame size
         let pileupHeight = CGFloat(packedRows.count) * (readHeight + readGap)
@@ -871,9 +949,15 @@ final class MiniPileupView: NSView {
         needsDisplay = true
     }
 
+    func applyInferredReferenceBases(_ bases: [Int: Character]) {
+        inferredReferenceBases = bases
+        needsDisplay = true
+    }
+
     // MARK: - Read Packing
 
     private func packReads() {
+        packInvocationCount += 1
         packedRows = []
         let sorted = reads.indices.sorted { reads[$0].position < reads[$1].position }
 
@@ -1343,7 +1427,7 @@ final class MiniPileupView: NSView {
         return mapping
     }
 
-    private func inferReferenceBases() -> [Int: Character] {
+    nonisolated static func inferReferenceBases(reads: [AlignedRead], contigLength: Int) -> [Int: Character] {
         guard !reads.isEmpty else { return [:] }
 
         var baseVotes: [Int: [Character: Int]] = [:]
@@ -1368,7 +1452,7 @@ final class MiniPileupView: NSView {
         return inferred
     }
 
-    private func inferReferenceBases(for read: AlignedRead) -> [Int: Character] {
+    private nonisolated static func inferReferenceBases(for read: AlignedRead) -> [Int: Character] {
         let readBases = Array(read.sequence.uppercased())
         guard !readBases.isEmpty else { return [:] }
 
@@ -1538,4 +1622,7 @@ final class MiniPileupView: NSView {
         lastClickedReadIndex = readIndex(at: point)
         return super.menu(for: event)
     }
+
+    var testPackInvocationCount: Int { packInvocationCount }
+    var testInferredReferenceBaseCount: Int { inferredReferenceBases.count }
 }

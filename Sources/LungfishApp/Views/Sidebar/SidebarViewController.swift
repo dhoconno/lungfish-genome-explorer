@@ -120,6 +120,8 @@ public class SidebarViewController: NSViewController {
     private var searchField: NSSearchField!
     /// Button that opens the advanced universal-search builder.
     private var advancedSearchButton: NSButton!
+    /// Status label shown while universal search is running.
+    private var searchingLabel: NSTextField!
 
     // MARK: - Data
 
@@ -195,6 +197,8 @@ public class SidebarViewController: NSViewController {
         searchField.sendsSearchStringImmediately = true
         searchField.target = self
         searchField.action = #selector(searchFieldChanged(_:))
+        searchField.setAccessibilityIdentifier("sidebar-search-field")
+        searchField.setAccessibilityLabel("Search project data and analyses")
         containerView.addSubview(searchField)
 
         // Advanced query builder for HIG-friendly structured search
@@ -208,6 +212,8 @@ public class SidebarViewController: NSViewController {
         )
         advancedSearchButton.imagePosition = .imageOnly
         advancedSearchButton.toolTip = "Advanced Search"
+        advancedSearchButton.setAccessibilityIdentifier("sidebar-advanced-search-button")
+        advancedSearchButton.setAccessibilityLabel("Open advanced search")
         containerView.addSubview(advancedSearchButton)
 
         // Create outline view
@@ -263,12 +269,13 @@ public class SidebarViewController: NSViewController {
         containerView.addSubview(spinner)
         searchSpinner = spinner
 
-        let searchingLabel = NSTextField(labelWithString: "Searching project…")
+        searchingLabel = NSTextField(labelWithString: "Searching project…")
         searchingLabel.font = .systemFont(ofSize: 10)
         searchingLabel.textColor = .tertiaryLabelColor
         searchingLabel.translatesAutoresizingMaskIntoConstraints = false
         searchingLabel.isHidden = true
-        searchingLabel.tag = 9901  // Tag for toggling visibility alongside spinner
+        searchingLabel.setAccessibilityIdentifier("sidebar-searching-status")
+        searchingLabel.setAccessibilityLabel("Searching project")
         containerView.addSubview(searchingLabel)
 
         // Layout constraints
@@ -422,8 +429,7 @@ public class SidebarViewController: NSViewController {
             searchSpinner?.stopAnimation(nil)
             searchSpinner?.isHidden = true
         }
-        // Toggle the "Searching project…" label (tagged 9901)
-        view.subviews.first(where: { $0.tag == 9901 })?.isHidden = !visible
+        searchingLabel.isHidden = !visible
     }
 
     @objc private func showAdvancedSearchPopover(_ sender: NSButton) {

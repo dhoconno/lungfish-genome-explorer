@@ -2,8 +2,86 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import Foundation
 import SwiftUI
 import LungfishWorkflow
+
+enum PluginManagerAccessibilityID {
+    static let window = "plugin-manager-window"
+    static let root = "plugin-manager-root"
+    static let toolbarSegmentedControl = "plugin-manager-segmented-control"
+    static let installedBrowsePacksButton = "plugin-manager-installed-browse-packs-button"
+    static let databasesRefreshButton = "plugin-manager-databases-refresh-button"
+    static let storageSettingsButton = "plugin-manager-storage-settings-button"
+
+    static func tab(_ tab: PluginManagerViewModel.Tab) -> String {
+        switch tab {
+        case .installed:
+            "plugin-manager-tab-installed"
+        case .packs:
+            "plugin-manager-tab-packs"
+        case .databases:
+            "plugin-manager-tab-databases"
+        }
+    }
+
+    static func environmentRow(_ name: String) -> String {
+        "plugin-manager-environment-\(slug(name))"
+    }
+
+    static func environmentRemoveButton(_ name: String) -> String {
+        "plugin-manager-environment-remove-\(slug(name))"
+    }
+
+    static func packCard(_ id: String) -> String {
+        "plugin-manager-pack-\(slug(id))"
+    }
+
+    static func packInstallButton(_ id: String) -> String {
+        "plugin-manager-pack-install-\(slug(id))"
+    }
+
+    static func packRemoveButton(_ id: String) -> String {
+        "plugin-manager-pack-remove-\(slug(id))"
+    }
+
+    static func databaseRow(_ name: String) -> String {
+        "plugin-manager-database-\(slug(name))"
+    }
+
+    static func databaseDownloadButton(_ name: String) -> String {
+        "plugin-manager-database-download-\(slug(name))"
+    }
+
+    static func databaseCancelButton(_ name: String) -> String {
+        "plugin-manager-database-cancel-\(slug(name))"
+    }
+
+    static func databaseRemoveButton(_ name: String) -> String {
+        "plugin-manager-database-remove-\(slug(name))"
+    }
+
+    static func databaseDismissErrorButton(_ name: String) -> String {
+        "plugin-manager-database-dismiss-error-\(slug(name))"
+    }
+
+    private static func slug(_ raw: String) -> String {
+        var pieces: [Character] = []
+        var previousWasDash = false
+
+        for scalar in raw.lowercased().unicodeScalars {
+            if CharacterSet.alphanumerics.contains(scalar) {
+                pieces.append(Character(scalar))
+                previousWasDash = false
+            } else if !previousWasDash {
+                pieces.append("-")
+                previousWasDash = true
+            }
+        }
+
+        return String(pieces).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
+}
 
 /// Main SwiftUI view for the Plugin Manager window.
 ///
@@ -21,12 +99,16 @@ struct PluginManagerView: View {
             switch viewModel.selectedTab {
             case .installed:
                 InstalledTabView(viewModel: viewModel)
+                    .accessibilityIdentifier(PluginManagerAccessibilityID.tab(.installed))
             case .packs:
                 PacksTabView(viewModel: viewModel)
+                    .accessibilityIdentifier(PluginManagerAccessibilityID.tab(.packs))
             case .databases:
                 DatabasesTabView(viewModel: viewModel)
+                    .accessibilityIdentifier(PluginManagerAccessibilityID.tab(.databases))
             }
         }
+        .accessibilityIdentifier(PluginManagerAccessibilityID.root)
         .frame(minWidth: 600, minHeight: 350)
         .background(Color.lungfishCanvasBackground.ignoresSafeArea())
         .tint(.lungfishCreamsicleFallback)
@@ -87,6 +169,7 @@ private struct InstalledTabView: View {
                 viewModel.selectedTab = .packs
             }
             .controlSize(.large)
+            .accessibilityIdentifier(PluginManagerAccessibilityID.installedBrowsePacksButton)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.lungfishCanvasBackground)
@@ -180,6 +263,7 @@ private struct EnvironmentRow: View {
                     label: { Text("Remove") }
                     .controlSize(.small)
                     .help("Remove this environment and all its packages")
+                    .accessibilityIdentifier(PluginManagerAccessibilityID.environmentRemoveButton(environment.name))
                 }
             }
             .padding(.vertical, 6)
@@ -241,6 +325,7 @@ private struct EnvironmentRow: View {
                 }
             }
         }
+        .accessibilityIdentifier(PluginManagerAccessibilityID.environmentRow(environment.name))
     }
 }
 
@@ -424,17 +509,20 @@ private struct PackCard: View {
                     } label: { Text(installActionTitle) }
                     .controlSize(.small)
                     .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier(PluginManagerAccessibilityID.packInstallButton(pack.id))
                 } else if isReady, let onRemoveAll {
                     Button(role: .destructive) {
                         onRemoveAll()
                     } label: { Text("Remove All") }
                     .controlSize(.small)
+                    .accessibilityIdentifier(PluginManagerAccessibilityID.packRemoveButton(pack.id))
                 } else {
                     Button {
                         onInstallAll()
                     } label: { Text(installActionTitle) }
                     .controlSize(.small)
                     .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier(PluginManagerAccessibilityID.packInstallButton(pack.id))
                 }
             }
             .padding(.horizontal, 14)
@@ -495,6 +583,7 @@ private struct PackCard: View {
             RoundedRectangle(cornerRadius: 10)
                 .strokeBorder(Color.lungfishStroke, lineWidth: 1)
         )
+        .accessibilityIdentifier(PluginManagerAccessibilityID.packCard(pack.id))
     }
 }
 
@@ -569,6 +658,7 @@ struct DatabasesTabView: View {
                     viewModel.refreshDatabases()
                 } label: { Text("Refresh") }
                 .controlSize(.small)
+                .accessibilityIdentifier(PluginManagerAccessibilityID.databasesRefreshButton)
             }
 
             if !viewModel.recommendedDatabaseName.isEmpty {
@@ -697,6 +787,7 @@ struct DatabasesTabView: View {
             }
             .controlSize(.small)
             .font(.caption)
+            .accessibilityIdentifier(PluginManagerAccessibilityID.storageSettingsButton)
 
             Spacer()
 
@@ -806,6 +897,7 @@ private struct DatabaseRow: View {
                     }
                     .font(.caption)
                     .controlSize(.mini)
+                    .accessibilityIdentifier(PluginManagerAccessibilityID.databaseDismissErrorButton(database.name))
                 }
                 .padding(.leading, 34)
                 .padding(.bottom, 2)
@@ -828,6 +920,7 @@ private struct DatabaseRow: View {
                 .padding(.bottom, 4)
             }
         }
+        .accessibilityIdentifier(PluginManagerAccessibilityID.databaseRow(database.name))
     }
 
     // MARK: - Status Icon
@@ -873,6 +966,7 @@ private struct DatabaseRow: View {
             } label: { Text("Cancel") }
             .controlSize(.small)
             .help("Cancel this download")
+            .accessibilityIdentifier(PluginManagerAccessibilityID.databaseCancelButton(database.name))
         } else if database.status == .ready {
             HStack(spacing: 8) {
                 Text("Installed")
@@ -885,6 +979,7 @@ private struct DatabaseRow: View {
                 } label: { Text("Remove") }
                 .controlSize(.small)
                 .help("Remove this database and free disk space")
+                .accessibilityIdentifier(PluginManagerAccessibilityID.databaseRemoveButton(database.name))
             }
         } else {
             Button {
@@ -892,6 +987,7 @@ private struct DatabaseRow: View {
             } label: { Text("Download") }
             .controlSize(.small)
             .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier(PluginManagerAccessibilityID.databaseDownloadButton(database.name))
         }
     }
 }

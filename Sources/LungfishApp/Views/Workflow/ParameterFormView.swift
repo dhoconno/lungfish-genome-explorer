@@ -470,7 +470,12 @@ public class ParameterFormView: NSView {
             }
         }
 
-        panel.beginSheetModal(for: window!) { [weak self] response in
+        guard let hostWindow = window ?? sender.window else {
+            logger.error("browseButtonClicked: no host window available for '\(paramName, privacy: .public)'")
+            return
+        }
+
+        panel.beginSheetModal(for: hostWindow) { [weak self] response in
             if response == .OK, let url = panel.url {
                 pathControl.url = url
                 self?.notifyValueChanged(for: paramName)

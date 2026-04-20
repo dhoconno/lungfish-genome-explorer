@@ -78,6 +78,10 @@ private final class DelayedInstallWelcomeStatusProvider: @unchecked Sendable, Pl
         }
         continuation?.resume()
     }
+
+    func hasPendingInstall() -> Bool {
+        lock.withLock { installContinuation != nil }
+    }
 }
 
 private final class DelayedRefreshWelcomeStatusProvider: @unchecked Sendable, PluginPackStatusProviding {
@@ -118,6 +122,10 @@ private final class DelayedRefreshWelcomeStatusProvider: @unchecked Sendable, Pl
         }
         continuation?.resume()
     }
+
+    func hasPendingRefresh() -> Bool {
+        lock.withLock { continuation != nil }
+    }
 }
 
 private final class DelayedMigrationGate: @unchecked Sendable {
@@ -145,6 +153,10 @@ private final class DelayedMigrationGate: @unchecked Sendable {
             return continuation
         }
         continuation?.resume()
+    }
+
+    func hasPendingWaiter() -> Bool {
+        lock.withLock { continuation != nil }
     }
 }
 
@@ -365,8 +377,11 @@ final class WelcomeStorageFlowTests: XCTestCase {
         viewModel.updatePendingStorageSelection(newRoot)
 
         let applyTask = Task { await viewModel.applyPendingStorageSelection() }
-        await Task.yield()
+        for _ in 0..<20 where !gate.hasPendingWaiter() {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
 
+        XCTAssertTrue(gate.hasPendingWaiter())
         XCTAssertTrue(viewModel.isApplyingStorageSelection)
         XCTAssertFalse(viewModel.isStorageChooserEnabled)
         XCTAssertFalse(viewModel.canConfirmStorageSelection)
@@ -440,7 +455,12 @@ final class WelcomeStorageFlowTests: XCTestCase {
 
         let applied = await viewModel.applyPendingStorageSelection()
 
+        for _ in 0..<20 where !provider.hasPendingInstall() {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
         XCTAssertTrue(applied)
+        XCTAssertTrue(provider.hasPendingInstall())
         XCTAssertTrue(viewModel.isInstallingRequiredSetup)
         XCTAssertFalse(viewModel.showingStorageChooser)
         XCTAssertEqual(store.currentLocation().rootURL, newRoot.standardizedFileURL)
@@ -455,8 +475,11 @@ final class WelcomeStorageFlowTests: XCTestCase {
 
         await viewModel.refreshSetup()
         viewModel.installRequiredSetup()
-        await Task.yield()
+        for _ in 0..<20 where !provider.hasPendingInstall() {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
 
+        XCTAssertTrue(provider.hasPendingInstall())
         for _ in 0..<10 where viewModel.requiredSetupItemProgress.isEmpty {
             try? await Task.sleep(for: .milliseconds(10))
         }
@@ -481,8 +504,11 @@ final class WelcomeStorageFlowTests: XCTestCase {
         XCTAssertTrue(viewModel.canConfirmStorageSelection)
 
         viewModel.installRequiredSetup()
-        await Task.yield()
+        for _ in 0..<20 where !provider.hasPendingInstall() {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
 
+        XCTAssertTrue(provider.hasPendingInstall())
         XCTAssertTrue(viewModel.isInstallingRequiredSetup)
 
         viewModel.chooseAlternateStorageLocation()
@@ -499,8 +525,11 @@ final class WelcomeStorageFlowTests: XCTestCase {
         let viewModel = WelcomeViewModel(statusProvider: provider)
 
         let refreshTask = Task { await viewModel.refreshSetup() }
-        await Task.yield()
+        for _ in 0..<20 where !provider.hasPendingRefresh() {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
 
+        XCTAssertTrue(provider.hasPendingRefresh())
         XCTAssertTrue(viewModel.isRefreshingSetup)
 
         viewModel.chooseAlternateStorageLocation()

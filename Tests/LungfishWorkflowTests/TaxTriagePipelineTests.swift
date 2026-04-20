@@ -87,7 +87,8 @@ final class TaxTriagePipelineTests: XCTestCase {
         XCTAssertEqual(config.maxMemory, "16.GB")
         XCTAssertEqual(config.profile, "docker")
         XCTAssertNil(config.kraken2DatabasePath)
-        XCTAssertEqual(config.revision, "main")
+        XCTAssertEqual(config.revision, TaxTriageConfig.defaultRevision)
+        XCTAssertNotEqual(config.revision, "main")
     }
 
     func testConfigWithAllParameters() {
@@ -467,7 +468,7 @@ final class TaxTriagePipelineTests: XCTestCase {
 
         XCTAssertTrue(args.contains("jhuapl-bio/taxtriage"))
         XCTAssertTrue(args.contains("-r"))
-        XCTAssertTrue(args.contains("main"))
+        XCTAssertTrue(args.contains(TaxTriageConfig.defaultRevision))
         XCTAssertTrue(args.contains("-profile"))
         XCTAssertTrue(args.contains("docker"))
         XCTAssertTrue(args.contains("--input"))

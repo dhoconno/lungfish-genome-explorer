@@ -277,6 +277,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
     public override func loadView() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
+        container.setAccessibilityIdentifier("nvd-result-view")
+        container.setAccessibilityLabel("NVD Result View")
         view = container
 
         setupSummaryBar()
@@ -866,6 +868,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     /// Uses raw NSSplitView (not NSSplitViewController) per macOS 26 rules.
     private func setupSplitView() {
         splitView.translatesAutoresizingMaskIntoConstraints = false
+        splitView.setAccessibilityIdentifier("nvd-result-split-view")
+        splitView.setAccessibilityLabel("NVD Result Split View")
         splitView.isVertical = MetagenomicsPanelLayout.current() != .stacked
         splitView.dividerStyle = .thin
         splitView.delegate = self
@@ -875,6 +879,9 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             scrollView: detailScrollView,
             documentView: detailContentView
         )
+        detail.setAccessibilityElement(true)
+        detail.setAccessibilityIdentifier("nvd-detail-shell")
+        detail.setAccessibilityLabel("NVD Detail Shell")
         detailContainer = detail
 
         // Outline pane in list-leading / stacked mode.
@@ -886,6 +893,9 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         )
         outlineCont.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         outlineCont.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        outlineCont.setAccessibilityElement(true)
+        outlineCont.setAccessibilityIdentifier("nvd-outline-shell")
+        outlineCont.setAccessibilityLabel("NVD Outline Shell")
         self.outlineContainer = outlineCont
 
         if MetagenomicsPanelLayout.current() == .detailLeading {
@@ -927,6 +937,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         outlineView.autoresizesOutlineColumn = false
         outlineView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         outlineView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        outlineView.setAccessibilityIdentifier("nvd-outline-view")
 
         // Columns — Sample first, then Contig (which is the outline column with disclosure triangles)
         let sampleCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("sampleId"))
@@ -1019,6 +1030,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         outlineView.menu = buildContextMenu()
 
         // Scroll view setup
+        outlineScrollView.setAccessibilityIdentifier("nvd-outline-shell-scroll")
+        outlineScrollView.setAccessibilityLabel("NVD Outline Shell Scroll View")
         outlineScrollView.documentView = outlineView
         outlineScrollView.hasVerticalScroller = true
         outlineScrollView.hasHorizontalScroller = true
@@ -1048,6 +1061,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         sampleFilterButton.bezelStyle = .push
         sampleFilterButton.controlSize = .small
         sampleFilterButton.font = .systemFont(ofSize: 11)
+        sampleFilterButton.setAccessibilityIdentifier("nvd-sample-filter-button")
+        sampleFilterButton.setAccessibilityLabel("NVD Sample Filter")
         sampleFilterButton.target = self
         sampleFilterButton.action = #selector(sampleFilterButtonClicked(_:))
         sampleFilterButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
@@ -1057,6 +1072,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         groupingSegment.controlSize = .small
         groupingSegment.font = .systemFont(ofSize: 11)
         groupingSegment.selectedSegment = 0
+        groupingSegment.setAccessibilityIdentifier("nvd-grouping-control")
+        groupingSegment.setAccessibilityLabel("NVD Grouping Mode")
         groupingSegment.target = self
         groupingSegment.action = #selector(groupingModeChanged(_:))
         filterBar.addArrangedSubview(groupingSegment)
@@ -1065,6 +1082,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         searchField.placeholderString = "Search contigs\u{2026}"
         searchField.controlSize = .small
         searchField.font = .systemFont(ofSize: 11)
+        searchField.setAccessibilityIdentifier("nvd-search-field")
+        searchField.setAccessibilityLabel("NVD Search Contigs")
         searchField.delegate = self
         searchField.target = self
         searchField.action = #selector(searchFieldAction(_:))

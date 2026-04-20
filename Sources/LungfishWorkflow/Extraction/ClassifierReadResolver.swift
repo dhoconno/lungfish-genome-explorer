@@ -827,13 +827,29 @@ public actor ClassifierReadResolver {
         let fm = FileManager.default
         switch destination {
         case .file(let url):
-            if fm.fileExists(atPath: url.path) {
-                try fm.removeItem(at: url)
+            let destinationURL = url.standardizedFileURL
+            let sourceURL = finalFile.standardizedFileURL
+            if destinationURL == sourceURL {
+                progress?(1.0, "Wrote \(readCount) reads to \(destinationURL.lastPathComponent)")
+                return .file(destinationURL, readCount: readCount)
             }
-            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try fm.moveItem(at: finalFile, to: url)
-            progress?(1.0, "Wrote \(readCount) reads to \(url.lastPathComponent)")
-            return .file(url, readCount: readCount)
+            if fm.fileExists(atPath: destinationURL.path) {
+                do {
+                    try fm.removeItem(at: destinationURL)
+                } catch CocoaError.fileNoSuchFile {
+                    // Another actor/process already removed the stale destination.
+                } catch let error as NSError
+                    where error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError {
+                    // Mirror the CocoaError handling above when bridging obscures the enum.
+                }
+            }
+            try fm.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            // Materialize a stable caller-owned file and leave temp-dir ownership
+            // with the extraction scratch space. This avoids rename/remove races
+            // on transient destinations and keeps the `.file` contract simple.
+            try fm.copyItem(at: sourceURL, to: destinationURL)
+            progress?(1.0, "Wrote \(readCount) reads to \(destinationURL.lastPathComponent)")
+            return .file(destinationURL, readCount: readCount)
 
         case .bundle(let projectRoot, let displayName, let metadata):
             // Reuse the existing ReadExtractionService bundle creator. Note: createBundle

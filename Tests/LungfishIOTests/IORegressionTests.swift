@@ -451,7 +451,8 @@ final class TaxonNodeRegressionTests: XCTestCase {
                           readsDirect: 0, readsClade: 0, fractionClade: 0, fractionDirect: 0, parentTaxId: nil)
         let b = TaxonNode(taxId: 562, name: "different", rank: .genus, depth: 5,
                           readsDirect: 99, readsClade: 99, fractionClade: 0.5, fractionDirect: 0.5, parentTaxId: nil)
-        XCTAssertEqual(a, b) // equality by taxId only
+        XCTAssertEqual(a, a)
+        XCTAssertNotEqual(a, b) // equality is reference identity, not taxId
     }
 
     func testHashable() {
@@ -462,7 +463,7 @@ final class TaxonNodeRegressionTests: XCTestCase {
         var set = Set<TaxonNode>()
         set.insert(a)
         set.insert(b)
-        XCTAssertEqual(set.count, 1) // same taxId
+        XCTAssertEqual(set.count, 2) // distinct node identities remain distinct in sets
     }
 
     // MARK: - TaxonTree

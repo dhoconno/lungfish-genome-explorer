@@ -8,6 +8,7 @@ final class TwoPaneTrackedSplitCoordinator {
     private var pendingInitialSplitValidation = false
     private var pendingInitialValidationLeadingExtent: CGFloat?
     private var isSynchronizingTrackedSplitPosition = false
+    private var isApplyingDefaultSplitResize = false
 
     func invalidateInitialSplitPosition() {
         didSetInitialSplitPosition = false
@@ -202,6 +203,45 @@ final class TwoPaneTrackedSplitCoordinator {
         afterApply?()
     }
 
+    func resizeSubviewsWithOldSize(
+        _ splitView: TrackedDividerSplitView,
+        oldSize: NSSize,
+        defaultLeadingFraction: CGFloat,
+        minimumExtents: (leading: CGFloat, trailing: CGFloat),
+        afterResize: (() -> Void)? = nil
+    ) {
+        _ = oldSize
+        guard splitView.arrangedSubviews.count == 2 else { return }
+
+        if !splitView.isVertical {
+            guard !isApplyingDefaultSplitResize else { return }
+            isApplyingDefaultSplitResize = true
+            let originalDelegate = splitView.delegate
+            splitView.delegate = nil
+            splitView.adjustSubviews()
+            splitView.delegate = originalDelegate
+            isApplyingDefaultSplitResize = false
+            afterResize?()
+            return
+        }
+
+        let totalExtent = splitView.bounds.width
+        guard totalExtent > 0 else { return }
+
+        let proposedLeadingExtent = splitView.requestedDividerPosition(at: 0)
+            ?? currentDividerPosition(in: splitView)
+            ?? round(totalExtent * defaultLeadingFraction)
+        let targetLeadingExtent = SplitPaneSizing.clampedDividerPosition(
+            proposed: proposedLeadingExtent,
+            containerExtent: totalExtent,
+            minimumLeadingExtent: minimumExtents.leading,
+            minimumTrailingExtent: minimumExtents.trailing
+        )
+
+        applySplitFrames(in: splitView, leadingExtent: targetLeadingExtent)
+        afterResize?()
+    }
+
     func splitViewDidResizeSubviews(
         _ splitView: TrackedDividerSplitView,
         minimumExtents: (leading: CGFloat, trailing: CGFloat),
@@ -219,6 +259,45 @@ final class TwoPaneTrackedSplitCoordinator {
         if hasValidInitialSplitPosition(in: splitView, minimumExtents: minimumExtents) {
             didSetInitialSplitPosition = true
             needsInitialSplitValidation = false
+            return
+        }
+
+        guard didSetInitialSplitPosition, !pendingInitialSplitValidation else { return }
+        needsInitialSplitValidation = true
+    }
+
+    private func applySplitFrames(in splitView: NSSplitView, leadingExtent: CGFloat) {
+        guard splitView.arrangedSubviews.count == 2 else { return }
+
+        let dividerThickness = splitView.dividerThickness
+        let firstView = splitView.arrangedSubviews[0]
+        let secondView = splitView.arrangedSubviews[1]
+
+        if splitView.isVertical {
+            let totalWidth = splitView.bounds.width
+            let trailingWidth = max(0, totalWidth - leadingExtent - dividerThickness)
+            firstView.frame = NSRect(x: 0, y: 0, width: leadingExtent, height: splitView.bounds.height)
+            secondView.frame = NSRect(
+                x: leadingExtent + dividerThickness,
+                y: 0,
+                width: trailingWidth,
+                height: splitView.bounds.height
+            )
+        } else {
+            let totalHeight = splitView.bounds.height
+            let trailingHeight = max(0, totalHeight - leadingExtent - dividerThickness)
+            firstView.frame = NSRect(
+                x: 0,
+                y: totalHeight - leadingExtent,
+                width: splitView.bounds.width,
+                height: leadingExtent
+            )
+            secondView.frame = NSRect(
+                x: 0,
+                y: 0,
+                width: splitView.bounds.width,
+                height: trailingHeight
+            )
         }
     }
 }

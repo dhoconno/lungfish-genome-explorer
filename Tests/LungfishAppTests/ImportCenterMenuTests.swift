@@ -20,6 +20,34 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertNotNil(appMenu.items.first(where: { $0.title == "Quit Lungfish Genome Explorer" }))
     }
 
+    func testMainMenuTopLevelMenusExposeStableIdentifiers() {
+        let _ = NSApplication.shared
+        let mainMenu = MainMenu.createMainMenu()
+
+        XCTAssertEqual(mainMenu.items.first?.identifier?.rawValue, MainMenuAccessibilityID.applicationMenu)
+        XCTAssertEqual(mainMenu.items.first(where: { $0.title == "File" })?.identifier?.rawValue, MainMenuAccessibilityID.fileMenu)
+        XCTAssertEqual(mainMenu.items.first(where: { $0.title == "Tools" })?.identifier?.rawValue, MainMenuAccessibilityID.toolsMenu)
+        XCTAssertEqual(mainMenu.items.first(where: { $0.title == "Help" })?.identifier?.rawValue, MainMenuAccessibilityID.helpMenu)
+    }
+
+    func testMainMenuKeyItemsExposeStableIdentifiers() throws {
+        let _ = NSApplication.shared
+        let mainMenu = MainMenu.createMainMenu()
+        let appMenu = try XCTUnwrap(mainMenu.items.first?.submenu)
+        let fileMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "File" })?.submenu)
+        let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
+        let operationsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Operations" })?.submenu)
+
+        XCTAssertEqual(appMenu.items.first(where: { $0.title == "About Lungfish Genome Explorer" })?.identifier?.rawValue, MainMenuAccessibilityID.about)
+        XCTAssertEqual(appMenu.items.first(where: { $0.title == "Settings..." })?.identifier?.rawValue, MainMenuAccessibilityID.settings)
+        XCTAssertEqual(appMenu.items.first(where: { $0.title == "Quit Lungfish Genome Explorer" })?.identifier?.rawValue, MainMenuAccessibilityID.quit)
+        XCTAssertEqual(fileMenu.items.first(where: { $0.title == "New Project" })?.identifier?.rawValue, MainMenuAccessibilityID.newProject)
+        XCTAssertEqual(fileMenu.items.first(where: { $0.title == "Open Project Folder..." })?.identifier?.rawValue, MainMenuAccessibilityID.openProjectFolder)
+        XCTAssertEqual(fileMenu.items.first(where: { $0.title == "Import Center…" })?.identifier?.rawValue, MainMenuAccessibilityID.importCenter)
+        XCTAssertEqual(toolsMenu.items.first(where: { $0.title == "Plugin Manager…" })?.identifier?.rawValue, MainMenuAccessibilityID.pluginManager)
+        XCTAssertEqual(operationsMenu.items.first(where: { $0.title == "Show Operations Panel" })?.identifier?.rawValue, MainMenuAccessibilityID.showOperationsPanel)
+    }
+
     func testImportCenterCatalogUsesExplicitImportCategoriesInsteadOfProjectFiles() {
         let viewModel = ImportCenterViewModel()
         let ids = Set(viewModel.allCards.map(\.id))

@@ -47,15 +47,20 @@ private struct AnalysisRowButton: View {
     @State private var isHovering = false
 
     var body: some View {
-        AnalysisRow(entry: entry, isHovering: isHovering)
-            .padding(.horizontal, 4)
-            .padding(.vertical, 2)
-            .background(
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(isHovering ? Color.accentColor.opacity(0.08) : Color.clear)
-            )
-            .contentShape(Rectangle())
-            .onTapGesture { action() }
+        Button(action: action) {
+            AnalysisRow(entry: entry, isHovering: isHovering)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 2)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(isHovering ? Color.accentColor.opacity(0.08) : Color.clear)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(entry.displayName)
+        .accessibilityIdentifier("analysis-entry-\(entry.id.uuidString)")
+        .accessibilityHint("Opens this analysis")
             .onHover { hovering in
                 isHovering = hovering
                 if hovering {

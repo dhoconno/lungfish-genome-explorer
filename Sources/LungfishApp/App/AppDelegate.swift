@@ -581,10 +581,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     public func application(_ sender: NSApplication, openFiles filenames: [String]) {
         // Handle opening multiple files
-        for filename in filenames {
-            let url = URL(fileURLWithPath: filename)
-            _ = openDocument(at: url)
-        }
+        let allQueued = filenames
+            .map { URL(fileURLWithPath: $0) }
+            .allSatisfy { openDocument(at: $0) }
+        sender.reply(toOpenOrPrint: allQueued ? .success : .failure)
     }
 
     // MARK: - Private Methods
@@ -976,8 +976,54 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // UserDefaults auto-saves; no manual synchronize needed
     }
 
+    private func canQueueDocumentOpen(at url: URL) -> DocumentType? {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            debugLog("openDocument: refusing missing file \(url.path)")
+            return nil
+        }
+
+        guard FileManager.default.isReadableFile(atPath: url.path) else {
+            debugLog("openDocument: refusing unreadable file \(url.path)")
+            return nil
+        }
+
+        guard let type = DocumentType.detect(from: url) else {
+            debugLog("openDocument: refusing unsupported file \(url.path)")
+            return nil
+        }
+
+        return type
+    }
+
+    @discardableResult
+    private func ensureMainWindowForDocumentOpen() -> MainWindowController {
+        if let controller = mainWindowController {
+            controller.showWindow(nil)
+            NSApp.activate()
+            return controller
+        }
+
+        welcomeWindowController?.close()
+        welcomeWindowController = nil
+
+        let controller = createAndShowMainWindow()
+        NSApp.activate()
+        return controller
+    }
+
     private func openDocument(at url: URL) -> Bool {
-        let viewerController = mainWindowController?.mainSplitViewController?.viewerController
+        guard let type = canQueueDocumentOpen(at: url) else {
+            return false
+        }
+
+        if type == .lungfishProject {
+            let controller = ensureMainWindowForDocumentOpen()
+            openProject(url, in: controller)
+            return true
+        }
+
+        let controller = ensureMainWindowForDocumentOpen()
+        let viewerController = controller.mainSplitViewController?.viewerController
 
         Task { @MainActor in
             // Show progress indicator

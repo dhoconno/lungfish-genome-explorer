@@ -8,6 +8,23 @@ import os
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "AIAssistantPanel")
 
+enum AIAssistantAccessibilityID {
+    static let window = "ai-assistant-window"
+    static let root = "ai-assistant-root"
+    static let header = "ai-assistant-header"
+    static let status = "ai-assistant-status"
+    static let clearButton = "ai-assistant-clear-button"
+    static let suggestedQueries = "ai-assistant-suggested-queries"
+    static let messages = "ai-assistant-messages"
+    static let inputField = "ai-assistant-input-field"
+    static let sendButton = "ai-assistant-send-button"
+    static let thinkingIndicator = "ai-assistant-thinking-indicator"
+
+    static func suggestedQueryButton(_ index: Int) -> String {
+        "ai-assistant-suggested-query-\(index)"
+    }
+}
+
 // MARK: - Notification
 
 extension Notification.Name {
@@ -42,6 +59,7 @@ public final class AIAssistantWindowController: NSWindowController {
         panel.minSize = NSSize(width: 360, height: 400)
         panel.setFrameAutosaveName("AIAssistantPanel")
         panel.isRestorable = false
+        panel.setAccessibilityIdentifier(AIAssistantAccessibilityID.window)
 
         // Set delegate to prevent close from releasing
         let vc = AIAssistantViewController(service: service)
@@ -72,7 +90,7 @@ public final class AIAssistantWindowController: NSWindowController {
         guard let panel = window else { return }
         if !panel.isVisible {
             // Position near the right edge of the main window
-            if let mainWindow = NSApp.mainWindow, panel.frame.origin == .zero || !panel.isVisible {
+            if let mainWindow = NSApp.mainWindow {
                 let mainFrame = mainWindow.frame
                 let panelWidth = panel.frame.width
                 let panelHeight = panel.frame.height
@@ -90,6 +108,7 @@ public final class AIAssistantWindowController: NSWindowController {
                 }
             }
             panel.orderFront(nil)
+            NSApp.activate()
         } else {
             panel.makeKeyAndOrderFront(nil)
         }
@@ -229,6 +248,7 @@ final class AIAssistantViewController: NSViewController {
         mainStack.addArrangedSubview(inputBar)
 
         view.addSubview(mainStack)
+        view.setAccessibilityIdentifier(AIAssistantAccessibilityID.root)
         NSLayoutConstraint.activate([
             mainStack.topAnchor.constraint(equalTo: view.topAnchor),
             mainStack.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -242,6 +262,8 @@ final class AIAssistantViewController: NSViewController {
 
         // Set scroll view to expand
         scrollView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        suggestedQueriesContainer.setAccessibilityIdentifier(AIAssistantAccessibilityID.suggestedQueries)
+        messagesStackView.setAccessibilityIdentifier(AIAssistantAccessibilityID.messages)
     }
 
     private func createHeaderView() -> NSView {
@@ -249,6 +271,7 @@ final class AIAssistantViewController: NSViewController {
         header.orientation = .horizontal
         header.spacing = 8
         header.edgeInsets = NSEdgeInsets(top: 4, left: 12, bottom: 4, right: 12)
+        header.setAccessibilityIdentifier(AIAssistantAccessibilityID.header)
 
         let titleLabel = NSTextField(labelWithString: "AI Assistant")
         titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
@@ -262,6 +285,7 @@ final class AIAssistantViewController: NSViewController {
         clearButton.font = .systemFont(ofSize: 11)
         clearButton.target = self
         clearButton.action = #selector(clearConversation)
+        clearButton.setAccessibilityIdentifier(AIAssistantAccessibilityID.clearButton)
 
         header.addArrangedSubview(titleLabel)
         header.addArrangedSubview(statusLabel)
@@ -270,6 +294,7 @@ final class AIAssistantViewController: NSViewController {
         header.addArrangedSubview(spacer)
         header.addArrangedSubview(clearButton)
 
+        statusLabel.setAccessibilityIdentifier(AIAssistantAccessibilityID.status)
         return header
     }
 
@@ -284,6 +309,7 @@ final class AIAssistantViewController: NSViewController {
         inputField.delegate = self
         inputField.focusRingType = .none
         inputField.bezelStyle = .roundedBezel
+        inputField.setAccessibilityIdentifier(AIAssistantAccessibilityID.inputField)
 
         sendButton.image = NSImage(systemSymbolName: "arrow.up.circle.fill", accessibilityDescription: "Send")
         sendButton.bezelStyle = .toolbar
@@ -292,6 +318,7 @@ final class AIAssistantViewController: NSViewController {
         sendButton.action = #selector(sendMessage)
         sendButton.imageScaling = .scaleProportionallyUpOrDown
         sendButton.setContentHuggingPriority(.required, for: .horizontal)
+        sendButton.setAccessibilityIdentifier(AIAssistantAccessibilityID.sendButton)
 
         inputBar.addArrangedSubview(inputField)
         inputBar.addArrangedSubview(sendButton)
@@ -433,7 +460,8 @@ final class AIAssistantViewController: NSViewController {
 
         container.addArrangedSubview(spinner)
         container.addArrangedSubview(label)
-        container.identifier = NSUserInterfaceItemIdentifier("thinkingIndicator")
+        container.identifier = NSUserInterfaceItemIdentifier(AIAssistantAccessibilityID.thinkingIndicator)
+        container.setAccessibilityIdentifier(AIAssistantAccessibilityID.thinkingIndicator)
 
         messagesStackView.addArrangedSubview(container)
 
@@ -444,7 +472,7 @@ final class AIAssistantViewController: NSViewController {
     }
 
     private func hideThinkingIndicator() {
-        let indicatorId = NSUserInterfaceItemIdentifier("thinkingIndicator")
+        let indicatorId = NSUserInterfaceItemIdentifier(AIAssistantAccessibilityID.thinkingIndicator)
         for view in messagesStackView.arrangedSubviews {
             if view.identifier == indicatorId {
                 messagesStackView.removeArrangedSubview(view)
@@ -458,7 +486,7 @@ final class AIAssistantViewController: NSViewController {
 
     /// Updates the label text next to the thinking spinner.
     private func updateThinkingLabel(_ text: String) {
-        let indicatorId = NSUserInterfaceItemIdentifier("thinkingIndicator")
+        let indicatorId = NSUserInterfaceItemIdentifier(AIAssistantAccessibilityID.thinkingIndicator)
         for view in messagesStackView.arrangedSubviews {
             if view.identifier == indicatorId, let stack = view as? NSStackView {
                 for subview in stack.arrangedSubviews {
@@ -488,7 +516,7 @@ final class AIAssistantViewController: NSViewController {
         titleLabel.textColor = .secondaryLabelColor
         suggestedQueriesContainer.addArrangedSubview(titleLabel)
 
-        for query in queries {
+        for (index, query) in queries.enumerated() {
             let button = NSButton()
             button.title = query.title
             button.bezelStyle = .accessoryBarAction
@@ -496,8 +524,8 @@ final class AIAssistantViewController: NSViewController {
             button.target = self
             button.action = #selector(suggestedQueryTapped(_:))
             button.toolTip = query.query
-            // Store the full query in the identifier
-            button.identifier = NSUserInterfaceItemIdentifier(query.query)
+            button.identifier = NSUserInterfaceItemIdentifier(AIAssistantAccessibilityID.suggestedQueryButton(index))
+            button.setAccessibilityIdentifier(AIAssistantAccessibilityID.suggestedQueryButton(index))
 
             if let symbolImage = NSImage(systemSymbolName: query.icon, accessibilityDescription: nil) {
                 button.image = symbolImage
@@ -594,8 +622,8 @@ final class AIAssistantViewController: NSViewController {
     }
 
     @objc private func suggestedQueryTapped(_ sender: NSButton) {
-        guard let queryId = sender.identifier?.rawValue else { return }
-        inputField.stringValue = queryId
+        guard let query = sender.toolTip, !query.isEmpty else { return }
+        inputField.stringValue = query
         sendMessage()
     }
 }

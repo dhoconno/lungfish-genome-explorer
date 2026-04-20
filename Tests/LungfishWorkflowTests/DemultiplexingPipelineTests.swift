@@ -45,8 +45,10 @@ final class DemultiplexingPipelineTests: XCTestCase {
         XCTAssertFalse(NativeTool.cutadapt.isHtslib)
     }
 
-    func testCutadaptInBundledVersions() {
-        XCTAssertEqual(NativeToolRunner.bundledVersions["cutadapt"], "4.9")
+    func testCutadaptInManagedToolLock() throws {
+        let lock = try ManagedToolLock.loadFromBundle()
+        let cutadapt = try XCTUnwrap(lock.tools.first(where: { $0.id == "cutadapt" }))
+        XCTAssertEqual(try XCTUnwrap(cutadapt.version), "5.2")
     }
 
     func testCutadaptInCaseIterable() {
@@ -64,7 +66,9 @@ final class DemultiplexingPipelineTests: XCTestCase {
         let result = try await runner.run(.cutadapt, arguments: ["--version"])
         XCTAssertTrue(result.isSuccess, "cutadapt --version should succeed")
         let output = result.stdout + result.stderr
-        XCTAssertTrue(output.contains("4."), "Expected cutadapt version output, got: \(output)")
+        let lock = try ManagedToolLock.loadFromBundle()
+        let cutadapt = try XCTUnwrap(lock.tools.first(where: { $0.id == "cutadapt" }))
+        XCTAssertTrue(output.contains(try XCTUnwrap(cutadapt.version)), "Expected cutadapt version output, got: \(output)")
     }
 
     // MARK: - DemultiplexConfig

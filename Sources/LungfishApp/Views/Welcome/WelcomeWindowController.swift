@@ -447,6 +447,19 @@ enum WelcomeSection: String, Identifiable, CaseIterable {
 
     var id: String { rawValue }
 
+    var accessibilityIdentifier: String {
+        switch self {
+        case .getStarted:
+            return "welcome-nav-get-started"
+        case .recentProjects:
+            return "welcome-nav-recent-projects"
+        case .requiredSetup:
+            return "welcome-nav-required-setup"
+        case .optionalTools:
+            return "welcome-nav-optional-tools"
+        }
+    }
+
     var icon: String {
         switch self {
         case .getStarted: return "sparkles"
@@ -760,6 +773,8 @@ struct WelcomeView: View {
                                     .fill(selectedSection == section ? Color.lungfishWelcomeSelectionFill : Color.clear)
                             )
                         }
+                        .accessibilityIdentifier(section.accessibilityIdentifier)
+                        .accessibilityLabel(section.rawValue)
                         .buttonStyle(.plain)
                         .foregroundStyle(selectedSection == section ? Color.lungfishCreamsicleFallback : Color.primary)
                     }
@@ -982,6 +997,7 @@ private struct LaunchActionTile: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(action.rawValue)
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1.0 : 0.55)
     }
@@ -1042,6 +1058,8 @@ private struct RequiredSetupCard: View {
                 Button(actionTitle) {
                     onInstall()
                 }
+                .accessibilityIdentifier("welcome-required-setup-primary-action")
+                .accessibilityLabel("Install required setup")
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .tint(.lungfishCreamsicleFallback)
@@ -1050,6 +1068,8 @@ private struct RequiredSetupCard: View {
                 Button(showingDetails ? "Hide Details" : "Show Details") {
                     showingDetails.toggle()
                 }
+                .accessibilityIdentifier("welcome-required-setup-details-toggle")
+                .accessibilityLabel("Toggle required setup details")
                 .buttonStyle(.bordered)
                 .controlSize(.large)
                 .tint(.lungfishCreamsicleFallback)
@@ -1059,6 +1079,8 @@ private struct RequiredSetupCard: View {
                 Button("Need more space? Choose another storage location…") {
                     onChooseAlternateStorage()
                 }
+                .accessibilityIdentifier("welcome-required-setup-choose-storage")
+                .accessibilityLabel("Choose alternate storage location")
                 .buttonStyle(.link)
                 .disabled(!isStorageChooserEnabled)
             }
@@ -1254,6 +1276,8 @@ private struct WelcomeStorageChooserSheet: View {
                 Button("Choose Folder…") {
                     onChooseFolder()
                 }
+                .accessibilityIdentifier("welcome-storage-choose-folder")
+                .accessibilityLabel("Choose storage folder")
                 .buttonStyle(.bordered)
                 .tint(.lungfishCreamsicleFallback)
                 .disabled(!viewModel.isStorageChooserEnabled)
@@ -1265,6 +1289,8 @@ private struct WelcomeStorageChooserSheet: View {
                 Button("Cancel") {
                     dismiss()
                 }
+                .accessibilityIdentifier("welcome-storage-cancel")
+                .accessibilityLabel("Cancel storage selection")
                 .disabled(viewModel.isApplyingStorageSelection)
                 .keyboardShortcut(.cancelAction)
 
@@ -1275,6 +1301,8 @@ private struct WelcomeStorageChooserSheet: View {
                         }
                     }
                 }
+                .accessibilityIdentifier("welcome-storage-use-location")
+                .accessibilityLabel("Use selected storage location")
                 .buttonStyle(.borderedProminent)
                 .tint(.lungfishCreamsicleFallback)
                 .disabled(!viewModel.canConfirmStorageSelection)
@@ -1323,6 +1351,8 @@ private struct OptionalToolCard: View {
                 Button("Open") {
                     onOpenPack(status.pack.id)
                 }
+                .accessibilityIdentifier("welcome-optional-tool-open-\(status.pack.id)")
+                .accessibilityLabel("Open optional tool")
                 .buttonStyle(.bordered)
                 .controlSize(.large)
                 .tint(.lungfishCreamsicleFallback)

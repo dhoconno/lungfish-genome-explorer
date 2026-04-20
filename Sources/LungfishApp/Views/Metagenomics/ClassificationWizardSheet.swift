@@ -306,6 +306,7 @@ struct ClassificationWizardSheet: View {
                 onCancel?()
             }
             .keyboardShortcut(.cancelAction)
+            .accessibilityIdentifier("classification-cancel-button")
 
             Button("Run") {
                 performRun()
@@ -313,6 +314,7 @@ struct ClassificationWizardSheet: View {
             .keyboardShortcut(.defaultAction)
             .buttonStyle(.borderedProminent)
             .disabled(!canRun)
+            .accessibilityIdentifier("classification-run-button")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
@@ -386,6 +388,7 @@ struct ClassificationWizardSheet: View {
                         PluginManagerWindowController.show(tab: .databases)
                     }
                     .font(.system(size: 12))
+                    .accessibilityIdentifier("classification-download-database-button")
                 }
                 .padding(.vertical, 4)
             } else {
@@ -402,6 +405,8 @@ struct ClassificationWizardSheet: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+                .accessibilityLabel("Database")
+                .accessibilityIdentifier("classification-database-picker")
             }
 
             if let db = selectedDatabase {
@@ -464,6 +469,8 @@ struct ClassificationWizardSheet: View {
             }
             .labelsHidden()
             .pickerStyle(.segmented)
+            .accessibilityLabel("Sensitivity")
+            .accessibilityIdentifier("classification-sensitivity-picker")
 
             Text(presetDescription)
                 .font(.caption)
@@ -483,6 +490,8 @@ struct ClassificationWizardSheet: View {
                         .frame(width: 120, alignment: .trailing)
                     Slider(value: $confidence, in: 0...1, step: 0.05)
                         .frame(maxWidth: 200)
+                        .accessibilityLabel("Confidence")
+                        .accessibilityIdentifier("classification-confidence-slider")
                     Text(String(format: "%.2f", confidence))
                         .font(.system(size: 12, design: .monospaced))
                         .frame(width: 40)
@@ -495,6 +504,8 @@ struct ClassificationWizardSheet: View {
                         .frame(width: 120, alignment: .trailing)
                     Stepper("\(minimumHitGroups)", value: $minimumHitGroups, in: 1...10)
                         .font(.system(size: 12))
+                        .accessibilityLabel("Min hit groups")
+                        .accessibilityIdentifier("classification-min-hit-groups-stepper")
                 }
 
                 // Threads
@@ -508,6 +519,8 @@ struct ClassificationWizardSheet: View {
                         in: 1...ProcessInfo.processInfo.processorCount
                     )
                     .font(.system(size: 12))
+                    .accessibilityLabel("Threads")
+                    .accessibilityIdentifier("classification-threads-stepper")
                 }
 
                 // Memory mapping
@@ -518,6 +531,8 @@ struct ClassificationWizardSheet: View {
                     Toggle("", isOn: $memoryMapping)
                         .labelsHidden()
                         .toggleStyle(.checkbox)
+                        .accessibilityLabel("Memory mapping")
+                        .accessibilityIdentifier("classification-memory-mapping-toggle")
                     Text("Use when database exceeds available RAM")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -526,6 +541,7 @@ struct ClassificationWizardSheet: View {
             .padding(.top, 8)
         }
         .font(.system(size: 12, weight: .medium))
+        .accessibilityIdentifier("classification-advanced-settings")
     }
 
     // MARK: - Actions

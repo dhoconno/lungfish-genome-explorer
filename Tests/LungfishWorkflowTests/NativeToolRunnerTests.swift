@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import Darwin
 @testable import LungfishWorkflow
 
 final class NativeToolRunnerTests: XCTestCase {
@@ -397,6 +398,41 @@ final class NativeToolRunnerTests: XCTestCase {
         }
 
         try await assertFileDoesNotAppear(at: completedURL, timeoutNanoseconds: 2_500_000_000)
+    }
+
+    func testRunCancellationTerminatesSpawnedChildProcesses() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("NativeToolRunner Child Cancel \(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let childPIDURL = root.appendingPathComponent("run-child-pid.txt")
+        let (runner, managedRoot) = try makeCancellableManagedNativeToolRunner(root: root)
+        defer { try? FileManager.default.removeItem(at: managedRoot) }
+
+        let task = Task {
+            try await runner.run(
+                .seqkit,
+                arguments: ["spawn-resistant-child", childPIDURL.path],
+                timeout: 5
+            )
+        }
+
+        try await waitForFile(at: childPIDURL)
+        let childPIDText = try String(contentsOf: childPIDURL, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let childPID = try XCTUnwrap(Int32(childPIDText))
+
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Cancelled run should throw CancellationError")
+        } catch is CancellationError {
+        } catch {
+            XCTFail("Expected CancellationError, got \(error)")
+        }
+
+        try await assertProcessDoesNotAppear(pid: childPID, timeoutNanoseconds: 2_500_000_000)
     }
 
     func testRunPipelineCancelsAllSubprocessesAndThrowsCancellationError() async throws {
@@ -794,6 +830,12 @@ final class NativeToolRunnerTests: XCTestCase {
             sleep 2
             printf "completed\\n" > "$marker"
             ;;
+          spawn-resistant-child)
+            /bin/sh -c 'trap "" TERM HUP; sleep 30' &
+            child="$!"
+            printf "%s\\n" "$child" > "$marker"
+            wait "$child"
+            ;;
           *)
             echo "unsupported command: $command" >&2
             exit 1
@@ -829,5 +871,26 @@ final class NativeToolRunnerTests: XCTestCase {
             }
             try await Task.sleep(nanoseconds: 50_000_000)
         }
+    }
+
+    private func assertProcessDoesNotAppear(
+        pid: Int32,
+        timeoutNanoseconds: UInt64
+    ) async throws {
+        let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
+        while DispatchTime.now().uptimeNanoseconds < deadline {
+            if !processExists(pid: pid) {
+                return
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTFail("Process should not remain alive after cancellation: \(pid)")
+    }
+
+    private func processExists(pid: Int32) -> Bool {
+        if kill(pid, 0) == 0 {
+            return true
+        }
+        return errno != ESRCH
     }
 }

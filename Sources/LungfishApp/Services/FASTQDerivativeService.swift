@@ -3201,24 +3201,23 @@ public actor FASTQDerivativeService {
 
     /// Runs bbmerge.sh to merge overlapping paired-end reads.
     ///
-    /// Requires interleaved input. Produces separate FASTQ files for merged reads
-    /// and unmerged R1/R2 pairs directly into the output bundle directory.
+    /// Requires interleaved input. bbmerge emits merged reads plus a single
+    /// interleaved unmerged stream, which we then split back into R1/R2 files.
     private func runBBMerge(
         sourceFASTQ: URL,
         outputBundleURL: URL,
         strictness: FASTQMergeStrictness,
         minOverlap: Int
     ) async throws -> (BBToolResult, ReadClassification) {
-        // bbmerge writes merged reads to `out`, unmerged R1/R2 to `outu1`/`outu2`.
         let mergedURL = outputBundleURL.appendingPathComponent("merged.fastq")
+        let unmergedInterleavedURL = outputBundleURL.appendingPathComponent("unmerged.fastq")
         let unmergedR1URL = outputBundleURL.appendingPathComponent("unmerged_R1.fastq")
         let unmergedR2URL = outputBundleURL.appendingPathComponent("unmerged_R2.fastq")
 
         var args = [
             "in=\(sourceFASTQ.path)",
             "out=\(mergedURL.path)",
-            "outu1=\(unmergedR1URL.path)",
-            "outu2=\(unmergedR2URL.path)",
+            "outu=\(unmergedInterleavedURL.path)",
             "minoverlap=\(minOverlap)",
         ]
 
@@ -3232,10 +3231,27 @@ public actor FASTQDerivativeService {
             throw FASTQDerivativeError.invalidOperation("bbmerge failed: \(result.stderr)")
         }
 
-        // Count reads in each output file to build classification
-        let mergedCount = try countFASTQReads(at: mergedURL)
-        let r1Count = try countFASTQReads(at: unmergedR1URL)
-        let r2Count = try countFASTQReads(at: unmergedR2URL)
+        if FileManager.default.fileExists(atPath: unmergedInterleavedURL.path) {
+            try await deinterleaveFASTQ(
+                source: unmergedInterleavedURL,
+                outputR1: unmergedR1URL,
+                outputR2: unmergedR2URL
+            )
+            try? FileManager.default.removeItem(at: unmergedInterleavedURL)
+        }
+
+        let mergedCount =
+            FileManager.default.fileExists(atPath: mergedURL.path)
+            ? try countFASTQReads(at: mergedURL)
+            : 0
+        let r1Count =
+            FileManager.default.fileExists(atPath: unmergedR1URL.path)
+            ? try countFASTQReads(at: unmergedR1URL)
+            : 0
+        let r2Count =
+            FileManager.default.fileExists(atPath: unmergedR2URL.path)
+            ? try countFASTQReads(at: unmergedR2URL)
+            : 0
 
         // Remove empty output files
         var files: [ReadClassification.FileEntry] = []
@@ -3256,7 +3272,12 @@ public actor FASTQDerivativeService {
         }
 
         let classification = ReadClassification(files: files)
-        return (BBToolResult(toolCommand: "bbmerge.sh \(args.joined(separator: " "))"), classification)
+        return (
+            BBToolResult(
+                toolCommand: "bbmerge.sh \(args.joined(separator: " ")); reformat.sh out1=unmerged_R1.fastq out2=unmerged_R2.fastq"
+            ),
+            classification
+        )
     }
 
     /// Runs repair.sh to fix desynchronized paired-end FASTQ files.

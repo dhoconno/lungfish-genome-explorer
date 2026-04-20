@@ -312,31 +312,44 @@ public final class VCFDatasetViewController: NSViewController,
     private func applySortOrder() {
         guard !sortKey.isEmpty else { return }
         displayedVariants.sort { a, b in
-            let result: Bool
             switch sortKey {
             case "pos":
-                result = a.position < b.position
+                return compareValues(a.position, b.position, tieBreaker: variantTieBreaksBefore(a, b))
             case "chrom":
-                result = a.chromosome < b.chromosome
+                return compareValues(a.chromosome, b.chromosome, tieBreaker: variantTieBreaksBefore(a, b))
             case "ref":
-                result = a.ref < b.ref
+                return compareValues(a.ref, b.ref, tieBreaker: variantTieBreaksBefore(a, b))
             case "alt":
-                result = (a.alt.first ?? "") < (b.alt.first ?? "")
+                return compareValues(a.alt.first ?? "", b.alt.first ?? "", tieBreaker: variantTieBreaksBefore(a, b))
             case "qual":
-                result = (a.quality ?? 0) < (b.quality ?? 0)
+                return compareValues(a.quality ?? 0, b.quality ?? 0, tieBreaker: variantTieBreaksBefore(a, b))
             case "type":
-                result = classifyVariantType(a) < classifyVariantType(b)
+                return compareValues(classifyVariantType(a), classifyVariantType(b), tieBreaker: variantTieBreaksBefore(a, b))
             case "filter":
-                result = (a.filter ?? "") < (b.filter ?? "")
+                return compareValues(a.filter ?? "", b.filter ?? "", tieBreaker: variantTieBreaksBefore(a, b))
             case "af":
-                result = (Double(a.info["AF"] ?? "0") ?? 0) < (Double(b.info["AF"] ?? "0") ?? 0)
+                return compareValues(Double(a.info["AF"] ?? "0") ?? 0, Double(b.info["AF"] ?? "0") ?? 0, tieBreaker: variantTieBreaksBefore(a, b))
             case "dp":
-                result = (Int(a.info["DP"] ?? "0") ?? 0) < (Int(b.info["DP"] ?? "0") ?? 0)
+                return compareValues(Int(a.info["DP"] ?? "0") ?? 0, Int(b.info["DP"] ?? "0") ?? 0, tieBreaker: variantTieBreaksBefore(a, b))
             default:
                 return false
             }
-            return sortAscending ? result : !result
         }
+    }
+
+    private func compareValues<T: Comparable>(_ lhs: T, _ rhs: T, tieBreaker: @autoclosure () -> Bool) -> Bool {
+        if lhs == rhs {
+            return tieBreaker()
+        }
+        return sortAscending ? lhs < rhs : lhs > rhs
+    }
+
+    private func variantTieBreaksBefore(_ lhs: VCFVariant, _ rhs: VCFVariant) -> Bool {
+        let left = [lhs.chromosome, "\(lhs.position)", lhs.ref, lhs.alt.first ?? "", lhs.id]
+            .joined(separator: "\u{1F}")
+        let right = [rhs.chromosome, "\(rhs.position)", rhs.ref, rhs.alt.first ?? "", rhs.id]
+            .joined(separator: "\u{1F}")
+        return left < right
     }
 
     // MARK: - NSSearchFieldDelegate
@@ -360,6 +373,14 @@ public final class VCFDatasetViewController: NSViewController,
         sortAscending = descriptor.ascending
         applySortOrder()
         tableView.reloadData()
+    }
+
+    var testDisplayedVariants: [VCFVariant] { displayedVariants }
+
+    func testApplySort(key: String, ascending: Bool) {
+        sortKey = key
+        sortAscending = ascending
+        applySortOrder()
     }
 
     // MARK: - NSTableViewDelegate

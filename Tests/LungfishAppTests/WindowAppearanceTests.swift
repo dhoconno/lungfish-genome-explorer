@@ -24,6 +24,45 @@ final class WindowAppearanceTests: XCTestCase {
         XCTAssertFalse(source.contains(".foregroundStyle(.blue)"))
     }
 
+    func testPluginManagerAndAIAssistantExposeStableAccessibilityIdentifiers() throws {
+        let pluginManagerSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/PluginManager/PluginManagerView.swift"),
+            encoding: .utf8
+        )
+        let pluginManagerWindowSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/PluginManager/PluginManagerWindowController.swift"),
+            encoding: .utf8
+        )
+        let aiSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/AI/AIAssistantPanel.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(pluginManagerSource.contains("PluginManagerAccessibilityID.root"))
+        XCTAssertTrue(pluginManagerSource.contains("PluginManagerAccessibilityID.tab(.installed)"))
+        XCTAssertTrue(pluginManagerSource.contains("PluginManagerAccessibilityID.installedBrowsePacksButton"))
+        XCTAssertTrue(pluginManagerSource.contains("PluginManagerAccessibilityID.environmentRow(environment.name)"))
+        XCTAssertTrue(pluginManagerSource.contains("PluginManagerAccessibilityID.packCard(pack.id)"))
+        XCTAssertTrue(pluginManagerSource.contains("PluginManagerAccessibilityID.databaseDownloadButton(database.name)"))
+        XCTAssertTrue(pluginManagerSource.contains("PluginManagerAccessibilityID.storageSettingsButton"))
+        XCTAssertTrue(pluginManagerWindowSource.contains("PluginManagerAccessibilityID.window"))
+        XCTAssertTrue(pluginManagerWindowSource.contains("PluginManagerAccessibilityID.toolbarSegmentedControl"))
+        XCTAssertTrue(pluginManagerWindowSource.contains("window.setAccessibilityIdentifier(PluginManagerAccessibilityID.window)"))
+
+        XCTAssertTrue(aiSource.contains("AIAssistantAccessibilityID.window"))
+        XCTAssertTrue(aiSource.contains("AIAssistantAccessibilityID.root"))
+        XCTAssertTrue(aiSource.contains("AIAssistantAccessibilityID.inputField"))
+        XCTAssertTrue(aiSource.contains("AIAssistantAccessibilityID.sendButton"))
+        XCTAssertTrue(aiSource.contains("AIAssistantAccessibilityID.clearButton"))
+        XCTAssertTrue(aiSource.contains("AIAssistantAccessibilityID.thinkingIndicator"))
+        XCTAssertTrue(aiSource.contains("AIAssistantAccessibilityID.suggestedQueryButton(index)"))
+        XCTAssertTrue(aiSource.contains("button.toolTip = query.query"))
+        XCTAssertTrue(aiSource.contains("NSApp.activate()"))
+    }
+
     func testToolWindowsUseIconOnlyToolbarsWithoutDecorativeImages() throws {
         let pluginSource = try String(
             contentsOf: repositoryRoot()
@@ -191,8 +230,8 @@ final class WindowAppearanceTests: XCTestCase {
         XCTAssertTrue(source.contains("onRunnerAvailabilityChange?(newValue)"))
         XCTAssertTrue(source.contains("headerSection"))
         XCTAssertTrue(source.contains("footerSection"))
-        XCTAssertTrue(source.contains("width: embeddedInOperationsDialog ? nil : 520"))
-        XCTAssertTrue(source.contains("height: embeddedInOperationsDialog ? nil : 520"))
+        XCTAssertTrue(source.contains("width: embeddedInOperationsDialog ? nil : 620"))
+        XCTAssertTrue(source.contains("height: embeddedInOperationsDialog ? nil : 640"))
         XCTAssertFalse(source.contains("embeddedInUnifiedRunner"))
     }
 

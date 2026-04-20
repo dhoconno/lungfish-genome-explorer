@@ -56,6 +56,8 @@ final class DocumentManagerTests: XCTestCase {
 
     /// Resets DocumentManager to a clean state between tests.
     private func clearManagerState() {
+        manager.closeActiveProject()
+
         // Close all documents
         let docs = manager.documents
         for doc in docs {
@@ -496,6 +498,57 @@ final class DocumentManagerTests: XCTestCase {
         await fulfillment(of: [expectation], timeout: 5.0)
     }
 
+    func testCreateProjectClearsExistingDocumentState() async throws {
+        let fastaURL = tempDir.appendingPathComponent("existing.fa")
+        try ">seq1\nATCG\n".write(to: fastaURL, atomically: true, encoding: .utf8)
+        _ = try await manager.loadDocument(at: fastaURL)
+
+        let project = try manager.createProject(
+            at: tempDir.appendingPathComponent("FreshProject"),
+            name: "Fresh Project"
+        )
+
+        XCTAssertEqual(manager.activeProject?.url, project.url)
+        XCTAssertTrue(manager.documents.isEmpty, "Creating a project should reset prior loaded documents")
+        XCTAssertNil(manager.activeDocument, "Creating an empty project should clear the active document")
+    }
+
+    func testOpenProjectReplacesStandaloneDocumentsWithProjectDocuments() async throws {
+        let fastaURL = tempDir.appendingPathComponent("standalone.fa")
+        try ">standalone\nATCG\n".write(to: fastaURL, atomically: true, encoding: .utf8)
+        _ = try await manager.loadDocument(at: fastaURL)
+
+        let projectURL = tempDir.appendingPathComponent("SwitchProject.lungfish")
+        let project = try ProjectFile.create(at: projectURL, name: "Switch Project")
+        try project.addSequence(makeSequence(name: "project_seq", bases: "GATTACA"))
+        try project.save()
+
+        _ = try manager.openProject(at: projectURL)
+
+        XCTAssertEqual(manager.activeProject?.url, projectURL)
+        XCTAssertEqual(manager.documents.count, 1, "Opening a project should replace standalone documents")
+        XCTAssertEqual(manager.activeDocument?.sequences.first?.name, "project_seq")
+        XCTAssertFalse(manager.documents.contains(where: { $0.url == fastaURL }))
+    }
+
+    func testLoadDocumentForProjectReturnsProjectActiveDocumentInsteadOfStaleFirstDocument() async throws {
+        let staleURL = tempDir.appendingPathComponent("stale.fa")
+        try ">stale\nATCG\n".write(to: staleURL, atomically: true, encoding: .utf8)
+        _ = try await manager.loadDocument(at: staleURL)
+
+        let projectURL = tempDir.appendingPathComponent("ProjectLoad.lungfish")
+        let project = try ProjectFile.create(at: projectURL, name: "Project Load")
+        try project.addSequence(makeSequence(name: "fresh_project_seq", bases: "AACCGGTT"))
+        try project.save()
+
+        let returned = try await manager.loadDocument(at: projectURL)
+
+        XCTAssertEqual(returned.id, manager.activeDocument?.id)
+        XCTAssertEqual(returned.sequences.first?.name, "fresh_project_seq")
+        XCTAssertEqual(manager.documents.count, 1)
+        XCTAssertFalse(manager.documents.contains(where: { $0.url == staleURL }))
+    }
+
     // MARK: - 5. DocumentManager State Tests
 
     func testCloseDocumentRemovesFromList() async throws {
@@ -770,5 +823,9 @@ final class DocumentManagerTests: XCTestCase {
         let types = DocumentManager.pasteboardTypes
         XCTAssertFalse(types.isEmpty, "Should have at least one pasteboard type")
         XCTAssertTrue(types.contains(.fileURL), "Should support file URL pasteboard type")
+    }
+
+    private func makeSequence(name: String, bases: String) throws -> Sequence {
+        try Sequence(name: name, alphabet: .dna, bases: bases)
     }
 }

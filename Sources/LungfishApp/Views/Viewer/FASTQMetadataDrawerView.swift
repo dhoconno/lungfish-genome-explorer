@@ -54,6 +54,23 @@ final class FASTQDrawerDividerView: NSView {
 
     private var dragStartY: CGFloat = 0
 
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configureAccessibility()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configureAccessibility()
+    }
+
+    private func configureAccessibility() {
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("FASTQ metadata drawer resize handle")
+        setAccessibilityIdentifier("fastq-metadata-drawer-divider")
+    }
+
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .resizeUpDown)
     }
@@ -113,6 +130,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
 
     // Demux state
     private var demuxSteps: [DemultiplexStep] = []
+    private var preservedAdditionalDemuxSteps: [DemultiplexStep] = []
     private var compositeSampleNames: [String: String] = [:]
     private var primerTrimConfiguration: FASTQPrimerTrimConfiguration?
 
@@ -259,17 +277,24 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             preferredBarcodeSetID = metadata.preferredBarcodeSetID
             if let planJSON = metadata.demuxPlanJSON {
                 if let plan = decodeDemuxPlan(from: planJSON) {
-                    demuxSteps = Array(plan.steps.sorted(by: { $0.ordinal < $1.ordinal }).prefix(1))
+                    let orderedSteps = plan.steps.sorted(by: { $0.ordinal < $1.ordinal })
+                    demuxSteps = Array(orderedSteps.prefix(1))
+                    preservedAdditionalDemuxSteps = Array(orderedSteps.dropFirst())
                     for index in demuxSteps.indices {
                         demuxSteps[index].ordinal = index
+                    }
+                    for index in preservedAdditionalDemuxSteps.indices {
+                        preservedAdditionalDemuxSteps[index].ordinal = demuxSteps.count + index
                     }
                     compositeSampleNames = plan.compositeSampleNames
                 } else {
                     demuxSteps = []
+                    preservedAdditionalDemuxSteps = []
                     compositeSampleNames = [:]
                 }
             } else {
                 demuxSteps = []
+                preservedAdditionalDemuxSteps = []
                 compositeSampleNames = [:]
             }
             if let primerJSON = metadata.primerTrimConfigJSON {
@@ -282,6 +307,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
             customBarcodeSets = []
             preferredBarcodeSetID = nil
             demuxSteps = []
+            preservedAdditionalDemuxSteps = []
             compositeSampleNames = [:]
             primerTrimConfiguration = nil
         }
@@ -310,8 +336,16 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
 
     /// Returns the current demux plan built from the Demux tab.
     public func currentDemuxPlan() -> DemultiplexPlan {
-        let singleStep = Array(demuxSteps.sorted(by: { $0.ordinal < $1.ordinal }).prefix(1))
-        return DemultiplexPlan(steps: singleStep, compositeSampleNames: compositeSampleNames)
+        ensureSingleDemuxStep()
+        var steps = demuxSteps.sorted(by: { $0.ordinal < $1.ordinal })
+        for index in steps.indices {
+            steps[index].ordinal = index
+        }
+        var additionalSteps = preservedAdditionalDemuxSteps.sorted(by: { $0.ordinal < $1.ordinal })
+        for index in additionalSteps.indices {
+            additionalSteps[index].ordinal = steps.count + index
+        }
+        return DemultiplexPlan(steps: steps + additionalSteps, compositeSampleNames: compositeSampleNames)
     }
 
     /// Updates the status label with scout progress messages.
@@ -2077,6 +2111,8 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         }
         return true
     }
+
+    var testDrawerDivider: FASTQDrawerDividerView { drawerDivider }
 }
 
 private extension String {

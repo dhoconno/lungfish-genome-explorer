@@ -45,6 +45,7 @@ public final class SettingsWindowController: NSWindowController {
             defer: false
         )
         window.title = "Settings"
+        window.identifier = NSUserInterfaceItemIdentifier(SettingsAccessibilityID.window)
         window.minSize = NSSize(width: 550, height: 460)
         window.setFrameAutosaveName("SettingsWindow")
         window.isRestorable = false

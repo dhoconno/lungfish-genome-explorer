@@ -25,6 +25,7 @@ Comprehensive codebase review by 5 expert teams covering:
 ```
 docs/reviews/exhaustive-code-review/
 ├── README.md                    # This file
+├── app-surface-coverage.md      # Rolling GUI/app review coverage tracker
 ├── expert-reports/
 │   ├── swift-macos26.md         # Swift/macOS expert findings
 │   ├── ux-hig.md                # UX/HIG expert findings

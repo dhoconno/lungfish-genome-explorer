@@ -364,6 +364,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     public override func loadView() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
+        container.setAccessibilityIdentifier("taxtriage-result-view")
+        container.setAccessibilityLabel("TaxTriage Result View")
         view = container
 
         setupSummaryBar()
@@ -1009,6 +1011,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         sampleFilterControl.segmentCount = 1
         sampleFilterControl.setLabel("All Samples", forSegment: 0)
         sampleFilterControl.selectedSegment = 0
+        sampleFilterControl.setAccessibilityIdentifier("taxtriage-sample-filter-control")
+        sampleFilterControl.setAccessibilityLabel("TaxTriage Sample Filter")
         sampleFilterControl.target = self
         sampleFilterControl.action = #selector(sampleFilterChanged(_:))
         sampleFilterControl.translatesAutoresizingMaskIntoConstraints = false
@@ -1028,6 +1032,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         field.placeholderString = "Filter organisms\u{2026}"
         field.controlSize = .small
         field.font = .systemFont(ofSize: 11)
+        field.setAccessibilityIdentifier("taxtriage-organism-search-field")
+        field.setAccessibilityLabel("TaxTriage Organism Search")
         field.translatesAutoresizingMaskIntoConstraints = false
         field.widthAnchor.constraint(greaterThanOrEqualToConstant: 140).isActive = true
         field.target = self
@@ -1221,6 +1227,8 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Uses raw NSSplitView (not NSSplitViewController) per macOS 26 rules.
     private func setupSplitView() {
         splitView.translatesAutoresizingMaskIntoConstraints = false
+        splitView.setAccessibilityIdentifier("taxtriage-result-split-view")
+        splitView.setAccessibilityLabel("TaxTriage Result Split View")
         splitView.isVertical = MetagenomicsPanelLayout.current() != .stacked
         splitView.dividerStyle = .thin
         splitView.delegate = self
@@ -1228,6 +1236,12 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         leftPaneContainer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         rightPaneContainer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         rightPaneContainer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        leftPaneContainer.setAccessibilityElement(true)
+        leftPaneContainer.setAccessibilityIdentifier("taxtriage-left-shell")
+        leftPaneContainer.setAccessibilityLabel("TaxTriage Left Shell")
+        rightPaneContainer.setAccessibilityElement(true)
+        rightPaneContainer.setAccessibilityIdentifier("taxtriage-right-shell")
+        rightPaneContainer.setAccessibilityLabel("TaxTriage Right Shell")
 
         // Left pane: mini BAM alignment viewer (populated on organism selection)
         // The BAM viewer is added in setupMiniBAMViewer() with constraints.

@@ -307,6 +307,8 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     }
 
     private func commonInit() {
+        setAccessibilityIdentifier("esviritu-detection-table-view")
+        setAccessibilityLabel("EsViritu Detection Table View")
         setupSearchField()
         setupOutlineView()
         setupLayout()
@@ -321,6 +323,8 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         searchField.action = #selector(searchFieldChanged(_:))
         searchField.sendsSearchStringImmediately = true
         searchField.font = .systemFont(ofSize: 12)
+        searchField.setAccessibilityIdentifier("esviritu-detection-search-field")
+        searchField.setAccessibilityLabel("Filter viruses")
         addSubview(searchField)
 
         countLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -414,6 +418,8 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         outlineView.allowsMultipleSelection = true
         outlineView.headerView = NSTableHeaderView()
         outlineView.indentationPerLevel = 16
+        outlineView.setAccessibilityIdentifier("esviritu-detection-outline-view")
+        outlineView.setAccessibilityLabel("EsViritu Detection Outline View")
 
         // Install metadata column controller for dynamic sample metadata columns.
         metadataColumns.standardColumnNames = [
@@ -426,6 +432,8 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
+        scrollView.setAccessibilityIdentifier("esviritu-detection-scroll-view")
+        scrollView.setAccessibilityLabel("EsViritu Detection Scroll View")
         addSubview(scrollView)
     }
 

@@ -24,10 +24,13 @@ final class AssemblyContigDetailPane: NSView {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
         setAccessibilityIdentifier("assembly-result-detail")
+        setAccessibilityLabel("Assembly contig detail")
 
         sequenceView.isEditable = false
         sequenceView.isSelectable = true
         sequenceView.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        sequenceView.setAccessibilityIdentifier("assembly-result-detail-sequence-text")
+        sequenceView.setAccessibilityLabel("Contig sequence")
 
         [overviewSectionLabel, sequenceSectionLabel, contextSectionLabel, artifactsSectionLabel].forEach {
             $0.font = .systemFont(ofSize: 11, weight: .semibold)
@@ -39,6 +42,7 @@ final class AssemblyContigDetailPane: NSView {
         sequenceScrollView.hasVerticalScroller = true
         sequenceScrollView.autohidesScrollers = true
         sequenceScrollView.documentView = sequenceView
+        sequenceScrollView.setAccessibilityIdentifier("assembly-result-detail-sequence-area")
 
         titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
         titleLabel.setAccessibilityIdentifier("assembly-result-detail-title")
@@ -54,6 +58,10 @@ final class AssemblyContigDetailPane: NSView {
 
         contextLabel.textColor = .secondaryLabelColor
         artifactsLabel.textColor = .secondaryLabelColor
+        contextLabel.setAccessibilityIdentifier("assembly-result-detail-context")
+        contextLabel.setAccessibilityLabel("Assembly context")
+        artifactsLabel.setAccessibilityIdentifier("assembly-result-detail-artifacts")
+        artifactsLabel.setAccessibilityLabel("Source artifacts")
 
         let stack = NSStackView(
             views: [

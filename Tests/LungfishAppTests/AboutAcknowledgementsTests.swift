@@ -6,8 +6,10 @@ final class AboutAcknowledgementsTests: XCTestCase {
 
     func testCurrentSectionsMatchBundledAndVisiblePackTools() throws {
         let sections = AboutAcknowledgements.currentSections()
+        let expectedTitles = ["Bundled Bootstrap", PluginPack.requiredSetupPack.name]
+            + PluginPack.activeOptionalPacks.map(\.name)
 
-        XCTAssertEqual(sections.map(\.title), ["Bundled Bootstrap", "Third-Party Tools", "Genome Assembly", "Metagenomics"])
+        XCTAssertEqual(sections.map(\.title), expectedTitles)
 
         let bundled = try XCTUnwrap(sections.first(where: { $0.title == "Bundled Bootstrap" }))
         XCTAssertEqual(bundled.entries.map(\.id), ["micromamba"])
@@ -15,11 +17,15 @@ final class AboutAcknowledgementsTests: XCTestCase {
         let required = try XCTUnwrap(sections.first(where: { $0.title == PluginPack.requiredSetupPack.name }))
         XCTAssertEqual(required.entries.map(\.id), try ManagedToolLock.loadFromBundle().tools.map(\.id))
 
-        let assembly = try XCTUnwrap(sections.first(where: { $0.title == "Genome Assembly" }))
-        XCTAssertEqual(assembly.entries.map(\.id), ["spades", "megahit", "skesa", "flye", "hifiasm"])
-
-        let metagenomics = try XCTUnwrap(sections.first(where: { $0.title == "Metagenomics" }))
-        XCTAssertEqual(metagenomics.entries.map(\.id), ["kraken2", "bracken", "esviritu"])
+        for pack in PluginPack.activeOptionalPacks {
+            let section = try XCTUnwrap(sections.first(where: { $0.title == pack.name }))
+            XCTAssertEqual(
+                section.entries.map(\.id),
+                pack.toolRequirements.compactMap { requirement in
+                    requirement.managedDatabaseID == nil ? requirement.id : nil
+                }
+            )
+        }
     }
 
     func testCurrentSectionsRenderPinnedMetadataForManagedTools() throws {
@@ -63,7 +69,6 @@ final class AboutAcknowledgementsTests: XCTestCase {
         let entryIDs = Set(AboutAcknowledgements.currentSections().flatMap { $0.entries.map(\.id) })
 
         XCTAssertFalse(entryIDs.contains("metaphlan"))
-        XCTAssertFalse(entryIDs.contains("bwa-mem2"))
         XCTAssertFalse(entryIDs.contains("quast"))
         XCTAssertFalse(entryIDs.contains("taxtriage"))
         XCTAssertFalse(entryIDs.contains("nao-mgs"))

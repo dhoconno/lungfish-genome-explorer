@@ -826,14 +826,23 @@ public class SequenceViewerView: NSView {
 
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        configureAccessibility()
         setupDragAndDrop()
         setupAppearanceObserver()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
+        configureAccessibility()
         setupDragAndDrop()
         setupAppearanceObserver()
+    }
+
+    private func configureAccessibility() {
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Sequence viewer")
+        setAccessibilityIdentifier("sequence-viewer")
     }
 
     deinit {

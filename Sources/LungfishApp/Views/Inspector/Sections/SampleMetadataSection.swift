@@ -71,6 +71,7 @@ struct SampleMetadataSection: View {
     private func editableCell(sampleId: String, column: String) -> some View {
         let value = store.records[sampleId]?[column] ?? ""
         let isEditing = editingCell?.sampleId == sampleId && editingCell?.column == column
+        let identifier = metadataCellIdentifier(sampleId: sampleId, column: column)
 
         return Group {
             if isEditing {
@@ -81,18 +82,39 @@ struct SampleMetadataSection: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 10))
                 .frame(width: 90, alignment: .leading)
+                .accessibilityIdentifier(identifier)
+                .accessibilityLabel("\(sampleId) \(column) editor")
             } else {
-                Text(value)
-                    .font(.system(size: 10))
-                    .frame(width: 90, alignment: .leading)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .onTapGesture {
-                        editText = value
-                        editingCell = (sampleId, column)
-                    }
+                Button {
+                    editText = value
+                    editingCell = (sampleId, column)
+                } label: {
+                    Text(value)
+                        .font(.system(size: 10))
+                        .frame(width: 90, alignment: .leading)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier(identifier)
+                .accessibilityLabel("\(sampleId) \(column)")
+                .help("Edit \(column) for \(sampleId)")
             }
         }
+    }
+
+    private func metadataCellIdentifier(sampleId: String, column: String) -> String {
+        let safeSampleId = sampleId.lowercased().replacingOccurrences(
+            of: "[^A-Za-z0-9]+",
+            with: "-",
+            options: .regularExpression
+        )
+        let safeColumn = column.lowercased().replacingOccurrences(
+            of: "[^A-Za-z0-9]+",
+            with: "-",
+            options: .regularExpression
+        )
+        return "sample-metadata-\(safeSampleId)-\(safeColumn)"
     }
 
     private var unmatchedSection: some View {

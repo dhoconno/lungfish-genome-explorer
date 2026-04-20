@@ -155,7 +155,7 @@ public struct TaxTriageConfig: Sendable, Codable, Equatable {
 
     /// Nextflow pipeline revision (Git branch or tag).
     ///
-    /// Passed as `-r` to Nextflow. Default: "main".
+    /// Passed as `-r` to Nextflow. Default: ``defaultRevision``.
     public var revision: String
 
     // MARK: - Provenance
@@ -203,7 +203,7 @@ public struct TaxTriageConfig: Sendable, Codable, Equatable {
         maxCpus: Int = ProcessInfo.processInfo.activeProcessorCount,
         profile: String = "docker",
         containerRuntime: String? = nil,
-        revision: String = "main",
+        revision: String = TaxTriageConfig.defaultRevision,
         sourceBundleURLs: [URL]? = nil
     ) {
         self.samples = samples
@@ -233,6 +233,11 @@ public struct TaxTriageConfig: Sendable, Codable, Equatable {
 
     /// The GitHub repository identifier for the TaxTriage pipeline.
     public static let pipelineRepository = "jhuapl-bio/taxtriage"
+
+    /// The pinned TaxTriage revision validated by Lungfish.
+    ///
+    /// Using an exact commit prevents silent output-schema drift from upstream `main`.
+    public static let defaultRevision = "c808b451ff3d119906aaa6dbf2ace9e21c8a50fd"
 
     /// Builds the command-line arguments for the Nextflow `run` invocation.
     ///

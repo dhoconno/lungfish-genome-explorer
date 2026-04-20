@@ -22,6 +22,14 @@ final class BlastResultsDrawerDividerView: NSView {
         addCursorRect(bounds, cursor: .resizeUpDown)
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        setAccessibilityElement(true)
+        setAccessibilityLabel("Resize BLAST drawer")
+        setAccessibilityIdentifier("blast-results-drawer-divider")
+        setAccessibilityHelp("Drag vertically to resize the BLAST results drawer.")
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         NSColor.separatorColor.setFill()
         NSBezierPath.fill(NSRect(x: 0, y: 0, width: bounds.width, height: 1))

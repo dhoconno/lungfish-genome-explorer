@@ -1,12 +1,27 @@
 import XCTest
 import ArgumentParser
-import Darwin
+import Foundation
 import LungfishWorkflow
 @testable import LungfishCLI
 @testable import LungfishCore
 @testable import LungfishIO
 
 final class ExtractContigsCommandTests: XCTestCase {
+    private var cliBinaryPath: URL? {
+        let thisFile = URL(fileURLWithPath: #filePath)
+        let repoRoot = thisFile
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+
+        let candidates = [
+            repoRoot.appendingPathComponent(".build/debug/lungfish-cli"),
+            repoRoot.appendingPathComponent(".build/arm64-apple-macosx/debug/lungfish-cli"),
+            repoRoot.appendingPathComponent(".build/x86_64-apple-macosx/debug/lungfish-cli"),
+        ]
+        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
     func testParseBundleModeRequiresProjectRoot() throws {
         XCTAssertThrowsError(
             try ExtractContigsSubcommand.parse([
@@ -135,21 +150,20 @@ final class ExtractContigsCommandTests: XCTestCase {
         )
     }
 
-    func testRunWritesSelectedContigsToStdoutWhenOutputIsOmitted() async throws {
+    func testRunWritesSelectedContigsToStdoutWhenOutputIsOmitted() throws {
         let fixture = try makeAssemblyFixture()
-        let command = try ExtractContigsSubcommand.parse([
+        let result = try runCLI([
+            "extract", "contigs",
             "--assembly", fixture.root.path,
             "--contig", "beta",
             "--line-width", "4",
             "--quiet",
         ])
 
-        let output = try await captureStandardOutput {
-            try await command.run()
-        }
+        XCTAssertEqual(result.exitCode, 0, "stderr: \(result.stderr)")
 
         XCTAssertEqual(
-            output,
+            result.stdout,
             """
             >beta secondary contig
             ACGT
@@ -195,26 +209,25 @@ final class ExtractContigsCommandTests: XCTestCase {
         return (root, result)
     }
 
-    private func captureStandardOutput(_ operation: () async throws -> Void) async throws -> String {
-        let pipe = Pipe()
-        let originalStdout = dup(STDOUT_FILENO)
-        dup2(pipe.fileHandleForWriting.fileDescriptor, STDOUT_FILENO)
-
-        do {
-            try await operation()
-            fflush(stdout)
-        } catch {
-            fflush(stdout)
-            dup2(originalStdout, STDOUT_FILENO)
-            close(originalStdout)
-            pipe.fileHandleForWriting.closeFile()
-            throw error
+    private func runCLI(_ arguments: [String]) throws -> (exitCode: Int32, stdout: String, stderr: String) {
+        guard let binary = cliBinaryPath else {
+            throw XCTSkip("CLI binary not built at expected path")
         }
 
-        dup2(originalStdout, STDOUT_FILENO)
-        close(originalStdout)
-        pipe.fileHandleForWriting.closeFile()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8) ?? ""
+        let process = Process()
+        process.executableURL = binary
+        process.arguments = arguments
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return (process.terminationStatus, stdout, stderr)
     }
 }

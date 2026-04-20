@@ -43,6 +43,7 @@ struct ImportCenterView: View {
         .frame(minWidth: 980, minHeight: 620)
         .background(Color.lungfishCanvasBackground)
         .tint(.lungfishCreamsicleFallback)
+        .accessibilityIdentifier(ImportCenterAccessibilityID.root)
     }
 
     private var headerRow: some View {
@@ -59,6 +60,7 @@ struct ImportCenterView: View {
             Spacer(minLength: 12)
         }
         .padding(.bottom, 4)
+        .accessibilityIdentifier(ImportCenterAccessibilityID.header)
     }
 
     private var sectionSubtitle: String {
@@ -98,6 +100,7 @@ struct ImportCenterView: View {
                 }
             }
         }
+        .accessibilityIdentifier(ImportCenterAccessibilityID.cardList)
     }
 
     private func emptyState(title: String, message: String) -> some View {
@@ -147,6 +150,7 @@ struct ImportCenterView: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(viewModel.selectedTab == tab ? Color.lungfishCreamsicleFallback : Color.primary)
+                        .accessibilityIdentifier(ImportCenterAccessibilityID.tab(tab))
                     }
                 }
             }
@@ -174,6 +178,7 @@ struct ImportCenterView: View {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .stroke(Color.lungfishStroke, lineWidth: 1)
         )
+        .accessibilityIdentifier(ImportCenterAccessibilityID.sidebar)
     }
 }
 
@@ -221,6 +226,7 @@ private struct ImportCardView: View {
             .controlSize(.regular)
             .buttonStyle(.borderedProminent)
             .padding(.top, 4)
+            .accessibilityIdentifier(ImportCenterAccessibilityID.buttonID(card.id))
         }
         .padding(16)
         .background(
@@ -240,11 +246,12 @@ private struct ImportCardView: View {
             resolveDroppedURLs(from: providers)
             return true
         }
+        .accessibilityIdentifier(ImportCenterAccessibilityID.cardID(card.id))
     }
 
     /// Resolves file URLs from the given item providers and forwards them to ``onDrop``.
     private func resolveDroppedURLs(from providers: [NSItemProvider]) {
-        var resolved: [URL] = []
+        let collector = LockedURLCollector()
         let group = DispatchGroup()
 
         for provider in providers {
@@ -252,7 +259,7 @@ private struct ImportCardView: View {
             group.enter()
             _ = provider.loadObject(ofClass: URL.self) { url, _ in
                 if let url {
-                    resolved.append(url)
+                    collector.append(url)
                 }
                 group.leave()
             }
@@ -260,9 +267,27 @@ private struct ImportCardView: View {
 
         group.notify(queue: .main) {
             MainActor.assumeIsolated {
+                let resolved = collector.snapshot()
                 guard !resolved.isEmpty else { return }
                 onDrop(resolved)
             }
         }
+    }
+}
+
+private final class LockedURLCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var urls: [URL] = []
+
+    func append(_ url: URL) {
+        lock.lock()
+        urls.append(url)
+        lock.unlock()
+    }
+
+    func snapshot() -> [URL] {
+        lock.lock()
+        defer { lock.unlock() }
+        return urls
     }
 }

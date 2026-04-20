@@ -14,6 +14,18 @@ private final class SplitViewPositionSpy: NSSplitView {
 
 @MainActor
 final class MetagenomicsLayoutModeTests: XCTestCase {
+    private func invokeOptionalSplitResizeDelegate(
+        on controller: NSObject,
+        splitView: NSSplitView,
+        oldSize: NSSize
+    ) {
+        let selector = NSSelectorFromString("splitView:resizeSubviewsWithOldSize:")
+        XCTAssertTrue(controller.responds(to: selector), "Expected custom split live-resize delegate")
+        guard let method = controller.method(for: selector) else { return XCTFail("Missing split resize delegate method") }
+        typealias ResizeIMP = @convention(c) (AnyObject, Selector, NSSplitView, NSSize) -> Void
+        unsafeBitCast(method, to: ResizeIMP.self)(controller, selector, splitView, oldSize)
+    }
+
     private func makeEsVirituDetection() -> ViralDetection {
         ViralDetection(
             sampleId: "sample-1",
@@ -727,6 +739,28 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         XCTAssertEqual(documentView.frame.width, scrollView.contentView.bounds.width, accuracy: 2)
     }
 
+    func testEsVirituVirusDetailWithBAMPresentsOnlyMiniBAMContent() throws {
+        let pane = EsVirituDetailPane(frame: NSRect(x: 0, y: 0, width: 420, height: 280))
+        let miniBAM = MiniBAMViewController()
+        _ = miniBAM.view
+        pane.miniBAMViewController = miniBAM
+
+        pane.showVirusDetail(
+            assembly: makeEsVirituAssembly(),
+            coverageWindows: [:],
+            bamURL: URL(fileURLWithPath: "/tmp/esviritu-placeholder.bam")
+        )
+        pane.layoutSubtreeIfNeeded()
+
+        let scrollContainer = try XCTUnwrap(pane.subviews.first as? ScrollViewSplitPaneContainerView)
+        let scrollView = try XCTUnwrap(scrollContainer.subviews.first as? NSScrollView)
+        let documentView = try XCTUnwrap(scrollView.documentView)
+
+        XCTAssertEqual(documentView.subviews.count, 1)
+        XCTAssertTrue(documentView.subviews.first === miniBAM.view)
+        XCTAssertNil(miniBAM.onResizeBy)
+    }
+
     func testEsVirituImmediateUserDividerMoveSurvivesDeferredValidation() {
         setLayoutPreference(.listLeading, legacyTableOnLeft: true)
 
@@ -766,6 +800,87 @@ final class MetagenomicsLayoutModeTests: XCTestCase {
         vc.view.layoutSubtreeIfNeeded()
 
         XCTAssertEqual(vc.testSplitView.arrangedSubviews[0].frame.width, movedWidth, accuracy: 2)
+    }
+
+    func testEsVirituLiveResizeDelegateReappliesTrackedDividerPosition() {
+        setLayoutPreference(.listLeading, legacyTableOnLeft: true)
+
+        let vc = EsVirituResultViewController()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1400, height: 900),
+            styleMask: [.titled, .resizable, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = vc
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        let initialWidth = vc.testSplitView.arrangedSubviews[0].frame.width
+        let targetPosition = initialWidth + 160
+        vc.testSplitView.setPosition(targetPosition, ofDividerAt: 0)
+
+        let oldSize = vc.testSplitView.frame.size
+        let newWidth = oldSize.width - 120
+        vc.testSplitView.setFrameSize(NSSize(width: newWidth, height: oldSize.height))
+
+        let firstView = vc.testSplitView.arrangedSubviews[0]
+        let secondView = vc.testSplitView.arrangedSubviews[1]
+        let dividerThickness = vc.testSplitView.dividerThickness
+        firstView.frame = NSRect(x: 0, y: 0, width: initialWidth, height: vc.testSplitView.bounds.height)
+        secondView.frame = NSRect(
+            x: initialWidth + dividerThickness,
+            y: 0,
+            width: max(0, newWidth - initialWidth - dividerThickness),
+            height: vc.testSplitView.bounds.height
+        )
+
+        invokeOptionalSplitResizeDelegate(on: vc, splitView: vc.testSplitView, oldSize: oldSize)
+
+        let expectedWidth = SplitPaneSizing.clampedDividerPosition(
+            proposed: targetPosition,
+            containerExtent: newWidth,
+            minimumLeadingExtent: 250,
+            minimumTrailingExtent: 250
+        )
+        XCTAssertEqual(firstView.frame.width, expectedWidth, accuracy: 1)
+        XCTAssertEqual(secondView.frame.minX, expectedWidth + dividerThickness, accuracy: 1)
+    }
+
+    func testEsVirituLiveResizeKeepsBothPanesAboveMinimumWhenContainerNarrows() {
+        setLayoutPreference(.listLeading, legacyTableOnLeft: true)
+
+        let vc = EsVirituResultViewController()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1400, height: 700),
+            styleMask: [.titled, .resizable, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = vc
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        let firstView = vc.testSplitView.arrangedSubviews[0]
+        let secondView = vc.testSplitView.arrangedSubviews[1]
+        let oldSize = vc.testSplitView.frame.size
+        let narrowedWidth: CGFloat = 549
+        vc.testSplitView.setFrameSize(NSSize(width: narrowedWidth, height: oldSize.height))
+        let dividerThickness = vc.testSplitView.dividerThickness
+        firstView.frame = NSRect(x: 0, y: 0, width: 332, height: vc.testSplitView.bounds.height)
+        secondView.frame = NSRect(
+            x: 332 + dividerThickness,
+            y: 0,
+            width: 216,
+            height: vc.testSplitView.bounds.height
+        )
+
+        invokeOptionalSplitResizeDelegate(on: vc, splitView: vc.testSplitView, oldSize: oldSize)
+
+        XCTAssertGreaterThanOrEqual(vc.testSplitView.arrangedSubviews[0].frame.width, 248)
+        XCTAssertGreaterThanOrEqual(vc.testSplitView.arrangedSubviews[1].frame.width, 248)
     }
 
     func testTaxonomyViewDidLayoutDoesNotApplyNewPreferenceWithoutNotification() {

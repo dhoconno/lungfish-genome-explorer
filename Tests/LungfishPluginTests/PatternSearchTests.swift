@@ -359,4 +359,23 @@ final class PatternSearchTests: XCTestCase {
         // AA at 0, 1, 2 (overlapping)
         XCTAssertEqual(annotations.count, 3)
     }
+
+    func testMismatchSearchWithPatternLongerThanSequenceReturnsNoMatches() async throws {
+        let plugin = PatternSearchPlugin()
+
+        var options = AnnotationOptions()
+        options["pattern"] = .string("ATCGAT")
+        options["patternType"] = .string("exact")
+        options["maxMismatches"] = .integer(1)
+        options["searchBothStrands"] = .bool(false)
+
+        let input = AnnotationInput(
+            sequence: "ATC",
+            alphabet: .dna,
+            options: options
+        )
+
+        let annotations = try await plugin.generateAnnotations(input)
+        XCTAssertTrue(annotations.isEmpty)
+    }
 }

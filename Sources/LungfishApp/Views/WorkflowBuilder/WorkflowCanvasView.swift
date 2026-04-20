@@ -201,7 +201,13 @@ public class WorkflowCanvasView: NSView {
     }
 
     public override func accessibilityChildren() -> [Any]? {
-        Array(nodeViews.values) + Array(connectionViews.values)
+        let nodes = nodeViews.keys
+            .sorted { $0.uuidString < $1.uuidString }
+            .compactMap { nodeViews[$0] }
+        let connections = connectionViews.keys
+            .sorted { $0.uuidString < $1.uuidString }
+            .compactMap { connectionViews[$0] }
+        return nodes + connections
     }
 
     // MARK: - Undo Manager

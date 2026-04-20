@@ -7,6 +7,7 @@ import Testing
 import LungfishIO
 @testable import LungfishWorkflow
 
+@Suite(.serialized)
 struct NaoMgsImportOptimizationTests {
 
     // MARK: - Line Progress Callback
@@ -408,22 +409,22 @@ struct NaoMgsImportOptimizationTests {
 
         let db = try NaoMgsDatabase(at: dbURL)
 
-        // 1. Accession summaries should be pre-computed
+        // 1. Accession summaries should be pre-computed and remain alignment-based.
         let accSummaries = try db.fetchAccessionSummaries(sample: "SAMPLE_X", taxId: 100)
-        #expect(accSummaries.count == 2, "Taxon 100 has 2 accessions: ACC_A (2 reads), ACC_B (1 read)")
+        #expect(accSummaries.count == 2, "Taxon 100 has 2 accessions: ACC_A (4 alignments), ACC_B (2 alignments)")
 
         let accA = try #require(accSummaries.first(where: { $0.accession == "ACC_A" }))
-        #expect(accA.readCount == 2)
+        #expect(accA.readCount == 4)
         #expect(accA.coveredBasePairs == 40, "Coverage should include both mate intervals (0-10, 20-30, 50-60, 70-80)")
 
         let accB = try #require(accSummaries.first(where: { $0.accession == "ACC_B" }))
-        #expect(accB.readCount == 1)
+        #expect(accB.readCount == 2)
 
-        // 2. totalHitCount should work (uses taxon_summaries)
+        // 2. totalHitCount should remain row-based for the public result summary.
         let totalHits = try db.totalHitCount()
         #expect(totalHits == 4)
 
-        // 3. fetchSamples should work (uses taxon_summaries)
+        // 3. fetchSamples should stay row-based as well.
         let samples = try db.fetchSamples()
         #expect(samples.count == 1)
         #expect(samples[0].sample == "SAMPLE_X")
@@ -655,11 +656,12 @@ struct NaoMgsImportOptimizationTests {
         // All 3 rows should be imported (including the R2-only row)
         #expect(result.totalHitReads == 3)
 
-        // Verify taxon summaries
+        // Verify taxon summaries count alignments, while public totalHitCount remains row-based.
         let db = try NaoMgsDatabase(at: result.resultDirectory.appendingPathComponent("hits.sqlite"))
         let summaries = try db.fetchTaxonSummaryRows(samples: nil)
         #expect(summaries.count == 1, "Single taxon (999)")
-        #expect(summaries[0].hitCount == 3)
+        #expect(summaries[0].hitCount == 4)
+        #expect(try db.totalHitCount(samples: nil) == 3)
 
         // Verify BAMs: 1 paired read (2 SAM records) + 2 singles = 4 total
         if let samtoolsPath = SamtoolsLocator.locate() {

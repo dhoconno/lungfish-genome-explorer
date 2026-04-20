@@ -73,6 +73,23 @@ final class DrawerDividerView: NSView {
     weak var drawerDelegate: AnnotationTableDrawerDelegate?
     private var dragStartY: CGFloat = 0
 
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configureAccessibility()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configureAccessibility()
+    }
+
+    private func configureAccessibility() {
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Annotation table drawer resize handle")
+        setAccessibilityIdentifier("annotation-table-drawer-divider")
+    }
+
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .resizeUpDown)
     }

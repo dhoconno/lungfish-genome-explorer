@@ -236,6 +236,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     public override func loadView() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
+        container.setAccessibilityIdentifier("naomgs-result-view")
+        container.setAccessibilityLabel("NAO-MGS Result View")
         view = container
 
         setupSummaryBar()
@@ -1282,6 +1284,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     /// Uses raw NSSplitView (not NSSplitViewController) per macOS 26 rules.
     private func setupSplitView() {
         splitView.translatesAutoresizingMaskIntoConstraints = false
+        splitView.setAccessibilityIdentifier("naomgs-result-split-view")
+        splitView.setAccessibilityLabel("NAO-MGS Result Split View")
         splitView.isVertical = MetagenomicsPanelLayout.current() != .stacked
         splitView.dividerStyle = .thin
         splitView.delegate = self
@@ -1291,10 +1295,16 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             scrollView: detailScrollView,
             documentView: detailContentView
         )
+        detail.setAccessibilityElement(true)
+        detail.setAccessibilityIdentifier("naomgs-detail-shell")
+        detail.setAccessibilityLabel("NAO-MGS Detail Shell")
         detailContainer = detail
 
         // Table pane in list-leading / stacked mode.
         let tableCont = NSView()
+        tableCont.setAccessibilityElement(true)
+        tableCont.setAccessibilityIdentifier("naomgs-taxonomy-shell")
+        tableCont.setAccessibilityLabel("NAO-MGS Taxonomy Shell")
         self.tableContainer = tableCont
         setupTaxonomyTable()
         setupTaxonomyFilterBar(in: tableCont)
@@ -1384,12 +1394,15 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         ]
 
         // Scroll view setup
+        taxonomyTableScrollView.setAccessibilityIdentifier("naomgs-taxonomy-table-shell")
+        taxonomyTableScrollView.setAccessibilityLabel("NAO-MGS Taxonomy Table Shell")
         taxonomyTableScrollView.documentView = taxonomyTableView
         taxonomyTableScrollView.hasVerticalScroller = true
         taxonomyTableScrollView.hasHorizontalScroller = false
         taxonomyTableScrollView.autohidesScrollers = true
         taxonomyTableScrollView.drawsBackground = true
 
+        taxonomyTableView.setAccessibilityIdentifier("naomgs-taxonomy-table")
         taxonomyTableView.setAccessibilityLabel("NAO-MGS Taxonomy Table")
 
         // Install metadata column controller for dynamic sample metadata columns.
@@ -1413,6 +1426,8 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         sampleFilterButton.bezelStyle = .push
         sampleFilterButton.controlSize = .small
         sampleFilterButton.font = .systemFont(ofSize: 11)
+        sampleFilterButton.setAccessibilityIdentifier("naomgs-sample-filter-button")
+        sampleFilterButton.setAccessibilityLabel("NAO-MGS Sample Filter")
         sampleFilterButton.target = self
         sampleFilterButton.action = #selector(sampleFilterButtonClicked(_:))
         sampleFilterButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true

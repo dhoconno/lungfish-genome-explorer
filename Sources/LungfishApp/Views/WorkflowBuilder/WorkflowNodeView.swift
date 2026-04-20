@@ -153,6 +153,37 @@ public class WorkflowNodeView: NSView {
         setAccessibilityIdentifier("workflow-node-\(node.id)")
     }
 
+    public override func accessibilityChildren() -> [Any]? {
+        portAccessibilityElements()
+    }
+
+    private func portAccessibilityElements() -> [Any] {
+        return portGeometries.compactMap { geometry in
+            guard let port = node.port(withId: geometry.portId) else { return nil }
+
+            let element = NSAccessibilityElement()
+            element.setAccessibilityParent(self)
+            element.setAccessibilityRole(.group)
+
+            let directionLabel = geometry.direction == .input ? "Input" : "Output"
+            let portLabel = port.name.isEmpty ? geometry.portId : port.name
+            element.setAccessibilityLabel("\(directionLabel) port \(portLabel)")
+            element.setAccessibilityIdentifier(
+                "workflow-node-\(node.id)-port-\(geometry.direction.rawValue)-\(geometry.portId)"
+            )
+            element.setAccessibilityHelp("Drag to connect this port.")
+
+            let hitRect = NSRect(
+                x: geometry.center.x - 12,
+                y: geometry.center.y - 12,
+                width: 24,
+                height: 24
+            )
+            element.setAccessibilityFrameInParentSpace(hitRect)
+            return element
+        }
+    }
+
     // MARK: - Layout
 
     public override var intrinsicContentSize: NSSize {

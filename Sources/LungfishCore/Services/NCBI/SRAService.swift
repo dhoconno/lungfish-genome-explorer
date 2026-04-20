@@ -30,6 +30,20 @@ public actor SRAService {
 
     // MARK: - Properties
 
+    private nonisolated static let maxRunInfoFetchAttempts = 3
+    private nonisolated static let initialRunInfoRetryDelayNanoseconds: UInt64 = 250_000_000
+    private nonisolated static let retryableHTTPStatusCodes: Set<Int> = [408, 429, 500, 502, 503, 504]
+    private nonisolated static let retryableURLErrorCodes: Set<URLError.Code> = [
+        .timedOut,
+        .cannotFindHost,
+        .cannotConnectToHost,
+        .dnsLookupFailed,
+        .networkConnectionLost,
+        .notConnectedToInternet,
+        .resourceUnavailable,
+        .cannotLoadFromNetwork,
+    ]
+
     private let ncbiService: NCBIService
     private let httpClient: HTTPClient
     private let homeDirectoryProvider: @Sendable () -> URL
@@ -98,18 +112,67 @@ public actor SRAService {
         request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 30
 
-        let (data, response) = try await httpClient.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            throw SRAError.fetchFailed("Failed to fetch run info")
-        }
+        let data = try await fetchRunInfoData(request: request)
 
         guard let content = String(data: data, encoding: .utf8) else {
             throw SRAError.parseError("Invalid encoding")
         }
 
         return parseRunInfoCSV(content)
+    }
+
+    private func fetchRunInfoData(request: URLRequest) async throws -> Data {
+        var attempt = 1
+        var retryDelay = Self.initialRunInfoRetryDelayNanoseconds
+
+        while true {
+            do {
+                let (data, response) = try await httpClient.data(for: request)
+
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw SRAError.fetchFailed("Failed to fetch run info")
+                }
+
+                guard (200...299).contains(httpResponse.statusCode) else {
+                    if Self.retryableHTTPStatusCodes.contains(httpResponse.statusCode),
+                       attempt < Self.maxRunInfoFetchAttempts {
+                        logger.warning(
+                            "Transient SRA run info fetch failure (HTTP \(httpResponse.statusCode, privacy: .public)) on attempt \(attempt, privacy: .public); retrying"
+                        )
+                        try await Task.sleep(nanoseconds: retryDelay)
+                        attempt += 1
+                        retryDelay *= 2
+                        continue
+                    }
+
+                    throw SRAError.fetchFailed("Failed to fetch run info")
+                }
+
+                return data
+            } catch {
+                if error is CancellationError {
+                    throw error
+                }
+
+                if let urlError = error as? URLError,
+                   Self.retryableURLErrorCodes.contains(urlError.code),
+                   attempt < Self.maxRunInfoFetchAttempts {
+                    logger.warning(
+                        "Transient SRA run info transport failure (\(urlError.code.rawValue, privacy: .public)) on attempt \(attempt, privacy: .public); retrying"
+                    )
+                    try await Task.sleep(nanoseconds: retryDelay)
+                    attempt += 1
+                    retryDelay *= 2
+                    continue
+                }
+
+                if let sraError = error as? SRAError {
+                    throw sraError
+                }
+
+                throw SRAError.fetchFailed("Failed to fetch run info")
+            }
+        }
     }
 
     /// Parses CSV run info from NCBI.

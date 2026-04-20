@@ -118,6 +118,29 @@ final class VCFDashboardTests: XCTestCase {
         XCTAssertEqual(controller.numberOfRows(in: NSTableView()), 3)
     }
 
+    @MainActor
+    func testVCFDatasetViewControllerDescendingSortWithTiesIsDeterministic() {
+        let controller = VCFDatasetViewController()
+        _ = controller.view
+
+        let variants = [
+            IOVCFVariant(id: "v1", chromosome: "chr1", position: 100,
+                       ref: "A", alt: ["G"], quality: 20, filter: "PASS",
+                       info: [:], format: nil, genotypes: [:]),
+            IOVCFVariant(id: "v2", chromosome: "chr1", position: 100,
+                       ref: "C", alt: ["T"], quality: 20, filter: "PASS",
+                       info: [:], format: nil, genotypes: [:]),
+            IOVCFVariant(id: "v3", chromosome: "chr1", position: 50,
+                       ref: "G", alt: ["A"], quality: 10, filter: "PASS",
+                       info: [:], format: nil, genotypes: [:]),
+        ]
+
+        controller.configure(summary: makeSampleSummary(variantCount: 3), variants: variants)
+        controller.testApplySort(key: "pos", ascending: false)
+
+        XCTAssertEqual(controller.testDisplayedVariants.map(\.id), ["v1", "v2", "v3"])
+    }
+
     // MARK: - VCF File Detection Logic
 
     func testVCFFileDetectionPlainVCF() {

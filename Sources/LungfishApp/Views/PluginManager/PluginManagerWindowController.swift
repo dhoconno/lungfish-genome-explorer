@@ -89,6 +89,7 @@ public final class PluginManagerWindowController: NSWindowController, NSToolbarD
         window.setFrameAutosaveName("PluginManagerWindow")
         window.isRestorable = false
         window.isReleasedWhenClosed = false
+        window.setAccessibilityIdentifier(PluginManagerAccessibilityID.window)
 
         super.init(window: window)
 
@@ -152,6 +153,7 @@ public final class PluginManagerWindowController: NSWindowController, NSToolbarD
             segmented.setWidth(96, forSegment: 0)
             segmented.setWidth(72, forSegment: 1)
             segmented.setWidth(92, forSegment: 2)
+            segmented.setAccessibilityIdentifier(PluginManagerAccessibilityID.toolbarSegmentedControl)
             item.view = segmented
             item.label = "Sections"
             item.toolTip = "Switch between Installed, Packs, and Databases"

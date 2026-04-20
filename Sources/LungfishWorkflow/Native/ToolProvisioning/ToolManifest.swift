@@ -50,7 +50,8 @@ public struct ToolManifest: Codable, Sendable {
     public static var defaultBundledManifest: ToolManifest {
         guard let manifestURL = RuntimeResourceLocator.path("Tools/tool-versions.json", in: .workflow),
               let manifest = try? loadBundledResource(from: manifestURL) else {
-            return ToolManifest(formatVersion: "1.0", tools: BundledToolSpec.sourceDefaultTools)
+            return loadBundledManifestFromModule()
+                ?? ToolManifest(formatVersion: "1.0", tools: BundledToolSpec.sourceDefaultTools)
         }
         return manifest
     }
@@ -58,8 +59,18 @@ public struct ToolManifest: Codable, Sendable {
     static func loadBundledResource(from url: URL) throws -> ToolManifest {
         let data = try Data(contentsOf: url)
         let manifest = try JSONDecoder().decode(ToolVersionsManifest.self, from: data)
+        return toolManifest(from: manifest)
+    }
 
-        return ToolManifest(
+    private static func loadBundledManifestFromModule() -> ToolManifest? {
+        guard let manifest = ToolVersionsManifest.loadFromBundle() else {
+            return nil
+        }
+        return toolManifest(from: manifest)
+    }
+
+    private static func toolManifest(from manifest: ToolVersionsManifest) -> ToolManifest {
+        ToolManifest(
             formatVersion: manifest.formatVersion,
             lastUpdated: bundledManifestDate(from: manifest.lastUpdated),
             tools: manifest.tools.compactMap { BundledToolSpec(packagedEntry: $0) }

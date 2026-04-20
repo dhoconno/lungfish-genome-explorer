@@ -13,9 +13,16 @@ import LungfishWorkflow
 @MainActor
 final class AboutWindowController: NSWindowController {
 
-    private var creditsScrollView: NSScrollView!
     private var creditsTextView: NSTextView!
-    private var scrollTimer: Timer?
+
+    private enum AccessibilityID {
+        static let window = "about-window"
+        static let root = "about-root"
+        static let creditsScrollView = "about-credits-scroll-view"
+        static let creditsTextView = "about-credits-text-view"
+        static let licensesButton = "about-third-party-licenses-button"
+        static let websiteButton = "about-lab-website-button"
+    }
 
     convenience init() {
         let window = NSWindow(
@@ -28,6 +35,7 @@ final class AboutWindowController: NSWindowController {
         window.isReleasedWhenClosed = false
         window.isRestorable = false
         window.center()
+        window.identifier = NSUserInterfaceItemIdentifier(AccessibilityID.window)
         window.isMovableByWindowBackground = true
         self.init(window: window)
         setupContent()
@@ -40,6 +48,7 @@ final class AboutWindowController: NSWindowController {
 
         let container = NSView(frame: contentView.bounds)
         container.translatesAutoresizingMaskIntoConstraints = false
+        container.setAccessibilityIdentifier(AccessibilityID.root)
         contentView.addSubview(container)
         NSLayoutConstraint.activate([
             container.topAnchor.constraint(equalTo: contentView.topAnchor),
@@ -100,6 +109,7 @@ final class AboutWindowController: NSWindowController {
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
+        scrollView.setAccessibilityIdentifier(AccessibilityID.creditsScrollView)
 
         let textView = NSTextView()
         textView.isEditable = false
@@ -109,11 +119,11 @@ final class AboutWindowController: NSWindowController {
         textView.isAutomaticLinkDetectionEnabled = true
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        textView.setAccessibilityIdentifier(AccessibilityID.creditsTextView)
         scrollView.documentView = textView
 
         container.addSubview(scrollView)
 
-        self.creditsScrollView = scrollView
         self.creditsTextView = textView
 
         // Copyright
@@ -131,6 +141,7 @@ final class AboutWindowController: NSWindowController {
         licensesButton.isBordered = false
         licensesButton.font = .systemFont(ofSize: 10)
         licensesButton.contentTintColor = .linkColor
+        licensesButton.setAccessibilityIdentifier(AccessibilityID.licensesButton)
         let licensesTitle = NSAttributedString(
             string: "Third-Party Licenses",
             attributes: [
@@ -149,6 +160,7 @@ final class AboutWindowController: NSWindowController {
         linkButton.isBordered = false
         linkButton.font = .systemFont(ofSize: 10)
         linkButton.contentTintColor = .linkColor
+        linkButton.setAccessibilityIdentifier(AccessibilityID.websiteButton)
         let linkTitle = NSAttributedString(
             string: "dho.pathology.wisc.edu",
             attributes: [

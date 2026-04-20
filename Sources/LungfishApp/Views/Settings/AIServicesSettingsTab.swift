@@ -42,6 +42,7 @@ struct AIServicesSettingsTab: View {
         Form {
             Section {
                 Toggle("Enable AI-powered search", isOn: $settings.aiSearchEnabled)
+                    .accessibilityIdentifier(SettingsAccessibilityID.aiSearchToggle)
                 Text("When enabled, natural language queries can use AI models to search annotations and retrieve genomic context.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -53,6 +54,7 @@ struct AIServicesSettingsTab: View {
                     Text("OpenAI").tag("openai")
                     Text("Google Gemini").tag("gemini")
                 }
+                .accessibilityIdentifier(SettingsAccessibilityID.aiPreferredProviderPicker)
                 Text("The preferred provider will be used for AI Assistant queries. The first provider with a configured API key will be used as fallback.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -62,18 +64,21 @@ struct AIServicesSettingsTab: View {
                 HStack {
                     statusIndicator(state: anthropicValidation)
                     SecureField("API Key", text: $anthropicKey, prompt: Text("sk-ant-..."))
+                        .accessibilityIdentifier(SettingsAccessibilityID.aiAnthropicKeyField)
                 }
                 validationText(for: anthropicValidation)
                 Picker("Model:", selection: $settings.anthropicModel) {
                     Text("Claude Sonnet 4.5").tag("claude-sonnet-4-5-20250929")
                     Text("Claude Haiku 4.5").tag("claude-haiku-4-5-20251001")
                 }
+                .accessibilityIdentifier(SettingsAccessibilityID.aiAnthropicModelPicker)
             }
 
             Section("OpenAI") {
                 HStack {
                     statusIndicator(state: openAIValidation)
                     SecureField("API Key", text: $openAIKey, prompt: Text("sk-..."))
+                        .accessibilityIdentifier(SettingsAccessibilityID.aiOpenAIKeyField)
                 }
                 validationText(for: openAIValidation)
                 Picker("Model:", selection: $settings.openAIModel) {
@@ -83,12 +88,14 @@ struct AIServicesSettingsTab: View {
                     Text("GPT-4o").tag("gpt-4o")
                     Text("GPT-4o Mini").tag("gpt-4o-mini")
                 }
+                .accessibilityIdentifier(SettingsAccessibilityID.aiOpenAIModelPicker)
             }
 
             Section("Google Gemini") {
                 HStack {
                     statusIndicator(state: geminiValidation)
                     SecureField("API Key", text: $geminiKey, prompt: Text("AIza..."))
+                        .accessibilityIdentifier(SettingsAccessibilityID.aiGeminiKeyField)
                 }
                 validationText(for: geminiValidation)
                 Picker("Model:", selection: $settings.geminiModel) {
@@ -97,6 +104,7 @@ struct AIServicesSettingsTab: View {
                     Text("Gemini 2.5 Flash Lite").tag("gemini-2.5-flash-lite")
                     Text("Gemini 3 Flash Preview").tag("gemini-3-flash-preview")
                 }
+                .accessibilityIdentifier(SettingsAccessibilityID.aiGeminiModelPicker)
             }
 
             HStack {
@@ -104,16 +112,19 @@ struct AIServicesSettingsTab: View {
                     showClearConfirmation = true
                 }
                 .foregroundStyle(Color.lungfishOrangeFallback)
+                .accessibilityIdentifier(SettingsAccessibilityID.aiClearKeysButton)
                 Spacer()
                 Button("Restore Defaults") {
                     settings.resetSection(.aiServices)
                 }
+                .accessibilityIdentifier(SettingsAccessibilityID.aiRestoreDefaultsButton)
             }
 
             if let keychainErrorMessage {
                 Text(keychainErrorMessage)
                     .font(.caption)
                     .foregroundStyle(.red)
+                    .accessibilityIdentifier(SettingsAccessibilityID.aiErrorMessage)
             }
         }
         .formStyle(.grouped)
@@ -133,9 +144,7 @@ struct AIServicesSettingsTab: View {
         .onChange(of: settings.anthropicModel) { _, _ in settings.save() }
         .onChange(of: settings.geminiModel) { _, _ in settings.save() }
         .onDisappear {
-            openAISaveTask?.cancel()
-            anthropicSaveTask?.cancel()
-            geminiSaveTask?.cancel()
+            cancelPendingSaves()
         }
         .alert("Clear All API Keys?", isPresented: $showClearConfirmation) {
             Button("Clear", role: .destructive) { clearAllKeys() }
@@ -214,7 +223,8 @@ struct AIServicesSettingsTab: View {
     /// Debounces Keychain writes by 500ms to avoid writing on every keystroke.
     private func debouncedStore(_ value: String, forKey key: String, task: inout Task<Void, Never>?) {
         guard !isLoadingKeys else { return }
-        setValidationState(value.isEmpty ? .empty : .unverified, for: providerForKey(key))
+        let provider = providerForKey(key)
+        setValidationState(value.isEmpty ? .empty : .unverified, for: provider)
         task?.cancel()
         task = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
@@ -222,28 +232,33 @@ struct AIServicesSettingsTab: View {
             do {
                 try await KeychainSecretStorage.shared.store(secret: value, forKey: key)
                 keychainErrorMessage = nil
-                if shouldValidate(keyValue: value, provider: providerForKey(key)) {
-                    await validateKey(value, provider: providerForKey(key))
+                guard !Task.isCancelled else { return }
+                if shouldValidate(keyValue: value, provider: provider),
+                   shouldApplyValidationResult(expectedKey: value, provider: provider) {
+                    await validateKey(value, provider: provider)
                 }
             } catch {
                 keychainErrorMessage = error.localizedDescription
-                setValidationState(.invalid(error.localizedDescription), for: providerForKey(key))
+                if shouldApplyValidationResult(expectedKey: value, provider: provider) {
+                    setValidationState(.invalid(error.localizedDescription), for: provider)
+                }
             }
         }
     }
 
     private func clearAllKeys() {
+        cancelPendingSaves()
         Task { @MainActor in
             do {
                 try await KeychainSecretStorage.shared.deleteAll()
                 isLoadingKeys = true
+                defer { isLoadingKeys = false }
                 openAIKey = ""
                 anthropicKey = ""
                 geminiKey = ""
                 openAIValidation = .empty
                 anthropicValidation = .empty
                 geminiValidation = .empty
-                isLoadingKeys = false
                 keychainErrorMessage = nil
             } catch {
                 keychainErrorMessage = error.localizedDescription
@@ -263,7 +278,7 @@ struct AIServicesSettingsTab: View {
     }
 
     private func shouldValidate(keyValue: String, provider: ProviderKind) -> Bool {
-        let trimmed = keyValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = normalizedKey(keyValue)
         guard !trimmed.isEmpty else { return false }
         switch provider {
         case .openAI:
@@ -277,6 +292,7 @@ struct AIServicesSettingsTab: View {
 
     @MainActor
     private func validateKey(_ keyValue: String, provider: ProviderKind) async {
+        guard shouldApplyValidationResult(expectedKey: keyValue, provider: provider) else { return }
         setValidationState(.validating, for: provider)
         do {
             let aiProvider: any AIProvider
@@ -289,10 +305,13 @@ struct AIServicesSettingsTab: View {
                 aiProvider = GeminiProvider(apiKey: keyValue, modelId: settings.geminiModel)
             }
             try await aiProvider.validateCredentials()
+            guard shouldApplyValidationResult(expectedKey: keyValue, provider: provider) else { return }
             setValidationState(.valid, for: provider)
         } catch let providerError as AIProviderError {
+            guard shouldApplyValidationResult(expectedKey: keyValue, provider: provider) else { return }
             setValidationState(.invalid(providerError.localizedDescription), for: provider)
         } catch {
+            guard shouldApplyValidationResult(expectedKey: keyValue, provider: provider) else { return }
             setValidationState(.invalid(error.localizedDescription), for: provider)
         }
     }
@@ -307,5 +326,33 @@ struct AIServicesSettingsTab: View {
         case .gemini:
             geminiValidation = state
         }
+    }
+
+    private func cancelPendingSaves() {
+        openAISaveTask?.cancel()
+        anthropicSaveTask?.cancel()
+        geminiSaveTask?.cancel()
+        openAISaveTask = nil
+        anthropicSaveTask = nil
+        geminiSaveTask = nil
+    }
+
+    private func currentKey(for provider: ProviderKind) -> String {
+        switch provider {
+        case .openAI:
+            openAIKey
+        case .anthropic:
+            anthropicKey
+        case .gemini:
+            geminiKey
+        }
+    }
+
+    private func normalizedKey(_ keyValue: String) -> String {
+        keyValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func shouldApplyValidationResult(expectedKey: String, provider: ProviderKind) -> Bool {
+        normalizedKey(currentKey(for: provider)) == normalizedKey(expectedKey)
     }
 }

@@ -96,12 +96,16 @@ final class TaxTriageBatchOverviewView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        setAccessibilityIdentifier("taxtriage-batch-overview")
+        setAccessibilityLabel("TaxTriage batch overview")
         setupFacetControl()
         setupTableView()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
+        setAccessibilityIdentifier("taxtriage-batch-overview")
+        setAccessibilityLabel("TaxTriage batch overview")
         setupFacetControl()
         setupTableView()
     }
@@ -119,6 +123,8 @@ final class TaxTriageBatchOverviewView: NSView {
         facetControl.target = self
         facetControl.action = #selector(facetChanged(_:))
         facetControl.translatesAutoresizingMaskIntoConstraints = false
+        facetControl.setAccessibilityIdentifier("taxtriage-batch-overview-facet-control")
+        facetControl.setAccessibilityLabel("Value facet")
         addSubview(facetControl)
     }
 
@@ -149,6 +155,8 @@ final class TaxTriageBatchOverviewView: NSView {
         tableView.dataSource = self
         tableView.target = self
         tableView.doubleAction = #selector(tableDoubleClicked(_:))
+        tableView.setAccessibilityIdentifier("taxtriage-batch-overview-summary-table")
+        tableView.setAccessibilityLabel("Cross-sample summary table")
 
         scrollView.documentView = tableView
     }

@@ -159,6 +159,7 @@ public final class DocumentManager {
         )
 
         activeProject = project
+        transitionDocumentState(to: [], activeDocument: nil)
         logger.info("createProject: Project created and set as active")
 
         NotificationCenter.default.post(
@@ -178,12 +179,11 @@ public final class DocumentManager {
         logger.info("openProject: Opening project at \(url.path, privacy: .public)")
 
         let project = try ProjectFile.open(at: url)
+        let projectDocuments = try loadSequencesFromProject(project)
 
         activeProject = project
-        logger.info("openProject: Opened project '\(project.name, privacy: .public)'")
-
-        // Load sequences from the project
-        try loadSequencesFromProject(project)
+        transitionDocumentState(to: projectDocuments, activeDocument: projectDocuments.first)
+        logger.info("openProject: Opened project '\(project.name, privacy: .public)' with \(projectDocuments.count) loaded documents")
 
         NotificationCenter.default.post(
             name: Self.projectOpenedNotification,
@@ -213,16 +213,14 @@ public final class DocumentManager {
 
         logger.info("closeActiveProject: Closing project '\(project.name, privacy: .public)'")
         activeProject = nil
-
-        // Clear project-related documents
-        documents.removeAll()
-        activeDocument = nil
+        transitionDocumentState(to: [], activeDocument: nil)
     }
 
     /// Loads sequences from a project into documents.
-    private func loadSequencesFromProject(_ project: ProjectFile) throws {
+    private func loadSequencesFromProject(_ project: ProjectFile) throws -> [LoadedDocument] {
         let sequenceSummaries = try project.listSequences()
         logger.info("loadSequencesFromProject: Found \(sequenceSummaries.count) sequences")
+        var projectDocuments: [LoadedDocument] = []
 
         for summary in sequenceSummaries {
             // Get full sequence content
@@ -261,14 +259,11 @@ public final class DocumentManager {
                 )
             }
 
-            documents.append(document)
+            projectDocuments.append(document)
             logger.debug("loadSequencesFromProject: Loaded sequence '\(summary.name, privacy: .public)'")
         }
 
-        // Set the first document as active
-        if let first = documents.first {
-            activeDocument = first
-        }
+        return projectDocuments
     }
 
     /// Adds a sequence to the active project.
@@ -354,7 +349,7 @@ public final class DocumentManager {
                 // For .lungfish projects, use openProject instead
                 logger.info("loadDocument: Opening Lungfish project...")
                 _ = try openProject(at: url)
-                return documents.first ?? document
+                return activeDocument ?? document
             case .lungfishReferenceBundle:
                 logger.info("loadDocument: Loading reference bundle...")
                 try loadReferenceBundle(into: document)
@@ -371,7 +366,7 @@ public final class DocumentManager {
         logger.info("loadDocument: Added to documents list (total: \(self.documents.count))")
 
         // Set as active
-        activeDocument = document
+        setActiveDocument(document)
         logger.info("loadDocument: Set as active document")
 
         // Post notifications
@@ -389,9 +384,10 @@ public final class DocumentManager {
     /// Closes a document.
     public func closeDocument(_ document: LoadedDocument) {
         logger.info("closeDocument: Closing \(document.name, privacy: .public)")
+        let wasActiveDocument = activeDocument?.id == document.id
         documents.removeAll { $0.id == document.id }
-        if activeDocument?.id == document.id {
-            activeDocument = documents.first
+        if wasActiveDocument {
+            setActiveDocument(documents.first)
         }
     }
 
@@ -417,6 +413,17 @@ public final class DocumentManager {
 
         logger.info("registerDocument: Registering \(document.name, privacy: .public)")
         documents.append(document)
+    }
+
+    private func transitionDocumentState(to newDocuments: [LoadedDocument], activeDocument newActiveDocument: LoadedDocument?) {
+        documents = newDocuments
+
+        guard activeDocument?.id != newActiveDocument?.id else {
+            activeDocument = newActiveDocument
+            return
+        }
+
+        setActiveDocument(newActiveDocument)
     }
 
     // MARK: - Project Folder Loading

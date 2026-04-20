@@ -467,7 +467,8 @@ final class ExtractReadsByClassifierCLITests: XCTestCase {
     func testRun_byClassifier_nonexistentResult_failsWithReadableMessage() async throws {
         let tempOut = FileManager.default.temporaryDirectory
             .appendingPathComponent("cli-nx-out-\(UUID().uuidString).fastq")
-        defer { try? FileManager.default.removeItem(at: tempOut) }
+            .standardizedFileURL
+        defer { removeIfPresent(tempOut) }
 
         // A path that definitely doesn't exist. We don't have to worry about
         // accidentally hitting a real file because the UUID is unique.
@@ -526,7 +527,7 @@ final class ExtractReadsByClassifierCLITests: XCTestCase {
     // without falling through to xctest's own `CommandLine.arguments`.
 
     /// Set up a fake NVD-style result directory by copying the sarscov2 fixture
-    /// BAM + BAI into the `{sampleId}.bam` layout that
+    /// BAM + BAI into the `bam/{sampleId}.filtered.bam` layout that
     /// `ClassifierReadResolver.resolveBAMURL(tool: .nvd, …)` scans for.
     ///
     /// Returns the fake result path (a .sqlite URL inside the temp dir). Caller
@@ -554,7 +555,9 @@ final class ExtractReadsByClassifierCLITests: XCTestCase {
         guard fm.fileExists(atPath: bam.path), fm.fileExists(atPath: bai.path) else {
             throw XCTSkip("sarscov2 fixture BAM/BAI missing at \(bam.path)")
         }
-        let dest = root.appendingPathComponent("\(sampleId).bam")
+        let bamDirectory = root.appendingPathComponent("bam", isDirectory: true)
+        try fm.createDirectory(at: bamDirectory, withIntermediateDirectories: true)
+        let dest = bamDirectory.appendingPathComponent("\(sampleId).filtered.bam")
         try fm.copyItem(at: bam, to: dest)
         try fm.copyItem(at: bai, to: URL(fileURLWithPath: dest.path + ".bai"))
         return root.appendingPathComponent("fake-nvd.sqlite")
@@ -563,13 +566,13 @@ final class ExtractReadsByClassifierCLITests: XCTestCase {
     func testRun_byClassifier_nvd_endToEnd() async throws {
         let resultPath = try makeSarscov2NVDFixture(sampleId: "s2")
         let fixtureRoot = resultPath.deletingLastPathComponent()
-        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        defer { removeIfPresent(fixtureRoot) }
 
         // Discover the actual BAM reference name so we don't hard-code
         // MN908947.3 and accidentally couple the test to the specific fixture
         // version. The resolver itself uses `BAMRegionMatcher` internally; we
         // mirror that here.
-        let fixtureBAM = fixtureRoot.appendingPathComponent("s2.bam")
+        let fixtureBAM = fixtureRoot.appendingPathComponent("bam/s2.filtered.bam")
         let bamRefs = try await BAMRegionMatcher.readBAMReferences(
             bamURL: fixtureBAM,
             runner: .shared
@@ -580,7 +583,8 @@ final class ExtractReadsByClassifierCLITests: XCTestCase {
 
         let tempOut = FileManager.default.temporaryDirectory
             .appendingPathComponent("cli-nvd-out-\(UUID().uuidString).fastq")
-        defer { try? FileManager.default.removeItem(at: tempOut) }
+            .standardizedFileURL
+        defer { removeIfPresent(tempOut) }
 
         let argv = [
             "--by-classifier",
@@ -607,9 +611,9 @@ final class ExtractReadsByClassifierCLITests: XCTestCase {
     func testRun_byClassifier_format_fasta_endToEnd() async throws {
         let resultPath = try makeSarscov2NVDFixture(sampleId: "s2")
         let fixtureRoot = resultPath.deletingLastPathComponent()
-        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+        defer { removeIfPresent(fixtureRoot) }
 
-        let fixtureBAM = fixtureRoot.appendingPathComponent("s2.bam")
+        let fixtureBAM = fixtureRoot.appendingPathComponent("bam/s2.filtered.bam")
         let bamRefs = try await BAMRegionMatcher.readBAMReferences(
             bamURL: fixtureBAM,
             runner: .shared
@@ -620,7 +624,8 @@ final class ExtractReadsByClassifierCLITests: XCTestCase {
 
         let tempOut = FileManager.default.temporaryDirectory
             .appendingPathComponent("cli-nvd-out-\(UUID().uuidString).fasta")
-        defer { try? FileManager.default.removeItem(at: tempOut) }
+            .standardizedFileURL
+        defer { removeIfPresent(tempOut) }
 
         // NOTE: the CLI spells this `--read-format` (not `--format`) because
         // `GlobalOptions.outputFormat` already claims `--format` for the report
@@ -659,4 +664,13 @@ final class ExtractReadsByClassifierCLITests: XCTestCase {
             "FASTA output should begin with '>' header marker"
         )
     }
+}
+
+private func removeIfPresent(_ url: URL) {
+    let normalizedURL = url.standardizedFileURL
+    let fileManager = FileManager.default
+    guard fileManager.fileExists(atPath: normalizedURL.path) else {
+        return
+    }
+    try? fileManager.removeItem(at: normalizedURL)
 }

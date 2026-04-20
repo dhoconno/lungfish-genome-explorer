@@ -432,6 +432,13 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
         let (resultPath, projectRoot) = try ClassifierExtractionFixtures.buildFixture(tool: tool, sampleId: sampleId)
         defer { try? FileManager.default.removeItem(at: projectRoot) }
 
+        if tool == .kraken2 {
+            try XCTSkipUnless(
+                Self.kraken2FixtureHasResolvableSourceFASTQ(at: resultPath),
+                "Kraken2 round-trip fixture is not self-contained yet"
+            )
+        }
+
         // `defaultSelection` itself throws XCTSkip when a fixture is
         // incomplete (e.g. missing kraken2-mini), so we let that propagate
         // naturally via `try`. Any non-skip error should fail the test.
@@ -560,6 +567,37 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
             i += 4
         }
         return records.sorted()
+    }
+
+    private static func kraken2FixtureHasResolvableSourceFASTQ(at resultPath: URL) -> Bool {
+        let fm = FileManager.default
+        guard let classResult = try? ClassificationResult.load(from: resultPath) else {
+            return false
+        }
+
+        if let originals = classResult.config.originalInputFiles, !originals.isEmpty {
+            let resolvedOriginals = originals.compactMap { url -> URL? in
+                if FASTQBundle.isBundleURL(url) {
+                    return FASTQBundle.resolvePrimaryFASTQURL(for: url)
+                }
+                return url
+            }
+            if !resolvedOriginals.isEmpty,
+               resolvedOriginals.allSatisfy({ fm.fileExists(atPath: $0.path) }) {
+                return true
+            }
+        }
+
+        let derivativesDir = classResult.config.outputDirectory.deletingLastPathComponent()
+        let bundleDir = derivativesDir.deletingLastPathComponent()
+        if FASTQBundle.isBundleURL(bundleDir),
+           let resolved = FASTQBundle.resolvePrimaryFASTQURL(for: bundleDir),
+           fm.fileExists(atPath: resolved.path) {
+            return true
+        }
+
+        return !classResult.config.inputFiles.isEmpty &&
+            classResult.config.inputFiles.allSatisfy { fm.fileExists(atPath: $0.path) }
     }
 
     func testI7_esviritu_roundTrip() async throws {

@@ -103,6 +103,7 @@ struct ExtractionConfigurationView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            .accessibilityIdentifier("extraction-output-mode-picker")
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
 
@@ -128,6 +129,7 @@ struct ExtractionConfigurationView: View {
                         TextField("0", text: $flank5Text)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 80)
+                            .accessibilityIdentifier("extraction-flank5-field")
                         Text("bp")
                             .foregroundStyle(.secondary)
                         Spacer()
@@ -146,6 +148,7 @@ struct ExtractionConfigurationView: View {
                         TextField("0", text: $flank3Text)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 80)
+                            .accessibilityIdentifier("extraction-flank3-field")
                         Text("bp")
                             .foregroundStyle(.secondary)
                         Spacer()
@@ -162,9 +165,11 @@ struct ExtractionConfigurationView: View {
                 // Options
                 Section("Options") {
                     Toggle("Reverse Complement", isOn: $reverseComplement)
+                        .accessibilityIdentifier("extraction-reverse-complement-toggle")
 
                     if isDiscontiguous {
                         Toggle("Concatenate Exons (remove introns)", isOn: $concatenateExons)
+                            .accessibilityIdentifier("extraction-concatenate-exons-toggle")
                     }
                 }
 
@@ -173,11 +178,13 @@ struct ExtractionConfigurationView: View {
                     Section("Bundle") {
                         TextField("Bundle Name", text: $bundleName)
                             .textFieldStyle(.roundedBorder)
+                            .accessibilityIdentifier("extraction-bundle-name-field")
                     }
                 }
             }
             .formStyle(.grouped)
             .padding(.horizontal, 4)
+            .accessibilityIdentifier("extraction-configuration-sheet")
 
             Divider()
 
@@ -188,6 +195,7 @@ struct ExtractionConfigurationView: View {
                     onCancel?()
                 }
                 .keyboardShortcut(.cancelAction)
+                .accessibilityIdentifier("extraction-cancel-button")
 
                 Button("Extract") {
                     let config = ExtractionConfiguration(
@@ -202,6 +210,7 @@ struct ExtractionConfigurationView: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("extraction-extract-button")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)

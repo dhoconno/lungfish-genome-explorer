@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import SQLite3
 @testable import LungfishCore
 
 @MainActor
@@ -328,5 +329,88 @@ final class ProjectStoreTests: XCTestCase {
         // Update existing key
         try store.setMetadata(key: "project_name", value: "Updated Name")
         XCTAssertEqual(try store.getMetadata(key: "project_name"), "Updated Name")
+    }
+
+    func testListSequencesParsesSQLiteTimestamps() throws {
+        try store.storeSequence(name: "dated_sequence", content: "ATCG")
+        try withRawDatabase { db in
+            XCTAssertEqual(
+                sqlite3_exec(
+                    db,
+                    "UPDATE sequences SET created_at = '2024-01-02 03:04:05', modified_at = '2024-01-02T06:07:08Z'",
+                    nil,
+                    nil,
+                    nil
+                ),
+                SQLITE_OK
+            )
+        }
+
+        let sequence = try XCTUnwrap(store.listSequences().first)
+
+        XCTAssertEqual(sequence.createdAt, sqliteDate("2024-01-02 03:04:05"))
+        XCTAssertEqual(sequence.modifiedAt, isoDate("2024-01-02T06:07:08Z"))
+    }
+
+    func testVersionHistoryParsesSQLiteTimestamps() throws {
+        let sequenceId = try store.storeSequence(
+            name: "versioned_dates",
+            content: "AAAA"
+        )
+        let diff = SequenceDiff.compute(from: "AAAA", to: "AAAT")
+        try store.recordVersion(
+            sequenceId: sequenceId,
+            diff: diff,
+            newContentHash: Version.computeHash("AAAT")
+        )
+        try withRawDatabase { db in
+            XCTAssertEqual(
+                sqlite3_exec(
+                    db,
+                    "UPDATE versions SET created_at = '2024-02-03 04:05:06'",
+                    nil,
+                    nil,
+                    nil
+                ),
+                SQLITE_OK
+            )
+        }
+
+        let version = try XCTUnwrap(store.getVersionHistory(for: sequenceId).first)
+        XCTAssertEqual(version.createdAt, sqliteDate("2024-02-03 04:05:06"))
+    }
+
+    private func withRawDatabase(_ body: (OpaquePointer) throws -> Void) throws {
+        let dbURL = tempDirectory.appendingPathComponent(".project.db")
+        var db: OpaquePointer?
+        let result = sqlite3_open_v2(
+            dbURL.path,
+            &db,
+            SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX,
+            nil
+        )
+
+        guard result == SQLITE_OK, let db else {
+            let message = db.map { String(cString: sqlite3_errmsg($0)) } ?? "Unknown SQLite error"
+            throw NSError(domain: "ProjectStoreTests", code: Int(result), userInfo: [
+                NSLocalizedDescriptionKey: message,
+            ])
+        }
+
+        defer { sqlite3_close_v2(db) }
+        try body(db)
+    }
+
+    private func sqliteDate(_ string: String) -> Date {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return formatter.date(from: string)!
+    }
+
+    private func isoDate(_ string: String) -> Date {
+        ISO8601DateFormatter().date(from: string)!
     }
 }

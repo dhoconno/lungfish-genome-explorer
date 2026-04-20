@@ -60,6 +60,7 @@ public final class MainMenu {
 
     private static func createApplicationMenu() -> NSMenuItem {
         let appMenuItem = NSMenuItem()
+        appMenuItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.applicationMenu)
         let appMenu = NSMenu()
 
         // About
@@ -67,7 +68,7 @@ public final class MainMenu {
             withTitle: "About Lungfish Genome Explorer",
             action: #selector(AppDelegate.showAboutPanel(_:)),
             keyEquivalent: ""
-        )
+        ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.about)
 
         appMenu.addItem(.separator())
 
@@ -77,6 +78,7 @@ public final class MainMenu {
             action: #selector(AppDelegate.showPreferences(_:)),
             keyEquivalent: ","
         )
+        prefsItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.settings)
         appMenu.addItem(prefsItem)
 
         appMenu.addItem(.separator())
@@ -116,7 +118,7 @@ public final class MainMenu {
             withTitle: "Quit Lungfish Genome Explorer",
             action: #selector(NSApplication.terminate(_:)),
             keyEquivalent: "q"
-        )
+        ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.quit)
 
         appMenuItem.submenu = appMenu
         return appMenuItem
@@ -126,6 +128,7 @@ public final class MainMenu {
 
     private static func createFileMenu() -> NSMenuItem {
         let fileMenuItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
+        fileMenuItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.fileMenu)
         let fileMenu = NSMenu(title: "File")
 
         // New
@@ -133,17 +136,18 @@ public final class MainMenu {
             withTitle: "New Project",
             action: #selector(AppDelegate.newDocument(_:)),
             keyEquivalent: "n"
-        )
+        ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.newProject)
 
         // Open Project Folder (Cmd-O)
         fileMenu.addItem(
             withTitle: "Open Project Folder...",
             action: #selector(AppDelegate.openProjectFolder(_:)),
             keyEquivalent: "o"
-        )
+        ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.openProjectFolder)
 
         // Open Recent submenu
         let recentItem = NSMenuItem(title: "Open Recent", action: nil, keyEquivalent: "")
+        recentItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.openRecent)
         let recentMenu = NSMenu(title: "Open Recent")
         recentMenu.addItem(
             withTitle: "Clear Menu",
@@ -184,9 +188,11 @@ public final class MainMenu {
             keyEquivalent: "i"
         )
         importCenterItem.keyEquivalentModifierMask = [.command, .shift]
+        importCenterItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.importCenter)
 
         // Export submenu
         let exportItem = NSMenuItem(title: "Export", action: nil, keyEquivalent: "")
+        exportItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.export)
         let exportMenu = NSMenu(title: "Export")
 
         // Sequence formats
@@ -277,7 +283,7 @@ public final class MainMenu {
             withTitle: "Clear Temporary Files\u{2026}",
             action: #selector(AppDelegate.clearProjectTempFiles(_:)),
             keyEquivalent: ""
-        )
+        ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.clearTemporaryFiles)
 
         fileMenuItem.submenu = fileMenu
         return fileMenuItem
@@ -287,6 +293,7 @@ public final class MainMenu {
 
     private static func createEditMenu() -> NSMenuItem {
         let editMenuItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+        editMenuItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.editMenu)
         let editMenu = NSMenu(title: "Edit")
 
         // Undo/Redo
@@ -373,6 +380,7 @@ public final class MainMenu {
 
     private static func createViewMenu() -> NSMenuItem {
         let viewMenuItem = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
+        viewMenuItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.viewMenu)
         let viewMenu = NSMenu(title: "View")
 
         // Sidebar toggle (Control-Command-S per macOS standard)
@@ -498,6 +506,7 @@ public final class MainMenu {
 
     private static func createSequenceMenu() -> NSMenuItem {
         let seqMenuItem = NSMenuItem(title: "Sequence", action: nil, keyEquivalent: "")
+        seqMenuItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.sequenceMenu)
         let seqMenu = NSMenu(title: "Sequence")
 
         // Sequence operations
@@ -576,6 +585,7 @@ public final class MainMenu {
 
     private static func createToolsMenu() -> NSMenuItem {
         let toolsMenuItem = NSMenuItem(title: "Tools", action: nil, keyEquivalent: "")
+        toolsMenuItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.toolsMenu)
         let toolsMenu = NSMenu(title: "Tools")
 
         let fastqOperationsItem = NSMenuItem(title: "FASTQ Operations", action: nil, keyEquivalent: "")
@@ -664,6 +674,7 @@ public final class MainMenu {
             keyEquivalent: "b"
         )
         pluginItem.keyEquivalentModifierMask = [.command, .shift]
+        pluginItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.pluginManager)
 
         toolsMenuItem.submenu = toolsMenu
         return toolsMenuItem
@@ -673,6 +684,7 @@ public final class MainMenu {
 
     private static func createOperationsMenu() -> NSMenuItem {
         let opsMenuItem = NSMenuItem(title: "Operations", action: nil, keyEquivalent: "")
+        opsMenuItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.operationsMenu)
         let opsMenu = NSMenu(title: "Operations")
         opsMenu.delegate = OperationsMenuDelegate.shared
 
@@ -694,6 +706,7 @@ public final class MainMenu {
             keyEquivalent: "p"
         )
         panelItem.keyEquivalentModifierMask = [.command, .shift]
+        panelItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.showOperationsPanel)
 
         opsMenu.addItem(.separator())
 
@@ -719,6 +732,7 @@ public final class MainMenu {
 
     private static func createWindowMenu() -> NSMenuItem {
         let windowMenuItem = NSMenuItem(title: "Window", action: nil, keyEquivalent: "")
+        windowMenuItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.windowMenu)
         let windowMenu = NSMenu(title: "Window")
 
         windowMenu.addItem(
@@ -752,13 +766,14 @@ public final class MainMenu {
 
     private static func createHelpMenu() -> NSMenuItem {
         let helpMenuItem = NSMenuItem(title: "Help", action: nil, keyEquivalent: "")
+        helpMenuItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.helpMenu)
         let helpMenu = NSMenu(title: "Help")
 
         helpMenu.addItem(
             withTitle: "Lungfish Genome Explorer Help",
             action: #selector(HelpMenuActions.showLungfishHelp(_:)),
             keyEquivalent: "?"
-        )
+        ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.helpHome)
 
         helpMenu.addItem(.separator())
 
@@ -766,19 +781,19 @@ public final class MainMenu {
             withTitle: "Getting Started",
             action: #selector(HelpMenuActions.showGettingStarted(_:)),
             keyEquivalent: ""
-        )
+        ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.gettingStarted)
 
         helpMenu.addItem(
             withTitle: "VCF Variants Guide",
             action: #selector(HelpMenuActions.showVCFGuide(_:)),
             keyEquivalent: ""
-        )
+        ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.vcfGuide)
 
         helpMenu.addItem(
             withTitle: "AI Assistant Guide",
             action: #selector(HelpMenuActions.showAIGuide(_:)),
             keyEquivalent: ""
-        )
+        ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.aiGuide)
 
         helpMenu.addItem(.separator())
 
@@ -786,13 +801,13 @@ public final class MainMenu {
             withTitle: "Release Notes",
             action: #selector(HelpMenuActions.openReleaseNotes(_:)),
             keyEquivalent: ""
-        )
+        ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.releaseNotes)
 
         helpMenu.addItem(
             withTitle: "Report an Issue...",
             action: #selector(HelpMenuActions.reportIssue(_:)),
             keyEquivalent: ""
-        )
+        ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.reportIssue)
 
         // Set as app's help menu
         NSApp.helpMenu = helpMenu

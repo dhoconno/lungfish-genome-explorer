@@ -139,7 +139,7 @@ final class OperationPreviewView: NSView {
     private var statistics: FASTQDatasetStatistics?
     private let fastaScrollView = NSScrollView()
     private let fastaTextView = NSTextView()
-    private var showsFASTAPreview = true
+    private var showsFASTAPreview = false
 
     override var isFlipped: Bool { true }
 
@@ -158,6 +158,9 @@ final class OperationPreviewView: NSView {
     func update(operation: OperationKind, statistics: FASTQDatasetStatistics?) {
         self.operationKind = operation
         self.statistics = statistics
+        if operation != .none {
+            setFASTAPreviewVisible(false)
+        }
         needsDisplay = true
         updateAccessibility(operation)
     }
@@ -175,15 +178,13 @@ final class OperationPreviewView: NSView {
     }
 
     func setFASTAContent(_ text: String) {
-        showsFASTAPreview = true
-        fastaScrollView.isHidden = false
+        setFASTAPreviewVisible(true)
         fastaTextView.string = text
         refreshFASTATextViewSize()
         needsDisplay = true
     }
 
     private func configureFASTAPreview() {
-
         fastaScrollView.translatesAutoresizingMaskIntoConstraints = false
         fastaScrollView.borderType = .noBorder
         fastaScrollView.drawsBackground = true
@@ -191,6 +192,7 @@ final class OperationPreviewView: NSView {
         fastaScrollView.hasVerticalScroller = true
         fastaScrollView.hasHorizontalScroller = true
         fastaScrollView.autohidesScrollers = true
+        fastaScrollView.isHidden = true
 
         fastaTextView.isEditable = false
         fastaTextView.isSelectable = true
@@ -235,6 +237,11 @@ final class OperationPreviewView: NSView {
         if showsFASTAPreview {
             refreshFASTATextViewSize()
         }
+    }
+
+    private func setFASTAPreviewVisible(_ isVisible: Bool) {
+        showsFASTAPreview = isVisible
+        fastaScrollView.isHidden = !isVisible
     }
 
     private func refreshFASTATextViewSize() {
@@ -1755,4 +1762,6 @@ final class OperationPreviewView: NSView {
         ctx.strokePath()
         ctx.restoreGState()
     }
+
+    var testShowsFASTAPreview: Bool { showsFASTAPreview }
 }

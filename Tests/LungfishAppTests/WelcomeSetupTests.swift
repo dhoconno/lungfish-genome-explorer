@@ -74,6 +74,10 @@ private final class DelayedWelcomePackStatusProvider: @unchecked Sendable, Plugi
             continuation.resume()
         }
     }
+
+    func hasPendingVisibleStatusesRequest() -> Bool {
+        lock.withLock { !continuations.isEmpty }
+    }
 }
 
 private final class StatefulWelcomePackStatusProvider: @unchecked Sendable, PluginPackStatusProviding {
@@ -123,6 +127,10 @@ private final class StatefulWelcomePackStatusProvider: @unchecked Sendable, Plug
             return continuation
         }
         continuation?.resume(returning: loadingStatuses)
+    }
+
+    func hasPendingVisibleStatusesRequest() -> Bool {
+        lock.withLock { continuation != nil }
     }
 }
 
@@ -201,6 +209,14 @@ private final class OverlappingWelcomePackStatusProvider: @unchecked Sendable, P
 
     func recordedCallCount() -> Int {
         lock.withLock { callCount }
+    }
+
+    func hasPendingFirstRequest() -> Bool {
+        lock.withLock { firstContinuation != nil }
+    }
+
+    func hasPendingSecondRequest() -> Bool {
+        lock.withLock { secondContinuation != nil }
     }
 }
 
@@ -409,8 +425,11 @@ final class WelcomeSetupTests: XCTestCase {
         let viewModel = WelcomeViewModel(statusProvider: provider)
 
         let refreshTask = Task { await viewModel.refreshSetup() }
-        await Task.yield()
+        for _ in 0..<20 where !provider.hasPendingVisibleStatusesRequest() {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
 
+        XCTAssertTrue(provider.hasPendingVisibleStatusesRequest())
         XCTAssertTrue(viewModel.isRefreshingSetup)
         XCTAssertNil(viewModel.requiredSetupStatus)
 
@@ -480,16 +499,14 @@ final class WelcomeSetupTests: XCTestCase {
         XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["read-mapping", "variant-calling", "assembly", "metagenomics"])
 
         let refreshTask = Task { await viewModel.refreshSetup() }
-        await Task.yield()
+        for _ in 0..<20 where !provider.hasPendingVisibleStatusesRequest() {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
 
+        XCTAssertTrue(provider.hasPendingVisibleStatusesRequest())
         XCTAssertTrue(viewModel.isRefreshingSetup)
         XCTAssertNil(viewModel.requiredSetupStatus)
         XCTAssertTrue(viewModel.optionalPackStatuses.isEmpty)
-
-        for _ in 0..<20 where !viewModel.isRefreshingSetup {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        XCTAssertTrue(viewModel.isRefreshingSetup)
 
         provider.release()
         await refreshTask.value
@@ -525,9 +542,10 @@ final class WelcomeSetupTests: XCTestCase {
         XCTAssertEqual(viewModel.requiredSetupStatus?.state, .needsInstall)
 
         center.post(name: .managedResourcesDidChange, object: nil)
-        for _ in 0..<10 where !viewModel.isRefreshingSetup {
+        for _ in 0..<20 where !provider.hasPendingVisibleStatusesRequest() {
             try? await Task.sleep(for: .milliseconds(10))
         }
+        XCTAssertTrue(provider.hasPendingVisibleStatusesRequest())
         XCTAssertTrue(viewModel.isRefreshingSetup)
         provider.release()
         try? await Task.sleep(for: .milliseconds(50))
@@ -556,13 +574,17 @@ final class WelcomeSetupTests: XCTestCase {
         let viewModel = WelcomeViewModel(statusProvider: provider)
 
         let firstRefresh = Task { await viewModel.refreshSetup() }
-        await Task.yield()
+        for _ in 0..<20 where !provider.hasPendingFirstRequest() {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(provider.hasPendingFirstRequest())
 
         let secondRefresh = Task { await viewModel.refreshSetup() }
-        for _ in 0..<20 where provider.recordedCallCount() < 2 {
+        for _ in 0..<20 where !provider.hasPendingSecondRequest() {
             try? await Task.sleep(for: .milliseconds(10))
         }
         XCTAssertEqual(provider.recordedCallCount(), 2)
+        XCTAssertTrue(provider.hasPendingSecondRequest())
 
         provider.releaseSecond()
         await secondRefresh.value

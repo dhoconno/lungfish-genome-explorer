@@ -165,6 +165,10 @@ public struct PatternSearchPlugin: AnnotationGeneratorPlugin {
         let seqChars = Array(sequence)
         let patternLen = patternChars.count
 
+        guard patternLen <= seqChars.count else {
+            return []
+        }
+
         for i in 0...(seqChars.count - patternLen) {
             var mismatches = 0
             for j in 0..<patternLen {

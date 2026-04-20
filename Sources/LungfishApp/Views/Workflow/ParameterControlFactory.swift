@@ -188,6 +188,9 @@ public enum ParameterControlFactory {
         container.orientation = .horizontal
         container.spacing = 4
         container.alignment = .centerY
+        container.setAccessibilityElement(true)
+        container.setAccessibilityRole(.group)
+        container.setAccessibilityLabel(parameter.title)
         container.identifier = NSUserInterfaceItemIdentifier(parameter.id)
 
         // Text field for value display
@@ -238,8 +241,15 @@ public enum ParameterControlFactory {
             textField.widthAnchor.constraint(equalToConstant: 80),
         ])
 
+        textField.setAccessibilityLabel(parameter.title)
+        textField.setAccessibilityIdentifier("control-\(parameter.id)-value")
+
         container.addArrangedSubview(textField)
         container.addArrangedSubview(stepper)
+
+        stepper.setAccessibilityLabel("\(parameter.title) stepper")
+        stepper.setAccessibilityIdentifier("control-\(parameter.id)-stepper")
+        stepper.setAccessibilityHelp("Adjust \(parameter.title)")
 
         // Store references in typed container
         container.textField = textField
@@ -310,6 +320,9 @@ public enum ParameterControlFactory {
         container.orientation = .horizontal
         container.spacing = 8
         container.alignment = .centerY
+        container.setAccessibilityElement(true)
+        container.setAccessibilityRole(.group)
+        container.setAccessibilityLabel(parameter.title)
         container.identifier = NSUserInterfaceItemIdentifier(parameter.id)
 
         // Path control
@@ -332,6 +345,8 @@ public enum ParameterControlFactory {
                 pathControl.url = URL(fileURLWithPath: path)
             }
         }
+        pathControl.setAccessibilityLabel(parameter.title)
+        pathControl.setAccessibilityIdentifier("control-\(parameter.id)-path")
 
         // Browse button with typed metadata
         let browseButton = ParameterBrowseButton(title: "Browse...", target: nil, action: nil)
@@ -339,6 +354,8 @@ public enum ParameterControlFactory {
         browseButton.bezelStyle = .rounded
         browseButton.controlSize = .regular
         browseButton.setAccessibilityLabel("Browse for \(parameter.title)")
+        browseButton.setAccessibilityIdentifier("control-\(parameter.id)-browse")
+        browseButton.setAccessibilityHelp("Browse for \(parameter.title)")
         browseButton.isDirectoryMode = isDirectory
         browseButton.pathControl = pathControl
         browseButton.filePatterns = parameter.validation?.fileExtensions ?? []
@@ -364,6 +381,7 @@ public enum ParameterControlFactory {
         popUp.controlSize = .regular
         popUp.pullsDown = false
         popUp.autoenablesItems = false
+        popUp.setAccessibilityLabel(parameter.title)
         popUp.identifier = NSUserInterfaceItemIdentifier(parameter.id)
 
         // Add enum values
@@ -395,6 +413,7 @@ public enum ParameterControlFactory {
         tokenField.controlSize = .regular
         tokenField.tokenizingCharacterSet = CharacterSet(charactersIn: ",;")
         tokenField.placeholderString = "Enter values separated by commas"
+        tokenField.setAccessibilityLabel(parameter.title)
         tokenField.identifier = NSUserInterfaceItemIdentifier(parameter.id)
 
         // Set default value

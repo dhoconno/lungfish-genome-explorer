@@ -13,6 +13,12 @@ import LungfishWorkflow
 @MainActor
 final class ThirdPartyLicensesWindowController: NSWindowController {
 
+    private enum AccessibilityID {
+        static let window = "third-party-licenses-window"
+        static let scrollView = "third-party-licenses-scroll-view"
+        static let textView = "third-party-licenses-text-view"
+    }
+
     convenience init() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 520),
@@ -24,6 +30,7 @@ final class ThirdPartyLicensesWindowController: NSWindowController {
         window.isReleasedWhenClosed = false
         window.isRestorable = false
         window.center()
+        window.identifier = NSUserInterfaceItemIdentifier(AccessibilityID.window)
         window.minSize = NSSize(width: 400, height: 300)
         self.init(window: window)
         setupContent()
@@ -39,6 +46,7 @@ final class ThirdPartyLicensesWindowController: NSWindowController {
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = true
+        scrollView.setAccessibilityIdentifier(AccessibilityID.scrollView)
 
         let textView = NSTextView()
         textView.isEditable = false
@@ -48,6 +56,7 @@ final class ThirdPartyLicensesWindowController: NSWindowController {
         textView.isAutomaticLinkDetectionEnabled = true
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        textView.setAccessibilityIdentifier(AccessibilityID.textView)
         scrollView.documentView = textView
 
         contentView.addSubview(scrollView)

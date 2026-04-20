@@ -9,7 +9,17 @@ import LungfishCore
 
 public enum RecipeBundleAccessor {
     public static func recipesDirectoryURL() -> URL? {
-        RuntimeResourceLocator.path("Recipes", in: .workflow)
+        if let runtimeURL = RuntimeResourceLocator.path("Recipes", in: .workflow) {
+            return runtimeURL
+        }
+
+        let moduleURL = Bundle.module.resourceURL?
+            .appendingPathComponent("Recipes", isDirectory: true)
+        guard let moduleURL,
+              FileManager.default.fileExists(atPath: moduleURL.path) else {
+            return nil
+        }
+        return moduleURL
     }
 }
 

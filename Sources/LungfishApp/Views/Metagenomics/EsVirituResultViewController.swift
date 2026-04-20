@@ -71,7 +71,8 @@ struct BatchEsVirituRow: Sendable {
 /// ## Detail Pane
 ///
 /// The left pane shows context-sensitive content:
-/// - When a virus is selected: genome coverage plot + alignment summary + mini BAM viewer
+/// - When a virus with BAM data is selected: the mini BAM viewer fills the pane
+/// - When a virus without BAM data is selected: genome coverage summary
 /// - When nothing is selected: overview of all detected viruses
 ///
 /// ## Detection Table
@@ -246,10 +247,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     private var blastDrawerHeightConstraint: NSLayoutConstraint?
     private var isBlastDrawerOpen = false
 
-    /// Called when the user clicks "View Alignments" to open the BAM viewer
-    /// for a specific viral reference. Parameters: BAM URL, reference accession.
-    public var onViewBAM: ((URL, String) -> Void)?
-
     // MARK: - Batch Mode
 
     /// Whether this view controller is displaying an aggregated batch result.
@@ -283,6 +280,9 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
     public override func loadView() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
+        container.setAccessibilityElement(true)
+        container.setAccessibilityIdentifier("esviritu-result-view")
+        container.setAccessibilityLabel("EsViritu Result View")
         view = container
 
         setupSummaryBar()
@@ -926,6 +926,8 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     /// Uses raw NSSplitView (not NSSplitViewController) per macOS 26 rules.
     private func setupSplitView() {
         splitView.translatesAutoresizingMaskIntoConstraints = false
+        splitView.setAccessibilityIdentifier("esviritu-result-split-view")
+        splitView.setAccessibilityLabel("EsViritu Result Split View")
         splitView.isVertical = MetagenomicsPanelLayout.current() != .stacked
         splitView.dividerStyle = .thin
         splitView.delegate = self
@@ -933,6 +935,12 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         detailContainer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         rightPaneContainer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         rightPaneContainer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        detailContainer.setAccessibilityElement(true)
+        detailContainer.setAccessibilityIdentifier("esviritu-detail-shell")
+        detailContainer.setAccessibilityLabel("EsViritu Detail Shell")
+        rightPaneContainer.setAccessibilityElement(true)
+        rightPaneContainer.setAccessibilityIdentifier("esviritu-detection-shell")
+        rightPaneContainer.setAccessibilityLabel("EsViritu Detection Shell")
 
         // Detail pane (detail-leading mode) — coverage plots, BAM info, overview
         detailPane.autoresizingMask = [.width, .height]
@@ -1052,15 +1060,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             self.actionBar.setBlastEnabled(false, reason: "Select a single row to use BLAST Verify")
             self.actionBar.setExtractEnabled(true)
         }
-
-        // Detail pane "View Alignments" button -> forward to host VC
-        detailPane.onViewBAM = { [weak self] accession in
-            guard let self, let bamURL = self.bamURL else { return }
-            self.onViewBAM?(bamURL, accession)
-        }
-
-        // Previous action bar / detail pane wiring handled above.
-        // first handler above.
 
         // Table detection selection -> action bar update
         detectionTableView.onDetectionSelected = { [weak self] detection in
@@ -1440,6 +1439,17 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             containerExtent: extent,
             minimumLeadingExtent: 250,
             minimumTrailingExtent: 250
+        )
+    }
+
+    public func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
+        guard let trackedSplitView = splitView as? TrackedDividerSplitView,
+              trackedSplitView === self.splitView else { return }
+        splitCoordinator.resizeSubviewsWithOldSize(
+            trackedSplitView,
+            oldSize: oldSize,
+            defaultLeadingFraction: defaultLeadingFraction(for: MetagenomicsPanelLayout.current()),
+            minimumExtents: minimumExtents(for: MetagenomicsPanelLayout.current())
         )
     }
 

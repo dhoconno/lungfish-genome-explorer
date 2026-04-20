@@ -16,20 +16,41 @@ struct SettingsView: View {
         TabView(selection: $navigation.selectedTab) {
             GeneralSettingsTab()
                 .tag(SettingsNavigationTab.general)
-                .tabItem { Label("General", systemImage: "gearshape") }
+                .accessibilityIdentifier(SettingsAccessibilityID.panel(.general))
+                .tabItem {
+                    Label("General", systemImage: "gearshape")
+                        .accessibilityIdentifier(SettingsAccessibilityID.tab(.general))
+                }
             AppearanceSettingsTab()
                 .tag(SettingsNavigationTab.appearance)
-                .tabItem { Label("Appearance", systemImage: "paintbrush") }
+                .accessibilityIdentifier(SettingsAccessibilityID.panel(.appearance))
+                .tabItem {
+                    Label("Appearance", systemImage: "paintbrush")
+                        .accessibilityIdentifier(SettingsAccessibilityID.tab(.appearance))
+                }
             RenderingSettingsTab()
                 .tag(SettingsNavigationTab.rendering)
-                .tabItem { Label("Rendering", systemImage: "slider.horizontal.3") }
+                .accessibilityIdentifier(SettingsAccessibilityID.panel(.rendering))
+                .tabItem {
+                    Label("Rendering", systemImage: "slider.horizontal.3")
+                        .accessibilityIdentifier(SettingsAccessibilityID.tab(.rendering))
+                }
             StorageSettingsTab()
                 .tag(SettingsNavigationTab.storage)
-                .tabItem { Label("Storage", systemImage: "internaldrive") }
+                .accessibilityIdentifier(SettingsAccessibilityID.panel(.storage))
+                .tabItem {
+                    Label("Storage", systemImage: "internaldrive")
+                        .accessibilityIdentifier(SettingsAccessibilityID.tab(.storage))
+                }
             AIServicesSettingsTab()
                 .tag(SettingsNavigationTab.aiServices)
-                .tabItem { Label("AI Services", systemImage: "brain") }
+                .accessibilityIdentifier(SettingsAccessibilityID.panel(.aiServices))
+                .tabItem {
+                    Label("AI Services", systemImage: "brain")
+                        .accessibilityIdentifier(SettingsAccessibilityID.tab(.aiServices))
+                }
         }
         .frame(minWidth: 550, idealWidth: 680, minHeight: 460, idealHeight: 560)
+        .accessibilityIdentifier(SettingsAccessibilityID.root)
     }
 }

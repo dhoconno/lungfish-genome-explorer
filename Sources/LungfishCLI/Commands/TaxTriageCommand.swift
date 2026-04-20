@@ -169,9 +169,9 @@ extension TaxTriageCommand {
 
         @Option(
             name: .customLong("revision"),
-            help: "TaxTriage pipeline revision/branch (default: main)"
+            help: "TaxTriage pipeline revision/branch (defaults to Lungfish's pinned TaxTriage revision)"
         )
-        var revision: String = "main"
+        var revision: String = TaxTriageConfig.defaultRevision
 
         @OptionGroup var globalOptions: GlobalOptions
 

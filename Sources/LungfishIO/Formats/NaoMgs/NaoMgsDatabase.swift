@@ -124,6 +124,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
         var hasRefLengths = false
         var hasAccessionSummaries = false
         var hasTaxonReadNames = false
+        var hasSampleHitCounts = false
         let tableListSQL = "SELECT name FROM sqlite_master WHERE type='table'"
         var tblStmt: OpaquePointer?
         if sqlite3_prepare_v2(db, tableListSQL, -1, &tblStmt, nil) == SQLITE_OK {
@@ -133,6 +134,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
                     if name == "reference_lengths" { hasRefLengths = true }
                     if name == "accession_summaries" { hasAccessionSummaries = true }
                     if name == "taxon_read_names" { hasTaxonReadNames = true }
+                    if name == "sample_hit_counts" { hasSampleHitCounts = true }
                 }
             }
             sqlite3_finalize(tblStmt)
@@ -153,7 +155,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
             sqlite3_finalize(colStmt)
         }
 
-        let needsMigration = !hasRefLengths || !hasAccessionSummaries || !hasTaxonReadNames || !hasBamPath || !hasBamIndexPath
+        let needsMigration = !hasRefLengths || !hasAccessionSummaries || !hasTaxonReadNames || !hasSampleHitCounts || !hasBamPath || !hasBamIndexPath
         if needsMigration {
             sqlite3_close(db)
             self.db = nil
@@ -206,6 +208,15 @@ public final class NaoMgsDatabase: @unchecked Sendable {
                     """, nil, nil, nil)
                     try? Self.populateTaxonReadNames(db: rwDB)
                     sqlite3_exec(rwDB, "CREATE INDEX IF NOT EXISTS idx_taxon_read_names_sample_taxid ON taxon_read_names(sample, tax_id)", nil, nil, nil)
+                }
+                if !hasSampleHitCounts {
+                    sqlite3_exec(rwDB, """
+                    CREATE TABLE IF NOT EXISTS sample_hit_counts (
+                        sample TEXT PRIMARY KEY,
+                        hit_count INTEGER NOT NULL
+                    )
+                    """, nil, nil, nil)
+                    try? Self.populateSampleHitCounts(db: rwDB)
                 }
                 sqlite3_close(rwDB)
             }
@@ -278,6 +289,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
 
             try bulkInsertHits(db: db, hits: hits, progress: progress)
             try populateTaxonReadNames(db: db)
+            try populateSampleHitCounts(db: db)
             progress?(0.70, "Building indices...")
 
             try createIndices(db: db)
@@ -823,6 +835,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
                 throw NaoMgsDatabaseError.insertFailed("Commit failed: \(msg)")
             }
             sqlite3_wal_checkpoint_v2(db, nil, SQLITE_CHECKPOINT_TRUNCATE, nil, nil)
+            try populateSampleHitCounts(db: db)
 
             progress?(0.70, "Building indices...")
             try createIndices(db: db)
@@ -1104,6 +1117,11 @@ public final class NaoMgsDatabase: @unchecked Sendable {
             PRIMARY KEY (sample, tax_id, accession)
         );
 
+        CREATE TABLE sample_hit_counts (
+            sample TEXT PRIMARY KEY,
+            hit_count INTEGER NOT NULL
+        );
+
         CREATE TABLE taxon_read_names (
             sample TEXT NOT NULL,
             tax_id INTEGER NOT NULL,
@@ -1155,6 +1173,11 @@ public final class NaoMgsDatabase: @unchecked Sendable {
             sample, tax_id, seq_id
         ) VALUES (?, ?, ?)
         """
+        let insertSampleHitCountSQL = """
+        INSERT INTO sample_hit_counts (
+            sample, hit_count
+        ) VALUES (?, ?)
+        """
         let mergeReferenceLengthSQL = """
         INSERT INTO reference_lengths (accession, length)
         VALUES (?, ?)
@@ -1165,6 +1188,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
         var insertTaxonStmt: OpaquePointer?
         var insertAccessionStmt: OpaquePointer?
         var insertReadNameStmt: OpaquePointer?
+        var insertSampleHitCountStmt: OpaquePointer?
         var mergeReferenceLengthStmt: OpaquePointer?
 
         guard sqlite3_prepare_v2(mergedDB, insertTaxonSQL, -1, &insertTaxonStmt, nil) == SQLITE_OK else {
@@ -1179,16 +1203,24 @@ public final class NaoMgsDatabase: @unchecked Sendable {
             sqlite3_finalize(insertAccessionStmt)
             throw NaoMgsDatabaseError.createFailed("Merged read-name insert prepare failed: \(String(cString: sqlite3_errmsg(mergedDB)))")
         }
+        guard sqlite3_prepare_v2(mergedDB, insertSampleHitCountSQL, -1, &insertSampleHitCountStmt, nil) == SQLITE_OK else {
+            sqlite3_finalize(insertTaxonStmt)
+            sqlite3_finalize(insertAccessionStmt)
+            sqlite3_finalize(insertReadNameStmt)
+            throw NaoMgsDatabaseError.createFailed("Merged sample-hit insert prepare failed: \(String(cString: sqlite3_errmsg(mergedDB)))")
+        }
         guard sqlite3_prepare_v2(mergedDB, mergeReferenceLengthSQL, -1, &mergeReferenceLengthStmt, nil) == SQLITE_OK else {
             sqlite3_finalize(insertTaxonStmt)
             sqlite3_finalize(insertAccessionStmt)
             sqlite3_finalize(insertReadNameStmt)
+            sqlite3_finalize(insertSampleHitCountStmt)
             throw NaoMgsDatabaseError.createFailed("Merged reference length insert prepare failed: \(String(cString: sqlite3_errmsg(mergedDB)))")
         }
         defer {
             sqlite3_finalize(insertTaxonStmt)
             sqlite3_finalize(insertAccessionStmt)
             sqlite3_finalize(insertReadNameStmt)
+            sqlite3_finalize(insertSampleHitCountStmt)
             sqlite3_finalize(mergeReferenceLengthStmt)
         }
 
@@ -1201,6 +1233,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
                 let taxonCount = try appendStageTaxonSummaries(from: stageInput, into: mergedDB, insertStmt: insertTaxonStmt)
                 let accessionCount = try appendStageAccessionSummaries(from: stageInput, into: mergedDB, insertStmt: insertAccessionStmt)
                 try appendStageTaxonReadNames(from: stageInput, into: mergedDB, insertStmt: insertReadNameStmt)
+                try appendStageSampleHitCounts(from: stageInput, into: mergedDB, insertStmt: insertSampleHitCountStmt)
                 try mergeStageReferenceLengths(from: stageInput, into: mergedDB, insertStmt: mergeReferenceLengthStmt)
 
                 guard taxonCount > 0 else {
@@ -1374,6 +1407,39 @@ public final class NaoMgsDatabase: @unchecked Sendable {
         }
     }
 
+    private static func appendStageSampleHitCounts(
+        from stageInput: NaoMgsStageDatabaseInput,
+        into mergedDB: OpaquePointer,
+        insertStmt: OpaquePointer?
+    ) throws {
+        let selectSQL = """
+        SELECT hit_count
+        FROM sample_hit_counts
+        WHERE sample = ?
+        """
+        try withReadOnlySQLiteDatabase(at: stageInput.databaseURL) { stageDB in
+            var selectStmt: OpaquePointer?
+            guard sqlite3_prepare_v2(stageDB, selectSQL, -1, &selectStmt, nil) == SQLITE_OK else {
+                throw NaoMgsDatabaseError.createFailed("Stage sample-hit select prepare failed for \(stageInput.databaseURL.lastPathComponent): \(String(cString: sqlite3_errmsg(stageDB)))")
+            }
+            defer { sqlite3_finalize(selectStmt) }
+
+            naoBindText(selectStmt, 1, stageInput.sample)
+            guard sqlite3_step(selectStmt) == SQLITE_ROW else {
+                throw NaoMgsDatabaseError.createFailed("Staged database \(stageInput.databaseURL.lastPathComponent) contributed no sample hit count for sample \(stageInput.sample)")
+            }
+
+            sqlite3_reset(insertStmt)
+            sqlite3_clear_bindings(insertStmt)
+            naoBindText(insertStmt, 1, stageInput.sample)
+            sqlite3_bind_int64(insertStmt, 2, sqlite3_column_int64(selectStmt, 0))
+
+            guard sqlite3_step(insertStmt) == SQLITE_DONE else {
+                throw NaoMgsDatabaseError.createFailed("Merged sample-hit insert failed for sample \(stageInput.sample): \(String(cString: sqlite3_errmsg(mergedDB)))")
+            }
+        }
+    }
+
     private static func withReadOnlySQLiteDatabase<T>(
         at url: URL,
         _ body: (OpaquePointer) throws -> T
@@ -1478,6 +1544,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
             // virus_hits: only idx_hits_sample needed (BAM materializer queries by sample)
             "CREATE INDEX idx_hits_sample ON virus_hits(sample)",
             "CREATE INDEX idx_taxon_read_names_sample_taxid ON taxon_read_names(sample, tax_id)",
+            "CREATE INDEX idx_sample_hit_counts_hitcount ON sample_hit_counts(hit_count DESC)",
             // taxon_summaries indices
             "CREATE INDEX idx_summaries_sample ON taxon_summaries(sample)",
             "CREATE INDEX idx_summaries_hitcount ON taxon_summaries(sample, hit_count DESC)",
@@ -1506,6 +1573,37 @@ public final class NaoMgsDatabase: @unchecked Sendable {
         guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))
             throw NaoMgsDatabaseError.createFailed("Taxon read-name population failed: \(msg)")
+        }
+    }
+
+    private static func populateSampleHitCounts(db: OpaquePointer?) throws {
+        guard let db else {
+            throw NaoMgsDatabaseError.queryFailed("Database not open")
+        }
+
+        guard sqlite3_exec(db, "DELETE FROM sample_hit_counts", nil, nil, nil) == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw NaoMgsDatabaseError.createFailed("Sample hit-count reset failed: \(msg)")
+        }
+
+        let sourceSQL = [
+            "INSERT INTO sample_hit_counts (sample, hit_count) SELECT sample, COUNT(*) FROM virus_hits GROUP BY sample",
+            "INSERT INTO sample_hit_counts (sample, hit_count) SELECT sample, COUNT(*) FROM taxon_read_names GROUP BY sample",
+            "INSERT INTO sample_hit_counts (sample, hit_count) SELECT sample, SUM(hit_count) FROM taxon_summaries GROUP BY sample",
+        ]
+
+        for sql in sourceSQL {
+            guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
+                continue
+            }
+
+            var stmt: OpaquePointer?
+            if sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM sample_hit_counts", -1, &stmt, nil) == SQLITE_OK {
+                defer { sqlite3_finalize(stmt) }
+                if sqlite3_step(stmt) == SQLITE_ROW, sqlite3_column_int64(stmt, 0) > 0 {
+                    return
+                }
+            }
         }
     }
 
@@ -1991,8 +2089,9 @@ public final class NaoMgsDatabase: @unchecked Sendable {
 
     /// Returns the total number of virus hits, optionally filtered by sample names.
     ///
-    /// Uses `taxon_summaries.hit_count` (pre-computed during import) so the query
-    /// works even after `virus_hits` rows have been purged.
+    /// Uses `sample_hit_counts` so totals remain raw row counts even when taxon
+    /// summaries store alignment counts for paired-end inputs, and still work after
+    /// `virus_hits` rows have been purged.
     ///
     /// - Parameter samples: If non-nil, only count hits from these samples.
     /// - Returns: Total hit count.
@@ -2004,9 +2103,9 @@ public final class NaoMgsDatabase: @unchecked Sendable {
         let sql: String
         if let samples, !samples.isEmpty {
             let placeholders = samples.map { _ in "?" }.joined(separator: ",")
-            sql = "SELECT COALESCE(SUM(hit_count), 0) FROM taxon_summaries WHERE sample IN (\(placeholders))"
+            sql = "SELECT COALESCE(SUM(hit_count), 0) FROM sample_hit_counts WHERE sample IN (\(placeholders))"
         } else {
-            sql = "SELECT COALESCE(SUM(hit_count), 0) FROM taxon_summaries"
+            sql = "SELECT COALESCE(SUM(hit_count), 0) FROM sample_hit_counts"
         }
 
         var stmt: OpaquePointer?
@@ -2033,8 +2132,9 @@ public final class NaoMgsDatabase: @unchecked Sendable {
 
     /// Returns all distinct samples with their hit counts.
     ///
-    /// Uses `taxon_summaries` (pre-computed during import) so the query works
-    /// even after `virus_hits` rows have been purged.
+    /// Uses `sample_hit_counts` so per-sample counts stay raw row-based even when
+    /// taxon summaries are alignment-based, and still work after `virus_hits`
+    /// rows have been purged.
     ///
     /// - Returns: Array of (sample, hitCount) tuples ordered by sample name.
     public func fetchSamples() throws -> [(sample: String, hitCount: Int)] {
@@ -2042,7 +2142,7 @@ public final class NaoMgsDatabase: @unchecked Sendable {
             throw NaoMgsDatabaseError.queryFailed("Database not open")
         }
 
-        let sql = "SELECT sample, SUM(hit_count) as total_hits FROM taxon_summaries GROUP BY sample ORDER BY sample"
+        let sql = "SELECT sample, hit_count FROM sample_hit_counts ORDER BY sample"
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
             let msg = String(cString: sqlite3_errmsg(db))

@@ -5,6 +5,8 @@ import Foundation
 /// Shared utilities for FASTQ operation round-trip tests.
 struct FASTQOperationTestHelper {
 
+    private static let dnaBases: [Character] = ["A", "C", "G", "T"]
+
     // MARK: - Temp Directory
 
     static func makeTempDir(prefix: String = "FASTQOpTest") throws -> URL {
@@ -173,28 +175,64 @@ struct FASTQOperationTestHelper {
         try lines.joined(separator: "\n").appending("\n").write(to: url, atomically: true, encoding: .utf8)
     }
 
-    /// Writes interleaved paired-end FASTQ (R1, R2, R1, R2, ...).
+    private static func defaultOverlapLength(for readLength: Int) -> Int {
+        max(6, min(readLength / 3, readLength - 4))
+    }
+
+    private static func deterministicDNA(length: Int, seed: UInt64) -> String {
+        var state = seed &+ 0x9e3779b97f4a7c15
+        var chars: [Character] = []
+        chars.reserveCapacity(length)
+
+        for offset in 0..<length {
+            state = state &* 2862933555777941757 &+ 3037000493 &+ UInt64(offset)
+            chars.append(dnaBases[Int((state >> 33) & 0x03)])
+        }
+
+        return String(chars)
+    }
+
+    private static func makePairedReadSequences(
+        pairIndex: Int,
+        readLength: Int,
+        overlapLength: Int
+    ) -> (r1: String, r2: String) {
+        precondition(readLength >= 8, "Synthetic paired-end fixtures require readLength >= 8")
+        precondition(
+            overlapLength > 0 && overlapLength < readLength,
+            "overlapLength must be between 1 and readLength - 1"
+        )
+
+        let insertLength = (readLength * 2) - overlapLength
+        let insert = deterministicDNA(length: insertLength, seed: UInt64(pairIndex + 1) &* 7_919)
+        let r1 = String(insert.prefix(readLength))
+        let r2Forward = String(insert.suffix(readLength))
+        let r2 = reverseComplement(r2Forward)
+        return (r1, r2)
+    }
+
+    /// Writes interleaved paired-end FASTQ (R1, R2, R1, R2, ...) with
+    /// deterministic overlapping mate pairs suitable for merge tests.
     static func writeInterleavedPEFASTQ(
         to url: URL,
         pairCount: Int = 50,
         readLength: Int = 100,
-        idPrefix: String = "read"
+        idPrefix: String = "read",
+        overlapLength: Int? = nil
     ) throws {
-        let bases: [Character] = ["A", "C", "G", "T"]
+        let effectiveOverlap = overlapLength ?? defaultOverlapLength(for: readLength)
         var lines: [String] = []
+        let quality = String(repeating: "I", count: readLength)
         for i in 0..<pairCount {
             let baseID = "\(idPrefix)\(i + 1)"
-            // R1
-            var r1Seq = ""
-            for j in 0..<readLength { r1Seq.append(bases[(i + j) % 4]) }
+            let (r1Seq, r2Seq) = makePairedReadSequences(
+                pairIndex: i,
+                readLength: readLength,
+                overlapLength: effectiveOverlap
+            )
             lines.append(contentsOf: [
-                "@\(baseID)/1", r1Seq, "+", String(repeating: "I", count: readLength)
-            ])
-            // R2
-            var r2Seq = ""
-            for j in 0..<readLength { r2Seq.append(bases[(i + j + 2) % 4]) }
-            lines.append(contentsOf: [
-                "@\(baseID)/2", r2Seq, "+", String(repeating: "I", count: readLength)
+                "@\(baseID)/1", r1Seq, "+", quality,
+                "@\(baseID)/2", r2Seq, "+", quality,
             ])
         }
         try lines.joined(separator: "\n").appending("\n").write(to: url, atomically: true, encoding: .utf8)
@@ -208,20 +246,22 @@ struct FASTQOperationTestHelper {
         readLength: Int = 100,
         idPrefix: String = "read"
     ) throws {
-        let bases: [Character] = ["A", "C", "G", "T"]
         var r1Lines: [String] = []
         var r2Lines: [String] = []
+        let overlapLength = defaultOverlapLength(for: readLength)
+        let quality = String(repeating: "I", count: readLength)
         for i in 0..<pairCount {
             let baseID = "\(idPrefix)\(i + 1)"
-            var r1Seq = ""
-            for j in 0..<readLength { r1Seq.append(bases[(i + j) % 4]) }
+            let (r1Seq, r2Seq) = makePairedReadSequences(
+                pairIndex: i,
+                readLength: readLength,
+                overlapLength: overlapLength
+            )
             r1Lines.append(contentsOf: [
-                "@\(baseID)/1", r1Seq, "+", String(repeating: "I", count: readLength)
+                "@\(baseID)/1", r1Seq, "+", quality
             ])
-            var r2Seq = ""
-            for j in 0..<readLength { r2Seq.append(bases[(i + j + 2) % 4]) }
             r2Lines.append(contentsOf: [
-                "@\(baseID)/2", r2Seq, "+", String(repeating: "I", count: readLength)
+                "@\(baseID)/2", r2Seq, "+", quality
             ])
         }
         try r1Lines.joined(separator: "\n").appending("\n").write(to: r1URL, atomically: true, encoding: .utf8)

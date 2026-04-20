@@ -189,6 +189,23 @@ final class BuildDbCommandTests: XCTestCase {
         return try await block()
     }
 
+    private func writeTaxTriageTopReport(
+        at url: URL,
+        abundance: String = "0.01",
+        cladeFragmentsCovered: String = "31.0",
+        numberFragmentsAssigned: String = "30.0",
+        rank: String = "S",
+        taxID: Int = 2697049,
+        name: String = "Severe acute respiratory syndrome coronavirus 2"
+    ) throws {
+        let content = """
+        abundance\tclade_fragments_covered\tnumber_fragments_assigned\trank\ttaxid\tname
+        \(abundance)\t\(cladeFragmentsCovered)\t\(numberFragmentsAssigned)\t\(rank)\t\(taxID)\t\(name)
+        """
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try content.write(to: url, atomically: true, encoding: .utf8)
+    }
+
     /// Locates the taxtriage-mini fixture directory by walking up from the source file.
     private func findFixtureDir(_ name: String) -> URL {
         var url = URL(fileURLWithPath: #filePath)
@@ -270,6 +287,54 @@ final class BuildDbCommandTests: XCTestCase {
         let meta = try db.fetchMetadata()
         XCTAssertEqual(meta["tool"], "taxtriage")
         XCTAssertNotNil(meta["created_at"])
+    }
+
+    func testBuildDbTaxTriageFallsBackToTopReportsWithoutConfidenceFileOrSamtools() async throws {
+        let tmpDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let home = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let fixtureDir = findFixtureDir("taxtriage-mini")
+        let resultDir = tmpDir.appendingPathComponent("taxtriage")
+        try FileManager.default.copyItem(at: fixtureDir, to: resultDir)
+
+        let fm = FileManager.default
+        try fm.removeItem(at: resultDir.appendingPathComponent("report/multiqc_data/multiqc_confidences.txt"))
+        try fm.removeItem(at: resultDir.appendingPathComponent("minimap2"))
+        try writeTaxTriageTopReport(
+            at: resultDir.appendingPathComponent("top/SRR35517702.top_report.tsv")
+        )
+
+        try await withHomeDirectory(home) {
+            var cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
+            try await cmd.run()
+        }
+
+        let dbURL = resultDir.appendingPathComponent("taxtriage.sqlite")
+        XCTAssertTrue(fm.fileExists(atPath: dbURL.path),
+                      "Database file should exist after top-report fallback import")
+
+        let db = try TaxTriageDatabase(at: dbURL)
+        let samples = try db.fetchSamples()
+        XCTAssertEqual(samples.map(\.sample), ["SRR35517702"])
+
+        let rows = try db.fetchRows(samples: ["SRR35517702"])
+        XCTAssertEqual(rows.count, 1)
+
+        let row = try XCTUnwrap(rows.first)
+        XCTAssertEqual(row.sample, "SRR35517702")
+        XCTAssertEqual(row.organism, "Severe acute respiratory syndrome coronavirus 2")
+        XCTAssertEqual(row.taxId, 2697049)
+        XCTAssertEqual(row.readsAligned, 31)
+        XCTAssertEqual(try XCTUnwrap(row.pctReads), 0.01, accuracy: 0.0001)
+        XCTAssertEqual(row.k2Reads, 30)
+        XCTAssertEqual(row.tassScore, 0.0, accuracy: 0.0001)
+        XCTAssertEqual(row.primaryAccession, "NC_045512.2")
+        XCTAssertNil(row.bamPath)
+        XCTAssertNil(row.uniqueReads)
+        XCTAssertEqual(row.isSpecies, true)
     }
 
     func testLocateSamtoolsPrefersManagedHome() throws {

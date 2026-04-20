@@ -80,6 +80,7 @@ public final class ImportCenterWindowController: NSWindowController {
             defer: false
         )
         window.title = "Import Center"
+        window.identifier = NSUserInterfaceItemIdentifier(ImportCenterAccessibilityID.window)
         window.minSize = NSSize(width: 640, height: 400)
         window.setFrameAutosaveName("ImportCenterWindow")
         window.isRestorable = false

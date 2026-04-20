@@ -208,17 +208,20 @@ public final class ProjectFile: ObservableObject {
         _ sequence: Sequence,
         withHistory history: VersionHistory? = nil
     ) throws -> UUID {
+        let originalContent = history?.originalSequence ?? sequence.asString()
         let sequenceId = try store.storeSequence(
             name: sequence.name,
-            content: sequence.asString(),
+            content: originalContent,
             alphabet: sequence.alphabet.rawValue,
             metadata: nil
         )
 
         // If we have history, replay the versions
         if let history = history {
+            var content = originalContent
             for version in history.versions {
-                let hash = Version.computeHash(try version.diff.apply(to: sequence.asString()))
+                content = try version.diff.apply(to: content)
+                let hash = Version.computeHash(content)
                 try store.recordVersion(
                     sequenceId: sequenceId,
                     diff: version.diff,

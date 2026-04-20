@@ -209,6 +209,8 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         tableView.usesAlternatingRowBackgroundColors = true
         tableView.rowHeight = 36
         tableView.headerView = NSTableHeaderView()
+        tableView.setAccessibilityLabel("Operations table")
+        tableView.setAccessibilityIdentifier("operations-table")
 
         // Context menu
         let menu = NSMenu()
@@ -217,6 +219,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
 
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
+        scrollView.setAccessibilityIdentifier("operations-scroll-view")
     }
 
     // MARK: - Footer
@@ -225,6 +228,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         let clearButton = NSButton(title: "Clear Completed", target: self, action: #selector(clearCompleted))
         clearButton.bezelStyle = .rounded
         clearButton.translatesAutoresizingMaskIntoConstraints = false
+        clearButton.setAccessibilityIdentifier("operations-clear-completed-button")
 
         footerView.addSubview(clearButton)
 
@@ -644,6 +648,9 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
             ])
             return btn
         }()
+        moreButton.setAccessibilityLabel(isExpanded ? "Collapse operation details" : "Expand operation details")
+        moreButton.setAccessibilityIdentifier("operations-detail-toggle-\(item.id.uuidString)")
+        moreButton.setAccessibilityHelp("Shows or hides the CLI command, logs, and error details for this operation.")
 
         let isMultiLine = item.detail.contains("\n") || item.detail.count > 60
         let hasExpandableContent = isMultiLine || item.cliCommand != nil || !item.logEntries.isEmpty
