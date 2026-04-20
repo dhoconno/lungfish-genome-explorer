@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishIO
 @testable import LungfishWorkflow
 
 final class AssemblyCompatibilityTests: XCTestCase {
@@ -131,5 +132,53 @@ final class AssemblyCompatibilityTests: XCTestCase {
             .appendingPathComponent("Fixtures/sarscov2/test_1.fastq.gz")
 
         XCTAssertEqual(AssemblyReadType.detect(fromFASTQ: fixtureURL), .illuminaShortReads)
+    }
+
+    func testBundleInputResolvesPrimaryFASTQForReadTypeDetection() throws {
+        let bundleURL = try makeFASTQBundle(
+            fastqName: "reads.fastq",
+            fastqContents: """
+            @A00488:17:H7WFLDMXX:1:1101:10000:1000 1:N:0:ATCACG
+            ACGT
+            +
+            !!!!
+            """
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
+
+        XCTAssertEqual(AssemblyReadType.detect(fromInputURL: bundleURL), .illuminaShortReads)
+    }
+
+    func testBundleInputFallsBackToPersistedSequencingPlatformWhenHeaderIsUnknown() throws {
+        let bundleURL = try makeFASTQBundle(
+            fastqName: "reads.fastq",
+            fastqContents: """
+            @unknown-read
+            ACGT
+            +
+            !!!!
+            """
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
+
+        let primaryFASTQURL = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL))
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(sequencingPlatform: .oxfordNanopore),
+            for: primaryFASTQURL
+        )
+
+        XCTAssertEqual(AssemblyReadType.detect(fromInputURL: bundleURL), .ontReads)
+    }
+
+    private func makeFASTQBundle(
+        fastqName: String,
+        fastqContents: String
+    ) throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AssemblyCompatibilityTests-\(UUID().uuidString)", isDirectory: true)
+        let bundleURL = root.appendingPathComponent("sample.\(FASTQBundle.directoryExtension)", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try Data(fastqContents.utf8).write(to: bundleURL.appendingPathComponent(fastqName))
+        return bundleURL
     }
 }

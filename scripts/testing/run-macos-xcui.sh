@@ -15,6 +15,10 @@ if [ "$#" -gt 0 ]; then
   done
 fi
 
+if [ "${LUNGFISH_XCUI_SKIP_CLI_BUILD:-0}" != "1" ]; then
+  swift build --package-path "$ROOT_DIR" --product lungfish-cli
+fi
+
 xcodebuild \
   build-for-testing \
   -project "$PROJECT_PATH" \

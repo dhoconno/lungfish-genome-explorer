@@ -162,6 +162,7 @@ public final class AssemblyResultViewController: NSViewController {
     public override func loadView() {
         let root = NSView()
         root.translatesAutoresizingMaskIntoConstraints = false
+        root.setAccessibilityIdentifier("assembly-result-view")
         self.view = root
     }
 
@@ -171,6 +172,7 @@ public final class AssemblyResultViewController: NSViewController {
         tableView.dataSource = self
         tableView.delegate = self
         tableView.menu = buildContextMenu()
+        tableView.setAccessibilityIdentifier("assembly-result-contig-table")
         scrollView.documentView = tableView
 
         view.addSubview(summaryBar)

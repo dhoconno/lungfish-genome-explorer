@@ -49,6 +49,7 @@ public actor CLIImportRunner {
                 fileURLWithPath: FileManager.default.currentDirectoryPath,
                 isDirectory: true
             ),
+            environment: ProcessInfo.processInfo.environment,
             pathLookup: {
                 pathLookupForCLI()
             }
@@ -58,8 +59,17 @@ public actor CLIImportRunner {
     static func resolveCLIPath(
         mainExecutableURL: URL?,
         currentWorkingDirectoryURL: URL?,
+        environment: [String: String] = [:],
         pathLookup: () -> URL?
     ) -> URL? {
+        if let explicitPath = environment["LUNGFISH_CLI_PATH"],
+           !explicitPath.isEmpty {
+            let explicitCLI = URL(fileURLWithPath: explicitPath)
+            if FileManager.default.isExecutableFile(atPath: explicitCLI.path) {
+                return explicitCLI
+            }
+        }
+
         if let mainExecutableURL {
             let executableDirectory = mainExecutableURL.deletingLastPathComponent()
             let bundledCLI = executableDirectory.appendingPathComponent("lungfish-cli")

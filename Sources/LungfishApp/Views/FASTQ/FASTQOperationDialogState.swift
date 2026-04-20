@@ -910,7 +910,7 @@ final class FASTQOperationDialogState {
     }
 
     private var assemblyCompatibilityEvaluation: AssemblyCompatibilityEvaluation {
-        let detectedReadTypes = selectedInputURLs.compactMap(AssemblyReadType.detect(fromFASTQ:))
+        let detectedReadTypes = selectedInputURLs.compactMap(AssemblyReadType.detect(fromInputURL:))
         let evaluation = AssemblyCompatibility.evaluate(detectedReadTypes: detectedReadTypes)
 
         let hasKnownAndUnknownMix =

@@ -543,6 +543,27 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertNil(state.assemblyReadClassMismatchMessage)
     }
 
+    func testAssemblyReadTypeDetectionUsesSelectedFASTQBundles() throws {
+        let bundleURL = try makeFASTQBundle(
+            fastqName: "reads.fastq",
+            fastqContents: """
+            @A00488:17:H7WFLDMXX:1:1101:10000:1000 1:N:0:ATCACG
+            ACGT
+            +
+            !!!!
+            """
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL.deletingLastPathComponent()) }
+
+        let state = FASTQOperationDialogState(
+            initialCategory: .assembly,
+            selectedInputURLs: [bundleURL]
+        )
+
+        XCTAssertEqual(state.detectedAssemblyReadType, .illuminaShortReads)
+        XCTAssertNil(state.assemblyReadClassMismatchMessage)
+    }
+
     func testMixedAssemblyReadTypesExposeHybridBlockMessage() throws {
         let ontFASTQ = FileManager.default.temporaryDirectory
             .appendingPathComponent("FASTQOperationDialogRoutingTests-\(UUID().uuidString).fastq")
@@ -815,5 +836,17 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Tests/Fixtures/sarscov2/test_1.fastq.gz")
+    }
+
+    private func makeFASTQBundle(
+        fastqName: String,
+        fastqContents: String
+    ) throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQOperationDialogRoutingTests-\(UUID().uuidString)", isDirectory: true)
+        let bundleURL = root.appendingPathComponent("sample.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try Data(fastqContents.utf8).write(to: bundleURL.appendingPathComponent(fastqName))
+        return bundleURL
     }
 }

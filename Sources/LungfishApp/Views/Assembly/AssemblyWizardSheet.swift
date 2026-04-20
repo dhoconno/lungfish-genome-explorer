@@ -82,7 +82,7 @@ struct AssemblyWizardSheet: View {
     }
 
     private var detectedReadTypes: [AssemblyReadType] {
-        inputFiles.compactMap(AssemblyReadType.detect(fromFASTQ:))
+        inputFiles.compactMap(AssemblyReadType.detect(fromInputURL:))
     }
 
     private var compatibilityEvaluation: AssemblyCompatibilityEvaluation {
@@ -285,6 +285,7 @@ struct AssemblyWizardSheet: View {
             ScrollView {
                 configurationContent
             }
+            .accessibilityIdentifier("assembly-configuration-scrollview")
             Divider()
             footerSection
         }
@@ -294,6 +295,7 @@ struct AssemblyWizardSheet: View {
         ScrollView {
             configurationContent
         }
+        .accessibilityIdentifier("assembly-configuration-scrollview")
     }
 
     private var configurationContent: some View {
@@ -392,6 +394,7 @@ struct AssemblyWizardSheet: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .accessibilityIdentifier("assembly-assembler-picker")
             }
             optionSummary("assembler")
 
@@ -422,6 +425,7 @@ struct AssemblyWizardSheet: View {
                         }
                     }
                     .pickerStyle(.menu)
+                    .accessibilityIdentifier("assembly-profile-picker")
                 }
                 Text(profileOptions.first(where: { $0.id == selectedProfileID })?.detail ?? "")
                     .font(.caption)
@@ -443,6 +447,7 @@ struct AssemblyWizardSheet: View {
                 labeledRow("Memory Limit") {
                     HStack(spacing: 12) {
                         Slider(value: $memoryGB, in: 1...Double(max(1, availableMemoryGB)), step: 1)
+                            .accessibilityIdentifier("assembly-memory-slider")
                         Text("\(Int(memoryGB)) GB")
                             .font(.system(.body, design: .monospaced))
                             .frame(width: 72, alignment: .trailing)
@@ -457,7 +462,9 @@ struct AssemblyWizardSheet: View {
                         Text("\(minContigLength) bp")
                             .font(.system(.body, design: .monospaced))
                     }
+                    .accessibilityIdentifier("assembly-min-contig-stepper")
                 }
+                .accessibilityIdentifier("assembly-min-contig-row")
                 optionSummary("minimum-contig-length")
             }
         }
@@ -472,11 +479,14 @@ struct AssemblyWizardSheet: View {
                     switch selectedTool {
                     case .spades:
                         Toggle("Careful mode", isOn: $spadesCareful)
+                            .accessibilityIdentifier("assembly-spades-careful-toggle")
                         Toggle("Skip error correction", isOn: $spadesSkipErrorCorrection)
                     case .flye:
                         Toggle("Metagenome mode", isOn: $flyeMetagenomeMode)
+                            .accessibilityIdentifier("assembly-flye-metagenome-toggle")
                     case .hifiasm:
                         Toggle("Primary contigs only", isOn: $hifiasmPrimaryOnly)
+                            .accessibilityIdentifier("assembly-hifiasm-primary-only-toggle")
                     case .megahit, .skesa:
                         EmptyView()
                     }
@@ -504,6 +514,7 @@ struct AssemblyWizardSheet: View {
                 }
                 .padding(.top, 8)
             }
+            .accessibilityIdentifier("assembly-advanced-disclosure")
         }
     }
 
@@ -543,6 +554,7 @@ struct AssemblyWizardSheet: View {
                         Text(compatibilityPresentation.message)
                             .font(.body.weight(.medium))
                             .foregroundStyle(Color.primary)
+                            .accessibilityIdentifier("assembly-readiness-message")
 
                         if let toolStatus = selectedToolStatus {
                             Text("Managed tool status: \(toolStatus.statusText)")
@@ -739,7 +751,7 @@ struct AssemblyWizardSheet: View {
 
     private static func detectedReadType(from inputFiles: [URL]) -> AssemblyReadType? {
         AssemblyCompatibility.evaluate(
-            detectedReadTypes: inputFiles.compactMap(AssemblyReadType.detect(fromFASTQ:))
+            detectedReadTypes: inputFiles.compactMap(AssemblyReadType.detect(fromInputURL:))
         ).resolvedReadType
     }
 
