@@ -699,6 +699,26 @@ final class ImportCommandRegressionTests: XCTestCase {
     }
 }
 
+// MARK: - VariantsCommand
+
+final class VariantsCommandRegressionTests: XCTestCase {
+
+    func testCommandName() {
+        XCTAssertEqual(VariantsCommand.configuration.commandName, "variants")
+    }
+
+    func testHelpTextIsNonEmpty() {
+        let help = VariantsCommand.helpMessage()
+        XCTAssertFalse(help.isEmpty)
+        XCTAssertTrue(help.contains("call"))
+    }
+
+    func testRootCLIRegistersVariantsCommand() {
+        let names = LungfishCLI.configuration.subcommands.map { $0.configuration.commandName }
+        XCTAssertTrue(names.contains("variants"))
+    }
+}
+
 // MARK: - NaoMgsCommand
 
 final class NaoMgsCommandRegressionTests: XCTestCase {

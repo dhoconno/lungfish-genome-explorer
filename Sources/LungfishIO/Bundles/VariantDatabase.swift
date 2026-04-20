@@ -269,6 +269,16 @@ public enum VCFImportProfile: String, Sendable, Codable, CaseIterable {
     case ultraLowMemory = "ultra-low-memory"
 }
 
+/// Behavioral mode for VCF import.
+///
+/// Standard imports preserve the existing sample/genotype semantics used for
+/// cohort-style VCFs. Viral-frequency imports keep no-sample callsets truthful
+/// by avoiding synthetic sample rows and synthetic homozygous-alt genotypes.
+public enum VCFImportSemantics: String, Sendable, Codable {
+    case standard
+    case viralFrequency = "viral-frequency"
+}
+
 /// Reads variant data from a SQLite database embedded in a .lungfishref bundle.
 ///
 /// The database is created during bundle building from VCF files, providing instant
@@ -1974,6 +1984,35 @@ public final class VariantDatabase: @unchecked Sendable {
         sqlite3_exec(db, "COMMIT", nil, nil, nil)
     }
 
+    /// Inserts or replaces metadata values in the `db_metadata` table.
+    ///
+    /// - Parameter values: Metadata key-value pairs to upsert.
+    /// - Throws: If the database is read-only or a write fails.
+    public func setMetadataValues(_ values: [String: String]) throws {
+        guard let db, !isReadOnly else {
+            throw VariantDatabaseError.createFailed("Database not open for writing")
+        }
+        guard !values.isEmpty else { return }
+
+        var errMsg: UnsafeMutablePointer<CChar>?
+        sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, &errMsg)
+        if let errMsg {
+            let message = String(cString: errMsg)
+            sqlite3_free(errMsg)
+            throw VariantDatabaseError.createFailed("Failed to begin metadata transaction: \(message)")
+        }
+
+        do {
+            for (key, value) in values {
+                Self.insertMetadataRow(db, key: key, value: value, replace: true)
+            }
+            sqlite3_exec(db, "COMMIT", nil, nil, nil)
+        } catch {
+            sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+            throw error
+        }
+    }
+
     /// Deletes variants by their row IDs, including associated genotype records.
     ///
     /// - Parameter ids: Array of variant row IDs to delete
@@ -3111,6 +3150,7 @@ public final class VariantDatabase: @unchecked Sendable {
         sourceFile: String? = nil,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil,
         shouldCancel: (@Sendable () -> Bool)? = nil,
+        importSemantics: VCFImportSemantics = .standard,
         importProfile: VCFImportProfile = .auto,
         deferIndexBuild: Bool = false,
         partitionByChromosome: Bool = false,
@@ -3239,6 +3279,7 @@ public final class VariantDatabase: @unchecked Sendable {
         Self.insertMetadataRow(db, key: "omit_homref", value: "true")
         Self.insertMetadataRow(db, key: "import_state", value: "inserting")
         Self.insertMetadataRow(db, key: "import_source", value: vcfURL.lastPathComponent)
+        Self.insertMetadataRow(db, key: "import_semantics", value: importSemantics.rawValue)
         Self.insertMetadataRow(db, key: "import_profile", value: resolvedProfile.rawValue)
         if tuning.skipVariantInfo {
             Self.insertMetadataRow(db, key: "skip_variant_info", value: "true")
@@ -3547,17 +3588,23 @@ public final class VariantDatabase: @unchecked Sendable {
                         }
                         variantDBLogger.info("createFromVCF: Found \(sampleNames.count) samples")
                     } else {
-                        // No sample columns (e.g. LoFreq) — create a synthetic sample
-                        // using the VCF filename so multi-file merges can be tracked
-                        let syntheticName = URL(fileURLWithPath: srcFile).deletingPathExtension().lastPathComponent
-                        sampleNames = [syntheticName]
-                        sqlite3_reset(insertSampleStmt)
-                        sqliteBindText(insertSampleStmt, 1, syntheticName)
-                        sqliteBindText(insertSampleStmt, 2, syntheticName)
-                        sqliteBindText(insertSampleStmt, 3, srcFile)
-                        sqlite3_step(insertSampleStmt)
-                        writesSinceCommit += 1
-                        variantDBLogger.info("createFromVCF: No sample columns — created synthetic sample '\(syntheticName, privacy: .public)'")
+                        switch importSemantics {
+                        case .standard:
+                            // No sample columns (e.g. LoFreq) — create a synthetic sample
+                            // using the VCF filename so multi-file merges can be tracked.
+                            let syntheticName = URL(fileURLWithPath: srcFile).deletingPathExtension().lastPathComponent
+                            sampleNames = [syntheticName]
+                            sqlite3_reset(insertSampleStmt)
+                            sqliteBindText(insertSampleStmt, 1, syntheticName)
+                            sqliteBindText(insertSampleStmt, 2, syntheticName)
+                            sqliteBindText(insertSampleStmt, 3, srcFile)
+                            sqlite3_step(insertSampleStmt)
+                            writesSinceCommit += 1
+                            variantDBLogger.info("createFromVCF: No sample columns — created synthetic sample '\(syntheticName, privacy: .public)'")
+                        case .viralFrequency:
+                            sampleNames = []
+                            variantDBLogger.info("createFromVCF: No sample columns — preserving sample-less viral import semantics")
+                        }
                     }
 
                     // Store contig lengths from ##contig header lines for chromosome alias mapping.
@@ -4054,6 +4101,7 @@ public final class VariantDatabase: @unchecked Sendable {
         sourceFile: String?,
         progressHandler: (@Sendable (Double, String) -> Void)?,
         shouldCancel: (@Sendable () -> Bool)?,
+        importSemantics: VCFImportSemantics = .standard,
         importProfile: VCFImportProfile
     ) throws -> Int {
         try createFromVCF(
@@ -4063,6 +4111,7 @@ public final class VariantDatabase: @unchecked Sendable {
             sourceFile: sourceFile,
             progressHandler: progressHandler,
             shouldCancel: shouldCancel,
+            importSemantics: importSemantics,
             importProfile: importProfile,
             deferIndexBuild: false
         )

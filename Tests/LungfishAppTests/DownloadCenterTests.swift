@@ -204,6 +204,27 @@ final class DownloadCenterTests: XCTestCase {
         XCTAssertEqual(DownloadCenter.Item.State.failed.rawValue, "failed")
     }
 
+    func testOperationTypesIncludeVariantCalling() {
+        let allTypes: [OperationType] = [
+            .download,
+            .bamImport,
+            .vcfImport,
+            .bundleBuild,
+            .export,
+            .assembly,
+            .ingestion,
+            .fastqOperation,
+            .qualityReport,
+            .taxonomyExtraction,
+            .classification,
+            .blastVerification,
+            .variantCalling,
+        ]
+
+        XCTAssertEqual(allTypes.count, 13)
+        XCTAssertEqual(OperationType.variantCalling.rawValue, "Variant Calling")
+    }
+
     // MARK: - Bundle URLs
 
     func testCompleteWithBundleURLsStoresURLs() {

@@ -300,6 +300,10 @@ final class WelcomeSetupTests: XCTestCase {
             XCTFail("Expected active read-mapping pack")
             return
         }
+        guard let variantCalling = PluginPack.activeOptionalPacks.first(where: { $0.id == "variant-calling" }) else {
+            XCTFail("Expected active variant-calling pack")
+            return
+        }
         guard let assembly = PluginPack.activeOptionalPacks.first(where: { $0.id == "assembly" }) else {
             XCTFail("Expected active assembly pack")
             return
@@ -320,6 +324,12 @@ final class WelcomeSetupTests: XCTestCase {
             toolStatuses: [],
             failureMessage: nil
         )
+        let variantCallingStatus = PluginPackStatus(
+            pack: variantCalling,
+            state: .needsInstall,
+            toolStatuses: [],
+            failureMessage: nil
+        )
         let assemblyStatus = PluginPackStatus(
             pack: assembly,
             state: .needsInstall,
@@ -334,12 +344,18 @@ final class WelcomeSetupTests: XCTestCase {
         )
 
         let viewModel = WelcomeViewModel(
-            statusProvider: StubWelcomePackStatusProvider(statuses: [required, readMappingStatus, assemblyStatus, metagenomicsStatus])
+            statusProvider: StubWelcomePackStatusProvider(statuses: [
+                required,
+                readMappingStatus,
+                variantCallingStatus,
+                assemblyStatus,
+                metagenomicsStatus,
+            ])
         )
         await viewModel.refreshSetup()
 
         XCTAssertFalse(viewModel.canLaunch)
-        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["read-mapping", "assembly", "metagenomics"])
+        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["read-mapping", "variant-calling", "assembly", "metagenomics"])
     }
 
     func testLaunchEnablesWhenRequiredSetupIsReady() async {
@@ -410,6 +426,10 @@ final class WelcomeSetupTests: XCTestCase {
             XCTFail("Expected active read-mapping pack")
             return
         }
+        guard let variantCalling = PluginPack.activeOptionalPacks.first(where: { $0.id == "variant-calling" }) else {
+            XCTFail("Expected active variant-calling pack")
+            return
+        }
         guard let assembly = PluginPack.activeOptionalPacks.first(where: { $0.id == "assembly" }) else {
             XCTFail("Expected active assembly pack")
             return
@@ -430,6 +450,12 @@ final class WelcomeSetupTests: XCTestCase {
             toolStatuses: [],
             failureMessage: nil
         )
+        let variantCallingStatus = PluginPackStatus(
+            pack: variantCalling,
+            state: .ready,
+            toolStatuses: [],
+            failureMessage: nil
+        )
         let assemblyStatus = PluginPackStatus(
             pack: assembly,
             state: .ready,
@@ -444,14 +470,14 @@ final class WelcomeSetupTests: XCTestCase {
         )
 
         let provider = StatefulWelcomePackStatusProvider(
-            initialStatuses: [required, readMappingStatus, assemblyStatus, metagenomicsStatus],
-            loadingStatuses: [required, readMappingStatus, assemblyStatus, metagenomicsStatus]
+            initialStatuses: [required, readMappingStatus, variantCallingStatus, assemblyStatus, metagenomicsStatus],
+            loadingStatuses: [required, readMappingStatus, variantCallingStatus, assemblyStatus, metagenomicsStatus]
         )
         let viewModel = WelcomeViewModel(statusProvider: provider)
 
         await viewModel.refreshSetup()
         XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
-        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["read-mapping", "assembly", "metagenomics"])
+        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["read-mapping", "variant-calling", "assembly", "metagenomics"])
 
         let refreshTask = Task { await viewModel.refreshSetup() }
         await Task.yield()
@@ -469,7 +495,7 @@ final class WelcomeSetupTests: XCTestCase {
         await refreshTask.value
 
         XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
-        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["read-mapping", "assembly", "metagenomics"])
+        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["read-mapping", "variant-calling", "assembly", "metagenomics"])
     }
 
     func testManagedResourcesChangeRefreshesSetupInPlace() async {

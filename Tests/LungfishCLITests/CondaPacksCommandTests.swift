@@ -6,7 +6,7 @@ final class CondaPacksCommandTests: XCTestCase {
     func testVisibleCLIPacksOnlyIncludeRequiredAndActivePacks() {
         XCTAssertEqual(
             CondaCommand.visiblePacksForTesting().map(\.id),
-            ["lungfish-tools", "read-mapping", "assembly", "metagenomics"]
+            ["lungfish-tools", "read-mapping", "variant-calling", "assembly", "metagenomics"]
         )
     }
 }

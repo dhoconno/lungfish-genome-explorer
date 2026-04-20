@@ -9,10 +9,22 @@ final class NativeToolRunnerTests: XCTestCase {
 
     // MARK: - Tool Discovery Tests
 
-    func testToolsDirectoryDiscovery() async {
+    func testToolsDirectoryDiscoveryIsOnlyRequiredWhenBundledToolsRemain() async {
         let runner = NativeToolRunner()
         let toolsDir = await runner.getToolsDirectory()
-        XCTAssertNotNil(toolsDir, "Tools directory should be discoverable from test environment")
+        let bundledTools = NativeTool.allCases.filter(\.isBundled)
+
+        if bundledTools.isEmpty {
+            if let toolsDir {
+                XCTAssertTrue(
+                    FileManager.default.fileExists(atPath: toolsDir.path),
+                    "Discovered tools directory should exist on disk: \(toolsDir.path)"
+                )
+            }
+            return
+        }
+
+        XCTAssertNotNil(toolsDir, "Tools directory should be discoverable while bundled tools remain")
         if let toolsDir {
             XCTAssertTrue(
                 FileManager.default.fileExists(atPath: toolsDir.path),
@@ -33,11 +45,12 @@ final class NativeToolRunnerTests: XCTestCase {
         }
     }
 
-    func testValidateBundledToolsInstallationIgnoresManagedCoreTools() async {
+    func testValidateBundledToolsInstallationSucceedsWhenNoBundledToolsRemain() async {
         let runner = NativeToolRunner()
         let (valid, missing) = await runner.validateBundledToolsInstallation()
 
-        XCTAssertTrue(valid, "Bundled tools should still validate without BBTools/JRE in the app bundle")
+        XCTAssertTrue(valid, "Bundled tool validation should succeed when every tool resolves from managed environments")
+        XCTAssertTrue(missing.isEmpty)
         XCTAssertFalse(missing.contains(.clumpify))
         XCTAssertFalse(missing.contains(.fastp))
     }
@@ -71,6 +84,24 @@ final class NativeToolRunnerTests: XCTestCase {
 
         XCTAssertTrue(NativeTool.bbmap.isBBToolsShellScript)
         XCTAssertTrue(NativeTool.mapPacBio.isBBToolsShellScript)
+    }
+
+    func testVariantCallingToolsResolveFromManagedEnvironments() {
+        let expectations: [(NativeTool, String, String)] = [
+            (.lofreq, "lofreq", "lofreq"),
+            (.ivar, "ivar", "ivar"),
+            (.medaka, "medaka", "medaka"),
+        ]
+
+        for (tool, environment, executable) in expectations {
+            switch tool.location {
+            case .managed(let actualEnvironment, let actualExecutable):
+                XCTAssertEqual(actualEnvironment, environment)
+                XCTAssertEqual(actualExecutable, executable)
+            default:
+                XCTFail("\(tool.rawValue) should resolve from a managed tool environment")
+            }
+        }
     }
 
     func testFindToolReturnsExecutableURLForBundledTools() async throws {
@@ -337,6 +368,72 @@ final class NativeToolRunnerTests: XCTestCase {
         XCTAssertEqual(failure.combinedStderr, "error")
     }
 
+    func testRunCancelsSubprocessAndThrowsCancellationError() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("NativeToolRunner Cancel Run \(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let completedURL = root.appendingPathComponent("run-completed.txt")
+        let (runner, managedRoot) = try makeCancellableManagedNativeToolRunner(root: root)
+        defer { try? FileManager.default.removeItem(at: managedRoot) }
+
+        let task = Task {
+            try await runner.run(
+                .seqkit,
+                arguments: ["sleep-run", completedURL.path],
+                timeout: 5
+            )
+        }
+
+        try await Task.sleep(nanoseconds: 150_000_000)
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Cancelled run should throw CancellationError")
+        } catch is CancellationError {
+        } catch {
+            XCTFail("Expected CancellationError, got \(error)")
+        }
+
+        try await assertFileDoesNotAppear(at: completedURL, timeoutNanoseconds: 2_500_000_000)
+    }
+
+    func testRunPipelineCancelsAllSubprocessesAndThrowsCancellationError() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("NativeToolRunner Cancel Pipeline \(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sourceCompletedURL = root.appendingPathComponent("pipeline-source-completed.txt")
+        let sinkCompletedURL = root.appendingPathComponent("pipeline-sink-completed.txt")
+        let (runner, managedRoot) = try makeCancellableManagedNativeToolRunner(root: root)
+        defer { try? FileManager.default.removeItem(at: managedRoot) }
+
+        let task = Task {
+            try await runner.runPipeline(
+                [
+                    NativePipelineStage(.seqkit, arguments: ["sleep-pipeline-source", sourceCompletedURL.path]),
+                    NativePipelineStage(.seqkit, arguments: ["sleep-pipeline-sink", sinkCompletedURL.path]),
+                ],
+                timeout: 5
+            )
+        }
+
+        try await Task.sleep(nanoseconds: 150_000_000)
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Cancelled pipeline should throw CancellationError")
+        } catch is CancellationError {
+        } catch {
+            XCTFail("Expected CancellationError, got \(error)")
+        }
+
+        try await assertFileDoesNotAppear(at: sourceCompletedURL, timeoutNanoseconds: 2_500_000_000)
+        try await assertFileDoesNotAppear(at: sinkCompletedURL, timeoutNanoseconds: 2_500_000_000)
+    }
+
     // MARK: - Injected Tools Directory Tests
 
     func testInitWithExplicitToolsDirectory() async {
@@ -451,7 +548,8 @@ final class NativeToolRunnerTests: XCTestCase {
 
     func testAllCasesCount() {
         // The legacy human-scrubber executables were retired when Deacon replaced that path.
-        XCTAssertEqual(NativeTool.allCases.count, 22, "Should have 22 NativeTool cases after adding BBMap shell wrappers to the managed tool surface")
+        // BBMap shell wrappers and the viral variant callers are both part of the managed tool surface.
+        XCTAssertEqual(NativeTool.allCases.count, 25, "Should include BBTools wrappers and viral variant callers in the managed tool surface")
     }
 
     // MARK: - Error Tests
@@ -677,5 +775,59 @@ final class NativeToolRunnerTests: XCTestCase {
         }
 
         return (NativeToolRunner(toolsDirectory: nil, homeDirectory: root), root)
+    }
+
+    private func makeCancellableManagedNativeToolRunner(root: URL) throws -> (runner: NativeToolRunner, root: URL) {
+        let fm = FileManager.default
+        let executableDir = root
+            .appendingPathComponent(".lungfish/conda/envs/seqkit/bin", isDirectory: true)
+        try fm.createDirectory(at: executableDir, withIntermediateDirectories: true)
+
+        let executableURL = executableDir.appendingPathComponent("seqkit")
+        let script = """
+        #!/bin/sh
+        set -eu
+        command="$1"
+        marker="$2"
+        case "$command" in
+          sleep-run|sleep-pipeline-source|sleep-pipeline-sink)
+            sleep 2
+            printf "completed\\n" > "$marker"
+            ;;
+          *)
+            echo "unsupported command: $command" >&2
+            exit 1
+            ;;
+        esac
+        """
+        try script.write(to: executableURL, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executableURL.path)
+
+        return (NativeToolRunner(toolsDirectory: nil, homeDirectory: root), root)
+    }
+
+    private func waitForFile(at url: URL, timeoutNanoseconds: UInt64 = 1_000_000_000) async throws {
+        let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
+        while DispatchTime.now().uptimeNanoseconds < deadline {
+            if FileManager.default.fileExists(atPath: url.path) {
+                return
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        XCTFail("Expected file to appear: \(url.path)")
+    }
+
+    private func assertFileDoesNotAppear(
+        at url: URL,
+        timeoutNanoseconds: UInt64
+    ) async throws {
+        let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
+        while DispatchTime.now().uptimeNanoseconds < deadline {
+            if FileManager.default.fileExists(atPath: url.path) {
+                XCTFail("File should not appear after cancellation: \(url.path)")
+                return
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
     }
 }

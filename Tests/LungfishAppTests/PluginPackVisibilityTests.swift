@@ -122,6 +122,10 @@ final class PluginPackVisibilityTests: XCTestCase {
             XCTFail("Expected active read-mapping pack")
             return
         }
+        guard let variantCalling = PluginPack.activeOptionalPacks.first(where: { $0.id == "variant-calling" }) else {
+            XCTFail("Expected active variant-calling pack")
+            return
+        }
         guard let assembly = PluginPack.activeOptionalPacks.first(where: { $0.id == "assembly" }) else {
             XCTFail("Expected active assembly pack")
             return
@@ -142,6 +146,12 @@ final class PluginPackVisibilityTests: XCTestCase {
             toolStatuses: [],
             failureMessage: nil
         )
+        let variantCallingStatus = PluginPackStatus(
+            pack: variantCalling,
+            state: .needsInstall,
+            toolStatuses: [],
+            failureMessage: nil
+        )
         let assemblyStatus = PluginPackStatus(
             pack: assembly,
             state: .needsInstall,
@@ -155,13 +165,19 @@ final class PluginPackVisibilityTests: XCTestCase {
             failureMessage: nil
         )
         let viewModel = PluginManagerViewModel(
-            packStatusProvider: StubPluginManagerPackStatusProvider(statuses: [required, readMappingStatus, assemblyStatus, metagenomicsStatus])
+            packStatusProvider: StubPluginManagerPackStatusProvider(statuses: [
+                required,
+                readMappingStatus,
+                variantCallingStatus,
+                assemblyStatus,
+                metagenomicsStatus,
+            ])
         )
 
         await viewModel.loadPackStatuses()
 
         XCTAssertEqual(viewModel.requiredSetupPack?.pack.id, "lungfish-tools")
-        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["read-mapping", "assembly", "metagenomics"])
+        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["read-mapping", "variant-calling", "assembly", "metagenomics"])
     }
 
     func testFocusPackSelectsPacksTabAndStoresPackID() {
