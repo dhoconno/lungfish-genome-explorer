@@ -39,6 +39,7 @@ public struct AssemblyContigCatalog: Sendable {
 
     public init(result: AssemblyResult) async throws {
         self.reader = try IndexedFASTAReader(url: result.contigsPath)
+        try Self.validateUniqueSequenceNames(reader.sequenceNames)
 
         let headersByName = try Self.parseHeaders(from: result.contigsPath)
         var contigs: [ContigMetadata] = []
@@ -70,7 +71,15 @@ public struct AssemblyContigCatalog: Sendable {
             )
         }
 
-        self.contigsByName = Dictionary(uniqueKeysWithValues: contigs.map { ($0.name, $0) })
+        var contigsByName: [String: ContigMetadata] = [:]
+        contigsByName.reserveCapacity(contigs.count)
+        for contig in contigs {
+            if contigsByName[contig.name] != nil {
+                throw AssemblyContigCatalogError.duplicateContigName(contig.name)
+            }
+            contigsByName[contig.name] = contig
+        }
+        self.contigsByName = contigsByName
         let ranked = contigs.sorted {
             if $0.lengthBP != $1.lengthBP {
                 return $0.lengthBP > $1.lengthBP
@@ -150,23 +159,65 @@ public struct AssemblyContigCatalog: Sendable {
         )
     }
 
-    private static func parseHeaders(from fastaURL: URL) throws -> [String: String] {
-        let content = try String(contentsOf: fastaURL, encoding: .utf8)
-            .replacingOccurrences(of: "\r\n", with: "\n")
+    static func parseHeaders(from fastaURL: URL) throws -> [String: String] {
+        let handle = try FileHandle(forReadingFrom: fastaURL)
+        defer { try? handle.close() }
 
+        let bufferSize = 256 * 1024
+        var bufferedData = Data()
         var headersByName: [String: String] = [:]
-        for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
-            guard line.hasPrefix(">") else { continue }
-            let header = String(line.dropFirst())
-            let keys = headerLookupKeys(for: header)
-            guard !keys.isEmpty else {
-                throw AssemblyContigCatalogError.invalidHeader(header)
+
+        while true {
+            guard let chunk = try handle.read(upToCount: bufferSize) else { break }
+            if chunk.isEmpty { break }
+
+            bufferedData.append(chunk)
+            var lineStartIndex = bufferedData.startIndex
+
+            while let newlineIndex = bufferedData[lineStartIndex...].firstIndex(of: 0x0A) {
+                try registerHeaderIfNeeded(
+                    from: bufferedData.subdata(in: lineStartIndex..<newlineIndex),
+                    headersByName: &headersByName
+                )
+                lineStartIndex = bufferedData.index(after: newlineIndex)
             }
-            for key in keys {
-                headersByName[key] = header
+
+            if lineStartIndex > bufferedData.startIndex {
+                bufferedData.removeSubrange(bufferedData.startIndex..<lineStartIndex)
             }
         }
+
+        if !bufferedData.isEmpty {
+            try registerHeaderIfNeeded(from: bufferedData, headersByName: &headersByName)
+        }
+
         return headersByName
+    }
+
+    private static func registerHeaderIfNeeded(
+        from lineData: Data,
+        headersByName: inout [String: String]
+    ) throws {
+        guard var line = String(data: lineData, encoding: .utf8) else {
+            throw AssemblyContigCatalogError.invalidEncoding
+        }
+        if line.hasSuffix("\r") {
+            line.removeLast()
+        }
+
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix(">") else { return }
+
+        let header = String(trimmed.dropFirst())
+        let keys = headerLookupKeys(for: header)
+        guard let primaryKey = keys.first else {
+            throw AssemblyContigCatalogError.invalidHeader(header)
+        }
+
+        headersByName[primaryKey] = header
+        for aliasKey in keys.dropFirst() where headersByName[aliasKey] == nil {
+            headersByName[aliasKey] = header
+        }
     }
 
     private static func headerLookupKeys(for header: String) -> [String] {
@@ -182,6 +233,17 @@ public struct AssemblyContigCatalog: Sendable {
         }
 
         return [spaceToken]
+    }
+
+    private static func validateUniqueSequenceNames(_ names: [String]) throws {
+        var seen: Set<String> = []
+        seen.reserveCapacity(names.count)
+
+        for name in names {
+            if !seen.insert(name).inserted {
+                throw AssemblyContigCatalogError.duplicateContigName(name)
+            }
+        }
     }
 
     private static func gcPercent(gcBases: Int64, totalBases: Int64) -> Double {
@@ -227,14 +289,20 @@ public struct AssemblyContigCatalog: Sendable {
 
 private enum AssemblyContigCatalogError: Error, LocalizedError {
     case contigNotFound(String)
+    case duplicateContigName(String)
     case invalidHeader(String)
+    case invalidEncoding
 
     var errorDescription: String? {
         switch self {
         case .contigNotFound(let name):
             return "Contig not found: \(name)"
+        case .duplicateContigName(let name):
+            return "Duplicate contig name in FASTA index: \(name)"
         case .invalidHeader(let header):
             return "Invalid FASTA header: \(header)"
+        case .invalidEncoding:
+            return "Assembly contig FASTA has invalid encoding (expected UTF-8)"
         }
     }
 }

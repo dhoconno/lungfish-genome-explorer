@@ -76,6 +76,47 @@ final class AssemblyContigCatalogTests: XCTestCase {
         XCTAssertEqual(summary.lengthWeightedGCPercent, 0.0, accuracy: 0.001)
     }
 
+    func testParseHeadersPreservesPrimaryMappingWhenTabCompatibilityAliasCollides() throws {
+        let fastaURL = try writeFixtureFASTA([
+            ("foo real description", "AAAAA"),
+            ("foo\talt description", "CCCC"),
+        ])
+
+        let headersByName = try AssemblyContigCatalog.parseHeaders(from: fastaURL)
+
+        XCTAssertEqual(headersByName["foo"], "foo real description")
+        XCTAssertEqual(headersByName["foo\talt"], "foo\talt description")
+    }
+
+    func testParseHeadersAllowsUTF8HeaderSplitAcrossReadBufferBoundary() throws {
+        let padding = String(repeating: "a", count: (256 * 1024) - 2)
+        let splitHeader = padding + "é-split-header"
+        let fastaURL = try writeFixtureFASTA([
+            (splitHeader, "ATGC"),
+        ])
+
+        let headersByName = try AssemblyContigCatalog.parseHeaders(from: fastaURL)
+
+        XCTAssertEqual(headersByName[splitHeader], splitHeader)
+    }
+
+    func testInitThrowsRecoverableErrorForDuplicateIndexNames() async throws {
+        let result = try makeFixtureAssemblyResult(
+            contigs: [
+                ("alpha primary", "AAAA"),
+                ("beta secondary", "CCCC"),
+            ],
+            indexNameTransform: { _ in "duplicate" }
+        )
+
+        do {
+            _ = try await AssemblyContigCatalog(result: result)
+            XCTFail("Expected duplicate index names to throw")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("Duplicate contig name in FASTA index: duplicate"))
+        }
+    }
+
     private func makeFixtureCatalog() async throws -> AssemblyContigCatalog {
         let result = try makeFixtureAssemblyResult()
         return try await AssemblyContigCatalog(result: result)
@@ -110,15 +151,8 @@ final class AssemblyContigCatalogTests: XCTestCase {
         contigs: [(String, String)],
         indexNameTransform: ((String) -> String)?
     ) throws -> AssemblyResult {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AssemblyContigCatalogTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        addTeardownBlock {
-            try? FileManager.default.removeItem(at: tempDir)
-        }
-
-        let contigsURL = tempDir.appendingPathComponent("contigs.fasta")
-        try writeFASTA(contigs, to: contigsURL, lineWidth: 4)
+        let contigsURL = try writeFixtureFASTA(contigs)
+        let tempDir = contigsURL.deletingLastPathComponent()
         if let indexNameTransform {
             try writeFASTAIndex(contigs, to: contigsURL.appendingPathExtension("fai"), lineWidth: 4, nameTransform: indexNameTransform)
         } else {
@@ -139,6 +173,19 @@ final class AssemblyContigCatalogTests: XCTestCase {
             statistics: statistics,
             wallTimeSeconds: 1.0
         )
+    }
+
+    private func writeFixtureFASTA(_ records: [(String, String)]) throws -> URL {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AssemblyContigCatalogTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        let contigsURL = tempDir.appendingPathComponent("contigs.fasta")
+        try writeFASTA(records, to: contigsURL, lineWidth: 4)
+        return contigsURL
     }
 
     private func writeFASTA(_ records: [(String, String)], to url: URL, lineWidth: Int) throws {
