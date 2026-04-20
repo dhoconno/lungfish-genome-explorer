@@ -28,6 +28,59 @@ extension ViewerViewController {
 
         let controller = AssemblyResultViewController()
         addChild(controller)
+        controller.onBlastVerification = { request in
+            let blastCliCmd = OperationCenter.buildCLICommand(subcommand: "blast verify", args: [])
+            let opID = OperationCenter.shared.start(
+                title: "BLAST \(request.sourceLabel)",
+                detail: "Preparing BLAST verification…",
+                operationType: .blastVerification,
+                cliCommand: blastCliCmd
+            )
+
+            let task = Task.detached {
+                do {
+                    let sequences = Self.blastSequences(from: request.sequences)
+                    guard !sequences.isEmpty else {
+                        throw BlastServiceError.noSequences
+                    }
+
+                    let verificationRequest = BlastVerificationRequest(
+                        taxonName: request.sourceLabel,
+                        taxId: request.taxId ?? 0,
+                        sequences: sequences,
+                        database: "core_nt",
+                        entrezQuery: nil
+                    )
+
+                    let result = try await BlastService.shared.verify(
+                        request: verificationRequest,
+                        progress: { fraction, message in
+                            DispatchQueue.main.async {
+                                OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
+                            }
+                        }
+                    )
+
+                    DispatchQueue.main.async {
+                        OperationCenter.shared.complete(
+                            id: opID,
+                            detail: "\(result.verifiedCount)/\(result.readResults.count) verified"
+                        )
+                    }
+                } catch {
+                    let errorText = error.localizedDescription
+                    DispatchQueue.main.async {
+                        OperationCenter.shared.fail(
+                            id: opID,
+                            detail: errorText,
+                            errorMessage: errorText
+                        )
+                    }
+                }
+            }
+
+            OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+        }
 
         annotationDrawerView?.isHidden = true
         fastqMetadataDrawerView?.isHidden = true
@@ -66,6 +119,24 @@ extension ViewerViewController {
 
         enhancedRulerView.isHidden = false
         viewerView.isHidden = false
+        headerView.isHidden = false
         statusBar.isHidden = false
+        geneTabBarView.isHidden = (geneTabBarView.selectedGeneRegion == nil)
+        annotationDrawerView?.isHidden = false
+        fastqMetadataDrawerView?.isHidden = false
+    }
+
+    private nonisolated static func blastSequences(from fastaRecords: [String]) -> [(id: String, sequence: String)] {
+        fastaRecords.compactMap { fasta in
+            let lines = fasta.split(whereSeparator: \.isNewline)
+            guard let headerLine = lines.first, headerLine.hasPrefix(">") else {
+                return nil
+            }
+
+            let identifier = headerLine.dropFirst().split(separator: " ").first.map(String.init) ?? "contig"
+            let sequence = lines.dropFirst().joined()
+            guard !sequence.isEmpty else { return nil }
+            return (id: identifier, sequence: sequence)
+        }
     }
 }
