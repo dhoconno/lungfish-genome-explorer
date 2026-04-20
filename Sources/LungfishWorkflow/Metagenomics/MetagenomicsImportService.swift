@@ -406,7 +406,10 @@ public enum MetagenomicsImportService {
         let ignoredFailures: [TaxTriageIgnoredFailure]
         if let logFile,
            let logText = try? String(contentsOf: logFile, encoding: .utf8) {
-            ignoredFailures = TaxTriageResult.parseIgnoredFailures(fromNextflowLogText: logText)
+            ignoredFailures = TaxTriageResult.sanitizeIgnoredFailures(
+                TaxTriageResult.parseIgnoredFailures(fromNextflowLogText: logText),
+                outputDirectory: resultDirectory
+            )
         } else {
             ignoredFailures = []
         }

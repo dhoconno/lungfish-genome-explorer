@@ -887,7 +887,10 @@ public actor TaxTriagePipeline {
         let traceFile = fm.fileExists(atPath: traceURL.path) ? traceURL : nil
         let ignoredFailures: [TaxTriageIgnoredFailure]
         if let logText = try? String(contentsOf: logFile, encoding: .utf8) {
-            ignoredFailures = TaxTriageResult.parseIgnoredFailures(fromNextflowLogText: logText)
+            ignoredFailures = TaxTriageResult.sanitizeIgnoredFailures(
+                TaxTriageResult.parseIgnoredFailures(fromNextflowLogText: logText),
+                outputDirectory: outputDir
+            )
         } else {
             ignoredFailures = []
         }

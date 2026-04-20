@@ -308,9 +308,56 @@ public struct TaxTriageResult: Sendable, Codable, Equatable {
         }
     }
 
+    public static func sanitizeIgnoredFailures(
+        _ failures: [TaxTriageIgnoredFailure],
+        outputDirectory: URL
+    ) -> [TaxTriageIgnoredFailure] {
+        failures.filter {
+            !isBenignEmptyReferenceAlignmentFailure($0, outputDirectory: outputDirectory)
+        }
+    }
+
     private static func extractSampleID(fromTaskLabel taskLabel: String) -> String? {
         let candidate = taskLabel.split(separator: ".").first.map(String.init)
         guard let candidate, !candidate.isEmpty else { return nil }
         return candidate
+    }
+
+    private static func isBenignEmptyReferenceAlignmentFailure(
+        _ failure: TaxTriageIgnoredFailure,
+        outputDirectory: URL
+    ) -> Bool {
+        guard failure.processName == "ALIGNMENT_PER_SAMPLE",
+              let sampleID = failure.sampleID else {
+            return false
+        }
+
+        let mergedTaxidURL = outputDirectory
+            .appendingPathComponent("map", isDirectory: true)
+            .appendingPathComponent("\(sampleID).merged.taxid.tsv")
+        let combinedMapURL = outputDirectory
+            .appendingPathComponent("combine", isDirectory: true)
+            .appendingPathComponent("\(sampleID).combined.gcfmap.tsv")
+        let referenceFastaURL = outputDirectory
+            .appendingPathComponent("download", isDirectory: true)
+            .appendingPathComponent("\(sampleID).dwnld.references.fasta")
+
+        return hasAtMostOneNonEmptyLine(at: mergedTaxidURL) &&
+            isEmptyFile(at: combinedMapURL) &&
+            isEmptyFile(at: referenceFastaURL)
+    }
+
+    private static func hasAtMostOneNonEmptyLine(at url: URL) -> Bool {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return false }
+        let lineCount = text.split(whereSeparator: \.isNewline).count
+        return lineCount <= 1
+    }
+
+    private static func isEmptyFile(at url: URL) -> Bool {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let fileSize = attributes[.size] as? NSNumber else {
+            return false
+        }
+        return fileSize.intValue == 0
     }
 }

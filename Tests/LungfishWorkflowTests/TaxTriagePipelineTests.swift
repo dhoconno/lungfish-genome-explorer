@@ -52,6 +52,7 @@ final class TaxTriagePipelineTests: XCTestCase {
             .appendingPathComponent("taxtriage", isDirectory: true)
         try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: repoURL.appendingPathComponent("bin", isDirectory: true), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: repoURL.appendingPathComponent("modules/local", isDirectory: true), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: repoURL.appendingPathComponent("workflows", isDirectory: true), withIntermediateDirectories: true)
 
         let downloadScript = """
@@ -74,6 +75,38 @@ final class TaxTriagePipelineTests: XCTestCase {
         """
         try workflow.write(
             to: repoURL.appendingPathComponent("workflows/taxtriage.nf"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let alignmentPerSample = #"""
+        process ALIGNMENT_PER_SAMPLE {
+            when:
+            task.ext.when == null || task.ext.when
+
+            script:
+            def output = "${meta.id}.paths.txt"
+            def k2 = k2_report.name == "NO_FILE" ? " " : " --k2 ${k2_report} "
+            def mapping = mapping.name != "NO_FILE" ? "-m $mapping " : " "
+            def sensitive = " "
+            def gap_allowance = " "
+            def jump_threshold = " "
+            """
+
+            match_paths.py \\
+                -o $output \\
+                -p $pathogens_list  $mapping $k2 $sensitive $gap_allowance $jump_threshold \\
+                --fast
+
+            cat <<-END_VERSIONS > versions.yml
+            "${task.process}":
+                python: \$(python --version)
+            END_VERSIONS
+            """
+        }
+        """#
+        try alignmentPerSample.write(
+            to: repoURL.appendingPathComponent("modules/local/alignment_per_sample.nf"),
             atomically: true,
             encoding: .utf8
         )
@@ -1038,6 +1071,71 @@ final class TaxTriagePipelineTests: XCTestCase {
             encoding: .utf8
         )
         XCTAssertTrue(cachedWorkflow.contains("!params.skip_refpull"))
+    }
+
+    func testSanitizeIgnoredFailuresSuppressesBenignEmptyReferenceAlignmentWarning() throws {
+        let outputDirectory = try makeTempDirectory(prefix: "taxtriage-output")
+        defer { try? FileManager.default.removeItem(at: outputDirectory) }
+
+        try FileManager.default.createDirectory(
+            at: outputDirectory.appendingPathComponent("map", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: outputDirectory.appendingPathComponent("combine", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: outputDirectory.appendingPathComponent("download", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        try "Acc\tAssembly\tOrganism_Name\tDescription\tMapped_Value\n".write(
+            to: outputDirectory.appendingPathComponent("map/SRR14420360.merged.taxid.tsv"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try Data().write(to: outputDirectory.appendingPathComponent("combine/SRR14420360.combined.gcfmap.tsv"))
+        try Data().write(to: outputDirectory.appendingPathComponent("download/SRR14420360.dwnld.references.fasta"))
+
+        let failures = [
+            TaxTriageIgnoredFailure(
+                processPath: "NFCORE_TAXTRIAGE:TAXTRIAGE:REPORT:ALIGNMENT_PER_SAMPLE",
+                processName: "ALIGNMENT_PER_SAMPLE",
+                taskLabel: "SRR14420360",
+                sampleID: "SRR14420360",
+                exitCode: 1
+            ),
+        ]
+
+        let sanitized = TaxTriageResult.sanitizeIgnoredFailures(
+            failures,
+            outputDirectory: outputDirectory
+        )
+
+        XCTAssertTrue(sanitized.isEmpty)
+    }
+
+    func testSanitizeIgnoredFailuresRetainsNonBenignWarnings() throws {
+        let outputDirectory = try makeTempDirectory(prefix: "taxtriage-output")
+        defer { try? FileManager.default.removeItem(at: outputDirectory) }
+
+        let failures = [
+            TaxTriageIgnoredFailure(
+                processPath: "NFCORE_TAXTRIAGE:TAXTRIAGE:ALIGNMENT:MINIMAP2_ALIGN",
+                processName: "MINIMAP2_ALIGN",
+                taskLabel: "SRR35517992.SRR35517992.dwnld.references",
+                sampleID: "SRR35517992",
+                exitCode: 1
+            ),
+        ]
+
+        let sanitized = TaxTriageResult.sanitizeIgnoredFailures(
+            failures,
+            outputDirectory: outputDirectory
+        )
+
+        XCTAssertEqual(sanitized, failures)
     }
 
     func testCheckPrerequisitesUsesManagedNextflowOutsidePATH() async throws {
