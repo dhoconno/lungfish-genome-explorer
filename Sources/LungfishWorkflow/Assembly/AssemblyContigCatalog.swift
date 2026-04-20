@@ -52,9 +52,14 @@ public struct AssemblyContigCatalog: Sendable {
             guard let header = headersByName[name] else {
                 throw AssemblyContigCatalogError.contigNotFound(name)
             }
-            let sequence = try await reader.fetchSequence(name: name)
-            let gcBases = Int64(Self.gcBaseCount(in: sequence.asString()))
             let lengthBP = Int64(entry.length)
+            let gcBases: Int64
+            if lengthBP == 0 {
+                gcBases = 0
+            } else {
+                let sequence = try await reader.fetchSequence(name: name)
+                gcBases = Int64(Self.gcBaseCount(in: sequence.asString()))
+            }
             contigs.append(
                 ContigMetadata(
                     order: order,
@@ -106,6 +111,10 @@ public struct AssemblyContigCatalog: Sendable {
         guard let contig = contigsByName[contigName] else {
             throw AssemblyContigCatalogError.contigNotFound(contigName)
         }
+        if contig.lengthBP == 0 {
+            return Self.formatFASTA(header: contig.header, sequence: "", lineWidth: lineWidth)
+        }
+
         let sequence = try await reader.fetchSequence(name: contig.name)
         return Self.formatFASTA(header: contig.header, sequence: sequence.asString(), lineWidth: lineWidth)
     }
@@ -205,10 +214,9 @@ public struct AssemblyContigCatalog: Sendable {
             line.removeLast()
         }
 
-        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix(">") else { return }
+        guard line.hasPrefix(">") else { return }
 
-        let header = String(trimmed.dropFirst())
+        let header = String(line.dropFirst())
         let keys = headerLookupKeys(for: header)
         guard let primaryKey = keys.first else {
             throw AssemblyContigCatalogError.invalidHeader(header)

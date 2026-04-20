@@ -28,6 +28,16 @@ final class AssemblyContigCatalogTests: XCTestCase {
         XCTAssertEqual(fasta, ">beta middle header\nACGT\nAC\n")
     }
 
+    func testSequenceFASTAPreservesTrailingSpacesInHeader() async throws {
+        let catalog = try await makeFixtureCatalog(contigs: [
+            ("spacey header   ", "ATGC"),
+        ])
+
+        let fasta = try await catalog.sequenceFASTA(for: "spacey", lineWidth: 8)
+
+        XCTAssertEqual(fasta, ">spacey header   \nATGC\n")
+    }
+
     func testTabDelimitedHeaderSupportsTabTruncatedIndexNamesAndPreservesFullHeader() async throws {
         let catalog = try await makeFixtureCatalog(
             contigs: [
@@ -115,6 +125,27 @@ final class AssemblyContigCatalogTests: XCTestCase {
         } catch {
             XCTAssertTrue(error.localizedDescription.contains("Duplicate contig name in FASTA index: duplicate"))
         }
+    }
+
+    func testZeroLengthContigBuildsRecordAndFormatsEmptyFASTA() async throws {
+        let catalog = try await makeFixtureCatalog(
+            contigs: [
+                ("empty header", ""),
+                ("beta middle header", "ACGT"),
+            ],
+            indexNameTransform: { header in
+                String(header.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true).first ?? "")
+            }
+        )
+
+        let records = try await catalog.records()
+        let fasta = try await catalog.sequenceFASTA(for: "empty", lineWidth: 8)
+        let emptyRecord = try XCTUnwrap(records.last)
+
+        XCTAssertEqual(records.map(\.name), ["beta", "empty"])
+        XCTAssertEqual(emptyRecord.lengthBP, 0)
+        XCTAssertEqual(emptyRecord.gcPercent, 0.0, accuracy: 0.001)
+        XCTAssertEqual(fasta, ">empty header\n")
     }
 
     private func makeFixtureCatalog() async throws -> AssemblyContigCatalog {
