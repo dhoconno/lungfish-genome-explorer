@@ -30,7 +30,10 @@ final class AssemblyWizardSheetTests: XCTestCase {
         XCTAssertTrue(source.contains(#"return "diploid""#))
         XCTAssertTrue(source.contains(#".init(id: "diploid", title: "Diploid""#))
         XCTAssertTrue(source.contains(#".init(id: "haploid-viral", title: "Haploid/Viral""#))
-        XCTAssertTrue(source.contains(#"arguments.append(contentsOf: ["--n-hap", "1", "-l0", "-f0"] )"#.replacingOccurrences(of: " ", with: "")))
+        XCTAssertTrue(source.contains(#"if selectedProfileID == "haploid-viral" {"#))
+        XCTAssertTrue(source.contains(#""--n-hap""#))
+        XCTAssertTrue(source.contains(#""-l0""#))
+        XCTAssertTrue(source.contains(#""-f0""#))
         XCTAssertTrue(source.contains(#"if hifiasmPrimaryOnly {"#))
     }
 
