@@ -5,9 +5,15 @@
 import Foundation
 import LungfishIO
 
+public enum AssemblyOutcome: String, Sendable, Codable, Equatable {
+    case completed
+    case completedWithNoContigs
+}
+
 public struct AssemblyResult: Sendable, Codable, Equatable {
     public let tool: AssemblyTool
     public let readType: AssemblyReadType
+    public let outcome: AssemblyOutcome
     public let contigsPath: URL
     public let graphPath: URL?
     public let logPath: URL?
@@ -22,6 +28,7 @@ public struct AssemblyResult: Sendable, Codable, Equatable {
     public init(
         tool: AssemblyTool,
         readType: AssemblyReadType,
+        outcome: AssemblyOutcome = .completed,
         contigsPath: URL,
         graphPath: URL?,
         logPath: URL?,
@@ -35,6 +42,7 @@ public struct AssemblyResult: Sendable, Codable, Equatable {
     ) {
         self.tool = tool
         self.readType = readType
+        self.outcome = outcome
         self.contigsPath = contigsPath
         self.graphPath = graphPath
         self.logPath = logPath
@@ -54,6 +62,7 @@ private struct PersistedManagedAssemblyResult: Codable {
     let schemaVersion: Int
     let tool: AssemblyTool
     let readType: AssemblyReadType
+    let outcome: AssemblyOutcome?
     let contigsPath: String
     let graphPath: String?
     let logPath: String?
@@ -73,9 +82,10 @@ public extension AssemblyResult {
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(
             PersistedManagedAssemblyResult(
-                schemaVersion: 2,
+                schemaVersion: 3,
                 tool: tool,
                 readType: readType,
+                outcome: outcome,
                 contigsPath: contigsPath.lastPathComponent,
                 graphPath: graphPath?.lastPathComponent,
                 logPath: logPath?.lastPathComponent,
@@ -104,6 +114,7 @@ public extension AssemblyResult {
             return AssemblyResult(
                 tool: persisted.tool,
                 readType: persisted.readType,
+                outcome: persisted.outcome ?? .completed,
                 contigsPath: directory.appendingPathComponent(persisted.contigsPath),
                 graphPath: persisted.graphPath.map { directory.appendingPathComponent($0) },
                 logPath: persisted.logPath.map { directory.appendingPathComponent($0) },
@@ -124,6 +135,7 @@ public extension AssemblyResult {
         AssemblyResult(
             tool: .spades,
             readType: .illuminaShortReads,
+            outcome: .completed,
             contigsPath: result.contigsPath,
             graphPath: result.graphPath,
             logPath: result.logPath,

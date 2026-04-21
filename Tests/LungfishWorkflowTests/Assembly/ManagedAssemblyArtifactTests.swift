@@ -36,8 +36,37 @@ final class ManagedAssemblyArtifactTests: XCTestCase {
         XCTAssertEqual(loaded.graphPath, graphURL)
         XCTAssertEqual(loaded.logPath, logURL)
         XCTAssertEqual(loaded.assemblerVersion, "1.2.9")
+        XCTAssertEqual(loaded.outcome, .completed)
         XCTAssertEqual(loaded.statistics.contigCount, 2)
         XCTAssertEqual(loaded.statistics.totalLengthBP, 16)
+    }
+
+    func testManagedAssemblyResultRoundTripsCompletedWithNoContigsOutcome() throws {
+        let tempDir = try makeTempDirectory(prefix: "managed-assembly-empty-result")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let contigsURL = tempDir.appendingPathComponent("contigs.fasta")
+        try "".write(to: contigsURL, atomically: true, encoding: .utf8)
+
+        let result = AssemblyResult(
+            tool: .hifiasm,
+            readType: .pacBioHiFi,
+            outcome: .completedWithNoContigs,
+            contigsPath: contigsURL,
+            graphPath: nil,
+            logPath: nil,
+            assemblerVersion: "0.25.0",
+            commandLine: "hifiasm -o output sample.fastq.gz",
+            outputDirectory: tempDir,
+            statistics: try AssemblyStatisticsCalculator.compute(from: contigsURL),
+            wallTimeSeconds: 12.0
+        )
+
+        try result.save(to: tempDir)
+        let loaded = try AssemblyResult.load(from: tempDir)
+
+        XCTAssertEqual(loaded.outcome, .completedWithNoContigs)
+        XCTAssertEqual(loaded.statistics.contigCount, 0)
     }
 
     func testAssemblyResultLoadsLegacySpadesSidecar() throws {
@@ -145,6 +174,56 @@ final class ManagedAssemblyArtifactTests: XCTestCase {
         XCTAssertTrue(fasta.contains(">ptg000001l"))
         XCTAssertTrue(fasta.contains(">ptg000002l"))
         XCTAssertEqual(result.statistics.contigCount, 2)
+    }
+
+    func testNormalizeHifiasmOutputsReturnsEmptyContigResult() throws {
+        let tempDir = try makeTempDirectory(prefix: "hifiasm-empty-normalizer")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let request = AssemblyRunRequest(
+            tool: .hifiasm,
+            readType: .ontReads,
+            inputURLs: [URL(fileURLWithPath: "/tmp/sample.fastq.gz")],
+            projectName: "ont-demo",
+            outputDirectory: tempDir,
+            threads: 8
+        )
+
+        let gfaURL = tempDir.appendingPathComponent("ont-demo.bp.p_ctg.gfa")
+        try "".write(to: gfaURL, atomically: true, encoding: .utf8)
+
+        let result = try AssemblyOutputNormalizer.normalize(
+            request: request,
+            primaryOutputDirectory: tempDir,
+            commandLine: "hifiasm --ont -o ont-demo sample.fastq.gz",
+            wallTimeSeconds: 20
+        )
+
+        XCTAssertEqual(result.outcome, .completedWithNoContigs)
+        XCTAssertEqual(result.graphPath, gfaURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.contigsPath.path))
+        XCTAssertEqual(result.statistics.contigCount, 0)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: result.contigsPath.appendingPathExtension("fai").path)
+        )
+    }
+
+    func testAssembleCommandSourceIncludesEmptyContigCompletionBranch() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = repoRoot
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("LungfishCLI")
+            .appendingPathComponent("Commands")
+            .appendingPathComponent("AssembleCommand.swift")
+
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("Assembly completed, but no contigs were generated."))
+        XCTAssertTrue(source.contains(".completedWithNoContigs"))
     }
 
     func testManagedBundleBuilderCreatesReferenceBundleFromMegahitArtifacts() async throws {

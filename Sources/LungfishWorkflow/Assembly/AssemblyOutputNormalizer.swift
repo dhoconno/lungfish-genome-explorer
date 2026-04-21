@@ -7,11 +7,14 @@ import LungfishIO
 
 public enum AssemblyOutputNormalizerError: Error, LocalizedError {
     case missingPrimaryOutput(URL)
+    case emptyPrimaryOutput(tool: AssemblyTool, url: URL)
 
     public var errorDescription: String? {
         switch self {
         case .missingPrimaryOutput(let url):
             return "Expected assembly output was not produced: \(url.path)"
+        case .emptyPrimaryOutput(let tool, _):
+            return "\(tool.displayName) completed without producing any contigs."
         }
     }
 }
@@ -68,13 +71,20 @@ public enum AssemblyOutputNormalizer {
             throw AssemblyOutputNormalizerError.missingPrimaryOutput(contigsPath)
         }
 
-        try FASTAIndexBuilder.buildAndWrite(for: contigsPath)
         let statistics = try AssemblyStatisticsCalculator.compute(from: contigsPath)
+        let outcome: AssemblyOutcome
+        if statistics.contigCount > 0 {
+            try FASTAIndexBuilder.buildAndWrite(for: contigsPath)
+            outcome = .completed
+        } else {
+            outcome = .completedWithNoContigs
+        }
         let logPath = primaryOutputDirectory.appendingPathComponent("assembly.log")
 
         return AssemblyResult(
             tool: request.tool,
             readType: request.readType,
+            outcome: outcome,
             contigsPath: contigsPath,
             graphPath: existingURL(graphPath),
             logPath: existingURL(logPath),

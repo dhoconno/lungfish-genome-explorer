@@ -136,17 +136,19 @@ struct AssembleCommand: AsyncParsableCommand {
             print("")
         }
 
-        let stats = result.statistics
         print(formatter.header("Assembly Results"))
         print("")
-        print(formatter.keyValueTable([
-            ("Contigs", "\(stats.contigCount)"),
-            ("Total length", "\(stats.totalLengthBP) bp"),
-            ("N50", "\(stats.n50) bp"),
-            ("Largest contig", "\(stats.largestContigBP) bp"),
-            ("GC content", String(format: "%.1f%%", stats.gcPercent)),
-        ]))
-        print("")
+        if result.outcome == .completed {
+            let stats = result.statistics
+            print(formatter.keyValueTable([
+                ("Contigs", "\(stats.contigCount)"),
+                ("Total length", "\(stats.totalLengthBP) bp"),
+                ("N50", "\(stats.n50) bp"),
+                ("Largest contig", "\(stats.largestContigBP) bp"),
+                ("GC content", String(format: "%.1f%%", stats.gcPercent)),
+            ]))
+            print("")
+        }
         print("Contigs: \(formatter.path(result.contigsPath.path))")
         if let graphPath = result.graphPath {
             print("Graph:   \(formatter.path(graphPath.path))")
@@ -155,7 +157,11 @@ struct AssembleCommand: AsyncParsableCommand {
             print("Log:     \(formatter.path(logPath.path))")
         }
         print("")
-        print(formatter.success("Assembly completed in \(String(format: "%.1f", result.wallTimeSeconds))s"))
+        if result.outcome == .completedWithNoContigs {
+            print(formatter.success("Assembly completed, but no contigs were generated."))
+        } else {
+            print(formatter.success("Assembly completed in \(String(format: "%.1f", result.wallTimeSeconds))s"))
+        }
     }
 
     private func resolveReadType(
