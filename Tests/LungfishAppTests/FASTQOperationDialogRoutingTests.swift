@@ -613,7 +613,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertNil(state.assemblyReadClassMismatchMessage)
     }
 
-    func testAssemblySidebarFiltersToCompatibleToolForPersistedReadType() throws {
+    func testAssemblySidebarFiltersToCompatibleToolsForPersistedONTReadType() throws {
         let bundleURL = try makeFASTQBundle(
             fastqName: "reads.fastq",
             fastqContents: """
@@ -638,8 +638,16 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
 
         XCTAssertEqual(state.sidebarItems.map(\.id), [
             FASTQOperationToolID.flye.rawValue,
+            FASTQOperationToolID.hifiasm.rawValue,
         ])
         XCTAssertTrue(state.sidebarItems.allSatisfy { $0.availability == .available })
+    }
+
+    func testHifiasmSubtitleDescribesONTAndHiFiCCSSupport() {
+        XCTAssertEqual(
+            FASTQOperationToolID.hifiasm.subtitle,
+            "Assemble ONT or PacBio HiFi/CCS long reads into phased contigs."
+        )
     }
 
     func testAssemblyCategorySeedsCompatibleDefaultToolForPersistedReadType() throws {

@@ -51,12 +51,21 @@ final class AssemblyXCUITests: XCTestCase {
         robot.launch(opening: ontProjectURL, backendMode: "deterministic")
         robot.selectSidebarItem(named: "reads.fastq")
         robot.openAssemblyDialog()
+        XCTAssertTrue(
+            robot.app.descendants(matching: .any)["fastq-operations-assembly-tool-flye"].firstMatch.exists
+        )
+        XCTAssertTrue(
+            robot.app.descendants(matching: .any)["fastq-operations-assembly-tool-hifiasm"].firstMatch.exists
+        )
         robot.chooseAssembler("Flye")
         robot.expandAdvancedOptionsIfNeeded()
         XCTAssertTrue(robot.profilePicker.waitForExistence(timeout: 5))
         XCTAssertFalse(robot.memorySlider.exists)
         XCTAssertFalse(robot.minContigStepper.exists)
         robot.reveal(robot.flyeMetagenomeToggle)
+        robot.chooseAssembler("Hifiasm")
+        XCTAssertTrue(robot.primaryActionButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(robot.primaryActionButton.isEnabled)
         robot.app.terminate()
 
         robot.launch(opening: hifiProjectURL, backendMode: "deterministic")

@@ -16,7 +16,7 @@ public enum AssemblyCompatibility {
         case .illuminaShortReads:
             return [.spades, .megahit, .skesa]
         case .ontReads:
-            return [.flye]
+            return [.flye, .hifiasm]
         case .pacBioHiFi:
             return [.hifiasm]
         }

@@ -1054,7 +1054,7 @@ final class FASTQOperationDialogState {
         case .flye:
             return "Requires ONT"
         case .hifiasm:
-            return "Requires HiFi/CCS"
+            return "Requires ONT or HiFi/CCS"
         }
     }
 
@@ -1226,7 +1226,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .megahit: return "Assemble short reads with a compact de Bruijn graph."
         case .skesa: return "Assemble isolate-focused short reads conservatively."
         case .flye: return "Assemble ONT long reads into contigs."
-        case .hifiasm: return "Assemble PacBio HiFi/CCS reads into phased contigs."
+        case .hifiasm: return "Assemble ONT or PacBio HiFi/CCS long reads into phased contigs."
         case .kraken2: return "Classify reads taxonomically."
         case .esViritu: return "Detect viruses and report coverage."
         case .taxTriage: return "Run the TaxTriage pathogen workflow."

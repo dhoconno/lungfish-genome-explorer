@@ -17,16 +17,16 @@ final class AssemblyCompatibilityTests: XCTestCase {
         XCTAssertFalse(AssemblyCompatibility.isSupported(tool: .hifiasm, for: .illuminaShortReads))
     }
 
-    func testONTReadsEnableOnlyFlye() {
+    func testONTReadsEnableFlyeAndHifiasm() {
         XCTAssertEqual(
             Set(AssemblyCompatibility.supportedTools(for: .ontReads)),
-            [.flye]
+            [.flye, .hifiasm]
         )
         XCTAssertTrue(AssemblyCompatibility.isSupported(tool: .flye, for: .ontReads))
+        XCTAssertTrue(AssemblyCompatibility.isSupported(tool: .hifiasm, for: .ontReads))
         XCTAssertFalse(AssemblyCompatibility.isSupported(tool: .spades, for: .ontReads))
         XCTAssertFalse(AssemblyCompatibility.isSupported(tool: .megahit, for: .ontReads))
         XCTAssertFalse(AssemblyCompatibility.isSupported(tool: .skesa, for: .ontReads))
-        XCTAssertFalse(AssemblyCompatibility.isSupported(tool: .hifiasm, for: .ontReads))
     }
 
     func testPacBioHiFiEnablesOnlyHifiasm() {
