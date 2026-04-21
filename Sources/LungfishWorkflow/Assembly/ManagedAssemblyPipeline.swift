@@ -305,6 +305,9 @@ public struct ManagedAssemblyPipeline: Sendable {
         if request.readType == .ontReads {
             arguments.insert("--ont", at: 0)
         }
+        if request.selectedProfileID == "haploid-viral" && !arguments.contains("--n-hap") {
+            arguments.append(contentsOf: ["--n-hap", "1", "-l0", "-f0"])
+        }
         arguments += request.extraArguments
         return ManagedAssemblyCommand(
             executable: "hifiasm",

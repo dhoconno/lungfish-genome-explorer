@@ -2,6 +2,29 @@ import XCTest
 @testable import LungfishWorkflow
 
 final class ManagedAssemblyPipelineTests: XCTestCase {
+    private func makeHifiasmRequest(
+        readType: AssemblyReadType,
+        selectedProfileID: String?,
+        extraArguments: [String] = []
+    ) -> AssemblyRunRequest {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("managed-assembly-hifiasm-\(UUID().uuidString)")
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        return AssemblyRunRequest(
+            tool: .hifiasm,
+            readType: readType,
+            inputURLs: [URL(fileURLWithPath: "/tmp/input.fastq.gz")],
+            projectName: "demo",
+            outputDirectory: tempDir,
+            threads: 8,
+            selectedProfileID: selectedProfileID,
+            extraArguments: extraArguments
+        )
+    }
+
     func testBuildsSpadesCommandForIlluminaReads() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("managed-assembly-spades-\(UUID().uuidString)")
@@ -89,29 +112,53 @@ final class ManagedAssemblyPipelineTests: XCTestCase {
         XCTAssertEqual(command.arguments.filter { $0 == inputURL.path }.count, 1)
     }
 
-    func testBuildsHifiasmCommandForPacBioHiFiReadsOmitsOntFlag() throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("managed-assembly-hifiasm-hifi-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-
-        let inputURL = URL(fileURLWithPath: "/tmp/hifi.fastq.gz")
-        let request = AssemblyRunRequest(
-            tool: .hifiasm,
-            readType: .pacBioHiFi,
-            inputURLs: [inputURL],
-            projectName: "hifi-demo",
-            outputDirectory: tempDir,
-            threads: 8
-        )
+    func testBuildsHifiasmCommandForOntDiploidOmitsHaploidFlags() throws {
+        let request = makeHifiasmRequest(readType: .ontReads, selectedProfileID: "diploid")
 
         let command = try ManagedAssemblyPipeline.buildCommand(for: request)
 
         XCTAssertEqual(command.executable, "hifiasm")
-        XCTAssertEqual(command.environment, "hifiasm")
-        XCTAssertEqual(command.workingDirectory, tempDir)
+        XCTAssertTrue(command.arguments.contains("--ont"))
+        XCTAssertFalse(command.arguments.contains("--n-hap"))
+        XCTAssertFalse(command.arguments.contains("-l0"))
+        XCTAssertFalse(command.arguments.contains("-f0"))
+    }
+
+    func testBuildsHifiasmCommandForOntHaploidViralIncludesCuratedFlags() throws {
+        let request = makeHifiasmRequest(readType: .ontReads, selectedProfileID: "haploid-viral")
+
+        let command = try ManagedAssemblyPipeline.buildCommand(for: request)
+
+        XCTAssertTrue(command.arguments.contains("--ont"))
+        XCTAssertEqual(command.arguments.filter { $0 == "--n-hap" }.count, 1)
+        XCTAssertEqual(command.arguments.filter { $0 == "1" }.count, 1)
+        XCTAssertTrue(command.arguments.contains("-l0"))
+        XCTAssertTrue(command.arguments.contains("-f0"))
+    }
+
+    func testBuildsHifiasmCommandForPacBioHiFiHaploidViralOmitsOntFlag() throws {
+        let request = makeHifiasmRequest(readType: .pacBioHiFi, selectedProfileID: "haploid-viral")
+
+        let command = try ManagedAssemblyPipeline.buildCommand(for: request)
+
         XCTAssertFalse(command.arguments.contains("--ont"))
-        XCTAssertTrue(command.arguments.contains(inputURL.path))
-        XCTAssertEqual(command.arguments.filter { $0 == inputURL.path }.count, 1)
+        XCTAssertEqual(command.arguments.filter { $0 == "--n-hap" }.count, 1)
+        XCTAssertTrue(command.arguments.contains("-l0"))
+        XCTAssertTrue(command.arguments.contains("-f0"))
+    }
+
+    func testBuildsHifiasmCommandPrimaryToggleRemainsIndependentOfProfileSelection() throws {
+        let request = makeHifiasmRequest(
+            readType: .pacBioHiFi,
+            selectedProfileID: "diploid",
+            extraArguments: ["--primary"]
+        )
+
+        let command = try ManagedAssemblyPipeline.buildCommand(for: request)
+
+        XCTAssertTrue(command.arguments.contains("--primary"))
+        XCTAssertFalse(command.arguments.contains("--ont"))
+        XCTAssertFalse(command.arguments.contains("--n-hap"))
     }
 
     func testBuildsMegahitCommandForShortReads() throws {

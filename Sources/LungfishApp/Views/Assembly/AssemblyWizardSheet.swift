@@ -158,7 +158,10 @@ struct AssemblyWizardSheet: View {
                 AssemblyProfileOption(id: "nano-corr", title: "Nano Corrected", detail: "Corrected ONT reads."),
             ]
         case .hifiasm:
-            return []
+            return [
+                .init(id: "diploid", title: "Diploid", detail: "Default diploid assembly."),
+                .init(id: "haploid-viral", title: "Haploid/Viral", detail: "Single-haplotype assembly for haploid or viral genomes."),
+            ]
         }
     }
 
@@ -718,6 +721,9 @@ struct AssemblyWizardSheet: View {
                 arguments.append("--meta")
             }
         case .hifiasm:
+            if selectedProfileID == "haploid-viral" {
+                arguments.append(contentsOf:["--n-hap","1","-l0","-f0"])
+            }
             if hifiasmPrimaryOnly {
                 arguments.append("--primary")
             }
@@ -793,7 +799,7 @@ struct AssemblyWizardSheet: View {
         case .flye:
             return "nano-hq"
         case .hifiasm:
-            return nil
+            return "diploid"
         }
     }
 
