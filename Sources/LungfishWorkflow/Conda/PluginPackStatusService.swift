@@ -43,6 +43,20 @@ public struct PackToolStatus: Sendable, Codable, Hashable, Identifiable {
     public let smokeTestFailure: String?
     public let storageUnavailablePath: String?
 
+    public init(
+        requirement: PackToolRequirement,
+        environmentExists: Bool,
+        missingExecutables: [String],
+        smokeTestFailure: String?,
+        storageUnavailablePath: String?
+    ) {
+        self.requirement = requirement
+        self.environmentExists = environmentExists
+        self.missingExecutables = missingExecutables
+        self.smokeTestFailure = smokeTestFailure
+        self.storageUnavailablePath = storageUnavailablePath
+    }
+
     public var id: String { requirement.id }
     public var isReady: Bool {
         storageUnavailablePath == nil && missingExecutables.isEmpty && smokeTestFailure == nil
@@ -71,6 +85,18 @@ public struct PluginPackStatus: Sendable, Codable, Hashable, Identifiable {
     public let state: PluginPackState
     public let toolStatuses: [PackToolStatus]
     public let failureMessage: String?
+
+    public init(
+        pack: PluginPack,
+        state: PluginPackState,
+        toolStatuses: [PackToolStatus],
+        failureMessage: String?
+    ) {
+        self.pack = pack
+        self.state = state
+        self.toolStatuses = toolStatuses
+        self.failureMessage = failureMessage
+    }
 
     public var id: String { pack.id }
     public var shouldReinstall: Bool {

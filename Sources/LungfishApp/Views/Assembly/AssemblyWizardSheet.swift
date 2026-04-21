@@ -257,7 +257,11 @@ struct AssemblyWizardSheet: View {
                 projectName = "assembly"
             }
 
-            packStatus = await PluginPackStatusService.shared.status(forPackID: "assembly")
+            if let stubbed = AssemblyWizardSheet.uiTestStubbedAssemblyPackStatus() {
+                packStatus = stubbed
+            } else {
+                packStatus = await PluginPackStatusService.shared.status(forPackID: "assembly")
+            }
         }
         .onAppear {
             syncSelectedToolToAvailableTools()
@@ -802,6 +806,32 @@ struct AssemblyWizardSheet: View {
         case .flye, .hifiasm:
             return 0
         }
+    }
+
+    /// In UI test deterministic mode, return a fully ready stub pack status so
+    /// the dialog never blocks on long-running conda smoke tests. Real tool
+    /// dispatch is replaced by `AppUITestAssemblyBackend` so the stub is safe.
+    static func uiTestStubbedAssemblyPackStatus() -> PluginPackStatus? {
+        guard AppUITestConfiguration.current.isEnabled,
+              AppUITestConfiguration.current.backendMode == .deterministic,
+              let pack = PluginPack.builtInPack(id: "assembly")
+        else { return nil }
+
+        let toolStatuses = pack.toolRequirements.map { requirement in
+            PackToolStatus(
+                requirement: requirement,
+                environmentExists: true,
+                missingExecutables: [],
+                smokeTestFailure: nil,
+                storageUnavailablePath: nil
+            )
+        }
+        return PluginPackStatus(
+            pack: pack,
+            state: .ready,
+            toolStatuses: toolStatuses,
+            failureMessage: nil
+        )
     }
 
     private func resetToolSpecificOptions() {

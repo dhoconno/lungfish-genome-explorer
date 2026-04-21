@@ -14,8 +14,7 @@ struct AssemblyRobot {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        let eventLogURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lungfish-assembly-ui-events.log")
+        let eventLogURL = URL(fileURLWithPath: "/tmp/lungfish-assembly-ui-events.log")
         try? FileManager.default.removeItem(at: eventLogURL)
 
         var options = LungfishUITestLaunchOptions(

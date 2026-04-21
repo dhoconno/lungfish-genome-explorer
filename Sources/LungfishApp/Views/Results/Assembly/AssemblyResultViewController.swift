@@ -48,6 +48,9 @@ public final class AssemblyResultViewController: NSViewController {
     public override func loadView() {
         let root = NSView()
         root.translatesAutoresizingMaskIntoConstraints = false
+        root.setAccessibilityElement(true)
+        root.setAccessibilityRole(.group)
+        root.setAccessibilityLabel("Assembly result viewport")
         root.setAccessibilityIdentifier("assembly-result-view")
         view = root
 

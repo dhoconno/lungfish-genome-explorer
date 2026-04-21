@@ -205,6 +205,7 @@ final class FASTQOperationDialogState {
     }
 
     func selectTool(_ toolID: FASTQOperationToolID) {
+        guard selectedToolID != toolID else { return }
         selectedCategory = toolID.categoryID
         selectedToolID = toolID
         normalizeSelectionState()

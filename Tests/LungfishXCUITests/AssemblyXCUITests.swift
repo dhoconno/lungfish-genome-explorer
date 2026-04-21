@@ -127,4 +127,84 @@ final class AssemblyXCUITests: XCTestCase {
         XCTAssertTrue(robot.resultView.waitForExistence(timeout: 30))
         XCTAssertTrue(robot.resultTable.waitForExistence(timeout: 30))
     }
+
+    @MainActor
+    func testSpadesDeterministicRunShowsResultViewport() throws {
+        let projectURL = try LungfishProjectFixtureBuilder.makeIlluminaAssemblyProject(named: "SpadesDeterministicAssemblyFixture")
+        let robot = AssemblyRobot()
+        defer {
+            robot.app.terminate()
+            try? FileManager.default.removeItem(at: projectURL.deletingLastPathComponent())
+        }
+
+        robot.launch(opening: projectURL, backendMode: "deterministic")
+        robot.selectSidebarItem(named: "test_1.fastq.gz", extendingSelection: true)
+        robot.openAssemblyDialog()
+        robot.chooseAssembler("SPAdes")
+        robot.clickPrimaryAction()
+
+        robot.waitForAnalysisRow(prefix: "spades-", timeout: 30)
+        XCTAssertTrue(robot.resultView.waitForExistence(timeout: 10))
+        XCTAssertTrue(robot.resultTable.waitForExistence(timeout: 10))
+    }
+
+    @MainActor
+    func testSkesaDeterministicRunShowsResultViewport() throws {
+        let projectURL = try LungfishProjectFixtureBuilder.makeIlluminaAssemblyProject(named: "SkesaDeterministicAssemblyFixture")
+        let robot = AssemblyRobot()
+        defer {
+            robot.app.terminate()
+            try? FileManager.default.removeItem(at: projectURL.deletingLastPathComponent())
+        }
+
+        robot.launch(opening: projectURL, backendMode: "deterministic")
+        robot.selectSidebarItem(named: "test_1.fastq.gz", extendingSelection: true)
+        robot.openAssemblyDialog()
+        robot.chooseAssembler("SKESA")
+        robot.clickPrimaryAction()
+
+        robot.waitForAnalysisRow(prefix: "skesa-", timeout: 30)
+        XCTAssertTrue(robot.resultView.waitForExistence(timeout: 10))
+        XCTAssertTrue(robot.resultTable.waitForExistence(timeout: 10))
+    }
+
+    @MainActor
+    func testFlyeDeterministicRunShowsResultViewport() throws {
+        let projectURL = try LungfishProjectFixtureBuilder.makeOntAssemblyProject(named: "FlyeDeterministicAssemblyFixture")
+        let robot = AssemblyRobot()
+        defer {
+            robot.app.terminate()
+            try? FileManager.default.removeItem(at: projectURL.deletingLastPathComponent())
+        }
+
+        robot.launch(opening: projectURL, backendMode: "deterministic")
+        robot.selectSidebarItem(named: "reads.fastq")
+        robot.openAssemblyDialog()
+        robot.chooseAssembler("Flye")
+        robot.clickPrimaryAction()
+
+        robot.waitForAnalysisRow(prefix: "flye-", timeout: 30)
+        XCTAssertTrue(robot.resultView.waitForExistence(timeout: 10))
+        XCTAssertTrue(robot.resultTable.waitForExistence(timeout: 10))
+    }
+
+    @MainActor
+    func testHifiasmDeterministicRunShowsResultViewport() throws {
+        let projectURL = try LungfishProjectFixtureBuilder.makePacBioHiFiAssemblyProject(named: "HifiasmDeterministicAssemblyFixture")
+        let robot = AssemblyRobot()
+        defer {
+            robot.app.terminate()
+            try? FileManager.default.removeItem(at: projectURL.deletingLastPathComponent())
+        }
+
+        robot.launch(opening: projectURL, backendMode: "deterministic")
+        robot.selectSidebarItem(named: "reads.fastq")
+        robot.openAssemblyDialog()
+        robot.chooseAssembler("Hifiasm")
+        robot.clickPrimaryAction()
+
+        robot.waitForAnalysisRow(prefix: "hifiasm-", timeout: 30)
+        XCTAssertTrue(robot.resultView.waitForExistence(timeout: 10))
+        XCTAssertTrue(robot.resultTable.waitForExistence(timeout: 10))
+    }
 }

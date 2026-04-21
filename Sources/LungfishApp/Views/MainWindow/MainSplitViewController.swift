@@ -565,6 +565,11 @@ public class MainSplitViewController: NSSplitViewController {
                 self.viewerController.hideProgress()
                 self.multiDocumentLoadTask = nil
 
+                if self.hasActiveSidebarChildViewport {
+                    logger.info("handleMultipleItemsSelected: Skipping collection display — active child viewport already present")
+                    return
+                }
+
                 // Display combined sequences from all documents in the collection view
                 self.displayMultiDocumentCollection(loadedDocs)
             }
@@ -2153,6 +2158,8 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             || viewerController.esVirituViewController != nil
             || viewerController.taxonomyViewController != nil
             || viewerController.fastqDatasetController != nil
+            || viewerController.assemblyResultController != nil
+            || viewerController.mappingResultController != nil
     }
 
     /// Heuristic for whether the current sidebar selection callback was user-initiated.
