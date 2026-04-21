@@ -130,12 +130,19 @@ struct MappingWizardSheet: View {
         .task {
             await loadReferences()
             await inspectInputs()
+            onRunnerAvailabilityChange?(canRun)
         }
         .onAppear {
             onRunnerAvailabilityChange?(canRun)
         }
         .onChange(of: canRun) { _, ready in
             onRunnerAvailabilityChange?(ready)
+        }
+        .onChange(of: detectedReadClass) { _, _ in
+            onRunnerAvailabilityChange?(canRun)
+        }
+        .onChange(of: selectedReferenceID) { _, _ in
+            onRunnerAvailabilityChange?(canRun)
         }
         .onChange(of: embeddedRunTrigger) { _, _ in
             guard embeddedInOperationsDialog else { return }

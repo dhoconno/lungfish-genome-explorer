@@ -29,10 +29,12 @@ final class AssemblyXCUITests: XCTestCase {
         XCTAssertFalse(robot.profilePicker.exists)
         XCTAssertTrue(robot.memorySlider.exists)
 
-        robot.chooseAssembler("Flye")
-        XCTAssertTrue(robot.profilePicker.waitForExistence(timeout: 5))
-        XCTAssertFalse(robot.memorySlider.exists)
-        XCTAssertFalse(robot.minContigStepper.exists)
+        XCTAssertFalse(
+            robot.app.descendants(matching: .any)["fastq-operations-assembly-tool-flye"].firstMatch.exists
+        )
+        XCTAssertFalse(
+            robot.app.descendants(matching: .any)["fastq-operations-assembly-tool-hifiasm"].firstMatch.exists
+        )
     }
 
     @MainActor

@@ -579,6 +579,19 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertNil(state.assemblyReadClassMismatchMessage)
     }
 
+    func testAssemblySidebarFiltersToShortReadToolsForDetectedIlluminaReadType() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .assembly,
+            selectedInputURLs: [illuminaFASTQFixtureURL]
+        )
+
+        XCTAssertEqual(state.sidebarItems.map(\.id), [
+            FASTQOperationToolID.spades.rawValue,
+            FASTQOperationToolID.megahit.rawValue,
+            FASTQOperationToolID.skesa.rawValue,
+        ])
+    }
+
     func testAssemblyReadTypeDetectionUsesSelectedFASTQBundles() throws {
         let bundleURL = try makeFASTQBundle(
             fastqName: "reads.fastq",
@@ -600,7 +613,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertNil(state.assemblyReadClassMismatchMessage)
     }
 
-    func testAssemblySidebarDisablesIncompatibleToolsForPersistedReadType() throws {
+    func testAssemblySidebarFiltersToCompatibleToolForPersistedReadType() throws {
         let bundleURL = try makeFASTQBundle(
             fastqName: "reads.fastq",
             fastqContents: """
@@ -623,12 +636,10 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             selectedInputURLs: [bundleURL]
         )
 
-        let items = Dictionary(uniqueKeysWithValues: state.sidebarItems.map { ($0.id, $0.availability) })
-        XCTAssertEqual(items[FASTQOperationToolID.flye.rawValue], .available)
-        XCTAssertEqual(items[FASTQOperationToolID.spades.rawValue], .disabled(reason: "Requires Illumina"))
-        XCTAssertEqual(items[FASTQOperationToolID.megahit.rawValue], .disabled(reason: "Requires Illumina"))
-        XCTAssertEqual(items[FASTQOperationToolID.skesa.rawValue], .disabled(reason: "Requires Illumina"))
-        XCTAssertEqual(items[FASTQOperationToolID.hifiasm.rawValue], .disabled(reason: "Requires HiFi/CCS"))
+        XCTAssertEqual(state.sidebarItems.map(\.id), [
+            FASTQOperationToolID.flye.rawValue,
+        ])
+        XCTAssertTrue(state.sidebarItems.allSatisfy { $0.availability == .available })
     }
 
     func testAssemblyCategorySeedsCompatibleDefaultToolForPersistedReadType() throws {

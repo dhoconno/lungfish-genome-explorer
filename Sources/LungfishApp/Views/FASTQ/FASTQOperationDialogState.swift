@@ -686,7 +686,7 @@ final class FASTQOperationDialogState {
     }
 
     var sidebarItems: [DatasetOperationToolSidebarItem] {
-        Self.toolIDs(for: selectedCategory).map { toolID in
+        visibleToolIDs(for: selectedCategory).map { toolID in
             toolID.sidebarItem(availability: availability(for: toolID))
         }
     }
@@ -983,6 +983,20 @@ final class FASTQOperationDialogState {
         return .disabled(reason: Self.requiredReadTypeBadge(for: assemblyTool))
     }
 
+    private func visibleToolIDs(for category: FASTQOperationCategoryID) -> [FASTQOperationToolID] {
+        let allToolIDs = Self.toolIDs(for: category)
+        guard category == .assembly,
+              assemblyReadClassMismatchMessage == nil,
+              let readType = detectedAssemblyReadType else {
+            return allToolIDs
+        }
+
+        let supportedAssemblyToolIDs = Set(
+            AssemblyCompatibility.supportedTools(for: readType).map(Self.toolID(for:))
+        )
+        return allToolIDs.filter { supportedAssemblyToolIDs.contains($0) }
+    }
+
     private static func defaultAssemblyTool(for readType: AssemblyReadType?) -> FASTQOperationToolID {
         guard let readType,
               let preferredTool = AssemblyCompatibility.supportedTools(for: readType).first else {
@@ -1011,6 +1025,21 @@ final class FASTQOperationDialogState {
             return "Requires ONT"
         case .hifiasm:
             return "Requires HiFi/CCS"
+        }
+    }
+
+    private static func toolID(for tool: AssemblyTool) -> FASTQOperationToolID {
+        switch tool {
+        case .spades:
+            return .spades
+        case .megahit:
+            return .megahit
+        case .skesa:
+            return .skesa
+        case .flye:
+            return .flye
+        case .hifiasm:
+            return .hifiasm
         }
     }
 

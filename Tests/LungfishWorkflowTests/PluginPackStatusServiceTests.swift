@@ -128,6 +128,54 @@ final class PluginPackStatusServiceTests: XCTestCase {
         XCTAssertEqual(finalCallCount, 1)
     }
 
+    func testVisibleStatusesUsePersistedSnapshotAcrossServiceInstancesWithinTTL() async throws {
+        actor DatabaseRecorder {
+            var callCount = 0
+
+            func recordCall() {
+                callCount += 1
+            }
+
+            func recordedCallCount() -> Int { callCount }
+        }
+
+        let rootPrefix = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let manager = CondaManager(
+            rootPrefix: rootPrefix,
+            bundledMicromambaProvider: { nil },
+            bundledMicromambaVersionProvider: { nil }
+        )
+
+        let recorder = DatabaseRecorder()
+        let firstService = PluginPackStatusService(
+            condaManager: manager,
+            databaseInstalledCheck: { _ in
+                await recorder.recordCall()
+                return false
+            },
+            cacheLifetime: 60
+        )
+
+        _ = await firstService.visibleStatuses()
+
+        let secondService = PluginPackStatusService(
+            condaManager: manager,
+            databaseInstalledCheck: { _ in
+                try? await Task.sleep(for: .milliseconds(500))
+                return false
+            },
+            cacheLifetime: 60
+        )
+
+        let started = Date()
+        _ = await secondService.visibleStatuses()
+        let elapsed = Date().timeIntervalSince(started)
+
+        XCTAssertLessThan(elapsed, 0.2)
+        let callCount = await recorder.recordedCallCount()
+        XCTAssertEqual(callCount, 1)
+    }
+
     func testVisibleStatusesAreInvalidatedAfterExplicitCacheClear() async throws {
         actor DatabaseRecorder {
             var callCount = 0
@@ -222,6 +270,54 @@ final class PluginPackStatusServiceTests: XCTestCase {
 
         let finalCallCount = gate.recordedCallCount()
         XCTAssertEqual(finalCallCount, 1)
+    }
+
+    func testStatusForPackUsesPersistedSnapshotAcrossServiceInstancesWithinTTL() async throws {
+        actor DatabaseRecorder {
+            var callCount = 0
+
+            func recordCall() {
+                callCount += 1
+            }
+
+            func recordedCallCount() -> Int { callCount }
+        }
+
+        let rootPrefix = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let manager = CondaManager(
+            rootPrefix: rootPrefix,
+            bundledMicromambaProvider: { nil },
+            bundledMicromambaVersionProvider: { nil }
+        )
+
+        let recorder = DatabaseRecorder()
+        let firstService = PluginPackStatusService(
+            condaManager: manager,
+            databaseInstalledCheck: { _ in
+                await recorder.recordCall()
+                return false
+            },
+            cacheLifetime: 60
+        )
+
+        _ = await firstService.status(for: .requiredSetupPack)
+
+        let secondService = PluginPackStatusService(
+            condaManager: manager,
+            databaseInstalledCheck: { _ in
+                try? await Task.sleep(for: .milliseconds(500))
+                return false
+            },
+            cacheLifetime: 60
+        )
+
+        let started = Date()
+        _ = await secondService.status(for: .requiredSetupPack)
+        let elapsed = Date().timeIntervalSince(started)
+
+        XCTAssertLessThan(elapsed, 0.2)
+        let callCount = await recorder.recordedCallCount()
+        XCTAssertEqual(callCount, 1)
     }
 
     func testRequiredPackNeedsInstallWhenBBToolsExecutablesAreMissing() async throws {

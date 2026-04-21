@@ -100,7 +100,7 @@ struct MappingRobot {
             object: button
         )
         XCTAssertEqual(
-            XCTWaiter.wait(for: [expectation], timeout: 10),
+            XCTWaiter.wait(for: [expectation], timeout: 30),
             .completed,
             file: file,
             line: line

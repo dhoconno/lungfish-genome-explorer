@@ -143,6 +143,21 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         let status: PluginPackStatus
     }
 
+    private struct PersistedPackStatusSnapshot: Codable {
+        let timestamp: Date
+        let status: PluginPackStatus
+    }
+
+    private struct PersistedVisibleStatusesSnapshot: Codable {
+        let timestamp: Date
+        let statuses: [PluginPackStatus]
+    }
+
+    private struct PersistedStatusSnapshotStore: Codable {
+        let visibleStatuses: PersistedVisibleStatusesSnapshot?
+        let packStatuses: [String: PersistedPackStatusSnapshot]
+    }
+
     public typealias InstallAction = @Sendable (
         _ packages: [String],
         _ environment: String,
@@ -165,7 +180,9 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
     private let databaseInstalledCheck: DatabaseInstalledCheck
     private let storageAvailability: StorageAvailability
     private let cacheLifetime: TimeInterval
+    private let persistedSnapshotsURL: URL
     private var cacheGeneration = 0
+    private var hasLoadedPersistedSnapshots = false
     private var cachedVisibleStatuses: (generation: Int, timestamp: Date, statuses: [PluginPackStatus])?
     private var inFlightVisibleStatuses: (generation: Int, task: Task<[PluginPackStatus], Never>)?
     private var cachedPackStatuses: [String: CachedPackStatus] = [:]
@@ -201,13 +218,21 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             DatabaseRegistry.managedStorageAvailability()
         }
         self.cacheLifetime = cacheLifetime
+        self.persistedSnapshotsURL = condaManager.rootPrefix
+            .appendingPathComponent("cache", isDirectory: true)
+            .appendingPathComponent("plugin-pack-statuses.json")
     }
 
     public func visibleStatuses() async -> [PluginPackStatus] {
+        loadPersistedSnapshotsIfNeeded()
         let generation = cacheGeneration
         if let cachedVisibleStatuses,
-           cachedVisibleStatuses.generation == generation,
-           Date().timeIntervalSince(cachedVisibleStatuses.timestamp) < cacheLifetime {
+           cachedVisibleStatuses.generation == generation {
+            if Date().timeIntervalSince(cachedVisibleStatuses.timestamp) < cacheLifetime {
+                return cachedVisibleStatuses.statuses
+            }
+
+            _ = visibleStatusesRefreshTask(forGeneration: generation)
             return cachedVisibleStatuses.statuses
         }
 
@@ -215,16 +240,11 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             return await inFlightVisibleStatuses.task.value
         }
 
-        let task = Task { await self.computeVisibleStatuses(forGeneration: generation) }
-        inFlightVisibleStatuses = (generation, task)
-        let statuses = await task.value
-        if inFlightVisibleStatuses?.generation == generation {
-            inFlightVisibleStatuses = nil
-        }
-        return statuses
+        return await visibleStatusesRefreshTask(forGeneration: generation).value
     }
 
     public func status(for pack: PluginPack) async -> PluginPackStatus {
+        loadPersistedSnapshotsIfNeeded()
         let generation = cacheGeneration
 
         if let cached = cachedPackStatuses[pack.id], cached.generation == generation {
@@ -364,10 +384,12 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
 
     public func invalidateVisibleStatusesCache() async {
         cacheGeneration += 1
+        hasLoadedPersistedSnapshots = true
         cachedVisibleStatuses = nil
         inFlightVisibleStatuses = nil
         cachedPackStatuses = [:]
         inFlightPackStatuses = [:]
+        try? FileManager.default.removeItem(at: persistedSnapshotsURL)
     }
 
     private func computeVisibleStatuses(forGeneration generation: Int) async -> [PluginPackStatus] {
@@ -423,6 +445,21 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                 status: status
             )
         }
+        persistSnapshots()
+    }
+
+    private func visibleStatusesRefreshTask(forGeneration generation: Int) -> Task<[PluginPackStatus], Never> {
+        if let inFlightVisibleStatuses, inFlightVisibleStatuses.generation == generation {
+            return inFlightVisibleStatuses.task
+        }
+
+        let task = Task { [self] in
+            let statuses = await computeVisibleStatuses(forGeneration: generation)
+            await clearVisibleStatusesRefreshTask(forGeneration: generation)
+            return statuses
+        }
+        inFlightVisibleStatuses = (generation, task)
+        return task
     }
 
     private func packStatusRefreshTask(
@@ -451,11 +488,77 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             timestamp: Date(),
             status: status
         )
+        persistSnapshots()
+    }
+
+    private func clearVisibleStatusesRefreshTask(forGeneration generation: Int) {
+        guard inFlightVisibleStatuses?.generation == generation else { return }
+        inFlightVisibleStatuses = nil
     }
 
     private func clearPackStatusRefreshTask(forPackID packID: String, generation: Int) {
         guard inFlightPackStatuses[packID]?.generation == generation else { return }
         inFlightPackStatuses[packID] = nil
+    }
+
+    private func loadPersistedSnapshotsIfNeeded() {
+        guard !hasLoadedPersistedSnapshots else { return }
+        hasLoadedPersistedSnapshots = true
+
+        guard let data = try? Data(contentsOf: persistedSnapshotsURL) else { return }
+
+        do {
+            let store = try JSONDecoder().decode(PersistedStatusSnapshotStore.self, from: data)
+            if let visibleStatuses = store.visibleStatuses {
+                cachedVisibleStatuses = (
+                    generation: cacheGeneration,
+                    timestamp: visibleStatuses.timestamp,
+                    statuses: visibleStatuses.statuses
+                )
+            }
+
+            for (packID, snapshot) in store.packStatuses {
+                cachedPackStatuses[packID] = CachedPackStatus(
+                    generation: cacheGeneration,
+                    timestamp: snapshot.timestamp,
+                    status: snapshot.status
+                )
+            }
+        } catch {
+            logger.warning(
+                "Failed to load persisted plugin-pack status snapshots: \(error.localizedDescription, privacy: .public)"
+            )
+        }
+    }
+
+    private func persistSnapshots() {
+        let packSnapshots = cachedPackStatuses.reduce(into: [String: PersistedPackStatusSnapshot]()) { snapshots, entry in
+            snapshots[entry.key] = PersistedPackStatusSnapshot(
+                timestamp: entry.value.timestamp,
+                status: entry.value.status
+            )
+        }
+        let snapshotStore = PersistedStatusSnapshotStore(
+            visibleStatuses: cachedVisibleStatuses.map {
+                PersistedVisibleStatusesSnapshot(timestamp: $0.timestamp, statuses: $0.statuses)
+            },
+            packStatuses: packSnapshots
+        )
+
+        do {
+            try FileManager.default.createDirectory(
+                at: persistedSnapshotsURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            let data = try encoder.encode(snapshotStore)
+            try data.write(to: persistedSnapshotsURL, options: .atomic)
+        } catch {
+            logger.warning(
+                "Failed to persist plugin-pack status snapshots: \(error.localizedDescription, privacy: .public)"
+            )
+        }
     }
 
     private func bootstrapIsReady() async -> Bool {
