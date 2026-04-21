@@ -1194,6 +1194,35 @@ public class ViewerViewController: NSViewController {
             dashView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
 
+        controller.onBlastRequested = { [weak self] selectedSequences in
+            let fastaRecords = selectedSequences.map(Self.fastaRecord(for:))
+            let sourceLabel = selectedSequences.count == 1
+                ? selectedSequences[0].name
+                : "\(selectedSequences.count) FASTA sequences"
+            self?.runGenericBlastVerification(
+                sourceLabel: sourceLabel,
+                fastaRecords: fastaRecords
+            )
+        }
+        controller.onExportRequested = { [weak self] selectedSequences in
+            self?.exportFASTARecords(
+                selectedSequences.map(Self.fastaRecord(for:)),
+                suggestedName: Self.fastaExportName(for: selectedSequences)
+            )
+        }
+        controller.onCreateBundleRequested = { [weak self] selectedSequences in
+            self?.createReferenceBundle(
+                from: selectedSequences.map(Self.fastaRecord(for:)),
+                suggestedName: Self.bundleName(for: selectedSequences)
+            )
+        }
+        controller.onRunOperationRequested = { [weak self] selectedSequences in
+            self?.presentFASTAOperationDialog(
+                records: selectedSequences.map(Self.fastaRecord(for:)),
+                suggestedName: Self.bundleName(for: selectedSequences)
+            )
+        }
+
         controller.configure(
             sequences: sequences,
             annotations: annotations,
@@ -1274,6 +1303,138 @@ public class ViewerViewController: NSViewController {
         viewerView.isHidden = false
         statusBar.isHidden = false
         annotationDrawerView?.isHidden = false
+    }
+
+    private static func fastaRecord(for sequence: LungfishCore.Sequence) -> String {
+        ">\(sequence.name)\n\(sequence.asString())\n"
+    }
+
+    private static func fastaExportName(for sequences: [LungfishCore.Sequence]) -> String {
+        if sequences.count == 1, let sequence = sequences.first {
+            return "\(sequence.name).fa"
+        }
+        return "selected-sequences.fa"
+    }
+
+    private static func bundleName(for sequences: [LungfishCore.Sequence]) -> String {
+        if sequences.count == 1, let sequence = sequences.first {
+            return sequence.name
+        }
+        return "selected-sequences"
+    }
+
+    private static func sanitizedFilesystemStem(_ value: String) -> String {
+        let trimmed = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "[^A-Za-z0-9._-]+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return trimmed.isEmpty ? "selected-sequences" : trimmed
+    }
+
+    private func runGenericBlastVerification(
+        sourceLabel: String,
+        fastaRecords: [String]
+    ) {
+        let blastCliCmd = OperationCenter.buildCLICommand(subcommand: "blast verify", args: [])
+        let opID = OperationCenter.shared.start(
+            title: "BLAST \(sourceLabel)",
+            detail: "Preparing BLAST verification…",
+            operationType: .blastVerification,
+            cliCommand: blastCliCmd
+        )
+
+        let task = Task.detached {
+            do {
+                let sequences = Self.blastSequences(from: fastaRecords)
+                guard !sequences.isEmpty else {
+                    throw BlastServiceError.noSequences
+                }
+
+                let request = BlastVerificationRequest(
+                    taxonName: sourceLabel,
+                    taxId: 0,
+                    sequences: sequences,
+                    database: "core_nt",
+                    entrezQuery: nil
+                )
+
+                let result = try await BlastService.shared.verify(
+                    request: request,
+                    progress: { fraction, message in
+                        DispatchQueue.main.async {
+                            OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
+                        }
+                    }
+                )
+
+                DispatchQueue.main.async {
+                    OperationCenter.shared.complete(
+                        id: opID,
+                        detail: "\(result.verifiedCount)/\(result.readResults.count) verified"
+                    )
+                }
+            } catch {
+                let errorText = error.localizedDescription
+                DispatchQueue.main.async {
+                    OperationCenter.shared.fail(
+                        id: opID,
+                        detail: errorText,
+                        errorMessage: errorText
+                    )
+                }
+            }
+        }
+
+        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+    }
+
+    func exportFASTARecords(_ records: [String], suggestedName: String) {
+        guard !records.isEmpty, let window = view.window else { return }
+        let savePanelPresenter = DefaultSavePanelPresenter()
+        Task {
+            guard let destination = await savePanelPresenter.present(
+                suggestedName: suggestedName,
+                on: window
+            ) else {
+                return
+            }
+            let normalized = records.joined(separator: "")
+            try? normalized.write(to: destination, atomically: true, encoding: .utf8)
+        }
+    }
+
+    func createReferenceBundle(from records: [String], suggestedName: String) {
+        guard !records.isEmpty else { return }
+        let projectURL = DocumentManager.shared.activeProject?.url
+        let tempDirectory = try? ProjectTempDirectory.create(
+            prefix: "fasta-bundle-source-",
+            in: projectURL
+        )
+        guard let tempDirectory else { return }
+
+        let sourceURL = tempDirectory.appendingPathComponent(
+            "\(Self.sanitizedFilesystemStem(suggestedName)).fasta"
+        )
+        let normalized = records.joined(separator: "")
+        try? normalized.write(to: sourceURL, atomically: true, encoding: .utf8)
+        AppDelegate.shared?.importFASTAFromURL(sourceURL)
+    }
+
+    func presentFASTAOperationDialog(records: [String], suggestedName: String) {
+        guard !records.isEmpty, !FASTAOperationCatalog.availableToolIDs().isEmpty else { return }
+        let projectURL = DocumentManager.shared.activeProject?.url
+        guard let bundleURL = try? FASTAOperationCatalog.createTemporaryInputBundle(
+            fastaRecords: records,
+            suggestedName: suggestedName,
+            projectURL: projectURL
+        ) else {
+            return
+        }
+        AppDelegate.shared?.showFASTQOperationsDialog(
+            nil,
+            initialCategory: .searchSubsetting,
+            preferredInputURLs: [bundleURL]
+        )
     }
 
     // MARK: - Collection Back Button

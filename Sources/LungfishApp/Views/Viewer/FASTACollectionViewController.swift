@@ -55,6 +55,18 @@ public final class FASTACollectionViewController: NSViewController,
 
     /// Invoked when the user double-clicks a sequence or presses "Open in Browser".
     public var onOpenSequence: ((LungfishCore.Sequence, [SequenceAnnotation]) -> Void)?
+    public var onBlastRequested: (([LungfishCore.Sequence]) -> Void)? {
+        didSet { refreshContextMenu() }
+    }
+    public var onExportRequested: (([LungfishCore.Sequence]) -> Void)? {
+        didSet { refreshContextMenu() }
+    }
+    public var onCreateBundleRequested: (([LungfishCore.Sequence]) -> Void)? {
+        didSet { refreshContextMenu() }
+    }
+    public var onRunOperationRequested: (([LungfishCore.Sequence]) -> Void)? {
+        didSet { refreshContextMenu() }
+    }
 
     // MARK: - Filter State
 
@@ -73,6 +85,8 @@ public final class FASTACollectionViewController: NSViewController,
     private let detailDescLabel = NSTextField(labelWithString: "")
     private let detailFeaturesLabel = NSTextField(labelWithString: "")
     private let openButton = NSButton(title: "Open in Browser", target: nil, action: nil)
+    private var scalarPasteboard: PasteboardWriting = DefaultPasteboard()
+    private var contextMenu = NSMenu()
 
     // MARK: - Lifecycle
 
@@ -177,6 +191,7 @@ public final class FASTACollectionViewController: NSViewController,
         emptyStateLabel.isHidden = !isEmpty
         scrollView.isHidden = isEmpty
         detailPanel.isHidden = true
+        refreshContextMenu()
 
         tableView.reloadData()
         updateCountLabel()
@@ -295,6 +310,7 @@ public final class FASTACollectionViewController: NSViewController,
         tableView.style = .plain
         tableView.doubleAction = #selector(tableDoubleClicked(_:))
         tableView.target = self
+        refreshContextMenu()
 
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
@@ -462,6 +478,51 @@ public final class FASTACollectionViewController: NSViewController,
         let seq = displayedSequences[clickedRow]
         let annotations = annotationsBySequence[seq.name] ?? []
         onOpenSequence?(seq, annotations)
+    }
+
+    private func refreshContextMenu() {
+        contextMenu = FASTASequenceActionMenuBuilder.buildMenu(
+            selectionCount: tableView.numberOfSelectedRows,
+            handlers: FASTASequenceActionHandlers(
+                onBlast: onBlastRequested == nil ? nil : { [weak self] in
+                    guard let self else { return }
+                    self.onBlastRequested?(self.selectedSequences())
+                },
+                onCopy: { [weak self] in self?.copySelectedSequencesAsFASTA() },
+                onExport: onExportRequested == nil ? nil : { [weak self] in
+                    guard let self else { return }
+                    self.onExportRequested?(self.selectedSequences())
+                },
+                onCreateBundle: onCreateBundleRequested == nil ? nil : { [weak self] in
+                    guard let self else { return }
+                    self.onCreateBundleRequested?(self.selectedSequences())
+                },
+                onRunOperation: onRunOperationRequested == nil ? nil : { [weak self] in
+                    guard let self else { return }
+                    self.onRunOperationRequested?(self.selectedSequences())
+                }
+            )
+        )
+        tableView.menu = contextMenu
+    }
+
+    private func selectedSequences() -> [LungfishCore.Sequence] {
+        tableView.selectedRowIndexes.compactMap { row in
+            guard row >= 0, row < displayedSequences.count else { return nil }
+            return displayedSequences[row]
+        }
+    }
+
+    private func copySelectedSequencesAsFASTA() {
+        let fastaText = selectedSequences()
+            .map(Self.fastaRecord(for:))
+            .joined(separator: "")
+        guard !fastaText.isEmpty else { return }
+        scalarPasteboard.setString(fastaText)
+    }
+
+    private static func fastaRecord(for sequence: LungfishCore.Sequence) -> String {
+        ">\(sequence.name)\n\(sequence.asString())\n"
     }
 
     // MARK: - Sorting
@@ -676,6 +737,7 @@ public final class FASTACollectionViewController: NSViewController,
 
     public func tableViewSelectionDidChange(_ notification: Notification) {
         updateDetailPanel()
+        refreshContextMenu()
     }
 
     // MARK: - Cell Helpers
@@ -728,6 +790,27 @@ public final class FASTACollectionViewController: NSViewController,
         return mapCell
     }
 }
+
+#if DEBUG
+extension FASTACollectionViewController {
+    var testContextMenuTitles: [String] {
+        contextMenu.items.map(\.title)
+    }
+
+    func testSelectRows(_ rows: [Int]) {
+        tableView.selectRowIndexes(IndexSet(rows), byExtendingSelection: false)
+        tableViewSelectionDidChange(Notification(name: NSTableView.selectionDidChangeNotification))
+    }
+
+    func testInvokeContextMenuItem(titled title: String) {
+        guard let item = contextMenu.items.first(where: { $0.title == title }),
+              let action = item.action else {
+            return
+        }
+        _ = item.target?.perform(action, with: item)
+    }
+}
+#endif
 
 // MARK: - FASTACollectionSummaryBar
 

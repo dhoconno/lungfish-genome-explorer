@@ -7,6 +7,7 @@ import SwiftUI
 import Combine
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 import os.log
 import UniformTypeIdentifiers
 
@@ -452,6 +453,8 @@ public class InspectorViewController: NSViewController {
         viewModel.documentSectionViewModel.ingestionMetadata = nil
         viewModel.documentSectionViewModel.fastqDerivativeManifest = nil
         viewModel.documentSectionViewModel.analysisManifestEntries = []
+        viewModel.documentSectionViewModel.updateAssemblyDocument(nil)
+        viewModel.documentSectionViewModel.navigateToSourceData = nil
 
         // Clear sample section
         viewModel.sampleSectionViewModel.clear()
@@ -850,6 +853,35 @@ public class InspectorViewController: NSViewController {
         viewModel.documentSectionViewModel.update(manifest: manifest, bundleURL: bundleURL)
     }
 
+    /// Updates the Document inspector with assembly provenance, source inputs, and artifact links.
+    public func updateAssemblyDocument(
+        result: AssemblyResult,
+        provenance: AssemblyProvenance?,
+        projectURL: URL?
+    ) {
+        let sourceRows = provenance.map {
+            AssemblyInspectorSourceResolver.resolve(provenanceInputs: $0.inputs, projectURL: projectURL)
+        } ?? []
+
+        let state = AssemblyDocumentState(
+            title: result.outputDirectory.lastPathComponent,
+            subtitle: "\(result.tool.displayName) • \(result.readType.displayName)",
+            sourceData: sourceRows,
+            contextRows: assemblyContextRows(result: result, provenance: provenance),
+            artifactRows: assemblyArtifactRows(result: result)
+        )
+
+        viewModel.documentSectionViewModel.navigateToSourceData = { url in
+            NotificationCenter.default.post(
+                name: .navigateToSidebarItem,
+                object: nil,
+                userInfo: ["url": url]
+            )
+        }
+        viewModel.documentSectionViewModel.updateAssemblyDocument(state)
+        viewModel.selectedTab = .document
+    }
+
     /// Updates the chromosome selection in the Document tab.
     ///
     /// - Parameter chromosome: The chromosome to display details for, or nil to clear
@@ -1055,6 +1087,70 @@ public class InspectorViewController: NSViewController {
     public func updateNvdManifest(_ manifest: NvdManifest?) {
         viewModel.documentSectionViewModel.updateNvdManifest(manifest)
     }
+
+    private func assemblyContextRows(
+        result: AssemblyResult,
+        provenance: AssemblyProvenance?
+    ) -> [(String, String)] {
+        var rows: [(String, String)] = [
+            ("Assembler", provenance?.assembler ?? result.tool.displayName),
+            ("Read Type", result.readType.displayName),
+        ]
+
+        if let version = provenance?.assemblerVersion ?? result.assemblerVersion, !version.isEmpty {
+            rows.append(("Version", version))
+        }
+        if let provenance {
+            rows.append(("Execution Backend", provenance.executionBackend.rawValue))
+            if let managedEnvironment = provenance.managedEnvironment, !managedEnvironment.isEmpty {
+                rows.append(("Environment", managedEnvironment))
+            }
+            if let launcherCommand = provenance.launcherCommand, !launcherCommand.isEmpty {
+                rows.append(("Launcher", launcherCommand))
+            }
+            rows.append(("Run Date", Self.assemblyDateFormatter.string(from: provenance.assemblyDate)))
+            rows.append(("Host", "\(provenance.hostOS) • \(provenance.hostArchitecture)"))
+            rows.append(("Lungfish", provenance.lungfishVersion))
+            rows.append(("Mode", provenance.parameters.mode))
+            rows.append(("K-mer Sizes", provenance.parameters.kmerSizes))
+            rows.append(("Threads", String(provenance.parameters.threads)))
+            rows.append(("Memory", "\(provenance.parameters.memoryGB) GB"))
+            rows.append(("Minimum Contig Length", "\(provenance.parameters.minContigLength) bp"))
+        }
+
+        rows.append(("Wall Time", String(format: "%.1fs", result.wallTimeSeconds)))
+        rows.append(("Contigs", "\(result.statistics.contigCount)"))
+        rows.append(("Total Assembled bp", "\(result.statistics.totalLengthBP)"))
+        rows.append(("N50", "\(result.statistics.n50) bp"))
+        rows.append(("L50", "\(result.statistics.l50)"))
+        rows.append(("Longest Contig", "\(result.statistics.largestContigBP) bp"))
+        rows.append(("Global GC", String(format: "%.1f%%", result.statistics.gcPercent)))
+        rows.append(("Command", provenance?.commandLine ?? result.commandLine))
+        rows.append(("Output Directory", result.outputDirectory.path))
+
+        return rows
+    }
+
+    private func assemblyArtifactRows(result: AssemblyResult) -> [AssemblyDocumentArtifactRow] {
+        [
+            .init(label: "Contigs FASTA", fileURL: result.contigsPath),
+            .init(label: "Scaffolds FASTA", fileURL: result.scaffoldsPath),
+            .init(label: "Graph", fileURL: result.graphPath),
+            .init(label: "Log", fileURL: result.logPath),
+            .init(label: "Parameters", fileURL: result.paramsPath),
+            .init(
+                label: "Provenance",
+                fileURL: result.outputDirectory.appendingPathComponent(AssemblyProvenance.filename)
+            ),
+        ]
+    }
+
+    private static let assemblyDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
 
     /// Injects the shared AI assistant service used by the embedded inspector tab.
     public func setAIAssistantService(_ service: AIAssistantService) {

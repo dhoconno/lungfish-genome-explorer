@@ -183,6 +183,9 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     /// Called when the user confirms BLAST verification for a contig.
     /// Parameters: (selected hit, contig FASTA sequence).
     public var onBlastVerification: ((NvdBlastHit, String) -> Void)?
+    public var onExportFASTARequested: (([String]) -> Void)?
+    public var onCreateBundleRequested: (([String]) -> Void)?
+    public var onRunOperationRequested: (([String]) -> Void)?
 
     /// Called when the user wants to export results.
     public var onExport: (() -> Void)?
@@ -1539,20 +1542,27 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         )
         extractItem.target = self
         menu.addItem(extractItem)
-        menu.addItem(NSMenuItem.separator())
-
-        // BLAST Verify (single selection only)
-        if onBlastVerification != nil, database != nil,
-           outlineView.selectedRowIndexes.count <= 1 {
-            let blastItem = NSMenuItem(
-                title: "BLAST Verify Sequence",
-                action: #selector(contextBlastVerify(_:)),
-                keyEquivalent: ""
+        let sharedItems = FASTASequenceActionMenuBuilder.buildItems(
+            selectionCount: outlineView.selectedRowIndexes.count,
+            handlers: FASTASequenceActionHandlers(
+                onBlast: (onBlastVerification != nil && database != nil && outlineView.selectedRowIndexes.count <= 1)
+                    ? { [weak self] in self?.performBlastVerification(for: hit) }
+                    : nil,
+                onCopy: contigFASTARecord(for: hit) == nil ? nil : { [weak self] in self?.copyContigSequence(hit) },
+                onExport: (onExportFASTARequested == nil || contigFASTARecord(for: hit) == nil) ? nil : { [weak self] in
+                    self?.exportContigSequence(hit)
+                },
+                onCreateBundle: (onCreateBundleRequested == nil || contigFASTARecord(for: hit) == nil) ? nil : { [weak self] in
+                    self?.createBundle(for: hit)
+                },
+                onRunOperation: (onRunOperationRequested == nil || contigFASTARecord(for: hit) == nil) ? nil : { [weak self] in
+                    self?.runOperation(for: hit)
+                }
             )
-            blastItem.target = self
-            blastItem.representedObject = hit
-            menu.addItem(blastItem)
+        )
+        if !sharedItems.isEmpty {
             menu.addItem(NSMenuItem.separator())
+            sharedItems.forEach(menu.addItem(_:))
         }
 
         // Copy Contig Name
@@ -1560,19 +1570,6 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         copyContig.target = self
         copyContig.representedObject = hit.qseqid
         menu.addItem(copyContig)
-
-        // Copy Contig Sequence (FASTA format)
-        let copySeq = NSMenuItem(title: "Copy Contig Sequence", action: #selector(contextCopyContigSequence(_:)), keyEquivalent: "")
-        copySeq.target = self
-        copySeq.representedObject = hit
-        // Disable if no FASTA file available for this sample
-        if let database, let bundleURL {
-            let hasFasta = (try? database.fastaPath(forSample: hit.sampleId)) != nil
-            copySeq.isEnabled = hasFasta
-        } else {
-            copySeq.isEnabled = false
-        }
-        menu.addItem(copySeq)
 
         // Copy Accession
         if !hit.sseqid.isEmpty {
@@ -1630,6 +1627,46 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         } catch {
             logger.error("Copy contig sequence failed: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    private func performBlastVerification(for hit: NvdBlastHit) {
+        guard let sequence = contigSequence(for: hit) else { return }
+        onBlastVerification?(hit, sequence)
+    }
+
+    private func copyContigSequence(_ hit: NvdBlastHit) {
+        guard let fastaText = contigFASTARecord(for: hit) else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(fastaText, forType: .string)
+    }
+
+    private func runOperation(for hit: NvdBlastHit) {
+        guard let fastaText = contigFASTARecord(for: hit) else { return }
+        onRunOperationRequested?([fastaText])
+    }
+
+    private func exportContigSequence(_ hit: NvdBlastHit) {
+        guard let fastaText = contigFASTARecord(for: hit) else { return }
+        onExportFASTARequested?([fastaText])
+    }
+
+    private func createBundle(for hit: NvdBlastHit) {
+        guard let fastaText = contigFASTARecord(for: hit) else { return }
+        onCreateBundleRequested?([fastaText])
+    }
+
+    private func contigSequence(for hit: NvdBlastHit) -> String? {
+        guard let bundleURL, let database else { return nil }
+        guard let fastaRelPath = try? database.fastaPath(forSample: hit.sampleId) else {
+            return nil
+        }
+        let fastaURL = bundleURL.appendingPathComponent(fastaRelPath)
+        return NvdDataConverter.extractContigSequence(from: fastaURL, contigName: hit.qseqid)
+    }
+
+    private func contigFASTARecord(for hit: NvdBlastHit) -> String? {
+        guard let sequence = contigSequence(for: hit) else { return nil }
+        return ">\(hit.qseqid)\n\(sequence)\n"
     }
 
     @objc private func contextCopyContigName(_ sender: NSMenuItem) {
@@ -2096,6 +2133,14 @@ extension NvdResultViewController {
     var testOutlineContainer: NSView? { outlineContainer }
     var testSplitView: NSSplitView { splitView }
     var testBlastDrawerContainer: BlastResultsDrawerContainerView? { blastDrawerContainer }
+
+    func testContextMenuTitlesForFirstContig() -> [String] {
+        guard !displayedContigs.isEmpty else { return [] }
+        outlineView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        let menu = NSMenu(title: "Test Menu")
+        populateContextMenu(menu, for: displayedContigs[0])
+        return menu.items.map(\.title)
+    }
 }
 
 // MARK: - NSMenuDelegate

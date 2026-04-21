@@ -2458,7 +2458,13 @@ extension MainSplitViewController: SidebarSelectionDelegate {
 
         do {
             let result = try AssemblyResult.load(from: url)
+            let provenance = try? AssemblyProvenance.load(from: url)
             inspectorController.clearSelection()
+            inspectorController.updateAssemblyDocument(
+                result: result,
+                provenance: provenance,
+                projectURL: sidebarController.currentProjectURL ?? DocumentManager.shared.activeProject?.url
+            )
             viewerController.displayAssemblyResult(result)
             recordUITestEvent(
                 "assembly.display.succeeded tool=\(result.tool.rawValue) contigs=\(result.statistics.contigCount)"

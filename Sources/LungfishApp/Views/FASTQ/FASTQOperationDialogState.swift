@@ -610,7 +610,7 @@ final class FASTQOperationDialogState {
 
     var readinessText: String {
         if selectedInputURLs.isEmpty {
-            return "Select at least one FASTQ dataset."
+            return "Select at least one \(inputDatasetDisplayName) dataset."
         }
 
         if let missingKind = missingRequiredAuxiliaryInputKinds.first {
@@ -675,13 +675,14 @@ final class FASTQOperationDialogState {
     }
 
     var datasetLabel: String {
+        let datasetLabel = inputDatasetDisplayName.uppercased()
         switch selectedInputURLs.count {
         case 0:
-            return "No FASTQ selected"
+            return "No \(datasetLabel) selected"
         case 1:
             return selectedInputURLs[0].lastPathComponent
         default:
-            return "\(selectedInputURLs.count) FASTQ datasets"
+            return "\(selectedInputURLs.count) \(datasetLabel) datasets"
         }
     }
 
@@ -756,6 +757,25 @@ final class FASTQOperationDialogState {
         case .taxTriage:
             return "Configure TaxTriage pathogen triage."
         }
+    }
+
+    var isFASTAInputMode: Bool {
+        guard !selectedInputURLs.isEmpty else { return false }
+        return selectedInputURLs.allSatisfy {
+            FASTAOperationCatalog.inputSequenceFormat(for: $0) == .fasta
+        }
+    }
+
+    var dialogTitle: String {
+        isFASTAInputMode ? "FASTA Operations" : selectedCategory.title
+    }
+
+    var dialogSubtitle: String {
+        "Configure \(selectedToolID.title) for the selected \(inputDatasetDisplayName.uppercased()) data."
+    }
+
+    var inputDatasetDisplayName: String {
+        isFASTAInputMode ? "FASTA" : "FASTQ"
     }
 
     static func toolIDs(for category: FASTQOperationCategoryID) -> [FASTQOperationToolID] {
@@ -907,6 +927,12 @@ final class FASTQOperationDialogState {
     }
 
     private func normalizeSelectionState() {
+        if isFASTAInputMode, !selectedToolID.supportsFASTA,
+           let firstSupportedTool = FASTAOperationCatalog.availableToolIDs().first {
+            selectedToolID = firstSupportedTool
+            return
+        }
+
         embeddedToolReady = selectedToolID.defaultEmbeddedReadiness
         embeddedRunTrigger = 0
         pendingLaunchRequest = nil
@@ -984,6 +1010,10 @@ final class FASTQOperationDialogState {
     }
 
     private func visibleToolIDs(for category: FASTQOperationCategoryID) -> [FASTQOperationToolID] {
+        if isFASTAInputMode {
+            return FASTAOperationCatalog.availableToolIDs()
+        }
+
         let allToolIDs = Self.toolIDs(for: category)
         guard category == .assembly,
               assemblyReadClassMismatchMessage == nil,
@@ -1319,6 +1349,23 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .bowtie2: return .bowtie2
         case .bbmap: return .bbmap
         default: return nil
+        }
+    }
+
+    var supportsFASTA: Bool {
+        switch self {
+        case .trimFixedBases, .filterByReadLength, .removeContaminants,
+             .removeDuplicates, .orientReads, .subsampleByProportion,
+             .subsampleByCount, .extractReadsByID, .extractReadsByMotif,
+             .selectReadsBySequence:
+            return true
+        case .refreshQCSummary, .demultiplexBarcodes, .qualityTrim,
+             .adapterRemoval, .primerTrimming, .removeHumanReads,
+             .mergeOverlappingPairs, .repairPairedEndFiles,
+             .correctSequencingErrors, .minimap2, .bwaMem2, .bowtie2,
+             .bbmap, .spades, .megahit, .skesa, .flye, .hifiasm,
+             .kraken2, .esViritu, .taxTriage:
+            return false
         }
     }
 }

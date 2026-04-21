@@ -18,6 +18,11 @@ extension AssemblyContigCatalog: AssemblyContigCatalogProviding {}
 public final class AssemblyResultViewController: NSViewController {
     private(set) var currentResult: AssemblyResult?
     public var onBlastVerification: ((BlastRequest) -> Void)?
+    public var onRunOperationRequested: (([String]) -> Void)? {
+        didSet {
+            refreshContextMenu()
+        }
+    }
 
     private let summaryStrip = AssemblySummaryStrip()
     private let splitView = TrackedDividerSplitView()
@@ -43,7 +48,7 @@ public final class AssemblyResultViewController: NSViewController {
     private var loadGeneration = 0
     private var selectionGeneration = 0
 
-    private lazy var contextMenu: NSMenu = buildContextMenu()
+    private var contextMenu = NSMenu()
 
     public override func loadView() {
         let root = NSView()
@@ -77,6 +82,7 @@ public final class AssemblyResultViewController: NSViewController {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
 
+        refreshContextMenu()
         contigTableView.translatesAutoresizingMaskIntoConstraints = false
         contigTableView.tableContextMenu = contextMenu
         tableContainer.addSubview(contigTableView)
@@ -101,9 +107,9 @@ public final class AssemblyResultViewController: NSViewController {
         splitView.dividerStyle = .thin
         splitView.translatesAutoresizingMaskIntoConstraints = false
         splitView.delegate = self
-        splitView.isVertical = MetagenomicsPanelLayout.current() != .stacked
+        splitView.isVertical = AssemblyPanelLayout.current() != .stacked
 
-        let layout = MetagenomicsPanelLayout.current()
+        let layout = AssemblyPanelLayout.current()
         if layout == .detailLeading {
             splitView.addArrangedSubview(detailContainer)
             splitView.addArrangedSubview(tableContainer)
@@ -117,7 +123,7 @@ public final class AssemblyResultViewController: NSViewController {
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleLayoutSwapRequested),
-            name: .metagenomicsLayoutSwapRequested,
+            name: .assemblyLayoutSwapRequested,
             object: nil
         )
     }
@@ -169,7 +175,7 @@ public final class AssemblyResultViewController: NSViewController {
         applyLayoutPreference()
     }
 
-    private func defaultLeadingFraction(for layout: MetagenomicsPanelLayout) -> CGFloat {
+    private func defaultLeadingFraction(for layout: AssemblyPanelLayout) -> CGFloat {
         switch layout {
         case .detailLeading:
             return 0.6
@@ -178,7 +184,7 @@ public final class AssemblyResultViewController: NSViewController {
         }
     }
 
-    private func minimumExtents(for layout: MetagenomicsPanelLayout) -> (leading: CGFloat, trailing: CGFloat) {
+    private func minimumExtents(for layout: AssemblyPanelLayout) -> (leading: CGFloat, trailing: CGFloat) {
         switch layout {
         case .detailLeading:
             return (260, 320)
@@ -188,7 +194,7 @@ public final class AssemblyResultViewController: NSViewController {
     }
 
     private func applyLayoutPreference() {
-        let layout = MetagenomicsPanelLayout.current()
+        let layout = AssemblyPanelLayout.current()
         let detailLeading = layout == .detailLeading
         splitCoordinator.applyLayoutPreference(
             to: splitView,
@@ -206,35 +212,29 @@ public final class AssemblyResultViewController: NSViewController {
             ownerView: view,
             splitView: splitView,
             minimumExtents: { [weak self] in
-                self?.minimumExtents(for: MetagenomicsPanelLayout.current()) ?? (260, 320)
+                self?.minimumExtents(for: AssemblyPanelLayout.current()) ?? (260, 320)
             },
             defaultLeadingFraction: { [weak self] in
-                self?.defaultLeadingFraction(for: MetagenomicsPanelLayout.current()) ?? 0.4
+                self?.defaultLeadingFraction(for: AssemblyPanelLayout.current()) ?? 0.4
             }
         )
     }
 
-    private func buildContextMenu() -> NSMenu {
-        let menu = NSMenu()
-        let items: [(String, Selector)] = [
-            ("BLAST Selected", #selector(blastSelected)),
-            ("Copy FASTA", #selector(copySelectedFASTA)),
-            ("Export FASTA…", #selector(exportSelectedFASTA)),
-            ("Create Bundle…", #selector(createBundleFromSelection)),
-        ]
-
-        for (title, action) in items {
-            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-            item.target = self
-            menu.addItem(item)
-        }
-        return menu
+    private func refreshContextMenu() {
+        contextMenu = FASTASequenceActionMenuBuilder.buildMenu(
+            selectionCount: selectedContigNames.count,
+            handlers: FASTASequenceActionHandlers(
+                onBlast: { [weak self] in self?.performBlastSelected() },
+                onCopy: { [weak self] in self?.performCopySelectedFASTA() },
+                onExport: { [weak self] in self?.performExportSelectedFASTA() },
+                onCreateBundle: { [weak self] in self?.performCreateBundle() },
+                onRunOperation: onRunOperationRequested == nil ? nil : { [weak self] in
+                    self?.performRunOperation()
+                }
+            )
+        )
+        contigTableView.tableContextMenu = contextMenu
     }
-
-    @objc private func blastSelected() { performBlastSelected() }
-    @objc private func copySelectedFASTA() { performCopySelectedFASTA() }
-    @objc private func exportSelectedFASTA() { performExportSelectedFASTA() }
-    @objc private func createBundleFromSelection() { performCreateBundle() }
 
     private func performBlastSelected() {
         guard let result = currentResult, !selectedContigNames.isEmpty else { return }
@@ -292,6 +292,21 @@ public final class AssemblyResultViewController: NSViewController {
         }
     }
 
+    private func performRunOperation() {
+        guard !selectedContigNames.isEmpty, let catalog else { return }
+        let selectedContigs = selectedContigNames
+        Task {
+            var fastaRecords: [String] = []
+            for contigName in selectedContigs {
+                if let fasta = try? await catalog.sequenceFASTA(for: contigName, lineWidth: 70) {
+                    fastaRecords.append(fasta)
+                }
+            }
+            guard !fastaRecords.isEmpty else { return }
+            onRunOperationRequested?(fastaRecords)
+        }
+    }
+
     private func load(result: AssemblyResult, generation: Int) async throws {
         let catalog = try await catalogLoader(result)
         let records = try await catalog.records()
@@ -303,6 +318,7 @@ public final class AssemblyResultViewController: NSViewController {
         self.catalog = catalog
         self.allRecords = records
         self.selectedContigNames = []
+        refreshContextMenu()
 
         summaryStrip.configure(result: result, pasteboard: scalarPasteboard)
         detailPane.configureQuickCopy(pasteboard: scalarPasteboard)
@@ -318,6 +334,7 @@ public final class AssemblyResultViewController: NSViewController {
         let selectedNames = rows.map(\.name)
         selectedContigNames = selectedNames
         actionBar.setSelectionCount(rows.count)
+        refreshContextMenu()
 
         guard currentResult != nil, let catalog else {
             showEmptySelectionState(advanceSelectionGeneration: false)
@@ -357,6 +374,7 @@ public final class AssemblyResultViewController: NSViewController {
         }
         selectedContigNames = []
         actionBar.setSelectionCount(0)
+        refreshContextMenu()
         detailPane.showEmptyState(contigCount: allRecords.count)
     }
 
@@ -428,7 +446,7 @@ extension AssemblyResultViewController: NSSplitViewDelegate {
     public func splitViewDidResizeSubviews(_ notification: Notification) {
         splitCoordinator.splitViewDidResizeSubviews(
             splitView,
-            minimumExtents: minimumExtents(for: MetagenomicsPanelLayout.current())
+            minimumExtents: minimumExtents(for: AssemblyPanelLayout.current())
         )
     }
 }

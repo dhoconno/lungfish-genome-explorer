@@ -4,21 +4,19 @@ import XCTest
 @testable import LungfishWorkflow
 
 private enum AssemblyResultViewControllerTestDefaults {
-    static let layoutKey = "metagenomicsPanelLayout"
-    static let legacyTableOnLeftKey = "metagenomicsTableOnLeft"
+    static let layoutKey = "assemblyPanelLayout"
 }
 
 @MainActor
 final class AssemblyResultViewControllerTests: XCTestCase {
     override func tearDown() {
         UserDefaults.standard.removeObject(forKey: AssemblyResultViewControllerTestDefaults.layoutKey)
-        UserDefaults.standard.removeObject(forKey: AssemblyResultViewControllerTestDefaults.legacyTableOnLeftKey)
         super.tearDown()
     }
 
-    func testUsesStackedLayoutWhenClassifierPreferenceIsStacked() async throws {
+    func testUsesStackedLayoutWhenAssemblyPreferenceIsStacked() async throws {
         UserDefaults.standard.set(
-            MetagenomicsPanelLayout.stacked.rawValue,
+            AssemblyPanelLayout.stacked.rawValue,
             forKey: AssemblyResultViewControllerTestDefaults.layoutKey
         )
 
@@ -116,7 +114,7 @@ final class AssemblyResultViewControllerTests: XCTestCase {
         XCTAssertEqual(vc.testContigTableView.testTableView.accessibilityIdentifier(), "assembly-result-contig-table")
         XCTAssertEqual(vc.testDetailPane.accessibilityIdentifier(), "assembly-result-detail")
         XCTAssertEqual(vc.testActionBar.accessibilityIdentifier(), "assembly-result-action-bar")
-        XCTAssertEqual(vc.testContextMenuTitles, ["BLAST Selected", "Copy FASTA", "Export FASTA…", "Create Bundle…"])
+        XCTAssertEqual(vc.testContextMenuTitles, ["Verify with BLAST…", "Copy FASTA", "Export FASTA…", "Create Bundle…"])
     }
 
     func testConfigureLoadsContigsWhenResultIsMissingFASTAIndex() async throws {

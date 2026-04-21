@@ -82,6 +82,20 @@ extension ViewerViewController {
 
             OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
         }
+        controller.onRunOperationRequested = { [weak self] fastaRecords in
+            let suggestedName: String
+            if let firstHeader = fastaRecords.first?
+                .split(whereSeparator: \.isNewline)
+                .first?
+                .dropFirst()
+                .split(separator: " ")
+                .first {
+                suggestedName = String(firstHeader)
+            } else {
+                suggestedName = "selected-contigs"
+            }
+            self?.presentFASTAOperationDialog(records: fastaRecords, suggestedName: suggestedName)
+        }
 
         annotationDrawerView?.isHidden = true
         fastqMetadataDrawerView?.isHidden = true
@@ -127,7 +141,7 @@ extension ViewerViewController {
         fastqMetadataDrawerView?.isHidden = false
     }
 
-    private nonisolated static func blastSequences(from fastaRecords: [String]) -> [(id: String, sequence: String)] {
+    nonisolated static func blastSequences(from fastaRecords: [String]) -> [(id: String, sequence: String)] {
         fastaRecords.compactMap { fasta in
             let lines = fasta.split(whereSeparator: \.isNewline)
             guard let headerLine = lines.first, headerLine.hasPrefix(">") else {

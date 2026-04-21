@@ -7,14 +7,14 @@ struct FASTQOperationDialog: View {
 
     var body: some View {
         DatasetOperationsDialog(
-            title: state.selectedCategory.title,
-            subtitle: subtitle,
+            title: state.dialogTitle,
+            subtitle: state.dialogSubtitle,
             datasetLabel: state.datasetLabel,
             tools: state.sidebarItems,
             selectedToolID: state.selectedToolID.rawValue,
             statusText: statusText,
             isRunEnabled: state.isRunEnabled,
-            accessibilityNamespace: accessibilityNamespace(for: state.selectedToolID.categoryID),
+            accessibilityNamespace: accessibilityNamespace(),
             onSelectTool: selectTool(named:),
             onCancel: onCancel,
             onRun: handleRun
@@ -28,10 +28,6 @@ struct FASTQOperationDialog: View {
 
             onRun()
         }
-    }
-
-    private var subtitle: String {
-        "Configure \(state.selectedToolID.title) for the selected FASTQ data."
     }
 
     private var statusText: String {
@@ -56,8 +52,12 @@ struct FASTQOperationDialog: View {
         state.selectTool(toolID)
     }
 
-    private func accessibilityNamespace(for categoryID: FASTQOperationCategoryID) -> String? {
-        switch categoryID {
+    private func accessibilityNamespace() -> String? {
+        if state.isFASTAInputMode {
+            return "fasta-operations"
+        }
+
+        switch state.selectedToolID.categoryID {
         case .assembly:
             return "fastq-operations-assembly"
         case .mapping:

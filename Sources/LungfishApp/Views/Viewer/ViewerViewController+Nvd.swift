@@ -12,6 +12,17 @@ private let nvdDisplayLogger = Logger(subsystem: "com.lungfish", category: "NvdD
 // MARK: - ViewerViewController NVD Display Extension
 
 extension ViewerViewController {
+    private nonisolated static func suggestedName(from fastaRecords: [String], fallback: String) -> String {
+        if let firstHeader = fastaRecords.first?
+            .split(whereSeparator: \.isNewline)
+            .first?
+            .dropFirst()
+            .split(separator: " ")
+            .first {
+            return String(firstHeader)
+        }
+        return fallback
+    }
 
     /// Displays the NVD result viewer in place of the normal sequence viewer.
     ///
@@ -137,6 +148,24 @@ extension ViewerViewController {
             }
 
             OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
+        }
+        controller.onRunOperationRequested = { [weak self] fastaRecords in
+            self?.presentFASTAOperationDialog(
+                records: fastaRecords,
+                suggestedName: Self.suggestedName(from: fastaRecords, fallback: "nvd-contig")
+            )
+        }
+        controller.onExportFASTARequested = { [weak self] fastaRecords in
+            self?.exportFASTARecords(
+                fastaRecords,
+                suggestedName: "\(Self.suggestedName(from: fastaRecords, fallback: "nvd-contig")).fa"
+            )
+        }
+        controller.onCreateBundleRequested = { [weak self] fastaRecords in
+            self?.createReferenceBundle(
+                from: fastaRecords,
+                suggestedName: Self.suggestedName(from: fastaRecords, fallback: "nvd-contig")
+            )
         }
 
         // Hide normal genomic viewer components (same pattern as Taxonomy/EsViritu/TaxTriage/NAO-MGS).

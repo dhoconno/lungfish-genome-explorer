@@ -653,6 +653,9 @@ public extension Notification.Name {
     /// Posted when the persisted metagenomics panel layout preference changes.
     static let metagenomicsLayoutSwapRequested = Notification.Name("com.lungfish.metagenomicsLayoutSwapRequested")
 
+    /// Posted when the persisted assembly panel layout preference changes.
+    static let assemblyLayoutSwapRequested = Notification.Name("com.lungfish.assemblyLayoutSwapRequested")
+
     /// Posted when sample selection changes in the Inspector-embedded sample picker.
     static let metagenomicsSampleSelectionChanged = Notification.Name("com.lungfish.metagenomicsSampleSelectionChanged")
 
