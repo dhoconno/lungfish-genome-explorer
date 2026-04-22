@@ -224,6 +224,11 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
 
         try await samtoolsIndex(bamURL: sortedBAM)
         let (totalReads, mappedReads) = try await samtoolsFlagstatCounts(bamURL: sortedBAM)
+        if extensionLower == "sam",
+           rawAlignmentURL.lastPathComponent.hasSuffix(".raw.sam"),
+           fm.fileExists(atPath: rawAlignmentURL.path) {
+            try? fm.removeItem(at: rawAlignmentURL)
+        }
         if fm.fileExists(atPath: tempFilteredBAM.path) {
             try? fm.removeItem(at: tempFilteredBAM)
         }
