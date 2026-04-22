@@ -67,6 +67,54 @@ final class ManagedMappingPipelineTests: XCTestCase {
         XCTAssertEqual(Array(try fixture.recordedSubcommands().prefix(3)), ["view", "sort", "index"])
     }
 
+    func testNormalizeAlignmentRemovesRawSAMAfterSuccessfulNormalization() async throws {
+        let fixture = try SamtoolsFixture()
+        defer { fixture.cleanup() }
+
+        let rawSAM = fixture.tempRoot.appendingPathComponent("sample.raw.sam")
+        try Data("sam".utf8).write(to: rawSAM)
+
+        let pipeline = ManagedMappingPipeline(
+            condaManager: .shared,
+            nativeToolRunner: fixture.runner
+        )
+
+        _ = try await pipeline.normalizeAlignment(
+            rawAlignmentURL: rawSAM,
+            outputDirectory: fixture.tempRoot
+        )
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: rawSAM.path),
+            "Successful SAM normalization should remove the intermediate raw SAM"
+        )
+    }
+
+    func testNormalizeAlignmentRetainsRawSAMWhenSortFails() async throws {
+        let fixture = try SamtoolsFixture(failingSubcommand: "sort")
+        defer { fixture.cleanup() }
+
+        let rawSAM = fixture.tempRoot.appendingPathComponent("sample.raw.sam")
+        try Data("sam".utf8).write(to: rawSAM)
+
+        let pipeline = ManagedMappingPipeline(
+            condaManager: .shared,
+            nativeToolRunner: fixture.runner
+        )
+
+        await XCTAssertThrowsErrorAsync(
+            try await pipeline.normalizeAlignment(
+                rawAlignmentURL: rawSAM,
+                outputDirectory: fixture.tempRoot
+            )
+        )
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: rawSAM.path),
+            "Failed normalization should keep the raw SAM for debugging"
+        )
+    }
+
     func testNormalizeAlignmentSortsUnsortedBAM() async throws {
         let fixture = try SamtoolsFixture()
         defer { fixture.cleanup() }
@@ -249,7 +297,7 @@ private struct SamtoolsFixture {
     let runner: NativeToolRunner
     let logURL: URL
 
-    init() throws {
+    init(failingSubcommand: String? = nil) throws {
         let fm = FileManager.default
         tempRoot = fm.temporaryDirectory.appendingPathComponent(
             "mapping-samtools-fixture-\(UUID().uuidString)",
@@ -264,7 +312,10 @@ private struct SamtoolsFixture {
 
         logURL = tempRoot.appendingPathComponent("samtools.log")
         let scriptURL = samtoolsDir.appendingPathComponent("samtools")
-        try Self.scriptBody(logURL: logURL).write(to: scriptURL, atomically: true, encoding: .utf8)
+        try Self.scriptBody(
+            logURL: logURL,
+            failingSubcommand: failingSubcommand
+        ).write(to: scriptURL, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
 
         runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory)
@@ -283,8 +334,20 @@ private struct SamtoolsFixture {
             }
     }
 
-    private static func scriptBody(logURL: URL) -> String {
-        """
+    private static func scriptBody(logURL: URL, failingSubcommand: String?) -> String {
+        let failingSubcommandCheck: String
+        if let failingSubcommand {
+            failingSubcommandCheck = """
+            if [ "$subcommand" = "\(failingSubcommand)" ]; then
+              exit 42
+            fi
+
+            """
+        } else {
+            failingSubcommandCheck = ""
+        }
+
+        return """
         #!/bin/sh
         subcommand="$1"
         printf '%s' "$subcommand" >> "\(logURL.path)"
@@ -294,6 +357,7 @@ private struct SamtoolsFixture {
         done
         printf '\\n' >> "\(logURL.path)"
 
+        \(failingSubcommandCheck)
         case "$subcommand" in
           sort)
             out=""
@@ -333,6 +397,19 @@ private struct SamtoolsFixture {
 
         exit 0
         """
+    }
+}
+
+private func XCTAssertThrowsErrorAsync<T>(
+    _ expression: @autoclosure () async throws -> T,
+    _ message: @autoclosure () -> String = "",
+    file: StaticString = #filePath,
+    line: UInt = #line
+) async {
+    do {
+        _ = try await expression()
+        XCTFail(message(), file: file, line: line)
+    } catch {
     }
 }
 
