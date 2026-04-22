@@ -15,6 +15,8 @@ public enum AlignmentFilterCommandBuilder {
 
         let trailingArguments = try validatedTrailingArguments(request.region)
         let identityExpression = try validatedIdentityExpression(request.identityFilter)
+        let requiredSAMTags = request.identityFilter?.requiredSAMTags ?? []
+        let preprocessingSteps = preprocessingSteps(for: request.duplicateMode)
 
         var excludeFlags: UInt16 = 0
         if request.mappedOnly {
@@ -23,7 +25,7 @@ public enum AlignmentFilterCommandBuilder {
         if request.primaryOnly {
             excludeFlags |= 0x900
         }
-        if request.duplicateMode != nil {
+        if request.duplicateMode == .exclude {
             excludeFlags |= 0x400
         }
 
@@ -41,9 +43,18 @@ public enum AlignmentFilterCommandBuilder {
         return AlignmentFilterCommandPlan(
             arguments: arguments,
             trailingArguments: trailingArguments,
+            preprocessingSteps: preprocessingSteps,
             duplicateMode: request.duplicateMode,
-            identityFilterExpression: identityExpression
+            identityFilterExpression: identityExpression,
+            requiredSAMTags: requiredSAMTags
         )
+    }
+
+    private static func preprocessingSteps(
+        for duplicateMode: AlignmentFilterDuplicateMode?
+    ) -> [AlignmentFilterPreprocessingStep] {
+        guard duplicateMode == .remove else { return [] }
+        return [.samtoolsMarkdup(removeDuplicates: true)]
     }
 
     private static func validatedTrailingArguments(_ region: String?) throws -> [String] {

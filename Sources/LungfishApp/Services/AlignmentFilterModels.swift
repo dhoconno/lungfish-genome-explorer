@@ -12,6 +12,11 @@ public enum AlignmentFilterDuplicateMode: String, Sendable, Codable, Equatable {
     case remove
 }
 
+/// Explicit preprocessing required before the final `samtools view` step.
+public enum AlignmentFilterPreprocessingStep: Sendable, Codable, Equatable {
+    case samtoolsMarkdup(removeDuplicates: Bool)
+}
+
 /// Identity-based BAM filtering criteria.
 public enum AlignmentFilterIdentityFilter: Sendable, Codable, Equatable {
     /// Keep only exact matches (`NM == 0`).
@@ -27,6 +32,11 @@ public enum AlignmentFilterIdentityFilter: Sendable, Codable, Equatable {
         case .minimumPercentIdentity(let threshold):
             return "(qlen > sclen) && (((qlen - sclen - [NM]) / (qlen - sclen)) * 100 >= \(Self.formattedThreshold(threshold)))"
         }
+    }
+
+    /// Required SAM tags for evaluating this identity filter.
+    public var requiredSAMTags: [String] {
+        ["NM"]
     }
 
     private static func formattedThreshold(_ threshold: Double) -> String {
@@ -77,23 +87,29 @@ public struct AlignmentFilterCommandPlan: Sendable, Codable, Equatable {
     public let subcommand: String
     public let arguments: [String]
     public let trailingArguments: [String]
+    public let preprocessingSteps: [AlignmentFilterPreprocessingStep]
     public let duplicateMode: AlignmentFilterDuplicateMode?
     public let identityFilterExpression: String?
+    public let requiredSAMTags: [String]
 
     public init(
         executable: String = "samtools",
         subcommand: String = "view",
         arguments: [String],
         trailingArguments: [String] = [],
+        preprocessingSteps: [AlignmentFilterPreprocessingStep] = [],
         duplicateMode: AlignmentFilterDuplicateMode? = nil,
-        identityFilterExpression: String? = nil
+        identityFilterExpression: String? = nil,
+        requiredSAMTags: [String] = []
     ) {
         self.executable = executable
         self.subcommand = subcommand
         self.arguments = arguments
         self.trailingArguments = trailingArguments
+        self.preprocessingSteps = preprocessingSteps
         self.duplicateMode = duplicateMode
         self.identityFilterExpression = identityFilterExpression
+        self.requiredSAMTags = requiredSAMTags
     }
 
     /// Full command arguments including the subcommand, input path, and trailing regions.

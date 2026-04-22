@@ -40,11 +40,13 @@ final class AlignmentFilterCommandBuilderTests: XCTestCase {
                 "chr7"
             ]
         )
+        XCTAssertTrue(plan.preprocessingSteps.isEmpty)
         XCTAssertEqual(plan.duplicateMode, .exclude)
         XCTAssertEqual(plan.identityFilterExpression, "[NM] == 0")
+        XCTAssertEqual(plan.requiredSAMTags, ["NM"])
     }
 
-    func testBuildUsesPercentIdentityExpressionBasedOnNMAndQueryLength() throws {
+    func testBuildUsesPercentIdentityExpressionBasedOnAlignedQueryBases() throws {
         let request = AlignmentFilterRequest(
             mappedOnly: false,
             primaryOnly: false,
@@ -58,14 +60,58 @@ final class AlignmentFilterCommandBuilderTests: XCTestCase {
 
         XCTAssertEqual(plan.arguments, [
             "-b",
-            "-F", "0x400",
             "-e", "(qlen > sclen) && (((qlen - sclen - [NM]) / (qlen - sclen)) * 100 >= 95)"
         ])
         XCTAssertTrue(plan.trailingArguments.isEmpty)
         XCTAssertEqual(plan.duplicateMode, .remove)
+        XCTAssertEqual(plan.preprocessingSteps, [.samtoolsMarkdup(removeDuplicates: true)])
         XCTAssertEqual(
             plan.identityFilterExpression,
             "(qlen > sclen) && (((qlen - sclen - [NM]) / (qlen - sclen)) * 100 >= 95)"
         )
+        XCTAssertEqual(plan.requiredSAMTags, ["NM"])
+    }
+
+    func testBuildRejectsNegativeMinimumMAPQ() {
+        let request = AlignmentFilterRequest(minimumMAPQ: -1)
+
+        XCTAssertThrowsError(try AlignmentFilterCommandBuilder.build(from: request)) { error in
+            XCTAssertEqual(error as? AlignmentFilterError, .invalidMinimumMAPQ(-1))
+        }
+    }
+
+    func testBuildRejectsBlankRegion() {
+        let request = AlignmentFilterRequest(region: "   ")
+
+        XCTAssertThrowsError(try AlignmentFilterCommandBuilder.build(from: request)) { error in
+            XCTAssertEqual(error as? AlignmentFilterError, .invalidRegion("   "))
+        }
+    }
+
+    func testBuildRejectsOutOfRangeMinimumPercentIdentity() {
+        let request = AlignmentFilterRequest(identityFilter: .minimumPercentIdentity(100.1))
+
+        XCTAssertThrowsError(try AlignmentFilterCommandBuilder.build(from: request)) { error in
+            XCTAssertEqual(error as? AlignmentFilterError, .invalidMinimumPercentIdentity(100.1))
+        }
+    }
+
+    func testBuildFormatsDecimalPercentIdentityThresholdWithoutTrailingZeros() throws {
+        let request = AlignmentFilterRequest(identityFilter: .minimumPercentIdentity(97.5))
+
+        let plan = try AlignmentFilterCommandBuilder.build(from: request)
+
+        XCTAssertEqual(
+            plan.identityFilterExpression,
+            "(qlen > sclen) && (((qlen - sclen - [NM]) / (qlen - sclen)) * 100 >= 97.5)"
+        )
+    }
+
+    func testBuildRecordsRequiredTagsForIdentityFilters() throws {
+        let request = AlignmentFilterRequest(identityFilter: .exactMatch)
+
+        let plan = try AlignmentFilterCommandBuilder.build(from: request)
+
+        XCTAssertEqual(plan.requiredSAMTags, ["NM"])
     }
 }
