@@ -438,7 +438,6 @@ public class InspectorViewController: NSViewController {
         // Clear annotation selection
         viewModel.selectedAnnotation = nil
         viewModel.selectionSectionViewModel.select(annotation: nil)
-        viewModel.selectionSectionViewModel.referenceBundle = nil
 
         // Clear variant details
         viewModel.variantSectionViewModel.clear()

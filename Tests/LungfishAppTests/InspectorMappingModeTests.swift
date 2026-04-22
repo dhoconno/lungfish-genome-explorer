@@ -71,7 +71,7 @@ final class InspectorMappingModeTests: XCTestCase {
         XCTAssertEqual(deliveredPayload?[NotificationUserInfoKey.consensusMaskingMinDepth] as? Int, 13)
     }
 
-    func testClearSelectionClearsMappingBundleWorkflowState() throws {
+    func testClearSelectionPreservesActiveBundleReferenceForInspectorActions() throws {
         let vc = InspectorViewController()
         _ = vc.view
         let bundle = try makeReferenceBundle()
@@ -79,8 +79,7 @@ final class InspectorMappingModeTests: XCTestCase {
         vc.updateMappingAlignmentSection(from: bundle, applySettings: { _ in })
         vc.clearSelection()
 
-        XCTAssertNil(vc.selectionSectionViewModel.referenceBundle)
-        XCTAssertNil(vc.viewModel.documentSectionViewModel.bundleURL)
+        XCTAssertEqual(vc.selectionSectionViewModel.referenceBundle?.url, bundle.url)
     }
 
     private func makeReferenceBundle() throws -> ReferenceBundle {
