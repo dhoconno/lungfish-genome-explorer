@@ -377,6 +377,10 @@ public final class ReadStyleSectionViewModel {
         } else if trimmedIdentityText.isEmpty {
             identityFilter = nil
         } else if let threshold = Double(trimmedIdentityText) {
+            guard (0...100).contains(threshold) else {
+                throw AlignmentFilterInspectorValidationError
+                    .invalidMinimumPercentIdentity(alignmentFilterMinimumPercentIdentityText)
+            }
             identityFilter = .minimumPercentIdentity(threshold)
         } else {
             throw AlignmentFilterInspectorValidationError

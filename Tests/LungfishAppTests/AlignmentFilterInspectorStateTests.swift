@@ -47,6 +47,24 @@ final class AlignmentFilterInspectorStateTests: XCTestCase {
         }
     }
 
+    func testMakeAlignmentFilterLaunchRequestRejectsOutOfRangePercentIdentity() {
+        let viewModel = ReadStyleSectionViewModel()
+        viewModel.configureAlignmentFilterTracks([
+            .init(id: "track-a", name: "Tumor Reads")
+        ])
+
+        for invalidValue in ["-1", "100.1"] {
+            viewModel.alignmentFilterMinimumPercentIdentityText = invalidValue
+
+            XCTAssertThrowsError(try viewModel.makeAlignmentFilterLaunchRequest()) { error in
+                XCTAssertEqual(
+                    error as? AlignmentFilterInspectorValidationError,
+                    .invalidMinimumPercentIdentity(invalidValue)
+                )
+            }
+        }
+    }
+
     func testMakeAlignmentFilterLaunchRequestBuildsFilterOnlyRequestFromValidState() throws {
         let viewModel = ReadStyleSectionViewModel()
         viewModel.configureAlignmentFilterTracks([
