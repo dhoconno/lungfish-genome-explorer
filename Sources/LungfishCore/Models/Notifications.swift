@@ -374,7 +374,7 @@ public enum NotificationUserInfoKey {
     /// Key for high-gap mask threshold as a percent integer (0-100).
     public static let consensusGapThresholdPercent = "consensusGapThresholdPercent"
 
-    /// Key for minimum depth required before a consensus/gap decision is applied.
+    /// Key for minimum depth required before consensus sequence generation is attempted.
     public static let consensusMinDepth = "consensusMinDepth"
 
     /// Key for minimum spanning depth required before gap masking is applied.

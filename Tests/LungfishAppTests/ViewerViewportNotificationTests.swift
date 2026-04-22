@@ -47,4 +47,32 @@ final class ViewerViewportNotificationTests: XCTestCase {
 
         wait(for: [notification], timeout: 0.1)
     }
+
+    func testMaskingDepthChangeDoesNotInvalidateConsensusCache() {
+        let viewer = ViewerViewController()
+        _ = viewer.view
+
+        viewer.viewerView.cachedConsensusRegion = GenomicRegion(
+            chromosome: "chr1",
+            start: 100,
+            end: 200
+        )
+        viewer.viewerView.consensusMinDepthSetting = 8
+        viewer.viewerView.consensusMaskingMinDepthSetting = 8
+
+        NotificationCenter.default.post(
+            name: .readDisplaySettingsChanged,
+            object: nil,
+            userInfo: [
+                NotificationUserInfoKey.consensusMaskingMinDepth: 14
+            ]
+        )
+
+        XCTAssertEqual(viewer.viewerView.consensusMaskingMinDepthSetting, 14)
+        XCTAssertNotNil(viewer.viewerView.cachedConsensusRegion)
+        XCTAssertEqual(viewer.viewerView.cachedConsensusRegion?.chromosome, "chr1")
+        XCTAssertEqual(viewer.viewerView.cachedConsensusRegion?.start, 100)
+        XCTAssertEqual(viewer.viewerView.cachedConsensusRegion?.end, 200)
+        XCTAssertEqual(viewer.viewerView.consensusMinDepthSetting, 8)
+    }
 }
