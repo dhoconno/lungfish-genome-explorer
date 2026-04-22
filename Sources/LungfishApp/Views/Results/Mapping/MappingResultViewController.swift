@@ -288,7 +288,10 @@ public final class MappingResultViewController: NSViewController {
             fallbackChromosome: fallbackChromosome,
             consensusMode: embeddedViewerController.viewerView.consensusModeSetting,
             consensusMinDepth: embeddedViewerController.viewerView.consensusMinDepthSetting,
-            consensusMinMapQ: embeddedViewerController.viewerView.consensusMinMapQSetting,
+            consensusMinMapQ: max(
+                embeddedViewerController.viewerView.minMapQSetting,
+                embeddedViewerController.viewerView.consensusMinMapQSetting
+            ),
             consensusMinBaseQ: embeddedViewerController.viewerView.consensusMinBaseQSetting,
             excludeFlags: embeddedViewerController.viewerView.excludeFlagsSetting,
             useAmbiguity: embeddedViewerController.viewerView.consensusUseAmbiguitySetting
@@ -351,8 +354,8 @@ public final class MappingResultViewController: NSViewController {
 
     private func currentSelectedContig() -> MappingContigSummary? {
         let selectedRow = contigTableView.tableView.selectedRow
-        guard selectedRow >= 0 else { return nil }
-        return contigTableView.record(at: selectedRow)
+        guard selectedRow >= 0, selectedRow < contigTableView.displayedRows.count else { return nil }
+        return contigTableView.displayedRows[selectedRow]
     }
 }
 
@@ -418,6 +421,11 @@ extension MappingResultViewController {
 
     func testBuildConsensusExportRequest() throws -> MappingConsensusExportRequest {
         try buildConsensusExportRequest()
+    }
+
+    func testSetEmbeddedReadDisplaySettings(minMapQ: Int, consensusMinMapQ: Int) {
+        embeddedViewerController.viewerView.minMapQSetting = minMapQ
+        embeddedViewerController.viewerView.consensusMinMapQSetting = consensusMinMapQ
     }
 }
 #endif

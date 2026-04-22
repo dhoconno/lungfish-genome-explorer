@@ -140,6 +140,21 @@ final class MappingResultViewControllerTests: XCTestCase {
         XCTAssertEqual(request.suggestedName, "example-chr1-consensus")
     }
 
+    func testConsensusExportUsesEffectiveMaximumMapQFloor() throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+
+        vc.configureForTesting(result: makeMappingResult(viewerBundleURL: try makeReferenceBundleWithAnnotationDatabase()))
+        vc.testSetEmbeddedReadDisplaySettings(
+            minMapQ: 27,
+            consensusMinMapQ: 11
+        )
+
+        let request = try vc.testBuildConsensusExportRequest()
+
+        XCTAssertEqual(request.minMapQ, 27)
+    }
+
     private func makeMappingResult(viewerBundleURL: URL? = nil) -> MappingResult {
         MappingResult(
             mapper: .minimap2,
