@@ -274,13 +274,14 @@ public enum AssemblyRunner {
 
             await MainActor.run {
                 if result.outcome == .completedWithNoContigs {
-                    OperationCenter.shared.log(id: opID, level: .warning, message: completionDetail(for: result))
+                    OperationCenter.shared.completeWithWarning(id: opID, detail: completionDetail(for: result), bundleURLs: [bundleURL])
+                } else {
+                    OperationCenter.shared.complete(
+                        id: opID,
+                        detail: completionDetail(for: result),
+                        bundleURLs: [bundleURL]
+                    )
                 }
-                OperationCenter.shared.complete(
-                    id: opID,
-                    detail: completionDetail(for: result),
-                    bundleURLs: [bundleURL]
-                )
             }
 
             postNotification(
@@ -474,13 +475,14 @@ public enum AssemblyRunner {
 
             await MainActor.run {
                 if normalizedResult.outcome == .completedWithNoContigs {
-                    OperationCenter.shared.log(id: opID, level: .warning, message: completionDetail(for: normalizedResult))
+                    OperationCenter.shared.completeWithWarning(id: opID, detail: completionDetail(for: normalizedResult), bundleURLs: [bundleURL])
+                } else {
+                    OperationCenter.shared.complete(
+                        id: opID,
+                        detail: completionDetail(for: normalizedResult),
+                        bundleURLs: [bundleURL]
+                    )
                 }
-                OperationCenter.shared.complete(
-                    id: opID,
-                    detail: completionDetail(for: normalizedResult),
-                    bundleURLs: [bundleURL]
-                )
             }
 
             postNotification(

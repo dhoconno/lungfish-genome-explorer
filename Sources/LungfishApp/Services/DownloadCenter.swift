@@ -338,6 +338,15 @@ public final class OperationCenter: ObservableObject {
         postStateChangedNotification(id: id, state: .completed)
     }
 
+    /// Completes an operation in the warning state.
+    ///
+    /// The warning detail is surfaced both in the item's detail text and as a
+    /// warning log entry so the Operations UI presents "Completed with Warnings".
+    public func completeWithWarning(id: UUID, detail: String) {
+        log(id: id, level: .warning, message: detail)
+        complete(id: id, detail: detail)
+    }
+
     /// Completes an operation and delivers bundle URLs to the app for import.
     ///
     /// This is the primary mechanism for getting built bundles from background
@@ -357,6 +366,12 @@ public final class OperationCenter: ObservableObject {
             onBundleReady?(bundleURLs)
         }
         postStateChangedNotification(id: id, state: .completed)
+    }
+
+    /// Completes an operation in the warning state and delivers bundle URLs.
+    public func completeWithWarning(id: UUID, detail: String, bundleURLs: [URL]) {
+        log(id: id, level: .warning, message: detail)
+        complete(id: id, detail: detail, bundleURLs: bundleURLs)
     }
 
     /// Marks an operation as failed.
