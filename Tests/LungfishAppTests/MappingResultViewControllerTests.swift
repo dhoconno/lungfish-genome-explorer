@@ -113,6 +113,27 @@ final class MappingResultViewControllerTests: XCTestCase {
         XCTAssertEqual(deliveredBundle?.manifest.name, "Fixture")
     }
 
+    func testReloadViewerBundleForInspectorChangesReloadsExistingViewerBundle() throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+
+        let bundleURL = try makeReferenceBundleWithAnnotationDatabase()
+        var deliveredBundle: ReferenceBundle?
+        var loadCount = 0
+        vc.onEmbeddedReferenceBundleLoaded = {
+            deliveredBundle = $0
+            loadCount += 1
+        }
+
+        vc.configureForTesting(result: makeMappingResult(viewerBundleURL: bundleURL))
+        deliveredBundle = nil
+        loadCount = 0
+
+        XCTAssertNoThrow(try invokeInspectorReload(on: vc))
+        XCTAssertEqual(loadCount, 1)
+        XCTAssertEqual(deliveredBundle?.url.standardizedFileURL, bundleURL.standardizedFileURL)
+    }
+
     func testConsensusExportUsesSelectedContigNameInSuggestedStem() throws {
         let vc = MappingResultViewController()
         _ = vc.view
@@ -226,5 +247,27 @@ final class MappingResultViewControllerTests: XCTestCase {
         )
         try manifest.save(to: bundleURL)
         return bundleURL
+    }
+
+    private func invokeInspectorReload(on controller: MappingResultViewController) throws {
+        let selector = NSSelectorFromString("reloadViewerBundleForInspectorChangesAndReturnError:")
+        let object = controller as AnyObject
+        XCTAssertTrue(
+            object.responds(to: selector),
+            "MappingResultViewController should expose an Inspector reload hook"
+        )
+
+        typealias ReloadIMP = @convention(c) (
+            AnyObject,
+            Selector,
+            UnsafeMutablePointer<NSError?>?
+        ) -> Bool
+        let implementation = try XCTUnwrap(object.method(for: selector))
+        let function = unsafeBitCast(implementation, to: ReloadIMP.self)
+        var error: NSError?
+        let succeeded = function(object, selector, &error)
+
+        XCTAssertTrue(succeeded, "Inspector-triggered mapping reload should succeed")
+        XCTAssertNil(error)
     }
 }

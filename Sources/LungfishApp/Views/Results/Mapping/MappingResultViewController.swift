@@ -250,6 +250,13 @@ public final class MappingResultViewController: NSViewController {
         loadedViewerBundleURL = standardized
     }
 
+    @objc(reloadViewerBundleForInspectorChangesAndReturnError:)
+    func reloadViewerBundleForInspectorChanges() throws {
+        guard let viewerBundleURL = currentResult?.viewerBundleURL else { return }
+        loadedViewerBundleURL = nil
+        try loadViewerBundleIfNeeded(from: viewerBundleURL)
+    }
+
     func applyEmbeddedReadDisplaySettings(_ userInfo: [AnyHashable: Any]) {
         embeddedViewerController.applyReadDisplaySettings(userInfo)
     }

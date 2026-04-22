@@ -36,6 +36,10 @@ extension ViewerViewController {
         try await viewerView.fetchConsensusSequenceForExport(request: request)
     }
 
+    func reloadMappingViewerBundleIfDisplayed() throws {
+        try mappingResultController?.reloadViewerBundleForInspectorChanges()
+    }
+
     public func displayMappingResult(_ result: MappingResult) {
         hideQuickLookPreview()
         hideFASTQDatasetView()

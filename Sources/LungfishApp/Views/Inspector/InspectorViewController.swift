@@ -450,6 +450,7 @@ public class InspectorViewController: NSViewController {
         clearTransientSelectionState()
         viewModel.selectionSectionViewModel.referenceBundle = nil
         viewModel.readStyleSectionViewModel.clear()
+        viewModel.readStyleSectionViewModel.onCreateFilteredAlignmentRequested = nil
         viewModel.readStyleSectionViewModel.supportsConsensusExtraction = false
         viewModel.readStyleSectionViewModel.onExtractConsensusRequested = nil
 
@@ -1342,6 +1343,10 @@ public class InspectorViewController: NSViewController {
             self?.runCreateDeduplicatedBundleWorkflow()
         }
 
+        viewModel.readStyleSectionViewModel.onCreateFilteredAlignmentRequested = { [weak self] request in
+            self?.runCreateFilteredAlignmentWorkflow(request)
+        }
+
         viewModel.readStyleSectionViewModel.onCallVariantsRequested = { [weak self] in
             self?.runCallVariantsWorkflow()
         }
@@ -1371,6 +1376,9 @@ public class InspectorViewController: NSViewController {
         }
         viewModel.readStyleSectionViewModel.onCreateDeduplicatedBundleRequested = { [weak self] in
             self?.runCreateDeduplicatedBundleWorkflow()
+        }
+        viewModel.readStyleSectionViewModel.onCreateFilteredAlignmentRequested = { [weak self] request in
+            self?.runCreateFilteredAlignmentWorkflow(request)
         }
         viewModel.readStyleSectionViewModel.onCallVariantsRequested = { [weak self] in
             self?.runCallVariantsWorkflow()
@@ -1566,6 +1574,84 @@ public class InspectorViewController: NSViewController {
     }
 
     // MARK: - Duplicate Workflows
+
+    private func runCreateFilteredAlignmentWorkflow(_ request: AlignmentFilterInspectorLaunchRequest) {
+        guard let bundleURL = viewModel.documentSectionViewModel.bundleURL else {
+            presentSimpleAlert(title: "No Bundle Loaded", message: "Load a .lungfishref bundle before creating a filtered alignment track.")
+            return
+        }
+        guard viewModel.readStyleSectionViewModel.hasAlignmentTracks else {
+            presentSimpleAlert(title: "No Alignment Tracks", message: "This bundle has no alignment tracks to process.")
+            return
+        }
+        guard let split = parent as? MainSplitViewController else { return }
+
+        viewModel.readStyleSectionViewModel.isAlignmentFilterWorkflowRunning = true
+        split.activityIndicator.show(message: "Creating filtered alignment track...", style: .indeterminate)
+
+        Task(priority: .userInitiated) { [weak self] in
+            do {
+                let result = try await AlignmentFilterService().deriveFilteredAlignment(
+                    bundleURL: bundleURL,
+                    sourceTrackID: request.sourceTrackID,
+                    outputTrackName: request.outputTrackName,
+                    filterRequest: request.filterRequest,
+                    progressHandler: { [weak self] _, message in
+                        DispatchQueue.main.async {
+                            guard let self,
+                                  let split = self.parent as? MainSplitViewController else { return }
+                            MainActor.assumeIsolated {
+                                split.activityIndicator.updateMessage(message)
+                            }
+                        }
+                    }
+                )
+
+                DispatchQueue.main.async { [weak self] in
+                    guard let self,
+                          let split = self.parent as? MainSplitViewController else { return }
+                    MainActor.assumeIsolated {
+                        self.viewModel.readStyleSectionViewModel.isAlignmentFilterWorkflowRunning = false
+                        split.activityIndicator.hide()
+
+                        let createdTrackName = result.importResult.trackInfo.name
+                        do {
+                            if split.viewerController.mappingResultController != nil {
+                                try split.viewerController.reloadMappingViewerBundleIfDisplayed()
+                            } else {
+                                try split.viewerController.displayBundle(at: bundleURL)
+                            }
+                            self.presentSimpleAlert(
+                                title: "Filtered Alignment Created",
+                                message: "Created filtered alignment track \"\(createdTrackName)\"."
+                            )
+                        } catch {
+                            let title = split.viewerController.mappingResultController != nil
+                                ? "Mapping Viewer Reload Failed"
+                                : "Reload Failed"
+                            self.presentSimpleAlert(
+                                title: title,
+                                message: "Filtered alignment track \"\(createdTrackName)\" was created, but the updated bundle could not be reloaded: \(error.localizedDescription)"
+                            )
+                        }
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self,
+                          let split = self.parent as? MainSplitViewController else { return }
+                    MainActor.assumeIsolated {
+                        self.viewModel.readStyleSectionViewModel.isAlignmentFilterWorkflowRunning = false
+                        split.activityIndicator.hide()
+                        self.presentSimpleAlert(
+                            title: "Filtered Alignment Failed",
+                            message: error.localizedDescription
+                        )
+                    }
+                }
+            }
+        }
+    }
 
     /// Runs `samtools markdup` over all loaded alignment tracks and replaces those tracks in-place.
     private func runMarkDuplicatesWorkflow() {

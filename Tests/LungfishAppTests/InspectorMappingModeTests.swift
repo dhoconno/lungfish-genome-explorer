@@ -71,6 +71,19 @@ final class InspectorMappingModeTests: XCTestCase {
         XCTAssertEqual(deliveredPayload?[NotificationUserInfoKey.consensusMaskingMinDepth] as? Int, 13)
     }
 
+    func testMappingAlignmentSectionWiresFilteredAlignmentWorkflowLaunch() throws {
+        let vc = InspectorViewController()
+        _ = vc.view
+        let bundle = try makeReferenceBundle()
+
+        vc.updateMappingAlignmentSection(from: bundle, applySettings: { _ in })
+
+        XCTAssertNotNil(
+            vc.readStyleSectionViewModel.onCreateFilteredAlignmentRequested,
+            "Mapping mode should wire BAM filtering launches through the Inspector workflow handler"
+        )
+    }
+
     func testEmptySidebarDeselectionPreservesActiveBundleContextForInspectorActions() throws {
         let vc = InspectorViewController()
         _ = vc.view
