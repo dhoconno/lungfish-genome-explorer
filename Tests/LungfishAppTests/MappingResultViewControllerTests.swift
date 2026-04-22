@@ -113,6 +113,34 @@ final class MappingResultViewControllerTests: XCTestCase {
         XCTAssertEqual(deliveredBundle?.manifest.name, "Fixture")
     }
 
+    func testConsensusExportUsesSelectedContigNameInSuggestedStem() throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+
+        vc.configureForTesting(result: makeMappingResult(viewerBundleURL: try makeReferenceBundleWithAnnotationDatabase()))
+
+        let request = try vc.testBuildConsensusExportRequest()
+
+        XCTAssertEqual(request.chromosome, "beta")
+        XCTAssertEqual(request.suggestedName, "example-beta-consensus")
+        XCTAssertFalse(request.showDeletions)
+        XCTAssertTrue(request.showInsertions)
+    }
+
+    func testConsensusExportFallsBackToVisibleChromosomeWhenSelectionClears() throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+
+        vc.configureForTesting(result: makeMappingResult(viewerBundleURL: try makeReferenceBundleWithAnnotationDatabase()))
+        vc.testSelectContig(named: "alpha")
+        vc.testClearContigSelection()
+
+        let request = try vc.testBuildConsensusExportRequest()
+
+        XCTAssertEqual(request.chromosome, "alpha")
+        XCTAssertEqual(request.suggestedName, "example-alpha-consensus")
+    }
+
     private func makeMappingResult(viewerBundleURL: URL? = nil) -> MappingResult {
         MappingResult(
             mapper: .minimap2,
