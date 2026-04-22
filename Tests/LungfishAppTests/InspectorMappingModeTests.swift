@@ -10,4 +10,11 @@ final class InspectorMappingModeTests: XCTestCase {
 
         XCTAssertEqual(viewModel.availableTabs, [.document, .selection])
     }
+
+    func testMappingModeKeepsSelectionTabAvailableForReadStyleControls() {
+        let viewModel = InspectorViewModel()
+        viewModel.contentMode = .mapping
+
+        XCTAssertEqual(viewModel.availableTabs, [.document, .selection])
+    }
 }

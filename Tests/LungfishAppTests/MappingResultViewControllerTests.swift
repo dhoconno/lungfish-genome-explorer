@@ -100,6 +100,19 @@ final class MappingResultViewControllerTests: XCTestCase {
         XCTAssertEqual(embeddedViewer.annotationSearchIndex?.entryCount, 1)
     }
 
+    func testEmbeddedViewerNotifiesHostWhenReferenceBundleLoads() throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+
+        let bundleURL = try makeReferenceBundleWithAnnotationDatabase()
+        var deliveredBundle: ReferenceBundle?
+        vc.onEmbeddedReferenceBundleLoaded = { deliveredBundle = $0 }
+
+        vc.configureForTesting(result: makeMappingResult(viewerBundleURL: bundleURL))
+
+        XCTAssertEqual(deliveredBundle?.manifest.name, "Fixture")
+    }
+
     private func makeMappingResult(viewerBundleURL: URL? = nil) -> MappingResult {
         MappingResult(
             mapper: .minimap2,
