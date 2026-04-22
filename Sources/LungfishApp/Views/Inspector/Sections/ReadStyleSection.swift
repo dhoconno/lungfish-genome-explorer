@@ -339,6 +339,9 @@ public final class ReadStyleSectionViewModel {
     /// Seeds the BAM-filter source track choices and default selection/output name.
     public func configureAlignmentFilterTracks(_ options: [AlignmentFilterTrackOption]) {
         alignmentFilterTrackOptions = options
+        let hadValidSelection = selectedAlignmentFilterSourceTrackID.flatMap { current in
+            options.first(where: { $0.id == current })
+        } != nil
 
         if let current = selectedAlignmentFilterSourceTrackID,
            options.contains(where: { $0.id == current }) == false {
@@ -347,8 +350,8 @@ public final class ReadStyleSectionViewModel {
 
         if selectedAlignmentFilterSourceTrackID == nil {
             selectedAlignmentFilterSourceTrackID = options.first?.id
-        } else {
-            refreshAlignmentFilterOutputTrackNameIfNeeded(force: true)
+        } else if hadValidSelection {
+            refreshAlignmentFilterOutputTrackNameIfNeeded()
         }
     }
 
@@ -379,12 +382,12 @@ public final class ReadStyleSectionViewModel {
         } else if let threshold = Double(trimmedIdentityText) {
             guard (0...100).contains(threshold) else {
                 throw AlignmentFilterInspectorValidationError
-                    .invalidMinimumPercentIdentity(alignmentFilterMinimumPercentIdentityText)
+                    .outOfRangeMinimumPercentIdentity(alignmentFilterMinimumPercentIdentityText)
             }
             identityFilter = .minimumPercentIdentity(threshold)
         } else {
             throw AlignmentFilterInspectorValidationError
-                .invalidMinimumPercentIdentity(alignmentFilterMinimumPercentIdentityText)
+                .invalidMinimumPercentIdentityText(alignmentFilterMinimumPercentIdentityText)
         }
 
         let minimumMAPQ = alignmentFilterMinimumMAPQ > 0 ? alignmentFilterMinimumMAPQ : nil
@@ -495,7 +498,8 @@ public enum AlignmentFilterInspectorValidationError: Error, LocalizedError, Equa
     case missingSourceTrackSelection
     case missingOutputTrackName
     case conflictingIdentityFilters
-    case invalidMinimumPercentIdentity(String)
+    case invalidMinimumPercentIdentityText(String)
+    case outOfRangeMinimumPercentIdentity(String)
 
     public var errorDescription: String? {
         switch self {
@@ -505,8 +509,10 @@ public enum AlignmentFilterInspectorValidationError: Error, LocalizedError, Equa
             return "Enter an output track name for the filtered BAM."
         case .conflictingIdentityFilters:
             return "Exact-match filtering cannot be combined with a minimum percent identity threshold."
-        case .invalidMinimumPercentIdentity(let value):
+        case .invalidMinimumPercentIdentityText(let value):
             return "Enter a numeric minimum percent identity value. Received '\(value)'."
+        case .outOfRangeMinimumPercentIdentity(let value):
+            return "Minimum percent identity must be between 0 and 100. Received '\(value)'."
         }
     }
 }

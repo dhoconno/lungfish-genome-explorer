@@ -32,6 +32,24 @@ final class AlignmentFilterInspectorStateTests: XCTestCase {
         XCTAssertEqual(viewModel.alignmentFilterOutputTrackName, "Tumor Reads deduplicated filtered")
     }
 
+    func testConfigureAlignmentFilterTracksPreservesCustomOutputNameForValidSelection() {
+        let viewModel = ReadStyleSectionViewModel()
+        viewModel.configureAlignmentFilterTracks([
+            .init(id: "track-a", name: "Tumor Reads"),
+            .init(id: "track-b", name: "Normal Reads")
+        ])
+        viewModel.selectedAlignmentFilterSourceTrackID = "track-b"
+        viewModel.alignmentFilterOutputTrackName = "Normal Reads curated subset"
+
+        viewModel.configureAlignmentFilterTracks([
+            .init(id: "track-a", name: "Tumor Reads"),
+            .init(id: "track-b", name: "Normal Reads")
+        ])
+
+        XCTAssertEqual(viewModel.selectedAlignmentFilterSourceTrackID, "track-b")
+        XCTAssertEqual(viewModel.alignmentFilterOutputTrackName, "Normal Reads curated subset")
+    }
+
     func testMakeAlignmentFilterLaunchRequestRejectsInvalidPercentIdentityText() {
         let viewModel = ReadStyleSectionViewModel()
         viewModel.configureAlignmentFilterTracks([
@@ -42,8 +60,9 @@ final class AlignmentFilterInspectorStateTests: XCTestCase {
         XCTAssertThrowsError(try viewModel.makeAlignmentFilterLaunchRequest()) { error in
             XCTAssertEqual(
                 error as? AlignmentFilterInspectorValidationError,
-                .invalidMinimumPercentIdentity("ninety")
+                .invalidMinimumPercentIdentityText("ninety")
             )
+            XCTAssertEqual(error.localizedDescription, "Enter a numeric minimum percent identity value. Received 'ninety'.")
         }
     }
 
@@ -59,10 +78,25 @@ final class AlignmentFilterInspectorStateTests: XCTestCase {
             XCTAssertThrowsError(try viewModel.makeAlignmentFilterLaunchRequest()) { error in
                 XCTAssertEqual(
                     error as? AlignmentFilterInspectorValidationError,
-                    .invalidMinimumPercentIdentity(invalidValue)
+                    .outOfRangeMinimumPercentIdentity(invalidValue)
                 )
+                XCTAssertEqual(error.localizedDescription, "Minimum percent identity must be between 0 and 100. Received '\(invalidValue)'.")
             }
         }
+    }
+
+    func testMakeAlignmentFilterLaunchRequestBuildsExactMatchIdentityFilterWhenThresholdFieldIsEmpty() throws {
+        let viewModel = ReadStyleSectionViewModel()
+        viewModel.configureAlignmentFilterTracks([
+            .init(id: "track-a", name: "Tumor Reads")
+        ])
+        viewModel.alignmentFilterExactMatchOnly = true
+        viewModel.alignmentFilterMinimumPercentIdentityText = ""
+
+        let request = try viewModel.makeAlignmentFilterLaunchRequest()
+
+        XCTAssertEqual(request.sourceTrackID, "track-a")
+        XCTAssertEqual(request.filterRequest.identityFilter, .exactMatch)
     }
 
     func testMakeAlignmentFilterLaunchRequestBuildsFilterOnlyRequestFromValidState() throws {
