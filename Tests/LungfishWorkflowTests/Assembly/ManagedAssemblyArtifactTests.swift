@@ -152,6 +152,34 @@ final class ManagedAssemblyArtifactTests: XCTestCase {
         XCTAssertEqual(loaded.statistics.contigCount, 1)
     }
 
+    func testAssemblyResultFromLegacyMapsZeroContigsToCompletedWithNoContigs() throws {
+        let tempDir = try makeTempDirectory(prefix: "legacy-spades-empty-result")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let contigsURL = tempDir.appendingPathComponent("contigs.fasta")
+        let logURL = tempDir.appendingPathComponent("spades.log")
+        try "".write(to: contigsURL, atomically: true, encoding: .utf8)
+        try "spades completed\n".write(to: logURL, atomically: true, encoding: .utf8)
+
+        let legacy = SPAdesAssemblyResult(
+            contigsPath: contigsURL,
+            scaffoldsPath: nil,
+            graphPath: nil,
+            logPath: logURL,
+            paramsPath: nil,
+            statistics: AssemblyStatisticsCalculator.computeFromLengths([]),
+            spadesVersion: "4.0.0",
+            wallTimeSeconds: 1,
+            commandLine: "spades.py -o output",
+            exitCode: 0
+        )
+
+        let converted = AssemblyResult.fromLegacy(legacy)
+
+        XCTAssertEqual(converted.outcome, .completedWithNoContigs)
+        XCTAssertEqual(converted.statistics.contigCount, 0)
+    }
+
     func testLegacyProvenanceInfersAppleContainerBackend() throws {
         let payload = """
         {

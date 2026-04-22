@@ -132,10 +132,14 @@ public extension AssemblyResult {
     }
 
     static func fromLegacy(_ result: SPAdesAssemblyResult) -> AssemblyResult {
-        AssemblyResult(
+        let outcome: AssemblyOutcome = result.statistics.contigCount == 0
+            ? .completedWithNoContigs
+            : .completed
+
+        return AssemblyResult(
             tool: .spades,
             readType: .illuminaShortReads,
-            outcome: .completed,
+            outcome: outcome,
             contigsPath: result.contigsPath,
             graphPath: result.graphPath,
             logPath: result.logPath,
