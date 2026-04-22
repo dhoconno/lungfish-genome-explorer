@@ -62,6 +62,7 @@ public struct PackToolStatus: Sendable, Codable, Hashable, Identifiable {
         storageUnavailablePath == nil && missingExecutables.isEmpty && smokeTestFailure == nil
     }
     public var needsReinstall: Bool { storageUnavailablePath == nil && environmentExists && !isReady }
+    public var hasVolatileSmokeTestFailure: Bool { smokeTestFailure != nil }
 
     public var statusText: String {
         if storageUnavailablePath != nil {
@@ -103,6 +104,9 @@ public struct PluginPackStatus: Sendable, Codable, Hashable, Identifiable {
         toolStatuses.contains {
             $0.requirement.managedDatabaseID == nil && $0.needsReinstall
         }
+    }
+    public var hasVolatileSmokeTestFailure: Bool {
+        toolStatuses.contains(where: \.hasVolatileSmokeTestFailure)
     }
 }
 
@@ -239,11 +243,13 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         let generation = cacheGeneration
         if let cachedVisibleStatuses,
            cachedVisibleStatuses.generation == generation {
-            if await visibleStatusesFingerprintMatches(forGeneration: generation) {
+            if !containsVolatileSmokeTestFailure(cachedVisibleStatuses.statuses),
+               await visibleStatusesFingerprintMatches(forGeneration: generation) {
                 return cachedVisibleStatuses.statuses
             }
 
-            if Date().timeIntervalSince(cachedVisibleStatuses.timestamp) < cacheLifetime {
+            if !containsVolatileSmokeTestFailure(cachedVisibleStatuses.statuses),
+               Date().timeIntervalSince(cachedVisibleStatuses.timestamp) < cacheLifetime {
                 _ = visibleStatusesRefreshTask(forGeneration: generation)
                 return cachedVisibleStatuses.statuses
             }
@@ -261,11 +267,13 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         let generation = cacheGeneration
 
         if let cached = cachedPackStatuses[pack.id], cached.generation == generation {
-            if await packFingerprintMatches(for: pack, cached: cached) {
+            if !cached.status.hasVolatileSmokeTestFailure,
+               await packFingerprintMatches(for: pack, cached: cached) {
                 return cached.status
             }
 
-            if Date().timeIntervalSince(cached.timestamp) < cacheLifetime {
+            if !cached.status.hasVolatileSmokeTestFailure,
+               Date().timeIntervalSince(cached.timestamp) < cacheLifetime {
                 _ = packStatusRefreshTask(for: pack, generation: generation)
                 return cached.status
             }
@@ -580,6 +588,10 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         inFlightPackStatuses[packID] = nil
     }
 
+    private func containsVolatileSmokeTestFailure(_ statuses: [PluginPackStatus]) -> Bool {
+        statuses.contains(where: \.hasVolatileSmokeTestFailure)
+    }
+
     private func loadPersistedSnapshotsIfNeeded() {
         guard !hasLoadedPersistedSnapshots else { return }
         hasLoadedPersistedSnapshots = true
@@ -588,7 +600,8 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
 
         do {
             let store = try JSONDecoder().decode(PersistedStatusSnapshotStore.self, from: data)
-            if let visibleStatuses = store.visibleStatuses {
+            if let visibleStatuses = store.visibleStatuses,
+               !containsVolatileSmokeTestFailure(visibleStatuses.statuses) {
                 cachedVisibleStatuses = (
                     generation: cacheGeneration,
                     timestamp: visibleStatuses.timestamp,
@@ -597,6 +610,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             }
 
             for (packID, snapshot) in store.packStatuses {
+                guard !snapshot.status.hasVolatileSmokeTestFailure else { continue }
                 cachedPackStatuses[packID] = CachedPackStatus(
                     generation: cacheGeneration,
                     timestamp: snapshot.timestamp,
@@ -613,6 +627,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
 
     private func persistSnapshots() {
         let packSnapshots = cachedPackStatuses.reduce(into: [String: PersistedPackStatusSnapshot]()) { snapshots, entry in
+            guard !entry.value.status.hasVolatileSmokeTestFailure else { return }
             snapshots[entry.key] = PersistedPackStatusSnapshot(
                 timestamp: entry.value.timestamp,
                 status: entry.value.status,
@@ -620,8 +635,9 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             )
         }
         let snapshotStore = PersistedStatusSnapshotStore(
-            visibleStatuses: cachedVisibleStatuses.map {
-                PersistedVisibleStatusesSnapshot(timestamp: $0.timestamp, statuses: $0.statuses)
+            visibleStatuses: cachedVisibleStatuses.flatMap {
+                guard !containsVolatileSmokeTestFailure($0.statuses) else { return nil }
+                return PersistedVisibleStatusesSnapshot(timestamp: $0.timestamp, statuses: $0.statuses)
             },
             packStatuses: packSnapshots
         )

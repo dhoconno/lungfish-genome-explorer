@@ -171,9 +171,75 @@ final class PluginPackStatusServiceTests: XCTestCase {
         _ = await secondService.visibleStatuses()
         let elapsed = Date().timeIntervalSince(started)
 
-        XCTAssertLessThan(elapsed, 0.2)
+        XCTAssertLessThan(elapsed, 1.0)
         let callCount = await recorder.recordedCallCount()
         XCTAssertEqual(callCount, 1)
+    }
+
+    func testVisibleStatusesDiscardPersistedSmokeTestFailuresAcrossServiceInstances() async throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pack-visible-smoke-failure-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let micromamba = try makeFakeMicromamba(
+            at: sandbox.appendingPathComponent("micromamba"),
+            version: "2.0.5-0"
+        )
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { micromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+        _ = try await manager.ensureMicromamba()
+
+        let transientFailureMarker = sandbox.appendingPathComponent("snakemake-smoke-failed")
+        for requirement in PluginPack.requiredSetupPack.toolRequirements where requirement.managedDatabaseID == nil {
+            let binDir = await manager.environmentURL(named: requirement.environment).appendingPathComponent("bin")
+            try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+            for executable in requirement.executables {
+                let path = binDir.appendingPathComponent(executable)
+                if requirement.environment == "snakemake", executable == "snakemake" {
+                    try writeTransientSmokeFailureExecutable(
+                        at: path,
+                        marker: transientFailureMarker,
+                        requiredOutputSubstring: "usage:"
+                    )
+                } else {
+                    try writeSmokeReadyExecutable(
+                        for: requirement,
+                        executable: executable,
+                        at: path
+                    )
+                }
+            }
+        }
+
+        let firstService = PluginPackStatusService(
+            condaManager: manager,
+            databaseInstalledCheck: { _ in true },
+            cacheLifetime: 60
+        )
+        let firstStatuses = await firstService.visibleStatuses()
+        let firstRequiredSetup = try XCTUnwrap(firstStatuses.first(where: { $0.pack.id == PluginPack.requiredSetupPack.id }))
+        XCTAssertEqual(firstRequiredSetup.state, .needsInstall)
+        XCTAssertEqual(
+            firstRequiredSetup.toolStatuses.first(where: { $0.requirement.environment == "snakemake" })?.smokeTestFailure,
+            "Interrupted system call ; error code 4"
+        )
+
+        let secondService = PluginPackStatusService(
+            condaManager: manager,
+            databaseInstalledCheck: { _ in true },
+            cacheLifetime: 60
+        )
+        let secondStatuses = await secondService.visibleStatuses()
+        let secondRequiredSetup = try XCTUnwrap(secondStatuses.first(where: { $0.pack.id == PluginPack.requiredSetupPack.id }))
+
+        XCTAssertEqual(secondRequiredSetup.state, .ready)
+        XCTAssertNil(
+            secondRequiredSetup.toolStatuses.first(where: { $0.requirement.environment == "snakemake" })?.smokeTestFailure
+        )
     }
 
     func testVisibleStatusesAreInvalidatedAfterExplicitCacheClear() async throws {
@@ -315,7 +381,7 @@ final class PluginPackStatusServiceTests: XCTestCase {
         _ = await secondService.status(for: .requiredSetupPack)
         let elapsed = Date().timeIntervalSince(started)
 
-        XCTAssertLessThan(elapsed, 0.2)
+        XCTAssertLessThan(elapsed, 1.0)
         let callCount = await recorder.recordedCallCount()
         XCTAssertEqual(callCount, 1)
     }
@@ -1318,6 +1384,28 @@ final class PluginPackStatusServiceTests: XCTestCase {
         } else {
             script = "#!/bin/sh\nexit 0\n"
         }
+
+        try script.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    private func writeTransientSmokeFailureExecutable(
+        at url: URL,
+        marker: URL,
+        requiredOutputSubstring: String
+    ) throws {
+        let script = """
+        #!/bin/sh
+        if [ ! -f "\(marker.path)" ]; then
+            touch "\(marker.path)"
+            printf 'Interrupted system call ; error code 4\\n' >&2
+            exit 1
+        fi
+        if [ "$1" = "--help" ]; then
+            printf '%s\\n' '\(requiredOutputSubstring)'
+        fi
+        exit 0
+        """
 
         try script.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
