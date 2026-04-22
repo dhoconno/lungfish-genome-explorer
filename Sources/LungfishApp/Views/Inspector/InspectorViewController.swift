@@ -14,6 +14,53 @@ import UniformTypeIdentifiers
 /// Logger for inspector operations
 private let logger = Logger(subsystem: LogSubsystem.app, category: "InspectorViewController")
 
+struct InspectorWorkflowAlert: Equatable {
+    let title: String
+    let message: String
+}
+
+enum FilteredAlignmentWorkflowReloadTarget: Equatable {
+    case mappingViewer
+    case bundleViewer
+
+    var failureAlertTitle: String {
+        switch self {
+        case .mappingViewer:
+            return "Mapping Viewer Reload Failed"
+        case .bundleViewer:
+            return "Reload Failed"
+        }
+    }
+}
+
+struct FilteredAlignmentWorkflowReloadActions {
+    let reloadMappingViewerBundle: () throws -> Void
+    let displayBundle: (URL) throws -> Void
+}
+
+struct FilteredAlignmentWorkflowLaunchContext: Equatable {
+    let bundleURL: URL
+    let reloadTarget: FilteredAlignmentWorkflowReloadTarget
+
+    var reloadFailureAlertTitle: String {
+        reloadTarget.failureAlertTitle
+    }
+
+    func reload(using actions: FilteredAlignmentWorkflowReloadActions) throws {
+        switch reloadTarget {
+        case .mappingViewer:
+            try actions.reloadMappingViewerBundle()
+        case .bundleViewer:
+            try actions.displayBundle(bundleURL)
+        }
+    }
+}
+
+enum FilteredAlignmentWorkflowStartOutcome: Equatable {
+    case launch(FilteredAlignmentWorkflowLaunchContext)
+    case blocked(InspectorWorkflowAlert)
+}
+
 // MARK: - InspectorTab
 
 /// Tab selection for the inspector panel's segmented control.
@@ -1586,6 +1633,19 @@ public class InspectorViewController: NSViewController {
         }
         guard let split = parent as? MainSplitViewController else { return }
 
+        let startOutcome = Self.makeFilteredAlignmentWorkflowStartOutcome(
+            bundleURL: bundleURL,
+            isMappingViewerDisplayedAtLaunch: split.viewerController.mappingResultController != nil
+        )
+        let launchContext: FilteredAlignmentWorkflowLaunchContext
+        switch startOutcome {
+        case .blocked(let alert):
+            presentSimpleAlert(title: alert.title, message: alert.message)
+            return
+        case .launch(let context):
+            launchContext = context
+        }
+
         viewModel.readStyleSectionViewModel.isAlignmentFilterWorkflowRunning = true
         split.activityIndicator.show(message: "Creating filtered alignment track...", style: .indeterminate)
 
@@ -1616,21 +1676,23 @@ public class InspectorViewController: NSViewController {
 
                         let createdTrackName = result.importResult.trackInfo.name
                         do {
-                            if split.viewerController.mappingResultController != nil {
-                                try split.viewerController.reloadMappingViewerBundleIfDisplayed()
-                            } else {
-                                try split.viewerController.displayBundle(at: bundleURL)
-                            }
+                            try launchContext.reload(
+                                using: FilteredAlignmentWorkflowReloadActions(
+                                    reloadMappingViewerBundle: {
+                                        try split.viewerController.reloadMappingViewerBundleIfDisplayed()
+                                    },
+                                    displayBundle: { url in
+                                        try split.viewerController.displayBundle(at: url)
+                                    }
+                                )
+                            )
                             self.presentSimpleAlert(
                                 title: "Filtered Alignment Created",
                                 message: "Created filtered alignment track \"\(createdTrackName)\"."
                             )
                         } catch {
-                            let title = split.viewerController.mappingResultController != nil
-                                ? "Mapping Viewer Reload Failed"
-                                : "Reload Failed"
                             self.presentSimpleAlert(
-                                title: title,
+                                title: launchContext.reloadFailureAlertTitle,
                                 message: "Filtered alignment track \"\(createdTrackName)\" was created, but the updated bundle could not be reloaded: \(error.localizedDescription)"
                             )
                         }
@@ -1651,6 +1713,35 @@ public class InspectorViewController: NSViewController {
                 }
             }
         }
+    }
+
+    static func makeFilteredAlignmentWorkflowStartOutcome(
+        bundleURL: URL,
+        isMappingViewerDisplayedAtLaunch: Bool,
+        canStartBundleMutation: (URL) -> Bool = { OperationCenter.shared.canStartOperation(on: $0) },
+        activeBundleMutationTitle: (URL) -> String? = { OperationCenter.shared.activeLockHolder(for: $0)?.title }
+    ) -> FilteredAlignmentWorkflowStartOutcome {
+        guard canStartBundleMutation(bundleURL) else {
+            let message: String
+            if let title = activeBundleMutationTitle(bundleURL) {
+                message = "\"\(title)\" is currently running on this bundle. Please wait for it to finish."
+            } else {
+                message = "Another operation is currently running on this bundle. Please wait for it to finish."
+            }
+            return .blocked(
+                InspectorWorkflowAlert(
+                    title: "Operation in Progress",
+                    message: message
+                )
+            )
+        }
+
+        return .launch(
+            FilteredAlignmentWorkflowLaunchContext(
+                bundleURL: bundleURL,
+                reloadTarget: isMappingViewerDisplayedAtLaunch ? .mappingViewer : .bundleViewer
+            )
+        )
     }
 
     /// Runs `samtools markdup` over all loaded alignment tracks and replaces those tracks in-place.
