@@ -7,14 +7,11 @@ import LungfishIO
 
 public enum AssemblyOutputNormalizerError: Error, LocalizedError {
     case missingPrimaryOutput(URL)
-    case emptyPrimaryOutput(tool: AssemblyTool, url: URL)
 
     public var errorDescription: String? {
         switch self {
         case .missingPrimaryOutput(let url):
             return "Expected assembly output was not produced: \(url.path)"
-        case .emptyPrimaryOutput(let tool, _):
-            return "\(tool.displayName) completed without producing any contigs."
         }
     }
 }
