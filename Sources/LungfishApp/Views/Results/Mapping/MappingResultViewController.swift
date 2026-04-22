@@ -241,8 +241,22 @@ public final class MappingResultViewController: NSViewController {
         }
 
         embeddedViewerController.clearViewport(statusMessage: "Loading mapping viewer...")
+        embeddedViewerController.annotationSearchIndex = nil
         try embeddedViewerController.displayBundle(at: standardized)
+        rebuildEmbeddedAnnotationSearchIndex()
         loadedViewerBundleURL = standardized
+    }
+
+    private func rebuildEmbeddedAnnotationSearchIndex() {
+        guard let bundle = embeddedViewerController.viewerView.currentReferenceBundle else {
+            embeddedViewerController.annotationSearchIndex = nil
+            return
+        }
+
+        let index = AnnotationSearchIndex()
+        let chromosomes = embeddedViewerController.currentBundleDataProvider?.chromosomes ?? []
+        index.buildIndex(bundle: bundle, chromosomes: chromosomes)
+        embeddedViewerController.annotationSearchIndex = index
     }
 
     private func displaySelectedContig(_ selectedContig: MappingContigSummary) {
