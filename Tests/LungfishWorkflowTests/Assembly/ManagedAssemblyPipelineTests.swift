@@ -25,15 +25,12 @@ final class ManagedAssemblyPipelineTests: XCTestCase {
         )
     }
 
-    private func makeWizardHifiasmRequest(
+    private func makeHifiasmRequestWithPrimaryOnly(
         readType: AssemblyReadType,
         selectedProfileID: String,
         primaryOnly: Bool = false
     ) -> AssemblyRunRequest {
         var extraArguments: [String] = []
-        if selectedProfileID == "haploid-viral" {
-            extraArguments += ["--n-hap", "1", "-l0", "-f0"]
-        }
         if primaryOnly {
             extraArguments.append("--primary")
         }
@@ -127,9 +124,11 @@ final class ManagedAssemblyPipelineTests: XCTestCase {
         XCTAssertEqual(command.environment, "hifiasm")
         XCTAssertEqual(command.workingDirectory, tempDir)
         XCTAssertEqual(command.arguments.filter { $0 == "--ont" }.count, 1)
-        XCTAssertEqual(command.arguments.last, "2")
+        let verbosityIndex = try XCTUnwrap(command.arguments.firstIndex(of: "--verbosity"))
+        XCTAssertEqual(command.arguments[verbosityIndex + 1], "2")
         XCTAssertTrue(command.arguments.contains(inputURL.path))
         XCTAssertEqual(command.arguments.filter { $0 == inputURL.path }.count, 1)
+        XCTAssertEqual(command.arguments.last, inputURL.path)
     }
 
     func testBuildsHifiasmCommandForOntDiploidOmitsHaploidFlags() throws {
@@ -144,8 +143,8 @@ final class ManagedAssemblyPipelineTests: XCTestCase {
         XCTAssertFalse(command.arguments.contains("-f0"))
     }
 
-    func testBuildsHifiasmCommandForOntWizardHaploidViralRequestIncludesCuratedFlagsOnce() throws {
-        let request = makeWizardHifiasmRequest(
+    func testBuildsHifiasmCommandForOntHaploidViralProfileIncludesCuratedFlagsOnce() throws {
+        let request = makeHifiasmRequest(
             readType: .ontReads,
             selectedProfileID: "haploid-viral"
         )
@@ -155,12 +154,29 @@ final class ManagedAssemblyPipelineTests: XCTestCase {
         XCTAssertTrue(command.arguments.contains("--ont"))
         XCTAssertEqual(command.arguments.filter { $0 == "--n-hap" }.count, 1)
         XCTAssertEqual(command.arguments.filter { $0 == "1" }.count, 1)
-        XCTAssertTrue(command.arguments.contains("-l0"))
-        XCTAssertTrue(command.arguments.contains("-f0"))
+        XCTAssertEqual(command.arguments.filter { $0 == "-l0" }.count, 1)
+        XCTAssertEqual(command.arguments.filter { $0 == "-f0" }.count, 1)
     }
 
-    func testBuildsHifiasmCommandForPacBioHiFiWizardHaploidViralRequestOmitsOntFlag() throws {
-        let request = makeWizardHifiasmRequest(
+    func testBuildsHifiasmCommandDoesNotDuplicateExplicitHaploidOverrides() throws {
+        let request = makeHifiasmRequest(
+            readType: .ontReads,
+            selectedProfileID: "haploid-viral",
+            extraArguments: ["--n-hap", "2", "-l0", "-f0"]
+        )
+
+        let command = try ManagedAssemblyPipeline.buildCommand(for: request)
+
+        XCTAssertTrue(command.arguments.contains("--ont"))
+        XCTAssertEqual(command.arguments.filter { $0 == "--n-hap" }.count, 1)
+        let hapIndex = try XCTUnwrap(command.arguments.firstIndex(of: "--n-hap"))
+        XCTAssertEqual(command.arguments[hapIndex + 1], "2")
+        XCTAssertEqual(command.arguments.filter { $0 == "-l0" }.count, 1)
+        XCTAssertEqual(command.arguments.filter { $0 == "-f0" }.count, 1)
+    }
+
+    func testBuildsHifiasmCommandForPacBioHiFiHaploidViralProfileOmitsOntFlag() throws {
+        let request = makeHifiasmRequest(
             readType: .pacBioHiFi,
             selectedProfileID: "haploid-viral"
         )
@@ -169,23 +185,12 @@ final class ManagedAssemblyPipelineTests: XCTestCase {
 
         XCTAssertFalse(command.arguments.contains("--ont"))
         XCTAssertEqual(command.arguments.filter { $0 == "--n-hap" }.count, 1)
-        XCTAssertTrue(command.arguments.contains("-l0"))
-        XCTAssertTrue(command.arguments.contains("-f0"))
-    }
-
-    func testBuildsHifiasmCommandDoesNotDeriveHaploidFlagsFromProfileIDAlone() throws {
-        let request = makeHifiasmRequest(readType: .ontReads, selectedProfileID: "haploid-viral")
-
-        let command = try ManagedAssemblyPipeline.buildCommand(for: request)
-
-        XCTAssertTrue(command.arguments.contains("--ont"))
-        XCTAssertFalse(command.arguments.contains("--n-hap"))
-        XCTAssertFalse(command.arguments.contains("-l0"))
-        XCTAssertFalse(command.arguments.contains("-f0"))
+        XCTAssertEqual(command.arguments.filter { $0 == "-l0" }.count, 1)
+        XCTAssertEqual(command.arguments.filter { $0 == "-f0" }.count, 1)
     }
 
     func testBuildsHifiasmCommandPrimaryToggleRemainsIndependentOfProfileSelection() throws {
-        let request = makeWizardHifiasmRequest(
+        let request = makeHifiasmRequestWithPrimaryOnly(
             readType: .pacBioHiFi,
             selectedProfileID: "diploid",
             primaryOnly: true

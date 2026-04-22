@@ -5,17 +5,6 @@
 import Foundation
 import LungfishIO
 
-public enum AssemblyOutputNormalizerError: Error, LocalizedError {
-    case missingPrimaryOutput(URL)
-
-    public var errorDescription: String? {
-        switch self {
-        case .missingPrimaryOutput(let url):
-            return "Expected assembly output was not produced: \(url.path)"
-        }
-    }
-}
-
 public enum AssemblyOutputNormalizer {
     public static func normalize(
         request: AssemblyRunRequest,
@@ -64,8 +53,12 @@ public enum AssemblyOutputNormalizer {
             paramsPath = nil
         }
 
-        guard fm.fileExists(atPath: contigsPath.path) else {
-            throw AssemblyOutputNormalizerError.missingPrimaryOutput(contigsPath)
+        if !fm.fileExists(atPath: contigsPath.path) {
+            // Some assemblers can exit successfully without materializing a
+            // primary FASTA when no contigs survive. Synthesize an empty file
+            // so the completed-with-no-contigs outcome can round-trip through
+            // the shared assembly result model and viewers.
+            try Data().write(to: contigsPath)
         }
 
         let statistics = try AssemblyStatisticsCalculator.compute(from: contigsPath)

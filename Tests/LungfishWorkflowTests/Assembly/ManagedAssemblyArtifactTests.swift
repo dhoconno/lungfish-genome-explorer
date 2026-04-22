@@ -333,6 +333,36 @@ final class ManagedAssemblyArtifactTests: XCTestCase {
         )
     }
 
+    func testNormalizeMegahitOutputsSynthesizesEmptyPrimaryOutputForNoContigSuccess() throws {
+        let tempDir = try makeTempDirectory(prefix: "megahit-empty-normalizer")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let request = AssemblyRunRequest(
+            tool: .megahit,
+            readType: .illuminaShortReads,
+            inputURLs: [URL(fileURLWithPath: "/tmp/sample.fastq.gz")],
+            projectName: "meta-demo",
+            outputDirectory: tempDir,
+            threads: 8
+        )
+
+        let result = try AssemblyOutputNormalizer.normalize(
+            request: request,
+            primaryOutputDirectory: tempDir,
+            commandLine: "megahit -r sample.fastq.gz -o output",
+            wallTimeSeconds: 9
+        )
+
+        let expectedContigsURL = tempDir.appendingPathComponent("final.contigs.fa")
+        XCTAssertEqual(result.outcome, .completedWithNoContigs)
+        XCTAssertEqual(result.contigsPath, expectedContigsURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: expectedContigsURL.path))
+        XCTAssertEqual(result.statistics.contigCount, 0)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: expectedContigsURL.appendingPathExtension("fai").path)
+        )
+    }
+
     func testAssembleCommandSourceIncludesEmptyContigCompletionBranch() throws {
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

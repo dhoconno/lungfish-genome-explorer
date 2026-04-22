@@ -30,11 +30,12 @@ final class AssemblyWizardSheetTests: XCTestCase {
         XCTAssertTrue(source.contains(#"return "diploid""#))
         XCTAssertTrue(source.contains(#".init(id: "diploid", title: "Diploid""#))
         XCTAssertTrue(source.contains(#".init(id: "haploid-viral", title: "Haploid/Viral""#))
-        XCTAssertTrue(source.contains(#"if selectedProfileID == "haploid-viral" {"#))
-        XCTAssertTrue(source.contains(#""--n-hap""#))
-        XCTAssertTrue(source.contains(#""-l0""#))
-        XCTAssertTrue(source.contains(#""-f0""#))
+        XCTAssertFalse(source.contains(#"if selectedProfileID == "haploid-viral" {"#))
+        XCTAssertFalse(source.contains(#""--n-hap""#))
+        XCTAssertFalse(source.contains(#""-l0""#))
+        XCTAssertFalse(source.contains(#""-f0""#))
         XCTAssertTrue(source.contains(#"if hifiasmPrimaryOnly {"#))
+        XCTAssertTrue(source.contains(#"arguments.append("--primary")"#))
     }
 
     private func repositoryRoot() -> URL {

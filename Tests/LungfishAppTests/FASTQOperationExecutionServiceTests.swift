@@ -584,6 +584,43 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         )
     }
 
+    func testAssemblyLaunchBuildsHifiasmProfileInvocationWithoutCuratedFlagDuplication() throws {
+        let request = FASTQOperationLaunchRequest.assemble(
+            request: AssemblyRunRequest(
+                tool: .hifiasm,
+                readType: .pacBioHiFi,
+                inputURLs: [URL(fileURLWithPath: "/tmp/sample.fastq.gz")],
+                projectName: "Demo",
+                outputDirectory: URL(fileURLWithPath: "/tmp/assembly-out"),
+                threads: 8,
+                memoryGB: nil,
+                minContigLength: nil,
+                selectedProfileID: "haploid-viral",
+                extraArguments: ["--primary"]
+            ),
+            outputMode: .groupedResult
+        )
+
+        let invocation = try FASTQOperationExecutionService().buildInvocation(for: request)
+
+        XCTAssertEqual(
+            invocation.arguments,
+            [
+                "/tmp/sample.fastq.gz",
+                "--assembler", "hifiasm",
+                "--read-type", "pacbio-hifi",
+                "--project-name", "Demo",
+                "--threads", "8",
+                "--output", "<derived>",
+                "--profile", "haploid-viral",
+                "--extra-arg", "--primary",
+            ]
+        )
+        XCTAssertFalse(invocation.arguments.contains("--n-hap"))
+        XCTAssertFalse(invocation.arguments.contains("-l0"))
+        XCTAssertFalse(invocation.arguments.contains("-f0"))
+    }
+
     func testAssemblyLaunchNormalizesZeroMinContigLengthToOne() throws {
         let request = FASTQOperationLaunchRequest.assemble(
             request: AssemblyRunRequest(

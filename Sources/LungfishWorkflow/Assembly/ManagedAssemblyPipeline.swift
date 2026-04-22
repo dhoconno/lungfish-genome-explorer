@@ -301,11 +301,13 @@ public struct ManagedAssemblyPipeline: Sendable {
             withIntermediateDirectories: true
         )
         let outputPrefix = request.outputDirectory.appendingPathComponent(request.projectName).path
-        var arguments = ["-o", outputPrefix, "-t", "\(request.threads)", inputURL.path]
+        var arguments = ["-o", outputPrefix, "-t", "\(request.threads)"]
         if request.readType == .ontReads {
             arguments.insert("--ont", at: 0)
         }
+        appendHifiasmProfileArguments(to: &arguments, request: request)
         arguments += request.extraArguments
+        arguments.append(inputURL.path)
         return ManagedAssemblyCommand(
             executable: "hifiasm",
             arguments: arguments,
@@ -385,6 +387,22 @@ public struct ManagedAssemblyPipeline: Sendable {
 
     private static func containsArgument(named flag: String, in arguments: [String]) -> Bool {
         arguments.contains(flag) || arguments.contains { $0.hasPrefix("\(flag)=") }
+    }
+
+    private static func appendHifiasmProfileArguments(
+        to arguments: inout [String],
+        request: AssemblyRunRequest
+    ) {
+        guard request.selectedProfileID == "haploid-viral" else { return }
+        if !containsArgument(named: "--n-hap", in: request.extraArguments) {
+            arguments += ["--n-hap", "1"]
+        }
+        if !request.extraArguments.contains("-l0") {
+            arguments.append("-l0")
+        }
+        if !request.extraArguments.contains("-f0") {
+            arguments.append("-f0")
+        }
     }
 
     private static func toolRequiresFreshOutputDirectory(_ tool: AssemblyTool) -> Bool {

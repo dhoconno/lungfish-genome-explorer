@@ -721,9 +721,6 @@ struct AssemblyWizardSheet: View {
                 arguments.append("--meta")
             }
         case .hifiasm:
-            if selectedProfileID == "haploid-viral" {
-                arguments.append(contentsOf:["--n-hap","1","-l0","-f0"])
-            }
             if hifiasmPrimaryOnly {
                 arguments.append("--primary")
             }
