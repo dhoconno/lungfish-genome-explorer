@@ -298,8 +298,8 @@ public struct FASTAIndexBuilder {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
 
-        guard let data = try handle.readToEnd(),
-              let content = String(data: data, encoding: .utf8) else {
+        let data = try handle.readToEnd() ?? Data()
+        guard let content = String(data: data, encoding: .utf8) else {
             throw FASTAError.invalidEncoding
         }
 

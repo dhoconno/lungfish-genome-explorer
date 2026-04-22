@@ -352,6 +352,20 @@ final class FASTAIndexRegressionTests: XCTestCase {
         XCTAssertEqual(index.length(of: "seq2"), 16) // GGGGAAAATTTTCCCC
     }
 
+    func testBuildAndWriteEmptyFASTAProducesEmptyIndex() throws {
+        let fastaURL = tempDir.appendingPathComponent("empty.fasta")
+        try "".write(to: fastaURL, atomically: true, encoding: .utf8)
+
+        try FASTAIndexBuilder.buildAndWrite(for: fastaURL)
+
+        let faiURL = fastaURL.appendingPathExtension("fai")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: faiURL.path))
+
+        let index = try FASTAIndex(url: faiURL)
+        XCTAssertEqual(index.count, 0)
+        XCTAssertTrue(index.sequenceNames.isEmpty)
+    }
+
     func testBuildAndWrite() throws {
         let fastaContent = ">genome\nATCG\n"
         let fastaURL = tempDir.appendingPathComponent("genome.fasta")
