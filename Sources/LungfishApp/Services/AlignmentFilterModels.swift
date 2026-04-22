@@ -8,12 +8,13 @@ import Foundation
 public enum AlignmentFilterDuplicateMode: String, Sendable, Codable, Equatable {
     /// Exclude duplicates from the filtered output.
     case exclude
-    /// Remove duplicates as part of producing a derived BAM.
+    /// Mark duplicates first, then exclude duplicate-marked reads from the final derived BAM.
     case remove
 }
 
 /// Explicit preprocessing required before the final `samtools view` step.
 public enum AlignmentFilterPreprocessingStep: Sendable, Codable, Equatable {
+    /// `removeDuplicates == false` represents duplicate marking only.
     case samtoolsMarkdup(removeDuplicates: Bool)
 }
 

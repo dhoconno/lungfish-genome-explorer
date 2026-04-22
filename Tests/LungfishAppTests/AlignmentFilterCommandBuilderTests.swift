@@ -46,7 +46,7 @@ final class AlignmentFilterCommandBuilderTests: XCTestCase {
         XCTAssertEqual(plan.requiredSAMTags, ["NM"])
     }
 
-    func testBuildUsesPercentIdentityExpressionBasedOnAlignedQueryBases() throws {
+    func testBuildUsesPercentIdentityExpressionBasedOnAlignedQueryBasesAfterDuplicateMarking() throws {
         let request = AlignmentFilterRequest(
             mappedOnly: false,
             primaryOnly: false,
@@ -60,11 +60,12 @@ final class AlignmentFilterCommandBuilderTests: XCTestCase {
 
         XCTAssertEqual(plan.arguments, [
             "-b",
+            "-F", "0x400",
             "-e", "(qlen > sclen) && (((qlen - sclen - [NM]) / (qlen - sclen)) * 100 >= 95)"
         ])
         XCTAssertTrue(plan.trailingArguments.isEmpty)
         XCTAssertEqual(plan.duplicateMode, .remove)
-        XCTAssertEqual(plan.preprocessingSteps, [.samtoolsMarkdup(removeDuplicates: true)])
+        XCTAssertEqual(plan.preprocessingSteps, [.samtoolsMarkdup(removeDuplicates: false)])
         XCTAssertEqual(
             plan.identityFilterExpression,
             "(qlen > sclen) && (((qlen - sclen - [NM]) / (qlen - sclen)) * 100 >= 95)"

@@ -25,7 +25,7 @@ public enum AlignmentFilterCommandBuilder {
         if request.primaryOnly {
             excludeFlags |= 0x900
         }
-        if request.duplicateMode == .exclude {
+        if request.duplicateMode == .exclude || request.duplicateMode == .remove {
             excludeFlags |= 0x400
         }
 
@@ -54,7 +54,7 @@ public enum AlignmentFilterCommandBuilder {
         for duplicateMode: AlignmentFilterDuplicateMode?
     ) -> [AlignmentFilterPreprocessingStep] {
         guard duplicateMode == .remove else { return [] }
-        return [.samtoolsMarkdup(removeDuplicates: true)]
+        return [.samtoolsMarkdup(removeDuplicates: false)]
     }
 
     private static func validatedTrailingArguments(_ region: String?) throws -> [String] {
