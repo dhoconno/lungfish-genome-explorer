@@ -273,6 +273,9 @@ public enum AssemblyRunner {
             }
 
             await MainActor.run {
+                if result.outcome == .completedWithNoContigs {
+                    OperationCenter.shared.log(id: opID, level: .warning, message: completionDetail(for: result))
+                }
                 OperationCenter.shared.complete(
                     id: opID,
                     detail: completionDetail(for: result),
@@ -470,6 +473,9 @@ public enum AssemblyRunner {
             let normalizedResult = AssemblyResult.fromLegacy(result)
 
             await MainActor.run {
+                if normalizedResult.outcome == .completedWithNoContigs {
+                    OperationCenter.shared.log(id: opID, level: .warning, message: completionDetail(for: normalizedResult))
+                }
                 OperationCenter.shared.complete(
                     id: opID,
                     detail: completionDetail(for: normalizedResult),

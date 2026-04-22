@@ -17,6 +17,8 @@ final class AssemblyConfigurationViewModelSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("title: completionNotificationTitle(for: result)"))
         XCTAssertTrue(source.contains("title: completionNotificationTitle(for: normalizedResult)"))
         XCTAssertGreaterThanOrEqual(source.components(separatedBy: "completionNotificationBody(").count - 1, 3)
+        XCTAssertTrue(source.contains("OperationCenter.shared.log(id: opID, level: .warning, message: completionDetail(for: result))"))
+        XCTAssertTrue(source.contains("OperationCenter.shared.log(id: opID, level: .warning, message: completionDetail(for: normalizedResult))"))
         XCTAssertTrue(source.contains("result.outcome == .completedWithNoContigs"))
     }
 
