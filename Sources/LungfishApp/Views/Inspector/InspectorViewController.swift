@@ -1646,6 +1646,10 @@ public class InspectorViewController: NSViewController {
             launchContext = context
         }
 
+        let operationID = Self.startFilteredAlignmentWorkflowOperation(
+            bundleURL: bundleURL,
+            outputTrackName: request.outputTrackName
+        )
         viewModel.readStyleSectionViewModel.isAlignmentFilterWorkflowRunning = true
         split.activityIndicator.show(message: "Creating filtered alignment track...", style: .indeterminate)
 
@@ -1656,21 +1660,31 @@ public class InspectorViewController: NSViewController {
                     sourceTrackID: request.sourceTrackID,
                     outputTrackName: request.outputTrackName,
                     filterRequest: request.filterRequest,
-                    progressHandler: { [weak self] _, message in
+                    progressHandler: { [weak self] progress, message in
                         DispatchQueue.main.async {
-                            guard let self,
-                                  let split = self.parent as? MainSplitViewController else { return }
                             MainActor.assumeIsolated {
-                                split.activityIndicator.updateMessage(message)
+                                OperationCenter.shared.update(
+                                    id: operationID,
+                                    progress: max(0.01, min(0.99, progress)),
+                                    detail: message
+                                )
+                                if let self,
+                                   let split = self.parent as? MainSplitViewController {
+                                    split.activityIndicator.updateMessage(message)
+                                }
                             }
                         }
                     }
                 )
 
                 DispatchQueue.main.async { [weak self] in
-                    guard let self,
-                          let split = self.parent as? MainSplitViewController else { return }
                     MainActor.assumeIsolated {
+                        OperationCenter.shared.complete(
+                            id: operationID,
+                            detail: "Created filtered alignment track \"\(result.importResult.trackInfo.name)\"."
+                        )
+                        guard let self,
+                              let split = self.parent as? MainSplitViewController else { return }
                         self.viewModel.readStyleSectionViewModel.isAlignmentFilterWorkflowRunning = false
                         split.activityIndicator.hide()
 
@@ -1700,9 +1714,14 @@ public class InspectorViewController: NSViewController {
                 }
             } catch {
                 DispatchQueue.main.async { [weak self] in
-                    guard let self,
-                          let split = self.parent as? MainSplitViewController else { return }
                     MainActor.assumeIsolated {
+                        OperationCenter.shared.fail(
+                            id: operationID,
+                            detail: error.localizedDescription,
+                            errorMessage: error.localizedDescription
+                        )
+                        guard let self,
+                              let split = self.parent as? MainSplitViewController else { return }
                         self.viewModel.readStyleSectionViewModel.isAlignmentFilterWorkflowRunning = false
                         split.activityIndicator.hide()
                         self.presentSimpleAlert(
@@ -1741,6 +1760,18 @@ public class InspectorViewController: NSViewController {
                 bundleURL: bundleURL,
                 reloadTarget: isMappingViewerDisplayedAtLaunch ? .mappingViewer : .bundleViewer
             )
+        )
+    }
+
+    static func startFilteredAlignmentWorkflowOperation(
+        bundleURL: URL,
+        outputTrackName: String
+    ) -> UUID {
+        OperationCenter.shared.start(
+            title: "Create Filtered Alignment Track",
+            detail: "Preparing \(outputTrackName)...",
+            operationType: .bamImport,
+            targetBundleURL: bundleURL
         )
     }
 

@@ -55,7 +55,7 @@
 - Create: `Sources/LungfishApp/Services/AlignmentFilterCommandBuilder.swift`
 - Test: `Tests/LungfishAppTests/AlignmentFilterCommandBuilderTests.swift`
 
-- [ ] **Step 1: Write the failing command-builder tests**
+- [x] **Step 1: Write the failing command-builder tests**
 
 ```swift
 import XCTest
@@ -124,7 +124,7 @@ final class AlignmentFilterCommandBuilderTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run:
 
@@ -134,7 +134,7 @@ swift test --filter AlignmentFilterCommandBuilderTests
 
 Expected: FAIL with errors such as `cannot find 'AlignmentFilterRequest' in scope`.
 
-- [ ] **Step 3: Add the filter request/provenance model types**
+- [x] **Step 3: Add the filter request/provenance model types**
 
 ```swift
 import Foundation
@@ -192,7 +192,7 @@ public enum AlignmentFilterError: Error, LocalizedError, Sendable, Equatable {
 }
 ```
 
-- [ ] **Step 4: Implement the pure command builder**
+- [x] **Step 4: Implement the pure command builder**
 
 ```swift
 import Foundation
@@ -274,7 +274,7 @@ enum AlignmentFilterCommandBuilder {
 }
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run:
 
@@ -284,7 +284,7 @@ swift test --filter AlignmentFilterCommandBuilderTests
 
 Expected: PASS with `Executed 2 tests`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add \
@@ -303,7 +303,7 @@ git commit -m "feat: add BAM filter command builder"
 - Test: `Tests/LungfishAppTests/AlignmentFilterServiceTests.swift`
 - Test: `Tests/LungfishAppTests/AlignmentDuplicateServiceTests.swift`
 
-- [ ] **Step 1: Write the failing service tests**
+- [x] **Step 1: Write the failing service tests**
 
 ```swift
 import XCTest
@@ -382,7 +382,7 @@ final class AlignmentFilterServiceTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run:
 
@@ -392,7 +392,7 @@ swift test --filter AlignmentFilterServiceTests
 
 Expected: FAIL with errors such as `cannot find 'AlignmentFilterService' in scope`.
 
-- [ ] **Step 3: Extract the shared markdup helper and switch duplicate workflows to it**
+- [x] **Step 3: Extract the shared markdup helper and switch duplicate workflows to it**
 
 ```swift
 import Foundation
@@ -491,7 +491,7 @@ private static func runMarkdupPipeline(
 }
 ```
 
-- [ ] **Step 4: Implement the filter service with sidecar/provenance writing**
+- [x] **Step 4: Implement the filter service with sidecar/provenance writing**
 
 ```swift
 import Foundation
@@ -573,7 +573,7 @@ final class AlignmentFilterService: @unchecked Sendable {
 }
 ```
 
-- [ ] **Step 5: Run the targeted tests**
+- [x] **Step 5: Run the targeted tests**
 
 Run:
 
@@ -583,7 +583,7 @@ swift test --filter 'AlignmentFilterServiceTests|AlignmentDuplicateServiceTests'
 
 Expected: PASS with the new service tests green and duplicate-service tests still green.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add \
@@ -601,7 +601,7 @@ git commit -m "feat: add shared BAM filtering service"
 - Modify: `Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift`
 - Test: `Tests/LungfishAppTests/AlignmentFilterInspectorStateTests.swift`
 
-- [ ] **Step 1: Write the failing Inspector state tests**
+- [x] **Step 1: Write the failing Inspector state tests**
 
 ```swift
 import XCTest
@@ -637,7 +637,7 @@ final class AlignmentFilterInspectorStateTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run:
 
@@ -647,7 +647,7 @@ swift test --filter AlignmentFilterInspectorStateTests
 
 Expected: FAIL with errors such as `value of type 'ReadStyleSectionViewModel' has no member 'configureAlignmentFilterTracks'`.
 
-- [ ] **Step 3: Add filter state and request-construction helpers to the Inspector view model**
+- [x] **Step 3: Add filter state and request-construction helpers to the Inspector view model**
 
 ```swift
 public final class ReadStyleSectionViewModel {
@@ -717,7 +717,7 @@ public final class ReadStyleSectionViewModel {
 }
 ```
 
-- [ ] **Step 4: Add the Inspector controls plus richer derived-track metadata/provenance display**
+- [x] **Step 4: Add the Inspector controls plus richer derived-track metadata/provenance display**
 
 ```swift
 Divider()
@@ -812,7 +812,7 @@ if !viewModel.fileInfo.isEmpty {
 }
 ```
 
-- [ ] **Step 5: Run the targeted tests**
+- [x] **Step 5: Run the targeted tests**
 
 Run:
 
@@ -822,7 +822,7 @@ swift test --filter AlignmentFilterInspectorStateTests
 
 Expected: PASS with the new Inspector-state tests green.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add \
@@ -840,7 +840,7 @@ git commit -m "feat: add Inspector BAM filter controls"
 - Test: `Tests/LungfishAppTests/InspectorMappingModeTests.swift`
 - Test: `Tests/LungfishAppTests/MappingResultViewControllerTests.swift`
 
-- [ ] **Step 1: Write the failing mapping-wiring tests**
+- [x] **Step 1: Write the failing mapping-wiring tests**
 
 ```swift
 @MainActor
@@ -872,7 +872,7 @@ final class MappingResultViewControllerTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run:
 
@@ -882,7 +882,7 @@ swift test --filter 'InspectorMappingModeTests|MappingResultViewControllerTests'
 
 Expected: FAIL with errors such as `value of type 'ReadStyleSectionViewModel' has no member 'onCreateFilteredAlignmentRequested'` or `no member 'reloadViewerBundleForInspectorChanges'`.
 
-- [ ] **Step 3: Implement Inspector workflow launch, success reloads, and mapping viewer-bundle refresh**
+- [x] **Step 3: Implement Inspector workflow launch, success reloads, and mapping viewer-bundle refresh**
 
 ```swift
 // InspectorViewController.swift
@@ -979,7 +979,7 @@ public func reloadMappingViewerBundleIfDisplayed() throws {
 }
 ```
 
-- [ ] **Step 4: Run the targeted tests**
+- [x] **Step 4: Run the targeted tests**
 
 Run:
 
@@ -989,7 +989,7 @@ swift test --filter 'InspectorMappingModeTests|MappingResultViewControllerTests'
 
 Expected: PASS with both test classes green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add \
@@ -1006,7 +1006,7 @@ git commit -m "feat: wire Inspector BAM filtering workflow"
 **Files:**
 - Modify: `docs/superpowers/plans/2026-04-22-bam-filtering-implementation.md` (check off completed steps during execution)
 
-- [ ] **Step 1: Run the focused app test suite**
+- [x] **Step 1: Run the focused app test suite**
 
 Run:
 
@@ -1016,7 +1016,7 @@ swift test --filter 'AlignmentFilterCommandBuilderTests|AlignmentFilterServiceTe
 
 Expected: PASS with all new and touched test classes green.
 
-- [ ] **Step 2: Run a broader alignment-related regression sweep**
+- [x] **Step 2: Run a broader alignment-related regression sweep**
 
 Run:
 

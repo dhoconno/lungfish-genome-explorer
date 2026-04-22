@@ -92,4 +92,30 @@ final class InspectorFilteredAlignmentWorkflowTests: XCTestCase {
             "\"Variant Calling\" is currently running on this bundle. Please wait for it to finish."
         )
     }
+
+    func testStartFilteredAlignmentWorkflowOperationLocksBundleUntilCompletion() {
+        let bundleURL = URL(fileURLWithPath: "/tmp/filter-running-fixture.lungfishref", isDirectory: true)
+
+        let operationID = InspectorViewController.startFilteredAlignmentWorkflowOperation(
+            bundleURL: bundleURL,
+            outputTrackName: "Exact Matches"
+        )
+        defer {
+            OperationCenter.shared.fail(id: operationID, detail: "Cancelled for test cleanup")
+        }
+
+        XCTAssertFalse(OperationCenter.shared.canStartOperation(on: bundleURL))
+        XCTAssertEqual(
+            OperationCenter.shared.activeLockHolder(for: bundleURL)?.title,
+            "Create Filtered Alignment Track"
+        )
+
+        OperationCenter.shared.complete(
+            id: operationID,
+            detail: "Created filtered alignment track \"Exact Matches\"."
+        )
+
+        XCTAssertTrue(OperationCenter.shared.canStartOperation(on: bundleURL))
+        XCTAssertNil(OperationCenter.shared.activeLockHolder(for: bundleURL))
+    }
 }
