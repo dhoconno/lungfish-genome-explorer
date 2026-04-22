@@ -597,7 +597,7 @@ public enum ReadTrackRenderer {
         public var showIndels: Bool = true
         public var consensusMaskingEnabled: Bool = false
         public var consensusGapThreshold: Double = 0.9
-        public var consensusMinDepth: Int = 8
+        public var consensusMaskingMinDepth: Int = 8
         /// When true, forward reads have blue-tinted backgrounds and reverse reads
         /// have pink-tinted backgrounds. When false, all reads share a neutral background.
         public var showStrandColors: Bool = true
@@ -608,7 +608,7 @@ public enum ReadTrackRenderer {
             showIndels: Bool = true,
             consensusMaskingEnabled: Bool = false,
             consensusGapThreshold: Double = 0.9,
-            consensusMinDepth: Int = 8,
+            consensusMaskingMinDepth: Int = 8,
             showStrandColors: Bool = true
         ) {
             self.showMismatches = showMismatches
@@ -616,7 +616,7 @@ public enum ReadTrackRenderer {
             self.showIndels = showIndels
             self.consensusMaskingEnabled = consensusMaskingEnabled
             self.consensusGapThreshold = consensusGapThreshold
-            self.consensusMinDepth = consensusMinDepth
+            self.consensusMaskingMinDepth = consensusMaskingMinDepth
             self.showStrandColors = showStrandColors
         }
     }

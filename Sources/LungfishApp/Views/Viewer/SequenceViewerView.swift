@@ -185,8 +185,11 @@ public class SequenceViewerView: NSView {
     /// Gap masking threshold in percent (e.g., 90 = hide columns with >=90% gaps).
     var consensusGapThresholdPercentSetting: Int = 90
 
-    /// Minimum spanning depth required before gap masking is applied.
+    /// Minimum depth required before a consensus base is emitted.
     var consensusMinDepthSetting: Int = 8
+
+    /// Minimum spanning depth required before high-gap masking is applied.
+    var consensusMaskingMinDepthSetting: Int = 8
 
     /// Minimum mapping quality used for consensus/depth calculations.
     var consensusMinMapQSetting: Int = 0
@@ -1812,7 +1815,7 @@ public class SequenceViewerView: NSView {
                 showIndels: showIndelsSetting,
                 consensusMaskingEnabled: consensusMaskingEnabledSetting,
                 consensusGapThreshold: Double(consensusGapThresholdPercentSetting) / 100.0,
-                consensusMinDepth: consensusMinDepthSetting,
+                consensusMaskingMinDepth: consensusMaskingMinDepthSetting,
                 showStrandColors: showStrandColorsSetting
             )
 
@@ -1968,7 +1971,7 @@ public class SequenceViewerView: NSView {
                         maskedPositions = ReadTrackRenderer.computeHighGapMaskedPositions(
                             packedReads: cachedPackedReads,
                             visibleRegion: visibleRegion.start..<visibleRegion.end,
-                            minDepth: displaySettings.consensusMinDepth,
+                            minDepth: displaySettings.consensusMaskingMinDepth,
                             gapThreshold: displaySettings.consensusGapThreshold
                         )
                     } else {

@@ -27,6 +27,13 @@ final class ReadStyleSectionViewModelTests: XCTestCase {
         XCTAssertFalse(vm.hasAlignmentTracks)
     }
 
+    func testDefaultSettingsExposeSeparateConsensusAndMaskingDepths() {
+        let vm = ReadStyleSectionViewModel()
+
+        XCTAssertEqual(vm.consensusMinDepth, 8)
+        XCTAssertEqual(vm.consensusMaskingMinDepth, 8)
+    }
+
     // MARK: - Clear
 
     func testClearResetsAllStatistics() {
@@ -145,8 +152,6 @@ final class ReadStyleSectionViewModelTests: XCTestCase {
         db.setFileInfo("source_path", value: "/path/to/test.bam")
 
         // Read it back from the VM
-        let vm = ReadStyleSectionViewModel()
-
         // Verify the DB can be opened read-only and data is correct
         let readDB = try AlignmentMetadataDatabase(url: dbURL)
         let stats = readDB.chromosomeStats()
@@ -179,6 +184,13 @@ final class ReadStyleSectionViewModelTests: XCTestCase {
         XCTAssertEqual(NotificationUserInfoKey.showMismatches, "showMismatches")
         XCTAssertEqual(NotificationUserInfoKey.showSoftClips, "showSoftClips")
         XCTAssertEqual(NotificationUserInfoKey.showIndels, "showIndels")
+    }
+
+    func testNotificationUserInfoKeysIncludeConsensusMaskingMinDepth() {
+        XCTAssertEqual(
+            NotificationUserInfoKey.consensusMaskingMinDepth,
+            "consensusMaskingMinDepth"
+        )
     }
 
     // MARK: - ProgramRecordEntry

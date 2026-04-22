@@ -860,6 +860,9 @@ public class ViewerViewController: NSViewController {
         if let minDepth = userInfo[NotificationUserInfoKey.consensusMinDepth] as? Int {
             viewerView.consensusMinDepthSetting = max(1, min(500, minDepth))
         }
+        if let maskingMinDepth = userInfo[NotificationUserInfoKey.consensusMaskingMinDepth] as? Int {
+            viewerView.consensusMaskingMinDepthSetting = max(1, min(500, maskingMinDepth))
+        }
         if let minMapQ = userInfo[NotificationUserInfoKey.consensusMinMapQ] as? Int {
             viewerView.consensusMinMapQSetting = max(0, min(60, minMapQ))
         }

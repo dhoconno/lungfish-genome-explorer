@@ -120,7 +120,8 @@ extension Notification.Name {
     /// "minMapQ" (Int), "showMismatches" (Bool), "showSoftClips" (Bool),
     /// "showIndels" (Bool), "consensusMaskingEnabled" (Bool),
     /// "consensusGapThresholdPercent" (Int), "consensusMinDepth" (Int),
-    /// "consensusMinMapQ" (Int), "consensusMinBaseQ" (Int),
+    /// "consensusMaskingMinDepth" (Int), "consensusMinMapQ" (Int),
+    /// "consensusMinBaseQ" (Int),
     /// "limitReadRows" (Bool), "verticalCompressContig" (Bool),
     /// "showConsensusTrack" (Bool), "consensusMode" (String),
     /// "consensusUseAmbiguity" (Bool)
@@ -375,6 +376,9 @@ public enum NotificationUserInfoKey {
 
     /// Key for minimum depth required before a consensus/gap decision is applied.
     public static let consensusMinDepth = "consensusMinDepth"
+
+    /// Key for minimum spanning depth required before gap masking is applied.
+    public static let consensusMaskingMinDepth = "consensusMaskingMinDepth"
 
     /// Key for consensus/depth minimum mapping quality (Int).
     public static let consensusMinMapQ = "consensusMinMapQ"

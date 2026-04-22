@@ -44,8 +44,11 @@ public final class ReadStyleSectionViewModel {
     /// Hide columns where gaps exceed this percentage among spanning reads.
     public var consensusGapThresholdPercent: Double = 90
 
-    /// Minimum spanning depth required before gap masking is applied.
+    /// Minimum depth required before a consensus base is emitted.
     public var consensusMinDepth: Double = 8
+
+    /// Minimum spanning depth required before high-gap masking is applied.
+    public var consensusMaskingMinDepth: Double = 8
 
     /// Minimum mapping quality used by consensus/depth calculations.
     public var consensusMinMapQ: Double = 0
@@ -709,6 +712,18 @@ public struct ReadStyleSection: View {
                 }
                 .help("When enabled, columns where most spanning reads are gaps are masked in packed/base views.")
 
+            HStack {
+                Text("Consensus Min Depth")
+                Spacer()
+                Text("\(Int(viewModel.consensusMinDepth))")
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            Slider(value: $viewModel.consensusMinDepth, in: 1...50, step: 1)
+                .onChange(of: viewModel.consensusMinDepth) { _, _ in
+                    viewModel.onSettingsChanged?()
+                }
+
             if viewModel.consensusMaskingEnabled {
                 HStack {
                     Text("Gap Threshold")
@@ -723,14 +738,14 @@ public struct ReadStyleSection: View {
                     }
 
                 HStack {
-                    Text("Min Depth")
+                    Text("Masking Min Depth")
                     Spacer()
-                    Text("\(Int(viewModel.consensusMinDepth))")
+                    Text("\(Int(viewModel.consensusMaskingMinDepth))")
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
-                Slider(value: $viewModel.consensusMinDepth, in: 2...50, step: 1)
-                    .onChange(of: viewModel.consensusMinDepth) { _, _ in
+                Slider(value: $viewModel.consensusMaskingMinDepth, in: 1...50, step: 1)
+                    .onChange(of: viewModel.consensusMaskingMinDepth) { _, _ in
                         viewModel.onSettingsChanged?()
                     }
             }
