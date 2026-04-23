@@ -1,181 +1,222 @@
-# Lungfish Genome Browser
+# Lungfish Genome Explorer
 
-A next-generation **macOS-native genome browser** built in Swift, combining the visualization strengths of IGV with the rich editing capabilities of Geneious.
+A native macOS workbench for everyday genomics. Lungfish brings sequence browsing, read mapping, variant analysis, metagenomic classification, and assembly into a single Apple Silicon app, with a built-in toolbox of established command-line bioinformatics tools.
 
 [![Swift 6.2](https://img.shields.io/badge/Swift-6.2-orange.svg)](https://swift.org)
 [![macOS 26+](https://img.shields.io/badge/macOS-26_Tahoe+-blue.svg)](https://www.apple.com/macos)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-## Features
+Lungfish is developed in association with the [Lungfish Research Collaboratory](http://lung.fish).
 
-### Core Capabilities
-- **High-performance sequence visualization** with Metal GPU acceleration
-- **Memory-efficient storage** using 2-bit DNA encoding
-- **IGV-style track system** for annotations, alignments, and coverage
-- **Rich sequence editing** with base-level selection and modification
-- **Diff-based version control** for sequence history
+## About
 
-### File Format Support
-| Category | Formats |
-|----------|---------|
-| Sequences | FASTA, FASTQ, GenBank, 2bit |
-| Alignments | BAM, CRAM, SAM (via htslib) |
-| Annotations | GFF3, GTF, BED, VCF, BigBed |
-| Coverage | BigWig, bedGraph |
+Lungfish is an opinionated app built by Dave O'Connor to make powerful command-line bioinformatics tools usable without touching a terminal. Where most tools assume you already know what to do, Lungfish leans into the things beginners actually need and that other apps tend to skip:
 
-### Integration
-- **NCBI/ENA data access** - Download sequences with full annotations
-- **Nextflow/Snakemake workflows** - Run and monitor bioinformatics pipelines
-- **Multi-language plugin system** - Python, Rust, Swift, and CLI tool plugins
-- **Built-in assembly** - SPAdes and MEGAHIT integration
-- **Primer design** - Full Primer3 + PrimalScheme multiplex support
+- **First-class human read removal**. Recipes such as VSP2 (with more to come) run scrubbing as a standard step, and the same scrubber is one click away as a manual operation on any FASTQ dataset.
+- **Variants you can actually work with**. Sort, filter, and inspect VCF records without writing awk one-liners.
+- **Portable projects**. A Lungfish project is just a folder. Copy it to a thumb drive, share it with a collaborator, drop it on a backup disk, and everything (datasets, derivatives, reports, metadata) travels together.
+
+The trade-off is that Lungfish makes opinionated choices about defaults, file layout, and which tool to reach for. If those choices fit how you work, it should feel like the bench-friendly bioinformatics environment you wished existed.
+
+## What Lungfish Does
+
+Lungfish is built around five viewport classes (sequence, alignment, variant, taxonomy, and assembly) that share a common project workspace, sidebar, inspector, and operations panel. Files imported into a project become first-class datasets that can flow between viewports without re-importing or re-indexing.
+
+### Sequences (FASTA / FASTQ)
+
+- Browse FASTA references and FASTA collections with random access through `.fai` indices.
+- Open paired-end or single-end FASTQ at any size. Virtual previews keep the UI responsive while operations run on the full file.
+- Built-in FASTQ operations: quality summary, sequence filtering, motif and text search, orientation correction, deduplication, adapter trimming, paired-end merging, and human-read scrubbing.
+- Demultiplex by barcode kit with multi-step support, singleton handling, and platform-aware adapters.
+- Convert between BAM and FASTQ for re-mapping or sharing.
+
+### Alignments (BAM / CRAM / SAM)
+
+- Pile-up viewer for sorted, indexed BAM and CRAM with coverage track, base mismatches, soft-clip indicators, and read inspector.
+- Map reads with [minimap2](https://github.com/lh3/minimap2), [BWA-MEM2](https://github.com/bwa-mem2/bwa-mem2), or [Bowtie2](https://bowtie-bio.sourceforge.net/bowtie2/) through guided wizards or the command line. Output is always written as sorted, indexed BAM.
+- Mark and remove PCR duplicates, extract reads by region or chromosome, and verify read orientation.
+
+### Variants (VCF)
+
+- Variant browser with sortable columns (CHROM, POS, ID, REF, ALT, QUAL, FILTER, GT, AF) and full INFO/FORMAT inspection.
+- Reference inference resolves chromosome aliases across RefSeq, UCSC, and Ensembl naming conventions automatically.
+- Selecting a variant centers the genome context pane on its coordinate.
+
+### Classification & Metagenomics
+
+- Run [Kraken 2](https://github.com/DerrickWood/kraken2) + [Bracken](https://github.com/jenniferlu717/Bracken), [EsViritu](https://github.com/cmmr/EsViritu) (viral discovery), [TaxTriage](https://github.com/jhuapl-bio/taxtriage) (multi-level taxonomic triage), and the [NAO-MGS](https://github.com/naobservatory/mgs-workflow) metagenomics workflow on FASTQ datasets.
+- Import results from the [NVD](https://github.com/dholab/nvd) (Novel Virus Discovery) Nextflow workflow as first-class taxonomy datasets.
+- Taxonomy browser with sortable hit table, sunburst chart, breadcrumb navigation, and detail pane.
+- Extract reads assigned to any taxon back into a fresh FASTQ dataset for downstream work.
+- BLAST any classified sequence against NCBI for verification.
+
+### Assembly
+
+- Assemble reads with [SPAdes](https://github.com/ablab/spades), [MEGAHIT](https://github.com/voutcn/megahit), [SKESA](https://github.com/ncbi/SKESA), [Flye](https://github.com/mikolmogorov/Flye), or [hifiasm](https://github.com/chhylp123/hifiasm). Short-read, long-read, and haplotype-aware modes are all supported.
+- Assembly viewer combines a contig table, Nx plot, summary statistics, and the standard sequence viewer for any selected contig.
+- Extract contigs by length, coverage, or selection for re-mapping or annotation.
+
+### Reference Data
+
+- Search and download genomes and annotations from [NCBI](https://www.ncbi.nlm.nih.gov/) and [GenBank](https://www.ncbi.nlm.nih.gov/genbank/).
+- Search and prefetch reads from [SRA](https://www.ncbi.nlm.nih.gov/sra) with `prefetch` / `fasterq-dump`.
+- Browse the [Pathoplexus](https://pathoplexus.org/) pathogen reference catalogue.
+- Import any FASTA / GFF3 / GTF / BED bundle from the filesystem.
+
+### Workflows
+
+- Run [Nextflow](https://www.nextflow.io/) and [Snakemake](https://snakemake.readthedocs.io/) workflows from inside the app. Nextflow pipelines with a `nextflow_schema.json` get an auto-generated parameter form.
+- Browse the [nf-core](https://nf-co.re/) pipeline catalogue and launch directly into the project.
+- Direct import path for the [NVD (Novel Virus Discovery)](https://github.com/dholab/nvd) workflow. Point Lungfish at an NVD output directory and the run lands in the taxonomy browser with reads, hits, and reports cross-linked.
+- Workflow outputs auto-import as project datasets in the appropriate viewport.
+- Container support via [Apple Containerization](https://github.com/apple/containerization). Docker / Apptainer images run in lightweight Linux VMs on Apple Silicon.
+
+### AI Assistant
+
+A built-in chat panel can answer questions about the active dataset, suggest workflows, and help interpret classification or variant results. The panel supports multiple providers; bring your own API key.
+
+### Plugins
+
+A multi-language plugin system supports extensions in Python, Rust, Swift, and any CLI executable. Plugins can add sequence operations, annotation generators, viewers, data sources, or workflow integrations. The Plugin Manager handles discovery, installation, and lifecycle.
+
+### Command Line
+
+Every major capability has a `lungfish-cli` counterpart for headless and scripted use:
+
+```
+analyze    assemble    bam         blast        classify
+convert    extract     fastq       fetch        import
+map        markdup     metadata    nao-mgs      nvd
+orient     taxtriage   translate   variants     workflow
+```
+
+The `fastq` command groups subcommands for `materialize`, `orient`, `qc-summary`, `scrub-human`, `search-motif`, `search-text`, and `sequence-filter`.
+
+## File Format Support
+
+| Category    | Read                                | Write                |
+|-------------|-------------------------------------|----------------------|
+| Sequences   | FASTA, FASTQ, GenBank, 2bit         | FASTA, FASTQ         |
+| Alignments  | BAM, CRAM, SAM (via HTSlib)         | sorted/indexed BAM   |
+| Variants    | VCF, VCF.GZ + TBI                   | VCF                  |
+| Annotations | GFF3, GTF, BED, BigBed              | BED, BigBed          |
+| Coverage    | BigWig, bedGraph                    | BigWig               |
+| Reports     | Kraken2 kreport, EsViritu, TaxTriage, NAO-MGS | JSON, TSV |
 
 ## Requirements
 
 - **macOS 26 Tahoe** or later
-- **Apple Silicon** (M1/M2/M3/M4+) - native ARM64
-- **8GB RAM** minimum (16GB+ recommended for large genomes)
-- **SSD** required for optimal index performance
+- **Apple Silicon** (M1 / M2 / M3 / M4 or later)
+- **8 GB RAM** minimum, 16 GB+ recommended for large genomes or metagenomic work
+- **SSD** required for index performance
+- **Internet access** for first-run tool installation, NCBI / SRA / Pathoplexus downloads, and AI assistant
 
 ## Installation
 
-### From Source
+The simplest way to install Lungfish is to download the latest signed and notarized `.dmg` from the [Releases](../../releases) page, drag the app to Applications, and launch it. On first launch the welcome screen will offer to install the on-demand toolchain (Nextflow, Snakemake, BBTools, mappers, assemblers, classifiers) into `~/.lungfish`.
+
+### Building from source
 
 ```bash
-git clone https://github.com/yourusername/lungfish-genome-browser.git
+git clone https://github.com/dhoconno/lungfish-genome-browser.git
 cd lungfish-genome-browser
-swift build -c release
+swift build -c release --arch arm64
 ```
 
-### Using Swift Package Manager
-
-Add to your `Package.swift`:
-
-```swift
-dependencies: [
-    .package(url: "https://github.com/yourusername/lungfish-genome-browser.git", from: "0.1.0")
-]
-```
-
-## Quick Start
-
-```swift
-import LungfishCore
-import LungfishIO
-
-// Read a FASTA file
-let reader = try FASTAReader(url: fastaURL)
-for try await sequence in reader.sequences() {
-    print("\(sequence.name): \(sequence.length) bp")
-}
-
-// Random access with index
-let indexed = try IndexedFASTAReader(url: fastaURL)
-let region = GenomicRegion(chromosome: "chr1", start: 1000, end: 2000)
-let subsequence = try await indexed.fetch(region: region)
-```
+A signed and notarized `.dmg` can be produced with `bash scripts/release/build-notarized-dmg.sh` (requires Developer ID signing assets).
 
 ## Architecture
 
-Lungfish is organized into seven Swift modules:
+Lungfish is organised into seven Swift modules:
 
-| Module | Purpose |
-|--------|---------|
-| **LungfishCore** | Core data models (Sequence, Annotation, Document) |
-| **LungfishIO** | File format parsing and indexing |
-| **LungfishUI** | Rendering, tracks, and visualization |
-| **LungfishPlugin** | Multi-language plugin system |
-| **LungfishWorkflow** | Pipeline integration and native tool management |
-| **LungfishApp** | macOS application UI components |
-| **LungfishCLI** | Command-line interface for headless operation |
+| Module             | Purpose                                              |
+|--------------------|------------------------------------------------------|
+| **LungfishCore**     | Core data models for sequences, annotations, documents |
+| **LungfishIO**       | File-format parsers, indexers, and writers           |
+| **LungfishUI**       | Rendering, tracks, viewport rendering                |
+| **LungfishWorkflow** | Native tool runner, Nextflow / Snakemake integration |
+| **LungfishPlugin**   | Multi-language plugin system                         |
+| **LungfishApp**      | macOS application UI                                 |
+| **LungfishCLI**      | `lungfish-cli` headless interface                    |
 
-## Design Philosophy
+## Reporting Issues
 
-Lungfish follows **Apple Human Interface Guidelines** for a native macOS experience:
+If you run into a bug, crash, or unexpected behaviour, please open an issue on the [Issues](../../issues) tracker. Helpful reports include:
 
-- Native AppKit controls (NSOutlineView, NSTableView, NSToolbar)
-- SF Symbols for iconography
-- Full Dark Mode and accessibility support
-- Keyboard navigation and menu bar integration
-- System integration (Spotlight, Quick Look, Services)
-
-## Development
-
-See [PLAN.md](PLAN.md) for the comprehensive development roadmap.
-
-### Building
-
-```bash
-swift build           # Debug build
-swift build -c release --arch arm64  # Apple Silicon release build
-swift test            # Run tests (requires Xcode)
-```
-
-### Project Structure
-
-```
-LungfishGenomeBrowser/
-├── Sources/
-│   ├── LungfishCore/      # Core models and services
-│   ├── LungfishIO/        # File format handlers
-│   ├── LungfishUI/        # Rendering and tracks
-│   ├── LungfishPlugin/    # Plugin system
-│   └── LungfishWorkflow/  # Workflow integration
-├── Tests/
-├── roles/                 # Team role specifications
-└── Package.swift
-```
+- macOS version and Mac model
+- Lungfish version (Lungfish > About Lungfish)
+- The dataset type and approximate size
+- Steps to reproduce and the resulting log output (Window > Operations Panel exports the run log)
 
 ## Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Lungfish is open source under the **MIT License**, and you are welcome to fork the repository and adapt it for your own work. Pull requests are not being accepted at this time, but issue reports are very much appreciated and will inform the roadmap.
 
-## Embedded Bioinformatics Tools
+## Embedded and Bundled Tools
 
-Lungfish bundles the following open-source tools, invoked as subprocesses:
+Lungfish stands on the shoulders of the open-source bioinformatics community. The following tools are either bundled inside the app or installed on demand into `~/.lungfish` after the user accepts the install prompt on the welcome screen.
 
-| Tool | Version | License | Source |
-|------|---------|---------|--------|
-| [SAMtools](https://github.com/samtools/samtools) | 1.22.1 | MIT | Genome Research Ltd. |
-| [BCFtools](https://github.com/samtools/bcftools) | 1.22 | MIT | Genome Research Ltd. |
-| [HTSlib](https://github.com/samtools/htslib) (bgzip, tabix) | 1.22.1 | MIT | Genome Research Ltd. |
-| [UCSC Tools](https://github.com/ucscGenomeBrowser/kent) (bedToBigBed, bedGraphToBigWig) | v469 | MIT | UC Santa Cruz |
-| [SeqKit](https://github.com/shenwei356/seqkit) | 2.9.0 | MIT | Wei Shen |
-| [fastp](https://github.com/OpenGene/fastp) | 1.1.0 | MIT | OpenGene |
-| [cutadapt](https://github.com/marcelm/cutadapt) | 4.9 | MIT | Marcel Martin |
-| [VSEARCH](https://github.com/torognes/vsearch) | 2.29.2 | BSD-2-Clause | Rognes et al. |
-| [pigz](https://github.com/madler/pigz) | 2.8 | zlib | Mark Adler |
-| [micromamba](https://github.com/mamba-org/mamba) | 2.0.5-0 | BSD-3-Clause | QuantStack and mamba contributors |
-| [NCBI SRA Human Scrubber](https://github.com/ncbi/sra-human-scrubber) | 2.2.1 | Public Domain notice | NCBI |
-| [NCBI SRA Tools](https://github.com/ncbi/sra-tools) | 3.4.0 | Public Domain notice | NCBI |
+### Bundled in the app
 
-Tool versions are defined in [`tool-versions.json`](Sources/LungfishWorkflow/Resources/Tools/tool-versions.json) and can be updated with:
+| Tool                      | Version    | License       | Source                                                    |
+|---------------------------|------------|---------------|-----------------------------------------------------------|
+| SAMtools                  | 1.22.1     | MIT           | https://github.com/samtools/samtools                      |
+| BCFtools                  | 1.22       | MIT           | https://github.com/samtools/bcftools                      |
+| HTSlib (bgzip, tabix)     | 1.22.1     | MIT           | https://github.com/samtools/htslib                        |
+| UCSC Tools (bedToBigBed, bedGraphToBigWig) | v469 | MIT | https://github.com/ucscGenomeBrowser/kent             |
+| SeqKit                    | 2.9.0      | MIT           | https://github.com/shenwei356/seqkit                      |
+| cutadapt                  | 4.9        | MIT           | https://github.com/marcelm/cutadapt                       |
+| VSEARCH                   | 2.29.2     | BSD-2-Clause  | https://github.com/torognes/vsearch                       |
+| pigz                      | 2.8        | zlib          | https://github.com/madler/pigz                            |
+| micromamba                | 2.0.5-0    | BSD-3-Clause  | https://github.com/mamba-org/mamba                        |
+| NCBI SRA Human Scrubber   | 2.2.1      | Public Domain | https://github.com/ncbi/sra-human-scrubber                |
+| NCBI SRA Tools            | 3.4.0      | Public Domain | https://github.com/ncbi/sra-tools                         |
 
-```bash
-scripts/update-tool-versions.sh --check    # Check for new releases
-scripts/update-tool-versions.sh --update   # Update manifest and rebuild
-```
+### Installed on demand into `~/.lungfish`
+
+| Tool         | Version  | License        | Source                                      |
+|--------------|----------|----------------|---------------------------------------------|
+| Nextflow     | 25.10.4  | Apache-2.0     | https://github.com/nextflow-io/nextflow     |
+| Snakemake    | 9.19.0   | MIT            | https://github.com/snakemake/snakemake      |
+| BBTools      | 39.80    | BSD-3-Clause   | https://sourceforge.net/projects/bbmap/     |
+| fastp        | 1.3.2    | MIT            | https://github.com/OpenGene/fastp           |
+| Deacon       | 0.15.0   | MIT            | https://github.com/bede/deacon              |
+| minimap2     | 2.30     | MIT            | https://github.com/lh3/minimap2             |
+| BWA-MEM2     | 2.3      | MIT            | https://github.com/bwa-mem2/bwa-mem2        |
+| Bowtie2      | 2.5.4    | GPL-3.0        | https://bowtie-bio.sourceforge.net/bowtie2/ |
+| SPAdes       | 4.2.0    | GPL-2.0        | https://github.com/ablab/spades             |
+| MEGAHIT      | 1.2.9    | GPL-3.0        | https://github.com/voutcn/megahit           |
+| SKESA        | 2.5.1    | Public Domain  | https://github.com/ncbi/SKESA               |
+| Flye         | 2.9.6    | BSD-3-Clause   | https://github.com/mikolmogorov/Flye        |
+| hifiasm      | 0.25.0   | MIT            | https://github.com/chhylp123/hifiasm        |
+| Kraken 2     | 2.17.1   | GPL-3.0        | https://github.com/DerrickWood/kraken2      |
+| Bracken      | 1.0.0    | GPL-3.0        | https://github.com/jenniferlu717/Bracken    |
+| EsViritu     | 1.2.0    | MIT            | https://github.com/cmmr/EsViritu            |
+| LoFreq       | 2.1.5    | MIT            | https://csb5.github.io/lofreq/              |
+| iVar         | 1.4.4    | GPL-3.0        | https://andersen-lab.github.io/ivar/        |
+| Medaka       | 2.1.1    | MPL-2.0        | https://github.com/nanoporetech/medaka      |
+
+The full canonical list, with license texts, is in [`THIRD-PARTY-NOTICES`](THIRD-PARTY-NOTICES). Tool versions are pinned in [`tool-versions.json`](Sources/LungfishWorkflow/Resources/Tools/tool-versions.json) and [`third-party-tools-lock.json`](Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json).
+
+VSEARCH is dual-licensed BSD-2-Clause / GPL-3.0; Lungfish elects BSD-2-Clause.
+
+### Reference databases
+
+- **Human read scrubbing**: NCBI SRA Human Scrubber index and the Deacon panhuman index ([Zenodo](https://zenodo.org/records/15118215)).
+- **Kraken 2 databases**, **Pangolin lineage data**, and **Nextclade datasets** are downloaded on first use.
+
+### Swift package dependencies
+
+[swift-argument-parser](https://github.com/apple/swift-argument-parser), [swift-collections](https://github.com/apple/swift-collections), [swift-algorithms](https://github.com/apple/swift-algorithms), [swift-system](https://github.com/apple/swift-system), [swift-async-algorithms](https://github.com/apple/swift-async-algorithms), [grpc-swift](https://github.com/grpc/grpc-swift) 1.27.5, [swift-protobuf](https://github.com/apple/swift-protobuf) 1.35.0, and [Apple Containerization](https://github.com/apple/containerization) 0.24.5.
 
 ## License
 
-This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+Lungfish is licensed under the **MIT License**. See [LICENSE](LICENSE) for details. Bundled and on-demand third-party tools are distributed under their own licenses; see [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).
 
-Embedded third-party tools are distributed under their own licenses. Lungfish remains MIT-licensed, and bundled tools include a mix of permissive licenses and NCBI public-domain notices. See [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES) for bundled-tool notices.
-Core tools such as Nextflow, Snakemake, and BBTools are installed into `~/.lungfish` the first time the user chooses `Install` on the welcome screen. They are not shipped inside the app bundle.
+## Funding
 
-VSEARCH is dual-licensed BSD-2-Clause/GPL-3.0; Lungfish elects BSD-2-Clause.
-
-## Acknowledgments
-
-- **IGV** — Inspiration for track-based visualization architecture
-- **Geneious** — Inspiration for sequence editing workflows
-- **htslib** — BAM/CRAM/VCF file format support
-
-### Funding
-
-- **Wisconsin National Primate Research Center** (NIH/ORIP P51OD011106)
-- **National Institute of Allergy and Infectious Diseases** (NIH/NIAID Contract 75N93021C00006)
+Development of Lungfish is supported by [Inkfish](http://ink.fish).
 
 ---
 
-*Named after the Australian lungfish, one of the oldest living vertebrate species with a remarkably large genome (~43 Gb).*
+*Brought to you by the [Lungfish Research Collaboratory](http://lung.fish).*
