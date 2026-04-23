@@ -40,7 +40,25 @@ public enum AlignmentFilterIdentityFilter: Sendable, Codable, Equatable {
         ["NM"]
     }
 
-    private static func formattedThreshold(_ threshold: Double) -> String {
+    public var displayLabel: String {
+        switch self {
+        case .exactMatch:
+            return "Exact matches"
+        case .minimumPercentIdentity(let threshold):
+            return "\(Self.formattedThreshold(threshold))% minimum identity"
+        }
+    }
+
+    public var metadataValue: String {
+        switch self {
+        case .exactMatch:
+            return "exact_match"
+        case .minimumPercentIdentity(let threshold):
+            return "minimum_percent_identity:\(Self.formattedThreshold(threshold))"
+        }
+    }
+
+    public static func formattedThreshold(_ threshold: Double) -> String {
         if threshold.rounded(.towardZero) == threshold {
             return String(Int(threshold))
         }
@@ -79,6 +97,74 @@ public struct AlignmentFilterRequest: Sendable, Codable, Equatable {
         self.duplicateMode = duplicateMode
         self.identityFilter = identityFilter
         self.region = region
+    }
+
+    public var derivedAlignmentDefaultName: String {
+        if let identityFilter {
+            return identityFilter.displayLabel
+        }
+
+        switch duplicateMode {
+        case .remove:
+            return "Duplicate-marked reads removed"
+        case .exclude:
+            return "Duplicate-marked reads hidden"
+        case nil:
+            break
+        }
+
+        if let minimumMAPQ {
+            return "MAPQ >= \(minimumMAPQ)"
+        }
+
+        if mappedOnly && primaryOnly {
+            return "Mapped primary alignments"
+        }
+        if mappedOnly {
+            return "Mapped alignments"
+        }
+        if primaryOnly {
+            return "Primary alignments"
+        }
+
+        return "Filtered alignments"
+    }
+
+    public var derivedAlignmentSummary: String {
+        let parts = derivedAlignmentFilterParts
+        guard !parts.isEmpty else { return "No additional filters" }
+        return parts.joined(separator: "; ")
+    }
+
+    public var derivedAlignmentFilterParts: [String] {
+        var parts: [String] = []
+
+        if let identityFilter {
+            parts.append(identityFilter.displayLabel)
+        }
+        if mappedOnly {
+            parts.append("mapped reads only")
+        }
+        if primaryOnly {
+            parts.append("primary alignments only")
+        }
+        if let minimumMAPQ {
+            parts.append("MAPQ >= \(minimumMAPQ)")
+        }
+        switch duplicateMode {
+        case .exclude:
+            parts.append("duplicate-marked reads hidden")
+        case .remove:
+            parts.append("duplicate-marked reads removed")
+        case nil:
+            break
+        }
+        if let region = region?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !region.isEmpty {
+            parts.append("region \(region)")
+        }
+
+        return parts
     }
 }
 

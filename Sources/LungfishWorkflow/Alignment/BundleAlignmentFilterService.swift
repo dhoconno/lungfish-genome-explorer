@@ -321,6 +321,16 @@ public final class BundleAlignmentFilterService: @unchecked Sendable {
         metadataDB.setFileInfo("derivation_source_alignment_path", value: sourceAlignmentPath)
         metadataDB.setFileInfo("derivation_source_alignment_index_path", value: sourceIndexPath)
         metadataDB.setFileInfo("derivation_duplicate_mode", value: filterRequest.duplicateMode?.rawValue ?? "none")
+        metadataDB.setFileInfo("derivation_default_track_name", value: filterRequest.derivedAlignmentDefaultName)
+        metadataDB.setFileInfo("derivation_filter_summary", value: filterRequest.derivedAlignmentSummary)
+        metadataDB.setFileInfo("derivation_mapped_only", value: filterRequest.mappedOnly ? "true" : "false")
+        metadataDB.setFileInfo("derivation_primary_only", value: filterRequest.primaryOnly ? "true" : "false")
+        if let minimumMAPQ = filterRequest.minimumMAPQ {
+            metadataDB.setFileInfo("derivation_minimum_mapq", value: "\(minimumMAPQ)")
+        }
+        if let identityFilter = filterRequest.identityFilter {
+            metadataDB.setFileInfo("derivation_identity_filter", value: identityFilter.metadataValue)
+        }
         metadataDB.setFileInfo(
             "derivation_preprocessing",
             value: preprocessingSteps.map(preprocessingDescription).joined(separator: " -> ")

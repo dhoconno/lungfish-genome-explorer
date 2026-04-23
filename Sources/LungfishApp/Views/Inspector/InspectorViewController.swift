@@ -1380,12 +1380,141 @@ public class InspectorViewController: NSViewController {
         viewModel.documentSectionViewModel.selectVisibleAlignmentTrack = { [weak self] trackID in
             self?.setVisibleAlignmentTrackSelection(trackID)
         }
+        viewModel.documentSectionViewModel.removeDerivedAlignmentTrack = { [weak self] trackID in
+            self?.removeDerivedAlignmentTrack(trackID)
+        }
     }
 
     private func setVisibleAlignmentTrackSelection(_ trackID: String?) {
         viewModel.readStyleSectionViewModel.selectedVisibleAlignmentTrackID = trackID
         viewModel.documentSectionViewModel.visibleAlignmentTrackID = trackID
         viewModel.readStyleSectionViewModel.onSettingsChanged?()
+    }
+
+    private func removeDerivedAlignmentTrack(_ trackID: String) {
+        guard let bundleURL = viewModel.documentSectionViewModel.bundleURL else {
+            presentSimpleAlert(title: "No Bundle Loaded", message: "Load a .lungfishref bundle before removing a derived alignment.")
+            return
+        }
+        guard let row = viewModel.documentSectionViewModel.alignmentTrackRows.first(where: { $0.id == trackID }),
+              row.isDerived else {
+            presentSimpleAlert(title: "Source Alignment", message: "Only derived filtered alignments can be removed from this control.")
+            return
+        }
+        guard let split = parent as? MainSplitViewController else { return }
+        guard OperationCenter.shared.canStartOperation(on: bundleURL) else {
+            if let holder = OperationCenter.shared.activeLockHolder(for: bundleURL) {
+                presentSimpleAlert(
+                    title: "Operation in Progress",
+                    message: "\"\(holder.title)\" is currently running on this bundle. Please wait for it to finish."
+                )
+            }
+            return
+        }
+
+        confirmRemoveDerivedAlignment(rowName: row.name) { [weak self] confirmed in
+            guard confirmed, let self else { return }
+            self.runRemoveDerivedAlignmentWorkflow(
+                trackID: trackID,
+                trackName: row.name,
+                bundleURL: bundleURL,
+                shouldReloadMappingViewer: split.viewerController.mappingResultController != nil
+            )
+        }
+    }
+
+    private func confirmRemoveDerivedAlignment(
+        rowName: String,
+        completion: @escaping (Bool) -> Void
+    ) {
+        let alert = NSAlert()
+        alert.messageText = "Remove Derived Alignment?"
+        alert.informativeText = "This removes \"\(rowName)\" and its BAM, index, and metadata files from this bundle. The source alignment is not changed."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Remove")
+        alert.addButton(withTitle: "Cancel")
+
+        if let window = view.window ?? NSApp.keyWindow {
+            alert.beginSheetModal(for: window) { response in
+                completion(response == .alertFirstButtonReturn)
+            }
+        } else {
+            completion(alert.runModal() == .alertFirstButtonReturn)
+        }
+    }
+
+    private func runRemoveDerivedAlignmentWorkflow(
+        trackID: String,
+        trackName: String,
+        bundleURL: URL,
+        shouldReloadMappingViewer: Bool
+    ) {
+        guard OperationCenter.shared.canStartOperation(on: bundleURL) else {
+            if let holder = OperationCenter.shared.activeLockHolder(for: bundleURL) {
+                presentSimpleAlert(
+                    title: "Operation in Progress",
+                    message: "\"\(holder.title)\" is currently running on this bundle. Please wait for it to finish."
+                )
+            }
+            return
+        }
+
+        let operationID = OperationCenter.shared.start(
+            title: "Remove Derived Alignment",
+            detail: "Removing \(trackName)...",
+            operationType: .bamImport,
+            targetBundleURL: bundleURL
+        )
+
+        Task(priority: .userInitiated) { [weak self] in
+            do {
+                let result = try await BundleAlignmentTrackRemovalService()
+                    .removeDerivedAlignmentTrack(bundleURL: bundleURL, trackID: trackID)
+
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self,
+                              let split = self.parent as? MainSplitViewController else { return }
+
+                        split.sidebarController.reloadFromFilesystem()
+                        do {
+                            if self.viewModel.readStyleSectionViewModel.selectedVisibleAlignmentTrackID == result.removedTrack.id {
+                                self.setVisibleAlignmentTrackSelection(nil)
+                            }
+                            if shouldReloadMappingViewer {
+                                try split.viewerController.reloadMappingViewerBundleIfDisplayed()
+                            } else {
+                                try split.viewerController.displayBundle(at: bundleURL)
+                            }
+                            OperationCenter.shared.complete(
+                                id: operationID,
+                                detail: "Removed derived alignment track \"\(result.removedTrack.name)\"."
+                            )
+                        } catch {
+                            OperationCenter.shared.fail(id: operationID, detail: error.localizedDescription)
+                            self.presentSimpleAlert(
+                                title: shouldReloadMappingViewer ? "Mapping Viewer Reload Failed" : "Reload Failed",
+                                message: "The derived alignment was removed, but the updated bundle could not be reloaded: \(error.localizedDescription)"
+                            )
+                        }
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.fail(
+                            id: operationID,
+                            detail: error.localizedDescription,
+                            errorMessage: error.localizedDescription
+                        )
+                        self?.presentSimpleAlert(
+                            title: "Remove Derived Alignment Failed",
+                            message: error.localizedDescription
+                        )
+                    }
+                }
+            }
+        }
     }
 
     /// Populates the read style section with alignment statistics from the bundle's metadata DBs.
@@ -1542,6 +1671,9 @@ public class InspectorViewController: NSViewController {
             args: Array(cliArguments.dropFirst())
         )
         let operationTitle = "Calling variants with \(state.selectedCaller.displayName)"
+        let shouldReloadMappingViewer = (parent as? MainSplitViewController)?
+            .viewerController
+            .mappingResultController != nil
         let opID = OperationCenter.shared.start(
             title: operationTitle,
             detail: "Preparing \(state.selectedCaller.displayName)...",
@@ -1581,10 +1713,14 @@ public class InspectorViewController: NSViewController {
                         if let self, let split = self.parent as? MainSplitViewController {
                             split.sidebarController.reloadFromFilesystem()
                             do {
-                                try split.viewerController.displayBundle(at: bundleURL)
+                                if shouldReloadMappingViewer {
+                                    try split.viewerController.reloadMappingViewerBundleIfDisplayed()
+                                } else {
+                                    try split.viewerController.displayBundle(at: bundleURL)
+                                }
                             } catch {
                                 self.presentSimpleAlert(
-                                    title: "Variant Calling Reload Failed",
+                                    title: shouldReloadMappingViewer ? "Mapping Viewer Reload Failed" : "Variant Calling Reload Failed",
                                     message: "Variant calling completed, but the bundle could not be reloaded: \(error.localizedDescription)"
                                 )
                             }
@@ -2355,6 +2491,11 @@ private struct InspectorReadStyleSection: View {
             Text("View Settings")
                 .font(.headline)
 
+            if viewModel.contentMode == .mapping {
+                MappingViewSettingsSection(viewModel: viewModel.documentSectionViewModel)
+                Divider()
+            }
+
             InspectorSubsectionGrid(selection: $viewModel.selectedReadStyleViewSubsection)
 
             subsectionContent
@@ -2365,10 +2506,6 @@ private struct InspectorReadStyleSection: View {
     private var subsectionContent: some View {
         switch viewModel.selectedReadStyleViewSubsection {
         case .alignment:
-            if viewModel.contentMode == .mapping {
-                MappingViewSettingsSection(viewModel: viewModel.documentSectionViewModel)
-                Divider()
-            }
             AlignmentViewSection(viewModel: viewModel.readStyleSectionViewModel)
         case .annotations:
             InspectorAnnotationDisplaySection(viewModel: viewModel)
@@ -3100,6 +3237,11 @@ private struct MappingViewSettingsSection: View {
             Text("Mapping Layout")
                 .font(.headline)
 
+            Text("Choose how the contig list and genome detail panes share the mapping viewer.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             Picker("Layout", selection: Binding(
                 get: { viewModel.mappingPanelLayout },
                 set: { newValue in
@@ -3107,11 +3249,12 @@ private struct MappingViewSettingsSection: View {
                     newValue.persist()
                 }
             )) {
-                Text("Detail | List").tag(MappingPanelLayout.detailLeading)
-                Text("List | Detail").tag(MappingPanelLayout.listLeading)
-                Text("List Over Detail").tag(MappingPanelLayout.stacked)
+                Text("Detail left, list right").tag(MappingPanelLayout.detailLeading)
+                Text("List left, detail right").tag(MappingPanelLayout.listLeading)
+                Text("List above detail").tag(MappingPanelLayout.stacked)
             }
-            .pickerStyle(.segmented)
+            .pickerStyle(.radioGroup)
+            .labelsHidden()
         }
     }
 }

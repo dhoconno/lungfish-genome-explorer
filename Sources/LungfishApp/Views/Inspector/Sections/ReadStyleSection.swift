@@ -148,13 +148,25 @@ public final class ReadStyleSectionViewModel {
     }
 
     /// BAM-filter toggle for mapped reads only.
-    public var alignmentFilterMappedOnly: Bool = true
+    public var alignmentFilterMappedOnly: Bool = true {
+        didSet {
+            refreshAlignmentFilterOutputTrackNameIfNeeded()
+        }
+    }
 
     /// BAM-filter toggle for primary alignments only.
-    public var alignmentFilterPrimaryOnly: Bool = true
+    public var alignmentFilterPrimaryOnly: Bool = true {
+        didSet {
+            refreshAlignmentFilterOutputTrackNameIfNeeded()
+        }
+    }
 
     /// Minimum MAPQ threshold for BAM filtering.
-    public var alignmentFilterMinimumMAPQ: Int = 0
+    public var alignmentFilterMinimumMAPQ: Int = 0 {
+        didSet {
+            refreshAlignmentFilterOutputTrackNameIfNeeded()
+        }
+    }
 
     /// BAM-filter duplicate handling choice shown in Inspector UI.
     public var alignmentFilterDuplicateMode: AlignmentFilterInspectorDuplicateChoice = .keepAll {
@@ -164,10 +176,18 @@ public final class ReadStyleSectionViewModel {
     }
 
     /// Whether BAM filtering should require exact matches only.
-    public var alignmentFilterExactMatchOnly: Bool = false
+    public var alignmentFilterExactMatchOnly: Bool = false {
+        didSet {
+            refreshAlignmentFilterOutputTrackNameIfNeeded()
+        }
+    }
 
     /// Minimum percent identity text entered in the Inspector.
-    public var alignmentFilterMinimumPercentIdentityText: String = ""
+    public var alignmentFilterMinimumPercentIdentityText: String = "" {
+        didSet {
+            refreshAlignmentFilterOutputTrackNameIfNeeded()
+        }
+    }
 
     /// Output alignment track name for the derived BAM.
     public var alignmentFilterOutputTrackName: String = ""
@@ -477,16 +497,34 @@ public final class ReadStyleSectionViewModel {
 
     private func defaultAlignmentFilterOutputTrackName() -> String {
         guard let sourceTrackID = selectedAlignmentFilterSourceTrackID,
-              let sourceTrack = alignmentFilterTrackOptions.first(where: { $0.id == sourceTrackID }) else {
+              alignmentFilterTrackOptions.contains(where: { $0.id == sourceTrackID }) else {
             return ""
         }
 
-        switch alignmentFilterDuplicateMode {
-        case .keepAll, .excludeMarked:
-            return "\(sourceTrack.name) filtered"
-        case .removeDuplicates:
-            return "\(sourceTrack.name) deduplicated filtered"
+        return currentAlignmentFilterRequestForNaming().derivedAlignmentDefaultName
+    }
+
+    private func currentAlignmentFilterRequestForNaming() -> LungfishWorkflow.AlignmentFilterRequest {
+        let trimmedIdentityText = alignmentFilterMinimumPercentIdentityText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let identityFilter: LungfishWorkflow.AlignmentFilterIdentityFilter?
+        if alignmentFilterExactMatchOnly {
+            identityFilter = .exactMatch
+        } else if let threshold = Double(trimmedIdentityText),
+                  (0...100).contains(threshold) {
+            identityFilter = .minimumPercentIdentity(threshold)
+        } else {
+            identityFilter = nil
         }
+
+        return LungfishWorkflow.AlignmentFilterRequest(
+            mappedOnly: alignmentFilterMappedOnly,
+            primaryOnly: alignmentFilterPrimaryOnly,
+            minimumMAPQ: alignmentFilterMinimumMAPQ > 0 ? alignmentFilterMinimumMAPQ : nil,
+            duplicateMode: alignmentFilterDuplicateMode.serviceValue,
+            identityFilter: identityFilter,
+            region: nil
+        )
     }
 }
 
@@ -1222,22 +1260,21 @@ public struct AlignmentViewSection: View {
     public var body: some View {
         if viewModel.hasAlignmentTracks {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Focus the viewer on one alignment or compare all alignments together. Panel layout belongs in this Alignment segment.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
                 Text("Choose whether the viewer shows every alignment track together or just one alignment track at a time.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
+                Text("Visible Alignment")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Picker("Visible Alignment", selection: visibleAlignmentSelection) {
                     Text("All Alignments").tag(allAlignmentsSelectionID)
                     ForEach(viewModel.visibleAlignmentTrackOptions) { option in
                         Text(option.name).tag(option.id)
                     }
                 }
+                .labelsHidden()
                 .disabled(viewModel.visibleAlignmentTrackOptions.isEmpty)
 
                 Text(visibleAlignmentSummary)

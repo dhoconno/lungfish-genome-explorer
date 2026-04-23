@@ -85,6 +85,47 @@ final class WindowAppearanceTests: XCTestCase {
         XCTAssertTrue(mappingSource.contains(".help(text)"))
     }
 
+    func testMappingLayoutControlsStayAvailableAndFitFixedWidthSidecar() throws {
+        let controllerSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Inspector/InspectorViewController.swift"),
+            encoding: .utf8
+        )
+
+        let readStyleSection = try sourceSlice(
+            controllerSource,
+            from: "private struct InspectorReadStyleSection",
+            to: "private struct InspectorSubsectionGrid"
+        )
+        XCTAssertTrue(readStyleSection.contains("if viewModel.contentMode == .mapping"))
+        XCTAssertTrue(readStyleSection.contains("MappingViewSettingsSection(viewModel: viewModel.documentSectionViewModel)"))
+
+        let mappingLayoutSection = try sourceSlice(
+            controllerSource,
+            from: "private struct MappingViewSettingsSection",
+            to: "// MARK: - MetagenomicsResultSummarySection"
+        )
+        XCTAssertTrue(mappingLayoutSection.contains(".pickerStyle(.radioGroup)"))
+        XCTAssertFalse(mappingLayoutSection.contains(".pickerStyle(.segmented)"))
+    }
+
+    func testVariantCallingReloadsEmbeddedMappingViewerAfterBundleMutation() throws {
+        let controllerSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Inspector/InspectorViewController.swift"),
+            encoding: .utf8
+        )
+        let variantCallingLaunch = try sourceSlice(
+            controllerSource,
+            from: "private func launchVariantCallingOperation",
+            to: "@MainActor\n    private static func applyVariantCallingEvent"
+        )
+
+        XCTAssertTrue(variantCallingLaunch.contains("shouldReloadMappingViewer"))
+        XCTAssertTrue(variantCallingLaunch.contains("reloadMappingViewerBundleIfDisplayed()"))
+        XCTAssertTrue(variantCallingLaunch.contains("displayBundle(at: bundleURL)"))
+    }
+
     func testPluginManagerAndAIAssistantExposeStableAccessibilityIdentifiers() throws {
         let pluginManagerSource = try String(
             contentsOf: repositoryRoot()
@@ -248,6 +289,12 @@ final class WindowAppearanceTests: XCTestCase {
         XCTAssertTrue(source.contains("ScrollView {"))
         XCTAssertTrue(source.contains("configurationContent"))
         XCTAssertTrue(source.contains("if !embeddedInOperationsDialog"))
+    }
+
+    private func sourceSlice(_ source: String, from startToken: String, to endToken: String) throws -> String {
+        let start = try XCTUnwrap(source.range(of: startToken)?.lowerBound)
+        let end = try XCTUnwrap(source.range(of: endToken, range: start..<source.endIndex)?.lowerBound)
+        return String(source[start..<end])
     }
 
     func testMapReadsSheetSupportsEmbeddedOperationsDialogMode() throws {

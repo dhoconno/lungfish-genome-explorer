@@ -27,6 +27,9 @@ public final class DocumentSectionViewModel {
     /// Callback to switch the active visible alignment track.
     var selectVisibleAlignmentTrack: ((String?) -> Void)?
 
+    /// Callback to remove a derived alignment track from the bundle.
+    var removeDerivedAlignmentTrack: ((String) -> Void)?
+
     /// Mapping-result document state shown when a mapping viewport is active.
     var mappingDocument: MappingDocumentState?
 
@@ -185,7 +188,7 @@ public final class DocumentSectionViewModel {
             AlignmentTrackInventoryRow(
                 id: track.id,
                 name: track.name,
-                summary: alignmentTrackSummary(for: track),
+                summary: alignmentTrackSummary(for: track, in: bundle),
                 isDerived: track.sourcePath.hasPrefix("alignments/filtered/")
             )
         }
@@ -212,11 +215,12 @@ public final class DocumentSectionViewModel {
         visibleAlignmentTrackID = nil
         recentlyCreatedAlignmentTrackID = nil
         selectVisibleAlignmentTrack = nil
+        removeDerivedAlignmentTrack = nil
     }
 
-    private func alignmentTrackSummary(for track: AlignmentTrackInfo) -> String {
+    private func alignmentTrackSummary(for track: AlignmentTrackInfo, in bundle: ReferenceBundle) -> String {
         if track.sourcePath.hasPrefix("alignments/filtered/") {
-            return "Derived alignment stored in this bundle. Use View > Alignment to inspect it alone."
+            return derivedAlignmentTrackSummary(for: track, in: bundle)
         }
 
         if track.sourcePath.hasPrefix("alignments/") {
@@ -224,6 +228,24 @@ public final class DocumentSectionViewModel {
         }
 
         return "Imported alignment"
+    }
+
+    private func derivedAlignmentTrackSummary(for track: AlignmentTrackInfo, in bundle: ReferenceBundle) -> String {
+        guard let metadataDBPath = track.metadataDBPath,
+              let metadataDB = try? AlignmentMetadataDatabase(url: bundle.url.appendingPathComponent(metadataDBPath)) else {
+            return "Derived alignment stored in this bundle. Use View > Alignment to inspect it alone."
+        }
+
+        let defaultName = metadataDB.getFileInfo("derivation_default_track_name") ?? track.name
+        let sourceName = metadataDB.getFileInfo("derivation_source_track_name") ?? "source alignment"
+        let filterSummary = metadataDB.getFileInfo("derivation_filter_summary")
+
+        var summary = "\(defaultName) derived from \(sourceName)."
+        if let filterSummary, !filterSummary.isEmpty, filterSummary != defaultName {
+            summary += " Filters: \(filterSummary)."
+        }
+        summary += " Use View > Alignment to inspect it alone."
+        return summary
     }
 
     // MARK: - Layout Preferences
@@ -1272,6 +1294,7 @@ struct AlignmentTrackInventorySection: View {
                         isCurrent: viewModel.visibleAlignmentTrackID == row.id,
                         isRecent: viewModel.recentlyCreatedAlignmentTrackID == row.id,
                         isDerived: row.isDerived,
+                        removeAction: row.isDerived ? { viewModel.removeDerivedAlignmentTrack?(row.id) } : nil,
                         action: { viewModel.selectVisibleAlignmentTrack?(row.id) }
                     )
                 }
@@ -1288,33 +1311,56 @@ struct AlignmentTrackInventorySection: View {
         isCurrent: Bool,
         isRecent: Bool,
         isDerived: Bool,
+        removeAction: (() -> Void)? = nil,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 5) {
+            Button(action: action) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text(title)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.primary)
-                    if isCurrent {
-                        badge("Current")
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    HStack(spacing: 6) {
+                        if isCurrent {
+                            badge("Current")
+                        }
+                        if isRecent {
+                            badge("New")
+                        }
+                        if isDerived {
+                            badge("Derived")
+                        }
                     }
-                    if isRecent {
-                        badge("New")
-                    }
-                    if isDerived {
-                        badge("Derived")
-                    }
-                    Spacer()
+
+                    Text(subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Text(subtitle)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .buttonStyle(.plain)
+
+            if let removeAction {
+                Button("Remove Derived Alignment...", role: .destructive) {
+                    removeAction()
+                }
+                .font(.caption)
+                .buttonStyle(.borderless)
+            }
         }
-        .buttonStyle(.plain)
+        .contextMenu {
+            if let removeAction {
+                Button("Remove Derived Alignment...", role: .destructive) {
+                    removeAction()
+                }
+            }
+        }
     }
 
     @ViewBuilder

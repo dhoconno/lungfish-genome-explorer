@@ -47,6 +47,10 @@ final class BundleAlignmentFilterServiceTests: XCTestCase {
         XCTAssertEqual(db.getFileInfo("derivation_kind"), "filtered_alignment")
         XCTAssertEqual(db.getFileInfo("derivation_source_track_id"), fixture.sourceTrackID)
         XCTAssertEqual(db.getFileInfo("derivation_duplicate_mode"), "none")
+        XCTAssertEqual(db.getFileInfo("derivation_filter_summary"), "Exact matches; mapped reads only")
+        XCTAssertEqual(db.getFileInfo("derivation_identity_filter"), "exact_match")
+        XCTAssertEqual(db.getFileInfo("derivation_mapped_only"), "true")
+        XCTAssertEqual(db.getFileInfo("derivation_primary_only"), "false")
         XCTAssertEqual(db.getFileInfo("derivation_target_kind"), "bundle")
         XCTAssertEqual(db.getFileInfo("mapped_reads"), "7")
         XCTAssertEqual(db.getFileInfo("unmapped_reads"), "5")
@@ -138,11 +142,72 @@ final class BundleAlignmentFilterServiceTests: XCTestCase {
         let metadataURL = fixture.bundleURL.appendingPathComponent(try XCTUnwrap(result.trackInfo.metadataDBPath))
         let db = try AlignmentMetadataDatabase.openForUpdate(at: metadataURL)
         XCTAssertEqual(db.getFileInfo("derivation_duplicate_mode"), "remove")
+        XCTAssertEqual(db.getFileInfo("derivation_filter_summary"), "99% minimum identity; duplicate-marked reads removed")
+        XCTAssertEqual(db.getFileInfo("derivation_identity_filter"), "minimum_percent_identity:99")
         XCTAssertEqual(
             db.getFileInfo("derivation_preprocessing"),
             "samtools markdup(removeDuplicates=false)"
         )
         XCTAssertEqual(db.provenanceHistory().first?.subcommand, "markdup")
+    }
+
+    func testRemovalServiceDeletesDerivedTrackArtifactsAndUpdatesManifest() async throws {
+        let fixture = try AlignmentFilterFixture.make(rootURL: tempDir, includeNMTag: true)
+        let filteredDirectory = fixture.bundleURL.appendingPathComponent("alignments/filtered", isDirectory: true)
+        try FileManager.default.createDirectory(at: filteredDirectory, withIntermediateDirectories: true)
+
+        let derivedTrack = AlignmentTrackInfo(
+            id: fixture.derivedTrackID,
+            name: "Exact matches",
+            format: .bam,
+            sourcePath: "alignments/filtered/\(fixture.derivedTrackID).bam",
+            indexPath: "alignments/filtered/\(fixture.derivedTrackID).bam.bai",
+            metadataDBPath: "alignments/filtered/\(fixture.derivedTrackID).stats.db"
+        )
+        FileManager.default.createFile(
+            atPath: fixture.bundleURL.appendingPathComponent(derivedTrack.sourcePath).path,
+            contents: Data("bam".utf8)
+        )
+        FileManager.default.createFile(
+            atPath: fixture.bundleURL.appendingPathComponent(derivedTrack.indexPath).path,
+            contents: Data("bai".utf8)
+        )
+        FileManager.default.createFile(
+            atPath: fixture.bundleURL.appendingPathComponent(try XCTUnwrap(derivedTrack.metadataDBPath)).path,
+            contents: Data("db".utf8)
+        )
+        try BundleManifest.load(from: fixture.bundleURL)
+            .addingAlignmentTrack(derivedTrack)
+            .save(to: fixture.bundleURL)
+
+        let result = try await BundleAlignmentTrackRemovalService().removeDerivedAlignmentTrack(
+            bundleURL: fixture.bundleURL,
+            trackID: fixture.derivedTrackID
+        )
+
+        XCTAssertEqual(result.removedTrack.id, fixture.derivedTrackID)
+        let manifest = try BundleManifest.load(from: fixture.bundleURL)
+        XCTAssertNil(manifest.alignments.first(where: { $0.id == fixture.derivedTrackID }))
+        XCTAssertNotNil(manifest.alignments.first(where: { $0.id == fixture.sourceTrackID }))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.bundleURL.appendingPathComponent(derivedTrack.sourcePath).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.bundleURL.appendingPathComponent(derivedTrack.indexPath).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.bundleURL.appendingPathComponent(try XCTUnwrap(derivedTrack.metadataDBPath)).path))
+    }
+
+    func testRemovalServiceRejectsSourceAlignmentTrack() async throws {
+        let fixture = try AlignmentFilterFixture.make(rootURL: tempDir, includeNMTag: true)
+
+        await XCTAssertThrowsErrorAsync(
+            try await BundleAlignmentTrackRemovalService().removeDerivedAlignmentTrack(
+                bundleURL: fixture.bundleURL,
+                trackID: fixture.sourceTrackID
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? BundleAlignmentTrackRemovalError,
+                .notDerivedTrack(fixture.sourceTrackID)
+            )
+        }
     }
 
     func testPreparedAttachmentRejectsTraversingRelativeDirectory() async throws {

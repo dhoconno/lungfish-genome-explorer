@@ -19,7 +19,7 @@ final class AlignmentFilterInspectorStateTests: XCTestCase {
 
         XCTAssertEqual(viewModel.alignmentFilterTrackOptions.map(\.id), ["track-a", "track-b"])
         XCTAssertEqual(viewModel.selectedAlignmentFilterSourceTrackID, "track-a")
-        XCTAssertEqual(viewModel.alignmentFilterOutputTrackName, "Tumor Reads filtered")
+        XCTAssertEqual(viewModel.alignmentFilterOutputTrackName, "Mapped primary alignments")
     }
 
     func testDuplicateModeChangeRefreshesDefaultOutputSuffix() {
@@ -30,7 +30,41 @@ final class AlignmentFilterInspectorStateTests: XCTestCase {
 
         viewModel.alignmentFilterDuplicateMode = .removeDuplicates
 
-        XCTAssertEqual(viewModel.alignmentFilterOutputTrackName, "Tumor Reads deduplicated filtered")
+        XCTAssertEqual(viewModel.alignmentFilterOutputTrackName, "Duplicate-marked reads removed")
+    }
+
+    func testExactMatchFilterRefreshesDefaultOutputName() {
+        let viewModel = ReadStyleSectionViewModel()
+        viewModel.configureAlignmentFilterTracks([
+            .init(id: "track-a", name: "Tumor Reads")
+        ])
+
+        viewModel.alignmentFilterExactMatchOnly = true
+
+        XCTAssertEqual(viewModel.alignmentFilterOutputTrackName, "Exact matches")
+    }
+
+    func testMinimumIdentityFilterRefreshesDefaultOutputName() {
+        let viewModel = ReadStyleSectionViewModel()
+        viewModel.configureAlignmentFilterTracks([
+            .init(id: "track-a", name: "Tumor Reads")
+        ])
+
+        viewModel.alignmentFilterMinimumPercentIdentityText = "98.0"
+
+        XCTAssertEqual(viewModel.alignmentFilterOutputTrackName, "98% minimum identity")
+    }
+
+    func testFilterCriteriaChangePreservesCustomOutputName() {
+        let viewModel = ReadStyleSectionViewModel()
+        viewModel.configureAlignmentFilterTracks([
+            .init(id: "track-a", name: "Tumor Reads")
+        ])
+        viewModel.alignmentFilterOutputTrackName = "Curated subset"
+
+        viewModel.alignmentFilterExactMatchOnly = true
+
+        XCTAssertEqual(viewModel.alignmentFilterOutputTrackName, "Curated subset")
     }
 
     func testConfigureAlignmentFilterTracksPreservesCustomOutputNameForValidSelection() {
