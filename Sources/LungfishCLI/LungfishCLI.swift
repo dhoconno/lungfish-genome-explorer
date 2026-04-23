@@ -16,7 +16,7 @@ import Foundation
 @main
 struct LungfishCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "lungfish",
+        commandName: "lungfish-cli",
         abstract: "Lungfish Genome Explorer CLI - Bioinformatics tools for sequence analysis",
         discussion: """
             The Lungfish CLI provides headless access to the Lungfish Genome Explorer's
@@ -49,6 +49,7 @@ struct LungfishCLI: AsyncParsableCommand {
             OrientCommand.self,
             MapCommand.self,
             ImportCommand.self,
+            BAMCommand.self,
             VariantsCommand.self,
             NaoMgsCommand.self,
             NvdCommand.self,
