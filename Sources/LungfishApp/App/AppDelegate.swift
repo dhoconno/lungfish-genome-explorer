@@ -527,11 +527,19 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         // Use DocumentManager to preserve project semantics and persisted metadata.
         do {
-            let _ = try DocumentManager.shared.openProject(at: projectURL)
+            let project = try DocumentManager.shared.openProject(at: projectURL)
+            RecentProjectsManager.shared.addRecentProject(
+                url: project.url,
+                name: project.name
+            )
             debugLog("openProject: Opened project via DocumentManager")
         } catch {
             debugLog("openProject: Failed via DocumentManager, falling back to filesystem sidebar: \(error.localizedDescription)")
             controller.mainSplitViewController?.sidebarController.openProject(at: projectURL)
+            RecentProjectsManager.shared.addRecentProject(
+                url: projectURL,
+                name: projectName
+            )
         }
 
         // Clean project temp files on open and start periodic stale-file cleanup.
@@ -1177,6 +1185,21 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             NSApp.activate()
             self.openProject(url, in: controller)
         }
+    }
+
+    @IBAction func openRecentProjectFromMenu(_ sender: Any?) {
+        guard let item = sender as? NSMenuItem,
+              let url = item.representedObject as? URL else {
+            return
+        }
+
+        let controller = createAndShowMainWindow()
+        NSApp.activate()
+        openProject(url, in: controller)
+    }
+
+    @IBAction func clearRecentProjectsFromMenu(_ sender: Any?) {
+        RecentProjectsManager.shared.clearRecentProjects()
     }
 
     @IBAction func showAboutPanel(_ sender: Any?) {
@@ -5203,7 +5226,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         request: MappingRunRequest,
         opID: UUID
     ) async throws -> MappingResult? {
-        guard let sourceBundleURL = request.sourceReferenceBundleURL,
+        let inferredSourceBundleURL = ReferenceBundleSourceResolver.canonicalSourceBundleURL(
+            for: request.referenceFASTAURL,
+            projectURL: request.projectURL
+        )
+        let candidateSourceBundleURL = request.sourceReferenceBundleURL
+            ?? result.sourceReferenceBundleURL
+            ?? (inferredSourceBundleURL?.pathExtension.lowercased() == "lungfishref" ? inferredSourceBundleURL : nil)
+
+        guard let sourceBundleURL = candidateSourceBundleURL,
               FileManager.default.fileExists(atPath: sourceBundleURL.path) else {
             return nil
         }

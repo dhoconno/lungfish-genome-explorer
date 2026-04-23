@@ -89,4 +89,23 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             advancedArguments: advancedArguments
         )
     }
+
+    public func withSourceReferenceBundleURL(_ sourceReferenceBundleURL: URL?) -> MappingRunRequest {
+        MappingRunRequest(
+            tool: tool,
+            modeID: modeID,
+            inputFASTQURLs: inputFASTQURLs,
+            referenceFASTAURL: referenceFASTAURL,
+            sourceReferenceBundleURL: sourceReferenceBundleURL,
+            projectURL: projectURL,
+            outputDirectory: outputDirectory,
+            sampleName: sampleName,
+            pairedEnd: pairedEnd,
+            threads: threads,
+            includeSecondary: includeSecondary,
+            includeSupplementary: includeSupplementary,
+            minimumMappingQuality: minimumMappingQuality,
+            advancedArguments: advancedArguments
+        )
+    }
 }

@@ -82,6 +82,33 @@ final class VariantsCommandTests: XCTestCase {
         XCTAssertNotNil(runCompleteEvent.databasePath)
     }
 
+    func testCallSubcommandUsesSystemTempStagingForBundlePathsWithSpaces() async throws {
+        let spacedBundleURL = tempDir
+            .appendingPathComponent("Project With Spaces.lungfish", isDirectory: true)
+            .appendingPathComponent("Downloads", isDirectory: true)
+            .appendingPathComponent("NC_045512.lungfishref", isDirectory: true)
+        let command = try VariantsCommand.CallSubcommand.parse([
+            "call",
+            "--bundle", spacedBundleURL.path,
+            "--alignment-track", "aln-1",
+            "--caller", "lofreq",
+            "--format", "json",
+        ])
+        let capture = CapturedVariantStaging()
+        let runtime = try makeRuntime { context in
+            capture.root = context.stagingRoot
+            capture.marker = ProjectTempDirectory.readMarker(from: context.stagingRoot)
+        }
+        var lines: [String] = []
+
+        _ = try await command.executeForTesting(runtime: runtime) { lines.append($0) }
+
+        let stagingRoot = try XCTUnwrap(capture.root)
+        XCTAssertFalse(stagingRoot.path.contains("Project With Spaces.lungfish"))
+        XCTAssertEqual(capture.marker?.policy, .systemOnly)
+        XCTAssertTrue(lines.contains { $0.contains(#""event":"runComplete""#) })
+    }
+
     func testCallSubcommandEmitsRunFailedJSON() async throws {
         let command = try VariantsCommand.CallSubcommand.parse([
             "call",
@@ -117,7 +144,9 @@ final class VariantsCommandTests: XCTestCase {
         XCTAssertTrue(lines.contains { $0.contains("Medaka requires ONT model metadata") })
     }
 
-    private func makeRuntime() throws -> VariantsCommand.Runtime {
+    private func makeRuntime(
+        onRunPipeline: (@Sendable (VariantsCommand.CallContext) -> Void)? = nil
+    ) throws -> VariantsCommand.Runtime {
         let bundleURL = tempDir.appendingPathComponent("Bundle.lungfishref", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         let finalVCFURL = tempDir.appendingPathComponent("variants.vcf.gz")
@@ -190,7 +219,10 @@ final class VariantsCommandTests: XCTestCase {
 
         return VariantsCommand.Runtime(
             preflight: { _ in preflight },
-            runPipeline: { _, _, _ in pipelineResult },
+            runPipeline: { _, _, context in
+                onRunPipeline?(context)
+                return pipelineResult
+            },
             importSQLite: { _, _ in
                 VariantSQLiteImportResult(
                     databaseURL: finalDBURL,
@@ -209,6 +241,11 @@ final class VariantsCommandTests: XCTestCase {
             }
         )
     }
+}
+
+private final class CapturedVariantStaging: @unchecked Sendable {
+    var root: URL?
+    var marker: ProjectTempDirectory.TempOriginMarker?
 }
 
 private func decodeEvent(_ line: String) -> VariantsCommand.VariantCallingEvent? {

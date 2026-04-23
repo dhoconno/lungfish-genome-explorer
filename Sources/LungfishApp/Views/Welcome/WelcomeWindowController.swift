@@ -55,6 +55,8 @@ public final class RecentProjectsManager: ObservableObject {
 
         saveRecentProjects()
         saveLastProject(url: url)
+        NSDocumentController.shared.noteNewRecentDocumentURL(url)
+        MainMenu.updateOpenRecentMenuIfPresent()
     }
 
     /// Removes a project from the recent list
@@ -62,13 +64,24 @@ public final class RecentProjectsManager: ObservableObject {
         guard index >= 0 && index < recentProjects.count else { return }
         recentProjects.remove(at: index)
         saveRecentProjects()
+        MainMenu.updateOpenRecentMenuIfPresent()
     }
 
     /// Clears all recent projects
     public func clearRecentProjects() {
         recentProjects = []
         saveRecentProjects()
+        NSDocumentController.shared.clearRecentDocuments(nil)
+        MainMenu.updateOpenRecentMenuIfPresent()
     }
+
+    #if DEBUG
+    func replaceRecentProjectsForTesting(_ projects: [RecentProject]) {
+        recentProjects = Array(projects.prefix(maxRecentProjects))
+        saveRecentProjects()
+        MainMenu.updateOpenRecentMenuIfPresent()
+    }
+    #endif
 
     /// Gets the last opened project URL
     public var lastProjectURL: URL? {

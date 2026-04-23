@@ -87,7 +87,11 @@ struct MappingWizardSheet: View {
 
     private var sourceReferenceBundleURL: URL? {
         if selectedReferenceID == "__browsed__" {
-            return nil
+            let sourceURL = ReferenceBundleSourceResolver.canonicalSourceBundleURL(
+                for: browsedReferenceURL,
+                projectURL: projectURL
+            )
+            return sourceURL?.pathExtension.lowercased() == "lungfishref" ? sourceURL : nil
         }
         return ReferenceBundleSourceResolver.canonicalSourceBundleURL(
             for: selectedReferenceCandidate?.sourceBundleURL,

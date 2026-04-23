@@ -149,11 +149,7 @@ public final class MainMenu {
         let recentItem = NSMenuItem(title: "Open Recent", action: nil, keyEquivalent: "")
         recentItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.openRecent)
         let recentMenu = NSMenu(title: "Open Recent")
-        recentMenu.addItem(
-            withTitle: "Clear Menu",
-            action: #selector(NSDocumentController.clearRecentDocuments(_:)),
-            keyEquivalent: ""
-        )
+        populateOpenRecentMenu(recentMenu)
         recentItem.submenu = recentMenu
         fileMenu.addItem(recentItem)
 
@@ -287,6 +283,47 @@ public final class MainMenu {
 
         fileMenuItem.submenu = fileMenu
         return fileMenuItem
+    }
+
+    public static func updateOpenRecentMenuIfPresent() {
+        guard let fileMenu = NSApp.mainMenu?
+            .items
+            .first(where: { $0.identifier?.rawValue == MainMenuAccessibilityID.fileMenu })?
+            .submenu,
+              let recentMenu = fileMenu
+            .items
+            .first(where: { $0.identifier?.rawValue == MainMenuAccessibilityID.openRecent })?
+            .submenu else {
+            return
+        }
+        populateOpenRecentMenu(recentMenu)
+    }
+
+    private static func populateOpenRecentMenu(_ recentMenu: NSMenu) {
+        recentMenu.removeAllItems()
+
+        let projects = RecentProjectsManager.shared.recentProjects.filter(\.exists)
+        for project in projects {
+            let item = recentMenu.addItem(
+                withTitle: project.name,
+                action: #selector(AppDelegate.openRecentProjectFromMenu(_:)),
+                keyEquivalent: ""
+            )
+            item.representedObject = project.url
+        }
+
+        if projects.isEmpty {
+            let emptyItem = recentMenu.addItem(withTitle: "No Recent Projects", action: nil, keyEquivalent: "")
+            emptyItem.isEnabled = false
+        }
+        recentMenu.addItem(.separator())
+
+        let clearItem = recentMenu.addItem(
+            withTitle: "Clear Menu",
+            action: #selector(AppDelegate.clearRecentProjectsFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        clearItem.isEnabled = !projects.isEmpty
     }
 
     // MARK: - Edit Menu

@@ -219,7 +219,11 @@ extension VariantsCommand {
                 )
                 emitSimpleEvent(event: "preflightComplete", progress: 0.08, message: "Preflight checks passed", caller: resolvedCaller.rawValue, emit: emitEvent)
 
-                let stagingRoot = try ProjectTempDirectory.createFromContext(prefix: "variants-", contextURL: bundleURL)
+                let stagingRoot = try ProjectTempDirectory.create(
+                    prefix: "variants-",
+                    contextURL: bundleURL,
+                    policy: .systemOnly
+                )
                 defer { try? FileManager.default.removeItem(at: stagingRoot) }
                 let emitterBox = VariantCallingEventEmitter(emitEvent)
 

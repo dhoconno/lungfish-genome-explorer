@@ -328,7 +328,17 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             inputURLs: request.inputFASTQURLs,
             projectURL: request.projectURL
         )
-        let effectiveRequest = request.withInputFASTQURLs(stagedInputs.inputURLs)
+        let sourceReferenceBundleURL = request.sourceReferenceBundleURL
+            ?? MappingReferenceStager.enclosingReferenceBundleURL(for: request.referenceFASTAURL)
+        let stagedReference = try await MappingReferenceStager.stageMapperCompatibleReferenceIfNeeded(
+            referenceURL: request.referenceFASTAURL,
+            sourceReferenceBundleURL: sourceReferenceBundleURL,
+            projectURL: request.projectURL
+        )
+        let effectiveRequest = request
+            .withInputFASTQURLs(stagedInputs.inputURLs)
+            .withSourceReferenceBundleURL(sourceReferenceBundleURL)
+        let cleanupURLs = stagedInputs.cleanupURLs + stagedReference.cleanupURLs
 
         switch request.tool {
         case .bwaMem2, .bowtie2:
@@ -337,22 +347,22 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
                 in: request.projectURL
             )
             let referenceLocator = ReferenceLocator(
-                referenceURL: effectiveRequest.referenceFASTAURL,
+                referenceURL: stagedReference.referenceURL,
                 indexPrefixURL: workspace.appendingPathComponent("reference-index")
             )
             return PreparedMappingExecution(
                 request: effectiveRequest,
                 referenceLocator: referenceLocator,
-                cleanupURLs: stagedInputs.cleanupURLs + [workspace]
+                cleanupURLs: cleanupURLs + [workspace]
             )
         case .minimap2, .bbmap:
             return PreparedMappingExecution(
                 request: effectiveRequest,
                 referenceLocator: ReferenceLocator(
-                    referenceURL: effectiveRequest.referenceFASTAURL,
+                    referenceURL: stagedReference.referenceURL,
                     indexPrefixURL: effectiveRequest.outputDirectory.appendingPathComponent(".mapping-index/reference-index")
                 ),
-                cleanupURLs: stagedInputs.cleanupURLs
+                cleanupURLs: cleanupURLs
             )
         }
     }
@@ -371,7 +381,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             )
             let result = try await condaManager.runTool(
                 name: "bwa-mem2",
-                arguments: ["index", "-p", locator.indexPrefixURL.path, request.referenceFASTAURL.path],
+                arguments: ["index", "-p", locator.indexPrefixURL.path, locator.referenceURL.path],
                 environment: request.tool.environmentName,
                 workingDirectory: request.outputDirectory,
                 timeout: 24 * 3_600
@@ -391,7 +401,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             )
             let result = try await condaManager.runTool(
                 name: "bowtie2-build",
-                arguments: [request.referenceFASTAURL.path, locator.indexPrefixURL.path],
+                arguments: [locator.referenceURL.path, locator.indexPrefixURL.path],
                 environment: request.tool.environmentName,
                 workingDirectory: request.outputDirectory,
                 timeout: 24 * 3_600

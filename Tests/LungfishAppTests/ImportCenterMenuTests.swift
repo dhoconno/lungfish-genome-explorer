@@ -20,6 +20,28 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertNotNil(appMenu.items.first(where: { $0.title == "Quit Lungfish Genome Explorer" }))
     }
 
+    func testOpenRecentMenuIncludesPersistedRecentProjects() throws {
+        let _ = NSApplication.shared
+        let projectURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Open Recent Project With Spaces-\(UUID().uuidString).lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let originalProjects = RecentProjectsManager.shared.recentProjects
+        RecentProjectsManager.shared.replaceRecentProjectsForTesting([])
+        defer {
+            RecentProjectsManager.shared.replaceRecentProjectsForTesting(originalProjects)
+            try? FileManager.default.removeItem(at: projectURL)
+        }
+        RecentProjectsManager.shared.addRecentProject(url: projectURL, name: "Open Recent Project With Spaces")
+
+        let mainMenu = MainMenu.createMainMenu()
+        let fileMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "File" })?.submenu)
+        let openRecentMenu = try XCTUnwrap(fileMenu.items.first(where: { $0.title == "Open Recent" })?.submenu)
+        let projectItem = try XCTUnwrap(openRecentMenu.items.first(where: { $0.title == "Open Recent Project With Spaces" }))
+
+        XCTAssertEqual((projectItem.representedObject as? URL)?.standardizedFileURL, projectURL.standardizedFileURL)
+        XCTAssertEqual(projectItem.action, #selector(AppDelegate.openRecentProjectFromMenu(_:)))
+    }
+
     func testMainMenuTopLevelMenusExposeStableIdentifiers() {
         let _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu()

@@ -1,4 +1,5 @@
 import XCTest
+@testable import LungfishCore
 @testable import LungfishWorkflow
 
 final class ManagedMappingPipelineTests: XCTestCase {
@@ -374,6 +375,63 @@ final class ManagedMappingPipelineTests: XCTestCase {
         }
     }
 
+    func testStageMapperCompatibleReferenceUsesBundleContigNamesAndConvertsRNA() async throws {
+        let fixture = try MappingFASTQFixture()
+        defer { fixture.cleanup() }
+
+        let bundleURL = try fixture.writeReferenceBundle(
+            name: "RNA Virus.lungfishref",
+            fastaText: ">NC_045512 Severe acute respiratory syndrome coronavirus 2 isolate Wuhan-Hu-1\nAACUGu\n",
+            chromosomes: [
+                ChromosomeInfo(name: "NC_045512", length: 6, offset: 0, lineBases: 6, lineWidth: 7)
+            ]
+        )
+        let referenceURL = bundleURL.appendingPathComponent("genome/sequence.fa")
+
+        let staged = try await MappingReferenceStager.stageMapperCompatibleReferenceIfNeeded(
+            referenceURL: referenceURL,
+            sourceReferenceBundleURL: bundleURL,
+            projectURL: fixture.root
+        )
+        defer {
+            for url in staged.cleanupURLs {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+
+        XCTAssertNotEqual(staged.referenceURL.standardizedFileURL, referenceURL.standardizedFileURL)
+        XCTAssertEqual(staged.cleanupURLs.count, 1)
+        XCTAssertEqual(
+            try String(contentsOf: staged.referenceURL, encoding: .utf8),
+            ">NC_045512\nAACTGt\n"
+        )
+    }
+
+    func testStageMapperCompatibleReferenceUsesFirstHeaderTokenForStandaloneFASTA() async throws {
+        let fixture = try MappingFASTQFixture()
+        defer { fixture.cleanup() }
+
+        let referenceURL = fixture.root.appendingPathComponent("standalone.fa")
+        try ">chr1 description text\nACUu\n".write(to: referenceURL, atomically: true, encoding: .utf8)
+
+        let staged = try await MappingReferenceStager.stageMapperCompatibleReferenceIfNeeded(
+            referenceURL: referenceURL,
+            sourceReferenceBundleURL: nil,
+            projectURL: fixture.root
+        )
+        defer {
+            for url in staged.cleanupURLs {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+
+        XCTAssertNotEqual(staged.referenceURL.standardizedFileURL, referenceURL.standardizedFileURL)
+        XCTAssertEqual(
+            try String(contentsOf: staged.referenceURL, encoding: .utf8),
+            ">chr1\nACTt\n"
+        )
+    }
+
     func testStageSAMSafeFASTAInputsShortensOverlongIdentifiersAtRuntime() async throws {
         let fixture = try MappingFASTQFixture()
         defer { fixture.cleanup() }
@@ -625,6 +683,36 @@ private struct MappingFASTQFixture {
             at: fastqURL,
             to: bundleURL.appendingPathComponent(fastqURL.lastPathComponent)
         )
+        return bundleURL
+    }
+
+    func writeReferenceBundle(
+        name: String,
+        fastaText: String,
+        chromosomes: [ChromosomeInfo]
+    ) throws -> URL {
+        let bundleURL = root.appendingPathComponent(name, isDirectory: true)
+        let genomeDirectory = bundleURL.appendingPathComponent("genome", isDirectory: true)
+        try FileManager.default.createDirectory(at: genomeDirectory, withIntermediateDirectories: true)
+        try fastaText.write(
+            to: genomeDirectory.appendingPathComponent("sequence.fa"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: name,
+            identifier: "org.lungfish.tests.\(UUID().uuidString)",
+            source: SourceInfo(organism: "Virus", assembly: "Test", database: "Test"),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa",
+                indexPath: "genome/sequence.fa.fai",
+                totalLength: chromosomes.reduce(Int64(0)) { $0 + $1.length },
+                chromosomes: chromosomes
+            )
+        )
+        try manifest.save(to: bundleURL)
         return bundleURL
     }
 }
