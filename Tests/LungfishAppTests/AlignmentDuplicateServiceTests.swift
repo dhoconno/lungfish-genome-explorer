@@ -129,6 +129,32 @@ final class AlignmentDuplicateServiceTests: XCTestCase {
             outputURL.path
         ])
     }
+
+    func testMarkdupPipelineMapsWorkflowSamtoolsFailuresToAlignmentDuplicateError() async throws {
+        let inputURL = tempDir.appendingPathComponent("input.bam")
+        try Data("bam".utf8).write(to: inputURL)
+
+        let outputURL = tempDir.appendingPathComponent("out/output.bam")
+        let pipeline = LungfishApp.AlignmentMarkdupPipeline(samtoolsRunner: FailingSamtoolsRunner())
+
+        do {
+            _ = try await pipeline.run(
+                inputURL: inputURL,
+                outputURL: outputURL,
+                removeDuplicates: false,
+                referenceFastaPath: nil,
+                progressHandler: nil
+            )
+            XCTFail("Expected samtools failure")
+        } catch let error as AlignmentDuplicateError {
+            guard case .samtoolsFailed(let message) = error else {
+                return XCTFail("Unexpected duplicate error: \(error)")
+            }
+            XCTAssertEqual(message, "samtools exploded")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
 }
 
 private actor RecordingSamtoolsRunner: LungfishApp.AlignmentSamtoolsRunning {
@@ -146,5 +172,11 @@ private actor RecordingSamtoolsRunner: LungfishApp.AlignmentSamtoolsRunning {
         }
 
         return NativeToolResult(exitCode: 0, stdout: "", stderr: "")
+    }
+}
+
+private actor FailingSamtoolsRunner: LungfishApp.AlignmentSamtoolsRunning {
+    func runSamtools(arguments: [String], timeout: TimeInterval) async throws -> NativeToolResult {
+        NativeToolResult(exitCode: 1, stdout: "", stderr: "samtools exploded")
     }
 }
