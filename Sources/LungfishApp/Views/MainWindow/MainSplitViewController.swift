@@ -701,6 +701,18 @@ public class MainSplitViewController: NSSplitViewController {
 
         logger.info("handleSidebarFileDropped: Processing \(allURLs.count) dropped file(s)")
 
+        let importPlan = makeSidebarImportPlan(for: allURLs)
+        let sourceURLs = importPlan.sourceURLs
+
+        logger.info(
+            "handleSidebarFileDropped: Expanded to \(sourceURLs.count) import source(s); autoDisplay=\(importPlan.shouldAutoDisplayImportedContent)"
+        )
+
+        guard !sourceURLs.isEmpty else {
+            logger.warning("handleSidebarFileDropped: No importable sources found after expansion")
+            return
+        }
+
         // Determine destination - use the new filesystem-backed project URL
         let destinationItem = notification.userInfo?["destination"] as? SidebarItem
 
@@ -715,14 +727,14 @@ public class MainSplitViewController: NSSplitViewController {
                 }
                 return projectURL
             }
-            return allURLs[0].deletingLastPathComponent()
+            return sourceURLs[0].deletingLastPathComponent()
         }()
 
         // Partition URLs into FASTQ files, ONT directories, and other files
         var fastqURLs: [URL] = []
         var otherURLs: [URL] = []
 
-        for url in allURLs {
+        for url in sourceURLs {
             if isONTDirectory(url) {
                 importONTDirectoryInBackground(sourceURL: url, projectURL: targetDir, requestID: requestID)
             } else if FASTQBundle.isFASTQFileURL(url) {
@@ -744,15 +756,34 @@ public class MainSplitViewController: NSSplitViewController {
                 guard let self else { return }
                 for url in otherURLs {
                     await self.importNonFASTQFile(
-                        url: url, projectURL: projectURL, targetDir: targetDir, requestID: requestID
+                        url: url,
+                        projectURL: projectURL,
+                        targetDir: targetDir,
+                        requestID: requestID,
+                        displayAfterImport: importPlan.shouldAutoDisplayImportedContent
                     )
                 }
             }
         }
     }
 
+    func makeSidebarImportPlan(for droppedURLs: [URL]) -> SidebarImportPlan {
+        SidebarImportPlanner.makePlan(
+            for: droppedURLs,
+            ontDirectoryDetector: { [weak self] url in
+                self?.isONTDirectory(url) ?? false
+            }
+        )
+    }
+
     /// Imports a single non-FASTQ file, handling duplicate resolution via sheet.
-    private func importNonFASTQFile(url: URL, projectURL: URL?, targetDir: URL, requestID: String?) async {
+    private func importNonFASTQFile(
+        url: URL,
+        projectURL: URL?,
+        targetDir: URL,
+        requestID: String?,
+        displayAfterImport: Bool
+    ) async {
         if ReferenceBundleImportService.isStandaloneReferenceSource(url) {
             guard let projectURL else {
                 let errorMessage = "Open a project before importing standalone reference files."
@@ -798,7 +829,9 @@ public class MainSplitViewController: NSSplitViewController {
                     detail: "Imported \(result.bundleURL.lastPathComponent)"
                 )
                 sidebarController.reloadFromFilesystem()
-                loadGenomicsFileInBackground(url: result.bundleURL)
+                if displayAfterImport {
+                    loadGenomicsFileInBackground(url: result.bundleURL)
+                }
                 postSidebarFileDropCompleted(
                     requestID: requestID,
                     sourceURL: url,
@@ -873,7 +906,9 @@ public class MainSplitViewController: NSSplitViewController {
         }
 
         // Standalone VCF files use the auto-ingestion pipeline (handled by displayGenomicsFile)
-        loadGenomicsFileInBackground(url: urlToLoad)
+        if displayAfterImport {
+            loadGenomicsFileInBackground(url: urlToLoad)
+        }
         postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: importSucceeded, error: importError)
     }
 

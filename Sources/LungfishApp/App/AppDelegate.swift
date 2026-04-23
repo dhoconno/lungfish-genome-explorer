@@ -96,18 +96,54 @@ private struct SyncFileLoadResult: Sendable {
     }
 }
 
+struct SidebarImportRequestTrackerUpdate {
+    let pendingCount: Int
+    let succeeded: Int
+    let failed: Int
+    let isFinished: Bool
+}
+
 /// Main-thread import tracking state used by File > Import.
 ///
 /// This object is captured by notification handlers that are `@Sendable`.
 /// The handler immediately hops to `MainActor` before mutating state.
-private final class ImportCompletionTracker: @unchecked Sendable {
+final class SidebarImportRequestTracker: @unchecked Sendable {
+    let requestID: String
     var pendingURLs: Set<URL>
     var succeeded: Int = 0
     var failed: Int = 0
     var observerToken: NSObjectProtocol?
 
-    init(urls: [URL]) {
-        self.pendingURLs = Set(urls)
+    init(requestID: String, trackedURLs: [URL]) {
+        self.requestID = requestID
+        self.pendingURLs = Set(trackedURLs.map(\.standardizedFileURL))
+    }
+
+    func registerCompletion(
+        requestID completionRequestID: String?,
+        completedURL: URL?,
+        wasSuccessful: Bool
+    ) -> SidebarImportRequestTrackerUpdate? {
+        guard let completionRequestID,
+              completionRequestID == requestID,
+              let completedURL = completedURL?.standardizedFileURL,
+              pendingURLs.contains(completedURL) else {
+            return nil
+        }
+
+        pendingURLs.remove(completedURL)
+        if wasSuccessful {
+            succeeded += 1
+        } else {
+            failed += 1
+        }
+
+        return SidebarImportRequestTrackerUpdate(
+            pendingCount: pendingURLs.count,
+            succeeded: succeeded,
+            failed: failed,
+            isFinished: pendingURLs.isEmpty
+        )
     }
 }
 
@@ -1236,9 +1272,18 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             debugLog("importProjectFilesFromURLs: Starting import pipeline dispatch")
 
             let activityIndicator = self.mainWindowController?.mainSplitViewController?.activityIndicator
-            let fileCount = selectedURLs.count
+            let importPlan = self.mainWindowController?.mainSplitViewController?.makeSidebarImportPlan(for: selectedURLs)
+                ?? SidebarImportPlanner.makePlan(for: selectedURLs)
+            let trackedURLs = importPlan.sourceURLs
+
+            guard !trackedURLs.isEmpty else {
+                debugLog("importProjectFilesFromURLs: No importable sources found after expansion")
+                return
+            }
+
+            let fileCount = trackedURLs.count
             let requestID = UUID().uuidString
-            let tracker = ImportCompletionTracker(urls: selectedURLs)
+            let tracker = SidebarImportRequestTracker(requestID: requestID, trackedURLs: trackedURLs)
             activityIndicator?.show(
                 message: "Importing \(fileCount) file\(fileCount == 1 ? "" : "s")...",
                 style: .indeterminate
@@ -1254,34 +1299,28 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 let wasSuccessful = (completion.userInfo?["success"] as? Bool) == true
 
                 Task { @MainActor in
-                    guard let completionRequestID,
-                          completionRequestID == requestID,
-                          let completedURL else {
+                    guard let update = tracker.registerCompletion(
+                        requestID: completionRequestID,
+                        completedURL: completedURL,
+                        wasSuccessful: wasSuccessful
+                    ) else {
                         return
                     }
-                    guard tracker.pendingURLs.contains(completedURL) else { return }
 
-                    tracker.pendingURLs.remove(completedURL)
-                    if wasSuccessful {
-                        tracker.succeeded += 1
-                    } else {
-                        tracker.failed += 1
-                    }
-
-                    if tracker.pendingURLs.isEmpty {
+                    if update.isFinished {
                         if let observerToken = tracker.observerToken {
                             NotificationCenter.default.removeObserver(observerToken)
                             tracker.observerToken = nil
                         }
                         activityIndicator?.hide()
                         debugLog(
-                            "importProjectFilesFromURLs: Completed request \(requestID). success=\(tracker.succeeded), failed=\(tracker.failed)"
+                            "importProjectFilesFromURLs: Completed request \(requestID). success=\(update.succeeded), failed=\(update.failed)"
                         )
 
-                        if tracker.failed > 0 {
+                        if update.failed > 0 {
                             let alert = NSAlert()
                             alert.messageText = "Import Completed with Errors"
-                            alert.informativeText = "\(tracker.succeeded) succeeded, \(tracker.failed) failed."
+                            alert.informativeText = "\(update.succeeded) succeeded, \(update.failed) failed."
                             alert.alertStyle = .warning
                             alert.addButton(withTitle: "OK")
                             alert.applyLungfishBranding()
@@ -1293,16 +1332,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 }
             }
 
-            for (index, sourceURL) in selectedURLs.enumerated() {
-                activityIndicator?.updateMessage("Importing \(sourceURL.lastPathComponent) (\(index + 1)/\(fileCount))...")
-                NotificationCenter.default.post(
-                    name: .sidebarFileDropped,
-                    object: self,
-                    userInfo: ["url": sourceURL, "destination": NSNull(), "requestID": requestID]
-                )
+            if let firstURL = trackedURLs.first {
+                activityIndicator?.updateMessage("Importing \(firstURL.lastPathComponent) (1/\(fileCount))...")
             }
 
-            debugLog("importProjectFilesFromURLs: Dispatched \(selectedURLs.count) file(s) to sidebar import pipeline")
+            NotificationCenter.default.post(
+                name: .sidebarFileDropped,
+                object: self,
+                userInfo: ["urls": trackedURLs, "destination": NSNull(), "requestID": requestID]
+            )
+
+            debugLog("importProjectFilesFromURLs: Dispatched batch of \(trackedURLs.count) file(s) to sidebar import pipeline")
         }
     }
 
