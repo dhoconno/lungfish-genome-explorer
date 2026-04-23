@@ -1478,12 +1478,7 @@ public struct AnalysisSection: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Picker("Analysis Section", selection: $selectedSubsection) {
-                    ForEach(AnalysisWorkflowSubsection.allCases) { section in
-                        Text(section.displayTitle).tag(section)
-                    }
-                }
-                .pickerStyle(.segmented)
+                AnalysisSubsectionGrid(selection: $selectedSubsection)
 
                 Group {
                     switch selectedSubsection {
@@ -1857,6 +1852,49 @@ public struct AnalysisSection: View {
                 viewModel.onCreateDeduplicatedBundleRequested?()
             }
             .disabled(viewModel.isDuplicateWorkflowRunning || !viewModel.hasAlignmentTracks)
+        }
+    }
+}
+
+private struct AnalysisSubsectionGrid: View {
+    @Binding var selection: AnalysisWorkflowSubsection
+
+    private let columns = Array(
+        repeating: GridItem(.flexible(minimum: 0), spacing: 6),
+        count: 2
+    )
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 6) {
+            ForEach(AnalysisWorkflowSubsection.allCases) { section in
+                Button {
+                    selection = section
+                } label: {
+                    Text(section.displayTitle)
+                        .font(.caption.weight(selection == section ? .semibold : .regular))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .frame(maxWidth: .infinity, minHeight: 24)
+                        .padding(.horizontal, 4)
+                        .background(sectionBackground(for: section))
+                        .foregroundStyle(selection == section ? Color.white : Color.primary)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .help(section.displayTitle)
+            }
+        }
+        .accessibilityLabel("Analysis Section")
+    }
+
+    @ViewBuilder
+    private func sectionBackground(for section: AnalysisWorkflowSubsection) -> some View {
+        if selection == section {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.accentColor)
+        } else {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color(nsColor: .controlColor))
         }
     }
 }

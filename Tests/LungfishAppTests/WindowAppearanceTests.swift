@@ -47,16 +47,42 @@ final class WindowAppearanceTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(controllerSource.contains("Picker(\"View Section\""))
+        XCTAssertTrue(controllerSource.contains("InspectorSubsectionGrid(selection: $viewModel.selectedReadStyleViewSubsection)"))
         XCTAssertTrue(controllerSource.contains("AlignmentViewSection(viewModel: viewModel.readStyleSectionViewModel)"))
         XCTAssertTrue(controllerSource.contains("AnalysisSection(viewModel: viewModel.readStyleSectionViewModel)"))
         XCTAssertTrue(controllerSource.contains("case .analysis: return \"Analysis\""))
         XCTAssertTrue(controllerSource.contains("case .annotations:"))
-        XCTAssertTrue(readStyleSource.contains("Picker(\"Analysis Section\""))
+        XCTAssertTrue(readStyleSource.contains("AnalysisSubsectionGrid(selection: $selectedSubsection)"))
         XCTAssertTrue(readStyleSource.contains("return \"Filtering\""))
         XCTAssertTrue(readStyleSource.contains("return \"Consensus\""))
         XCTAssertTrue(readStyleSource.contains("return \"Variant Calling\""))
         XCTAssertTrue(readStyleSource.contains("return \"Export\""))
+    }
+
+    func testInspectorControlsFitFixedWidthSidecar() throws {
+        let controllerSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Inspector/InspectorViewController.swift"),
+            encoding: .utf8
+        )
+        let readStyleSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift"),
+            encoding: .utf8
+        )
+        let mappingSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/MappingDocumentSection.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(controllerSource.contains("InspectorTabGrid"))
+        XCTAssertFalse(controllerSource.contains("Picker(\"Inspector\""))
+        XCTAssertTrue(controllerSource.contains("InspectorSubsectionGrid(selection: $viewModel.selectedReadStyleViewSubsection)"))
+        XCTAssertTrue(readStyleSource.contains("AnalysisSubsectionGrid(selection: $selectedSubsection)"))
+        XCTAssertTrue(mappingSource.contains(".lineLimit(2)"))
+        XCTAssertTrue(mappingSource.contains(".truncationMode(.middle)"))
+        XCTAssertTrue(mappingSource.contains(".help(text)"))
     }
 
     func testPluginManagerAndAIAssistantExposeStableAccessibilityIdentifiers() throws {

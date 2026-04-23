@@ -2154,7 +2154,7 @@ public final class InspectorViewModel {
 /// - **Selection**: Annotation editing, appearance settings, annotation style, read style
 /// - **AI**: Embedded AI assistant chat interface
 ///
-/// Uses a segmented `Picker` at the top of the panel for tab switching.
+/// Uses fixed-width text controls at the top of the panel for tab switching.
 public struct InspectorView: View {
     @Bindable var viewModel: InspectorViewModel
 
@@ -2181,14 +2181,7 @@ public struct InspectorView: View {
     private var tabPicker: some View {
         let tabs = viewModel.availableTabs
         if tabs.count > 1 {
-            Picker("Inspector", selection: $viewModel.selectedTab) {
-                ForEach(tabs, id: \.self) { tab in
-                    Text(tab.displayLabel)
-                        .tag(tab)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            InspectorTabGrid(tabs: tabs, selectedTab: $viewModel.selectedTab)
             .padding(.horizontal)
             .padding(.vertical, 8)
         } else if let single = tabs.first {
@@ -2280,6 +2273,52 @@ public struct InspectorView: View {
 
 // MARK: - InspectorTab Helpers
 
+private struct InspectorTabGrid: View {
+    let tabs: [InspectorTab]
+    @Binding var selectedTab: InspectorTab
+
+    private var columns: [GridItem] {
+        Array(
+            repeating: GridItem(.flexible(minimum: 0), spacing: 6),
+            count: tabs.count > 3 ? 2 : max(tabs.count, 1)
+        )
+    }
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 6) {
+            ForEach(tabs, id: \.self) { tab in
+                Button {
+                    selectedTab = tab
+                } label: {
+                    Text(tab.displayLabel)
+                        .font(.caption.weight(selectedTab == tab ? .semibold : .regular))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .frame(maxWidth: .infinity, minHeight: 24)
+                        .padding(.horizontal, 4)
+                        .background(tabBackground(for: tab))
+                        .foregroundStyle(selectedTab == tab ? Color.white : Color.primary)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .help(tab.displayLabel)
+            }
+        }
+        .accessibilityLabel("Inspector")
+    }
+
+    @ViewBuilder
+    private func tabBackground(for tab: InspectorTab) -> some View {
+        if selectedTab == tab {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.accentColor)
+        } else {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color(nsColor: .controlColor))
+        }
+    }
+}
+
 extension InspectorTab {
     /// SF Symbol name for this tab's picker icon.
     var iconName: String {
@@ -2316,13 +2355,7 @@ private struct InspectorReadStyleSection: View {
             Text("View Settings")
                 .font(.headline)
 
-            Picker("View Section", selection: $viewModel.selectedReadStyleViewSubsection) {
-                ForEach(ReadStyleViewSubsection.allCases) { section in
-                    Text(section.displayTitle)
-                        .tag(section)
-                }
-            }
-            .pickerStyle(.segmented)
+            InspectorSubsectionGrid(selection: $viewModel.selectedReadStyleViewSubsection)
 
             subsectionContent
         }
@@ -2341,6 +2374,49 @@ private struct InspectorReadStyleSection: View {
             InspectorAnnotationDisplaySection(viewModel: viewModel)
         case .reads:
             ReadStyleSection(viewModel: viewModel.readStyleSectionViewModel)
+        }
+    }
+}
+
+private struct InspectorSubsectionGrid: View {
+    @Binding var selection: ReadStyleViewSubsection
+
+    private let columns = Array(
+        repeating: GridItem(.flexible(minimum: 0), spacing: 6),
+        count: ReadStyleViewSubsection.allCases.count
+    )
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 6) {
+            ForEach(ReadStyleViewSubsection.allCases) { section in
+                Button {
+                    selection = section
+                } label: {
+                    Text(section.displayTitle)
+                        .font(.caption.weight(selection == section ? .semibold : .regular))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .frame(maxWidth: .infinity, minHeight: 24)
+                        .padding(.horizontal, 3)
+                        .background(sectionBackground(for: section))
+                        .foregroundStyle(selection == section ? Color.white : Color.primary)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .help(section.displayTitle)
+            }
+        }
+        .accessibilityLabel("View Section")
+    }
+
+    @ViewBuilder
+    private func sectionBackground(for section: ReadStyleViewSubsection) -> some View {
+        if selection == section {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.accentColor)
+        } else {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color(nsColor: .controlColor))
         }
     }
 }

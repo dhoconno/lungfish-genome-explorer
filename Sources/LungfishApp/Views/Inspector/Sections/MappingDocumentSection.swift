@@ -167,16 +167,7 @@ struct MappingDocumentSection: View {
             } else {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                        HStack(alignment: .top) {
-                            Text(row.0)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .frame(width: 110, alignment: .trailing)
-                            Text(row.1)
-                                .font(.caption)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
+                        contextRow(label: row.0, value: row.1)
                     }
                 }
                 .padding(.top, 4)
@@ -232,7 +223,29 @@ struct MappingDocumentSection: View {
             .font(.caption2)
             .foregroundStyle(.tertiary)
             .textSelection(.enabled)
+            .lineLimit(2)
+            .truncationMode(.middle)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .help(text)
+    }
+
+    private func contextRow(label: String, value: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 92, alignment: .trailing)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+
+            Text(value)
+                .font(.caption)
+                .textSelection(.enabled)
+                .lineLimit(3)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help(value)
+        }
     }
 
     private func emptyMessage(_ text: String) -> some View {
