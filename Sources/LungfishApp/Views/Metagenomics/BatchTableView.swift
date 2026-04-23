@@ -313,6 +313,9 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
         return true
     }
 
+    /// Hook for subclasses that need to react after filtering/sorting replaces ``displayedRows``.
+    func didApplyDisplayedRows() {}
+
     /// Hides fixed (non-metadata) columns that have no data across all rows.
     ///
     /// Called automatically at the end of ``configure(rows:)``. Each non-metadata column
@@ -371,6 +374,28 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
         }
         tableView.reloadData()
         ColumnFilter.updateColumnTitleIndicators(on: tableView, filters: columnFilters, originalTitles: &originalColumnTitles)
+        didApplyDisplayedRows()
+    }
+
+    /// Returns the current free-text filter query.
+    var currentFilterText: String { searchField.stringValue }
+
+    /// Applies a new free-text filter query and refreshes the table.
+    func setFilterText(_ text: String) {
+        searchField.stringValue = text
+        filterText = text
+        applyFilter()
+    }
+
+    /// Returns the scroll origin of the table view content.
+    var currentScrollOriginY: CGFloat { scrollView.contentView.bounds.origin.y }
+
+    /// Restores the table view scroll origin.
+    func restoreScrollOriginY(_ originY: CGFloat) {
+        layoutSubtreeIfNeeded()
+        scrollView.layoutSubtreeIfNeeded()
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: originY))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     /// Replaces or inserts a column filter and refreshes the table.

@@ -7,23 +7,244 @@ struct BundleBrowserState: Equatable {
     var scrollOriginY: CGFloat = 0
 }
 
+private func bundleBrowserRoleDescription(for row: BundleBrowserSequenceSummary) -> String {
+    if row.isMitochondrial {
+        return "Mitochondrial"
+    }
+    if row.isPrimary {
+        return "Primary"
+    }
+    return "Secondary"
+}
+
 @MainActor
-final class BundleBrowserViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
+final class BundleBrowserSequenceTableView: BatchTableView<BundleBrowserSequenceSummary> {
+    private var preferredSelectedSequenceName: String?
+
+    override var columnSpecs: [BatchColumnSpec] {
+        [
+            .init(identifier: .init("contig"), title: "Contig", width: 220, minWidth: 140, defaultAscending: true),
+            .init(identifier: .init("length"), title: "Length", width: 90, minWidth: 70, defaultAscending: false),
+            .init(identifier: .init("kind"), title: "Role", width: 110, minWidth: 88, defaultAscending: true),
+            .init(identifier: .init("aliases"), title: "Aliases", width: 150, minWidth: 100, defaultAscending: true),
+            .init(identifier: .init("description"), title: "Description", width: 220, minWidth: 140, defaultAscending: true),
+            .init(identifier: .init("mappedReads"), title: "Mapped Reads", width: 110, minWidth: 88, defaultAscending: false),
+            .init(identifier: .init("mappedPercent"), title: "% Mapped", width: 92, minWidth: 80, defaultAscending: false),
+        ]
+    }
+
+    override var searchPlaceholder: String { "Filter sequences\u{2026}" }
+    override var searchAccessibilityIdentifier: String? { "bundle-browser-search" }
+    override var searchAccessibilityLabel: String? { "Filter bundle sequences" }
+    override var tableAccessibilityIdentifier: String? { "bundle-browser-table" }
+    override var tableAccessibilityLabel: String? { "Bundle browser sequence table" }
+
+    override var columnTypeHints: [String: Bool] {
+        [
+            "length": true,
+            "mappedReads": true,
+            "mappedPercent": true,
+        ]
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        finishSetup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        finishSetup()
+    }
+
+    private func finishSetup() {
+        tableView.allowsMultipleSelection = false
+        tableView.sortDescriptors = [NSSortDescriptor(key: "contig", ascending: true)]
+    }
+
+    override func cellContent(
+        for column: NSUserInterfaceItemIdentifier,
+        row: BundleBrowserSequenceSummary
+    ) -> (text: String, alignment: NSTextAlignment, font: NSFont?) {
+        switch column.rawValue {
+        case "contig":
+            return (row.name, .left, .systemFont(ofSize: 12))
+        case "length":
+            return (row.length.formatted(), .right, numericFont)
+        case "kind":
+            return (bundleBrowserRoleDescription(for: row), .left, .systemFont(ofSize: 12))
+        case "aliases":
+            return (row.aliases.isEmpty ? "—" : row.aliases.joined(separator: ", "), .left, .systemFont(ofSize: 12))
+        case "description":
+            return (row.displayDescription ?? "—", .left, .systemFont(ofSize: 12))
+        case "mappedReads":
+            return (row.metrics?.mappedReads?.formatted() ?? "—", .right, numericFont)
+        case "mappedPercent":
+            if let mappedPercent = row.metrics?.mappedPercent {
+                return (String(format: "%.1f%%", mappedPercent), .right, numericFont)
+            }
+            return ("—", .right, numericFont)
+        default:
+            return ("", .left, nil)
+        }
+    }
+
+    override func rowMatchesFilter(_ row: BundleBrowserSequenceSummary, filterText: String) -> Bool {
+        let query = filterText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return true }
+
+        let haystack = [
+            row.name,
+            row.displayDescription ?? "",
+            row.aliases.joined(separator: " "),
+            bundleBrowserRoleDescription(for: row),
+            row.length.formatted(),
+        ]
+
+        return haystack.contains { $0.localizedCaseInsensitiveContains(query) }
+    }
+
+    override func compareRows(
+        _ lhs: BundleBrowserSequenceSummary,
+        _ rhs: BundleBrowserSequenceSummary,
+        by key: String,
+        ascending: Bool
+    ) -> Bool {
+        let comparison: ComparisonResult
+        switch key {
+        case "contig":
+            comparison = lhs.name.localizedStandardCompare(rhs.name)
+        case "length":
+            comparison = compare(lhs.length, rhs.length)
+        case "kind":
+            comparison = bundleBrowserRoleDescription(for: lhs).localizedCaseInsensitiveCompare(bundleBrowserRoleDescription(for: rhs))
+        case "aliases":
+            comparison = lhs.aliases.joined(separator: ", ").localizedCaseInsensitiveCompare(rhs.aliases.joined(separator: ", "))
+        case "description":
+            comparison = (lhs.displayDescription ?? "").localizedCaseInsensitiveCompare(rhs.displayDescription ?? "")
+        case "mappedReads":
+            comparison = compare(lhs.metrics?.mappedReads ?? -1, rhs.metrics?.mappedReads ?? -1)
+        case "mappedPercent":
+            comparison = compare(lhs.metrics?.mappedPercent ?? -1, rhs.metrics?.mappedPercent ?? -1)
+        default:
+            comparison = lhs.name.localizedStandardCompare(rhs.name)
+        }
+
+        if comparison == .orderedSame {
+            let fallback = lhs.name.localizedStandardCompare(rhs.name)
+            if fallback == .orderedSame {
+                return false
+            }
+            return ascending ? fallback == .orderedAscending : fallback == .orderedDescending
+        }
+
+        return ascending ? comparison == .orderedAscending : comparison == .orderedDescending
+    }
+
+    override func columnValue(for columnId: String, row: BundleBrowserSequenceSummary) -> String {
+        switch columnId {
+        case "contig":
+            return row.name
+        case "length":
+            return "\(row.length)"
+        case "kind":
+            return bundleBrowserRoleDescription(for: row)
+        case "aliases":
+            return row.aliases.joined(separator: ", ")
+        case "description":
+            return row.displayDescription ?? ""
+        case "mappedReads":
+            return row.metrics?.mappedReads.map { String($0) } ?? ""
+        case "mappedPercent":
+            return row.metrics?.mappedPercent.map { String($0) } ?? ""
+        default:
+            return row.name
+        }
+    }
+
+    override func columnHasData(_ columnId: NSUserInterfaceItemIdentifier) -> Bool {
+        switch columnId.rawValue {
+        case "mappedReads":
+            return unfilteredRows.contains { $0.metrics?.mappedReads != nil }
+        case "mappedPercent":
+            return unfilteredRows.contains { $0.metrics?.mappedPercent != nil }
+        case "aliases":
+            return unfilteredRows.contains { !$0.aliases.isEmpty }
+        case "description":
+            return unfilteredRows.contains {
+                guard let description = $0.displayDescription?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                    return false
+                }
+                return !description.isEmpty
+            }
+        default:
+            return true
+        }
+    }
+
+    override func didApplyDisplayedRows() {
+        guard !displayedRows.isEmpty else {
+            tableView.deselectAll(nil)
+            onSelectionCleared?()
+            return
+        }
+
+        let rowIndex = preferredSelectedSequenceName.flatMap { preferredName in
+            displayedRows.firstIndex(where: { $0.name == preferredName })
+        } ?? 0
+
+        tableView.selectRowIndexes(IndexSet(integer: rowIndex), byExtendingSelection: false)
+    }
+
+    override func tableViewSelectionDidChange(_ notification: Notification) {
+        super.tableViewSelectionDidChange(notification)
+        preferredSelectedSequenceName = selectedSequenceSummary?.name
+    }
+
+    var selectedSequenceSummary: BundleBrowserSequenceSummary? {
+        let rowIndex = tableView.selectedRow
+        guard rowIndex >= 0, rowIndex < displayedRows.count else { return nil }
+        return displayedRows[rowIndex]
+    }
+
+    func setPreferredSelectionName(_ name: String?) {
+        preferredSelectedSequenceName = name
+    }
+
+    func selectSequence(named name: String) {
+        preferredSelectedSequenceName = name
+        guard let rowIndex = displayedRows.firstIndex(where: { $0.name == name }) else { return }
+        tableView.selectRowIndexes(IndexSet(integer: rowIndex), byExtendingSelection: false)
+    }
+
+    private var numericFont: NSFont {
+        .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+    }
+
+    private func compare<T: Comparable>(_ lhs: T, _ rhs: T) -> ComparisonResult {
+        if lhs < rhs {
+            return .orderedAscending
+        }
+        if lhs > rhs {
+            return .orderedDescending
+        }
+        return .orderedSame
+    }
+}
+
+@MainActor
+final class BundleBrowserViewController: NSViewController {
     var onOpenSequence: ((BundleBrowserSequenceSummary) -> Void)?
 
     private var summary: BundleBrowserSummary?
     private var bundleURL: URL?
-    private var displayedRows: [BundleBrowserSequenceSummary] = []
     private var preferredSelectedSequenceName: String?
-    private var isRestoringSelection = false
     private var loadedBundleURL: URL?
 
     private let splitView = NSSplitView()
     private let listPane = NSView()
     private let detailPane = NSView()
-    private let searchField = NSSearchField()
-    private let scrollView = NSScrollView()
-    private let tableView = NSTableView()
+    private let sequenceTableView = BundleBrowserSequenceTableView()
     private let openButton = NSButton(title: "Open Focused Viewer", target: nil, action: nil)
     private let embeddedViewerController = ViewerViewController()
     private let detailStack = NSStackView()
@@ -62,81 +283,18 @@ final class BundleBrowserViewController: NSViewController, NSTableViewDataSource
         )
 
         preferredSelectedSequenceName = state.selectedSequenceName ?? summary.sequences.first?.name
-        searchField.stringValue = state.filterText
-        applyFilterAndRestoreSelection()
-        restoreScrollPosition(state.scrollOriginY)
+        sequenceTableView.setPreferredSelectionName(preferredSelectedSequenceName)
+        sequenceTableView.configure(rows: summary.sequences)
+        sequenceTableView.setFilterText(state.filterText)
+        sequenceTableView.restoreScrollOriginY(state.scrollOriginY)
     }
 
     func captureState() -> BundleBrowserState {
         BundleBrowserState(
-            filterText: searchField.stringValue,
+            filterText: sequenceTableView.currentFilterText,
             selectedSequenceName: selectedRow?.name,
-            scrollOriginY: scrollView.contentView.bounds.origin.y
+            scrollOriginY: sequenceTableView.currentScrollOriginY
         )
-    }
-
-    func numberOfRows(in tableView: NSTableView) -> Int {
-        displayedRows.count
-    }
-
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        let columnIdentifier = tableColumn?.identifier.rawValue ?? "name"
-        let identifier = NSUserInterfaceItemIdentifier("BundleBrowserCell.\(columnIdentifier)")
-        let cell = (tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView) ?? NSTableCellView()
-        let cellTextField = cell.textField ?? NSTextField(labelWithString: "")
-        cell.identifier = identifier
-        cellTextField.translatesAutoresizingMaskIntoConstraints = false
-        cellTextField.lineBreakMode = .byTruncatingTail
-        cell.textField = cellTextField
-
-        if cellTextField.superview == nil {
-            cell.addSubview(cellTextField)
-            NSLayoutConstraint.activate([
-                cellTextField.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 8),
-                cellTextField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -8),
-                cellTextField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-            ])
-        }
-
-        let sequence = displayedRows[row]
-        switch columnIdentifier {
-        case "name":
-            cellTextField.stringValue = sequence.name
-            cellTextField.font = .systemFont(ofSize: 12)
-            cellTextField.alignment = .left
-        case "length":
-            cellTextField.stringValue = sequence.length.formatted()
-            cellTextField.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-            cellTextField.alignment = .right
-        case "mappedReads":
-            cellTextField.stringValue = sequence.metrics?.mappedReads?.formatted() ?? "—"
-            cellTextField.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-            cellTextField.alignment = .right
-        case "mappedPercent":
-            if let mappedPercent = sequence.metrics?.mappedPercent {
-                cellTextField.stringValue = String(format: "%.1f%%", mappedPercent)
-            } else {
-                cellTextField.stringValue = "—"
-            }
-            cellTextField.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-            cellTextField.alignment = .right
-        default:
-            cellTextField.stringValue = sequence.displayDescription ?? ""
-            cellTextField.font = .systemFont(ofSize: 12)
-            cellTextField.alignment = .left
-        }
-        return cell
-    }
-
-    func tableViewSelectionDidChange(_ notification: Notification) {
-        guard !isRestoringSelection else { return }
-        let row = selectedRow
-        preferredSelectedSequenceName = row?.name ?? preferredSelectedSequenceName
-        updateDetailPane(for: row)
-    }
-
-    @objc private func searchFieldChanged(_ sender: NSSearchField) {
-        applyFilterAndRestoreSelection()
     }
 
     @objc private func openSelectedSequence(_ sender: Any?) {
@@ -144,23 +302,19 @@ final class BundleBrowserViewController: NSViewController, NSTableViewDataSource
         onOpenSequence?(row)
     }
 
-    var testDisplayedNames: [String] { displayedRows.map(\.name) }
+    var testDisplayedNames: [String] { sequenceTableView.displayedRows.map(\.name) }
     var testSelectedName: String? { selectedRow?.name }
     var testDetailLengthText: String { detailLengthLabel.stringValue }
-    var testFilterText: String { searchField.stringValue }
-    var testScrollOriginY: CGFloat { scrollView.contentView.bounds.origin.y }
+    var testFilterText: String { sequenceTableView.currentFilterText }
+    var testScrollOriginY: CGFloat { sequenceTableView.currentScrollOriginY }
     var testOpenButtonEnabled: Bool { openButton.isEnabled }
 
     func testSetFilterText(_ text: String) {
-        searchField.stringValue = text
-        searchFieldChanged(searchField)
+        sequenceTableView.setFilterText(text)
     }
 
     func testSelectRow(named name: String) {
-        guard let rowIndex = displayedRows.firstIndex(where: { $0.name == name }) else { return }
-        preferredSelectedSequenceName = name
-        tableView.selectRowIndexes(IndexSet(integer: rowIndex), byExtendingSelection: false)
-        updateDetailPane(for: displayedRows[rowIndex])
+        sequenceTableView.selectSequence(named: name)
     }
 
     func testInvokeOpen() {
@@ -168,13 +322,11 @@ final class BundleBrowserViewController: NSViewController, NSTableViewDataSource
     }
 
     func testSetScrollOriginY(_ originY: CGFloat) {
-        restoreScrollPosition(originY)
+        sequenceTableView.restoreScrollOriginY(originY)
     }
 
     private var selectedRow: BundleBrowserSequenceSummary? {
-        let rowIndex = tableView.selectedRow
-        guard rowIndex >= 0, rowIndex < displayedRows.count else { return nil }
-        return displayedRows[rowIndex]
+        sequenceTableView.selectedSequenceSummary
     }
 
     private func configureSplitView() {
@@ -196,56 +348,21 @@ final class BundleBrowserViewController: NSViewController, NSTableViewDataSource
     }
 
     private func configureListPane() {
-        searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.placeholderString = "Filter sequences"
-        searchField.sendsSearchStringImmediately = true
-        searchField.target = self
-        searchField.action = #selector(searchFieldChanged(_:))
-
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
-        scrollView.drawsBackground = false
-
-        tableView.translatesAutoresizingMaskIntoConstraints = false
-        tableView.setAccessibilityIdentifier("bundle-browser-table")
-        tableView.delegate = self
-        tableView.dataSource = self
-        tableView.headerView = NSTableHeaderView()
-        tableView.usesAlternatingRowBackgroundColors = true
-        tableView.rowHeight = 28
-        tableView.allowsEmptySelection = true
-        tableView.allowsMultipleSelection = false
-        tableView.doubleAction = #selector(openSelectedSequence(_:))
-        tableView.target = self
-
-        let columns: [(id: String, title: String, width: CGFloat)] = [
-            ("name", "Contig", 180),
-            ("length", "Length", 100),
-            ("mappedReads", "Mapped Reads", 110),
-            ("mappedPercent", "% Mapped", 100),
-        ]
-        for columnInfo in columns {
-            let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(columnInfo.id))
-            column.title = columnInfo.title
-            column.width = columnInfo.width
-            column.minWidth = 72
-            tableView.addTableColumn(column)
+        sequenceTableView.translatesAutoresizingMaskIntoConstraints = false
+        sequenceTableView.onRowSelected = { [weak self] row in
+            self?.preferredSelectedSequenceName = row.name
+            self?.updateDetailPane(for: row)
         }
-
-        scrollView.documentView = tableView
-        listPane.addSubview(searchField)
-        listPane.addSubview(scrollView)
+        sequenceTableView.onSelectionCleared = { [weak self] in
+            self?.updateDetailPane(for: nil)
+        }
+        listPane.addSubview(sequenceTableView)
 
         NSLayoutConstraint.activate([
-            searchField.topAnchor.constraint(equalTo: listPane.topAnchor, constant: 12),
-            searchField.leadingAnchor.constraint(equalTo: listPane.leadingAnchor, constant: 12),
-            searchField.trailingAnchor.constraint(equalTo: listPane.trailingAnchor, constant: -12),
-
-            scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
-            scrollView.leadingAnchor.constraint(equalTo: listPane.leadingAnchor, constant: 12),
-            scrollView.trailingAnchor.constraint(equalTo: listPane.trailingAnchor, constant: -12),
-            scrollView.bottomAnchor.constraint(equalTo: listPane.bottomAnchor, constant: -12),
+            sequenceTableView.topAnchor.constraint(equalTo: listPane.topAnchor),
+            sequenceTableView.leadingAnchor.constraint(equalTo: listPane.leadingAnchor),
+            sequenceTableView.trailingAnchor.constraint(equalTo: listPane.trailingAnchor),
+            sequenceTableView.bottomAnchor.constraint(equalTo: listPane.bottomAnchor),
         ])
     }
 
@@ -309,57 +426,6 @@ final class BundleBrowserViewController: NSViewController, NSTableViewDataSource
         updateDetailPane(for: nil)
     }
 
-    private func applyFilterAndRestoreSelection() {
-        guard let summary else {
-            displayedRows = []
-            tableView.reloadData()
-            updateDetailPane(for: nil)
-            return
-        }
-
-        let query = searchField.stringValue
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-
-        if query.isEmpty {
-            displayedRows = summary.sequences
-        } else {
-            displayedRows = summary.sequences.filter { row in
-                row.name.lowercased().contains(query)
-                    || (row.displayDescription?.lowercased().contains(query) ?? false)
-                    || row.aliases.contains(where: { $0.lowercased().contains(query) })
-            }
-        }
-
-        tableView.reloadData()
-        restoreSelectionAfterFiltering()
-    }
-
-    private func restoreSelectionAfterFiltering() {
-        guard !displayedRows.isEmpty else {
-            tableView.deselectAll(nil)
-            updateDetailPane(for: nil)
-            return
-        }
-
-        let selectionName = preferredSelectedSequenceName
-        let rowIndex = selectionName.flatMap { name in
-            displayedRows.firstIndex(where: { $0.name == name })
-        } ?? 0
-
-        isRestoringSelection = true
-        tableView.selectRowIndexes(IndexSet(integer: rowIndex), byExtendingSelection: false)
-        isRestoringSelection = false
-        updateDetailPane(for: displayedRows[rowIndex])
-    }
-
-    private func restoreScrollPosition(_ originY: CGFloat) {
-        view.layoutSubtreeIfNeeded()
-        scrollView.layoutSubtreeIfNeeded()
-        scrollView.contentView.scroll(to: NSPoint(x: 0, y: originY))
-        scrollView.reflectScrolledClipView(scrollView.contentView)
-    }
-
     private func updateDetailPane(for row: BundleBrowserSequenceSummary?) {
         guard let row else {
             detailNameLabel.stringValue = "No sequence selected"
@@ -379,7 +445,8 @@ final class BundleBrowserViewController: NSViewController, NSTableViewDataSource
         if let mappedReads = row.metrics?.mappedReads {
             detailMetricsLabel.stringValue = "Mapped reads: \(mappedReads.formatted())"
         } else {
-            detailMetricsLabel.stringValue = "Mapped reads: unavailable"
+            let aliases = row.aliases.isEmpty ? "none" : row.aliases.joined(separator: ", ")
+            detailMetricsLabel.stringValue = "Role: \(bundleBrowserRoleDescription(for: row)) | Aliases: \(aliases)"
         }
 
         openButton.isEnabled = true

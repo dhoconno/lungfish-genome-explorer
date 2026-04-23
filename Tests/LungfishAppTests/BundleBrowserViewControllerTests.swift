@@ -1,9 +1,39 @@
+import AppKit
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 
 @MainActor
 final class BundleBrowserViewControllerTests: XCTestCase {
+    func testSequenceTableHidesAlignmentColumnsWithoutMetricsAndShowsFASTAColumns() {
+        let table = BundleBrowserSequenceTableView()
+        table.configure(rows: makeSummaryWithoutMetrics().sequences)
+
+        let columnsById = Dictionary(uniqueKeysWithValues: table.testTableView.tableColumns.map { ($0.identifier.rawValue, $0) })
+
+        XCTAssertFalse(columnsById["contig"]?.isHidden ?? true)
+        XCTAssertFalse(columnsById["length"]?.isHidden ?? true)
+        XCTAssertFalse(columnsById["kind"]?.isHidden ?? true)
+        XCTAssertFalse(columnsById["aliases"]?.isHidden ?? true)
+        XCTAssertFalse(columnsById["description"]?.isHidden ?? true)
+        XCTAssertTrue(columnsById["mappedReads"]?.isHidden ?? false)
+        XCTAssertTrue(columnsById["mappedPercent"]?.isHidden ?? false)
+    }
+
+    func testSequenceTableUsesMappingViewportFontsForTextAndNumericColumns() {
+        let table = BundleBrowserSequenceTableView()
+        let row = makeSummaryWithoutMetrics().sequences[0]
+
+        let textCell = table.cellContent(for: NSUserInterfaceItemIdentifier("contig"), row: row)
+        let numericCell = table.cellContent(for: NSUserInterfaceItemIdentifier("length"), row: row)
+
+        XCTAssertEqual(textCell.font, .systemFont(ofSize: 12))
+        XCTAssertEqual(
+            numericCell.font,
+            .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        )
+    }
+
     func testConfigureSelectsFirstRowAndShowsDetail() {
         let vc = BundleBrowserViewController()
         _ = vc.view
@@ -129,6 +159,38 @@ final class BundleBrowserViewControllerTests: XCTestCase {
                         medianMAPQ: 60.0,
                         meanIdentity: 99.9
                     )
+                )
+            ]
+        )
+    }
+
+    private func makeSummaryWithoutMetrics() -> BundleBrowserSummary {
+        BundleBrowserSummary(
+            schemaVersion: 1,
+            aggregate: .init(
+                annotationTrackCount: 1,
+                variantTrackCount: 0,
+                alignmentTrackCount: 0,
+                totalMappedReads: nil
+            ),
+            sequences: [
+                BundleBrowserSequenceSummary(
+                    name: "chr1",
+                    displayDescription: "primary contig",
+                    length: 200,
+                    aliases: ["1"],
+                    isPrimary: true,
+                    isMitochondrial: false,
+                    metrics: nil
+                ),
+                BundleBrowserSequenceSummary(
+                    name: "chrM",
+                    displayDescription: "mitochondrion",
+                    length: 80,
+                    aliases: ["MT"],
+                    isPrimary: false,
+                    isMitochondrial: true,
+                    metrics: nil
                 )
             ]
         )
