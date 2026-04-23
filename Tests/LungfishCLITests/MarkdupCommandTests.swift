@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import LungfishTestSupport
 @testable import LungfishCLI
 @testable import LungfishIO
 
@@ -24,27 +25,6 @@ final class MarkdupCommandTests: XCTestCase {
         let duplicateReads: Int
         let elapsedSeconds: Double
         let results: [Result]
-    }
-
-    // MARK: - Inline BAM fixture helper
-    // The canonical BamFixtureBuilder lives in LungfishIOTests and isn't
-    // visible here. We duplicate a minimal version locally to avoid cross-target
-    // dependencies.
-
-    private struct Reference {
-        let name: String
-        let length: Int
-    }
-
-    private struct Read {
-        let qname: String
-        let flag: Int
-        let rname: String
-        let pos: Int
-        let mapq: Int
-        let cigar: String
-        let seq: String
-        let qual: String
     }
 
     private func makeManagedSamtoolsHome() throws -> (home: URL, samtoolsPath: URL) {
@@ -196,50 +176,6 @@ final class MarkdupCommandTests: XCTestCase {
         return try await block()
     }
 
-    private func makeBAM(
-        at outputURL: URL,
-        references: [Reference],
-        reads: [Read],
-        samtoolsPath: String
-    ) throws {
-        let fm = FileManager.default
-        try fm.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-
-        var sam = "@HD\tVN:1.6\tSO:coordinate\n"
-        for ref in references {
-            sam += "@SQ\tSN:\(ref.name)\tLN:\(ref.length)\n"
-        }
-        for read in reads {
-            sam += "\(read.qname)\t\(read.flag)\t\(read.rname)\t\(read.pos)\t\(read.mapq)\t\(read.cigar)\t*\t0\t0\t\(read.seq)\t\(read.qual)\n"
-        }
-
-        let samURL = outputURL.deletingPathExtension().appendingPathExtension("sam")
-        try sam.write(to: samURL, atomically: true, encoding: .utf8)
-        defer { try? fm.removeItem(at: samURL) }
-
-        let sortProc = Process()
-        sortProc.executableURL = URL(fileURLWithPath: samtoolsPath)
-        sortProc.arguments = ["sort", "-o", outputURL.path, samURL.path]
-        let errPipe = Pipe()
-        sortProc.standardOutput = FileHandle.nullDevice
-        sortProc.standardError = errPipe
-        try sortProc.run()
-        _ = errPipe.fileHandleForReading.readDataToEndOfFile()
-        sortProc.waitUntilExit()
-        guard sortProc.terminationStatus == 0 else {
-            throw NSError(domain: "MarkdupCommandTests", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "samtools sort failed"])
-        }
-
-        let indexProc = Process()
-        indexProc.executableURL = URL(fileURLWithPath: samtoolsPath)
-        indexProc.arguments = ["index", outputURL.path]
-        indexProc.standardOutput = FileHandle.nullDevice
-        indexProc.standardError = FileHandle.nullDevice
-        try indexProc.run()
-        indexProc.waitUntilExit()
-    }
-
     private func makeTempDir() throws -> URL {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("MarkdupCliTests-\(UUID().uuidString)")
@@ -248,16 +184,16 @@ final class MarkdupCommandTests: XCTestCase {
     }
 
     private func makeSyntheticBam(at url: URL, samtools: String) throws {
-        let refs = [Reference(name: "chr1", length: 1000)]
+        let refs = [BamFixtureBuilder.Reference(name: "chr1", length: 1000)]
         let seq = String(repeating: "A", count: 50)
         let qual = String(repeating: "I", count: 50)
         let reads = (0..<5).map { i in
-            Read(
+            BamFixtureBuilder.Read(
                 qname: "r\(i)", flag: 0, rname: "chr1",
                 pos: 100, mapq: 60, cigar: "50M", seq: seq, qual: qual
             )
         }
-        try makeBAM(at: url, references: refs, reads: reads, samtoolsPath: samtools)
+        try BamFixtureBuilder.makeBAM(at: url, references: refs, reads: reads, samtoolsPath: samtools)
     }
 
     // MARK: - Tests

@@ -220,7 +220,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LungfishCLITests",
-            dependencies: ["LungfishCLI", "LungfishIO"],
+            dependencies: ["LungfishCLI", "LungfishIO", "LungfishTestSupport"],
             path: "Tests/LungfishCLITests"
         ),
 
