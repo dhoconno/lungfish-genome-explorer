@@ -503,6 +503,7 @@ public class InspectorViewController: NSViewController {
         viewModel.selectionSectionViewModel.referenceBundle = nil
         viewModel.readStyleSectionViewModel.clear()
         viewModel.readStyleSectionViewModel.onCreateFilteredAlignmentRequested = nil
+        viewModel.readStyleSectionViewModel.onConvertMappedReadsToAnnotationsRequested = nil
         viewModel.readStyleSectionViewModel.supportsConsensusExtraction = false
         viewModel.readStyleSectionViewModel.onExtractConsensusRequested = nil
 
@@ -1548,6 +1549,10 @@ public class InspectorViewController: NSViewController {
             self?.runCreateFilteredAlignmentWorkflow(request)
         }
 
+        viewModel.readStyleSectionViewModel.onConvertMappedReadsToAnnotationsRequested = { [weak self] request in
+            self?.runConvertMappedReadsToAnnotationsWorkflow(request)
+        }
+
         viewModel.readStyleSectionViewModel.onCallVariantsRequested = { [weak self] in
             self?.runCallVariantsWorkflow()
         }
@@ -1583,6 +1588,9 @@ public class InspectorViewController: NSViewController {
         }
         viewModel.readStyleSectionViewModel.onCreateFilteredAlignmentRequested = { [weak self] request in
             self?.runCreateFilteredAlignmentWorkflow(request)
+        }
+        viewModel.readStyleSectionViewModel.onConvertMappedReadsToAnnotationsRequested = { [weak self] request in
+            self?.runConvertMappedReadsToAnnotationsWorkflow(request)
         }
         viewModel.readStyleSectionViewModel.onCallVariantsRequested = { [weak self] in
             self?.runCallVariantsWorkflow()
@@ -1801,6 +1809,123 @@ public class InspectorViewController: NSViewController {
 
     // MARK: - Duplicate Workflows
 
+    private func runConvertMappedReadsToAnnotationsWorkflow(_ request: MappedReadsAnnotationInspectorLaunchRequest) {
+        guard let bundleURL = viewModel.documentSectionViewModel.bundleURL else {
+            presentSimpleAlert(title: "No Bundle Loaded", message: "Load a .lungfishref bundle before converting mapped reads to annotations.")
+            return
+        }
+        guard viewModel.readStyleSectionViewModel.hasAlignmentTracks else {
+            presentSimpleAlert(title: "No Alignment Tracks", message: "This bundle has no alignment tracks to process.")
+            return
+        }
+        guard let split = parent as? MainSplitViewController else { return }
+
+        let launchContext: FilteredAlignmentWorkflowLaunchContext
+        switch Self.makeFilteredAlignmentWorkflowStartOutcome(
+            bundleURL: bundleURL,
+            serviceTarget: .bundle(bundleURL),
+            isMappingViewerDisplayedAtLaunch: split.viewerController.mappingResultController != nil
+        ) {
+        case .blocked(let alert):
+            presentSimpleAlert(title: alert.title, message: alert.message)
+            return
+        case .launch(let context):
+            launchContext = context
+        }
+
+        let operationID = Self.startMappedReadsAnnotationWorkflowOperation(
+            bundleURL: bundleURL,
+            outputTrackName: request.outputTrackName
+        )
+        let sourceTrackName = viewModel.readStyleSectionViewModel.alignmentFilterTrackOptions
+            .first(where: { $0.id == request.sourceTrackID })?.name ?? request.sourceTrackID
+        viewModel.readStyleSectionViewModel.latestMappedReadsAnnotationMessage = nil
+        viewModel.readStyleSectionViewModel.isMappedReadsAnnotationWorkflowRunning = true
+        split.activityIndicator.show(message: "Converting mapped reads to annotations...", style: .indeterminate)
+
+        Task(priority: .userInitiated) { [weak self] in
+            do {
+                let result = try await MappedReadsAnnotationService().convertMappedReads(
+                    request: request.workflowRequest(bundleURL: bundleURL),
+                    progressHandler: { [weak self] progress, message in
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.update(
+                                    id: operationID,
+                                    progress: max(0.01, min(0.99, progress)),
+                                    detail: message
+                                )
+                                if let self,
+                                   let split = self.parent as? MainSplitViewController {
+                                    split.activityIndicator.updateMessage(message)
+                                }
+                            }
+                        }
+                    }
+                )
+
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.complete(
+                            id: operationID,
+                            detail: "Created annotation track \"\(result.annotationTrackInfo.name)\"."
+                        )
+                        guard let self,
+                              let split = self.parent as? MainSplitViewController else { return }
+                        self.viewModel.readStyleSectionViewModel.isMappedReadsAnnotationWorkflowRunning = false
+                        split.activityIndicator.hide()
+
+                        let createdTrackName = result.annotationTrackInfo.name
+                        self.viewModel.readStyleSectionViewModel.noteMappedReadsAnnotationCreation(
+                            createdTrackName: createdTrackName,
+                            sourceTrackName: sourceTrackName
+                        )
+                        do {
+                            try launchContext.reload(
+                                using: FilteredAlignmentWorkflowReloadActions(
+                                    reloadMappingViewerBundle: {
+                                        try split.viewerController.reloadMappingViewerBundleIfDisplayed()
+                                    },
+                                    displayBundle: { url in
+                                        try split.viewerController.displayBundle(at: url)
+                                    }
+                                )
+                            )
+                            self.viewModel.selectedTab = .analysis
+                            self.presentSimpleAlert(
+                                title: "Mapped Reads Converted",
+                                message: "Created annotation track \"\(createdTrackName)\" from \"\(sourceTrackName)\". Open the annotation table to sort and filter mapped-read fields."
+                            )
+                        } catch {
+                            self.presentSimpleAlert(
+                                title: launchContext.reloadFailureAlertTitle,
+                                message: "Annotation track \"\(createdTrackName)\" was created, but the updated bundle could not be reloaded: \(error.localizedDescription)"
+                            )
+                        }
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.fail(
+                            id: operationID,
+                            detail: error.localizedDescription,
+                            errorMessage: error.localizedDescription
+                        )
+                        guard let self,
+                              let split = self.parent as? MainSplitViewController else { return }
+                        self.viewModel.readStyleSectionViewModel.isMappedReadsAnnotationWorkflowRunning = false
+                        split.activityIndicator.hide()
+                        self.presentSimpleAlert(
+                            title: "Mapped-Read Annotation Failed",
+                            message: error.localizedDescription
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     private func runCreateFilteredAlignmentWorkflow(_ request: AlignmentFilterInspectorLaunchRequest) {
         guard let bundleURL = viewModel.documentSectionViewModel.bundleURL else {
             presentSimpleAlert(title: "No Bundle Loaded", message: "Load a .lungfishref bundle before creating a filtered alignment track.")
@@ -1967,6 +2092,18 @@ public class InspectorViewController: NSViewController {
     ) -> UUID {
         OperationCenter.shared.start(
             title: "Create Filtered Alignment Track",
+            detail: "Preparing \(outputTrackName)...",
+            operationType: .bamImport,
+            targetBundleURL: bundleURL
+        )
+    }
+
+    static func startMappedReadsAnnotationWorkflowOperation(
+        bundleURL: URL,
+        outputTrackName: String
+    ) -> UUID {
+        OperationCenter.shared.start(
+            title: "Convert Mapped Reads to Annotations",
             detail: "Preparing \(outputTrackName)...",
             operationType: .bamImport,
             targetBundleURL: bundleURL

@@ -283,12 +283,40 @@ final class ReadStyleSectionViewModelTests: XCTestCase {
     func testAnalysisWorkflowSubsectionsMatchApprovedIA() {
         XCTAssertEqual(
             AnalysisWorkflowSubsection.allCases,
-            [.filtering, .consensus, .variantCalling, .export]
+            [.filtering, .annotations, .consensus, .variantCalling, .export]
         )
         XCTAssertEqual(
             AnalysisWorkflowSubsection.allCases.map(\.displayTitle),
-            ["Filtering", "Consensus", "Variant Calling", "Export"]
+            ["Filtering", "Annotations", "Consensus", "Variant Calling", "Export"]
         )
+    }
+
+    func testMappedReadsAnnotationRequestDefaultsAndOptionalFields() throws {
+        let vm = ReadStyleSectionViewModel()
+        vm.configureAlignmentFilterTracks([
+            .init(id: "aln-a", name: "Sample A"),
+        ])
+        vm.mappedReadsAnnotationOutputTrackName = "Sample A mapped reads"
+
+        let request = try vm.makeMappedReadsAnnotationLaunchRequest()
+
+        XCTAssertEqual(request.sourceTrackID, "aln-a")
+        XCTAssertEqual(request.outputTrackName, "Sample A mapped reads")
+        XCTAssertFalse(request.primaryOnly)
+        XCTAssertFalse(request.includeSequence)
+        XCTAssertFalse(request.includeQualities)
+        XCTAssertFalse(request.replaceExisting)
+
+        vm.mappedReadsAnnotationPrimaryOnly = true
+        vm.mappedReadsAnnotationIncludeSequence = true
+        vm.mappedReadsAnnotationIncludeQualities = true
+        vm.mappedReadsAnnotationReplaceExisting = true
+
+        let optionalRequest = try vm.makeMappedReadsAnnotationLaunchRequest()
+        XCTAssertTrue(optionalRequest.primaryOnly)
+        XCTAssertTrue(optionalRequest.includeSequence)
+        XCTAssertTrue(optionalRequest.includeQualities)
+        XCTAssertTrue(optionalRequest.replaceExisting)
     }
 
     func testDerivedAlignmentCreationMessageUsesViewAlignmentVocabulary() {

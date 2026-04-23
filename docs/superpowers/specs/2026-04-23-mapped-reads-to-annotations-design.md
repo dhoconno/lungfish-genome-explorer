@@ -50,14 +50,13 @@ Options:
 - `--bundle`: required path to the `.lungfishref` bundle.
 - `--alignment-track`: required source alignment track ID.
 - `--output-track-name`: required display name for the new annotation track.
-- `--mapped-only`: default `true`; skip unmapped records.
 - `--primary-only`: default `false`; when set, skip secondary and supplementary alignments.
 - `--include-sequence`: default `false`; include SAM `SEQ`.
 - `--include-qualities`: default `false`; include SAM `QUAL`.
 - `--replace`: default `false`; replace an existing annotation track with the same normalized output ID/name.
 - `--output-format text|json`: follow existing CLI output conventions.
 
-The command emits text progress by default and JSON events when requested. A successful JSON event includes:
+The command always skips unmapped records because they do not have viewport coordinates. It emits text progress by default and JSON events when requested. A successful JSON event includes:
 
 - bundle path
 - source alignment track ID/name

@@ -85,6 +85,10 @@ final class InspectorMappingModeTests: XCTestCase {
             vc.readStyleSectionViewModel.onCreateFilteredAlignmentRequested,
             "Mapping mode should wire BAM filtering launches through the Inspector workflow handler"
         )
+        XCTAssertNotNil(
+            vc.readStyleSectionViewModel.onConvertMappedReadsToAnnotationsRequested,
+            "Mapping mode should wire mapped-read annotation conversion through the Inspector workflow handler"
+        )
     }
 
     func testEmptySidebarDeselectionPreservesActiveBundleContextForInspectorActions() throws {

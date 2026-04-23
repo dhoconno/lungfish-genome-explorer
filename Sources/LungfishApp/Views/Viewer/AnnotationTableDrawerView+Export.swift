@@ -240,6 +240,10 @@ extension AnnotationTableDrawerView {
             return annotation.sourceFile ?? ""
 
         default:
+            if identifier.rawValue.hasPrefix("attr_") {
+                let attributeKey = String(identifier.rawValue.dropFirst(5))
+                return annotation.attributes?[attributeKey] ?? ""
+            }
             // Dynamic INFO columns
             if identifier.rawValue.hasPrefix("info_") {
                 let infoKey = String(identifier.rawValue.dropFirst(5))

@@ -42,6 +42,8 @@ public final class AnnotationSearchIndex {
         public let infoDict: [String: String]?
         /// Human-readable source name (e.g. VCF filename) for provenance display.
         public let sourceFile: String?
+        /// Parsed annotation attribute key-value pairs (nil for variants or legacy rows).
+        public let attributes: [String: String]?
 
         /// Whether this result represents a variant (vs annotation).
         public var isVariant: Bool { ref != nil }
@@ -50,7 +52,8 @@ public final class AnnotationSearchIndex {
                     trackId: String, type: String = "gene", strand: String = ".",
                     ref: String? = nil, alt: String? = nil, quality: Double? = nil,
                     filter: String? = nil, sampleCount: Int? = nil, variantRowId: Int64? = nil,
-                    infoDict: [String: String]? = nil, sourceFile: String? = nil) {
+                    infoDict: [String: String]? = nil, sourceFile: String? = nil,
+                    attributes: [String: String]? = nil) {
             self.id = id
             self.name = name
             self.chromosome = chromosome
@@ -67,6 +70,7 @@ public final class AnnotationSearchIndex {
             self.variantRowId = variantRowId
             self.infoDict = infoDict
             self.sourceFile = sourceFile
+            self.attributes = attributes
         }
     }
 
@@ -144,30 +148,14 @@ public final class AnnotationSearchIndex {
                 guard remaining > 0 else { break }
                 let records = handle.db.query(limit: remaining)
                 results.append(contentsOf: records.map { record in
-                    SearchResult(
-                        name: record.name,
-                        chromosome: record.chromosome,
-                        start: record.start,
-                        end: record.end,
-                        trackId: handle.trackId,
-                        type: record.type,
-                        strand: record.strand
-                    )
+                    annotationRecordToSearchResult(record, trackId: handle.trackId)
                 })
             }
             return results
         } else if let db = database {
             let records = db.query(limit: 5000)
             return records.map { record in
-                SearchResult(
-                    name: record.name,
-                    chromosome: record.chromosome,
-                    start: record.start,
-                    end: record.end,
-                    trackId: databaseTrackId,
-                    type: record.type,
-                    strand: record.strand
-                )
+                annotationRecordToSearchResult(record, trackId: databaseTrackId)
             }
         }
         return entries
@@ -336,15 +324,7 @@ public final class AnnotationSearchIndex {
                 guard remaining > 0 else { break }
                 let records = handle.db.query(nameFilter: query, limit: remaining)
                 results.append(contentsOf: records.map { record in
-                    SearchResult(
-                        name: record.name,
-                        chromosome: record.chromosome,
-                        start: record.start,
-                        end: record.end,
-                        trackId: handle.trackId,
-                        type: record.type,
-                        strand: record.strand
-                    )
+                    annotationRecordToSearchResult(record, trackId: handle.trackId)
                 })
             }
         } else {
@@ -397,15 +377,7 @@ public final class AnnotationSearchIndex {
             guard remaining > 0 else { break }
             let records = handle.db.query(nameFilter: nameFilter, types: types, limit: remaining)
             results.append(contentsOf: records.map { record in
-                SearchResult(
-                    name: record.name,
-                    chromosome: record.chromosome,
-                    start: record.start,
-                    end: record.end,
-                    trackId: handle.trackId,
-                    type: record.type,
-                    strand: record.strand
-                )
+                annotationRecordToSearchResult(record, trackId: handle.trackId)
             })
         }
         return results
@@ -467,6 +439,11 @@ public final class AnnotationSearchIndex {
 
     /// Returns count of annotations only (no variants).
     public func queryAnnotationCount(nameFilter: String = "", types: Set<String> = []) -> Int {
+        if !annotationDatabases.isEmpty {
+            return annotationDatabases.reduce(0) { partial, handle in
+                partial + handle.db.queryCount(nameFilter: nameFilter, types: types)
+            }
+        }
         guard let db = database else { return 0 }
         return db.queryCount(nameFilter: nameFilter, types: types)
     }
@@ -823,6 +800,25 @@ public final class AnnotationSearchIndex {
             let infoDict = record.id.flatMap { infoDicts[$0] }
             return record.toSearchResult(trackId: trackId, infoDict: infoDict, sourceFile: sourceName)
         }
+    }
+
+    private func annotationRecordToSearchResult(
+        _ record: AnnotationDatabaseRecord,
+        trackId: String
+    ) -> SearchResult {
+        let parsedAttributes = record.attributes.map(AnnotationDatabase.parseAttributes).flatMap { attributes in
+            attributes.isEmpty ? nil : attributes
+        }
+        return SearchResult(
+            name: record.name,
+            chromosome: record.chromosome,
+            start: record.start,
+            end: record.end,
+            trackId: trackId,
+            type: record.type,
+            strand: record.strand,
+            attributes: parsedAttributes
+        )
     }
 
     /// Returns chromosome names to try for variant queries in this track.

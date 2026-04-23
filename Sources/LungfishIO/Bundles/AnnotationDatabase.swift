@@ -262,7 +262,7 @@ public final class AnnotationDatabase: @unchecked Sendable {
     public func query(nameFilter: String = "", types: Set<String> = [], limit: Int = 5000) -> [AnnotationDatabaseRecord] {
         guard let db else { return [] }
 
-        var sql = "SELECT name, type, chromosome, start, end, strand, gene_name FROM annotations"
+        var sql = "SELECT name, type, chromosome, start, end, strand, attributes, gene_name FROM annotations"
         var conditions: [String] = []
         var bindings: [String] = []
 
@@ -304,11 +304,13 @@ public final class AnnotationDatabase: @unchecked Sendable {
             let start = Int(sqlite3_column_int64(stmt, 3))
             let end = Int(sqlite3_column_int64(stmt, 4))
             let strand = sqlite3_column_text(stmt, 5).map { String(cString: $0) } ?? "."
-            let geneName = sqlite3_column_text(stmt, 6).map { String(cString: $0) }
+            let attributes = sqlite3_column_text(stmt, 6).map { String(cString: $0) }
+            let geneName = sqlite3_column_text(stmt, 7).map { String(cString: $0) }
 
             results.append(AnnotationDatabaseRecord(
                 name: name, type: type, chromosome: chrom,
                 start: start, end: end, strand: strand,
+                attributes: attributes,
                 geneName: geneName
             ))
         }

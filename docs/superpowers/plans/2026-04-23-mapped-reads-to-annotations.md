@@ -740,7 +740,6 @@ Add `AnnotateSubcommand` to `BAMCommand.configuration.subcommands` and define:
 - `@Option --bundle`
 - `@Option --alignment-track`
 - `@Option --output-track-name`
-- `@Flag --mapped-only` default true through an inversion-safe property
 - `@Flag --primary-only`
 - `@Flag --include-sequence`
 - `@Flag --include-qualities`

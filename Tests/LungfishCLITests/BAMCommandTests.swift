@@ -10,10 +10,15 @@ final class BAMCommandTests: XCTestCase {
     func testBamCommandNameAndHelp() {
         XCTAssertEqual(BAMCommand.configuration.commandName, "bam")
         XCTAssertTrue(BAMCommand.helpMessage().contains("filter"))
+        XCTAssertTrue(BAMCommand.helpMessage().contains("annotate"))
         XCTAssertTrue(BAMCommand.helpMessage().contains("lungfish-cli bam filter"))
+        XCTAssertTrue(BAMCommand.helpMessage().contains("lungfish-cli bam annotate"))
         XCTAssertTrue(BAMCommand.FilterSubcommand.helpMessage().contains("mapping analysis directory"))
         XCTAssertTrue(BAMCommand.FilterSubcommand.helpMessage().contains("Output format: text, json"))
         XCTAssertFalse(BAMCommand.FilterSubcommand.helpMessage().contains("tsv"))
+        XCTAssertTrue(BAMCommand.AnnotateSubcommand.helpMessage().contains("Convert mapped reads to annotations"))
+        XCTAssertTrue(BAMCommand.AnnotateSubcommand.helpMessage().contains("Output format: text, json"))
+        XCTAssertFalse(BAMCommand.AnnotateSubcommand.helpMessage().contains("tsv"))
         XCTAssertTrue(BAMCommand.MarkdupSubcommand.helpMessage().contains("Output format: text, json"))
         XCTAssertFalse(BAMCommand.MarkdupSubcommand.helpMessage().contains("tsv"))
     }

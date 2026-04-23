@@ -206,6 +206,50 @@ final class VariantTableEnhancementTests: XCTestCase {
         }
     }
 
+    func testMappedReadAttributeColumnsAppearForAnnotations() throws {
+        let drawer = try createDrawerWithMappedReadAnnotations()
+        drawer.switchToTab(.annotations)
+
+        let columnIds = drawer.tableView.tableColumns.map(\.identifier.rawValue)
+        XCTAssertTrue(columnIds.contains("attr_read_name"))
+        XCTAssertTrue(columnIds.contains("attr_mapq"))
+        XCTAssertTrue(columnIds.contains("attr_cigar"))
+        XCTAssertTrue(columnIds.contains("attr_tag_NM"))
+        XCTAssertTrue(columnIds.contains("attr_source_alignment_track_name"))
+
+        let rowIndex = try XCTUnwrap(drawer.displayedAnnotations.firstIndex { $0.name == "read-mid" })
+        XCTAssertEqual(drawer.cellValueString(for: NSUserInterfaceItemIdentifier("attr_mapq"), row: rowIndex), "10")
+        XCTAssertEqual(drawer.cellValueString(for: NSUserInterfaceItemIdentifier("attr_cigar"), row: rowIndex), "25M")
+        XCTAssertEqual(drawer.cellValueString(for: NSUserInterfaceItemIdentifier("attr_tag_NM"), row: rowIndex), "1")
+    }
+
+    func testMappedReadNumericAttributeColumnsSortNumerically() throws {
+        let drawer = try createDrawerWithMappedReadAnnotations()
+        drawer.switchToTab(.annotations)
+
+        drawer.tableView.sortDescriptors = [
+            NSSortDescriptor(key: "attr_mapq", ascending: true)
+        ]
+        drawer.tableView(drawer.tableView, sortDescriptorsDidChange: [])
+
+        XCTAssertEqual(drawer.displayedAnnotations.map(\.name), ["read-low", "read-mid", "read-high"])
+    }
+
+    func testMappedReadAttributeColumnFiltersDisplayedAnnotationRows() throws {
+        let drawer = try createDrawerWithMappedReadAnnotations()
+        drawer.switchToTab(.annotations)
+
+        let filtered = drawer.applyAnnotationColumnFilters(
+            to: drawer.displayedAnnotations,
+            clauses: [
+                AnnotationTableDrawerView.ColumnFilterClause(key: "attr_mapq", op: ">=", value: "10"),
+                AnnotationTableDrawerView.ColumnFilterClause(key: "attr_tag_NM", op: "=", value: "1"),
+            ]
+        )
+
+        XCTAssertEqual(filtered.map(\.name), ["read-mid"])
+    }
+
     // MARK: - Genotype Column Configuration
 
     func testGenotypeColumnsConfigured() throws {
@@ -318,6 +362,58 @@ final class VariantTableEnhancementTests: XCTestCase {
         let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 200))
         drawer.setSearchIndex(searchIndex)
         return drawer
+    }
+
+    private func createDrawerWithMappedReadAnnotations() throws -> AnnotationTableDrawerView {
+        let bedLines = [
+            mappedReadBEDLine(name: "read-low", start: 100, end: 125, mapq: 2, nm: 2),
+            mappedReadBEDLine(name: "read-mid", start: 200, end: 225, mapq: 10, nm: 1),
+            mappedReadBEDLine(name: "read-high", start: 300, end: 325, mapq: 60, nm: 0),
+        ]
+        let bedURL = tempDir.appendingPathComponent("mapped_reads.bed")
+        try bedLines.joined(separator: "\n").write(to: bedURL, atomically: true, encoding: .utf8)
+        let dbURL = tempDir.appendingPathComponent("mapped_reads.db")
+        try AnnotationDatabase.createFromBED(bedURL: bedURL, outputURL: dbURL)
+
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "Test",
+            identifier: "test.mapped.reads.bundle",
+            source: SourceInfo(organism: "Test", assembly: "test"),
+            genome: GenomeInfo(
+                path: "seq.fa.gz", indexPath: "seq.fa.gz.fai",
+                totalLength: 1000, chromosomes: []
+            ),
+            annotations: [
+                AnnotationTrackInfo(
+                    id: "mapped_reads", name: "Mapped Reads",
+                    path: "mapped_reads.bb", databasePath: "mapped_reads.db"
+                )
+            ]
+        )
+
+        let bundle = ReferenceBundle(url: tempDir, manifest: manifest)
+        let searchIndex = AnnotationSearchIndex()
+        let success = searchIndex.buildFromDatabase(bundle: bundle, trackId: "mapped_reads", databasePath: "mapped_reads.db")
+        XCTAssertTrue(success)
+
+        let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 900, height: 240))
+        drawer.setSearchIndex(searchIndex)
+        return drawer
+    }
+
+    private func mappedReadBEDLine(name: String, start: Int, end: Int, mapq: Int, nm: Int) -> String {
+        let attributes = [
+            "read_name=\(name)",
+            "mapq=\(mapq)",
+            "cigar=25M",
+            "flag=0",
+            "tag_NM=\(nm)",
+            "tag_AS=\(100 - nm)",
+            "read_group=rg-a",
+            "source_alignment_track_name=Exact Matches",
+        ].joined(separator: ";")
+        return "chr1\t\(start)\t\(end)\t\(name)\t0\t+\t\(start)\t\(end)\t0,0,0\t1\t\(end - start)\t0\tmapped_read\t\(attributes)"
     }
 
     private func createSearchIndex(genomeLength: Int64) throws -> AnnotationSearchIndex {

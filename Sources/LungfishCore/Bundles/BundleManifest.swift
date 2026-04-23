@@ -1051,6 +1051,48 @@ extension BundleManifest {
         )
     }
 
+    /// Returns a new manifest with the given annotation track appended.
+    public func addingAnnotationTrack(_ track: AnnotationTrackInfo) -> BundleManifest {
+        BundleManifest(
+            formatVersion: formatVersion,
+            name: name,
+            identifier: identifier,
+            description: description,
+            originBundlePath: originBundlePath,
+            createdDate: createdDate,
+            modifiedDate: Date(),
+            source: source,
+            genome: genome,
+            annotations: annotations + [track],
+            variants: variants,
+            tracks: tracks,
+            alignments: alignments,
+            metadata: metadata,
+            browserSummary: nil
+        )
+    }
+
+    /// Returns a new manifest with the specified annotation track removed.
+    public func removingAnnotationTrack(id: String) -> BundleManifest {
+        BundleManifest(
+            formatVersion: formatVersion,
+            name: name,
+            identifier: identifier,
+            description: description,
+            originBundlePath: originBundlePath,
+            createdDate: createdDate,
+            modifiedDate: Date(),
+            source: source,
+            genome: genome,
+            annotations: annotations.filter { $0.id != id },
+            variants: variants,
+            tracks: tracks,
+            alignments: alignments,
+            metadata: metadata,
+            browserSummary: nil
+        )
+    }
+
     /// Returns a new manifest with the given alignment track appended.
     public func addingAlignmentTrack(_ track: AlignmentTrackInfo) -> BundleManifest {
         BundleManifest(

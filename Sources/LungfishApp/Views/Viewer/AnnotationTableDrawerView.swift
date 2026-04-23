@@ -300,6 +300,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     /// INFO field definitions for dynamic variant columns (key + type for sort awareness).
     var infoColumnKeys: [(key: String, type: String, description: String)] = []
+    /// Annotation attribute keys discovered from loaded annotation rows.
+    var annotationAttributeColumnKeys: [String] = []
     /// Preset INFO values used to render variant filter chips (key -> values).
     private var variantInfoPresetValues: [(key: String, values: [String])] = []
     private enum VariantPresetLoadState {
@@ -565,6 +567,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     private var sampleTokenPayloads: [ObjectIdentifier: SampleSmartToken] = [:]
     /// Bookmarked variant keys (`trackId:variantRowId`) for star column display.
     var bookmarkedVariantKeys: Set<String> = []
+    /// Base annotation result set before local column filters.
+    var baseDisplayedAnnotationRows: [AnnotationSearchIndex.SearchResult] = []
+    /// Header-driven local filters applied only to currently loaded annotation rows.
+    private var annotationColumnFilterClauses: [ColumnFilterClause] = []
     /// Base result set from the last variant SQL query before local column filters.
     var baseDisplayedVariantAnnotations: [AnnotationSearchIndex.SearchResult] = []
     /// Header-driven local filters applied only to currently loaded variant rows.
@@ -1674,6 +1680,12 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             tableView.addTableColumn(col)
         }
 
+        if tab == .annotations {
+            for key in annotationAttributeColumnKeys {
+                addAnnotationAttributeColumn(key)
+            }
+        }
+
         // Add dynamic INFO columns for variants tab.
         // Promoted keys (AF, Gene, Impact) are inserted right after fixed columns
         // so they appear in a biologically useful default order. Remaining INFO
@@ -1741,6 +1753,51 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 }
             }
         }
+    }
+
+    private static let promotedAnnotationAttributeKeys = [
+        "read_name",
+        "mapq",
+        "cigar",
+        "flag",
+        "tag_NM",
+        "tag_AS",
+        "read_group",
+        "source_alignment_track_name",
+    ]
+
+    static func orderedAnnotationAttributeKeys(
+        from results: [AnnotationSearchIndex.SearchResult]
+    ) -> [String] {
+        let discovered = Set(
+            results
+                .filter { !$0.isVariant }
+                .flatMap { result in
+                    result.attributes?.compactMap { key, value in
+                        value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : key
+                    } ?? []
+                }
+        )
+        let promoted = promotedAnnotationAttributeKeys.filter { discovered.contains($0) }
+        let remaining = discovered.subtracting(promoted).sorted {
+            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+        }
+        return promoted + remaining
+    }
+
+    private func addAnnotationAttributeColumn(_ key: String) {
+        let identifier = NSUserInterfaceItemIdentifier("attr_\(key)")
+        let col = NSTableColumn(identifier: identifier)
+        col.title = key
+        col.headerToolTip = "Annotation attribute: \(key)"
+        col.width = max(70, CGFloat(key.count + 2) * 7)
+        col.minWidth = 40
+        col.resizingMask = [.autoresizingMask, .userResizingMask]
+        col.sortDescriptorPrototype = NSSortDescriptor(
+            key: "attr_\(key)", ascending: true,
+            selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))
+        )
+        tableView.addTableColumn(col)
     }
 
     private func metadataFieldsWithValues() -> Set<String> {
@@ -1973,6 +2030,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
         // Discover INFO field definitions for dynamic variant columns
         infoColumnKeys = index.variantInfoKeys.map { (key: $0.key, type: $0.type, description: $0.description) }
+        annotationAttributeColumnKeys = Self.orderedAnnotationAttributeKeys(
+            from: index.queryAnnotationsOnly(limit: Self.maxDisplayCount)
+        )
         variantTrackDatabaseURLs = index.variantDatabaseHandles.map(\.db.databaseURL)
         variantInfoPresetValues = []
         variantPresetLoadState = .idle
@@ -2002,7 +2062,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         tabControl.isHidden = totalVariantCount == 0 && allSampleNames.isEmpty
 
         // Reconfigure columns if we're already on the variants tab so INFO columns appear
-        if activeTab == .variants {
+        if activeTab == .annotations {
+            configureColumnsForTab(.annotations)
+        } else if activeTab == .variants {
             configureColumnsForTab(.variants)
         } else if activeTab == .samples {
             configureColumnsForTab(.samples)
@@ -2065,12 +2127,14 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         let typeSet = Set(results.map { $0.type })
         availableAnnotationTypes = typeSet.sorted()
         visibleAnnotationTypes = typeSet
+        annotationAttributeColumnKeys = Self.orderedAnnotationAttributeKeys(from: results)
+        configureColumnsForTab(.annotations)
 
         rebuildChipButtons()
 
         // For legacy mode, set results directly (capped at maxDisplayCount)
         if results.count > Self.maxDisplayCount {
-            displayedAnnotations = []
+            setAnnotationBaseResults([])
             tableView.reloadData()
             scrollView.isHidden = true
             let total = numberFormatter.string(from: NSNumber(value: results.count)) ?? "\(results.count)"
@@ -2078,7 +2142,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             tooManyLabel.stringValue = "\(total) annotations match — use the search field or type filters to narrow to \(max) or fewer"
             tooManyLabel.isHidden = false
         } else {
-            displayedAnnotations = results
+            setAnnotationBaseResults(results)
             tableView.reloadData()
             scrollView.isHidden = false
             tooManyLabel.isHidden = true
@@ -2374,7 +2438,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             let matchingCount = index.queryAnnotationCount(nameFilter: nameFilter, types: mergedTypeFilter)
 
             if matchingCount > Self.maxDisplayCount {
-                displayedAnnotations = []
+                setAnnotationBaseResults([])
                 tableView.reloadData()
                 scrollView.isHidden = true
                 let total = numberFormatter.string(from: NSNumber(value: matchingCount)) ?? "\(matchingCount)"
@@ -2384,7 +2448,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 annotationSearchRegion = nil
             } else {
                 let results = index.queryAnnotationsOnly(nameFilter: nameFilter, types: mergedTypeFilter, limit: Self.maxDisplayCount * 3)
-                displayedAnnotations = applyAnnotationAdvancedFilters(results, query: annotationQuery).prefix(Self.maxDisplayCount).map { $0 }
+                let filtered = applyAnnotationAdvancedFilters(results, query: annotationQuery).prefix(Self.maxDisplayCount).map { $0 }
+                setAnnotationBaseResults(filtered)
                 tableView.reloadData()
                 scrollView.isHidden = false
                 tooManyLabel.isHidden = true
@@ -2399,7 +2464,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             let hasFilters = !typeFilter.isEmpty || !nameFilter.isEmpty
 
             if !hasFilters && activeTotal > Self.maxDisplayCount {
-                displayedAnnotations = []
+                setAnnotationBaseResults([])
                 tableView.reloadData()
                 scrollView.isHidden = true
                 let total = numberFormatter.string(from: NSNumber(value: activeTotal)) ?? "\(activeTotal)"
@@ -2416,7 +2481,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                     results = results.filter { $0.name.lowercased().contains(lower) }
                 }
                 if results.count > Self.maxDisplayCount {
-                    displayedAnnotations = []
+                    setAnnotationBaseResults([])
                     tableView.reloadData()
                     scrollView.isHidden = true
                     let total = numberFormatter.string(from: NSNumber(value: results.count)) ?? "\(results.count)"
@@ -2424,7 +2489,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                     tooManyLabel.stringValue = "\(total) \(entityName) match — use the search field or type filters to narrow to \(max) or fewer"
                     tooManyLabel.isHidden = false
                 } else {
-                    displayedAnnotations = results
+                    setAnnotationBaseResults(results)
                     tableView.reloadData()
                     scrollView.isHidden = false
                     tooManyLabel.isHidden = true
@@ -2998,6 +3063,17 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
         if isLoading {
             countLabel.stringValue = "Building annotation index (scanning all chromosomes)..."
+        } else if activeTab == .annotations && !annotationColumnFilterClauses.isEmpty {
+            let shown = numberFormatter.string(from: NSNumber(value: displayedAnnotations.count)) ?? "\(displayedAnnotations.count)"
+            let base = numberFormatter.string(from: NSNumber(value: baseDisplayedAnnotationRows.count)) ?? "\(baseDisplayedAnnotationRows.count)"
+            let filterDesc = annotationColumnFilterClauses.map { clause in
+                let displayKey = clause.key.hasPrefix("attr_") ? String(clause.key.dropFirst(5)) : clause.key
+                if clause.value.isEmpty {
+                    return clause.op == "=" ? "\(displayKey) is empty" : "\(displayKey) is not empty"
+                }
+                return "\(displayKey)\(clause.op)\(clause.value)"
+            }.joined(separator: ", ")
+            countLabel.stringValue = "\(shown) of \(base) shown (\(filterDesc))"
         } else if activeTab == .variants {
             // Unified variant count label using tracked scope and match count.
             // matchCount == nil signals "more than displayed" (probe fetch overflow) → show "N+" format.
@@ -3143,11 +3219,12 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         var metadataFilters: [(field: String, op: String, value: String)] = []
     }
 
-    struct VariantColumnFilterClause {
+    struct ColumnFilterClause {
         var key: String
         var op: String
         var value: String
     }
+    typealias VariantColumnFilterClause = ColumnFilterClause
 
     private struct ParsedSearchClause {
         var key: String?
@@ -4308,8 +4385,18 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             case "aa_change":
                 result = variantAAChangeText(for: a).localizedCaseInsensitiveCompare(variantAAChangeText(for: b))
             default:
-                // Dynamic INFO column sort (key starts with "info_")
-                if key.hasPrefix("info_") {
+                if key.hasPrefix("attr_") {
+                    let attributeKey = String(key.dropFirst(5))
+                    let valA = a.attributes?[attributeKey] ?? ""
+                    let valB = b.attributes?[attributeKey] ?? ""
+                    if isNumericAnnotationAttributeKey(attributeKey),
+                       let numA = Double(valA),
+                       let numB = Double(valB) {
+                        result = numA < numB ? .orderedAscending : (numA > numB ? .orderedDescending : .orderedSame)
+                    } else {
+                        result = valA.localizedCaseInsensitiveCompare(valB)
+                    }
+                } else if key.hasPrefix("info_") {
                     let infoKey = String(key.dropFirst(5))
                     let valA = a.infoDict?[infoKey] ?? ""
                     let valB = b.infoDict?[infoKey] ?? ""
@@ -4449,8 +4536,11 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             tf.stringValue = variantAAChangeText(for: annotation)
 
         default:
-            // Dynamic INFO columns (identifier starts with "info_")
-            if identifier.rawValue.hasPrefix("info_") {
+            if identifier.rawValue.hasPrefix("attr_") {
+                let attributeKey = String(identifier.rawValue.dropFirst(5))
+                tf.stringValue = annotation.attributes?[attributeKey] ?? ""
+                tf.alignment = isNumericAnnotationAttributeKey(attributeKey) ? .right : .left
+            } else if identifier.rawValue.hasPrefix("info_") {
                 let infoKey = String(identifier.rawValue.dropFirst(5))
                 tf.stringValue = annotation.infoDict?[infoKey] ?? ""
                 tf.alignment = isNumericInfoKey(infoKey) ? .right : .left
@@ -4725,6 +4815,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         case Self.aaChangeColumn:
             return variantAAChangeText(for: annotation)
         default:
+            if identifier.rawValue.hasPrefix("attr_") {
+                let attributeKey = String(identifier.rawValue.dropFirst(5))
+                return annotation.attributes?[attributeKey] ?? ""
+            }
             if identifier.rawValue.hasPrefix("info_") {
                 let infoKey = String(identifier.rawValue.dropFirst(5))
                 return annotation.infoDict?[infoKey] ?? ""
@@ -4748,6 +4842,17 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Whether an INFO key represents a numeric type (Integer or Float) for sorting.
     func isNumericInfoKey(_ key: String) -> Bool {
         infoColumnKeys.first(where: { $0.key == key }).map { $0.type == "Integer" || $0.type == "Float" } ?? false
+    }
+
+    func isNumericAnnotationAttributeKey(_ key: String) -> Bool {
+        switch key {
+        case "flag", "mapq", "pos_1_based", "alignment_start", "alignment_end",
+             "reference_length", "query_length", "mate_position_1_based", "template_length",
+             "tag_NM", "tag_AS":
+            return true
+        default:
+            return false
+        }
     }
 
     // MARK: - Public API
@@ -5009,6 +5114,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             showSampleColumnHeaderFilterMenu(column: columnIndex)
             return
         }
+        if activeTab == .annotations {
+            showAnnotationColumnHeaderFilterMenu(column: columnIndex)
+            return
+        }
         if activeTab == .variants && activeVariantSubtab == .calls {
             showVariantColumnHeaderFilterMenu(column: columnIndex)
             return
@@ -5064,6 +5173,11 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
 
         if activeTab == .variants && tableView.clickedColumn >= 0 && tableView.clickedRow < 0 {
             buildVariantColumnHeaderContextMenu(menu, column: tableView.clickedColumn)
+            return
+        }
+
+        if activeTab == .annotations && tableView.clickedColumn >= 0 && tableView.clickedRow < 0 {
+            buildAnnotationColumnHeaderContextMenu(menu, column: tableView.clickedColumn)
             return
         }
 
@@ -5248,6 +5362,116 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         let deleteAllItem = NSMenuItem(title: "Delete All Variants...", action: #selector(deleteAllVariantsAction(_:)), keyEquivalent: "")
         deleteAllItem.target = self
         menu.addItem(deleteAllItem)
+    }
+
+    private func annotationFilterKey(forColumnIdentifier columnId: String) -> String? {
+        switch columnId {
+        case Self.nameColumn.rawValue: return "name"
+        case Self.typeColumn.rawValue: return "type"
+        case Self.chromosomeColumn.rawValue: return "chromosome"
+        case Self.startColumn.rawValue: return "start"
+        case Self.endColumn.rawValue: return "end"
+        case Self.sizeColumn.rawValue: return "size"
+        case Self.strandColumn.rawValue: return "strand"
+        default:
+            if columnId.hasPrefix("attr_") { return columnId }
+            return nil
+        }
+    }
+
+    private func addAnnotationColumnFilterItem(
+        to menu: NSMenu,
+        title: String,
+        key: String,
+        op: String,
+        value: String
+    ) {
+        let item = NSMenuItem(title: title, action: #selector(applyAnnotationColumnFilterAction(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = ["key": key, "op": op, "value": value]
+        menu.addItem(item)
+    }
+
+    @objc private func applyAnnotationColumnFilterAction(_ sender: NSMenuItem) {
+        guard let payload = sender.representedObject as? [String: String],
+              let key = payload["key"],
+              let op = payload["op"],
+              let value = payload["value"] else { return }
+        annotationColumnFilterClauses.append(ColumnFilterClause(key: key, op: op, value: value))
+        applyAnnotationColumnFiltersFromBase()
+    }
+
+    @objc private func promptAnnotationColumnFilterAction(_ sender: NSMenuItem) {
+        guard let payload = sender.representedObject as? [String: String],
+              let key = payload["key"],
+              let op = payload["op"],
+              let window = self.window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Add Annotation Column Filter"
+        alert.informativeText = "Enter a value for \(key)."
+        alert.addButton(withTitle: "Apply")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        field.placeholderString = "Filter value"
+        alert.accessoryView = field
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            let value = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let self, !value.isEmpty else { return }
+            self.annotationColumnFilterClauses.append(ColumnFilterClause(key: key, op: op, value: value))
+            self.applyAnnotationColumnFiltersFromBase()
+        }
+    }
+
+    @objc private func clearAnnotationColumnFilters(_ sender: Any?) {
+        annotationColumnFilterClauses.removeAll()
+        applyAnnotationColumnFiltersFromBase()
+    }
+
+    private func buildAnnotationColumnHeaderContextMenu(_ menu: NSMenu, column: Int) {
+        guard column >= 0, column < tableView.tableColumns.count else { return }
+        let tableColumn = tableView.tableColumns[column]
+        guard let key = annotationFilterKey(forColumnIdentifier: tableColumn.identifier.rawValue) else { return }
+        let displayName = tableColumn.title.isEmpty ? "Column" : tableColumn.title
+
+        addColumnSizingMenuItems(menu, tableColumn: tableColumn)
+        menu.addItem(NSMenuItem.separator())
+
+        if isAnnotationFilterNumericKey(key) {
+            for (title, op) in [
+                ("Filter \(displayName) Equals...", "="),
+                ("Filter \(displayName) >=...", ">="),
+                ("Filter \(displayName) >...", ">"),
+                ("Filter \(displayName) <=...", "<="),
+                ("Filter \(displayName) <...", "<"),
+            ] {
+                let item = NSMenuItem(title: title, action: #selector(promptAnnotationColumnFilterAction(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = ["key": key, "op": op]
+                menu.addItem(item)
+            }
+        } else {
+            for (title, op) in [
+                ("Filter \(displayName) Contains...", "~"),
+                ("Filter \(displayName) Equals...", "="),
+                ("Filter \(displayName) Begins With...", "^="),
+                ("Filter \(displayName) Ends With...", "$="),
+            ] {
+                let item = NSMenuItem(title: title, action: #selector(promptAnnotationColumnFilterAction(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = ["key": key, "op": op]
+                menu.addItem(item)
+            }
+        }
+
+        menu.addItem(NSMenuItem.separator())
+        addAnnotationColumnFilterItem(to: menu, title: "Filter \(displayName) Is Empty", key: key, op: "=", value: "")
+        addAnnotationColumnFilterItem(to: menu, title: "Filter \(displayName) Is Not Empty", key: key, op: "!=", value: "")
+        menu.addItem(NSMenuItem.separator())
+
+        let clearItem = NSMenuItem(title: "Clear Local Annotation Column Filters", action: #selector(clearAnnotationColumnFilters(_:)), keyEquivalent: "")
+        clearItem.target = self
+        menu.addItem(clearItem)
     }
 
     private func variantFilterKey(forColumnIdentifier columnId: String) -> String? {
@@ -5767,6 +5991,94 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             if normalizedExpected.isEmpty { return true }
             return normalizedActual.localizedCaseInsensitiveContains(normalizedExpected)
         }
+    }
+
+    private func annotationColumnValue(_ row: AnnotationSearchIndex.SearchResult, key: String) -> String {
+        switch key {
+        case "name":
+            return row.name
+        case "type":
+            return row.type
+        case "chromosome":
+            return row.chromosome
+        case "start":
+            return String(row.start)
+        case "end":
+            return String(row.end)
+        case "size":
+            return String(row.end - row.start)
+        case "strand":
+            return row.strand
+        default:
+            if key.hasPrefix("attr_") {
+                let attributeKey = String(key.dropFirst(5))
+                return row.attributes?[attributeKey] ?? ""
+            }
+            return ""
+        }
+    }
+
+    private func isAnnotationFilterNumericKey(_ key: String) -> Bool {
+        switch key {
+        case "start", "end", "size":
+            return true
+        default:
+            if key.hasPrefix("attr_") {
+                let attributeKey = String(key.dropFirst(5))
+                return isNumericAnnotationAttributeKey(attributeKey)
+            }
+            return false
+        }
+    }
+
+    private func annotationColumnMatches(actual: String, op: String, expected: String, key: String) -> Bool {
+        let normalizedActual = actual.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedExpected = expected.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isAnnotationFilterNumericKey(key),
+           let lhs = Double(normalizedActual),
+           let rhs = Double(normalizedExpected) {
+            switch op {
+            case ">": return lhs > rhs
+            case ">=": return lhs >= rhs
+            case "<": return lhs < rhs
+            case "<=": return lhs <= rhs
+            case "=": return lhs == rhs
+            case "!=": return lhs != rhs
+            default: break
+            }
+        }
+        return sampleStringMatches(actual: normalizedActual, op: op, expected: normalizedExpected)
+    }
+
+    func applyAnnotationColumnFilters(
+        to rows: [AnnotationSearchIndex.SearchResult],
+        clauses: [ColumnFilterClause]
+    ) -> [AnnotationSearchIndex.SearchResult] {
+        guard !clauses.isEmpty else { return rows }
+        return rows.filter { row in
+            clauses.allSatisfy { clause in
+                let actual = annotationColumnValue(row, key: clause.key)
+                return annotationColumnMatches(actual: actual, op: clause.op, expected: clause.value, key: clause.key)
+            }
+        }
+    }
+
+    private func applyAnnotationColumnFilters(to rows: [AnnotationSearchIndex.SearchResult]) -> [AnnotationSearchIndex.SearchResult] {
+        applyAnnotationColumnFilters(to: rows, clauses: annotationColumnFilterClauses)
+    }
+
+    private func setAnnotationBaseResults(_ rows: [AnnotationSearchIndex.SearchResult]) {
+        baseDisplayedAnnotationRows = rows
+        displayedAnnotations = applyAnnotationColumnFilters(to: rows)
+    }
+
+    private func applyAnnotationColumnFiltersFromBase() {
+        displayedAnnotations = applyAnnotationColumnFilters(to: baseDisplayedAnnotationRows)
+        tableView.reloadData()
+        scrollView.isHidden = false
+        tooManyLabel.isHidden = true
+        updateAnnotationSearchRegion()
+        updateCountLabel()
     }
 
     private func variantColumnValue(_ row: AnnotationSearchIndex.SearchResult, key: String) -> String {
@@ -6529,6 +6841,16 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         guard let headerView = tableView.headerView else { return }
         let menu = NSMenu()
         buildSampleColumnHeaderContextMenu(menu, column: column)
+        let rect = headerView.headerRect(ofColumn: column)
+        let anchorPoint = NSPoint(x: rect.minX + 8, y: rect.minY - 2)
+        menu.popUp(positioning: nil, at: anchorPoint, in: headerView)
+    }
+
+    private func showAnnotationColumnHeaderFilterMenu(column: Int) {
+        guard column >= 0, column < tableView.tableColumns.count else { return }
+        guard let headerView = tableView.headerView else { return }
+        let menu = NSMenu()
+        buildAnnotationColumnHeaderContextMenu(menu, column: column)
         let rect = headerView.headerRect(ofColumn: column)
         let anchorPoint = NSPoint(x: rect.minX + 8, y: rect.minY - 2)
         menu.popUp(positioning: nil, at: anchorPoint, in: headerView)

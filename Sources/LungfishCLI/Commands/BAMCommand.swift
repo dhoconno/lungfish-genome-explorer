@@ -9,9 +9,10 @@ struct BAMCommand: AsyncParsableCommand {
         abstract: "Operate on bundle-owned BAM alignment tracks",
         discussion: """
             Use `lungfish-cli bam filter` to derive filtered alignment tracks and
-            `lungfish-cli bam markdup` to mark duplicates in BAM workflows.
+            `lungfish-cli bam annotate` to convert mapped reads into annotation tracks.
+            Use `lungfish-cli bam markdup` to mark duplicates in BAM workflows.
             """,
-        subcommands: [FilterSubcommand.self, MarkdupSubcommand.self]
+        subcommands: [FilterSubcommand.self, AnnotateSubcommand.self, MarkdupSubcommand.self]
     )
 
     struct FilterEvent: Codable, Sendable {
@@ -27,9 +28,287 @@ struct BAMCommand: AsyncParsableCommand {
         let baiPath: String?
         let metadataDBPath: String?
     }
+
+    struct AnnotateEvent: Codable, Sendable {
+        let event: String
+        let progress: Double?
+        let message: String
+        let bundlePath: String?
+        let sourceAlignmentTrackID: String?
+        let sourceAlignmentTrackName: String?
+        let outputAnnotationTrackID: String?
+        let outputAnnotationTrackName: String?
+        let databasePath: String?
+        let convertedRecordCount: Int?
+        let skippedUnmappedCount: Int?
+        let skippedSecondarySupplementaryCount: Int?
+        let includedSequence: Bool?
+        let includedQualities: Bool?
+    }
 }
 
 extension BAMCommand {
+    struct AnnotateSubcommand: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "annotate",
+            abstract: "Convert mapped reads to annotations in a reference bundle"
+        )
+
+        struct Runtime {
+            typealias AnnotateRunner = (MappedReadsAnnotationRequest) async throws -> MappedReadsAnnotationResult
+
+            let runAnnotate: AnnotateRunner
+
+            static func live() -> Runtime {
+                Runtime(
+                    runAnnotate: { request in
+                        try await MappedReadsAnnotationService().convertMappedReads(request: request)
+                    }
+                )
+            }
+        }
+
+        @Option(name: .customLong("bundle"), help: "Path to the reference bundle directory")
+        var bundlePath: String
+
+        @Option(name: .customLong("alignment-track"), help: "Bundle alignment track identifier")
+        var alignmentTrackID: String
+
+        @Option(name: .customLong("output-track-name"), help: "Display name for the annotation track")
+        var outputTrackName: String
+
+        @Flag(name: .customLong("primary-only"), help: "Skip secondary and supplementary alignments")
+        var primaryOnly: Bool = false
+
+        @Flag(name: .customLong("include-sequence"), help: "Include SAM SEQ in annotation attributes")
+        var includeSequence: Bool = false
+
+        @Flag(name: .customLong("include-qualities"), help: "Include SAM QUAL in annotation attributes")
+        var includeQualities: Bool = false
+
+        @Flag(name: .customLong("replace"), help: "Replace an existing annotation track with the same generated ID or name")
+        var replaceExisting: Bool = false
+
+        @OptionGroup var globalOptions: TextAndJSONGlobalOptions
+
+        static func parse(_ arguments: [String]) throws -> Self {
+            let trimmed = arguments.first == configuration.commandName
+                ? Array(arguments.dropFirst())
+                : arguments
+            guard let parsed = try Self.parseAsRoot(trimmed) as? Self else {
+                throw ValidationError("Failed to parse bam annotate arguments.")
+            }
+            return parsed
+        }
+
+        func validate() throws {
+            if trimmedValue(bundlePath).isEmpty {
+                throw ValidationError("--bundle must not be empty.")
+            }
+            if trimmedValue(alignmentTrackID).isEmpty {
+                throw ValidationError("--alignment-track must not be empty.")
+            }
+            if trimmedValue(outputTrackName).isEmpty {
+                throw ValidationError("--output-track-name must not be empty.")
+            }
+        }
+
+        func run() async throws {
+            let resolvedGlobalOptions = try globalOptions.resolved(with: ProcessInfo.processInfo.arguments)
+            let emitLine: (String) -> Void = { line in
+                if resolvedGlobalOptions.outputFormat == .text && resolvedGlobalOptions.quiet {
+                    return
+                }
+                print(line)
+            }
+
+            _ = try await executeForCurrentFormat(
+                runtime: .live(),
+                resolvedGlobalOptions: resolvedGlobalOptions,
+                emit: emitLine
+            )
+        }
+
+        func executeForTesting(
+            runtime: Runtime = .live(),
+            resolvedGlobalOptions: ResolvedTextAndJSONGlobalOptions? = nil,
+            emit: @escaping (String) -> Void
+        ) async throws -> MappedReadsAnnotationResult {
+            try await executeForCurrentFormat(
+                runtime: runtime,
+                resolvedGlobalOptions: resolvedGlobalOptions,
+                emit: emit
+            )
+        }
+
+        private func executeForCurrentFormat(
+            runtime: Runtime,
+            resolvedGlobalOptions: ResolvedTextAndJSONGlobalOptions? = nil,
+            emit: @escaping (String) -> Void
+        ) async throws -> MappedReadsAnnotationResult {
+            let resolvedGlobalOptions = resolvedGlobalOptions
+                ?? (try? globalOptions.resolved())
+                ?? ResolvedTextAndJSONGlobalOptions(
+                    outputFormat: globalOptions.outputFormat,
+                    quiet: globalOptions.quiet
+                )
+
+            if resolvedGlobalOptions.outputFormat == .json {
+                return try await execute(runtime: runtime) { event in
+                    if let line = encode(event: event) {
+                        emit(line)
+                    }
+                }
+            }
+
+            return try await execute(runtime: runtime) { event in
+                for line in textLines(for: event) {
+                    emit(line)
+                }
+            }
+        }
+
+        private func execute(
+            runtime: Runtime,
+            emitEvent: @escaping (BAMCommand.AnnotateEvent) -> Void
+        ) async throws -> MappedReadsAnnotationResult {
+            let request = makeRequest()
+            emitEvent(
+                BAMCommand.AnnotateEvent(
+                    event: "runStart",
+                    progress: 0.0,
+                    message: "Converting mapped reads from '\(alignmentTrackID)' into '\(normalizedOutputTrackName())'.",
+                    bundlePath: request.bundleURL.path,
+                    sourceAlignmentTrackID: alignmentTrackID,
+                    sourceAlignmentTrackName: nil,
+                    outputAnnotationTrackID: nil,
+                    outputAnnotationTrackName: normalizedOutputTrackName(),
+                    databasePath: nil,
+                    convertedRecordCount: nil,
+                    skippedUnmappedCount: nil,
+                    skippedSecondarySupplementaryCount: nil,
+                    includedSequence: includeSequence,
+                    includedQualities: includeQualities
+                )
+            )
+
+            do {
+                let result = try await runtime.runAnnotate(request)
+                emitEvent(makeRunCompleteEvent(from: result))
+                return result
+            } catch {
+                emitEvent(
+                    BAMCommand.AnnotateEvent(
+                        event: "runFailed",
+                        progress: nil,
+                        message: error.localizedDescription,
+                        bundlePath: request.bundleURL.path,
+                        sourceAlignmentTrackID: alignmentTrackID,
+                        sourceAlignmentTrackName: nil,
+                        outputAnnotationTrackID: nil,
+                        outputAnnotationTrackName: normalizedOutputTrackName(),
+                        databasePath: nil,
+                        convertedRecordCount: nil,
+                        skippedUnmappedCount: nil,
+                        skippedSecondarySupplementaryCount: nil,
+                        includedSequence: includeSequence,
+                        includedQualities: includeQualities
+                    )
+                )
+                throw error
+            }
+        }
+
+        private func makeRequest() -> MappedReadsAnnotationRequest {
+            MappedReadsAnnotationRequest(
+                bundleURL: URL(fileURLWithPath: trimmedValue(bundlePath)),
+                sourceTrackID: trimmedValue(alignmentTrackID),
+                outputTrackName: normalizedOutputTrackName(),
+                primaryOnly: primaryOnly,
+                includeSequence: includeSequence,
+                includeQualities: includeQualities,
+                replaceExisting: replaceExisting
+            )
+        }
+
+        private func normalizedOutputTrackName() -> String {
+            trimmedValue(outputTrackName)
+        }
+
+        private func trimmedValue(_ value: String) -> String {
+            value.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        private func makeRunCompleteEvent(
+            from result: MappedReadsAnnotationResult
+        ) -> BAMCommand.AnnotateEvent {
+            BAMCommand.AnnotateEvent(
+                event: "runComplete",
+                progress: 1.0,
+                message: "Created annotation track '\(result.annotationTrackInfo.name)' (\(result.annotationTrackInfo.id)) from mapped reads.",
+                bundlePath: result.bundleURL.path,
+                sourceAlignmentTrackID: result.sourceAlignmentTrackID,
+                sourceAlignmentTrackName: result.sourceAlignmentTrackName,
+                outputAnnotationTrackID: result.annotationTrackInfo.id,
+                outputAnnotationTrackName: result.annotationTrackInfo.name,
+                databasePath: absolutePath(for: result.databasePath, within: result.bundleURL),
+                convertedRecordCount: result.convertedRecordCount,
+                skippedUnmappedCount: result.skippedUnmappedCount,
+                skippedSecondarySupplementaryCount: result.skippedSecondarySupplementaryCount,
+                includedSequence: result.includedSequence,
+                includedQualities: result.includedQualities
+            )
+        }
+
+        private func absolutePath(for path: String, within bundleURL: URL) -> String {
+            let candidate = URL(fileURLWithPath: path)
+            if candidate.isFileURL && path.hasPrefix("/") {
+                return candidate.path
+            }
+            return bundleURL.appendingPathComponent(path).path
+        }
+
+        private func textLines(for event: BAMCommand.AnnotateEvent) -> [String] {
+            switch event.event {
+            case "runComplete":
+                var lines = [event.message]
+                if let bundlePath = event.bundlePath {
+                    lines.append("Bundle: \(bundlePath)")
+                }
+                if let id = event.sourceAlignmentTrackID {
+                    if let name = event.sourceAlignmentTrackName {
+                        lines.append("Source alignment track: \(id) (\(name))")
+                    } else {
+                        lines.append("Source alignment track: \(id)")
+                    }
+                }
+                if let databasePath = event.databasePath {
+                    lines.append("Database: \(databasePath)")
+                }
+                if let convertedRecordCount = event.convertedRecordCount {
+                    lines.append("Converted reads: \(convertedRecordCount)")
+                }
+                if let skippedUnmappedCount = event.skippedUnmappedCount {
+                    lines.append("Skipped unmapped reads: \(skippedUnmappedCount)")
+                }
+                if let skippedSecondarySupplementaryCount = event.skippedSecondarySupplementaryCount {
+                    lines.append("Skipped secondary/supplementary reads: \(skippedSecondarySupplementaryCount)")
+                }
+                return lines
+            default:
+                return [event.message]
+            }
+        }
+
+        private func encode(event: BAMCommand.AnnotateEvent) -> String? {
+            let encoder = JSONEncoder()
+            guard let data = try? encoder.encode(event) else {
+                return nil
+            }
+            return String(data: data, encoding: .utf8)
+        }
+    }
+
     struct MarkdupSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "markdup",
