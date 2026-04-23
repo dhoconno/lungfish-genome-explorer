@@ -31,12 +31,16 @@ final class BAMVariantCallingDialogState {
 
     init(
         bundle: ReferenceBundle,
+        preferredAlignmentTrackID: String? = nil,
         sidebarItems: [DatasetOperationToolSidebarItem] = BAMVariantCallingCatalog.availableSidebarItems()
     ) {
         self.bundle = bundle
         self.sidebarItems = sidebarItems
 
-        let defaultAlignmentTrackID = bundle.alignmentTrackIds.first ?? ""
+        let defaultAlignmentTrackID = BAMVariantCallingEligibility.defaultTrackID(
+            in: bundle,
+            preferredAlignmentTrackID: preferredAlignmentTrackID
+        )
         self.selectedAlignmentTrackID = defaultAlignmentTrackID
         self.selectedCaller = .lofreq
         self.minimumAlleleFrequencyText = "0.05"
@@ -54,7 +58,7 @@ final class BAMVariantCallingDialogState {
     }
 
     var alignmentTrackOptions: [AlignmentTrackInfo] {
-        bundle.alignmentTrackIds.compactMap { bundle.alignmentTrack(id: $0) }
+        BAMVariantCallingEligibility.eligibleAlignmentTracks(in: bundle)
     }
 
     var datasetLabel: String {
@@ -76,7 +80,7 @@ final class BAMVariantCallingDialogState {
         }
 
         if alignmentTrackOptions.isEmpty {
-            return "This bundle has no alignment tracks to call variants from."
+            return "This bundle has no analysis-ready BAM alignment tracks to call variants from."
         }
 
         if trimmedOutputTrackName.isEmpty {

@@ -47,8 +47,8 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
     }
 
     @MainActor
-    func testDialogStateBlocksIVarUntilPrimerTrimAcknowledged() {
-        let state = BAMVariantCallingDialogState(bundle: makeBundleFixture())
+    func testDialogStateBlocksIVarUntilPrimerTrimAcknowledged() throws {
+        let state = BAMVariantCallingDialogState(bundle: try makeBundleFixture())
 
         state.selectCaller(.ivar)
 
@@ -60,8 +60,8 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
     }
 
     @MainActor
-    func testDialogStateBlocksMedakaUntilModelIsProvided() {
-        let state = BAMVariantCallingDialogState(bundle: makeBundleFixture())
+    func testDialogStateBlocksMedakaUntilModelIsProvided() throws {
+        let state = BAMVariantCallingDialogState(bundle: try makeBundleFixture())
 
         state.selectCaller(.medaka)
 
@@ -70,6 +70,104 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
         state.medakaModel = "r1041_e82_400bps_sup_v5.0.0"
 
         XCTAssertTrue(state.isRunEnabled)
+    }
+
+    @MainActor
+    func testDialogStateFiltersToEligibleBamTracksOnly() throws {
+        let bundle = try makeBundleFixture(
+            alignments: [
+                AlignmentTrackInfo(
+                    id: "aln-bam",
+                    name: "Eligible BAM",
+                    format: .bam,
+                    sourcePath: "alignments/eligible.sorted.bam",
+                    indexPath: "alignments/eligible.sorted.bam.bai"
+                ),
+                AlignmentTrackInfo(
+                    id: "aln-sam",
+                    name: "SAM Only",
+                    format: .sam,
+                    sourcePath: "alignments/raw.sam",
+                    indexPath: "alignments/raw.sam.bai"
+                ),
+                AlignmentTrackInfo(
+                    id: "aln-missing-index",
+                    name: "Missing Index",
+                    format: .bam,
+                    sourcePath: "alignments/missing.sorted.bam",
+                    indexPath: "alignments/missing.sorted.bam.bai"
+                ),
+            ],
+            existingFiles: [
+                "alignments/eligible.sorted.bam",
+                "alignments/eligible.sorted.bam.bai",
+                "alignments/raw.sam",
+                "alignments/missing.sorted.bam",
+            ]
+        )
+
+        let state = BAMVariantCallingDialogState(bundle: bundle)
+
+        XCTAssertEqual(state.alignmentTrackOptions.map(\.id), ["aln-bam"])
+        XCTAssertEqual(state.selectedAlignmentTrackID, "aln-bam")
+    }
+
+    @MainActor
+    func testDialogStateUsesPreferredEligibleTrackWhenProvided() throws {
+        let bundle = try makeBundleFixture(
+            alignments: [
+                AlignmentTrackInfo(
+                    id: "aln-1",
+                    name: "First BAM",
+                    format: .bam,
+                    sourcePath: "alignments/first.sorted.bam",
+                    indexPath: "alignments/first.sorted.bam.bai"
+                ),
+                AlignmentTrackInfo(
+                    id: "aln-2",
+                    name: "Second BAM",
+                    format: .bam,
+                    sourcePath: "alignments/second.sorted.bam",
+                    indexPath: "alignments/second.sorted.bam.bai"
+                ),
+            ],
+            existingFiles: [
+                "alignments/first.sorted.bam",
+                "alignments/first.sorted.bam.bai",
+                "alignments/second.sorted.bam",
+                "alignments/second.sorted.bam.bai",
+            ]
+        )
+
+        let state = BAMVariantCallingDialogState(
+            bundle: bundle,
+            preferredAlignmentTrackID: "aln-2"
+        )
+
+        XCTAssertEqual(state.selectedAlignmentTrackID, "aln-2")
+        XCTAssertEqual(state.selectedAlignmentTrack?.name, "Second BAM")
+    }
+
+    @MainActor
+    func testDialogStateReportsMissingAnalysisReadyBams() throws {
+        let bundle = try makeBundleFixture(
+            alignments: [
+                AlignmentTrackInfo(
+                    id: "aln-sam",
+                    name: "Raw SAM",
+                    format: .sam,
+                    sourcePath: "alignments/raw.sam",
+                    indexPath: "alignments/raw.sam.bai"
+                ),
+            ],
+            existingFiles: ["alignments/raw.sam"]
+        )
+
+        let state = BAMVariantCallingDialogState(bundle: bundle)
+
+        XCTAssertEqual(state.alignmentTrackOptions, [])
+        XCTAssertFalse(state.isRunEnabled)
+        XCTAssertTrue(state.readinessText.contains("analysis-ready BAM"))
     }
 
     func testCatalogDisablesAllToolsWhenVariantCallingPackIsMissing() async {
@@ -84,12 +182,12 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
     }
 
     @MainActor
-    func testDialogStateBlocksRunWhenSelectedCallerIsUnavailable() async {
+    func testDialogStateBlocksRunWhenSelectedCallerIsUnavailable() async throws {
         let sidebarItems = await BAMVariantCallingCatalog(
             statusProvider: StubVariantCallingPackStatusProvider(states: ["variant-calling": .needsInstall])
         ).sidebarItems()
         let state = BAMVariantCallingDialogState(
-            bundle: makeBundleFixture(),
+            bundle: try makeBundleFixture(),
             sidebarItems: sidebarItems
         )
 
@@ -98,9 +196,9 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
     }
 
     @MainActor
-    func testDialogStateAutoSuffixesDefaultTrackNameWhenCollisionExists() {
+    func testDialogStateAutoSuffixesDefaultTrackNameWhenCollisionExists() throws {
         let state = BAMVariantCallingDialogState(
-            bundle: makeBundleFixture(existingVariantTrackNames: ["Sample 1 • LoFreq"])
+            bundle: try makeBundleFixture(existingVariantTrackNames: ["Sample 1 • LoFreq"])
         )
 
         state.selectCaller(.lofreq)
@@ -131,7 +229,35 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
         XCTAssertTrue(source.contains("operationType: .variantCalling"))
     }
 
-    private func makeBundleFixture(existingVariantTrackNames: [String] = []) -> ReferenceBundle {
+    private func makeBundleFixture(
+        alignments: [AlignmentTrackInfo]? = nil,
+        existingFiles: [String]? = nil,
+        existingVariantTrackNames: [String] = []
+    ) throws -> ReferenceBundle {
+        let resolvedAlignments = alignments ?? [
+            AlignmentTrackInfo(
+                id: "aln-1",
+                name: "Sample 1",
+                format: .bam,
+                sourcePath: "alignments/sample.sorted.bam",
+                indexPath: "alignments/sample.sorted.bam.bai",
+                checksumSHA256: "bam-sha"
+            )
+        ]
+        let resolvedExistingFiles = existingFiles
+            ?? resolvedAlignments.flatMap { [$0.sourcePath, $0.indexPath] }
+        let bundleURL = tempDir.appendingPathComponent("Bundle-\(UUID().uuidString).lungfishref", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        for relativePath in resolvedExistingFiles {
+            let fileURL = bundleURL.appendingPathComponent(relativePath)
+            try FileManager.default.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            XCTAssertTrue(FileManager.default.createFile(atPath: fileURL.path, contents: Data("fixture".utf8)))
+        }
+
         let manifest = BundleManifest(
             name: "Bundle",
             identifier: "bundle.test",
@@ -159,22 +285,10 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
                     databasePath: "variants/\(index + 1).db"
                 )
             },
-            alignments: [
-                AlignmentTrackInfo(
-                    id: "aln-1",
-                    name: "Sample 1",
-                    format: .bam,
-                    sourcePath: "alignments/sample.sorted.bam",
-                    indexPath: "alignments/sample.sorted.bam.bai",
-                    checksumSHA256: "bam-sha"
-                )
-            ]
+            alignments: resolvedAlignments
         )
 
-        return ReferenceBundle(
-            url: tempDir.appendingPathComponent("Bundle.lungfishref", isDirectory: true),
-            manifest: manifest
-        )
+        return ReferenceBundle(url: bundleURL, manifest: manifest)
     }
 
     private func repositoryRoot() -> URL {

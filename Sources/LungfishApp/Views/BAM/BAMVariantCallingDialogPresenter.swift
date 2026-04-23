@@ -7,11 +7,16 @@ struct BAMVariantCallingDialogPresenter {
     static func present(
         from window: NSWindow,
         bundle: ReferenceBundle,
+        preferredAlignmentTrackID: String? = nil,
         sidebarItems: [DatasetOperationToolSidebarItem] = BAMVariantCallingCatalog.availableSidebarItems(),
         onRun: ((BAMVariantCallingDialogState) -> Void)? = nil,
         onCancel: (() -> Void)? = nil
     ) {
-        let state = BAMVariantCallingDialogState(bundle: bundle, sidebarItems: sidebarItems)
+        let state = BAMVariantCallingDialogState(
+            bundle: bundle,
+            preferredAlignmentTrackID: preferredAlignmentTrackID,
+            sidebarItems: sidebarItems
+        )
 
         let panel = NSPanel(
             contentRect: .zero,
