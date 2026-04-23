@@ -22,6 +22,7 @@ final class VariantCallingToolsMenuTests: XCTestCase {
 
         XCTAssertFalse(delegate.canShowBAMVariantCalling(bundle: nil))
         XCTAssertTrue(delegate.canShowBAMVariantCalling(bundle: try makeBundle(format: .bam, withIndex: true)))
+        XCTAssertFalse(delegate.canShowBAMVariantCalling(bundle: try makeBundle(format: .bam, withIndex: false)))
         XCTAssertFalse(delegate.canShowBAMVariantCalling(bundle: try makeBundle(format: .sam, withIndex: false)))
     }
 
@@ -35,6 +36,8 @@ final class VariantCallingToolsMenuTests: XCTestCase {
 
         XCTAssertTrue(source.contains("#selector(showBAMVariantCalling(_:))"))
         XCTAssertTrue(source.contains("presentVariantCallingDialog("))
+        XCTAssertTrue(source.contains("bamVariantCallingAvailabilityCache"))
+        XCTAssertTrue(source.contains("bamVariantCallingAvailabilityCacheKey"))
     }
 
     private func makeBundle(format: AlignmentFormat, withIndex: Bool) throws -> ReferenceBundle {

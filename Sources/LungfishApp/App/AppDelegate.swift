@@ -313,6 +313,33 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// Repeating timer that cleans stale project temp directories (>24 h old) every 4 hours.
     private var projectTempCleanupTimer: Timer?
 
+    private struct BAMVariantCallingAvailabilityTrackFingerprint: Hashable {
+        let id: String
+        let format: AlignmentFormat
+        let sourcePath: String
+        let indexPath: String
+
+        init(track: AlignmentTrackInfo) {
+            self.id = track.id
+            self.format = track.format
+            self.sourcePath = track.sourcePath
+            self.indexPath = track.indexPath
+        }
+    }
+
+    private struct BAMVariantCallingAvailabilityCacheKey: Hashable {
+        let bundleURL: URL
+        let alignmentTracks: [BAMVariantCallingAvailabilityTrackFingerprint]
+
+        init(bundle: ReferenceBundle) {
+            self.bundleURL = bundle.url
+            self.alignmentTracks = bundle.manifest.alignments.map(BAMVariantCallingAvailabilityTrackFingerprint.init(track:))
+        }
+    }
+
+    private var bamVariantCallingAvailabilityCacheKey: BAMVariantCallingAvailabilityCacheKey?
+    private var bamVariantCallingAvailabilityCache: Bool?
+
     private struct VCFImportHelperEvent: Decodable {
         let event: String
         let progress: Double?
@@ -4244,8 +4271,22 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     func canShowBAMVariantCalling(bundle: ReferenceBundle?) -> Bool {
-        guard let bundle else { return false }
-        return !BAMVariantCallingEligibility.eligibleAlignmentTracks(in: bundle).isEmpty
+        guard let bundle else {
+            bamVariantCallingAvailabilityCacheKey = nil
+            bamVariantCallingAvailabilityCache = nil
+            return false
+        }
+
+        let cacheKey = BAMVariantCallingAvailabilityCacheKey(bundle: bundle)
+        if bamVariantCallingAvailabilityCacheKey == cacheKey,
+           let cachedValue = bamVariantCallingAvailabilityCache {
+            return cachedValue
+        }
+
+        let canShow = !BAMVariantCallingEligibility.eligibleAlignmentTracks(in: bundle).isEmpty
+        bamVariantCallingAvailabilityCacheKey = cacheKey
+        bamVariantCallingAvailabilityCache = canShow
+        return canShow
     }
 
     @objc func showBAMVariantCalling(_ sender: Any?) {
