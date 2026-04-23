@@ -900,7 +900,7 @@ public final class MainMenu {
     func showFASTQMappingOperations(_ sender: Any?)
     func showFASTQAssemblyOperations(_ sender: Any?)
     func showFASTQClassificationOperations(_ sender: Any?)
-    @objc optional func showBAMVariantCalling(_ sender: Any?)
+    func showBAMVariantCalling(_ sender: Any?)
     func searchNCBI(_ sender: Any?)
     func searchSRA(_ sender: Any?)
     func searchPathoplexus(_ sender: Any?)

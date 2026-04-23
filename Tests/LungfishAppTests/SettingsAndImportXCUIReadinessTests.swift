@@ -116,8 +116,8 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
         XCTAssertTrue(source.contains("let controller = ensureMainWindowForDocumentOpen()"))
     }
 
-    func testAppDelegateDoesNotYetRespondToVariantCallingMenuSelector() {
-        XCTAssertFalse(
+    func testAppDelegateRespondsToVariantCallingMenuSelector() {
+        XCTAssertTrue(
             AppDelegate.instancesRespond(to: NSSelectorFromString("showBAMVariantCalling:"))
         )
     }

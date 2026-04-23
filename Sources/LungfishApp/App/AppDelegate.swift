@@ -3789,6 +3789,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return hasBundle
         }
 
+        if menuItem.action == #selector(showBAMVariantCalling(_:)) {
+            let bundle = mainWindowController?.mainSplitViewController?.viewerController?.currentReferenceBundle
+            return canShowBAMVariantCalling(bundle: bundle)
+        }
+
         // Copy visible region requires an active viewer.
         if menuItem.action == #selector(copySelectionFASTA(_:)) {
             return mainWindowController?.mainSplitViewController?.viewerController?.viewerView != nil
@@ -4236,6 +4241,19 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     @objc func showFASTQClassificationOperations(_ sender: Any?) {
         showFASTQOperationsDialog(sender, initialCategory: .classification)
+    }
+
+    func canShowBAMVariantCalling(bundle: ReferenceBundle?) -> Bool {
+        guard let bundle else { return false }
+        return !BAMVariantCallingEligibility.eligibleAlignmentTracks(in: bundle).isEmpty
+    }
+
+    @objc func showBAMVariantCalling(_ sender: Any?) {
+        guard let split = mainWindowController?.mainSplitViewController else { return }
+        split.inspectorController.presentVariantCallingDialog(
+            bundle: split.viewerController.currentReferenceBundle,
+            preferredAlignmentTrackID: nil
+        )
     }
 
     func showFASTQOperationsDialog(

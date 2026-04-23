@@ -1381,15 +1381,25 @@ public class InspectorViewController: NSViewController {
 
     // MARK: - Variant Calling Workflow
 
-    private func runCallVariantsWorkflow() {
-        guard let bundle = viewModel.selectionSectionViewModel.referenceBundle else {
+    func presentVariantCallingDialog(
+        bundle explicitBundle: ReferenceBundle? = nil,
+        preferredAlignmentTrackID: String? = nil
+    ) {
+        let bundle = explicitBundle ?? viewModel.selectionSectionViewModel.referenceBundle
+        guard let bundle else {
             presentSimpleAlert(title: "No Bundle Loaded", message: "Load a .lungfishref bundle before calling variants.")
             return
         }
-        guard viewModel.readStyleSectionViewModel.hasAlignmentTracks else {
-            presentSimpleAlert(title: "No Alignment Tracks", message: "This bundle has no alignment tracks to call variants from.")
+
+        let eligibleTracks = BAMVariantCallingEligibility.eligibleAlignmentTracks(in: bundle)
+        guard !eligibleTracks.isEmpty else {
+            presentSimpleAlert(
+                title: "No Analysis-Ready BAM Tracks",
+                message: "This bundle has no analysis-ready BAM alignment tracks to call variants from."
+            )
             return
         }
+
         guard OperationCenter.shared.canStartOperation(on: bundle.url) else {
             if let holder = OperationCenter.shared.activeLockHolder(for: bundle.url) {
                 presentSimpleAlert(
@@ -1409,12 +1419,17 @@ public class InspectorViewController: NSViewController {
             BAMVariantCallingDialogPresenter.present(
                 from: window,
                 bundle: bundle,
+                preferredAlignmentTrackID: preferredAlignmentTrackID,
                 sidebarItems: sidebarItems,
                 onRun: { [weak self] state in
                     self?.launchVariantCallingOperation(state: state)
                 }
             )
         }
+    }
+
+    private func runCallVariantsWorkflow() {
+        presentVariantCallingDialog()
     }
 
     private func launchVariantCallingOperation(state: BAMVariantCallingDialogState) {
