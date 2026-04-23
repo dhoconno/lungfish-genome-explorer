@@ -21,20 +21,20 @@ final class InspectorMappingModeTests: XCTestCase {
         try super.tearDownWithError()
     }
 
-    func testMappingModeUsesDocumentAndSelectionInspectorTabs() {
+    func testMappingModeUsesBundleSelectedItemViewAndAnalysisInspectorTabs() {
         let viewModel = InspectorViewModel()
         viewModel.contentMode = .mapping
 
-        XCTAssertEqual(viewModel.availableTabs, [.document, .selection, .view, .derive])
+        XCTAssertEqual(viewModel.availableTabs, [.bundle, .selectedItem, .view, .analysis])
     }
 
-    func testMappingModeExposesSeparateViewAndDerivedTabs() {
+    func testMappingModeExposesSeparateViewAndAnalysisTabs() {
         let viewModel = InspectorViewModel()
         viewModel.contentMode = .mapping
 
         XCTAssertEqual(
             viewModel.availableTabs.map(\.displayLabel),
-            ["Bundle", "Selected Item", "View", "Derived"]
+            ["Bundle", "Selected Item", "View", "Analysis"]
         )
     }
 

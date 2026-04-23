@@ -145,4 +145,17 @@ final class InspectorFilteredAlignmentWorkflowTests: XCTestCase {
         XCTAssertTrue(OperationCenter.shared.canStartOperation(on: bundleURL))
         XCTAssertNil(OperationCenter.shared.activeLockHolder(for: bundleURL))
     }
+
+    func testApplyFilteredAlignmentSuccessFocusesAnalysisFilteringSection() {
+        let vc = InspectorViewController()
+        _ = vc.view
+
+        vc.viewModel.selectedTab = .view
+
+        vc.applyFilteredAlignmentSuccess(createdTrackID: "filtered-track")
+
+        XCTAssertEqual(vc.viewModel.selectedTab, .analysis)
+        XCTAssertEqual(vc.readStyleSectionViewModel.selectedVisibleAlignmentTrackID, "filtered-track")
+        XCTAssertEqual(vc.viewModel.documentSectionViewModel.visibleAlignmentTrackID, "filtered-track")
+    }
 }

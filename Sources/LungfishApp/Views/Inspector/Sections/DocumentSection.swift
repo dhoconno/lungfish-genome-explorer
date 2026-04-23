@@ -216,7 +216,7 @@ public final class DocumentSectionViewModel {
 
     private func alignmentTrackSummary(for track: AlignmentTrackInfo) -> String {
         if track.sourcePath.hasPrefix("alignments/filtered/") {
-            return "Derived alignment stored in this bundle. Use View > Visible Alignment to inspect it alone."
+            return "Derived alignment stored in this bundle. Use View > Alignment to inspect it alone."
         }
 
         if track.sourcePath.hasPrefix("alignments/") {

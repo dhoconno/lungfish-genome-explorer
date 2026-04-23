@@ -269,6 +269,42 @@ final class ReadStyleSectionViewModelTests: XCTestCase {
         XCTAssertNil(vm.selectedVisibleAlignmentTrackID)
     }
 
+    func testReadStyleViewSubsectionsMatchApprovedIA() {
+        XCTAssertEqual(
+            ReadStyleViewSubsection.allCases,
+            [.alignment, .annotations, .reads]
+        )
+        XCTAssertEqual(
+            ReadStyleViewSubsection.allCases.map(\.displayTitle),
+            ["Alignment", "Annotations", "Reads"]
+        )
+    }
+
+    func testAnalysisWorkflowSubsectionsMatchApprovedIA() {
+        XCTAssertEqual(
+            AnalysisWorkflowSubsection.allCases,
+            [.filtering, .consensus, .variantCalling, .export]
+        )
+        XCTAssertEqual(
+            AnalysisWorkflowSubsection.allCases.map(\.displayTitle),
+            ["Filtering", "Consensus", "Variant Calling", "Export"]
+        )
+    }
+
+    func testDerivedAlignmentCreationMessageUsesViewAlignmentVocabulary() {
+        let vm = ReadStyleSectionViewModel()
+
+        vm.noteDerivedAlignmentCreation(
+            createdTrackName: "Sample A filtered",
+            sourceTrackName: "Sample A"
+        )
+
+        XCTAssertEqual(
+            vm.latestDerivedAlignmentMessage,
+            "Created a new filtered alignment from Sample A. The source alignment was not changed. Now viewing Sample A filtered. Use Bundle > Alignment Tracks or View > Alignment to switch between them."
+        )
+    }
+
     // MARK: - Exclude Flags Computation
 
     func testComputedExcludeFlagsDefault() {

@@ -461,7 +461,7 @@ public final class ReadStyleSectionViewModel {
     /// Stores a plain-language outcome message for the most recently created derived alignment.
     public func noteDerivedAlignmentCreation(createdTrackName: String, sourceTrackName: String) {
         latestDerivedAlignmentMessage =
-            "Created a new filtered alignment from \(sourceTrackName). The source alignment was not changed. Now viewing \(createdTrackName). Use Bundle > Alignment Tracks or View > Visible Alignment to switch between them."
+            "Created a new filtered alignment from \(sourceTrackName). The source alignment was not changed. Now viewing \(createdTrackName). Use Bundle > Alignment Tracks or View > Alignment to switch between them."
     }
 
     private func refreshAlignmentFilterOutputTrackNameIfNeeded(force: Bool = false) {
@@ -523,11 +523,11 @@ public enum AlignmentFilterInspectorDuplicateChoice: String, CaseIterable, Ident
     var title: String {
         switch self {
         case .keepAll:
-            return "Keep All"
+            return "Keep all reads"
         case .excludeMarked:
-            return "Exclude Marked"
+            return "Hide duplicate-marked reads"
         case .removeDuplicates:
-            return "Remove Duplicates"
+            return "Remove duplicate reads"
         }
     }
 }
@@ -548,9 +548,9 @@ public enum AlignmentFilterInspectorValidationError: Error, LocalizedError, Equa
     public var errorDescription: String? {
         switch self {
         case .missingSourceTrackSelection:
-            return "Choose a source alignment track before launching BAM filtering."
+            return "Choose a starting alignment before creating a filtered alignment."
         case .missingOutputTrackName:
-            return "Enter an output track name for the filtered BAM."
+            return "Enter a name for the new filtered alignment."
         case .conflictingIdentityFilters:
             return "Exact-match filtering cannot be combined with a minimum percent identity threshold."
         case .invalidMinimumPercentIdentityText(let value):
@@ -627,6 +627,47 @@ public struct ProvenanceEntry: Identifiable {
     public let command: String
     public let timestamp: String?
     public let duration: TimeInterval?
+}
+
+public enum ReadStyleViewSubsection: String, CaseIterable, Identifiable {
+    case alignment
+    case annotations
+    case reads
+
+    public var id: String { rawValue }
+
+    public var displayTitle: String {
+        switch self {
+        case .alignment:
+            return "Alignment"
+        case .annotations:
+            return "Annotations"
+        case .reads:
+            return "Reads"
+        }
+    }
+}
+
+public enum AnalysisWorkflowSubsection: String, CaseIterable, Identifiable {
+    case filtering
+    case consensus
+    case variantCalling
+    case export
+
+    public var id: String { rawValue }
+
+    public var displayTitle: String {
+        switch self {
+        case .filtering:
+            return "Filtering"
+        case .consensus:
+            return "Consensus"
+        case .variantCalling:
+            return "Variant Calling"
+        case .export:
+            return "Export"
+        }
+    }
 }
 
 // MARK: - Bundle Alignment Section
@@ -1167,13 +1208,11 @@ public struct ReadSelectionSection: View {
     }
 }
 
-// MARK: - ReadStyleSection View
+// MARK: - AlignmentViewSection
 
-/// Reversible alignment display controls shown in the View tab.
-public struct ReadStyleSection: View {
+/// Alignment-specific visibility controls shown in the View tab.
+public struct AlignmentViewSection: View {
     @Bindable var viewModel: ReadStyleSectionViewModel
-    @State private var isVisibleAlignmentExpanded = true
-    @State private var isStyleExpanded = true
     private let allAlignmentsSelectionID = "__all_alignments__"
 
     public init(viewModel: ReadStyleSectionViewModel) {
@@ -1182,303 +1221,119 @@ public struct ReadStyleSection: View {
 
     public var body: some View {
         if viewModel.hasAlignmentTracks {
-            DisclosureGroup("Visible Alignment", isExpanded: $isVisibleAlignmentExpanded) {
-                visibleAlignmentControls
-                    .padding(.top, 4)
-            }
-            .font(.headline)
-
-            Divider()
-
-            DisclosureGroup("Read Display", isExpanded: $isStyleExpanded) {
-                displayControls
-                    .padding(.top, 4)
-            }
-            .font(.headline)
-        } else {
-            DisclosureGroup("Alignment View", isExpanded: $isStyleExpanded) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("No alignment tracks loaded.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                    Text("Import a BAM or CRAM file via File > Import Center.")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-                .padding(.top, 8)
-            }
-            .font(.headline)
-        }
-    }
-
-    @ViewBuilder
-    private var visibleAlignmentControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Choose whether the viewer shows every alignment track together or just one alignment track at a time.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Picker("Visible Alignment", selection: visibleAlignmentSelection) {
-                Text("All Alignments").tag(allAlignmentsSelectionID)
-                ForEach(viewModel.visibleAlignmentTrackOptions) { option in
-                    Text(option.name).tag(option.id)
-                }
-            }
-            .disabled(viewModel.visibleAlignmentTrackOptions.isEmpty)
-
-            Text(visibleAlignmentSummary)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    @ViewBuilder
-    private var displayControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle("Show reads", isOn: $viewModel.showReads)
-                .onChange(of: viewModel.showReads) { _, _ in
-                    viewModel.onSettingsChanged?()
-                }
-
-            Divider()
-
-            HStack {
-                Text("Maximum rows")
-                Spacer()
-                Text("\(Int(viewModel.maxReadRows))")
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Focus the viewer on one alignment or compare all alignments together. Panel layout belongs in this Alignment segment.")
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
-            .opacity(viewModel.limitReadRows ? 1.0 : 0.5)
-            Slider(value: $viewModel.maxReadRows, in: 10...2000, step: 10)
-                .disabled(!viewModel.limitReadRows)
-                .onChange(of: viewModel.maxReadRows) { _, _ in
-                    viewModel.onSettingsChanged?()
-                }
+                    .fixedSize(horizontal: false, vertical: true)
 
-            Toggle("Limit visible rows", isOn: $viewModel.limitReadRows)
-                .onChange(of: viewModel.limitReadRows) { _, _ in
-                    viewModel.onSettingsChanged?()
-                }
-                .help("Off keeps all mapped reads in the active view and enables stable vertical scrolling.")
-
-            Toggle("Use compact row height", isOn: $viewModel.verticallyCompressContig)
-                .onChange(of: viewModel.verticallyCompressContig) { _, _ in
-                    viewModel.onSettingsChanged?()
-                }
-                .help("Compact mode uses smaller row heights to fit more reads on screen.")
-
-            HStack {
-                Text("Minimum MAPQ")
-                Spacer()
-                Text("\(Int(viewModel.minMapQ))")
+                Text("Choose whether the viewer shows every alignment track together or just one alignment track at a time.")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
-            Slider(value: $viewModel.minMapQ, in: 0...60, step: 1)
-                .onChange(of: viewModel.minMapQ) { _, _ in
-                    viewModel.onSettingsChanged?()
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Picker("Visible Alignment", selection: visibleAlignmentSelection) {
+                    Text("All Alignments").tag(allAlignmentsSelectionID)
+                    ForEach(viewModel.visibleAlignmentTrackOptions) { option in
+                        Text(option.name).tag(option.id)
+                    }
                 }
+                .disabled(viewModel.visibleAlignmentTrackOptions.isEmpty)
 
-            Text("Read Inclusion")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                Text(visibleAlignmentSummary)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
-            Toggle("Include duplicate-marked reads", isOn: $viewModel.showDuplicates)
-                .onChange(of: viewModel.showDuplicates) { _, _ in
-                    viewModel.onSettingsChanged?()
-                }
-
-            Toggle("Include secondary alignments", isOn: $viewModel.showSecondary)
-                .onChange(of: viewModel.showSecondary) { _, _ in
-                    viewModel.onSettingsChanged?()
-                }
-
-            Toggle("Include supplementary alignments", isOn: $viewModel.showSupplementary)
-                .onChange(of: viewModel.showSupplementary) { _, _ in
-                    viewModel.onSettingsChanged?()
-                }
-
-            if viewModel.readGroups.count > 1 {
                 Divider()
 
-                Text("Read Groups")
+                Toggle("Show reads", isOn: $viewModel.showReads)
+                    .onChange(of: viewModel.showReads) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+
+                HStack {
+                    Text("Minimum alignment confidence")
+                    Spacer()
+                    Text("\(Int(viewModel.minMapQ))")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                Slider(value: $viewModel.minMapQ, in: 0...60, step: 1)
+                    .onChange(of: viewModel.minMapQ) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+
+                Text("Read Inclusion")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                ForEach(viewModel.readGroups) { rg in
-                    Toggle(isOn: Binding(
-                        get: {
-                            viewModel.selectedReadGroups.isEmpty || viewModel.selectedReadGroups.contains(rg.rgId)
-                        },
-                        set: { isOn in
-                            if viewModel.selectedReadGroups.isEmpty {
-                                var all = Set(viewModel.readGroups.map(\.rgId))
-                                if !isOn { all.remove(rg.rgId) }
-                                viewModel.selectedReadGroups = all
-                            } else if isOn {
-                                viewModel.selectedReadGroups.insert(rg.rgId)
-                                if viewModel.selectedReadGroups.count == viewModel.readGroups.count {
-                                    viewModel.selectedReadGroups = []
-                                }
-                            } else {
-                                viewModel.selectedReadGroups.remove(rg.rgId)
-                            }
-                            viewModel.onSettingsChanged?()
-                        }
-                    )) {
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(rg.rgId)
-                                .font(.system(.caption, design: .monospaced))
-                            if let sample = rg.sample {
-                                Text(sample)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
+                Toggle("Include duplicate-marked reads", isOn: $viewModel.showDuplicates)
+                    .onChange(of: viewModel.showDuplicates) { _, _ in
+                        viewModel.onSettingsChanged?()
                     }
+
+                Toggle("Include secondary alignments", isOn: $viewModel.showSecondary)
+                    .onChange(of: viewModel.showSecondary) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+
+                Toggle("Include supplementary alignments", isOn: $viewModel.showSupplementary)
+                    .onChange(of: viewModel.showSupplementary) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+
+                if viewModel.readGroups.count > 1 {
+                    Divider()
+                    readGroupControls
                 }
             }
+        } else {
+            inspectorEmptyState(
+                title: "No alignment tracks loaded.",
+                detail: "Import a BAM or CRAM file via File > Import Center."
+            )
+        }
+    }
 
-            Divider()
-
-            Toggle("Show matching bases as dots", isOn: $viewModel.showMismatches)
-                .onChange(of: viewModel.showMismatches) { _, _ in
-                    viewModel.onSettingsChanged?()
-                }
-                .help("When on, matching bases are shown as dots and mismatches as colored letters. When off, all bases are shown as letters. Mismatches remain highlighted.")
-
-            Toggle("Show soft-clipped sequence", isOn: $viewModel.showSoftClips)
-                .onChange(of: viewModel.showSoftClips) { _, _ in
-                    viewModel.onSettingsChanged?()
-                }
-
-            Toggle("Show insertion and deletion markers", isOn: $viewModel.showIndels)
-                .onChange(of: viewModel.showIndels) { _, _ in
-                    viewModel.onSettingsChanged?()
-                }
-
-            Toggle("Color reads by strand", isOn: $viewModel.showStrandColors)
-                .onChange(of: viewModel.showStrandColors) { _, _ in
-                    viewModel.onSettingsChanged?()
-                }
-                .help("When on, forward reads are blue-tinted and reverse reads are pink-tinted. When off, all reads have a neutral gray background.")
-
-            Divider()
-
-            Text("Consensus")
+    @ViewBuilder
+    private var readGroupControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Read Groups")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Toggle("Show consensus track", isOn: $viewModel.showConsensusTrack)
-                .onChange(of: viewModel.showConsensusTrack) { _, _ in
-                    viewModel.onSettingsChanged?()
-                }
-
-            Picker("Consensus Mode", selection: $viewModel.consensusMode) {
-                Text("Bayesian").tag(AlignmentConsensusMode.bayesian)
-                Text("Simple").tag(AlignmentConsensusMode.simple)
-            }
-            .pickerStyle(.segmented)
-            .onChange(of: viewModel.consensusMode) { _, _ in
-                viewModel.onSettingsChanged?()
-            }
-
-            Toggle("Use IUPAC ambiguity codes", isOn: $viewModel.consensusUseAmbiguity)
-                .onChange(of: viewModel.consensusUseAmbiguity) { _, _ in
-                    viewModel.onSettingsChanged?()
-                }
-
-            Toggle("Hide high-gap sites", isOn: $viewModel.consensusMaskingEnabled)
-                .onChange(of: viewModel.consensusMaskingEnabled) { _, _ in
-                    viewModel.onSettingsChanged?()
-                }
-                .help("When enabled, columns where most spanning reads are gaps are masked in packed or base views.")
-
-            HStack {
-                Text("Consensus minimum depth")
-                Spacer()
-                Text("\(Int(viewModel.consensusMinDepth))")
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
-            Slider(value: $viewModel.consensusMinDepth, in: 1...50, step: 1)
-                .onChange(of: viewModel.consensusMinDepth) { _, _ in
-                    viewModel.onSettingsChanged?()
-                }
-
-            if viewModel.consensusMaskingEnabled {
-                HStack {
-                    Text("Gap threshold")
-                    Spacer()
-                    Text("\(Int(viewModel.consensusGapThresholdPercent))%")
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                Slider(value: $viewModel.consensusGapThresholdPercent, in: 50...99, step: 1)
-                    .onChange(of: viewModel.consensusGapThresholdPercent) { _, _ in
+            ForEach(viewModel.readGroups) { rg in
+                Toggle(isOn: Binding(
+                    get: {
+                        viewModel.selectedReadGroups.isEmpty || viewModel.selectedReadGroups.contains(rg.rgId)
+                    },
+                    set: { isOn in
+                        if viewModel.selectedReadGroups.isEmpty {
+                            var all = Set(viewModel.readGroups.map(\.rgId))
+                            if !isOn { all.remove(rg.rgId) }
+                            viewModel.selectedReadGroups = all
+                        } else if isOn {
+                            viewModel.selectedReadGroups.insert(rg.rgId)
+                            if viewModel.selectedReadGroups.count == viewModel.readGroups.count {
+                                viewModel.selectedReadGroups = []
+                            }
+                        } else {
+                            viewModel.selectedReadGroups.remove(rg.rgId)
+                        }
                         viewModel.onSettingsChanged?()
                     }
-
-                HStack {
-                    Text("Masking minimum depth")
-                    Spacer()
-                    Text("\(Int(viewModel.consensusMaskingMinDepth))")
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                Slider(value: $viewModel.consensusMaskingMinDepth, in: 1...50, step: 1)
-                    .onChange(of: viewModel.consensusMaskingMinDepth) { _, _ in
-                        viewModel.onSettingsChanged?()
+                )) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(rg.rgId)
+                            .font(.system(.caption, design: .monospaced))
+                        if let sample = rg.sample {
+                            Text(sample)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-            }
-
-            HStack {
-                Text("Consensus minimum MAPQ")
-                Spacer()
-                Text("\(Int(viewModel.consensusMinMapQ))")
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
-            Slider(value: $viewModel.consensusMinMapQ, in: 0...60, step: 1)
-                .onChange(of: viewModel.consensusMinMapQ) { _, _ in
-                    viewModel.onSettingsChanged?()
                 }
-
-            HStack {
-                Text("Consensus minimum base quality")
-                Spacer()
-                Text("\(Int(viewModel.consensusMinBaseQ))")
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
-            Slider(value: $viewModel.consensusMinBaseQ, in: 0...60, step: 1)
-                .onChange(of: viewModel.consensusMinBaseQ) { _, _ in
-                    viewModel.onSettingsChanged?()
-                }
-
-            Divider()
-
-            HStack {
-                Text("Forward strand color")
-                Spacer()
-                ColorPicker("", selection: $viewModel.forwardReadColor, supportsOpacity: false)
-                    .labelsHidden()
-                    .onChange(of: viewModel.forwardReadColor) { _, _ in
-                        viewModel.onSettingsChanged?()
-                    }
-            }
-
-            HStack {
-                Text("Reverse strand color")
-                Spacer()
-                ColorPicker("", selection: $viewModel.reverseReadColor, supportsOpacity: false)
-                    .labelsHidden()
-                    .onChange(of: viewModel.reverseReadColor) { _, _ in
-                        viewModel.onSettingsChanged?()
-                    }
             }
         }
     }
@@ -1504,13 +1359,111 @@ public struct ReadStyleSection: View {
     }
 }
 
-// MARK: - DerivedAlignmentSection
+// MARK: - ReadStyleSection View
 
-/// Durable alignment workflows shown in the Derived tab.
-public struct DerivedAlignmentSection: View {
+/// Read rendering controls shown in the View tab.
+public struct ReadStyleSection: View {
     @Bindable var viewModel: ReadStyleSectionViewModel
-    @State private var isWorkflowsExpanded = true
-    @State private var isFilteringExpanded = true
+
+    public init(viewModel: ReadStyleSectionViewModel) {
+        self.viewModel = viewModel
+    }
+
+    public var body: some View {
+        if viewModel.hasAlignmentTracks {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Control how reads are packed, labeled, and colored in the active alignment view.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack {
+                    Text("Maximum rows")
+                    Spacer()
+                    Text("\(Int(viewModel.maxReadRows))")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                .opacity(viewModel.limitReadRows ? 1.0 : 0.5)
+                Slider(value: $viewModel.maxReadRows, in: 10...2000, step: 10)
+                    .disabled(!viewModel.limitReadRows)
+                    .onChange(of: viewModel.maxReadRows) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+
+                Toggle("Limit visible rows", isOn: $viewModel.limitReadRows)
+                    .onChange(of: viewModel.limitReadRows) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+                    .help("Off keeps all mapped reads in the active view and enables stable vertical scrolling.")
+
+                Toggle("Use compact row height", isOn: $viewModel.verticallyCompressContig)
+                    .onChange(of: viewModel.verticallyCompressContig) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+                    .help("Compact mode uses smaller row heights to fit more reads on screen.")
+
+                Divider()
+
+                Toggle("Show matching bases as dots", isOn: $viewModel.showMismatches)
+                    .onChange(of: viewModel.showMismatches) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+                    .help("When on, matching bases are shown as dots and mismatches as colored letters. When off, all bases are shown as letters. Mismatches remain highlighted.")
+
+                Toggle("Show soft-clipped sequence", isOn: $viewModel.showSoftClips)
+                    .onChange(of: viewModel.showSoftClips) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+
+                Toggle("Show insertion and deletion markers", isOn: $viewModel.showIndels)
+                    .onChange(of: viewModel.showIndels) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+
+                Divider()
+
+                Toggle("Color reads by strand", isOn: $viewModel.showStrandColors)
+                    .onChange(of: viewModel.showStrandColors) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+                    .help("When on, forward reads are blue-tinted and reverse reads are pink-tinted. When off, all reads have a neutral gray background.")
+
+                HStack {
+                    Text("Forward strand color")
+                    Spacer()
+                    ColorPicker("", selection: $viewModel.forwardReadColor, supportsOpacity: false)
+                        .labelsHidden()
+                        .onChange(of: viewModel.forwardReadColor) { _, _ in
+                            viewModel.onSettingsChanged?()
+                        }
+                }
+
+                HStack {
+                    Text("Reverse strand color")
+                    Spacer()
+                    ColorPicker("", selection: $viewModel.reverseReadColor, supportsOpacity: false)
+                        .labelsHidden()
+                        .onChange(of: viewModel.reverseReadColor) { _, _ in
+                            viewModel.onSettingsChanged?()
+                        }
+                }
+            }
+        } else {
+            inspectorEmptyState(
+                title: "No alignment tracks loaded.",
+                detail: "Import a BAM or CRAM file via File > Import Center."
+            )
+        }
+    }
+}
+
+// MARK: - AnalysisSection
+
+/// Durable alignment workflows shown in the Analysis tab.
+public struct AnalysisSection: View {
+    @Bindable var viewModel: ReadStyleSectionViewModel
+    @State private var selectedSubsection: AnalysisWorkflowSubsection = .filtering
     @State private var alignmentFilterValidationMessage: String?
 
     public init(viewModel: ReadStyleSectionViewModel) {
@@ -1519,44 +1472,53 @@ public struct DerivedAlignmentSection: View {
 
     public var body: some View {
         if viewModel.hasAlignmentTracks {
-            DisclosureGroup("Derived Outputs", isExpanded: $isWorkflowsExpanded) {
-                workflowOverview
-                    .padding(.top, 4)
-            }
-            .font(.headline)
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Run alignment analysis workflows, create derived outputs, and export bundle-ready results.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
-            Divider()
-
-            DisclosureGroup("Create Filtered Alignment", isExpanded: $isFilteringExpanded) {
-                filteredAlignmentControls
-                    .padding(.top, 4)
-            }
-            .font(.headline)
-        } else {
-            DisclosureGroup("Derived Outputs", isExpanded: $isWorkflowsExpanded) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("No alignment tracks loaded.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                    Text("Import a BAM or CRAM file before creating derived alignments or running BAM-based workflows.")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+                Picker("Analysis Section", selection: $selectedSubsection) {
+                    ForEach(AnalysisWorkflowSubsection.allCases) { section in
+                        Text(section.displayTitle).tag(section)
+                    }
                 }
-                .padding(.top, 8)
+                .pickerStyle(.segmented)
+
+                Group {
+                    switch selectedSubsection {
+                    case .filtering:
+                        filteringSection
+                    case .consensus:
+                        consensusSection
+                    case .variantCalling:
+                        variantCallingSection
+                    case .export:
+                        exportSection
+                    }
+                }
             }
-            .font(.headline)
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("No alignment tracks loaded.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Text("Import a BAM or CRAM file before creating derived alignments or running BAM-based workflows.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
         }
     }
 
     @ViewBuilder
-    private var workflowOverview: some View {
+    private var filteringSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Creates new outputs in this bundle. The original alignment stays unchanged.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text("After creating a filtered alignment, find it under Bundle > Alignment Tracks and compare it separately under View > Visible Alignment.")
+            Text("After creating a filtered alignment, find it under Bundle > Alignment Tracks and compare it separately under View > Alignment.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1574,25 +1536,8 @@ public struct DerivedAlignmentSection: View {
                     )
             }
 
-            if viewModel.supportsConsensusExtraction {
-                Button("Extract Consensus…") {
-                    viewModel.onExtractConsensusRequested?()
-                }
-                .disabled(!viewModel.hasAlignmentTracks)
-            }
-
-            Button("Call Variants…") {
-                viewModel.onCallVariantsRequested?()
-            }
-            .disabled(!viewModel.hasVariantCallableAlignmentTracks)
-
             Button("Mark Duplicates in Bundle Tracks") {
                 viewModel.onMarkDuplicatesRequested?()
-            }
-            .disabled(viewModel.isDuplicateWorkflowRunning || !viewModel.hasAlignmentTracks)
-
-            Button("Create Deduplicated Bundle") {
-                viewModel.onCreateDeduplicatedBundleRequested?()
             }
             .disabled(viewModel.isDuplicateWorkflowRunning || !viewModel.hasAlignmentTracks)
 
@@ -1605,12 +1550,9 @@ public struct DerivedAlignmentSection: View {
                         .foregroundStyle(.secondary)
                 }
             }
-        }
-    }
 
-    @ViewBuilder
-    private var filteredAlignmentControls: some View {
-        VStack(alignment: .leading, spacing: 10) {
+            Divider()
+
             Text("Build a new alignment track from an existing BAM without changing the source track.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -1763,5 +1705,170 @@ public struct DerivedAlignmentSection: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    @ViewBuilder
+    private var consensusSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Adjust consensus evidence settings here. Consensus controls are intentionally separate from View so display settings stay lighter.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Toggle("Show consensus track in viewer", isOn: $viewModel.showConsensusTrack)
+                .onChange(of: viewModel.showConsensusTrack) { _, _ in
+                    viewModel.onSettingsChanged?()
+                }
+
+            Picker("Consensus Mode", selection: $viewModel.consensusMode) {
+                Text("Bayesian").tag(AlignmentConsensusMode.bayesian)
+                Text("Simple").tag(AlignmentConsensusMode.simple)
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: viewModel.consensusMode) { _, _ in
+                viewModel.onSettingsChanged?()
+            }
+
+            Toggle("Use IUPAC ambiguity codes", isOn: $viewModel.consensusUseAmbiguity)
+                .onChange(of: viewModel.consensusUseAmbiguity) { _, _ in
+                    viewModel.onSettingsChanged?()
+                }
+
+            Toggle("Hide high-gap sites", isOn: $viewModel.consensusMaskingEnabled)
+                .onChange(of: viewModel.consensusMaskingEnabled) { _, _ in
+                    viewModel.onSettingsChanged?()
+                }
+                .help("When enabled, columns where most spanning reads are gaps are masked in packed or base views.")
+
+            HStack {
+                Text("Consensus minimum depth")
+                Spacer()
+                Text("\(Int(viewModel.consensusMinDepth))")
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            Slider(value: $viewModel.consensusMinDepth, in: 1...50, step: 1)
+                .onChange(of: viewModel.consensusMinDepth) { _, _ in
+                    viewModel.onSettingsChanged?()
+                }
+
+            if viewModel.consensusMaskingEnabled {
+                HStack {
+                    Text("Gap threshold")
+                    Spacer()
+                    Text("\(Int(viewModel.consensusGapThresholdPercent))%")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                Slider(value: $viewModel.consensusGapThresholdPercent, in: 50...99, step: 1)
+                    .onChange(of: viewModel.consensusGapThresholdPercent) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+
+                HStack {
+                    Text("Masking minimum depth")
+                    Spacer()
+                    Text("\(Int(viewModel.consensusMaskingMinDepth))")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                Slider(value: $viewModel.consensusMaskingMinDepth, in: 1...50, step: 1)
+                    .onChange(of: viewModel.consensusMaskingMinDepth) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+            }
+
+            HStack {
+                Text("Consensus minimum MAPQ")
+                Spacer()
+                Text("\(Int(viewModel.consensusMinMapQ))")
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            Slider(value: $viewModel.consensusMinMapQ, in: 0...60, step: 1)
+                .onChange(of: viewModel.consensusMinMapQ) { _, _ in
+                    viewModel.onSettingsChanged?()
+                }
+
+            HStack {
+                Text("Consensus minimum base quality")
+                Spacer()
+                Text("\(Int(viewModel.consensusMinBaseQ))")
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            Slider(value: $viewModel.consensusMinBaseQ, in: 0...60, step: 1)
+                .onChange(of: viewModel.consensusMinBaseQ) { _, _ in
+                    viewModel.onSettingsChanged?()
+                }
+
+            if viewModel.supportsConsensusExtraction {
+                Divider()
+
+                Button("Extract Consensus…") {
+                    viewModel.onExtractConsensusRequested?()
+                }
+                .disabled(!viewModel.hasAlignmentTracks)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var variantCallingSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Call variants from the currently loaded alignment evidence.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if viewModel.hasVariantCallableAlignmentTracks {
+                Text("Use this when you want site-by-site differences summarized as variant calls rather than read-level evidence.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("Variant calling is unavailable until this bundle includes an eligible alignment track.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Button("Call Variants…") {
+                viewModel.onCallVariantsRequested?()
+            }
+            .disabled(!viewModel.hasVariantCallableAlignmentTracks)
+        }
+    }
+
+    @ViewBuilder
+    private var exportSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Create bundle-level outputs that preserve the original source alignment.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("Use export when you want a separate deliverable, not just another visible alignment inside the current bundle.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button("Create Deduplicated Bundle") {
+                viewModel.onCreateDeduplicatedBundleRequested?()
+            }
+            .disabled(viewModel.isDuplicateWorkflowRunning || !viewModel.hasAlignmentTracks)
+        }
+    }
+}
+
+@ViewBuilder
+private func inspectorEmptyState(title: String, detail: String) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+        Text(title)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+        Text(detail)
+            .font(.caption)
+            .foregroundStyle(.tertiary)
     }
 }

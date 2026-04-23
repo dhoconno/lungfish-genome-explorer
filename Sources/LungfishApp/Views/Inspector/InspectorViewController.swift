@@ -71,13 +71,13 @@ enum FilteredAlignmentWorkflowStartOutcome: Equatable {
 /// computed property returns only the tabs relevant to the current mode.
 enum InspectorTab: String, CaseIterable {
     /// Bundle metadata and source information.
-    case document
+    case bundle = "document"
     /// Selected object details.
-    case selection
+    case selectedItem = "selection"
     /// Reversible view and layout settings.
     case view
     /// Durable output-creating workflows.
-    case derive
+    case analysis = "derive"
     /// Embedded AI assistant (genomics mode).
     case ai
     /// FASTQ sample metadata editing (FASTQ mode).
@@ -545,8 +545,8 @@ public class InspectorViewController: NSViewController {
             if annotation.type != .snp && annotation.type != .insertion && annotation.type != .deletion && annotation.type != .variation {
                 viewModel.variantSectionViewModel.clear()
             }
-            // Auto-switch to Selection tab when an annotation is selected
-            viewModel.selectedTab = .selection
+            // Auto-switch to Selected Item when an annotation is selected.
+            viewModel.selectedTab = .selectedItem
         } else {
             // Deselection - clear the annotation
             viewModel.selectedAnnotation = nil
@@ -563,7 +563,7 @@ public class InspectorViewController: NSViewController {
             return
         }
         viewModel.variantSectionViewModel.select(variant: result)
-        viewModel.selectedTab = .selection
+        viewModel.selectedTab = .selectedItem
     }
 
     /// Handles read selection from the viewer.
@@ -571,7 +571,7 @@ public class InspectorViewController: NSViewController {
         let read = notification.userInfo?[NotificationUserInfoKey.alignedRead] as? AlignedRead
         viewModel.readStyleSectionViewModel.selectedRead = read
         if read != nil {
-            viewModel.selectedTab = .selection
+            viewModel.selectedTab = .selectedItem
         }
     }
 
@@ -614,13 +614,13 @@ public class InspectorViewController: NSViewController {
 
     /// Handles chromosome inspector requests and updates chromosome details state.
     ///
-    /// Always switches to the Document tab when a chromosome is selected so the
+    /// Always switches to the Bundle tab when a chromosome is selected so the
     /// chromosome metadata is immediately visible in the inspector.
     @objc private func handleChromosomeInspectorRequested(_ notification: Notification) {
         let chromosome = notification.userInfo?[NotificationUserInfoKey.chromosome] as? ChromosomeInfo
         updateSelectedChromosome(chromosome)
         if chromosome != nil {
-            viewModel.selectedTab = .document
+            viewModel.selectedTab = .bundle
         }
     }
 
@@ -669,7 +669,7 @@ public class InspectorViewController: NSViewController {
             }
         }
 
-        viewModel.selectedTab = .document
+        viewModel.selectedTab = .bundle
     }
 
     /// Handles viewport content mode changes.
@@ -941,7 +941,7 @@ public class InspectorViewController: NSViewController {
             )
         }
         viewModel.documentSectionViewModel.updateAssemblyDocument(state)
-        viewModel.selectedTab = .document
+        viewModel.selectedTab = .bundle
     }
 
     /// Updates the Document inspector with a prebuilt mapping document state.
@@ -959,7 +959,7 @@ public class InspectorViewController: NSViewController {
         }
         viewModel.documentSectionViewModel.updateMappingDocument(state)
         if state != nil {
-            viewModel.selectedTab = .document
+            viewModel.selectedTab = .bundle
         }
     }
 
@@ -1736,13 +1736,10 @@ public class InspectorViewController: NSViewController {
                         split.activityIndicator.hide()
 
                         let createdTrackName = result.trackInfo.name
-                        self.viewModel.readStyleSectionViewModel.selectedVisibleAlignmentTrackID = result.trackInfo.id
                         self.viewModel.readStyleSectionViewModel.noteDerivedAlignmentCreation(
                             createdTrackName: createdTrackName,
                             sourceTrackName: sourceTrackName
                         )
-                        self.viewModel.documentSectionViewModel.markRecentlyCreatedAlignmentTrack(result.trackInfo.id)
-                        self.viewModel.documentSectionViewModel.visibleAlignmentTrackID = result.trackInfo.id
                         do {
                             try launchContext.reload(
                                 using: FilteredAlignmentWorkflowReloadActions(
@@ -1754,11 +1751,11 @@ public class InspectorViewController: NSViewController {
                                     }
                                 )
                             )
+                            self.applyFilteredAlignmentSuccess(createdTrackID: result.trackInfo.id)
                             self.viewModel.readStyleSectionViewModel.onSettingsChanged?()
-                            self.viewModel.selectedTab = .derive
                             self.presentSimpleAlert(
                                 title: "Filtered Alignment Created",
-                                message: "Created a new filtered alignment from \"\(sourceTrackName)\". The source alignment was not changed. Now viewing \"\(createdTrackName)\". Use Bundle > Alignment Tracks or View > Visible Alignment to switch between them."
+                                message: "Created a new filtered alignment from \"\(sourceTrackName)\". The source alignment was not changed. Now viewing \"\(createdTrackName)\". Use Bundle > Alignment Tracks or View > Alignment to switch between them."
                             )
                         } catch {
                             self.presentSimpleAlert(
@@ -1788,6 +1785,13 @@ public class InspectorViewController: NSViewController {
                 }
             }
         }
+    }
+
+    func applyFilteredAlignmentSuccess(createdTrackID: String) {
+        viewModel.readStyleSectionViewModel.selectedVisibleAlignmentTrackID = createdTrackID
+        viewModel.documentSectionViewModel.markRecentlyCreatedAlignmentTrack(createdTrackID)
+        viewModel.documentSectionViewModel.visibleAlignmentTrackID = createdTrackID
+        viewModel.selectedTab = .analysis
     }
 
     static func makeFilteredAlignmentWorkflowStartOutcome(
@@ -2040,24 +2044,27 @@ public final class InspectorViewModel {
     var availableTabs: [InspectorTab] {
         switch contentMode {
         case .genomics:
-            return [.document, .selection, .view, .derive, .ai]
+            return [.bundle, .selectedItem, .view, .analysis, .ai]
         case .mapping:
-            return [.document, .selection, .view, .derive]
+            return [.bundle, .selectedItem, .view, .analysis]
         case .assembly:
-            return [.document]
+            return [.bundle]
         case .fastq:
-            return [.document]
+            return [.bundle]
         case .metagenomics:
             return [.resultSummary]
         case .empty:
-            return [.document, .selection]
+            return [.bundle, .selectedItem]
         }
     }
 
     // MARK: - Tab State
 
     /// Currently selected inspector tab.
-    var selectedTab: InspectorTab = .document
+    var selectedTab: InspectorTab = .bundle
+
+    /// Currently selected read-style subsection inside the View tab.
+    var selectedReadStyleViewSubsection: ReadStyleViewSubsection = .alignment
 
     // MARK: - Sidebar Selection State
 
@@ -2201,7 +2208,7 @@ public struct InspectorView: View {
     @ViewBuilder
     private var tabContent: some View {
         switch viewModel.selectedTab {
-        case .document, .selection, .view, .derive, .fastqMetadata, .resultSummary:
+        case .bundle, .selectedItem, .view, .analysis, .fastqMetadata, .resultSummary:
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     tabScrollContent
@@ -2231,7 +2238,7 @@ public struct InspectorView: View {
     @ViewBuilder
     private var tabScrollContent: some View {
         switch viewModel.selectedTab {
-        case .document:
+        case .bundle:
             DocumentSection(viewModel: viewModel.documentSectionViewModel)
             if viewModel.readStyleSectionViewModel.hasAlignmentTracks {
                 Divider()
@@ -2242,7 +2249,7 @@ public struct InspectorView: View {
                 FASTQMetadataSection(viewModel: viewModel.fastqMetadataSectionViewModel)
             }
 
-        case .selection:
+        case .selectedItem:
             SelectionSection(viewModel: viewModel.selectionSectionViewModel)
 
             // Variant detail (shown when a variant is selected)
@@ -2254,27 +2261,10 @@ public struct InspectorView: View {
             }
 
         case .view:
-            if viewModel.contentMode == .mapping {
-                MappingViewSettingsSection(viewModel: viewModel.documentSectionViewModel)
-                Divider()
-            }
+            InspectorReadStyleSection(viewModel: viewModel)
 
-            AppearanceSection(viewModel: viewModel.appearanceSectionViewModel)
-
-            Divider()
-
-            AnnotationSection(viewModel: viewModel.annotationSectionViewModel)
-
-            Divider()
-
-            SampleSection(viewModel: viewModel.sampleSectionViewModel)
-
-            Divider()
-
-            ReadStyleSection(viewModel: viewModel.readStyleSectionViewModel)
-
-        case .derive:
-            DerivedAlignmentSection(viewModel: viewModel.readStyleSectionViewModel)
+        case .analysis:
+            InspectorAnalysisWorkflowSection(viewModel: viewModel)
 
         case .fastqMetadata:
             FASTQMetadataSection(viewModel: viewModel.fastqMetadataSectionViewModel)
@@ -2294,10 +2284,10 @@ extension InspectorTab {
     /// SF Symbol name for this tab's picker icon.
     var iconName: String {
         switch self {
-        case .document: return "shippingbox"
-        case .selection: return "scope"
+        case .bundle: return "shippingbox"
+        case .selectedItem: return "scope"
         case .view: return "eye"
-        case .derive: return "arrow.triangle.branch"
+        case .analysis: return "arrow.triangle.branch"
         case .ai: return "sparkles"
         case .fastqMetadata: return "tag"
         case .resultSummary: return "chart.bar"
@@ -2307,13 +2297,721 @@ extension InspectorTab {
     /// Human-readable label for single-tab headers.
     var displayLabel: String {
         switch self {
-        case .document: return "Bundle"
-        case .selection: return "Selected Item"
+        case .bundle: return "Bundle"
+        case .selectedItem: return "Selected Item"
         case .view: return "View"
-        case .derive: return "Derived"
+        case .analysis: return "Analysis"
         case .ai: return "Assistant"
         case .fastqMetadata: return "Sample Metadata"
         case .resultSummary: return "Summary"
+        }
+    }
+}
+
+private struct InspectorReadStyleSection: View {
+    @Bindable var viewModel: InspectorViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("View Settings")
+                .font(.headline)
+
+            Picker("View Section", selection: $viewModel.selectedReadStyleViewSubsection) {
+                ForEach(ReadStyleViewSubsection.allCases) { section in
+                    Text(section.displayTitle)
+                        .tag(section)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            subsectionContent
+        }
+    }
+
+    @ViewBuilder
+    private var subsectionContent: some View {
+        switch viewModel.selectedReadStyleViewSubsection {
+        case .alignment:
+            if viewModel.contentMode == .mapping {
+                MappingViewSettingsSection(viewModel: viewModel.documentSectionViewModel)
+                Divider()
+            }
+            AlignmentViewSection(viewModel: viewModel.readStyleSectionViewModel)
+        case .annotations:
+            InspectorAnnotationDisplaySection(viewModel: viewModel)
+        case .reads:
+            ReadStyleSection(viewModel: viewModel.readStyleSectionViewModel)
+        }
+    }
+}
+
+private struct InspectorAnalysisWorkflowSection: View {
+    @Bindable var viewModel: InspectorViewModel
+
+    var body: some View {
+        AnalysisSection(viewModel: viewModel.readStyleSectionViewModel)
+    }
+}
+
+private struct InspectorAnnotationDisplaySection: View {
+    @Bindable var viewModel: InspectorViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Sequence, annotation, and sample display controls are grouped here so the main View tab stays easier to scan.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            AppearanceSection(viewModel: viewModel.appearanceSectionViewModel)
+
+            Divider()
+
+            AnnotationSection(viewModel: viewModel.annotationSectionViewModel)
+
+            if viewModel.sampleSectionViewModel.hasVariantData {
+                Divider()
+                SampleSection(viewModel: viewModel.sampleSectionViewModel)
+            }
+        }
+    }
+}
+
+private struct InspectorAlignmentVisibilitySection: View {
+    @Bindable var readStyleViewModel: ReadStyleSectionViewModel
+    @Bindable var documentViewModel: DocumentSectionViewModel
+    let contentMode: ViewportContentMode
+
+    private let allAlignmentsSelectionID = "__all_alignments__"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if contentMode == .mapping {
+                MappingViewSettingsSection(viewModel: documentViewModel)
+                Divider()
+            }
+
+            if readStyleViewModel.hasAlignmentTracks {
+                Text("Choose whether the viewer shows every alignment track together or just one alignment track at a time.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Picker("Visible Alignment", selection: visibleAlignmentSelection) {
+                    Text("All Alignments").tag(allAlignmentsSelectionID)
+                    ForEach(readStyleViewModel.visibleAlignmentTrackOptions) { option in
+                        Text(option.name).tag(option.id)
+                    }
+                }
+                .disabled(readStyleViewModel.visibleAlignmentTrackOptions.isEmpty)
+
+                Text(visibleAlignmentSummary)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Divider()
+
+                Toggle("Show reads", isOn: $readStyleViewModel.showReads)
+                    .onChange(of: readStyleViewModel.showReads) { _, _ in
+                        readStyleViewModel.onSettingsChanged?()
+                    }
+
+                HStack {
+                    Text("Minimum MAPQ")
+                    Spacer()
+                    Text("\(Int(readStyleViewModel.minMapQ))")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                Slider(value: $readStyleViewModel.minMapQ, in: 0...60, step: 1)
+                    .onChange(of: readStyleViewModel.minMapQ) { _, _ in
+                        readStyleViewModel.onSettingsChanged?()
+                    }
+
+                Text("Read Inclusion")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("Include duplicate-marked reads", isOn: $readStyleViewModel.showDuplicates)
+                    .onChange(of: readStyleViewModel.showDuplicates) { _, _ in
+                        readStyleViewModel.onSettingsChanged?()
+                    }
+
+                Toggle("Include secondary alignments", isOn: $readStyleViewModel.showSecondary)
+                    .onChange(of: readStyleViewModel.showSecondary) { _, _ in
+                        readStyleViewModel.onSettingsChanged?()
+                    }
+
+                Toggle("Include supplementary alignments", isOn: $readStyleViewModel.showSupplementary)
+                    .onChange(of: readStyleViewModel.showSupplementary) { _, _ in
+                        readStyleViewModel.onSettingsChanged?()
+                    }
+
+                if readStyleViewModel.readGroups.count > 1 {
+                    Divider()
+                    readGroupControls
+                }
+            } else {
+                Text("No alignment tracks loaded.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Text("Import a BAM or CRAM file via File > Import Center to enable alignment-specific view controls.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    private var visibleAlignmentSelection: Binding<String> {
+        Binding(
+            get: { readStyleViewModel.selectedVisibleAlignmentTrackID ?? allAlignmentsSelectionID },
+            set: { newValue in
+                readStyleViewModel.selectedVisibleAlignmentTrackID = newValue == allAlignmentsSelectionID ? nil : newValue
+                documentViewModel.visibleAlignmentTrackID = readStyleViewModel.selectedVisibleAlignmentTrackID
+                readStyleViewModel.onSettingsChanged?()
+            }
+        )
+    }
+
+    private var visibleAlignmentSummary: String {
+        guard let selectedVisibleAlignmentTrackID = readStyleViewModel.selectedVisibleAlignmentTrackID else {
+            return "Showing reads from every alignment track in this bundle."
+        }
+
+        let trackName = readStyleViewModel.visibleAlignmentTrackOptions
+            .first(where: { $0.id == selectedVisibleAlignmentTrackID })?.name ?? selectedVisibleAlignmentTrackID
+        return "Showing only \(trackName). Choose All Alignments to return to the aggregate view."
+    }
+
+    @ViewBuilder
+    private var readGroupControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Read Groups")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            ForEach(readStyleViewModel.readGroups) { rg in
+                Toggle(isOn: Binding(
+                    get: {
+                        readStyleViewModel.selectedReadGroups.isEmpty || readStyleViewModel.selectedReadGroups.contains(rg.rgId)
+                    },
+                    set: { isOn in
+                        if readStyleViewModel.selectedReadGroups.isEmpty {
+                            var all = Set(readStyleViewModel.readGroups.map(\.rgId))
+                            if !isOn { all.remove(rg.rgId) }
+                            readStyleViewModel.selectedReadGroups = all
+                        } else if isOn {
+                            readStyleViewModel.selectedReadGroups.insert(rg.rgId)
+                            if readStyleViewModel.selectedReadGroups.count == readStyleViewModel.readGroups.count {
+                                readStyleViewModel.selectedReadGroups = []
+                            }
+                        } else {
+                            readStyleViewModel.selectedReadGroups.remove(rg.rgId)
+                        }
+                        readStyleViewModel.onSettingsChanged?()
+                    }
+                )) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(rg.rgId)
+                            .font(.system(.caption, design: .monospaced))
+                        if let sample = rg.sample {
+                            Text(sample)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct InspectorReadRenderingSection: View {
+    @Bindable var viewModel: ReadStyleSectionViewModel
+
+    var body: some View {
+        if viewModel.hasAlignmentTracks {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Maximum rows")
+                    Spacer()
+                    Text("\(Int(viewModel.maxReadRows))")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                .opacity(viewModel.limitReadRows ? 1.0 : 0.5)
+
+                Slider(value: $viewModel.maxReadRows, in: 10...2000, step: 10)
+                    .disabled(!viewModel.limitReadRows)
+                    .onChange(of: viewModel.maxReadRows) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+
+                Toggle("Limit visible rows", isOn: $viewModel.limitReadRows)
+                    .onChange(of: viewModel.limitReadRows) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+                    .help("Off keeps all mapped reads in the active view and enables stable vertical scrolling.")
+
+                Toggle("Use compact row height", isOn: $viewModel.verticallyCompressContig)
+                    .onChange(of: viewModel.verticallyCompressContig) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+                    .help("Compact mode uses smaller row heights to fit more reads on screen.")
+
+                Divider()
+
+                Toggle("Show matching bases as dots", isOn: $viewModel.showMismatches)
+                    .onChange(of: viewModel.showMismatches) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+                    .help("When on, matching bases are shown as dots and mismatches as colored letters. When off, all bases are shown as letters. Mismatches remain highlighted.")
+
+                Toggle("Show soft-clipped sequence", isOn: $viewModel.showSoftClips)
+                    .onChange(of: viewModel.showSoftClips) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+
+                Toggle("Show insertion and deletion markers", isOn: $viewModel.showIndels)
+                    .onChange(of: viewModel.showIndels) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+
+                Divider()
+
+                Toggle("Color reads by strand", isOn: $viewModel.showStrandColors)
+                    .onChange(of: viewModel.showStrandColors) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+                    .help("When on, forward reads are blue-tinted and reverse reads are pink-tinted. When off, all reads have a neutral gray background.")
+
+                Divider()
+
+                HStack {
+                    Text("Forward strand color")
+                    Spacer()
+                    ColorPicker("", selection: $viewModel.forwardReadColor, supportsOpacity: false)
+                        .labelsHidden()
+                        .onChange(of: viewModel.forwardReadColor) { _, _ in
+                            viewModel.onSettingsChanged?()
+                        }
+                }
+
+                HStack {
+                    Text("Reverse strand color")
+                    Spacer()
+                    ColorPicker("", selection: $viewModel.reverseReadColor, supportsOpacity: false)
+                        .labelsHidden()
+                        .onChange(of: viewModel.reverseReadColor) { _, _ in
+                            viewModel.onSettingsChanged?()
+                        }
+                }
+            }
+        } else {
+            Text("No alignment tracks loaded.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct InspectorFilteringWorkflowSection: View {
+    @Bindable var viewModel: ReadStyleSectionViewModel
+    @State private var alignmentFilterValidationMessage: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Creates a new alignment in this bundle. The original alignment stays unchanged.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let latestDerivedAlignmentMessage = viewModel.latestDerivedAlignmentMessage,
+               !latestDerivedAlignmentMessage.isEmpty {
+                Text(latestDerivedAlignmentMessage)
+                    .font(.caption)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.secondary.opacity(0.08))
+                    )
+            }
+
+            if viewModel.hasAlignmentTracks {
+                Text("Duplicate handling")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Button("Mark Duplicates in Bundle Tracks") {
+                    viewModel.onMarkDuplicatesRequested?()
+                }
+                .disabled(viewModel.isDuplicateWorkflowRunning)
+
+                if viewModel.isDuplicateWorkflowRunning {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                        Text("Running duplicate workflow...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Divider()
+
+                Picker(
+                    "Starting Alignment",
+                    selection: Binding(
+                        get: { viewModel.selectedAlignmentFilterSourceTrackID ?? "" },
+                        set: { newValue in
+                            alignmentFilterValidationMessage = nil
+                            viewModel.selectedAlignmentFilterSourceTrackID = newValue.isEmpty ? nil : newValue
+                        }
+                    )
+                ) {
+                    if viewModel.alignmentFilterTrackOptions.isEmpty {
+                        Text("No alignment tracks").tag("")
+                    } else {
+                        ForEach(viewModel.alignmentFilterTrackOptions) { option in
+                            Text(option.name).tag(option.id)
+                        }
+                    }
+                }
+                .disabled(viewModel.alignmentFilterTrackOptions.isEmpty)
+
+                Toggle("Keep mapped reads only", isOn: Binding(
+                    get: { viewModel.alignmentFilterMappedOnly },
+                    set: { newValue in
+                        alignmentFilterValidationMessage = nil
+                        viewModel.alignmentFilterMappedOnly = newValue
+                    }
+                ))
+
+                Toggle("Keep one primary alignment per read", isOn: Binding(
+                    get: { viewModel.alignmentFilterPrimaryOnly },
+                    set: { newValue in
+                        alignmentFilterValidationMessage = nil
+                        viewModel.alignmentFilterPrimaryOnly = newValue
+                    }
+                ))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Minimum alignment confidence")
+                        Spacer()
+                        Stepper(
+                            value: Binding(
+                                get: { viewModel.alignmentFilterMinimumMAPQ },
+                                set: { newValue in
+                                    alignmentFilterValidationMessage = nil
+                                    viewModel.alignmentFilterMinimumMAPQ = newValue
+                                }
+                            ),
+                            in: 0...255
+                        ) {
+                            Text("\(viewModel.alignmentFilterMinimumMAPQ)")
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        .labelsHidden()
+                    }
+                    Text("Uses SAM MAPQ. Set to 0 to keep every alignment confidence level.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                Picker("Duplicate handling", selection: Binding(
+                    get: { viewModel.alignmentFilterDuplicateMode },
+                    set: { newValue in
+                        alignmentFilterValidationMessage = nil
+                        viewModel.alignmentFilterDuplicateMode = newValue
+                    }
+                )) {
+                    ForEach(AlignmentFilterInspectorDuplicateChoice.allCases) { choice in
+                        Text(choice.title).tag(choice)
+                    }
+                }
+
+                Toggle("Keep reads with zero mismatches to reference", isOn: Binding(
+                    get: { viewModel.alignmentFilterExactMatchOnly },
+                    set: { newValue in
+                        alignmentFilterValidationMessage = nil
+                        viewModel.alignmentFilterExactMatchOnly = newValue
+                    }
+                ))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Minimum identity to reference (%)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextField(
+                        viewModel.alignmentFilterExactMatchOnly ? "Disabled while exact-match filtering is on" : "Leave blank to keep all",
+                        text: Binding(
+                            get: { viewModel.alignmentFilterMinimumPercentIdentityText },
+                            set: { newValue in
+                                alignmentFilterValidationMessage = nil
+                                viewModel.alignmentFilterMinimumPercentIdentityText = newValue
+                            }
+                        )
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(viewModel.alignmentFilterExactMatchOnly)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Name for New Alignment")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextField(
+                        "Filtered alignment name",
+                        text: Binding(
+                            get: { viewModel.alignmentFilterOutputTrackName },
+                            set: { newValue in
+                                alignmentFilterValidationMessage = nil
+                                viewModel.alignmentFilterOutputTrackName = newValue
+                            }
+                        )
+                    )
+                    .textFieldStyle(.roundedBorder)
+                }
+
+                Button("Create Filtered Alignment") {
+                    do {
+                        let request = try viewModel.makeAlignmentFilterLaunchRequest()
+                        alignmentFilterValidationMessage = nil
+                        viewModel.onCreateFilteredAlignmentRequested?(request)
+                    } catch {
+                        alignmentFilterValidationMessage = error.localizedDescription
+                    }
+                }
+                .disabled(viewModel.isAlignmentFilterWorkflowRunning)
+
+                if viewModel.isAlignmentFilterWorkflowRunning {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                        Text("Running BAM filter workflow...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let alignmentFilterValidationMessage, !alignmentFilterValidationMessage.isEmpty {
+                    Text(alignmentFilterValidationMessage)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                Text("No alignment tracks loaded.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Text("Import a BAM or CRAM file before creating a filtered alignment.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+}
+
+private struct InspectorConsensusWorkflowSection: View {
+    @Bindable var viewModel: ReadStyleSectionViewModel
+
+    var body: some View {
+        if viewModel.hasAlignmentTracks {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Consensus controls live under Analysis so the View tab stays focused on reversible display settings.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Toggle("Show consensus track in viewer", isOn: $viewModel.showConsensusTrack)
+                    .onChange(of: viewModel.showConsensusTrack) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+
+                Picker("Consensus Mode", selection: $viewModel.consensusMode) {
+                    Text("Bayesian").tag(AlignmentConsensusMode.bayesian)
+                    Text("Simple").tag(AlignmentConsensusMode.simple)
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: viewModel.consensusMode) { _, _ in
+                    viewModel.onSettingsChanged?()
+                }
+
+                Toggle("Use IUPAC ambiguity codes", isOn: $viewModel.consensusUseAmbiguity)
+                    .onChange(of: viewModel.consensusUseAmbiguity) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+
+                Toggle("Hide high-gap sites", isOn: $viewModel.consensusMaskingEnabled)
+                    .onChange(of: viewModel.consensusMaskingEnabled) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+                    .help("When enabled, columns where most spanning reads are gaps are masked in packed or base views.")
+
+                HStack {
+                    Text("Consensus minimum depth")
+                    Spacer()
+                    Text("\(Int(viewModel.consensusMinDepth))")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                Slider(value: $viewModel.consensusMinDepth, in: 1...50, step: 1)
+                    .onChange(of: viewModel.consensusMinDepth) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+
+                if viewModel.consensusMaskingEnabled {
+                    HStack {
+                        Text("Gap threshold")
+                        Spacer()
+                        Text("\(Int(viewModel.consensusGapThresholdPercent))%")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    Slider(value: $viewModel.consensusGapThresholdPercent, in: 50...99, step: 1)
+                        .onChange(of: viewModel.consensusGapThresholdPercent) { _, _ in
+                            viewModel.onSettingsChanged?()
+                        }
+
+                    HStack {
+                        Text("Masking minimum depth")
+                        Spacer()
+                        Text("\(Int(viewModel.consensusMaskingMinDepth))")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    Slider(value: $viewModel.consensusMaskingMinDepth, in: 1...50, step: 1)
+                        .onChange(of: viewModel.consensusMaskingMinDepth) { _, _ in
+                            viewModel.onSettingsChanged?()
+                        }
+                }
+
+                HStack {
+                    Text("Consensus minimum MAPQ")
+                    Spacer()
+                    Text("\(Int(viewModel.consensusMinMapQ))")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                Slider(value: $viewModel.consensusMinMapQ, in: 0...60, step: 1)
+                    .onChange(of: viewModel.consensusMinMapQ) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+
+                HStack {
+                    Text("Consensus minimum base quality")
+                    Spacer()
+                    Text("\(Int(viewModel.consensusMinBaseQ))")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+                Slider(value: $viewModel.consensusMinBaseQ, in: 0...60, step: 1)
+                    .onChange(of: viewModel.consensusMinBaseQ) { _, _ in
+                        viewModel.onSettingsChanged?()
+                    }
+
+                Divider()
+
+                Button("Extract Consensus…") {
+                    viewModel.onExtractConsensusRequested?()
+                }
+                .disabled(!viewModel.supportsConsensusExtraction)
+
+                if !viewModel.supportsConsensusExtraction {
+                    Text("Consensus extraction is available from the active mapping viewer.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } else {
+            Text("No alignment tracks loaded.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct InspectorVariantCallingWorkflowSection: View {
+    @Bindable var viewModel: ReadStyleSectionViewModel
+
+    var body: some View {
+        if viewModel.hasAlignmentTracks {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Run BAM-backed variant calling from the current bundle.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+                if viewModel.hasVariantCallableAlignmentTracks {
+                    Text("Use this when you want site-by-site sequence differences summarized as a reusable variant track.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("Variant calling is unavailable until this bundle includes an indexed BAM alignment track.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Button("Call Variants…") {
+                    viewModel.onCallVariantsRequested?()
+                }
+                .disabled(!viewModel.hasVariantCallableAlignmentTracks)
+            }
+        } else {
+            Text("No alignment tracks loaded.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            Text("Import a BAM or CRAM file before running variant-calling workflows.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+    }
+}
+
+private struct InspectorExportWorkflowSection: View {
+    @Bindable var viewModel: ReadStyleSectionViewModel
+
+    var body: some View {
+        if viewModel.hasAlignmentTracks {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Create a separate bundle-level output from the current alignment tracks.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+                Text("Use export when you want a new bundle for downstream work without changing the original mapping bundle.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button("Create Deduplicated Bundle") {
+                    viewModel.onCreateDeduplicatedBundleRequested?()
+                }
+                .disabled(viewModel.isDuplicateWorkflowRunning)
+
+                if viewModel.isDuplicateWorkflowRunning {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                        Text("Running duplicate workflow...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        } else {
+            Text("No alignment tracks loaded.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            Text("Import a BAM or CRAM file before exporting a deduplicated bundle.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
         }
     }
 }

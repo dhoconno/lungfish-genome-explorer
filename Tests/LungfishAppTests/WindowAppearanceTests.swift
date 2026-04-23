@@ -35,6 +35,30 @@ final class WindowAppearanceTests: XCTestCase {
         XCTAssertFalse(source.contains("Image(systemName: tab.iconName)"))
     }
 
+    func testInspectorUsesSecondarySegmentedControlsForViewAndAnalysisShells() throws {
+        let controllerSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Inspector/InspectorViewController.swift"),
+            encoding: .utf8
+        )
+        let readStyleSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(controllerSource.contains("Picker(\"View Section\""))
+        XCTAssertTrue(controllerSource.contains("AlignmentViewSection(viewModel: viewModel.readStyleSectionViewModel)"))
+        XCTAssertTrue(controllerSource.contains("AnalysisSection(viewModel: viewModel.readStyleSectionViewModel)"))
+        XCTAssertTrue(controllerSource.contains("case .analysis: return \"Analysis\""))
+        XCTAssertTrue(controllerSource.contains("case .annotations:"))
+        XCTAssertTrue(readStyleSource.contains("Picker(\"Analysis Section\""))
+        XCTAssertTrue(readStyleSource.contains("return \"Filtering\""))
+        XCTAssertTrue(readStyleSource.contains("return \"Consensus\""))
+        XCTAssertTrue(readStyleSource.contains("return \"Variant Calling\""))
+        XCTAssertTrue(readStyleSource.contains("return \"Export\""))
+    }
+
     func testPluginManagerAndAIAssistantExposeStableAccessibilityIdentifiers() throws {
         let pluginManagerSource = try String(
             contentsOf: repositoryRoot()
