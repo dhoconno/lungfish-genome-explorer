@@ -164,6 +164,38 @@ final class MappingResultViewControllerTests: XCTestCase {
         )
     }
 
+    func testFilteredAlignmentServiceTargetPreservesExplicitResultDirectoryWhenBAMLivesOutsideResultFolder() throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+
+        let resultDirectory = tempDir.appendingPathComponent("mapping-run", isDirectory: true)
+        let externalBAMDirectory = tempDir.appendingPathComponent("external-bams", isDirectory: true)
+        try FileManager.default.createDirectory(at: resultDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: externalBAMDirectory, withIntermediateDirectories: true)
+
+        let viewerBundleURL = try makeReferenceBundleWithAnnotationDatabase()
+        let result = MappingResult(
+            mapper: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            sourceReferenceBundleURL: nil,
+            viewerBundleURL: viewerBundleURL,
+            bamURL: externalBAMDirectory.appendingPathComponent("example.sorted.bam"),
+            baiURL: externalBAMDirectory.appendingPathComponent("example.sorted.bam.bai"),
+            totalReads: 200,
+            mappedReads: 198,
+            unmappedReads: 2,
+            wallClockSeconds: 1.5,
+            contigs: makeContigs()
+        )
+
+        vc.configureForTesting(result: result, resultDirectoryURL: resultDirectory)
+
+        XCTAssertEqual(
+            vc.testFilteredAlignmentServiceTarget,
+            .mappingResult(resultDirectory.standardizedFileURL)
+        )
+    }
+
     func testConsensusExportUsesSelectedContigNameInSuggestedStem() throws {
         let vc = MappingResultViewController()
         _ = vc.view

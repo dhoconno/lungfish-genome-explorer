@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
+@testable import LungfishIO
 @testable import LungfishWorkflow
 
 final class AlignmentDuplicateServiceTests: XCTestCase {
@@ -87,6 +88,19 @@ final class AlignmentDuplicateServiceTests: XCTestCase {
         let invocations = await markdupPipeline.invocations
         XCTAssertEqual(invocations.map(\.removeDuplicates), [false])
         XCTAssertEqual(invocations.map(\.outputURL.lastPathComponent), ["aln-1.marked.bam"])
+
+        let metadataRelativePath = try XCTUnwrap(manifest.alignments.first?.metadataDBPath)
+        let metadataURL = fixture.bundleURL.appendingPathComponent(metadataRelativePath)
+        let metadataDB = try AlignmentMetadataDatabase.openForUpdate(at: metadataURL)
+        XCTAssertEqual(metadataDB.getFileInfo("original_source_path"), fixture.sourceBAMURL.path)
+        XCTAssertEqual(metadataDB.getFileInfo("original_source_format"), AlignmentFormat.bam.rawValue)
+        XCTAssertEqual(metadataDB.getFileInfo("derivation_kind"), "duplicate_marked_alignment")
+        XCTAssertEqual(metadataDB.getFileInfo("derivation_source_track_id"), "aln-1")
+        XCTAssertEqual(metadataDB.getFileInfo("derivation_source_manifest_path"), "alignments/source.bam")
+        XCTAssertEqual(
+            metadataDB.provenanceHistory().map { $0.subcommand },
+            ["markdup"]
+        )
     }
 
     func testCreateDeduplicatedBundleAttachesTracksUnderDeduplicatedDirectory() async throws {
@@ -131,11 +145,27 @@ final class AlignmentDuplicateServiceTests: XCTestCase {
         let invocations = await markdupPipeline.invocations
         XCTAssertEqual(invocations.map(\.removeDuplicates), [true])
         XCTAssertEqual(invocations.map(\.outputURL.lastPathComponent), ["aln-1.deduplicated.bam"])
+
+        let metadataRelativePath = try XCTUnwrap(copiedManifest.alignments.first?.metadataDBPath)
+        let metadataURL = outputBundleURL.appendingPathComponent(metadataRelativePath)
+        let metadataDB = try AlignmentMetadataDatabase.openForUpdate(at: metadataURL)
+        XCTAssertEqual(
+            metadataDB.getFileInfo("original_source_path"),
+            outputBundleURL.appendingPathComponent("alignments/source.bam").path
+        )
+        XCTAssertEqual(metadataDB.getFileInfo("original_source_format"), AlignmentFormat.bam.rawValue)
+        XCTAssertEqual(metadataDB.getFileInfo("derivation_kind"), "deduplicated_alignment")
+        XCTAssertEqual(metadataDB.getFileInfo("derivation_source_track_id"), "aln-1")
+        XCTAssertEqual(
+            metadataDB.provenanceHistory().map { $0.subcommand },
+            ["markdup"]
+        )
     }
 }
 
 private struct DuplicateWorkflowFixture {
     let bundleURL: URL
+    let sourceBAMURL: URL
 
     static func make(rootURL: URL) throws -> DuplicateWorkflowFixture {
         let bundleURL = rootURL.appendingPathComponent("fixture.lungfishref", isDirectory: true)
@@ -167,7 +197,7 @@ private struct DuplicateWorkflowFixture {
             ]
         )
         try manifest.save(to: bundleURL)
-        return DuplicateWorkflowFixture(bundleURL: bundleURL)
+        return DuplicateWorkflowFixture(bundleURL: bundleURL, sourceBAMURL: sourceBAMURL)
     }
 }
 

@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishCore
+import LungfishIO
 import LungfishWorkflow
 
 /// Service for running `samtools markdup` workflows on bundle alignment tracks.
@@ -169,6 +170,13 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
                     relativeDirectory: relativeDirectory
                 )
             )
+            try appendDuplicateMetadata(
+                metadataDBURL: attachment.metadataDBURL,
+                sourceTrack: track,
+                sourceAlignmentPath: sourcePath,
+                duplicateMode: removeDuplicates,
+                commandHistory: pipelineResult.commandHistory
+            )
             createdTrackIDs.append(attachment.trackInfo.id)
         }
 
@@ -259,6 +267,44 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
     private static func replaceIfPresent(at url: URL) throws {
         if FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
+        }
+    }
+
+    private static func appendDuplicateMetadata(
+        metadataDBURL: URL,
+        sourceTrack: AlignmentTrackInfo,
+        sourceAlignmentPath: String,
+        duplicateMode: Bool,
+        commandHistory: [AlignmentCommandExecutionRecord]
+    ) throws {
+        let metadataDB = try AlignmentMetadataDatabase.openForUpdate(at: metadataDBURL)
+
+        metadataDB.setFileInfo("original_source_path", value: sourceAlignmentPath)
+        metadataDB.setFileInfo("original_source_format", value: sourceTrack.format.rawValue)
+        metadataDB.setFileInfo(
+            "derivation_kind",
+            value: duplicateMode ? "deduplicated_alignment" : "duplicate_marked_alignment"
+        )
+        metadataDB.setFileInfo("derivation_source_track_id", value: sourceTrack.id)
+        metadataDB.setFileInfo("derivation_source_track_name", value: sourceTrack.name)
+        metadataDB.setFileInfo("derivation_source_manifest_path", value: sourceTrack.sourcePath)
+        metadataDB.setFileInfo("derivation_source_alignment_path", value: sourceAlignmentPath)
+        metadataDB.setFileInfo(
+            "derivation_command_chain",
+            value: commandHistory.map(\.commandLine).joined(separator: " | ")
+        )
+
+        var parentStep: Int?
+        for command in commandHistory {
+            parentStep = metadataDB.addProvenanceRecord(
+                tool: command.tool,
+                subcommand: command.subcommand,
+                command: command.commandLine,
+                inputFile: command.inputFile,
+                outputFile: command.outputFile,
+                exitCode: 0,
+                parentStep: parentStep
+            )
         }
     }
 }

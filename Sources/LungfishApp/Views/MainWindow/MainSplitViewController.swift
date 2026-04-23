@@ -2502,7 +2502,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                     projectURL: projectURL
                 )
             )
-            viewerController.displayMappingResult(result)
+            viewerController.displayMappingResult(result, resultDirectoryURL: url)
             if let mappingController = viewerController.mappingResultController {
                 mappingController.onEmbeddedReferenceBundleLoaded = { [weak self, weak mappingController] bundle in
                     guard let self, let mappingController else { return }
