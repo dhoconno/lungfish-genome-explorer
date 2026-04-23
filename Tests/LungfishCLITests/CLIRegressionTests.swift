@@ -13,6 +13,8 @@
 import ArgumentParser
 import XCTest
 @testable import LungfishCLI
+import LungfishCore
+import LungfishIO
 
 // MARK: - Top-Level CLI Structure
 
@@ -623,6 +625,34 @@ final class AssembleCommandRegressionTests: XCTestCase {
         )
     }
 
+    func testDerivedFASTAInputResolvesToContainedFASTAForExecution() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("assemble-fasta-bundle-input-\(UUID().uuidString)", isDirectory: true)
+        let bundleURL = tempDir.appendingPathComponent("sample.lungfishfastq", isDirectory: true)
+        let fastaURL = bundleURL.appendingPathComponent("reads.fasta")
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try ">read1\nACGT\n".write(to: fastaURL, atomically: true, encoding: .utf8)
+
+        let manifest = FASTQDerivedBundleManifest(
+            name: "sample",
+            parentBundleRelativePath: ".",
+            rootBundleRelativePath: ".",
+            rootFASTQFilename: "reads.fasta",
+            payload: .fullFASTA(fastaFilename: "reads.fasta"),
+            lineage: [],
+            operation: FASTQDerivativeOperation(kind: .searchText, query: "fixture"),
+            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            pairingMode: nil,
+            sequenceFormat: .fasta
+        )
+        try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let resolved = try AssembleCommand.resolveExecutionInputURLs(for: [bundleURL])
+
+        XCTAssertEqual(resolved.map(\.standardizedFileURL), [fastaURL.standardizedFileURL])
+    }
+
     func testInvalidReadTypeIsRejectedBeforeFallbackInference() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("assemble-invalid-read-type-\(UUID().uuidString)")
@@ -698,6 +728,34 @@ final class MapCommandRegressionTests: XCTestCase {
 
         XCTAssertTrue(help.contains("--mapper"))
         XCTAssertTrue(help.contains("read-mapping"))
+    }
+
+    func testDerivedFASTAInputResolvesToContainedFASTAForExecution() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("map-fasta-bundle-input-\(UUID().uuidString)", isDirectory: true)
+        let bundleURL = tempDir.appendingPathComponent("sample.lungfishfastq", isDirectory: true)
+        let fastaURL = bundleURL.appendingPathComponent("reads.fasta")
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try ">read1\nACGT\n".write(to: fastaURL, atomically: true, encoding: .utf8)
+
+        let manifest = FASTQDerivedBundleManifest(
+            name: "sample",
+            parentBundleRelativePath: ".",
+            rootBundleRelativePath: ".",
+            rootFASTQFilename: "reads.fasta",
+            payload: .fullFASTA(fastaFilename: "reads.fasta"),
+            lineage: [],
+            operation: FASTQDerivativeOperation(kind: .searchText, query: "fixture"),
+            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            pairingMode: nil,
+            sequenceFormat: .fasta
+        )
+        try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let resolved = try MapCommand.resolveExecutionInputURLs(for: [bundleURL])
+
+        XCTAssertEqual(resolved.map(\.standardizedFileURL), [fastaURL.standardizedFileURL])
     }
 }
 
