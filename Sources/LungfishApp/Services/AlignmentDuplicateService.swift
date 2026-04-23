@@ -9,6 +9,13 @@ import LungfishWorkflow
 
 /// Service for running `samtools markdup` workflows on bundle alignment tracks.
 public final class AlignmentDuplicateService: @unchecked Sendable {
+    typealias DuplicateMetadataAppender = @Sendable (
+        _ metadataDBURL: URL,
+        _ sourceTrack: AlignmentTrackInfo,
+        _ sourceAlignmentPath: String,
+        _ duplicateMode: Bool,
+        _ commandHistory: [AlignmentCommandExecutionRecord]
+    ) throws -> Void
 
     /// Result of a duplicate workflow.
     public struct WorkflowResult: Sendable {
@@ -25,6 +32,24 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
         progressHandler: (@Sendable (Double, String) -> Void)? = nil,
         markdupPipeline: any AlignmentMarkdupPipelining = AlignmentMarkdupPipeline(),
         attachmentService: PreparedAlignmentAttachmentService = PreparedAlignmentAttachmentService(),
+        trackIDProvider: @escaping @Sendable () -> String = { "aln_\(String(UUID().uuidString.prefix(8)))" }
+    ) async throws -> WorkflowResult {
+        try await markDuplicatesInBundle(
+            bundleURL: bundleURL,
+            progressHandler: progressHandler,
+            markdupPipeline: markdupPipeline,
+            attachmentService: attachmentService,
+            metadataAppender: appendDuplicateMetadata,
+            trackIDProvider: trackIDProvider
+        )
+    }
+
+    static func markDuplicatesInBundle(
+        bundleURL: URL,
+        progressHandler: (@Sendable (Double, String) -> Void)? = nil,
+        markdupPipeline: any AlignmentMarkdupPipelining = AlignmentMarkdupPipeline(),
+        attachmentService: PreparedAlignmentAttachmentService = PreparedAlignmentAttachmentService(),
+        metadataAppender: @escaping DuplicateMetadataAppender,
         trackIDProvider: @escaping @Sendable () -> String = { "aln_\(String(UUID().uuidString.prefix(8)))" }
     ) async throws -> WorkflowResult {
         let manifest = try BundleManifest.load(from: bundleURL)
@@ -47,6 +72,7 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
             progressHandler: progressHandler,
             markdupPipeline: markdupPipeline,
             attachmentService: attachmentService,
+            metadataAppender: metadataAppender,
             trackIDProvider: trackIDProvider
         )
 
@@ -94,6 +120,7 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
             },
             markdupPipeline: markdupPipeline,
             attachmentService: attachmentService,
+            metadataAppender: appendDuplicateMetadata,
             trackIDProvider: trackIDProvider
         )
 
@@ -116,6 +143,7 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
         progressHandler: (@Sendable (Double, String) -> Void)?,
         markdupPipeline: any AlignmentMarkdupPipelining,
         attachmentService: PreparedAlignmentAttachmentService,
+        metadataAppender: @escaping DuplicateMetadataAppender,
         trackIDProvider: @escaping @Sendable () -> String
     ) async throws -> [String] {
         let referenceFASTAPath = findReferenceFASTA(in: bundleURL)
@@ -170,13 +198,18 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
                     relativeDirectory: relativeDirectory
                 )
             )
-            try appendDuplicateMetadata(
-                metadataDBURL: attachment.metadataDBURL,
-                sourceTrack: track,
-                sourceAlignmentPath: sourcePath,
-                duplicateMode: removeDuplicates,
-                commandHistory: pipelineResult.commandHistory
-            )
+            do {
+                try metadataAppender(
+                    attachment.metadataDBURL,
+                    track,
+                    sourcePath,
+                    removeDuplicates,
+                    pipelineResult.commandHistory
+                )
+            } catch {
+                try rollbackAttachedTrack(attachment.trackInfo, from: bundleURL)
+                throw error
+            }
             createdTrackIDs.append(attachment.trackInfo.id)
         }
 
@@ -268,6 +301,10 @@ public final class AlignmentDuplicateService: @unchecked Sendable {
         if FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
         }
+    }
+
+    private static func rollbackAttachedTrack(_ track: AlignmentTrackInfo, from bundleURL: URL) throws {
+        try removeAlignmentTracks([track], from: bundleURL)
     }
 
     private static func appendDuplicateMetadata(

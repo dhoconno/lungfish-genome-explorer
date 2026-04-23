@@ -161,6 +161,42 @@ final class AlignmentDuplicateServiceTests: XCTestCase {
             ["markdup"]
         )
     }
+
+    func testMarkDuplicatesRollsBackAttachedTrackWhenMetadataAppendFails() async throws {
+        let fixture = try DuplicateWorkflowFixture.make(rootURL: tempDir)
+        let attachmentService = PreparedAlignmentAttachmentService(
+            metadataCollector: DuplicateWorkflowMetadataCollector()
+        )
+        let markdupPipeline = RecordingDuplicateMarkdupPipeline()
+
+        do {
+            _ = try await AlignmentDuplicateService.markDuplicatesInBundle(
+                bundleURL: fixture.bundleURL,
+                markdupPipeline: markdupPipeline,
+                attachmentService: attachmentService,
+                metadataAppender: { _, _, _, _, _ in
+                    throw DuplicateMetadataAppendFailure.injected
+                },
+                trackIDProvider: { "marked-track" }
+            )
+            XCTFail("Expected metadata append failure")
+        } catch {
+            XCTAssertEqual(error as? DuplicateMetadataAppendFailure, .injected)
+        }
+
+        let manifest = try BundleManifest.load(from: fixture.bundleURL)
+        XCTAssertEqual(manifest.alignments.map(\.id), ["aln-1"])
+        XCTAssertEqual(manifest.alignments.first?.sourcePath, "alignments/source.bam")
+        XCTAssertEqual(manifest.alignments.first?.metadataDBPath, "alignments/source.stats.db")
+
+        let rolledBackBAMURL = fixture.bundleURL.appendingPathComponent("alignments/marked/marked-track.bam")
+        let rolledBackIndexURL = fixture.bundleURL.appendingPathComponent("alignments/marked/marked-track.bam.bai")
+        let rolledBackMetadataURL = fixture.bundleURL.appendingPathComponent("alignments/marked/marked-track.stats.db")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: rolledBackBAMURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: rolledBackIndexURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: rolledBackMetadataURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fixture.sourceBAMURL.path))
+    }
 }
 
 private struct DuplicateWorkflowFixture {
@@ -272,4 +308,8 @@ private struct DuplicateWorkflowMetadataCollector: PreparedAlignmentMetadataColl
             """
         )
     }
+}
+
+private enum DuplicateMetadataAppendFailure: Error, Equatable {
+    case injected
 }
