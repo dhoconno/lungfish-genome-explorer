@@ -150,4 +150,30 @@ final class BAMCommandTests: XCTestCase {
             XCTAssertTrue("\(error)".contains("--output-track-name"))
         }
     }
+
+    func testFilterSubcommandRejectsTSVOutputFormat() {
+        XCTAssertThrowsError(
+            try BAMCommand.FilterSubcommand.parse([
+                "filter",
+                "--bundle", "/tmp/Test.lungfishref",
+                "--alignment-track", "aln-1",
+                "--output-track-name", "Filtered",
+                "--format", "tsv",
+            ])
+        ) { error in
+            XCTAssertTrue("\(error)".contains("--format tsv"))
+        }
+    }
+
+    func testMarkdupSubcommandRejectsTSVOutputFormat() {
+        XCTAssertThrowsError(
+            try BAMCommand.MarkdupSubcommand.parse([
+                "markdup",
+                "/tmp/test.bam",
+                "--format", "tsv",
+            ])
+        ) { error in
+            XCTAssertTrue("\(error)".contains("--format tsv"))
+        }
+    }
 }

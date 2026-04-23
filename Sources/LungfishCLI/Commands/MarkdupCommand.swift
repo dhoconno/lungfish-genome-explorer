@@ -41,6 +41,10 @@ struct MarkdupCommand: AsyncParsableCommand {
 
     @OptionGroup var globalOptions: GlobalOptions
 
+    func validate() throws {
+        try Self.validateSupportedOutputFormat(globalOptions.outputFormat, commandName: "markdup")
+    }
+
     func run() async throws {
         _ = try await executeForTesting(runtime: .live()) { print($0) }
     }
@@ -247,5 +251,16 @@ struct MarkdupCommand: AsyncParsableCommand {
             return URL(fileURLWithPath: home, isDirectory: true)
         }
         return FileManager.default.homeDirectoryForCurrentUser
+    }
+
+    static func validateSupportedOutputFormat(
+        _ outputFormat: OutputFormat,
+        commandName: String
+    ) throws {
+        guard outputFormat != .tsv else {
+            throw ValidationError(
+                "Output format --format tsv is not supported for \(commandName). Use --format text or --format json."
+            )
+        }
     }
 }

@@ -330,6 +330,17 @@ final class MarkdupCommandTests: XCTestCase {
         }
     }
 
+    func testMarkdupCommandRejectsTSVOutputFormat() {
+        XCTAssertThrowsError(
+            try MarkdupCommand.parse([
+                "/tmp/test.bam",
+                "--format", "tsv",
+            ])
+        ) { error in
+            XCTAssertTrue("\(error)".contains("--format tsv"))
+        }
+    }
+
     func testBamMarkdupSubcommandUsesSameWorkflowAsLegacyCommand() async throws {
         let expectedInputURL = URL(fileURLWithPath: "/tmp/input.bam")
         let expectedResult = MarkdupResult(

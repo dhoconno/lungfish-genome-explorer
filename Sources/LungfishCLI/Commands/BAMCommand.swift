@@ -57,6 +57,13 @@ extension BAMCommand {
             return parsed
         }
 
+        func validate() throws {
+            try MarkdupCommand.validateSupportedOutputFormat(
+                globalOptions.outputFormat,
+                commandName: "bam markdup"
+            )
+        }
+
         func run() async throws {
             _ = try await executeForTesting(runtime: .live()) { print($0) }
         }
@@ -155,6 +162,11 @@ extension BAMCommand {
         }
 
         func validate() throws {
+            try MarkdupCommand.validateSupportedOutputFormat(
+                globalOptions.outputFormat,
+                commandName: "bam filter"
+            )
+
             if let bundlePath, trimmedValue(bundlePath).isEmpty {
                 throw ValidationError("--bundle must not be empty.")
             }
