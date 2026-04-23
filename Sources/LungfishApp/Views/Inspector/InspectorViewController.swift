@@ -40,6 +40,7 @@ struct FilteredAlignmentWorkflowReloadActions {
 
 struct FilteredAlignmentWorkflowLaunchContext: Equatable {
     let bundleURL: URL
+    let serviceTarget: AlignmentFilterTarget
     let reloadTarget: FilteredAlignmentWorkflowReloadTarget
 
     var reloadFailureAlertTitle: String {
@@ -1635,6 +1636,7 @@ public class InspectorViewController: NSViewController {
 
         let startOutcome = Self.makeFilteredAlignmentWorkflowStartOutcome(
             bundleURL: bundleURL,
+            serviceTarget: split.viewerController.mappingResultController?.filteredAlignmentServiceTarget ?? .bundle(bundleURL),
             isMappingViewerDisplayedAtLaunch: split.viewerController.mappingResultController != nil
         )
         let launchContext: FilteredAlignmentWorkflowLaunchContext
@@ -1655,8 +1657,8 @@ public class InspectorViewController: NSViewController {
 
         Task(priority: .userInitiated) { [weak self] in
             do {
-                let result = try await AlignmentFilterService().deriveFilteredAlignment(
-                    bundleURL: bundleURL,
+                let result = try await BundleAlignmentFilterService().deriveFilteredAlignment(
+                    target: launchContext.serviceTarget,
                     sourceTrackID: request.sourceTrackID,
                     outputTrackName: request.outputTrackName,
                     filterRequest: request.filterRequest,
@@ -1681,14 +1683,14 @@ public class InspectorViewController: NSViewController {
                     MainActor.assumeIsolated {
                         OperationCenter.shared.complete(
                             id: operationID,
-                            detail: "Created filtered alignment track \"\(result.importResult.trackInfo.name)\"."
+                            detail: "Created filtered alignment track \"\(result.trackInfo.name)\"."
                         )
                         guard let self,
                               let split = self.parent as? MainSplitViewController else { return }
                         self.viewModel.readStyleSectionViewModel.isAlignmentFilterWorkflowRunning = false
                         split.activityIndicator.hide()
 
-                        let createdTrackName = result.importResult.trackInfo.name
+                        let createdTrackName = result.trackInfo.name
                         do {
                             try launchContext.reload(
                                 using: FilteredAlignmentWorkflowReloadActions(
@@ -1736,6 +1738,7 @@ public class InspectorViewController: NSViewController {
 
     static func makeFilteredAlignmentWorkflowStartOutcome(
         bundleURL: URL,
+        serviceTarget: AlignmentFilterTarget,
         isMappingViewerDisplayedAtLaunch: Bool,
         canStartBundleMutation: (URL) -> Bool = { OperationCenter.shared.canStartOperation(on: $0) },
         activeBundleMutationTitle: (URL) -> String? = { OperationCenter.shared.activeLockHolder(for: $0)?.title }
@@ -1758,6 +1761,7 @@ public class InspectorViewController: NSViewController {
         return .launch(
             FilteredAlignmentWorkflowLaunchContext(
                 bundleURL: bundleURL,
+                serviceTarget: serviceTarget,
                 reloadTarget: isMappingViewerDisplayedAtLaunch ? .mappingViewer : .bundleViewer
             )
         )
@@ -1785,7 +1789,6 @@ public class InspectorViewController: NSViewController {
             presentSimpleAlert(title: "No Alignment Tracks", message: "This bundle has no alignment tracks to process.")
             return
         }
-        guard let split = parent as? MainSplitViewController else { return }
 
         let confirm = NSAlert()
         confirm.messageText = "Mark Duplicates in Alignment Tracks?"
@@ -1857,7 +1860,6 @@ public class InspectorViewController: NSViewController {
             presentSimpleAlert(title: "No Alignment Tracks", message: "This bundle has no alignment tracks to process.")
             return
         }
-        guard let split = parent as? MainSplitViewController else { return }
 
         let confirm = NSAlert()
         confirm.messageText = "Create Deduplicated Bundle?"

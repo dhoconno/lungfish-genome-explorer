@@ -1,12 +1,15 @@
 import XCTest
 @testable import LungfishApp
+@testable import LungfishWorkflow
 
 @MainActor
 final class InspectorFilteredAlignmentWorkflowTests: XCTestCase {
-    func testLaunchContextReloadsMappingViewerWhenWorkflowStartedFromMappingMode() throws {
+    func testLaunchContextUsesMappingResultTargetAndReloadsMappingViewerWhenStartedFromMappingMode() throws {
         let bundleURL = URL(fileURLWithPath: "/tmp/fixture.lungfishref", isDirectory: true)
+        let mappingResultURL = URL(fileURLWithPath: "/tmp/mapping-run", isDirectory: true)
         let outcome = InspectorViewController.makeFilteredAlignmentWorkflowStartOutcome(
             bundleURL: bundleURL,
+            serviceTarget: .mappingResult(mappingResultURL),
             isMappingViewerDisplayedAtLaunch: true,
             canStartBundleMutation: { _ in true },
             activeBundleMutationTitle: { _ in nil }
@@ -15,6 +18,8 @@ final class InspectorFilteredAlignmentWorkflowTests: XCTestCase {
         guard case .launch(let context) = outcome else {
             return XCTFail("Expected workflow launch context")
         }
+
+        XCTAssertEqual(context.serviceTarget, .mappingResult(mappingResultURL))
 
         var reloadedMappingViewer = false
         var displayedBundleURLs: [URL] = []
@@ -38,6 +43,7 @@ final class InspectorFilteredAlignmentWorkflowTests: XCTestCase {
         let bundleURL = URL(fileURLWithPath: "/tmp/fixture.lungfishref", isDirectory: true)
         let outcome = InspectorViewController.makeFilteredAlignmentWorkflowStartOutcome(
             bundleURL: bundleURL,
+            serviceTarget: .bundle(bundleURL),
             isMappingViewerDisplayedAtLaunch: false,
             canStartBundleMutation: { _ in true },
             activeBundleMutationTitle: { _ in nil }
@@ -46,6 +52,8 @@ final class InspectorFilteredAlignmentWorkflowTests: XCTestCase {
         guard case .launch(let context) = outcome else {
             return XCTFail("Expected workflow launch context")
         }
+
+        XCTAssertEqual(context.serviceTarget, .bundle(bundleURL))
 
         var reloadedMappingViewer = false
         var displayedBundleURLs: [URL] = []
@@ -65,6 +73,24 @@ final class InspectorFilteredAlignmentWorkflowTests: XCTestCase {
         XCTAssertEqual(context.reloadFailureAlertTitle, "Reload Failed")
     }
 
+    func testLaunchContextFallsBackToBundleTargetWhenMappingViewerHasNoResultDirectory() {
+        let bundleURL = URL(fileURLWithPath: "/tmp/fixture.lungfishref", isDirectory: true)
+        let outcome = InspectorViewController.makeFilteredAlignmentWorkflowStartOutcome(
+            bundleURL: bundleURL,
+            serviceTarget: .bundle(bundleURL),
+            isMappingViewerDisplayedAtLaunch: true,
+            canStartBundleMutation: { _ in true },
+            activeBundleMutationTitle: { _ in nil }
+        )
+
+        guard case .launch(let context) = outcome else {
+            return XCTFail("Expected workflow launch context")
+        }
+
+        XCTAssertEqual(context.serviceTarget, .bundle(bundleURL))
+        XCTAssertEqual(context.reloadTarget, .mappingViewer)
+    }
+
     func testStartOutcomeBlocksWhenAnotherBundleMutationIsRunning() {
         let bundleURL = URL(fileURLWithPath: "/tmp/locked-fixture.lungfishref", isDirectory: true)
         let operationID = OperationCenter.shared.start(
@@ -79,6 +105,7 @@ final class InspectorFilteredAlignmentWorkflowTests: XCTestCase {
 
         let outcome = InspectorViewController.makeFilteredAlignmentWorkflowStartOutcome(
             bundleURL: bundleURL,
+            serviceTarget: .bundle(bundleURL),
             isMappingViewerDisplayedAtLaunch: false
         )
 

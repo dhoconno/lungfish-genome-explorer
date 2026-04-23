@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishApp
+@testable import LungfishCore
 @testable import LungfishWorkflow
 
 final class AlignmentDuplicateServiceTests: XCTestCase {
@@ -59,124 +60,186 @@ final class AlignmentDuplicateServiceTests: XCTestCase {
         }
     }
 
-    func testMarkdupPipelineRunsCanonicalCommandOrder() async throws {
-        let inputURL = tempDir.appendingPathComponent("input.bam")
-        try Data("bam".utf8).write(to: inputURL)
+    func testMarkDuplicatesInBundleAttachesMarkedTracksUnderMarkedDirectory() async throws {
+        let fixture = try DuplicateWorkflowFixture.make(rootURL: tempDir)
+        let attachmentService = PreparedAlignmentAttachmentService(
+            metadataCollector: DuplicateWorkflowMetadataCollector()
+        )
+        let markdupPipeline = RecordingDuplicateMarkdupPipeline()
 
-        let outputURL = tempDir.appendingPathComponent("out/output.bam")
-        let referenceURL = tempDir.appendingPathComponent("reference.fa")
-        try Data(">chr1\nACGT\n".utf8).write(to: referenceURL)
-
-        let runner = RecordingSamtoolsRunner()
-        let pipeline = LungfishApp.AlignmentMarkdupPipeline(samtoolsRunner: runner)
-
-        let result = try await pipeline.run(
-            inputURL: inputURL,
-            outputURL: outputURL,
-            removeDuplicates: false,
-            referenceFastaPath: referenceURL.path,
-            progressHandler: nil
+        let result = try await AlignmentDuplicateService.markDuplicatesInBundle(
+            bundleURL: fixture.bundleURL,
+            markdupPipeline: markdupPipeline,
+            attachmentService: attachmentService,
+            trackIDProvider: { "marked-track" }
         )
 
-        let commands = await runner.recordedArguments
-        XCTAssertEqual(commands.count, 5)
-        XCTAssertEqual(commands[0], [
-            "sort", "-n", "-o", result.intermediateFiles.nameSortedBAM.path,
-            "--reference", referenceURL.path,
-            inputURL.path
-        ])
-        XCTAssertEqual(commands[1], [
-            "fixmate", "-m",
-            "--reference", referenceURL.path,
-            result.intermediateFiles.nameSortedBAM.path,
-            result.intermediateFiles.fixmateBAM.path
-        ])
-        XCTAssertEqual(commands[2], [
-            "sort", "-o", result.intermediateFiles.coordinateSortedBAM.path,
-            "--reference", referenceURL.path,
-            result.intermediateFiles.fixmateBAM.path
-        ])
-        XCTAssertEqual(commands[3], [
-            "markdup",
-            result.intermediateFiles.coordinateSortedBAM.path,
-            outputURL.path
-        ])
-        XCTAssertEqual(commands[4], ["index", outputURL.path])
-        XCTAssertFalse(commands[3].contains("-r"))
+        XCTAssertEqual(result.processedTracks, 1)
+        XCTAssertEqual(result.newTrackIds, ["marked-track"])
+
+        let manifest = try BundleManifest.load(from: fixture.bundleURL)
+        XCTAssertEqual(manifest.alignments.map(\.id), ["marked-track"])
+        XCTAssertEqual(manifest.alignments.first?.sourcePath, "alignments/marked/marked-track.bam")
+        XCTAssertEqual(manifest.alignments.first?.indexPath, "alignments/marked/marked-track.bam.bai")
+        XCTAssertEqual(manifest.alignments.first?.metadataDBPath, "alignments/marked/marked-track.stats.db")
+        XCTAssertEqual(manifest.alignments.first?.name, "Fixture BAM [dup-marked]")
+
+        let invocations = await markdupPipeline.invocations
+        XCTAssertEqual(invocations.map(\.removeDuplicates), [false])
+        XCTAssertEqual(invocations.map(\.outputURL.lastPathComponent), ["aln-1.marked.bam"])
     }
 
-    func testMarkdupPipelineAddsRemoveFlagWhenDeduplicating() async throws {
-        let inputURL = tempDir.appendingPathComponent("input.bam")
-        try Data("bam".utf8).write(to: inputURL)
+    func testCreateDeduplicatedBundleAttachesTracksUnderDeduplicatedDirectory() async throws {
+        let fixture = try DuplicateWorkflowFixture.make(rootURL: tempDir)
+        let outputBundleURL = tempDir.appendingPathComponent("fixture-deduplicated.lungfishref", isDirectory: true)
+        let attachmentService = PreparedAlignmentAttachmentService(
+            metadataCollector: DuplicateWorkflowMetadataCollector()
+        )
+        let markdupPipeline = RecordingDuplicateMarkdupPipeline()
 
-        let outputURL = tempDir.appendingPathComponent("out/output.bam")
-        let runner = RecordingSamtoolsRunner()
-        let pipeline = LungfishApp.AlignmentMarkdupPipeline(samtoolsRunner: runner)
-
-        let result = try await pipeline.run(
-            inputURL: inputURL,
-            outputURL: outputURL,
-            removeDuplicates: true,
-            referenceFastaPath: nil,
-            progressHandler: nil
+        let result = try await AlignmentDuplicateService.createDeduplicatedBundle(
+            from: fixture.bundleURL,
+            outputBundleURL: outputBundleURL,
+            markdupPipeline: markdupPipeline,
+            attachmentService: attachmentService,
+            trackIDProvider: { "deduplicated-track" }
         )
 
-        let commands = await runner.recordedArguments
-        XCTAssertEqual(commands[3], [
-            "markdup",
-            "-r",
-            result.intermediateFiles.coordinateSortedBAM.path,
-            outputURL.path
-        ])
+        XCTAssertEqual(result.bundleURL.standardizedFileURL, outputBundleURL.standardizedFileURL)
+        XCTAssertEqual(result.processedTracks, 1)
+        XCTAssertEqual(result.newTrackIds, ["deduplicated-track"])
+
+        let sourceManifest = try BundleManifest.load(from: fixture.bundleURL)
+        XCTAssertEqual(sourceManifest.alignments.map(\.id), ["aln-1"])
+
+        let copiedManifest = try BundleManifest.load(from: outputBundleURL)
+        XCTAssertEqual(copiedManifest.alignments.map(\.id), ["deduplicated-track"])
+        XCTAssertEqual(
+            copiedManifest.alignments.first?.sourcePath,
+            "alignments/deduplicated/deduplicated-track.bam"
+        )
+        XCTAssertEqual(
+            copiedManifest.alignments.first?.indexPath,
+            "alignments/deduplicated/deduplicated-track.bam.bai"
+        )
+        XCTAssertEqual(
+            copiedManifest.alignments.first?.metadataDBPath,
+            "alignments/deduplicated/deduplicated-track.stats.db"
+        )
+        XCTAssertEqual(copiedManifest.alignments.first?.name, "Fixture BAM [deduplicated]")
+
+        let invocations = await markdupPipeline.invocations
+        XCTAssertEqual(invocations.map(\.removeDuplicates), [true])
+        XCTAssertEqual(invocations.map(\.outputURL.lastPathComponent), ["aln-1.deduplicated.bam"])
+    }
+}
+
+private struct DuplicateWorkflowFixture {
+    let bundleURL: URL
+
+    static func make(rootURL: URL) throws -> DuplicateWorkflowFixture {
+        let bundleURL = rootURL.appendingPathComponent("fixture.lungfishref", isDirectory: true)
+        let alignmentsURL = bundleURL.appendingPathComponent("alignments", isDirectory: true)
+        try FileManager.default.createDirectory(at: alignmentsURL, withIntermediateDirectories: true)
+
+        let sourceBAMURL = alignmentsURL.appendingPathComponent("source.bam")
+        let sourceIndexURL = alignmentsURL.appendingPathComponent("source.bam.bai")
+        let sourceMetadataURL = alignmentsURL.appendingPathComponent("source.stats.db")
+        FileManager.default.createFile(atPath: sourceBAMURL.path, contents: Data("bam".utf8))
+        FileManager.default.createFile(atPath: sourceIndexURL.path, contents: Data("bai".utf8))
+        FileManager.default.createFile(atPath: sourceMetadataURL.path, contents: Data())
+
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "Duplicates",
+            identifier: "duplicates.bundle",
+            source: SourceInfo(organism: "Virus", assembly: "Fixture", database: "FixtureDB"),
+            genome: nil,
+            alignments: [
+                AlignmentTrackInfo(
+                    id: "aln-1",
+                    name: "Fixture BAM",
+                    format: .bam,
+                    sourcePath: "alignments/source.bam",
+                    indexPath: "alignments/source.bam.bai",
+                    metadataDBPath: "alignments/source.stats.db"
+                )
+            ]
+        )
+        try manifest.save(to: bundleURL)
+        return DuplicateWorkflowFixture(bundleURL: bundleURL)
+    }
+}
+
+private actor RecordingDuplicateMarkdupPipeline: AlignmentMarkdupPipelining {
+    struct Invocation: Equatable {
+        let inputURL: URL
+        let outputURL: URL
+        let removeDuplicates: Bool
     }
 
-    func testMarkdupPipelineMapsWorkflowSamtoolsFailuresToAlignmentDuplicateError() async throws {
-        let inputURL = tempDir.appendingPathComponent("input.bam")
-        try Data("bam".utf8).write(to: inputURL)
+    private(set) var invocations: [Invocation] = []
 
-        let outputURL = tempDir.appendingPathComponent("out/output.bam")
-        let pipeline = LungfishApp.AlignmentMarkdupPipeline(samtoolsRunner: FailingSamtoolsRunner())
-
-        do {
-            _ = try await pipeline.run(
+    func run(
+        inputURL: URL,
+        outputURL: URL,
+        removeDuplicates: Bool,
+        referenceFastaPath: String?,
+        progressHandler: (@Sendable (Double, String) -> Void)?
+    ) async throws -> AlignmentMarkdupPipelineResult {
+        invocations.append(
+            Invocation(
                 inputURL: inputURL,
                 outputURL: outputURL,
-                removeDuplicates: false,
-                referenceFastaPath: nil,
-                progressHandler: nil
+                removeDuplicates: removeDuplicates
             )
-            XCTFail("Expected samtools failure")
-        } catch let error as AlignmentDuplicateError {
-            guard case .samtoolsFailed(let message) = error else {
-                return XCTFail("Unexpected duplicate error: \(error)")
-            }
-            XCTAssertEqual(message, "samtools exploded")
-        } catch {
-            XCTFail("Unexpected error: \(error)")
-        }
+        )
+
+        try FileManager.default.createDirectory(
+            at: outputURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        FileManager.default.createFile(atPath: outputURL.path, contents: Data("bam".utf8))
+        FileManager.default.createFile(atPath: outputURL.path + ".bai", contents: Data("bai".utf8))
+
+        let tempDir = outputURL.deletingLastPathComponent()
+        return AlignmentMarkdupPipelineResult(
+            outputURL: outputURL,
+            indexURL: URL(fileURLWithPath: outputURL.path + ".bai"),
+            intermediateFiles: AlignmentMarkdupIntermediateFiles(
+                nameSortedBAM: tempDir.appendingPathComponent("name.sorted.bam"),
+                fixmateBAM: tempDir.appendingPathComponent("fixmate.bam"),
+                coordinateSortedBAM: tempDir.appendingPathComponent("coord.sorted.bam")
+            ),
+            commandHistory: [
+                AlignmentCommandExecutionRecord(
+                    arguments: ["markdup", outputURL.path],
+                    inputFile: inputURL.path,
+                    outputFile: outputURL.path
+                )
+            ]
+        )
     }
 }
 
-private actor RecordingSamtoolsRunner: LungfishApp.AlignmentSamtoolsRunning {
-    private(set) var recordedArguments: [[String]] = []
-
-    func runSamtools(arguments: [String], timeout: TimeInterval) async throws -> NativeToolResult {
-        recordedArguments.append(arguments)
-
-        if let outputIndex = arguments.firstIndex(of: "-o"), outputIndex + 1 < arguments.count {
-            FileManager.default.createFile(atPath: arguments[outputIndex + 1], contents: Data())
-        } else if arguments.first == "markdup", let outputPath = arguments.last {
-            FileManager.default.createFile(atPath: outputPath, contents: Data())
-        } else if arguments.first == "index", arguments.count >= 2 {
-            FileManager.default.createFile(atPath: arguments[1] + ".bai", contents: Data())
-        }
-
-        return NativeToolResult(exitCode: 0, stdout: "", stderr: "")
-    }
-}
-
-private actor FailingSamtoolsRunner: LungfishApp.AlignmentSamtoolsRunning {
-    func runSamtools(arguments: [String], timeout: TimeInterval) async throws -> NativeToolResult {
-        NativeToolResult(exitCode: 1, stdout: "", stderr: "samtools exploded")
+private struct DuplicateWorkflowMetadataCollector: PreparedAlignmentMetadataCollecting {
+    func collectMetadata(
+        bamURL: URL,
+        indexURL: URL,
+        format: AlignmentFormat,
+        referenceFastaPath: String?
+    ) async throws -> PreparedAlignmentMetadataSnapshot {
+        PreparedAlignmentMetadataSnapshot(
+            idxstatsOutput: "chr1\t1000\t7\t2\n*\t0\t0\t0\n",
+            flagstatOutput: """
+            9 + 0 in total (QC-passed reads + QC-failed reads)
+            7 + 0 mapped (77.78% : N/A)
+            """,
+            headerText: """
+            @HD\tVN:1.6\tSO:coordinate
+            @SQ\tSN:chr1\tLN:1000
+            @RG\tID:rg1\tSM:sampleA
+            """
+        )
     }
 }

@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishApp
+@testable import LungfishWorkflow
 
 @MainActor
 final class AlignmentFilterInspectorStateTests: XCTestCase {

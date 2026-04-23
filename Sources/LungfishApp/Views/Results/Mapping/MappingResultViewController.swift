@@ -257,6 +257,13 @@ public final class MappingResultViewController: NSViewController {
         try loadViewerBundleIfNeeded(from: viewerBundleURL)
     }
 
+    var filteredAlignmentServiceTarget: AlignmentFilterTarget? {
+        if let result = currentResult {
+            return .mappingResult(result.bamURL.deletingLastPathComponent().standardizedFileURL)
+        }
+        return nil
+    }
+
     func applyEmbeddedReadDisplaySettings(_ userInfo: [AnyHashable: Any]) {
         embeddedViewerController.applyReadDisplaySettings(userInfo)
     }
@@ -412,6 +419,9 @@ extension MappingResultViewController {
     var testDetailPlaceholderMessage: String { detailPlaceholderLabel.stringValue }
     var testEmbeddedViewerPublishesGlobalViewportNotifications: Bool {
         embeddedViewerController.publishesGlobalViewportNotifications
+    }
+    var testFilteredAlignmentServiceTarget: AlignmentFilterTarget? {
+        filteredAlignmentServiceTarget
     }
 
     func testSelectContig(named name: String) {
