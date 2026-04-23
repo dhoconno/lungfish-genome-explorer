@@ -26,6 +26,7 @@ final class NvdResultViewControllerTests: XCTestCase {
         XCTAssertEqual(
             vc.testContextMenuTitlesForFirstContig().filter { !$0.isEmpty },
             [
+                "Extract Reads…",
                 "Extract Sequence…",
                 "Verify with BLAST…",
                 "Copy FASTA",

@@ -62,7 +62,9 @@ public struct PackToolStatus: Sendable, Codable, Hashable, Identifiable {
         storageUnavailablePath == nil && missingExecutables.isEmpty && smokeTestFailure == nil
     }
     public var needsReinstall: Bool { storageUnavailablePath == nil && environmentExists && !isReady }
-    public var hasVolatileSmokeTestFailure: Bool { smokeTestFailure != nil }
+    public var hasVolatileSmokeTestFailure: Bool {
+        smokeTestFailure != nil && requirement.managedDatabaseID == nil
+    }
 
     public var statusText: String {
         if storageUnavailablePath != nil {

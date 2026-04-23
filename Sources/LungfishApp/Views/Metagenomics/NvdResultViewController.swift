@@ -1195,6 +1195,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     private func presentUnifiedExtractionDialog() {
         guard let resultPath = database?.databaseURL else { return }
         let selectors = buildNvdSelectors()
+        guard !selectors.isEmpty else { return }
         let firstContig = selectors.first?.accessions.first ?? "extract"
         presentClassifierExtractionDialog(
             tool: .nvd,
@@ -1202,6 +1203,14 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             selectors: selectors,
             suggestedName: "nvd_\(firstContig)"
         )
+    }
+
+    @objc private func contextExtractReadsUnified(_ sender: Any?) {
+        if outlineView.selectedRowIndexes.isEmpty,
+           outlineView.clickedRow >= 0 {
+            outlineView.selectRowIndexes(IndexSet(integer: outlineView.clickedRow), byExtendingSelection: false)
+        }
+        presentUnifiedExtractionDialog()
     }
 
     @objc private func contextExtractSequence(_ sender: Any?) {
@@ -1540,6 +1549,16 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
     private func populateContextMenu(_ menu: NSMenu, for hit: NvdBlastHit) {
         menu.removeAllItems()
+        let extractReadsItem = NSMenuItem(
+            title: "Extract Reads\u{2026}",
+            action: #selector(contextExtractReadsUnified(_:)),
+            keyEquivalent: ""
+        )
+        extractReadsItem.target = self
+        extractReadsItem.isEnabled = !outlineView.selectedRowIndexes.isEmpty || outlineView.clickedRow >= 0
+        menu.addItem(extractReadsItem)
+        menu.addItem(NSMenuItem.separator())
+
         let sharedItems = FASTASequenceActionMenuBuilder.buildItems(
             selectionCount: outlineView.selectedRowIndexes.count,
             handlers: FASTASequenceActionHandlers(
