@@ -2539,12 +2539,12 @@ public class ViewerViewController: NSViewController {
             mainSplit.loadVCFFilesInBackground(urls: vcfURLs)
         }
 
-        for url in otherURLs {
-            logger.info("handleFileDrop: Routing '\(url.lastPathComponent, privacy: .public)' through sidebar import pipeline")
+        if !otherURLs.isEmpty {
+            logger.info("handleFileDrop: Routing \(otherURLs.count) file(s) through sidebar import pipeline")
             NotificationCenter.default.post(
                 name: .sidebarFileDropped,
                 object: self,
-                userInfo: ["url": url, "destination": NSNull()]
+                userInfo: ["urls": otherURLs, "destination": NSNull()]
             )
         }
     }
