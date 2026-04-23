@@ -7,6 +7,7 @@ import XCTest
 @testable import LungfishIO
 
 final class MarkdupCommandTests: XCTestCase {
+    private typealias MarkdupRuntime = MarkdupCommand.Runtime
 
     // MARK: - Inline BAM fixture helper
     // The canonical BamFixtureBuilder lives in LungfishIOTests and isn't
@@ -256,7 +257,29 @@ final class MarkdupCommandTests: XCTestCase {
         try makeSyntheticBam(at: bamURL, samtools: samtools)
 
         try await withHomeDirectory(managedHome.home) {
-            var cmd = try MarkdupCommand.parse([bamURL.path, "-q"])
+            let cmd = try MarkdupCommand.parse([bamURL.path, "-q"])
+            try await cmd.run()
+        }
+
+        XCTAssertTrue(
+            MarkdupService.isAlreadyMarkduped(bamURL: bamURL, samtoolsPath: samtools),
+            "BAM should be marked after CLI run"
+        )
+    }
+
+    func testCliBamMarkdupSingleBAM() async throws {
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        let samtools = managedHome.samtoolsPath.path
+        let dir = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.removeItem(at: managedHome.home)
+        }
+        let bamURL = dir.appendingPathComponent("test.bam")
+        try makeSyntheticBam(at: bamURL, samtools: samtools)
+
+        try await withHomeDirectory(managedHome.home) {
+            let cmd = try BAMCommand.MarkdupSubcommand.parse(["markdup", bamURL.path, "-q"])
             try await cmd.run()
         }
 
@@ -280,7 +303,7 @@ final class MarkdupCommandTests: XCTestCase {
         try makeSyntheticBam(at: bam2, samtools: samtools)
 
         try await withHomeDirectory(managedHome.home) {
-            var cmd = try MarkdupCommand.parse([dir.path, "-q"])
+            let cmd = try MarkdupCommand.parse([dir.path, "-q"])
             try await cmd.run()
         }
 
@@ -300,7 +323,7 @@ final class MarkdupCommandTests: XCTestCase {
         try makeSyntheticBam(at: bamURL, samtools: samtools)
 
         try await withHomeDirectory(managedHome.home) {
-            var cmd1 = try MarkdupCommand.parse([bamURL.path, "-q"])
+            let cmd1 = try MarkdupCommand.parse([bamURL.path, "-q"])
             try await cmd1.run()
         }
         let firstMtime = (try? FileManager.default.attributesOfItem(atPath: bamURL.path)[.modificationDate]) as? Date
@@ -308,7 +331,7 @@ final class MarkdupCommandTests: XCTestCase {
         try await Task.sleep(nanoseconds: 1_100_000_000)
 
         try await withHomeDirectory(managedHome.home) {
-            var cmd2 = try MarkdupCommand.parse([bamURL.path, "-q"])
+            let cmd2 = try MarkdupCommand.parse([bamURL.path, "-q"])
             try await cmd2.run()
         }
         let secondMtime = (try? FileManager.default.attributesOfItem(atPath: bamURL.path)[.modificationDate]) as? Date
@@ -328,7 +351,7 @@ final class MarkdupCommandTests: XCTestCase {
         try makeSyntheticBam(at: bamURL, samtools: samtools)
 
         try await withHomeDirectory(managedHome.home) {
-            var cmd1 = try MarkdupCommand.parse([bamURL.path, "-q"])
+            let cmd1 = try MarkdupCommand.parse([bamURL.path, "-q"])
             try await cmd1.run()
         }
         let firstMtime = (try? FileManager.default.attributesOfItem(atPath: bamURL.path)[.modificationDate]) as? Date
@@ -336,7 +359,7 @@ final class MarkdupCommandTests: XCTestCase {
         try await Task.sleep(nanoseconds: 1_100_000_000)
 
         try await withHomeDirectory(managedHome.home) {
-            var cmd2 = try MarkdupCommand.parse([bamURL.path, "--force", "-q"])
+            let cmd2 = try MarkdupCommand.parse([bamURL.path, "--force", "-q"])
             try await cmd2.run()
         }
         let secondMtime = (try? FileManager.default.attributesOfItem(atPath: bamURL.path)[.modificationDate]) as? Date
@@ -345,12 +368,77 @@ final class MarkdupCommandTests: XCTestCase {
     }
 
     func testCliMarkdupErrorsOnMissingFile() async throws {
-        var cmd = try MarkdupCommand.parse(["/nonexistent/path.bam"])
+        let cmd = try MarkdupCommand.parse(["/nonexistent/path.bam"])
         do {
             try await cmd.run()
             XCTFail("Should have thrown")
         } catch {
             // Expected
         }
+    }
+
+    func testBamMarkdupSubcommandUsesSameWorkflowAsLegacyCommand() async throws {
+        let expectedInputURL = URL(fileURLWithPath: "/tmp/input.bam")
+        let expectedResult = MarkdupResult(
+            bamURL: expectedInputURL,
+            wasAlreadyMarkduped: false,
+            totalReads: 12,
+            duplicateReads: 3,
+            durationSeconds: 0.75
+        )
+
+        actor CallLog {
+            private(set) var invocations: [(path: String, force: Bool, sortThreads: Int, quiet: Bool)] = []
+
+            func record(path: String, force: Bool, sortThreads: Int, quiet: Bool) {
+                invocations.append((path, force, sortThreads, quiet))
+            }
+
+            func snapshot() -> [(path: String, force: Bool, sortThreads: Int, quiet: Bool)] {
+                invocations
+            }
+        }
+
+        let callLog = CallLog()
+        let runtime = MarkdupRuntime(
+            execute: { input, emit in
+                await callLog.record(
+                    path: input.path,
+                    force: input.force,
+                    sortThreads: input.sortThreads,
+                    quiet: input.quiet
+                )
+                emit("Processed 1 BAM file(s) (0 already marked)")
+                emit("Total reads: 12, duplicates: 3")
+                emit("Elapsed: 0.8s")
+                return [expectedResult]
+            }
+        )
+
+        let legacyCommand = try MarkdupCommand.parse([
+            expectedInputURL.path,
+            "--force",
+            "--sort-threads", "7",
+        ])
+        let canonicalCommand = try BAMCommand.MarkdupSubcommand.parse([
+            "markdup",
+            expectedInputURL.path,
+            "--force",
+            "--sort-threads", "7",
+        ])
+
+        var legacyOutput: [String] = []
+        _ = try await legacyCommand.executeForTesting(runtime: runtime) { legacyOutput.append($0) }
+
+        var canonicalOutput: [String] = []
+        _ = try await canonicalCommand.executeForTesting(runtime: runtime) { canonicalOutput.append($0) }
+
+        let calls = await callLog.snapshot()
+        XCTAssertEqual(calls.count, 2)
+        XCTAssertEqual(calls.map(\.path), [expectedInputURL.path, expectedInputURL.path])
+        XCTAssertEqual(calls.map(\.force), [true, true])
+        XCTAssertEqual(calls.map(\.sortThreads), [7, 7])
+        XCTAssertEqual(calls.map(\.quiet), [false, false])
+        XCTAssertEqual(canonicalOutput, legacyOutput)
     }
 }

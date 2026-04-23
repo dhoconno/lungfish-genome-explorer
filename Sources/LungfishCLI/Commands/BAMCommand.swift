@@ -1,12 +1,13 @@
 import ArgumentParser
 import Foundation
+import LungfishIO
 import LungfishWorkflow
 
 struct BAMCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "bam",
         abstract: "Operate on bundle-owned BAM alignment tracks",
-        subcommands: [FilterSubcommand.self]
+        subcommands: [FilterSubcommand.self, MarkdupSubcommand.self]
     )
 
     struct FilterEvent: Codable, Sendable {
@@ -25,6 +26,54 @@ struct BAMCommand: AsyncParsableCommand {
 }
 
 extension BAMCommand {
+    struct MarkdupSubcommand: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "markdup",
+            abstract: "Mark PCR duplicates in BAM files using samtools markdup"
+        )
+
+        @Argument(help: "Path to a BAM file or a directory containing BAMs")
+        var path: String
+
+        @Flag(name: .long, help: "Re-run markdup even if already marked")
+        var force: Bool = false
+
+        @Option(name: .customLong("sort-threads"), help: "Threads for samtools sort (default 4)")
+        var sortThreads: Int = 4
+
+        @OptionGroup var globalOptions: GlobalOptions
+
+        static func parse(_ arguments: [String]) throws -> Self {
+            let trimmed = arguments.first == configuration.commandName
+                ? Array(arguments.dropFirst())
+                : arguments
+            guard let parsed = try Self.parseAsRoot(trimmed) as? Self else {
+                throw ValidationError("Failed to parse bam markdup arguments.")
+            }
+            return parsed
+        }
+
+        func run() async throws {
+            _ = try await executeForTesting(runtime: .live()) { print($0) }
+        }
+
+        func executeForTesting(
+            runtime: MarkdupCommand.Runtime = .live(),
+            emit: @escaping (String) -> Void
+        ) async throws -> [MarkdupResult] {
+            try await MarkdupCommand.execute(
+                input: MarkdupCommand.ExecutionInput(
+                    path: path,
+                    force: force,
+                    sortThreads: sortThreads,
+                    quiet: globalOptions.quiet
+                ),
+                runtime: runtime,
+                emit: emit
+            )
+        }
+    }
+
     struct FilterSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "filter",
