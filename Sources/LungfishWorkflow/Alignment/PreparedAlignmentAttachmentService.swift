@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import Darwin
 import Foundation
 import LungfishCore
 import LungfishIO
@@ -220,7 +221,7 @@ public actor PreparedAlignmentAttachmentService {
             let unmappedReads = metadataDB.totalUnmappedReads()
             let fileSize = try? fileSizeOfItem(at: bamURL)
             let trackInfo = AlignmentTrackInfo(
-                id: request.outputTrackID,
+                id: outputTrackID,
                 name: request.outputTrackName,
                 format: request.format,
                 sourcePath: bamRelativePath,
@@ -329,16 +330,55 @@ public actor PreparedAlignmentAttachmentService {
         isDirectory: Bool = false
     ) throws -> URL {
         let bundleRoot = bundleURL.standardizedFileURL
-        let resolvedURL = bundleRoot
-            .appendingPathComponent(relativePath, isDirectory: isDirectory)
-            .standardizedFileURL
+        let realBundleRoot = bundleRoot.resolvingSymlinksInPath().standardizedFileURL
+        let components = relativePath.split(separator: "/").map(String.init)
+        var logicalURL = bundleRoot
+        var physicalURL = realBundleRoot
 
-        let bundlePath = bundleRoot.path.hasSuffix("/") ? bundleRoot.path : bundleRoot.path + "/"
-        guard resolvedURL.path == bundleRoot.path || resolvedURL.path.hasPrefix(bundlePath) else {
-            throw PreparedAlignmentAttachmentError.escapedBundlePath(relativePath)
+        for (index, component) in components.enumerated() {
+            let componentIsDirectory = index < components.count - 1 || isDirectory
+            logicalURL = logicalURL.appendingPathComponent(component, isDirectory: componentIsDirectory)
+
+            if fileManager.fileExists(atPath: logicalURL.path),
+               try isSymbolicLink(at: logicalURL) {
+                physicalURL = logicalURL.resolvingSymlinksInPath().standardizedFileURL
+            } else {
+                physicalURL = physicalURL.appendingPathComponent(component, isDirectory: componentIsDirectory)
+            }
+
+            guard isContained(physicalURL, within: realBundleRoot) else {
+                throw PreparedAlignmentAttachmentError.escapedBundlePath(relativePath)
+            }
         }
 
-        return resolvedURL
+        return physicalURL
+    }
+
+    private func isSymbolicLink(at url: URL) throws -> Bool {
+        var fileInfo = stat()
+        let result = url.withUnsafeFileSystemRepresentation { path in
+            guard let path else {
+                errno = EINVAL
+                return -1
+            }
+            return Int(lstat(path, &fileInfo))
+        }
+
+        if result == 0 {
+            return (fileInfo.st_mode & S_IFMT) == S_IFLNK
+        }
+
+        let code = errno
+        if code == ENOENT {
+            return false
+        }
+
+        throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
+    }
+
+    private func isContained(_ url: URL, within rootURL: URL) -> Bool {
+        let rootPath = rootURL.path.hasSuffix("/") ? rootURL.path : rootURL.path + "/"
+        return url.path == rootURL.path || url.path.hasPrefix(rootPath)
     }
 
     private func promoteArtifact(from sourceURL: URL, to destinationURL: URL) throws {

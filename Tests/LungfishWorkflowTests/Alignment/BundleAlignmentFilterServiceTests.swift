@@ -228,6 +228,69 @@ final class BundleAlignmentFilterServiceTests: XCTestCase {
         }
     }
 
+    func testPreparedAttachmentPersistsNormalizedTrackID() async throws {
+        let fixture = try AlignmentFilterFixture.make(rootURL: tempDir, includeNMTag: true)
+        let staged = try makeStagedAlignmentArtifacts(named: "normalized-id")
+        let service = PreparedAlignmentAttachmentService(metadataCollector: fixture.metadataCollector)
+
+        let result = try await service.attach(
+            request: PreparedAlignmentAttachmentRequest(
+                bundleURL: fixture.bundleURL,
+                stagedBAMURL: staged.bamURL,
+                stagedIndexURL: staged.indexURL,
+                outputTrackID: "  derived-track  ",
+                outputTrackName: "Normalized Track ID",
+                relativeDirectory: "alignments/filtered"
+            )
+        )
+
+        XCTAssertEqual(result.trackInfo.id, "derived-track")
+        XCTAssertEqual(result.trackInfo.sourcePath, "alignments/filtered/derived-track.bam")
+        XCTAssertEqual(result.trackInfo.indexPath, "alignments/filtered/derived-track.bam.bai")
+        XCTAssertEqual(result.trackInfo.metadataDBPath, "alignments/filtered/derived-track.stats.db")
+
+        let manifest = try BundleManifest.load(from: fixture.bundleURL)
+        XCTAssertNotNil(manifest.alignments.first(where: { $0.id == "derived-track" }))
+        XCTAssertNil(manifest.alignments.first(where: { $0.id == "  derived-track  " }))
+    }
+
+    func testPreparedAttachmentRejectsSymlinkEscapeInBundleSubpath() async throws {
+        let fixture = try AlignmentFilterFixture.make(rootURL: tempDir, includeNMTag: true)
+        let service = PreparedAlignmentAttachmentService(metadataCollector: fixture.metadataCollector)
+        let outsideDirectory = tempDir.appendingPathComponent("outside-alignments", isDirectory: true)
+        try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
+
+        let alignmentsURL = fixture.bundleURL.appendingPathComponent("alignments", isDirectory: true)
+        try FileManager.default.removeItem(at: alignmentsURL)
+        try FileManager.default.createSymbolicLink(at: alignmentsURL, withDestinationURL: outsideDirectory)
+
+        let staged = try makeStagedAlignmentArtifacts(named: "symlink-escape")
+
+        await XCTAssertThrowsErrorAsync(
+            try await service.attach(
+                request: PreparedAlignmentAttachmentRequest(
+                    bundleURL: fixture.bundleURL,
+                    stagedBAMURL: staged.bamURL,
+                    stagedIndexURL: staged.indexURL,
+                    outputTrackID: "safe-track",
+                    outputTrackName: "Symlink Escape",
+                    relativeDirectory: "alignments/filtered"
+                )
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? PreparedAlignmentAttachmentError,
+                .escapedBundlePath("alignments/filtered")
+            )
+        }
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: outsideDirectory.appendingPathComponent("filtered/safe-track.bam").path
+            )
+        )
+    }
+
     private func makeStagedAlignmentArtifacts(named name: String) throws -> (bamURL: URL, indexURL: URL) {
         let stagingURL = tempDir.appendingPathComponent("staging-\(name)", isDirectory: true)
         try FileManager.default.createDirectory(at: stagingURL, withIntermediateDirectories: true)
