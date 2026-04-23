@@ -19,7 +19,7 @@ struct LungfishCLI: AsyncParsableCommand {
         commandName: "lungfish-cli",
         abstract: "Lungfish Genome Explorer CLI - Bioinformatics tools for sequence analysis",
         discussion: """
-            The Lungfish CLI provides headless access to the Lungfish Genome Explorer's
+            The `lungfish-cli` command provides headless access to the Lungfish Genome Explorer's
             bioinformatics capabilities. Use it for scripting, automation, pipeline
             integration, and debugging workflows.
 
