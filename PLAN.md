@@ -1,4 +1,4 @@
-# Lungfish Genome Browser - Comprehensive Development Plan
+# Lungfish Genome Explorer - Comprehensive Development Plan
 
 ## Project Configuration
 - **Licensing**: Open Source (MIT/Apache)

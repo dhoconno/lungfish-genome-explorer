@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Project Lead Agent is the top-level orchestrator for the Lungfish Genome Browser. It coordinates two lead agents — the **Development Lead Agent** and the **GUI Lead Agent** — ensuring they work in lockstep. Every feature and bug fix flows through this agent, which decides scope, assigns ownership, and mediates cross-team communication.
+The Project Lead Agent is the top-level orchestrator for the Lungfish Genome Explorer. It coordinates two lead agents — the **Development Lead Agent** and the **GUI Lead Agent** — ensuring they work in lockstep. Every feature and bug fix flows through this agent, which decides scope, assigns ownership, and mediates cross-team communication.
 
 ## Team Structure
 

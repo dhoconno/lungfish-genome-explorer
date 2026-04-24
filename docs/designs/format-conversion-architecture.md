@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-This document defines a comprehensive file format conversion architecture for Lungfish Genome Browser, inspired by Geneious Prime's capability-based document system. The architecture enables:
+This document defines a comprehensive file format conversion architecture for Lungfish Genome Explorer, inspired by Geneious Prime's capability-based document system. The architecture enables:
 
 1. **Capability-based document modeling** - Documents declare what they can do, not just what format they are
 2. **Tool input/output constraints** - Tools declare required capabilities, enabling automatic validation

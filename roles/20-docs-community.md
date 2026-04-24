@@ -168,7 +168,7 @@ Documentation/
 
 # ``LungfishCore``
 
-Core data models and services for the Lungfish Genome Browser.
+Core data models and services for the Lungfish Genome Explorer.
 
 ## Overview
 

@@ -1,4 +1,4 @@
-# Container Integration Design for Lungfish Genome Browser
+# Container Integration Design for Lungfish Genome Explorer
 
 **Document ID:** DESIGN-003-CONTAINER-INTEGRATION
 **Date:** 2026-02-02
@@ -7,7 +7,7 @@
 
 ## Executive Summary
 
-Lungfish Genome Browser uses Apple's native Containerization framework exclusively, requiring macOS 26 (Tahoe) or later. This provides optimal performance, native Swift API integration, and eliminates external dependencies like Docker Desktop.
+Lungfish Genome Explorer uses Apple's native Containerization framework exclusively, requiring macOS 26 (Tahoe) or later. This provides optimal performance, native Swift API integration, and eliminates external dependencies like Docker Desktop.
 
 ---
 
@@ -38,7 +38,7 @@ Apple's Containerization framework (introduced in macOS 26) provides native cont
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Lungfish Genome Browser                       │
+│                    Lungfish Genome Explorer                       │
 │                         (AppKit UI)                              │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -339,7 +339,7 @@ func checkContainerizationSupport() {
         let alert = NSAlert()
         alert.messageText = "macOS 26 Required"
         alert.informativeText = """
-            Lungfish Genome Browser requires macOS 26 (Tahoe) or later for
+            Lungfish Genome Explorer requires macOS 26 (Tahoe) or later for
             container-based bioinformatics tools.
 
             Please update your operating system to use assembly, alignment,

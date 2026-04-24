@@ -1,4 +1,4 @@
-# Lungfish Genome Browser - App Icon Design Specification
+# Lungfish Genome Explorer - App Icon Design Specification
 
 **Version:** 1.0
 **Date:** 2026-02-02
@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary
 
-This document provides a comprehensive design specification for adapting the Lungfish Genome Browser logo into a production-ready macOS app icon. The design must comply with Apple Human Interface Guidelines while maintaining brand recognition and scientific credibility.
+This document provides a comprehensive design specification for adapting the Lungfish Genome Explorer logo into a production-ready macOS app icon. The design must comply with Apple Human Interface Guidelines while maintaining brand recognition and scientific credibility.
 
 ---
 
@@ -578,4 +578,4 @@ Coverage (Green)      #40A060  |||||||||||||||||
 
 ---
 
-*Document prepared by Visual Design Artist role for the Lungfish Genome Browser project.*
+*Document prepared by Visual Design Artist role for the Lungfish Genome Explorer project.*

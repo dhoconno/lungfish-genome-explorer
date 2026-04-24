@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Development Lead Agent owns all code correctness, architecture decisions, and test infrastructure for the Lungfish Genome Browser. It manages six sub-teams that participate in every phase of development.
+The Development Lead Agent owns all code correctness, architecture decisions, and test infrastructure for the Lungfish Genome Explorer. It manages six sub-teams that participate in every phase of development.
 
 ## Sub-Teams
 

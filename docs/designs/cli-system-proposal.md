@@ -1,4 +1,4 @@
-# CLI System Proposal for Lungfish Genome Browser
+# CLI System Proposal for Lungfish Genome Explorer
 
 **Document ID:** DESIGN-004-CLI-SYSTEM
 **Date:** 2026-02-03
@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-This document evaluates the proposal to add a Command-Line Interface (CLI) to the Lungfish Genome Browser. After comprehensive analysis by expert teams, the recommendation is **strongly favorable** due to the exceptional existing architecture that makes CLI implementation primarily an integration task rather than a refactoring project.
+This document evaluates the proposal to add a Command-Line Interface (CLI) to the Lungfish Genome Explorer. After comprehensive analysis by expert teams, the recommendation is **strongly favorable** due to the exceptional existing architecture that makes CLI implementation primarily an integration task rather than a refactoring project.
 
 **Key Finding:** The `LungfishWorkflow` module already has **zero GUI coupling** and is fully headless-capable with actor-based state management, AsyncStream for output, and Sendable progress callbacks.
 

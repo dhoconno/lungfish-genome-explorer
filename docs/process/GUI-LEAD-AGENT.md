@@ -2,7 +2,7 @@
 
 ## Overview
 
-The GUI Lead Agent owns all user-facing quality for the Lungfish Genome Browser. It manages five sub-teams that evaluate not just how things look, but how they behave when real users interact with them. The GUI Lead simulates the perspectives of working biologists and bioinformaticians to catch UX issues that code review alone cannot find.
+The GUI Lead Agent owns all user-facing quality for the Lungfish Genome Explorer. It manages five sub-teams that evaluate not just how things look, but how they behave when real users interact with them. The GUI Lead simulates the perspectives of working biologists and bioinformaticians to catch UX issues that code review alone cannot find.
 
 ## Sub-Teams
 
