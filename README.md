@@ -12,10 +12,10 @@ Lungfish is developed in association with the [Lungfish Research Collaboratory](
 
 ## About
 
-Lungfish is an opinionated app built by Dave O'Connor to make powerful command-line bioinformatics tools usable without touching a terminal. Where most tools assume you already know what to do, Lungfish leans into the things beginners actually need and that other apps tend to skip:
+Lungfish is an opinionated app built by Dave O'Connor to make powerful command-line bioinformatics tools usable without touching a terminal. Where most tools assume you already know what to do, Lungfish leans into the things non-bioinformatician biologists frequently need and that other apps tend to skip:
 
 - **First-class human read removal**. Recipes such as VSP2 (with more to come) run scrubbing as a standard step, and the same scrubber is one click away as a manual operation on any FASTQ dataset.
-- **Variants you can actually work with**. Sort, filter, and inspect VCF records without writing awk one-liners.
+- **Variants you can actually work with**. Sort, filter, and inspect VCF records without writing awk(ward) one-liners.
 - **Portable projects**. A Lungfish project is just a folder. Copy it to a thumb drive, share it with a collaborator, drop it on a backup disk, and everything (datasets, derivatives, reports, metadata) travels together.
 
 The trade-off is that Lungfish makes opinionated choices about defaults, file layout, and which tool to reach for. If those choices fit how you work, it should feel like the bench-friendly bioinformatics environment you wished existed.
