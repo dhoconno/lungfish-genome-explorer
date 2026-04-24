@@ -39,14 +39,14 @@ public final class SettingsWindowController: NSWindowController {
 
     public init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 550, height: 460),
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 460),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = "Settings"
         window.identifier = NSUserInterfaceItemIdentifier(SettingsAccessibilityID.window)
-        window.minSize = NSSize(width: 550, height: 460)
+        window.minSize = NSSize(width: 640, height: 460)
         window.setFrameAutosaveName("SettingsWindow")
         window.isRestorable = false
 

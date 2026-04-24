@@ -146,6 +146,35 @@ public class SequenceViewerView: NSView {
     /// Whether we're currently fetching consensus sequence data.
     private var isFetchingConsensus: Bool = false
 
+    private static func scrollDirectionSign(
+        for preference: ScrollDirectionPreference,
+        isDirectionInvertedFromDevice: Bool
+    ) -> CGFloat {
+        switch preference {
+        case .system:
+            return isDirectionInvertedFromDevice ? -1 : 1
+        case .natural:
+            return -1
+        case .traditional:
+            return 1
+        }
+    }
+
+    private static func horizontalPanAmount(
+        deltaX: CGFloat,
+        scale: Double,
+        hasPreciseScrollingDeltas: Bool,
+        preference: ScrollDirectionPreference,
+        isDirectionInvertedFromDevice: Bool
+    ) -> Double {
+        let sign = scrollDirectionSign(
+            for: preference,
+            isDirectionInvertedFromDevice: isDirectionInvertedFromDevice
+        )
+        let panScale: CGFloat = hasPreciseScrollingDeltas ? 1.0 : 2.0
+        return Double(sign * deltaX) * scale * panScale
+    }
+
     /// Generation counter for read fetches — prevents stale results from overwriting newer ones
     private var readFetchGeneration: Int = 0
 
@@ -1007,6 +1036,22 @@ public class SequenceViewerView: NSView {
     var testHoverTooltipText: String { hoverTooltip.currentText }
     var testSelectionStatusText: String? { currentSelectionStatusText() }
     var testVisibleAlignmentTrackIDSetting: String? { visibleAlignmentTrackIDSetting }
+
+    static func horizontalPanAmountForTesting(
+        deltaX: CGFloat,
+        scale: Double,
+        hasPreciseScrollingDeltas: Bool,
+        preference: ScrollDirectionPreference,
+        isDirectionInvertedFromDevice: Bool
+    ) -> Double {
+        horizontalPanAmount(
+            deltaX: deltaX,
+            scale: scale,
+            hasPreciseScrollingDeltas: hasPreciseScrollingDeltas,
+            preference: preference,
+            isDirectionInvertedFromDevice: isDirectionInvertedFromDevice
+        )
+    }
 
     func testSetCachedAlignedReads(_ reads: [AlignedRead]) {
         cachedAlignedReads = reads
@@ -6540,24 +6585,12 @@ public class SequenceViewerView: NSView {
     public override func scrollWheel(with event: NSEvent) {
         guard let frame = viewController?.referenceFrame else { return }
 
-        // scrollingDeltaY/X give raw physical device direction (up/right = positive).
         // Respect per-axis app settings and fall back to system preference when requested.
         let settings = AppSettings.shared
-        let systemSign: CGFloat = event.isDirectionInvertedFromDevice ? -1 : 1
-        let verticalSign: CGFloat = {
-            switch settings.verticalScrollDirection {
-            case .system: return systemSign
-            case .natural: return -1
-            case .traditional: return 1
-            }
-        }()
-        let horizontalSign: CGFloat = {
-            switch settings.horizontalScrollDirection {
-            case .system: return systemSign
-            case .natural: return -1
-            case .traditional: return 1
-            }
-        }()
+        let verticalSign = Self.scrollDirectionSign(
+            for: settings.verticalScrollDirection,
+            isDirectionInvertedFromDevice: event.isDirectionInvertedFromDevice
+        )
 
         if event.modifierFlags.contains(.command) || event.modifierFlags.contains(.option) {
             // Zoom with Cmd+scroll or Option+scroll
@@ -6623,8 +6656,13 @@ public class SequenceViewerView: NSView {
             }
 
             // Horizontal pan — update coordinates immediately, coalesce redraw at 60fps
-            let panScale = event.hasPreciseScrollingDeltas ? 1.0 : 2.0
-            let panAmount = Double(horizontalSign * event.scrollingDeltaX) * frame.scale * panScale
+            let panAmount = Self.horizontalPanAmount(
+                deltaX: event.scrollingDeltaX,
+                scale: frame.scale,
+                hasPreciseScrollingDeltas: event.hasPreciseScrollingDeltas,
+                preference: settings.horizontalScrollDirection,
+                isDirectionInvertedFromDevice: event.isDirectionInvertedFromDevice
+            )
             frame.pan(by: panAmount)
 
             scrollRedrawTimer?.invalidate()

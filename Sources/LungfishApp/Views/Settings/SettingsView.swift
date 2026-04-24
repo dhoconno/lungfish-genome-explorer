@@ -50,7 +50,7 @@ struct SettingsView: View {
                         .accessibilityIdentifier(SettingsAccessibilityID.tab(.aiServices))
                 }
         }
-        .frame(minWidth: 550, idealWidth: 680, minHeight: 460, idealHeight: 560)
+        .frame(minWidth: 640, idealWidth: 720, minHeight: 460, idealHeight: 560)
         .accessibilityIdentifier(SettingsAccessibilityID.root)
     }
 }

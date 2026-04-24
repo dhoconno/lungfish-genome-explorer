@@ -69,6 +69,7 @@ final class TwoPaneTrackedSplitCoordinator {
     func applyInitialSplitPositionIfNeeded(
         to splitView: TrackedDividerSplitView,
         defaultLeadingFraction: CGFloat,
+        defaultLeadingExtent: CGFloat? = nil,
         minimumExtents: (leading: CGFloat, trailing: CGFloat),
         afterApply: (() -> Void)? = nil
     ) {
@@ -80,7 +81,7 @@ final class TwoPaneTrackedSplitCoordinator {
         guard totalExtent >= minimumRequiredExtent else { return }
 
         let clampedPosition = SplitPaneSizing.clampedDividerPosition(
-            proposed: round(totalExtent * defaultLeadingFraction),
+            proposed: defaultLeadingExtent ?? round(totalExtent * defaultLeadingFraction),
             containerExtent: totalExtent,
             minimumLeadingExtent: minimumExtents.leading,
             minimumTrailingExtent: minimumExtents.trailing
@@ -96,6 +97,7 @@ final class TwoPaneTrackedSplitCoordinator {
         splitView: TrackedDividerSplitView,
         minimumExtents: @escaping () -> (leading: CGFloat, trailing: CGFloat),
         defaultLeadingFraction: @escaping () -> CGFloat,
+        defaultLeadingExtent: (() -> CGFloat?)? = nil,
         afterApply: (() -> Void)? = nil
     ) {
         guard needsInitialSplitValidation, ownerView.window != nil, !pendingInitialSplitValidation else { return }
@@ -130,6 +132,7 @@ final class TwoPaneTrackedSplitCoordinator {
             self.applyInitialSplitPositionIfNeeded(
                 to: splitView,
                 defaultLeadingFraction: defaultLeadingFraction(),
+                defaultLeadingExtent: defaultLeadingExtent?(),
                 minimumExtents: extents,
                 afterApply: afterApply
             )
@@ -146,6 +149,7 @@ final class TwoPaneTrackedSplitCoordinator {
         desiredFirstPane: NSView,
         desiredSecondPane: NSView,
         defaultLeadingFraction: CGFloat,
+        defaultLeadingExtent: CGFloat? = nil,
         minimumExtents: (leading: CGFloat, trailing: CGFloat),
         isViewInWindow: Bool,
         afterApply: (() -> Void)? = nil
@@ -184,12 +188,14 @@ final class TwoPaneTrackedSplitCoordinator {
             return
         }
 
-        let defaultLeadingExtent = round(totalExtent * defaultLeadingFraction)
-        let requestedLeadingExtent = !orientationChanged ? splitView.requestedDividerPosition(at: 0) : nil
+        let resolvedDefaultLeadingExtent = defaultLeadingExtent ?? round(totalExtent * defaultLeadingFraction)
+        let shouldHonorRequestedExtent = !orientationChanged && didSetInitialSplitPosition && !needsInitialSplitValidation
+        let requestedLeadingExtent = shouldHonorRequestedExtent ? splitView.requestedDividerPosition(at: 0) : nil
+        let shouldPreserveCurrentExtent = !orientationChanged && didSetInitialSplitPosition && !needsInitialSplitValidation
         let leadingExtent = requestedLeadingExtent
-            ?? (!orientationChanged && currentFirstExtent > 0 && currentSecondExtent > 0
+            ?? (shouldPreserveCurrentExtent && currentFirstExtent > 0 && currentSecondExtent > 0
                 ? (desiredFirstPane === currentFirstPane ? currentFirstExtent : currentSecondExtent)
-                : defaultLeadingExtent)
+                : resolvedDefaultLeadingExtent)
 
         let clampedPosition = SplitPaneSizing.clampedDividerPosition(
             proposed: leadingExtent,
@@ -207,6 +213,7 @@ final class TwoPaneTrackedSplitCoordinator {
         _ splitView: TrackedDividerSplitView,
         oldSize: NSSize,
         defaultLeadingFraction: CGFloat,
+        defaultLeadingExtent: CGFloat? = nil,
         minimumExtents: (leading: CGFloat, trailing: CGFloat),
         afterResize: (() -> Void)? = nil
     ) {
@@ -230,6 +237,7 @@ final class TwoPaneTrackedSplitCoordinator {
 
         let proposedLeadingExtent = splitView.requestedDividerPosition(at: 0)
             ?? currentDividerPosition(in: splitView)
+            ?? defaultLeadingExtent
             ?? round(totalExtent * defaultLeadingFraction)
         let targetLeadingExtent = SplitPaneSizing.clampedDividerPosition(
             proposed: proposedLeadingExtent,
@@ -257,8 +265,11 @@ final class TwoPaneTrackedSplitCoordinator {
         afterResize?()
 
         if hasValidInitialSplitPosition(in: splitView, minimumExtents: minimumExtents) {
-            didSetInitialSplitPosition = true
-            needsInitialSplitValidation = false
+            if didSetInitialSplitPosition {
+                needsInitialSplitValidation = false
+            } else {
+                needsInitialSplitValidation = true
+            }
             return
         }
 

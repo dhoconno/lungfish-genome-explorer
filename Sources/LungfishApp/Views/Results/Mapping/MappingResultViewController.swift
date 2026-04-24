@@ -415,8 +415,38 @@ extension MappingResultViewController: ResultViewportController {
 }
 
 extension MappingResultViewController: NSSplitViewDelegate {
+    public func splitView(
+        _ splitView: NSSplitView,
+        constrainSplitPosition proposedPosition: CGFloat,
+        ofSubviewAt dividerIndex: Int
+    ) -> CGFloat {
+        guard splitView === self.splitView else { return proposedPosition }
+        let extent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
+        let extents = minimumExtents(for: MappingPanelLayout.current())
+        return SplitPaneSizing.clampedDividerPosition(
+            proposed: proposedPosition,
+            containerExtent: extent,
+            minimumLeadingExtent: extents.leading,
+            minimumTrailingExtent: extents.trailing
+        )
+    }
+
+    public func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
+        guard let trackedSplitView = splitView as? TrackedDividerSplitView,
+              trackedSplitView === self.splitView else { return }
+        splitCoordinator.resizeSubviewsWithOldSize(
+            trackedSplitView,
+            oldSize: oldSize,
+            defaultLeadingFraction: defaultLeadingFraction(for: MappingPanelLayout.current()),
+            minimumExtents: minimumExtents(for: MappingPanelLayout.current())
+        )
+    }
+
     public func splitViewDidResizeSubviews(_ notification: Notification) {
         guard splitView.arrangedSubviews.count > 1 else { return }
+        if splitCoordinator.needsInitialSplitValidation {
+            scheduleInitialSplitValidationIfNeeded()
+        }
         splitCoordinator.splitViewDidResizeSubviews(
             splitView,
             minimumExtents: minimumExtents(for: MappingPanelLayout.current())

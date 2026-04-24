@@ -2633,6 +2633,12 @@ private struct InspectorReadStyleSection: View {
                 Divider()
             }
 
+            if viewModel.contentMode == .genomics,
+               viewModel.documentSectionViewModel.manifest != nil {
+                BundleBrowserViewSettingsSection(viewModel: viewModel.documentSectionViewModel)
+                Divider()
+            }
+
             InspectorSubsectionGrid(selection: $viewModel.selectedReadStyleViewSubsection)
 
             subsectionContent
@@ -3389,6 +3395,36 @@ private struct MappingViewSettingsSection: View {
                 Text("Detail left, list right").tag(MappingPanelLayout.detailLeading)
                 Text("List left, detail right").tag(MappingPanelLayout.listLeading)
                 Text("List above detail").tag(MappingPanelLayout.stacked)
+            }
+            .pickerStyle(.radioGroup)
+            .labelsHidden()
+        }
+    }
+}
+
+private struct BundleBrowserViewSettingsSection: View {
+    @Bindable var viewModel: DocumentSectionViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Reference Bundle Layout")
+                .font(.headline)
+
+            Text("Choose how the sequence list and genome detail panes share the bundle browser.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Picker("Layout", selection: Binding(
+                get: { viewModel.bundleBrowserPanelLayout },
+                set: { newValue in
+                    viewModel.bundleBrowserPanelLayout = newValue
+                    newValue.persist()
+                }
+            )) {
+                Text("Detail left, list right").tag(BundleBrowserPanelLayout.detailLeading)
+                Text("List left, detail right").tag(BundleBrowserPanelLayout.listLeading)
+                Text("List above detail").tag(BundleBrowserPanelLayout.stacked)
             }
             .pickerStyle(.radioGroup)
             .labelsHidden()

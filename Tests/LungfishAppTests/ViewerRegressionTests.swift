@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+@testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishWorkflow
 
@@ -44,5 +45,45 @@ final class ViewerRegressionTests: XCTestCase {
 
         XCTAssertEqual(drawer.testDrawerDivider.accessibilityIdentifier(), "fastq-metadata-drawer-divider")
         XCTAssertEqual(drawer.testDrawerDivider.accessibilityLabel(), "FASTQ metadata drawer resize handle")
+    }
+
+    func testHorizontalPanAmountUsesExplicitScrollDirectionPreference() {
+        let traditional = SequenceViewerView.horizontalPanAmountForTesting(
+            deltaX: 12,
+            scale: 3,
+            hasPreciseScrollingDeltas: true,
+            preference: .traditional,
+            isDirectionInvertedFromDevice: true
+        )
+        let natural = SequenceViewerView.horizontalPanAmountForTesting(
+            deltaX: 12,
+            scale: 3,
+            hasPreciseScrollingDeltas: true,
+            preference: .natural,
+            isDirectionInvertedFromDevice: true
+        )
+
+        XCTAssertEqual(traditional, 36, accuracy: 0.001)
+        XCTAssertEqual(natural, -36, accuracy: 0.001)
+    }
+
+    func testSystemHorizontalPanAmountFollowsSystemScrollDirection() {
+        let systemTraditional = SequenceViewerView.horizontalPanAmountForTesting(
+            deltaX: 12,
+            scale: 3,
+            hasPreciseScrollingDeltas: true,
+            preference: .system,
+            isDirectionInvertedFromDevice: false
+        )
+        let systemNatural = SequenceViewerView.horizontalPanAmountForTesting(
+            deltaX: 12,
+            scale: 3,
+            hasPreciseScrollingDeltas: true,
+            preference: .system,
+            isDirectionInvertedFromDevice: true
+        )
+
+        XCTAssertEqual(systemTraditional, 36, accuracy: 0.001)
+        XCTAssertEqual(systemNatural, -36, accuracy: 0.001)
     }
 }

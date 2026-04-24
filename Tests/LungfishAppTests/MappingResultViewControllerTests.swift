@@ -256,6 +256,44 @@ final class MappingResultViewControllerTests: XCTestCase {
         XCTAssertEqual(request.minMapQ, 27)
     }
 
+    func testLiveResizeDelegatePreservesUserMovedVerticalDivider() {
+        UserDefaults.standard.set(
+            MappingPanelLayout.listLeading.rawValue,
+            forKey: MappingPanelLayout.defaultsKey
+        )
+
+        let vc = MappingResultViewController()
+        vc.view.frame = NSRect(x: 0, y: 0, width: 1400, height: 800)
+        vc.configureForTesting(result: makeMappingResult(viewerBundleURL: nil))
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1400, height: 800),
+            styleMask: [.titled, .resizable, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = vc
+        window.setContentSize(NSSize(width: 1400, height: 800))
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
+        vc.viewDidLayout()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        let initialWidth = vc.testListContainer.frame.width
+        let targetPosition = initialWidth + 160
+        vc.testSplitView.setPosition(targetPosition, ofDividerAt: 0)
+        vc.splitViewDidResizeSubviews(Notification(name: .init("TestMappingSplitResize"), object: vc.testSplitView))
+
+        let movedWidth = vc.testListContainer.frame.width
+        XCTAssertGreaterThan(Swift.abs(movedWidth - initialWidth), CGFloat(80))
+
+        let oldSize = vc.testSplitView.frame.size
+        vc.testSplitView.setFrameSize(NSSize(width: oldSize.width + 220, height: oldSize.height))
+        invokeOptionalSplitResizeDelegate(on: vc, splitView: vc.testSplitView, oldSize: oldSize)
+
+        XCTAssertEqual(vc.testListContainer.frame.width, movedWidth, accuracy: 2)
+    }
+
     private func makeMappingResult(viewerBundleURL: URL? = nil) -> MappingResult {
         MappingResult(
             mapper: .minimap2,
@@ -364,5 +402,17 @@ final class MappingResultViewControllerTests: XCTestCase {
 
         XCTAssertTrue(succeeded, "Inspector-triggered mapping reload should succeed")
         XCTAssertNil(error)
+    }
+
+    private func invokeOptionalSplitResizeDelegate(
+        on controller: NSObject,
+        splitView: NSSplitView,
+        oldSize: NSSize
+    ) {
+        let selector = NSSelectorFromString("splitView:resizeSubviewsWithOldSize:")
+        XCTAssertTrue(controller.responds(to: selector), "Expected custom split live-resize delegate")
+        guard let method = controller.method(for: selector) else { return XCTFail("Missing split resize delegate method") }
+        typealias ResizeIMP = @convention(c) (AnyObject, Selector, NSSplitView, NSSize) -> Void
+        unsafeBitCast(method, to: ResizeIMP.self)(controller, selector, splitView, oldSize)
     }
 }

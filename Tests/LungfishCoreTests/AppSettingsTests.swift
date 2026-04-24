@@ -57,6 +57,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertFalse(settings.aiSearchEnabled)
         XCTAssertEqual(settings.defaultAnnotationHeight, 16)
         XCTAssertEqual(settings.defaultAnnotationSpacing, 2)
+        XCTAssertEqual(settings.horizontalScrollDirection, .traditional)
     }
 
     @MainActor
@@ -212,6 +213,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.maxUndoLevels, 100)
         XCTAssertEqual(settings.vcfImportProfile, "auto")
         XCTAssertEqual(settings.variantColorThemeName, VariantColorTheme.modern.name)
+        XCTAssertEqual(settings.horizontalScrollDirection, .traditional)
     }
 
     @MainActor

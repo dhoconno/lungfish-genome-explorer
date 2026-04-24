@@ -5,6 +5,11 @@ import XCTest
 
 @MainActor
 final class BundleBrowserViewControllerTests: XCTestCase {
+    override func tearDown() {
+        UserDefaults.standard.removeObject(forKey: "bundleBrowserPanelLayout")
+        super.tearDown()
+    }
+
     func testSequenceTableHidesAlignmentColumnsWithoutMetricsAndShowsFASTAColumns() {
         let table = BundleBrowserSequenceTableView()
         table.configure(rows: makeSummaryWithoutMetrics().sequences)
@@ -118,6 +123,111 @@ final class BundleBrowserViewControllerTests: XCTestCase {
         XCTAssertNil(captured.selectedSequenceName)
     }
 
+    func testLayoutPreferenceCanPlaceDetailBeforeList() {
+        UserDefaults.standard.set(
+            BundleBrowserPanelLayout.detailLeading.rawValue,
+            forKey: BundleBrowserPanelLayout.defaultsKey
+        )
+
+        let vc = BundleBrowserViewController()
+        _ = vc.view
+        vc.configure(summary: makeNarrowSummaryWithoutMetrics())
+
+        XCTAssertTrue(vc.testSplitView.isVertical)
+        XCTAssertTrue(vc.testSplitView.arrangedSubviews[0] === vc.testDetailPane)
+        XCTAssertTrue(vc.testSplitView.arrangedSubviews[1] === vc.testListPane)
+    }
+
+    func testLayoutPreferenceCanStackListAboveDetail() {
+        UserDefaults.standard.set(
+            BundleBrowserPanelLayout.stacked.rawValue,
+            forKey: BundleBrowserPanelLayout.defaultsKey
+        )
+
+        let vc = BundleBrowserViewController()
+        _ = vc.view
+        vc.configure(summary: makeNarrowSummaryWithoutMetrics())
+
+        XCTAssertFalse(vc.testSplitView.isVertical)
+        XCTAssertTrue(vc.testSplitView.arrangedSubviews[0] === vc.testListPane)
+        XCTAssertTrue(vc.testSplitView.arrangedSubviews[1] === vc.testDetailPane)
+    }
+
+    func testListLeadingDefaultWidthFitsVisibleColumnsAndGivesRemainderToDetail() {
+        UserDefaults.standard.set(
+            BundleBrowserPanelLayout.listLeading.rawValue,
+            forKey: BundleBrowserPanelLayout.defaultsKey
+        )
+
+        let vc = BundleBrowserViewController()
+        vc.view.frame = NSRect(x: 0, y: 0, width: 1600, height: 700)
+        vc.configure(summary: makeNarrowSummaryWithoutMetrics())
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1600, height: 700),
+            styleMask: [.titled, .resizable, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = vc
+        window.setContentSize(NSSize(width: 1600, height: 700))
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
+        vc.viewDidLayout()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        let listWidth = vc.testListPane.frame.width
+        let detailWidth = vc.testDetailPane.frame.width
+        let visibleColumnsWidth = vc.testVisibleSequenceTableColumnWidth
+        let debugContext = "view=\(vc.view.frame) inWindow=\(vc.view.window != nil) split=\(vc.testSplitView.frame) splitBounds=\(vc.testSplitView.bounds) detail=\(detailWidth) requested=\(String(describing: vc.testSplitView.requestedDividerPosition(at: 0)))"
+
+        XCTAssertGreaterThanOrEqual(listWidth, visibleColumnsWidth, debugContext)
+        XCTAssertLessThan(listWidth, 560, debugContext)
+        XCTAssertGreaterThan(detailWidth, listWidth * 1.8, debugContext)
+    }
+
+    func testLiveResizeDelegatePreservesUserMovedVerticalDivider() {
+        UserDefaults.standard.set(
+            BundleBrowserPanelLayout.listLeading.rawValue,
+            forKey: BundleBrowserPanelLayout.defaultsKey
+        )
+
+        let vc = BundleBrowserViewController()
+        vc.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 700)
+        vc.configure(summary: makeSummary())
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1200, height: 700),
+            styleMask: [.titled, .resizable, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = vc
+        window.setContentSize(NSSize(width: 1200, height: 700))
+        window.layoutIfNeeded()
+        vc.view.layoutSubtreeIfNeeded()
+        vc.viewDidLayout()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        let initialWidth = vc.testListPane.frame.width
+        let minimumLeadingWidth: CGFloat = 260
+        let maximumLeadingWidth = vc.testSplitView.bounds.width - 320
+        let targetPosition = maximumLeadingWidth - initialWidth >= 120
+            ? initialWidth + 140
+            : max(minimumLeadingWidth, initialWidth - 160)
+        vc.testSplitView.setPosition(targetPosition, ofDividerAt: 0)
+        vc.splitViewDidResizeSubviews(Notification(name: .init("TestBundleSplitResize"), object: vc.testSplitView))
+
+        let movedWidth = vc.testListPane.frame.width
+        XCTAssertGreaterThan(Swift.abs(movedWidth - initialWidth), CGFloat(80))
+
+        let oldSize = vc.testSplitView.frame.size
+        vc.testSplitView.setFrameSize(NSSize(width: oldSize.width + 180, height: oldSize.height))
+        invokeOptionalSplitResizeDelegate(on: vc, splitView: vc.testSplitView, oldSize: oldSize)
+
+        XCTAssertEqual(vc.testListPane.frame.width, movedWidth, accuracy: 2)
+    }
+
     private func makeSummary() -> BundleBrowserSummary {
         BundleBrowserSummary(
             schemaVersion: 1,
@@ -196,6 +306,29 @@ final class BundleBrowserViewControllerTests: XCTestCase {
         )
     }
 
+    private func makeNarrowSummaryWithoutMetrics() -> BundleBrowserSummary {
+        BundleBrowserSummary(
+            schemaVersion: 1,
+            aggregate: .init(
+                annotationTrackCount: 1,
+                variantTrackCount: 0,
+                alignmentTrackCount: 0,
+                totalMappedReads: nil
+            ),
+            sequences: [
+                BundleBrowserSequenceSummary(
+                    name: "MF0214_2__h2tg000003l_28523125_35203480",
+                    displayDescription: nil,
+                    length: 6_680_356,
+                    aliases: [],
+                    isPrimary: true,
+                    isMitochondrial: false,
+                    metrics: nil
+                )
+            ]
+        )
+    }
+
     private func makeScrollableSummary() -> BundleBrowserSummary {
         BundleBrowserSummary(
             schemaVersion: 1,
@@ -217,5 +350,17 @@ final class BundleBrowserViewControllerTests: XCTestCase {
                 )
             }
         )
+    }
+
+    private func invokeOptionalSplitResizeDelegate(
+        on controller: NSObject,
+        splitView: NSSplitView,
+        oldSize: NSSize
+    ) {
+        let selector = NSSelectorFromString("splitView:resizeSubviewsWithOldSize:")
+        XCTAssertTrue(controller.responds(to: selector), "Expected custom split live-resize delegate")
+        guard let method = controller.method(for: selector) else { return XCTFail("Missing split resize delegate method") }
+        typealias ResizeIMP = @convention(c) (AnyObject, Selector, NSSplitView, NSSize) -> Void
+        unsafeBitCast(method, to: ResizeIMP.self)(controller, selector, splitView, oldSize)
     }
 }

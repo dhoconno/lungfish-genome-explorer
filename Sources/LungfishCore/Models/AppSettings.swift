@@ -98,7 +98,7 @@ public final class AppSettings: Sendable {
     public var defaultAnnotationSpacing: Double = 2
 
     /// Scroll direction preference for horizontal panning in the viewport.
-    public var horizontalScrollDirection: ScrollDirectionPreference = .system
+    public var horizontalScrollDirection: ScrollDirectionPreference = .traditional
 
     /// Scroll direction preference for vertical scrolling in stacked rows.
     public var verticalScrollDirection: ScrollDirectionPreference = .system
@@ -366,7 +366,7 @@ public final class AppSettings: Sendable {
             variantColorThemeName = try container.decodeIfPresent(String.self, forKey: .variantColorThemeName) ?? VariantColorTheme.modern.name
             defaultAnnotationHeight = try container.decodeIfPresent(Double.self, forKey: .defaultAnnotationHeight) ?? 16
             defaultAnnotationSpacing = try container.decodeIfPresent(Double.self, forKey: .defaultAnnotationSpacing) ?? 2
-            horizontalScrollDirection = try container.decodeIfPresent(ScrollDirectionPreference.self, forKey: .horizontalScrollDirection) ?? .system
+            horizontalScrollDirection = try container.decodeIfPresent(ScrollDirectionPreference.self, forKey: .horizontalScrollDirection) ?? .traditional
             verticalScrollDirection = try container.decodeIfPresent(ScrollDirectionPreference.self, forKey: .verticalScrollDirection) ?? .system
             // Rendering
             maxAnnotationRows = try container.decodeIfPresent(Int.self, forKey: .maxAnnotationRows) ?? 50

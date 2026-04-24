@@ -258,6 +258,9 @@ public final class DocumentSectionViewModel {
     /// Persisted mapping layout preference.
     var mappingPanelLayout: MappingPanelLayout = .current()
 
+    /// Persisted reference-bundle browser layout preference.
+    var bundleBrowserPanelLayout: BundleBrowserPanelLayout = .current()
+
     // MARK: - Unified Classifier Sample Picker
     /// Shared classifier sample picker state for Inspector-embedded sample selector.
     var classifierPickerState: ClassifierSamplePickerState?

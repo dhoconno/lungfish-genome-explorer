@@ -217,6 +217,12 @@ final class BundleBrowserSequenceTableView: BatchTableView<BundleBrowserSequence
         tableView.selectRowIndexes(IndexSet(integer: rowIndex), byExtendingSelection: false)
     }
 
+    var visibleColumnWidth: CGFloat {
+        tableView.tableColumns
+            .filter { !$0.isHidden }
+            .reduce(CGFloat(0)) { $0 + $1.width }
+    }
+
     private var numericFont: NSFont {
         .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
     }
@@ -241,7 +247,8 @@ final class BundleBrowserViewController: NSViewController {
     private var preferredSelectedSequenceName: String?
     private var loadedBundleURL: URL?
 
-    private let splitView = NSSplitView()
+    private let splitView = TrackedDividerSplitView()
+    private let splitCoordinator = TwoPaneTrackedSplitCoordinator()
     private let listPane = NSView()
     private let detailPane = NSView()
     private let sequenceTableView = BundleBrowserSequenceTableView()
@@ -270,6 +277,26 @@ final class BundleBrowserViewController: NSViewController {
             splitView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             splitView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleLayoutPreferenceChanged),
+            name: .bundleBrowserLayoutSwapRequested,
+            object: nil
+        )
+        applyLayoutPreference()
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        guard splitView.arrangedSubviews.count > 1 else { return }
+        guard splitCoordinator.needsInitialSplitValidation else { return }
+        applyLayoutPreference()
+        scheduleInitialSplitValidationIfNeeded()
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     func configure(summary: BundleBrowserSummary, bundleURL: URL? = nil, restoredState: BundleBrowserState? = nil) {
@@ -287,6 +314,7 @@ final class BundleBrowserViewController: NSViewController {
         sequenceTableView.configure(rows: summary.sequences)
         sequenceTableView.setFilterText(state.filterText)
         sequenceTableView.restoreScrollOriginY(state.scrollOriginY)
+        applyLayoutPreference()
     }
 
     func captureState() -> BundleBrowserState {
@@ -308,6 +336,10 @@ final class BundleBrowserViewController: NSViewController {
     var testFilterText: String { sequenceTableView.currentFilterText }
     var testScrollOriginY: CGFloat { sequenceTableView.currentScrollOriginY }
     var testOpenButtonEnabled: Bool { openButton.isEnabled }
+    var testSplitView: TrackedDividerSplitView { splitView }
+    var testListPane: NSView { listPane }
+    var testDetailPane: NSView { detailPane }
+    var testVisibleSequenceTableColumnWidth: CGFloat { sequenceTableView.visibleColumnWidth }
 
     func testSetFilterText(_ text: String) {
         sequenceTableView.setFilterText(text)
@@ -331,20 +363,101 @@ final class BundleBrowserViewController: NSViewController {
 
     private func configureSplitView() {
         splitView.translatesAutoresizingMaskIntoConstraints = false
-        splitView.isVertical = true
+        splitView.isVertical = BundleBrowserPanelLayout.current() != .stacked
         splitView.dividerStyle = .thin
+        splitView.delegate = self
         splitView.setHoldingPriority(.defaultLow, forSubviewAt: 0)
-        splitView.setPosition(340, ofDividerAt: 0)
 
         listPane.translatesAutoresizingMaskIntoConstraints = false
         detailPane.translatesAutoresizingMaskIntoConstraints = false
-        splitView.addArrangedSubview(listPane)
-        splitView.addArrangedSubview(detailPane)
+        if BundleBrowserPanelLayout.current() == .detailLeading {
+            splitView.addArrangedSubview(detailPane)
+            splitView.addArrangedSubview(listPane)
+        } else {
+            splitView.addArrangedSubview(listPane)
+            splitView.addArrangedSubview(detailPane)
+        }
 
         NSLayoutConstraint.activate([
             listPane.widthAnchor.constraint(greaterThanOrEqualToConstant: 260),
             detailPane.widthAnchor.constraint(greaterThanOrEqualToConstant: 280),
         ])
+    }
+
+    @objc private func handleLayoutPreferenceChanged() {
+        applyLayoutPreference()
+    }
+
+    private func defaultLeadingFraction(for layout: BundleBrowserPanelLayout) -> CGFloat {
+        switch layout {
+        case .detailLeading:
+            return 0.65
+        case .listLeading:
+            return 0.35
+        case .stacked:
+            return 0.38
+        }
+    }
+
+    private func minimumExtents(for layout: BundleBrowserPanelLayout) -> (leading: CGFloat, trailing: CGFloat) {
+        switch layout {
+        case .detailLeading:
+            return (320, 260)
+        case .listLeading, .stacked:
+            return (260, 320)
+        }
+    }
+
+    private func preferredListPaneWidth() -> CGFloat {
+        let visibleColumnWidth = sequenceTableView.visibleColumnWidth
+        guard visibleColumnWidth > 0 else { return 340 }
+        return ceil(visibleColumnWidth + 28)
+    }
+
+    private func defaultLeadingExtent(for layout: BundleBrowserPanelLayout) -> CGFloat? {
+        let totalExtent = layout == .stacked ? splitView.bounds.height : splitView.bounds.width
+        guard totalExtent > 0 else { return nil }
+
+        switch layout {
+        case .listLeading:
+            return preferredListPaneWidth()
+        case .detailLeading:
+            return max(0, totalExtent - preferredListPaneWidth() - splitView.dividerThickness)
+        case .stacked:
+            return nil
+        }
+    }
+
+    private func applyLayoutPreference() {
+        guard splitView.arrangedSubviews.count == 2 else { return }
+        let layout = BundleBrowserPanelLayout.current()
+        let detailLeading = layout == .detailLeading
+        splitCoordinator.applyLayoutPreference(
+            to: splitView,
+            desiredIsVertical: layout != .stacked,
+            desiredFirstPane: detailLeading ? detailPane : listPane,
+            desiredSecondPane: detailLeading ? listPane : detailPane,
+            defaultLeadingFraction: defaultLeadingFraction(for: layout),
+            defaultLeadingExtent: defaultLeadingExtent(for: layout),
+            minimumExtents: minimumExtents(for: layout),
+            isViewInWindow: view.window != nil
+        )
+    }
+
+    private func scheduleInitialSplitValidationIfNeeded() {
+        splitCoordinator.scheduleInitialSplitValidationIfNeeded(
+            ownerView: view,
+            splitView: splitView,
+            minimumExtents: { [weak self] in
+                self?.minimumExtents(for: BundleBrowserPanelLayout.current()) ?? (260, 320)
+            },
+            defaultLeadingFraction: { [weak self] in
+                self?.defaultLeadingFraction(for: BundleBrowserPanelLayout.current()) ?? 0.35
+            },
+            defaultLeadingExtent: { [weak self] in
+                self?.defaultLeadingExtent(for: BundleBrowserPanelLayout.current())
+            }
+        )
     }
 
     private func configureListPane() {
@@ -491,5 +604,46 @@ final class BundleBrowserViewController: NSViewController {
             detailPlaceholderLabel.stringValue = "Unable to load sequence detail for \(row.name)."
             detailPlaceholderLabel.isHidden = false
         }
+    }
+}
+
+extension BundleBrowserViewController: NSSplitViewDelegate {
+    func splitView(
+        _ splitView: NSSplitView,
+        constrainSplitPosition proposedPosition: CGFloat,
+        ofSubviewAt dividerIndex: Int
+    ) -> CGFloat {
+        guard splitView === self.splitView else { return proposedPosition }
+        let extent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
+        let extents = minimumExtents(for: BundleBrowserPanelLayout.current())
+        return SplitPaneSizing.clampedDividerPosition(
+            proposed: proposedPosition,
+            containerExtent: extent,
+            minimumLeadingExtent: extents.leading,
+            minimumTrailingExtent: extents.trailing
+        )
+    }
+
+    func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
+        guard let trackedSplitView = splitView as? TrackedDividerSplitView,
+              trackedSplitView === self.splitView else { return }
+        splitCoordinator.resizeSubviewsWithOldSize(
+            trackedSplitView,
+            oldSize: oldSize,
+            defaultLeadingFraction: defaultLeadingFraction(for: BundleBrowserPanelLayout.current()),
+            defaultLeadingExtent: defaultLeadingExtent(for: BundleBrowserPanelLayout.current()),
+            minimumExtents: minimumExtents(for: BundleBrowserPanelLayout.current())
+        )
+    }
+
+    func splitViewDidResizeSubviews(_ notification: Notification) {
+        guard notification.object as? NSSplitView === splitView else { return }
+        if splitCoordinator.needsInitialSplitValidation {
+            scheduleInitialSplitValidationIfNeeded()
+        }
+        splitCoordinator.splitViewDidResizeSubviews(
+            splitView,
+            minimumExtents: minimumExtents(for: BundleBrowserPanelLayout.current())
+        )
     }
 }
