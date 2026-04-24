@@ -135,7 +135,7 @@ func testOntDialogShowsHifiasmAndKeepsRunEnabled() throws {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter 'AssemblyCompatibilityTests|FASTQOperationDialogRoutingTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter 'AssemblyCompatibilityTests|FASTQOperationDialogRoutingTests'
 scripts/testing/run-macos-xcui.sh LungfishXCUITests/AssemblyXCUITests/testOntDialogShowsHifiasmAndKeepsRunEnabled
 ```
 
@@ -187,7 +187,7 @@ Keep the ONT tool order as `[.flye, .hifiasm]` so existing default-tool behavior
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter 'AssemblyCompatibilityTests|FASTQOperationDialogRoutingTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter 'AssemblyCompatibilityTests|FASTQOperationDialogRoutingTests'
 scripts/testing/run-macos-xcui.sh LungfishXCUITests/AssemblyXCUITests/testOntDialogShowsHifiasmAndKeepsRunEnabled
 ```
 
@@ -285,7 +285,7 @@ func testHifiasmTopologyErrorUsesDualLongReadLabel() {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter 'ManagedAssemblyPipelineTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter 'ManagedAssemblyPipelineTests'
 ```
 
 Expected:
@@ -330,7 +330,7 @@ Do not change the output normalization path or create a second tool variant. The
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter 'ManagedAssemblyPipelineTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter 'ManagedAssemblyPipelineTests'
 ```
 
 Expected:
@@ -354,7 +354,7 @@ git commit -m "feat: add ont mode for hifiasm"
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter 'AssemblyCompatibilityTests|FASTQOperationDialogRoutingTests|ManagedAssemblyPipelineTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter 'AssemblyCompatibilityTests|FASTQOperationDialogRoutingTests|ManagedAssemblyPipelineTests'
 ```
 
 Expected:
@@ -376,7 +376,7 @@ Expected:
 Run:
 
 ```bash
-swift build --package-path /Users/dho/Documents/lungfish-genome-browser --product Lungfish
+swift build --package-path /Users/dho/Documents/lungfish-genome-explorer --product Lungfish
 ```
 
 Expected:

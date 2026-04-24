@@ -97,7 +97,7 @@ final class InspectorAssemblyModeTests: XCTestCase {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter InspectorAssemblyModeTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter InspectorAssemblyModeTests
 ```
 
 Expected: FAIL with a compile error because `ViewportContentMode` has no `assembly` case.
@@ -165,7 +165,7 @@ var availableTabs: [InspectorTab] {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter InspectorAssemblyModeTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter InspectorAssemblyModeTests
 ```
 
 Expected: PASS with `2 tests passed`.
@@ -236,7 +236,7 @@ final class AssemblyDocumentSectionTests: XCTestCase {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter AssemblyDocumentSectionTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter AssemblyDocumentSectionTests
 ```
 
 Expected: FAIL with compile errors because `AssemblyDocumentState` and `AssemblyDocumentSection` do not exist.
@@ -355,7 +355,7 @@ public struct DocumentSection: View {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter AssemblyDocumentSectionTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter AssemblyDocumentSectionTests
 ```
 
 Expected: PASS with `2 tests passed`.
@@ -418,7 +418,7 @@ final class AssemblyInspectorSourceResolverTests: XCTestCase {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter AssemblyInspectorSourceResolverTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter AssemblyInspectorSourceResolverTests
 ```
 
 Expected: FAIL with compile errors because `AssemblyInspectorSourceResolver` does not exist.
@@ -517,7 +517,7 @@ private func displayAssemblyAnalysisFromSidebar(at url: URL) {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter AssemblyInspectorSourceResolverTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter AssemblyInspectorSourceResolverTests
 ```
 
 Expected: PASS with `2 tests passed`.
@@ -573,7 +573,7 @@ func testMultiSelectionShowsSelectionSummaryAndPreviewRows() async throws {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter AssemblyResultViewControllerTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter AssemblyResultViewControllerTests
 ```
 
 Expected: FAIL because the detail pane still renders `Assembly Context` and `Source Artifacts`.
@@ -658,7 +658,7 @@ private func showSelection(rows: [AssemblyContigRecord]) async {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter AssemblyResultViewControllerTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter AssemblyResultViewControllerTests
 ```
 
 Expected: PASS with the updated reads-style assertions.
@@ -727,7 +727,7 @@ final class FASTASequenceActionMenuBuilderTests: XCTestCase {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter FASTA
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter FASTA
 ```
 
 Expected: FAIL with compile errors because the FASTA action builder and catalog do not exist.
@@ -969,7 +969,7 @@ public func displayFASTACollection(
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter FASTA
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter FASTA
 ```
 
 Expected: PASS with the FASTA catalog, menu-builder, and collection-view tests all green.
@@ -979,7 +979,7 @@ Expected: PASS with the FASTA catalog, menu-builder, and collection-view tests a
 Run:
 
 ```bash
-xcodebuild test -project /Users/dho/Documents/lungfish-genome-browser/Lungfish.xcodeproj -scheme Lungfish -only-testing:LungfishXCUITests/AssemblyXCUITests/testSpadesDeterministicRunShowsResultViewport
+xcodebuild test -project /Users/dho/Documents/lungfish-genome-explorer/Lungfish.xcodeproj -scheme Lungfish -only-testing:LungfishXCUITests/AssemblyXCUITests/testSpadesDeterministicRunShowsResultViewport
 ```
 
 Expected: PASS with `** TEST SUCCEEDED **`.

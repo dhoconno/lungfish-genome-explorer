@@ -29,7 +29,7 @@ but this does not:
 
 ### 2.1 Batch EsViritu skips input materialization
 
-In [`AppDelegate.swift`](/Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/App/AppDelegate.swift), single-sample EsViritu resolves/materializes bundle inputs before pipeline execution (`runEsViritu(config:)`), but `runEsVirituBatch(configs:)` does not.
+In [`AppDelegate.swift`](/Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/App/AppDelegate.swift), single-sample EsViritu resolves/materializes bundle inputs before pipeline execution (`runEsViritu(config:)`), but `runEsVirituBatch(configs:)` does not.
 
 ### 2.2 Wizard intentionally passes bundle URLs
 

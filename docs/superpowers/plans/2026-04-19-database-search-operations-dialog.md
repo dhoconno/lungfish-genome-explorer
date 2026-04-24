@@ -1840,7 +1840,7 @@ final class DatabaseSearchXCUITests: XCTestCase {
 
 - [ ] **Step 2: Run the new XCUI command to verify it fails before the Xcode target exists**
 
-Run: `xcodebuild test -project /Users/dho/Documents/lungfish-genome-browser/.worktrees/search-online-database-refactor/Lungfish.xcodeproj -scheme Lungfish -destination 'platform=macOS' -only-testing:LungfishXCUITests/DatabaseSearchXCUITests`
+Run: `xcodebuild test -project /Users/dho/Documents/lungfish-genome-explorer/.worktrees/search-online-database-refactor/Lungfish.xcodeproj -scheme Lungfish -destination 'platform=macOS' -only-testing:LungfishXCUITests/DatabaseSearchXCUITests`
 Expected: failure because `LungfishXCUITests` is not yet a testable target in the Xcode project or shared scheme.
 
 - [ ] **Step 3: Add the real `LungfishXCUITests` bundle target and include it in the shared scheme**
@@ -1860,7 +1860,7 @@ The shared scheme must end up with a `TestableReference` that points at `Bluepri
 
 - [ ] **Step 4: Run the menu-driven XCUI flow end-to-end**
 
-Run: `xcodebuild test -project /Users/dho/Documents/lungfish-genome-browser/.worktrees/search-online-database-refactor/Lungfish.xcodeproj -scheme Lungfish -destination 'platform=macOS' -only-testing:LungfishXCUITests/DatabaseSearchXCUITests`
+Run: `xcodebuild test -project /Users/dho/Documents/lungfish-genome-explorer/.worktrees/search-online-database-refactor/Lungfish.xcodeproj -scheme Lungfish -destination 'platform=macOS' -only-testing:LungfishXCUITests/DatabaseSearchXCUITests`
 Expected: the new app-driven GUI tests PASS, proving:
 
 - the app launches in reusable UI-test mode

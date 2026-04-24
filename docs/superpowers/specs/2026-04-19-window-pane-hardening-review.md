@@ -16,13 +16,13 @@ The goal is not to prescribe another round of one-off fixes. The goal is to defi
 
 Primary code paths reviewed:
 
-- `/Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift`
-- `/Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/MainWindow/MainWindowController.swift`
-- `/Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Layout/SplitShellWidthCoordinator.swift`
-- `/Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Layout/TwoPaneTrackedSplitCoordinator.swift`
-- `/Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Layout/SplitPaneSizing.swift`
-- `/Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Layout/SplitPaneFillContainerView.swift`
-- `/Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Layout/ScrollViewSplitPaneContainerView.swift`
+- `/Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift`
+- `/Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/MainWindow/MainWindowController.swift`
+- `/Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Layout/SplitShellWidthCoordinator.swift`
+- `/Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Layout/TwoPaneTrackedSplitCoordinator.swift`
+- `/Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Layout/SplitPaneSizing.swift`
+- `/Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Layout/SplitPaneFillContainerView.swift`
+- `/Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Layout/ScrollViewSplitPaneContainerView.swift`
 - current viewer adopters in `EsViritu`, `NVD`, `NAO-MGS`, `TaxTriage`, and `Taxonomy`
 - adjacent split users including `FASTQDatasetViewController`, `WorkflowBuilderViewController`, and `HelpWindowController`
 

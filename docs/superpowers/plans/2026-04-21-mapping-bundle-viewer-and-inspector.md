@@ -4,7 +4,7 @@
 
 **Goal:** Turn managed mapping results into a first-class mapping analysis surface with a classifier-style contig list, mapping-specific document inspector, layout controls, annotation-driven read extraction, and miniBAM-style zoom shortcut parity in the embedded BAM/reference viewer.
 
-**Design input:** `/Users/dho/Documents/lungfish-genome-browser/docs/superpowers/specs/2026-04-21-mapping-bundle-viewer-design.md`
+**Design input:** `/Users/dho/Documents/lungfish-genome-explorer/docs/superpowers/specs/2026-04-21-mapping-bundle-viewer-design.md`
 
 **Review status:** Spec ratified by biologist, bioinformatics, and Swift/AppKit architecture reviewers. Residual implementation watchpoints:
 
@@ -138,7 +138,7 @@ This split gives clean ownership boundaries for provenance/state, inspector/mode
 - [ ] Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter 'MappingProvenanceTests|MappingDocumentStateBuilderTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter 'MappingProvenanceTests|MappingDocumentStateBuilderTests'
 ```
 
 Expected: pass.
@@ -193,7 +193,7 @@ Expected: pass.
 - [ ] Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter 'InspectorMappingModeTests|MappingDocumentSectionTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter 'InspectorMappingModeTests|MappingDocumentSectionTests'
 ```
 
 Expected: pass.
@@ -246,7 +246,7 @@ Expected: pass.
 - [ ] Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter 'MappingResultViewControllerTests|MappingViewportRoutingTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter 'MappingResultViewControllerTests|MappingViewportRoutingTests'
 ```
 
 Expected: pass.
@@ -292,7 +292,7 @@ Expected: pass.
 - [ ] Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter 'MappingAnnotationActionCoordinatorTests|ViewerZoomShortcutHandlerTests|ReadExtractionServiceTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter 'MappingAnnotationActionCoordinatorTests|ViewerZoomShortcutHandlerTests|ReadExtractionServiceTests'
 ```
 
 Expected: pass.
@@ -329,15 +329,15 @@ Expected: pass.
 - [ ] Run focused verification:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter 'MappingProvenanceTests|MappingDocumentStateBuilderTests|InspectorMappingModeTests|MappingDocumentSectionTests|MappingResultViewControllerTests|MappingViewportRoutingTests|MappingAnnotationActionCoordinatorTests|ViewerZoomShortcutHandlerTests|ReadExtractionServiceTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter 'MappingProvenanceTests|MappingDocumentStateBuilderTests|InspectorMappingModeTests|MappingDocumentSectionTests|MappingResultViewControllerTests|MappingViewportRoutingTests|MappingAnnotationActionCoordinatorTests|ViewerZoomShortcutHandlerTests|ReadExtractionServiceTests'
 ```
 
 ```bash
-xcodebuild -project /Users/dho/Documents/lungfish-genome-browser/Lungfish.xcodeproj -scheme Lungfish -configuration Debug -destination 'platform=macOS,arch=arm64' test -only-testing:LungfishXCUITests/MappingXCUITests
+xcodebuild -project /Users/dho/Documents/lungfish-genome-explorer/Lungfish.xcodeproj -scheme Lungfish -configuration Debug -destination 'platform=macOS,arch=arm64' test -only-testing:LungfishXCUITests/MappingXCUITests
 ```
 
 ```bash
-xcodebuild -project /Users/dho/Documents/lungfish-genome-browser/Lungfish.xcodeproj -scheme Lungfish -configuration Debug -destination 'platform=macOS,arch=arm64' build
+xcodebuild -project /Users/dho/Documents/lungfish-genome-explorer/Lungfish.xcodeproj -scheme Lungfish -configuration Debug -destination 'platform=macOS,arch=arm64' build
 ```
 
 Expected:

@@ -1928,10 +1928,10 @@ Expected: PASS.
 Run:
 
 ```bash
-du -sh /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishWorkflow/Resources/Tools
-/usr/bin/time -l bash -lc 'cd /Users/dho/Documents/lungfish-genome-browser && ./scripts/bundle-native-tools.sh --arch arm64'
-du -sh /Users/dho/Documents/lungfish-genome-browser/.worktrees/base-tools-launch-refactor/Sources/LungfishWorkflow/Resources/Tools
-/usr/bin/time -l bash -lc 'cd /Users/dho/Documents/lungfish-genome-browser/.worktrees/base-tools-launch-refactor && ./scripts/bundle-native-tools.sh --arch arm64'
+du -sh /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishWorkflow/Resources/Tools
+/usr/bin/time -l bash -lc 'cd /Users/dho/Documents/lungfish-genome-explorer && ./scripts/bundle-native-tools.sh --arch arm64'
+du -sh /Users/dho/Documents/lungfish-genome-explorer/.worktrees/base-tools-launch-refactor/Sources/LungfishWorkflow/Resources/Tools
+/usr/bin/time -l bash -lc 'cd /Users/dho/Documents/lungfish-genome-explorer/.worktrees/base-tools-launch-refactor && ./scripts/bundle-native-tools.sh --arch arm64'
 ```
 
 Expected: the refactor worktree reports a materially smaller `Resources/Tools` footprint and a shorter native-tool staging run than the untouched main workspace.
@@ -1942,8 +1942,8 @@ Run:
 
 ```bash
 if [ -n "${LUNGFISH_SIGNING_IDENTITY:-}" ] && [ -n "${LUNGFISH_TEAM_ID:-}" ] && [ -n "${LUNGFISH_NOTARY_PROFILE:-}" ]; then
-  /usr/bin/time -l bash -lc 'cd /Users/dho/Documents/lungfish-genome-browser && ./scripts/release/build-notarized-dmg.sh --signing-identity "$LUNGFISH_SIGNING_IDENTITY" --team-id "$LUNGFISH_TEAM_ID" --notary-profile "$LUNGFISH_NOTARY_PROFILE"'
-  /usr/bin/time -l bash -lc 'cd /Users/dho/Documents/lungfish-genome-browser/.worktrees/base-tools-launch-refactor && ./scripts/release/build-notarized-dmg.sh --signing-identity "$LUNGFISH_SIGNING_IDENTITY" --team-id "$LUNGFISH_TEAM_ID" --notary-profile "$LUNGFISH_NOTARY_PROFILE"'
+  /usr/bin/time -l bash -lc 'cd /Users/dho/Documents/lungfish-genome-explorer && ./scripts/release/build-notarized-dmg.sh --signing-identity "$LUNGFISH_SIGNING_IDENTITY" --team-id "$LUNGFISH_TEAM_ID" --notary-profile "$LUNGFISH_NOTARY_PROFILE"'
+  /usr/bin/time -l bash -lc 'cd /Users/dho/Documents/lungfish-genome-explorer/.worktrees/base-tools-launch-refactor && ./scripts/release/build-notarized-dmg.sh --signing-identity "$LUNGFISH_SIGNING_IDENTITY" --team-id "$LUNGFISH_TEAM_ID" --notary-profile "$LUNGFISH_NOTARY_PROFILE"'
 fi
 ```
 

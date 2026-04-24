@@ -122,8 +122,8 @@ The simplest way to install Lungfish Genome Explorer is to download the latest s
 ### Building from source
 
 ```bash
-git clone https://github.com/dhoconno/lungfish-genome-browser.git
-cd lungfish-genome-browser
+git clone https://github.com/dhoconno/lungfish-genome-explorer.git
+cd lungfish-genome-explorer
 swift build -c release --arch arm64
 ```
 

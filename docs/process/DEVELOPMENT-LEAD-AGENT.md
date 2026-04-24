@@ -151,7 +151,7 @@ cd .claude/worktrees/<name>
 git add -A && git commit -m "description"
 
 # 2. Merge to main
-cd /Users/dho/Documents/lungfish-genome-browser
+cd /Users/dho/Documents/lungfish-genome-explorer
 git merge <worktree-branch>
 
 # 3. Build and run from main

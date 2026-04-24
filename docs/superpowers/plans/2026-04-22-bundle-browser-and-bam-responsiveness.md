@@ -4,7 +4,7 @@
 
 **Goal:** Replace the old chromosome drawer with a default list/detail browser for every `.lungfishref` bundle and keep BAM-backed detail views responsive by switching to coverage-only rendering until the viewport is zoomed in enough for read-level detail to matter.
 
-**Design input:** `/Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge/docs/superpowers/specs/2026-04-22-bundle-browser-and-bam-responsiveness-design.md`
+**Design input:** `/Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge/docs/superpowers/specs/2026-04-22-bundle-browser-and-bam-responsiveness-design.md`
 
 **Architecture:** Add a typed `browser_summary` section to `BundleManifest` so Lungfish-written bundles carry an immediate open-time row cache. Layer a project-local SQLite mirror on top for legacy bundles and richer local metrics without mutating shared external manifests during open. Route bundle viewing through an explicit `BundleDisplayMode` so top-level bundle opens land in a new `BundleBrowserViewController`, while embedded mapping viewers still jump directly into sequence detail. Tighten BAM rendering with a dedicated read-visibility policy that treats coverage as the default zoomed-out mode and proactively drops read-level work when it is visually meaningless.
 
@@ -141,7 +141,7 @@ func testBundleManifestDecodesWithoutBrowserSummaryForLegacyBundles() throws {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge --filter BundleManifestTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge --filter BundleManifestTests
 ```
 
 Expected: failures because `BundleManifest` does not yet expose `browserSummary` and `save(to:)` does not synthesize one.
@@ -281,7 +281,7 @@ public func save(to bundleURL: URL) throws {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge --filter BundleManifestTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge --filter BundleManifestTests
 ```
 
 Expected: pass.
@@ -289,11 +289,11 @@ Expected: pass.
 - [ ] **Step 6: Commit the manifest contract**
 
 ```bash
-git -C /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge add \
+git -C /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge add \
   Sources/LungfishCore/Bundles/BundleBrowserSummary.swift \
   Sources/LungfishCore/Bundles/BundleManifest.swift \
   Tests/LungfishCoreTests/BundleManifestTests.swift
-git -C /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge commit -m "Add bundle browser summary manifest contract"
+git -C /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge commit -m "Add bundle browser summary manifest contract"
 ```
 
 ---
@@ -452,7 +452,7 @@ func testLoaderFallsBackToMirrorThenSynthesizedSummary() throws {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge --filter BundleBrowserLoaderTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge --filter BundleBrowserLoaderTests
 ```
 
 Expected: failures because `BundleBrowserMirrorStore`, `BundleBrowserLoader`, and the load-result types do not exist yet.
@@ -685,7 +685,7 @@ struct BundleBrowserLoader {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge --filter 'BundleBrowserLoaderTests|BundleManifestTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge --filter 'BundleBrowserLoaderTests|BundleManifestTests'
 ```
 
 Expected: pass.
@@ -693,12 +693,12 @@ Expected: pass.
 - [ ] **Step 7: Commit the loader layer**
 
 ```bash
-git -C /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge add \
+git -C /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge add \
   Sources/LungfishApp/Services/BundleSequenceSummarySynthesizer.swift \
   Sources/LungfishApp/Services/BundleBrowserMirrorStore.swift \
   Sources/LungfishApp/Services/BundleBrowserLoader.swift \
   Tests/LungfishAppTests/BundleBrowserLoaderTests.swift
-git -C /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge commit -m "Add bundle browser loader and project cache"
+git -C /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge commit -m "Add bundle browser loader and project cache"
 ```
 
 ---
@@ -775,7 +775,7 @@ final class BundleBrowserViewControllerTests: XCTestCase {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge --filter BundleBrowserViewControllerTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge --filter BundleBrowserViewControllerTests
 ```
 
 Expected: failures because `BundleBrowserViewController` and its test hooks do not exist.
@@ -1040,7 +1040,7 @@ private func updateDetailPane(for row: BundleBrowserSequenceSummary?) {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge --filter BundleBrowserViewControllerTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge --filter BundleBrowserViewControllerTests
 ```
 
 Expected: pass.
@@ -1048,10 +1048,10 @@ Expected: pass.
 - [ ] **Step 6: Commit the new browser controller**
 
 ```bash
-git -C /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge add \
+git -C /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge add \
   Sources/LungfishApp/Views/Viewer/BundleBrowserViewController.swift \
   Tests/LungfishAppTests/BundleBrowserViewControllerTests.swift
-git -C /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge commit -m "Add manifest-backed bundle browser view"
+git -C /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge commit -m "Add manifest-backed bundle browser view"
 ```
 
 ---
@@ -1142,7 +1142,7 @@ XCTAssertTrue(source.contains("displayBundle(at: standardized, mode: .sequence")
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge --filter 'BundleViewerTests|MappingResultViewControllerTests|MappingViewportRoutingTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge --filter 'BundleViewerTests|MappingResultViewControllerTests|MappingViewportRoutingTests'
 ```
 
 Expected: failures because `BundleDisplayMode` and the new `displayBundle(at:mode:)` API do not exist.
@@ -1399,7 +1399,7 @@ var testEmbeddedViewerShowsBundleBrowser: Bool {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge --filter 'BundleViewerTests|MappingResultViewControllerTests|MappingViewportRoutingTests|BundleBrowserViewControllerTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge --filter 'BundleViewerTests|MappingResultViewControllerTests|MappingViewportRoutingTests|BundleBrowserViewControllerTests'
 ```
 
 Expected: pass.
@@ -1407,7 +1407,7 @@ Expected: pass.
 - [ ] **Step 8: Commit the routing changes**
 
 ```bash
-git -C /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge add \
+git -C /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge add \
   Sources/LungfishApp/Views/Viewer/BundleDisplayMode.swift \
   Sources/LungfishApp/Views/Viewer/ViewerViewController.swift \
   Sources/LungfishApp/Views/Viewer/ViewerViewController+BundleDisplay.swift \
@@ -1416,7 +1416,7 @@ git -C /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridg
   Tests/LungfishAppTests/BundleViewerTests.swift \
   Tests/LungfishAppTests/MappingResultViewControllerTests.swift \
   Tests/LungfishAppTests/MappingViewportRoutingTests.swift
-git -C /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge commit -m "Route bundles through browser and direct sequence modes"
+git -C /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge commit -m "Route bundles through browser and direct sequence modes"
 ```
 
 ---
@@ -1477,7 +1477,7 @@ private func makeAlignedRead(name: String) -> AlignedRead {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge --filter 'ReadTrackRendererTests|SequenceViewerReadVisibilityTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge --filter 'ReadTrackRendererTests|SequenceViewerReadVisibilityTests'
 ```
 
 Expected: failures because `ReadViewportPolicy` does not exist and `ReadTrackRenderer.coverageThresholdBpPerPx` is still `10`.
@@ -1578,7 +1578,7 @@ Keep `readAtPoint(_:)` and any hover-specific methods gated by `tier != .coverag
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge --filter 'ReadTrackRendererTests|SequenceViewerReadVisibilityTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge --filter 'ReadTrackRendererTests|SequenceViewerReadVisibilityTests'
 ```
 
 Expected: pass.
@@ -1586,13 +1586,13 @@ Expected: pass.
 - [ ] **Step 7: Commit the BAM responsiveness changes**
 
 ```bash
-git -C /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge add \
+git -C /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge add \
   Sources/LungfishApp/Views/Viewer/ReadViewportPolicy.swift \
   Sources/LungfishApp/Views/Viewer/ReadTrackRenderer.swift \
   Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift \
   Tests/LungfishAppTests/ReadTrackRendererTests.swift \
   Tests/LungfishAppTests/SequenceViewerReadVisibilityTests.swift
-git -C /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge commit -m "Tighten BAM coverage-only rendering thresholds"
+git -C /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge commit -m "Tighten BAM coverage-only rendering thresholds"
 ```
 
 ---
@@ -1738,8 +1738,8 @@ var bundleBrowserView: XCUIElement {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge --filter 'BundleManifestTests|BundleBrowserLoaderTests|BundleBrowserViewControllerTests|BundleViewerTests|MappingResultViewControllerTests|MappingViewportRoutingTests|ReadTrackRendererTests|SequenceViewerReadVisibilityTests'
-xcodebuild test -project /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge/Lungfish.xcodeproj -scheme Lungfish -destination 'platform=macOS' -only-testing:LungfishXCUITests/BundleBrowserXCUITests -only-testing:LungfishXCUITests/MappingXCUITests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge --filter 'BundleManifestTests|BundleBrowserLoaderTests|BundleBrowserViewControllerTests|BundleViewerTests|MappingResultViewControllerTests|MappingViewportRoutingTests|ReadTrackRendererTests|SequenceViewerReadVisibilityTests'
+xcodebuild test -project /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge/Lungfish.xcodeproj -scheme Lungfish -destination 'platform=macOS' -only-testing:LungfishXCUITests/BundleBrowserXCUITests -only-testing:LungfishXCUITests/MappingXCUITests
 ```
 
 Expected: pass.
@@ -1747,23 +1747,23 @@ Expected: pass.
 - [ ] **Step 6: Commit the UI coverage and final integration changes**
 
 ```bash
-git -C /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge add \
+git -C /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge add \
   Tests/LungfishXCUITests/BundleBrowserXCUITests.swift \
   Tests/LungfishXCUITests/TestSupport/BundleBrowserRobot.swift \
   Tests/LungfishXCUITests/TestSupport/LungfishProjectFixtureBuilder.swift \
   Tests/LungfishXCUITests/MappingXCUITests.swift \
   Tests/LungfishXCUITests/TestSupport/MappingRobot.swift \
   Tests/LungfishAppTests/AppUITestMappingBackendTests.swift
-git -C /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge commit -m "Add bundle browser and BAM responsiveness test coverage"
+git -C /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge commit -m "Add bundle browser and BAM responsiveness test coverage"
 ```
 
 ---
 
 ## Final Verification Checklist
 
-- [ ] `swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge --filter 'BundleManifestTests|BundleBrowserLoaderTests|BundleBrowserViewControllerTests|BundleViewerTests|MappingResultViewControllerTests|MappingViewportRoutingTests|ReadTrackRendererTests|SequenceViewerReadVisibilityTests'`
-- [ ] `xcodebuild test -project /Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge/Lungfish.xcodeproj -scheme Lungfish -destination 'platform=macOS' -only-testing:LungfishXCUITests/BundleBrowserXCUITests -only-testing:LungfishXCUITests/MappingXCUITests`
-- [ ] Manual spot-check in the debug app from `/Users/dho/Documents/lungfish-genome-browser/.worktrees/fasta-fastq-bridge/.build/arm64-apple-macosx/debug/Lungfish`:
+- [ ] `swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge --filter 'BundleManifestTests|BundleBrowserLoaderTests|BundleBrowserViewControllerTests|BundleViewerTests|MappingResultViewControllerTests|MappingViewportRoutingTests|ReadTrackRendererTests|SequenceViewerReadVisibilityTests'`
+- [ ] `xcodebuild test -project /Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge/Lungfish.xcodeproj -scheme Lungfish -destination 'platform=macOS' -only-testing:LungfishXCUITests/BundleBrowserXCUITests -only-testing:LungfishXCUITests/MappingXCUITests`
+- [ ] Manual spot-check in the debug app from `/Users/dho/Documents/lungfish-genome-explorer/.worktrees/fasta-fastq-bridge/.build/arm64-apple-macosx/debug/Lungfish`:
   - open a single-sequence `.lungfishref` and verify it lands in the browser, not the old drawer
   - open a multi-sequence `.lungfishref` and verify the back button restores the last selected row
   - open a large BAM-backed mapping result and verify the initial view shows coverage without read-level lag

@@ -79,7 +79,7 @@ func testNotificationUserInfoKeysIncludeConsensusMaskingMinDepth() {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter ReadStyleSectionViewModelTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter ReadStyleSectionViewModelTests
 ```
 
 Expected:
@@ -185,7 +185,7 @@ and pass that value into the gap-masking path instead of `consensusMinDepth`.
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter ReadStyleSectionViewModelTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter ReadStyleSectionViewModelTests
 ```
 
 Expected:
@@ -197,7 +197,7 @@ Expected:
 Run:
 
 ```bash
-git add /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishCore/Models/Notifications.swift /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Inspector/InspectorViewController.swift /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Viewer/ViewerViewController.swift /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Viewer/ReadTrackRenderer.swift /Users/dho/Documents/lungfish-genome-browser/Tests/LungfishAppTests/ReadStyleSectionViewModelTests.swift
+git add /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishCore/Models/Notifications.swift /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Inspector/InspectorViewController.swift /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Viewer/ViewerViewController.swift /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Viewer/ReadTrackRenderer.swift /Users/dho/Documents/lungfish-genome-explorer/Tests/LungfishAppTests/ReadStyleSectionViewModelTests.swift
 git commit -m "feat: split consensus and masking depth controls"
 ```
 
@@ -249,7 +249,7 @@ func testMappingModeKeepsSelectionTabAvailableForReadStyleControls() {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter 'MappingResultViewControllerTests|InspectorMappingModeTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter 'MappingResultViewControllerTests|InspectorMappingModeTests'
 ```
 
 Expected:
@@ -378,7 +378,7 @@ Add `updateMappingAlignmentSection(from:applySettings:)` to `InspectorViewContro
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter 'MappingResultViewControllerTests|InspectorMappingModeTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter 'MappingResultViewControllerTests|InspectorMappingModeTests'
 ```
 
 Expected:
@@ -390,7 +390,7 @@ Expected:
 Run:
 
 ```bash
-git add /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Results/Mapping/MappingResultViewController.swift /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Inspector/InspectorViewController.swift /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Viewer/ViewerViewController.swift /Users/dho/Documents/lungfish-genome-browser/Tests/LungfishAppTests/MappingResultViewControllerTests.swift /Users/dho/Documents/lungfish-genome-browser/Tests/LungfishAppTests/InspectorMappingModeTests.swift
+git add /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Results/Mapping/MappingResultViewController.swift /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Inspector/InspectorViewController.swift /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Viewer/ViewerViewController.swift /Users/dho/Documents/lungfish-genome-explorer/Tests/LungfishAppTests/MappingResultViewControllerTests.swift /Users/dho/Documents/lungfish-genome-explorer/Tests/LungfishAppTests/InspectorMappingModeTests.swift
 git commit -m "feat: bridge mapping read-style controls to embedded viewer"
 ```
 
@@ -476,7 +476,7 @@ final class MappingConsensusExportRequestBuilderTests: XCTestCase {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter 'MappingConsensusExportRequestBuilderTests|MappingResultViewControllerTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter 'MappingConsensusExportRequestBuilderTests|MappingResultViewControllerTests'
 ```
 
 Expected:
@@ -715,7 +715,7 @@ Add the matching `testBuildConsensusExportRequest()` helper under the existing `
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter 'MappingConsensusExportRequestBuilderTests|MappingResultViewControllerTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter 'MappingConsensusExportRequestBuilderTests|MappingResultViewControllerTests'
 ```
 
 Expected:
@@ -727,7 +727,7 @@ Expected:
 Run:
 
 ```bash
-git add /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Results/Mapping/MappingConsensusExportRequestBuilder.swift /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Inspector/InspectorViewController.swift /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Results/Mapping/MappingResultViewController.swift /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Viewer/ViewerViewController+Mapping.swift /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Viewer/ViewerViewController+Extraction.swift /Users/dho/Documents/lungfish-genome-browser/Tests/LungfishAppTests/MappingConsensusExportRequestBuilderTests.swift /Users/dho/Documents/lungfish-genome-browser/Tests/LungfishAppTests/MappingResultViewControllerTests.swift
+git add /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Results/Mapping/MappingConsensusExportRequestBuilder.swift /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Inspector/InspectorViewController.swift /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Results/Mapping/MappingResultViewController.swift /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Viewer/ViewerViewController+Mapping.swift /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Viewer/ViewerViewController+Extraction.swift /Users/dho/Documents/lungfish-genome-explorer/Tests/LungfishAppTests/MappingConsensusExportRequestBuilderTests.swift /Users/dho/Documents/lungfish-genome-explorer/Tests/LungfishAppTests/MappingResultViewControllerTests.swift
 git commit -m "feat: export mapping consensus through fasta dialog"
 ```
 
@@ -827,7 +827,7 @@ Pass `FAILING_SUBCOMMAND` into the script body from Swift.
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter ManagedMappingPipelineTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter ManagedMappingPipelineTests
 ```
 
 Expected:
@@ -856,7 +856,7 @@ Do not move this cleanup above `samtoolsIndex` or above `samtoolsFlagstatCounts`
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter ManagedMappingPipelineTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter ManagedMappingPipelineTests
 ```
 
 Expected:
@@ -870,7 +870,7 @@ Expected:
 Run:
 
 ```bash
-git add /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift /Users/dho/Documents/lungfish-genome-browser/Tests/LungfishWorkflowTests/Mapping/ManagedMappingPipelineTests.swift
+git add /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift /Users/dho/Documents/lungfish-genome-explorer/Tests/LungfishWorkflowTests/Mapping/ManagedMappingPipelineTests.swift
 git commit -m "fix: remove raw sam after successful mapping normalization"
 ```
 
@@ -881,7 +881,7 @@ git commit -m "fix: remove raw sam after successful mapping normalization"
 Run the full focused regression set after all four tasks:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter 'ReadStyleSectionViewModelTests|MappingResultViewControllerTests|InspectorMappingModeTests|MappingConsensusExportRequestBuilderTests|ManagedMappingPipelineTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter 'ReadStyleSectionViewModelTests|MappingResultViewControllerTests|InspectorMappingModeTests|MappingConsensusExportRequestBuilderTests|ManagedMappingPipelineTests'
 ```
 
 Expected:
@@ -891,13 +891,13 @@ Expected:
 Build a fresh Debug app bundle:
 
 ```bash
-xcodebuild -project /Users/dho/Documents/lungfish-genome-browser/Lungfish.xcodeproj -scheme Lungfish -configuration Debug -destination 'platform=macOS,arch=arm64' build
+xcodebuild -project /Users/dho/Documents/lungfish-genome-explorer/Lungfish.xcodeproj -scheme Lungfish -configuration Debug -destination 'platform=macOS,arch=arm64' build
 ```
 
 Expected:
 
 - build succeeds
-- `/Users/dho/Documents/lungfish-genome-browser/build/Debug/Lungfish.app` is refreshed
+- `/Users/dho/Documents/lungfish-genome-explorer/build/Debug/Lungfish.app` is refreshed
 
 Manual sanity check in the debug build:
 

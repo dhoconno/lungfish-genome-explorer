@@ -118,7 +118,7 @@ func testBuildsHifiasmCommandKeepsPrimaryFlagIndependentOfProfile() throws {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter 'AssemblyWizardSheetTests|ManagedAssemblyPipelineTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter 'AssemblyWizardSheetTests|ManagedAssemblyPipelineTests'
 ```
 
 Expected:
@@ -177,7 +177,7 @@ if request.selectedProfileID == "haploid-viral" {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter 'AssemblyWizardSheetTests|ManagedAssemblyPipelineTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter 'AssemblyWizardSheetTests|ManagedAssemblyPipelineTests'
 ```
 
 Expected:
@@ -293,7 +293,7 @@ func testAssembleCommandPrintsCompletedWithoutContigsMessage() throws {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter ManagedAssemblyArtifactTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter ManagedAssemblyArtifactTests
 ```
 
 Expected:
@@ -372,7 +372,7 @@ if result.outcome == .completedWithNoContigs {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter ManagedAssemblyArtifactTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter ManagedAssemblyArtifactTests
 ```
 
 Expected:
@@ -461,7 +461,7 @@ func testAssemblyCompletionDetailUsesNoContigsMessage() throws {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter 'AssemblyResultViewControllerTests|AssemblyViewerIntegrationTests|FASTQOperationExecutionServiceTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter 'AssemblyResultViewControllerTests|AssemblyViewerIntegrationTests|FASTQOperationExecutionServiceTests'
 ```
 
 Expected:
@@ -567,7 +567,7 @@ Keep `status: .completed`.
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser --filter 'AssemblyResultViewControllerTests|AssemblyViewerIntegrationTests|FASTQOperationExecutionServiceTests'
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer --filter 'AssemblyResultViewControllerTests|AssemblyViewerIntegrationTests|FASTQOperationExecutionServiceTests'
 ```
 
 Expected:

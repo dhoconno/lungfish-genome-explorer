@@ -32,11 +32,11 @@ resumed later without re-discovering the context.
 
 ### Likely code touchpoints
 
-- `/Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/ImportCenter/ImportCenterView.swift`
-- `/Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift`
-- `/Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/App/AppDelegate.swift`
-- `/Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Sidebar/ProjectMetadataExportImport.swift`
-- `/Users/dho/Documents/lungfish-genome-browser/Sources/LungfishIO/Bundles/VariantDatabase.swift`
+- `/Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/ImportCenter/ImportCenterView.swift`
+- `/Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/ImportCenter/ImportCenterViewModel.swift`
+- `/Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/App/AppDelegate.swift`
+- `/Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Sidebar/ProjectMetadataExportImport.swift`
+- `/Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishIO/Bundles/VariantDatabase.swift`
 
 ### Resume notes
 

@@ -92,7 +92,7 @@ final class BundleMergeSelectionTests: XCTestCase {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/merge-selected-bundles --filter BundleMergeSelectionTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/merge-selected-bundles --filter BundleMergeSelectionTests
 ```
 
 Expected: FAIL with a compile error because `BundleMergeSelection` is undefined.
@@ -140,7 +140,7 @@ if mergeSelectionKind != nil {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/merge-selected-bundles --filter BundleMergeSelectionTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/merge-selected-bundles --filter BundleMergeSelectionTests
 ```
 
 Expected: PASS with `4 tests passed`.
@@ -240,7 +240,7 @@ final class FASTQBundleMergeServiceTests: XCTestCase {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/merge-selected-bundles --filter FASTQBundleMergeServiceTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/merge-selected-bundles --filter FASTQBundleMergeServiceTests
 ```
 
 Expected: FAIL with a compile error because `FASTQBundleMergeService` is undefined.
@@ -399,7 +399,7 @@ private static func createPhysicalBundle(
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/merge-selected-bundles --filter FASTQBundleMergeServiceTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/merge-selected-bundles --filter FASTQBundleMergeServiceTests
 ```
 
 Expected: PASS with `2 tests passed`.
@@ -465,7 +465,7 @@ final class ReferenceBundleMergeServiceTests: XCTestCase {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/merge-selected-bundles --filter ReferenceBundleMergeServiceTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/merge-selected-bundles --filter ReferenceBundleMergeServiceTests
 ```
 
 Expected: FAIL with a compile error because `ReferenceBundleMergeService` is undefined.
@@ -532,7 +532,7 @@ enum ReferenceBundleMergeService {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/merge-selected-bundles --filter ReferenceBundleMergeServiceTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/merge-selected-bundles --filter ReferenceBundleMergeServiceTests
 ```
 
 Expected: PASS with `1 test passed`.
@@ -579,7 +579,7 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/merge-selected-bundles --filter SidebarViewControllerSelectionTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/merge-selected-bundles --filter SidebarViewControllerSelectionTests
 ```
 
 Expected: FAIL with a compile error because `suggestedMergedBundleName(for:)` is undefined.
@@ -666,7 +666,7 @@ private func deepestCommonParent(for urls: [URL]) -> URL? {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/merge-selected-bundles --filter SidebarViewControllerSelectionTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/merge-selected-bundles --filter SidebarViewControllerSelectionTests
 ```
 
 Expected: PASS with the new naming helper test and the existing symlink-selection test both passing.
@@ -690,10 +690,10 @@ git commit -m "feat: wire sidebar bundle merge action"
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/merge-selected-bundles --filter BundleMergeSelectionTests
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/merge-selected-bundles --filter FASTQBundleMergeServiceTests
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/merge-selected-bundles --filter ReferenceBundleMergeServiceTests
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/merge-selected-bundles --filter SidebarViewControllerSelectionTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/merge-selected-bundles --filter BundleMergeSelectionTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/merge-selected-bundles --filter FASTQBundleMergeServiceTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/merge-selected-bundles --filter ReferenceBundleMergeServiceTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/merge-selected-bundles --filter SidebarViewControllerSelectionTests
 ```
 
 Expected: PASS with `0 failures` across all four targeted runs.
@@ -703,7 +703,7 @@ Expected: PASS with `0 failures` across all four targeted runs.
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/merge-selected-bundles --filter Sidebar
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/merge-selected-bundles --filter Sidebar
 ```
 
 Expected: PASS or, if unrelated failures already exist, document the exact failing tests before claiming completion.

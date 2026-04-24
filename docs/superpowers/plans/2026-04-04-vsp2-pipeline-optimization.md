@@ -156,7 +156,7 @@ log_done() {
 
 Run:
 ```bash
-cd /Users/dho/Documents/lungfish-genome-browser
+cd /Users/dho/Documents/lungfish-genome-explorer
 bash -n scripts/benchmark-vsp2-lib.sh
 echo $?
 ```
@@ -316,7 +316,7 @@ esac
 
 Run:
 ```bash
-cd /Users/dho/Documents/lungfish-genome-browser
+cd /Users/dho/Documents/lungfish-genome-explorer
 chmod +x scripts/benchmark-vsp2.sh
 bash -n scripts/benchmark-vsp2.sh
 echo $?
@@ -987,7 +987,7 @@ git commit -m "feat: add report subcommand to summarize benchmark results"
 - [ ] **Step 1: Run the setup subcommand**
 
 ```bash
-cd /Users/dho/Documents/lungfish-genome-browser
+cd /Users/dho/Documents/lungfish-genome-explorer
 ./scripts/benchmark-vsp2.sh setup
 ```
 
@@ -1013,7 +1013,7 @@ If `deacon index fetch` stores the file in an unexpected location, check the dea
 
 ```bash
 # Quick sanity check — run deacon on a tiny subset
-cd /Users/dho/Documents/lungfish-genome-browser
+cd /Users/dho/Documents/lungfish-genome-explorer
 zcat "$R1_PATH" | head -4000 | gzip > /tmp/test_r1.fq.gz
 zcat "$R2_PATH" | head -4000 | gzip > /tmp/test_r2.fq.gz
 $HOME/miniforge3/bin/conda run -n deacon-bench \

@@ -131,7 +131,7 @@ final class AssemblyContigCatalogTests: XCTestCase {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/assembly-xcui-pilot --filter AssemblyContigCatalogTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/assembly-xcui-pilot --filter AssemblyContigCatalogTests
 ```
 
 Expected: FAIL with compile errors because `AssemblyContigCatalog`, `AssemblyContigRecord`, and `AssemblyContigSelectionSummary` do not exist.
@@ -323,7 +323,7 @@ private func makeAssemblyFixture(_ fasta: String) throws -> (result: AssemblyRes
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/assembly-xcui-pilot --filter AssemblyContigCatalogTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/assembly-xcui-pilot --filter AssemblyContigCatalogTests
 ```
 
 Expected: PASS with all three `AssemblyContigCatalogTests` green.
@@ -426,8 +426,8 @@ final class AssemblySubsetBundleMetadataTests: XCTestCase {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/assembly-xcui-pilot --filter ExtractContigsCommandTests
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/assembly-xcui-pilot --filter AssemblySubsetBundleMetadataTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/assembly-xcui-pilot --filter ExtractContigsCommandTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/assembly-xcui-pilot --filter AssemblySubsetBundleMetadataTests
 ```
 
 Expected: FAIL because `ExtractContigsSubcommand` and `AssemblySubsetBundleMetadata` do not exist.
@@ -594,8 +594,8 @@ static let configuration = CommandConfiguration(
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/assembly-xcui-pilot --filter ExtractContigsCommandTests
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/assembly-xcui-pilot --filter AssemblySubsetBundleMetadataTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/assembly-xcui-pilot --filter ExtractContigsCommandTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/assembly-xcui-pilot --filter AssemblySubsetBundleMetadataTests
 ```
 
 Expected: PASS with the new subcommand and bundle-metadata tests green.
@@ -713,7 +713,7 @@ func makeAssemblyResult() -> AssemblyResult {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/assembly-xcui-pilot --filter AssemblyContigMaterializationActionTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/assembly-xcui-pilot --filter AssemblyContigMaterializationActionTests
 ```
 
 Expected: FAIL because `AssemblyContigMaterializationAction` and the generic CLI runner result type do not exist.
@@ -821,7 +821,7 @@ final class AssemblyContigMaterializationAction {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/assembly-xcui-pilot --filter AssemblyContigMaterializationActionTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/assembly-xcui-pilot --filter AssemblyContigMaterializationActionTests
 ```
 
 Expected: PASS with the CLI-backed action tests green.
@@ -945,7 +945,7 @@ final class AssemblyResultViewControllerTests: XCTestCase {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/assembly-xcui-pilot --filter AssemblyResultViewControllerTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/assembly-xcui-pilot --filter AssemblyResultViewControllerTests
 ```
 
 Expected: FAIL because the controller has no split-view layout, no detail pane, and no test accessors.
@@ -1586,7 +1586,7 @@ public final class AssemblyResultViewController: NSViewController, NSSplitViewDe
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/assembly-xcui-pilot --filter AssemblyResultViewControllerTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/assembly-xcui-pilot --filter AssemblyResultViewControllerTests
 ```
 
 Expected: PASS with stacked layout, single-selection detail, and multi-selection summary behavior verified.
@@ -1646,7 +1646,7 @@ final class AssemblyViewerIntegrationTests: XCTestCase {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/assembly-xcui-pilot --filter AssemblyViewerIntegrationTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/assembly-xcui-pilot --filter AssemblyViewerIntegrationTests
 ```
 
 Expected: FAIL because the current viewer extension does not wire assembly BLAST and the controller still exposes stub callbacks.
@@ -1729,11 +1729,11 @@ extension ViewerViewController {
 Run:
 
 ```bash
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/assembly-xcui-pilot --filter AssemblyViewerIntegrationTests
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/assembly-xcui-pilot --filter AssemblyResultViewControllerTests
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/assembly-xcui-pilot --filter AssemblyContigMaterializationActionTests
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/assembly-xcui-pilot --filter ExtractContigsCommandTests
-swift test --package-path /Users/dho/Documents/lungfish-genome-browser/.worktrees/assembly-xcui-pilot --filter AssemblyContigCatalogTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/assembly-xcui-pilot --filter AssemblyViewerIntegrationTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/assembly-xcui-pilot --filter AssemblyResultViewControllerTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/assembly-xcui-pilot --filter AssemblyContigMaterializationActionTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/assembly-xcui-pilot --filter ExtractContigsCommandTests
+swift test --package-path /Users/dho/Documents/lungfish-genome-explorer/.worktrees/assembly-xcui-pilot --filter AssemblyContigCatalogTests
 ```
 
 Expected: PASS across the new workflow, CLI, and app-level test tranches.

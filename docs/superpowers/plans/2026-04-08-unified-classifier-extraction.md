@@ -60,7 +60,7 @@ A phase is not complete until all four gates pass. Phase N+1 cannot start until 
 Run:
 
 ```bash
-cd /Users/dho/Documents/lungfish-genome-browser
+cd /Users/dho/Documents/lungfish-genome-explorer
 git branch --show-current
 git status --short
 git log --oneline -5
@@ -859,7 +859,7 @@ Replace the ENTIRE method body with:
 Using the errors you captured in `/tmp/phase1-delete-compile.txt` from Task 1.4, Step 2, find every remaining reference to `TaxonomyExtractionSheet` or `ClassifierExtractionSheet` in the `Sources/` tree:
 
 ```bash
-grep -rn "TaxonomyExtractionSheet\|ClassifierExtractionSheet" /Users/dho/Documents/lungfish-genome-browser/Sources 2>&1
+grep -rn "TaxonomyExtractionSheet\|ClassifierExtractionSheet" /Users/dho/Documents/lungfish-genome-explorer/Sources 2>&1
 ```
 
 Expected: zero hits (after Steps 1 and 2). If any remain, stub them with the same `#warning("phase5: ...")` pattern. Do NOT keep these stubs alive with real alternative logic — Phase 5 is where the real wiring happens.
@@ -4787,8 +4787,8 @@ Run:
 
 ```bash
 grep -n "presentExtractionSheet\|onExtractFASTQ\|onExtractReadsRequested\|onExtractAssemblyReadsRequested\|contextExtractReads" \
-    /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Metagenomics/EsVirituResultViewController.swift \
-    /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Metagenomics/ViralDetectionTableView.swift
+    /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Metagenomics/EsVirituResultViewController.swift \
+    /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Metagenomics/ViralDetectionTableView.swift
 ```
 
 Write down the line numbers you find — these are the sites you're modifying in the next steps.
@@ -4869,7 +4869,7 @@ Delete the entire `presentExtractionSheet(items:source:suggestedName:)` method (
 After deletion, search for any remaining callers:
 
 ```bash
-grep -n "presentExtractionSheet" /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Metagenomics/EsVirituResultViewController.swift
+grep -n "presentExtractionSheet" /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Metagenomics/EsVirituResultViewController.swift
 ```
 
 Expected: zero hits (or only in doc comments). Update all call sites to use `presentUnifiedExtractionDialog()` instead.
@@ -5034,7 +5034,7 @@ Refs: docs/superpowers/specs/2026-04-08-unified-classifier-extraction-design.md
 
 ```bash
 grep -n "contextExtractFASTQ\|presentExtractionSheet\|onExtractFASTQ\|extractBAMRegion" \
-    /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Metagenomics/TaxTriageResultViewController.swift
+    /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Metagenomics/TaxTriageResultViewController.swift
 ```
 
 Note: TaxTriage may have its own embedded table view type (`TaxTriageOrganismTableView`) inside the same file. Look for context-menu-building methods — they may be on the VC itself rather than on a separate table view subclass.
@@ -5106,7 +5106,7 @@ Remove any pre-existing `contextExtractFASTQ` method (stubbed in Phase 1 or stil
 
 ```bash
 grep -n "BAMRegionExtractionConfig\|extractByBAMRegion\|createBundle" \
-    /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Metagenomics/TaxTriageResultViewController.swift
+    /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Metagenomics/TaxTriageResultViewController.swift
 ```
 
 Expected: zero hits.
@@ -5167,7 +5167,7 @@ NAO-MGS has TWO things to delete: (a) the batch `contextExtractFASTQ` method and
 
 ```bash
 grep -n "contextExtractFASTQ\|Copy Unique Reads\|extractUniqueReadsForSingleRow\|presentExtractionSheet" \
-    /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Metagenomics/NaoMgsResultViewController.swift
+    /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Metagenomics/NaoMgsResultViewController.swift
 ```
 
 - [ ] **Step 2: Delete the single-row "Copy Unique Reads as FASTQ" menu item AND its handler**
@@ -5177,7 +5177,7 @@ Locate the menu item (around line 1912 per prior investigation) and the handler 
 Verify after deletion:
 
 ```bash
-grep -n "Copy Unique Reads" /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Metagenomics/NaoMgsResultViewController.swift
+grep -n "Copy Unique Reads" /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Metagenomics/NaoMgsResultViewController.swift
 ```
 
 Expected: zero hits.
@@ -5296,7 +5296,7 @@ NVD has no prior extraction capability — this task is purely additive.
 
 ```bash
 grep -n "buildContextMenu\|contextMenu\|selectedRow\|displayedContigs\|NvdBlastHit\|onContextMenu" \
-    /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Metagenomics/NvdResultViewController.swift
+    /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Metagenomics/NvdResultViewController.swift
 ```
 
 Find:
@@ -5421,8 +5421,8 @@ This is the last classifier wiring task. Kraken2 is a bit different because the 
 
 ```bash
 grep -n "presentExtractionSheet\|onExtractConfirmed\|onExtractRequested\|onExtractWithChildrenRequested\|TaxonomyExtractionConfig" \
-    /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift \
-    /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Metagenomics/TaxonomyTableView.swift
+    /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Metagenomics/TaxonomyViewController.swift \
+    /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Metagenomics/TaxonomyTableView.swift
 ```
 
 - [ ] **Step 2: Add the selection helper and presentation method**
@@ -5491,7 +5491,7 @@ Remove the stubbed method (from Phase 1, line ~663). Also delete the `onExtractC
 Search for any remaining callers of `onExtractConfirmed`:
 
 ```bash
-grep -rn "onExtractConfirmed" /Users/dho/Documents/lungfish-genome-browser/Sources
+grep -rn "onExtractConfirmed" /Users/dho/Documents/lungfish-genome-explorer/Sources
 ```
 
 Expected: zero hits after the deletion. If any caller remains in `AppDelegate.swift` or similar, delete that too — it was handler glue that ran the old `TaxonomyExtractionPipeline.extract` + bundle creation.
@@ -5708,7 +5708,7 @@ enum ClassifierExtractionFixtures {
 
     // MARK: - Repository root
 
-    /// The lungfish-genome-browser repository root, derived from `#filePath`.
+    /// The lungfish-genome-explorer repository root, derived from `#filePath`.
     ///
     /// `#filePath` resolves to the absolute path of the current Swift source
     /// file; we walk up 4 levels (`TestSupport` → `LungfishAppTests` → `Tests`
@@ -6421,7 +6421,7 @@ And verify the `Package.swift` test target for LungfishAppTests includes a depen
 Run:
 
 ```bash
-grep -A5 "name:.*LungfishAppTests" /Users/dho/Documents/lungfish-genome-browser/Package.swift
+grep -A5 "name:.*LungfishAppTests" /Users/dho/Documents/lungfish-genome-explorer/Package.swift
 ```
 
 If `LungfishCLI` isn't in the dependencies list, add it.
@@ -6980,7 +6980,7 @@ Phase 7 complete. All tests landed. Proceed to Phase 8.
 Run:
 
 ```bash
-cd /Users/dho/Documents/lungfish-genome-browser
+cd /Users/dho/Documents/lungfish-genome-explorer
 swift package clean
 swift build --build-tests 2>&1 | tee /tmp/phase8-build.txt | tail -30
 ```
@@ -7255,7 +7255,7 @@ Dispatch with `subagent_type: general-purpose` (or `code-reviewer` if available)
 ```
 You are reviewing Phase {PHASE_NUMBER} of the unified classifier extraction feature
 implementation on branch feature/batch-aggregated-classifier-views of the
-lungfish-genome-browser repo at /Users/dho/Documents/lungfish-genome-browser.
+lungfish-genome-explorer repo at /Users/dho/Documents/lungfish-genome-explorer.
 
 ## Phase goal
 
@@ -7272,7 +7272,7 @@ lungfish-genome-browser repo at /Users/dho/Documents/lungfish-genome-browser.
   docs/superpowers/specs/2026-04-08-unified-classifier-extraction-design.md.
   This is the single source of truth for what the feature should do.
 - The MEMORY.md project notes at
-  /Users/dho/.claude/projects/-Users-dho-Documents-lungfish-genome-browser/memory/MEMORY.md
+  /Users/dho/.claude/projects/-Users-dho-Documents-lungfish-genome-explorer/memory/MEMORY.md
   contain critical Swift 6.2 / macOS 26 / concurrency rules that the code must obey.
 
 ## Scope
@@ -7370,7 +7370,7 @@ Dispatch with `subagent_type: general-purpose`.
 ```
 You are running the simplification pass for Phase {PHASE_NUMBER} of the unified
 classifier extraction feature on branch feature/batch-aggregated-classifier-views
-at /Users/dho/Documents/lungfish-genome-browser.
+at /Users/dho/Documents/lungfish-genome-explorer.
 
 ## Prerequisites
 
@@ -7449,7 +7449,7 @@ Dispatch with `subagent_type: general-purpose` (fresh subagent, no prior convers
 You are performing an INDEPENDENT second adversarial review of Phase {PHASE_NUMBER}
 of the unified classifier extraction feature on branch
 feature/batch-aggregated-classifier-views at
-/Users/dho/Documents/lungfish-genome-browser.
+/Users/dho/Documents/lungfish-genome-explorer.
 
 ## Critical instruction
 

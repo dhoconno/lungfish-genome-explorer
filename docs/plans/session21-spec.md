@@ -341,4 +341,4 @@ For each track, the following must be true before marking complete:
 6. Color: validation messages use `Color.lungfishOrangeFallback`, not `.red`
 7. Dialogs: 480-520px width, "Run" button, header with icon + name + subtitle
 8. BAM output: always sorted and indexed, never SAM
-9. Build and launch from main repo command line for testing: `pkill -f "\.build/debug/Lungfish" 2>/dev/null; sleep 1; cd /Users/dho/Documents/lungfish-genome-browser && swift build && .build/debug/Lungfish &`
+9. Build and launch from main repo command line for testing: `pkill -f "\.build/debug/Lungfish" 2>/dev/null; sleep 1; cd /Users/dho/Documents/lungfish-genome-explorer && swift build && .build/debug/Lungfish &`

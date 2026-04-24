@@ -13,8 +13,8 @@
 ### Task 1: Finish The Shared Raw Split Migration
 
 **Files:**
-- Modify: `/Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Metagenomics/EsVirituResultViewController.swift`
-- Modify: `/Users/dho/Documents/lungfish-genome-browser/Tests/LungfishAppTests/MetagenomicsLayoutModeTests.swift`
+- Modify: `/Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Metagenomics/EsVirituResultViewController.swift`
+- Modify: `/Users/dho/Documents/lungfish-genome-explorer/Tests/LungfishAppTests/MetagenomicsLayoutModeTests.swift`
 
 - [ ] **Step 1: Keep the existing EsViritu divider regression coverage intact**
 
@@ -23,7 +23,7 @@ Expected: PASS before the migration, confirming the baseline behavior is already
 
 - [ ] **Step 2: Replace EsViritu's bespoke divider state with `TwoPaneTrackedSplitCoordinator`**
 
-Edit `/Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Metagenomics/EsVirituResultViewController.swift` so the controller:
+Edit `/Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Metagenomics/EsVirituResultViewController.swift` so the controller:
 
 ```swift
 private let splitCoordinator = TwoPaneTrackedSplitCoordinator()
@@ -56,7 +56,7 @@ and route `resetInitialSplitPositionIfNeeded()`, `hasValidInitialSplitPosition()
 
 - [ ] **Step 4: Update tests to reflect the shared state source**
 
-Adjust `/Users/dho/Documents/lungfish-genome-browser/Tests/LungfishAppTests/MetagenomicsLayoutModeTests.swift` only if needed so the EsViritu tests keep asserting on public controller behavior rather than removed private state.
+Adjust `/Users/dho/Documents/lungfish-genome-explorer/Tests/LungfishAppTests/MetagenomicsLayoutModeTests.swift` only if needed so the EsViritu tests keep asserting on public controller behavior rather than removed private state.
 
 - [ ] **Step 5: Run the EsViritu-focused layout regression tests**
 
@@ -71,13 +71,13 @@ Expected: all PASS.
 ### Task 2: Extract Testable Shell Recommendation State
 
 **Files:**
-- Create: `/Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Layout/SplitShellWidthCoordinator.swift`
-- Modify: `/Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift`
-- Modify: `/Users/dho/Documents/lungfish-genome-browser/Tests/LungfishAppTests/MainSplitLayoutTests.swift`
+- Create: `/Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Layout/SplitShellWidthCoordinator.swift`
+- Modify: `/Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift`
+- Modify: `/Users/dho/Documents/lungfish-genome-explorer/Tests/LungfishAppTests/MainSplitLayoutTests.swift`
 
 - [ ] **Step 1: Write a failing shell-state test that does not depend on synthetic AppKit divider motion**
 
-Add a test in `/Users/dho/Documents/lungfish-genome-browser/Tests/LungfishAppTests/MainSplitLayoutTests.swift` that exercises a helper with this shape:
+Add a test in `/Users/dho/Documents/lungfish-genome-explorer/Tests/LungfishAppTests/MainSplitLayoutTests.swift` that exercises a helper with this shape:
 
 ```swift
 func testSidebarRecommendationIsIgnoredAfterExplicitUserResize() {
@@ -103,7 +103,7 @@ Expected: FAIL because the helper does not exist yet.
 
 - [ ] **Step 2: Implement the shell-width helper**
 
-Create `/Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Layout/SplitShellWidthCoordinator.swift`:
+Create `/Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Layout/SplitShellWidthCoordinator.swift`:
 
 ```swift
 import CoreGraphics
@@ -149,7 +149,7 @@ final class SplitShellWidthCoordinator {
 
 - [ ] **Step 3: Wire `MainSplitViewController` onto the helper**
 
-Modify `/Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift` so sidebar recommendation handling uses the helper:
+Modify `/Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift` so sidebar recommendation handling uses the helper:
 
 ```swift
 private let sidebarWidthCoordinator = SplitShellWidthCoordinator()
@@ -173,7 +173,7 @@ Expected: PASS.
 ### Task 3: Verify The Shared Foundation End-To-End
 
 **Files:**
-- Modify: `/Users/dho/Documents/lungfish-genome-browser/Tests/LungfishAppTests/MetagenomicsLayoutModeTests.swift` (only if one final expectation needs updating)
+- Modify: `/Users/dho/Documents/lungfish-genome-explorer/Tests/LungfishAppTests/MetagenomicsLayoutModeTests.swift` (only if one final expectation needs updating)
 
 - [ ] **Step 1: Run the focused raw split regression tests**
 
@@ -192,20 +192,20 @@ Expected: PASS.
 - [ ] **Step 3: Build the debug app**
 
 Run: `bash scripts/build-app.sh --configuration debug`
-Expected: debug app build succeeds and updates `/Users/dho/Documents/lungfish-genome-browser/build/Debug/Lungfish.app`.
+Expected: debug app build succeeds and updates `/Users/dho/Documents/lungfish-genome-explorer/build/Debug/Lungfish.app`.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Layout \
-        /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift \
-        /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Metagenomics/EsVirituResultViewController.swift \
-        /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Metagenomics/MetagenomicsPaneSizing.swift \
-        /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Metagenomics/NaoMgsResultViewController.swift \
-        /Users/dho/Documents/lungfish-genome-browser/Sources/LungfishApp/Views/Metagenomics/NvdResultViewController.swift \
-        /Users/dho/Documents/lungfish-genome-browser/Tests/LungfishAppTests/MainSplitLayoutTests.swift \
-        /Users/dho/Documents/lungfish-genome-browser/Tests/LungfishAppTests/MetagenomicsLayoutModeTests.swift \
-        /Users/dho/Documents/lungfish-genome-browser/docs/superpowers/specs/2026-04-19-shared-pane-layout-foundation-design.md \
-        /Users/dho/Documents/lungfish-genome-browser/docs/superpowers/plans/2026-04-19-shared-pane-layout-foundation.md
+git add /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Layout \
+        /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift \
+        /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Metagenomics/EsVirituResultViewController.swift \
+        /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Metagenomics/MetagenomicsPaneSizing.swift \
+        /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Metagenomics/NaoMgsResultViewController.swift \
+        /Users/dho/Documents/lungfish-genome-explorer/Sources/LungfishApp/Views/Metagenomics/NvdResultViewController.swift \
+        /Users/dho/Documents/lungfish-genome-explorer/Tests/LungfishAppTests/MainSplitLayoutTests.swift \
+        /Users/dho/Documents/lungfish-genome-explorer/Tests/LungfishAppTests/MetagenomicsLayoutModeTests.swift \
+        /Users/dho/Documents/lungfish-genome-explorer/docs/superpowers/specs/2026-04-19-shared-pane-layout-foundation-design.md \
+        /Users/dho/Documents/lungfish-genome-explorer/docs/superpowers/plans/2026-04-19-shared-pane-layout-foundation.md
 git commit -m "refactor: share pane layout foundations"
 ```
