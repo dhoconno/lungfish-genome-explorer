@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "name": "test-simple",
+  "display_name": "Test Simple Primer Set",
+  "description": "Minimal fixture for PrimerSchemeBundle tests.",
+  "reference_accessions": [
+    { "accession": "MN908947.3", "canonical": true },
+    { "accession": "NC_045512.2", "equivalent": true }
+  ],
+  "primer_count": 2,
+  "amplicon_count": 1,
+  "source": "test-fixture",
+  "version": "0.1.0",
+  "created": "2026-04-24T00:00:00Z"
+}
