@@ -24,6 +24,11 @@ final class PrimerSchemeResolverTests: XCTestCase {
             bundle: bundle,
             targetReferenceName: "NC_045512.2"
         )
+        addTeardownBlock {
+            if resolved.isRewritten {
+                try? FileManager.default.removeItem(at: resolved.bedURL)
+            }
+        }
 
         XCTAssertNotEqual(resolved.bedURL, bundle.bedURL)
         XCTAssertTrue(resolved.isRewritten)

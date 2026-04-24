@@ -30,22 +30,29 @@ public enum PrimerSchemeResolver {
     /// - `isRewritten`: `true` when `bedURL` points to a freshly-written temp
     ///   file. Callers that own temp-file cleanup can use this to decide
     ///   whether to delete the file after use.
+    ///
+    /// When `isRewritten` is `true`, the rewritten BED is a temp file in the
+    /// system temporary directory and the caller is responsible for deleting
+    /// it when no longer needed. When `isRewritten` is `false`, `bedURL` is
+    /// the bundle's own BED and must not be deleted by the caller.
     public struct Resolved: Sendable {
         /// URL of the BED to use for downstream primer-aware tools.
         public let bedURL: URL
 
         /// `true` iff `bedURL` is a rewritten temp copy (not the bundle's own BED).
+        ///
+        /// When `true`, the caller owns cleanup of `bedURL`.
         public let isRewritten: Bool
     }
 
     /// Errors thrown by `PrimerSchemeResolver.resolve`.
-    public enum ResolveError: Error, LocalizedError {
+    public enum ResolveError: Error, LocalizedError, Sendable {
         /// The target reference name is neither the bundle's canonical
         /// accession nor any of its declared equivalents.
         case unknownAccession(bundle: String, requested: String, known: [String])
 
         /// Rewriting the BED to a temp file failed (e.g., disk I/O error).
-        case ioFailure(underlying: Error)
+        case ioFailure(underlying: Error & Sendable)
 
         public var errorDescription: String? {
             switch self {
@@ -101,12 +108,16 @@ public enum PrimerSchemeResolver {
         )
     }
 
-    /// Rewrites the BED at `source`, replacing any column 1 entry equal to
-    /// `from` with `newName`. Column structure, tab separators, and line
-    /// endings are preserved verbatim; only the first column is touched.
+    /// Rewrites column 1 of the BED at `source` from `from` to `newName`,
+    /// writing the result to a unique temp file. Column structure, tab
+    /// separators, and line endings are preserved verbatim; only the first
+    /// column is touched.
     ///
     /// Lines whose first column does not match `from` (including empty lines
     /// and lines without a tab) are copied through unchanged.
+    ///
+    /// Assumes LF line endings; CRLF inputs will pass through col-1
+    /// comparisons but preserve the literal `\r` in the output.
     private static func rewriteBED(source: URL, from: String, to newName: String) throws -> URL {
         let input = try String(contentsOf: source, encoding: .utf8)
         let rewritten = input
