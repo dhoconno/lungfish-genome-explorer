@@ -138,6 +138,13 @@ extension VariantsCommand {
         @Option(name: .customLong("medaka-model"), help: "Required ONT/basecaller model identifier for Medaka")
         var medakaModel: String?
 
+        @Option(
+            name: .customLong("advanced-options"),
+            parsing: .unconditional,
+            help: "Additional caller options, written exactly as they should be passed to the underlying tool"
+        )
+        var advancedOptions: String = ""
+
         @OptionGroup var globalOptions: GlobalOptions
 
         static func parse(_ arguments: [String]) throws -> Self {
@@ -185,6 +192,7 @@ extension VariantsCommand {
         ) async throws -> BundleVariantTrackAttachmentResult {
             let bundleURL = URL(fileURLWithPath: bundlePath)
             let resolvedCaller = try parseCaller()
+            let advancedArguments = try parseAdvancedOptions()
             let initialTrackName = normalizedOutputTrackName(fallback: resolvedCaller.displayName)
             let initialRequest = BundleVariantCallingRequest(
                 bundleURL: bundleURL,
@@ -195,7 +203,8 @@ extension VariantsCommand {
                 minimumAlleleFrequency: minimumAlleleFrequency,
                 minimumDepth: minimumDepth,
                 ivarPrimerTrimConfirmed: ivarPrimerTrimConfirmed,
-                medakaModel: medakaModel
+                medakaModel: medakaModel,
+                advancedArguments: advancedArguments
             )
 
             emitSimpleEvent(event: "runStart", progress: 0.0, message: "Starting \(resolvedCaller.displayName) variant calling", caller: resolvedCaller.rawValue, emit: emitEvent)
@@ -215,7 +224,8 @@ extension VariantsCommand {
                     minimumAlleleFrequency: minimumAlleleFrequency,
                     minimumDepth: minimumDepth,
                     ivarPrimerTrimConfirmed: ivarPrimerTrimConfirmed,
-                    medakaModel: medakaModel
+                    medakaModel: medakaModel,
+                    advancedArguments: advancedArguments
                 )
                 emitSimpleEvent(event: "preflightComplete", progress: 0.08, message: "Preflight checks passed", caller: resolvedCaller.rawValue, emit: emitEvent)
 
@@ -292,6 +302,7 @@ extension VariantsCommand {
                     variantCount: importResult.variantCount,
                     variantCallerVersion: pipelineResult.callerVersion,
                     variantCallerParametersJSON: pipelineResult.callerParametersJSON,
+                    variantCallerCommandLine: pipelineResult.commandLine,
                     referenceStagedFASTASHA256: pipelineResult.referenceFASTASHA256
                 )
                 let attachmentResult = try await runtime.attachTrack(attachmentRequest)
@@ -355,6 +366,14 @@ extension VariantsCommand {
                 throw ValidationError("Unknown caller: \(caller)")
             }
             return value
+        }
+
+        private func parseAdvancedOptions() throws -> [String] {
+            do {
+                return try AdvancedCommandLineOptions.parse(advancedOptions)
+            } catch {
+                throw ValidationError(error.localizedDescription)
+            }
         }
 
         private func normalizedOutputTrackName(fallback: String) -> String {

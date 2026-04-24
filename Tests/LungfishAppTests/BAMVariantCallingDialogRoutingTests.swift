@@ -73,6 +73,16 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
     }
 
     @MainActor
+    func testDialogStateParsesAdvancedOptionsIntoPendingRequest() throws {
+        let state = BAMVariantCallingDialogState(bundle: try makeBundleFixture())
+
+        state.advancedOptionsText = #"--call-indels --tag "sample 1""#
+        state.prepareForRun()
+
+        XCTAssertEqual(state.pendingRequest?.advancedArguments, ["--call-indels", "--tag", "sample 1"])
+    }
+
+    @MainActor
     func testDialogStateFiltersToEligibleBamTracksOnly() throws {
         let bundle = try makeBundleFixture(
             alignments: [

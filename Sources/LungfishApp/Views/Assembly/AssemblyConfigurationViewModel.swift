@@ -116,8 +116,8 @@ public enum AssemblyRunner {
         if let profile = request.selectedProfileID {
             args += ["--profile", profile]
         }
-        for extraArg in request.extraArguments {
-            args += ["--extra-arg", extraArg]
+        if !request.extraArguments.isEmpty {
+            args += ["--advanced-options", AdvancedCommandLineOptions.join(request.extraArguments)]
         }
         args += ["--output", executionRequest.outputDirectory.path]
 

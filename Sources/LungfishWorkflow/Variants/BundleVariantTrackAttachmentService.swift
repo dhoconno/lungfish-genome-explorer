@@ -192,6 +192,7 @@ public actor BundleVariantTrackAttachmentService {
             "variant_caller": request.caller.rawValue,
             "variant_caller_version": request.variantCallerVersion,
             "variant_caller_parameters_json": request.variantCallerParametersJSON,
+            "variant_caller_command_line": request.variantCallerCommandLine,
             "source_alignment_track_id": alignmentTrack.id,
             "source_alignment_track_name": alignmentTrack.name,
             "source_alignment_relative_path": alignmentTrack.sourcePath,

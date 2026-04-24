@@ -56,6 +56,13 @@ struct AssembleCommand: AsyncParsableCommand {
     @Option(name: .customLong("profile"), help: "Curated assembler profile, such as meta-sensitive or nano-hq")
     var profile: String?
 
+    @Option(
+        name: .customLong("advanced-options"),
+        parsing: .unconditional,
+        help: "Additional assembler options, written exactly as they should be passed to the underlying tool"
+    )
+    var advancedOptions: String = ""
+
     @Option(name: .customLong("extra-arg"), parsing: .unconditionalSingleValue, help: "Additional assembler argument (repeatable)")
     var extraArg: [String] = []
 
@@ -96,6 +103,13 @@ struct AssembleCommand: AsyncParsableCommand {
 
         let projectName = resolvedProjectName(from: inputURLs)
         let outputDirectory = resolvedOutputDirectory(projectName: projectName)
+        let advancedArguments: [String]
+        do {
+            advancedArguments = try AdvancedCommandLineOptions.parse(advancedOptions) + extraArg
+        } catch {
+            print(formatter.error(error.localizedDescription))
+            throw ExitCode.failure
+        }
         let request = AssemblyRunRequest(
             tool: tool,
             readType: readType,
@@ -107,7 +121,7 @@ struct AssembleCommand: AsyncParsableCommand {
             memoryGB: memoryGB,
             minContigLength: minContigLength,
             selectedProfileID: profile,
-            extraArguments: extraArg
+            extraArguments: advancedArguments
         )
         let executionRequest = request.normalizedForExecution()
 
@@ -121,6 +135,7 @@ struct AssembleCommand: AsyncParsableCommand {
             ("Threads", "\(executionRequest.threads)"),
             ("Memory", memoryGB.map { "\($0) GB" } ?? "default"),
             ("Profile", profile ?? "default"),
+            ("Advanced options", advancedArguments.isEmpty ? "none" : AdvancedCommandLineOptions.join(advancedArguments)),
             ("Output", outputDirectory.path),
         ]))
         print("")

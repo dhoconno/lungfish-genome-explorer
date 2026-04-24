@@ -17,6 +17,7 @@ extension SPAdesAssemblyConfig {
             "memoryGB": .int(memoryGB),
             "minContigLength": .int(minContigLength),
             "careful": .bool(careful),
+            "advancedOptions": .string(AdvancedCommandLineOptions.join(customArgs)),
         ]
     }
 }

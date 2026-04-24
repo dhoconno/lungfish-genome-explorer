@@ -25,6 +25,58 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         XCTAssertFalse(plan.commandLine.contains(".tsv"))
     }
 
+    func testLoFreqCommandLineIncludesAdvancedArguments() throws {
+        let pipeline = try makePipeline(caller: .lofreq, advancedArguments: ["--call-indels"])
+
+        let plan = try pipeline.buildExecutionPlan()
+
+        XCTAssertTrue(plan.commandLine.contains("--call-indels"))
+    }
+
+    func testIVarCommandLineIncludesAdvancedArguments() throws {
+        let pipeline = try makePipeline(caller: .ivar, advancedArguments: ["-g", "primers.gff"])
+
+        let plan = try pipeline.buildExecutionPlan()
+
+        XCTAssertTrue(plan.commandLine.contains("ivar variants"))
+        XCTAssertTrue(plan.commandLine.contains("-g primers.gff"))
+    }
+
+    func testMedakaCommandLineIncludesAdvancedArguments() throws {
+        let pipeline = try makePipeline(
+            caller: .medaka,
+            medakaModel: "r1041_e82_400bps_sup_v5.0.0",
+            advancedArguments: ["--chunk_len", "1000"]
+        )
+
+        let plan = try pipeline.buildExecutionPlan()
+
+        XCTAssertTrue(plan.commandLine.contains("--chunk_len 1000"))
+    }
+
+    func testCallerParametersJSONIncludesAdvancedOptions() async throws {
+        let pipeline = try makePipeline(
+            caller: .lofreq,
+            advancedArguments: ["--call-indels", "--tag", "sample 1"],
+            callerExecutor: { plan, _ in
+                try """
+                ##fileformat=VCFv4.3
+                ##contig=<ID=chr1,length=20>
+                #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+                chr1\t5\tadvanced-1\tA\tG\t80\tPASS\t.
+                """.write(to: plan.rawVCFURL, atomically: true, encoding: .utf8)
+            }
+        )
+
+        let result = try await pipeline.run()
+        let data = try XCTUnwrap(result.callerParametersJSON.data(using: .utf8))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertEqual(json["advancedOptions"] as? String, "--call-indels --tag 'sample 1'")
+        XCTAssertEqual(json["advancedArguments"] as? [String], ["--call-indels", "--tag", "sample 1"])
+        XCTAssertTrue(result.commandLine.contains("--call-indels --tag 'sample 1'"))
+    }
+
     func testAllCallersUseStagedUncompressedReference() throws {
         for caller in ViralVariantCaller.allCases {
             let pipeline = try makePipeline(caller: caller)
@@ -184,6 +236,7 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
     private func makePipeline(
         caller: ViralVariantCaller,
         medakaModel: String? = "unused",
+        advancedArguments: [String] = [],
         bamToFASTQConverter: @escaping ViralVariantCallingPipeline.BAMToFASTQConverter = convertBAMToSingleFASTQ,
         callerExecutor: ViralVariantCallingPipeline.CallerExecutor? = nil
     ) throws -> ViralVariantCallingPipeline {
@@ -252,7 +305,8 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
             minimumAlleleFrequency: 0.05,
             minimumDepth: 10,
             ivarPrimerTrimConfirmed: true,
-            medakaModel: caller == .medaka ? medakaModel : nil
+            medakaModel: caller == .medaka ? medakaModel : nil,
+            advancedArguments: advancedArguments
         )
 
         let stagingRoot = tempDir.appendingPathComponent("staging-\(caller.rawValue)-\(UUID().uuidString)", isDirectory: true)

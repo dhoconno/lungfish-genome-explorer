@@ -88,10 +88,10 @@ public enum MappingCommandBuilder {
         if !request.includeSecondary {
             arguments.append("--secondary=no")
         }
+        arguments += request.advancedArguments
+        arguments += ["-o", rawAlignmentURL.path]
         arguments.append(referenceURL.path)
         arguments.append(contentsOf: request.inputFASTQURLs.map(\.path))
-        arguments += ["-o", rawAlignmentURL.path]
-        arguments += request.advancedArguments
 
         return ManagedMappingCommand(
             executable: "minimap2",
@@ -109,10 +109,10 @@ public enum MappingCommandBuilder {
             "mem",
             "-t", String(request.threads),
             "-R", readGroupHeader(sampleName: request.sampleName, platform: "ILLUMINA"),
-            indexPrefixURL.path,
         ]
-        arguments.append(contentsOf: request.inputFASTQURLs.map(\.path))
         arguments += request.advancedArguments
+        arguments.append(indexPrefixURL.path)
+        arguments.append(contentsOf: request.inputFASTQURLs.map(\.path))
 
         return ManagedMappingCommand(
             executable: "bwa-mem2",
@@ -133,17 +133,17 @@ public enum MappingCommandBuilder {
             "--rg-id", request.sampleName,
             "--rg", "SM:\(request.sampleName)",
             "--rg", "PL:ILLUMINA",
-            "-S", rawAlignmentURL.path,
         ]
         if request.includeSecondary {
             arguments += ["-k", "10"]
         }
+        arguments += request.advancedArguments
+        arguments += ["-S", rawAlignmentURL.path]
         if request.pairedEnd && request.inputFASTQURLs.count == 2 {
             arguments += ["-1", request.inputFASTQURLs[0].path, "-2", request.inputFASTQURLs[1].path]
         } else {
             arguments += ["-U", request.inputFASTQURLs.map(\.path).joined(separator: ",")]
         }
-        arguments += request.advancedArguments
 
         return ManagedMappingCommand(
             executable: "bowtie2",
@@ -162,7 +162,7 @@ public enum MappingCommandBuilder {
         let nativeTool: NativeTool = mode == .bbmapPacBio ? .mapPacBio : .bbmap
         let executable = nativeTool.executableName
 
-        var arguments = [
+        var arguments = request.advancedArguments + [
             "ref=\(referenceURL.path)",
             "out=\(rawAlignmentURL.path)",
             "threads=\(request.threads)",
@@ -178,7 +178,6 @@ public enum MappingCommandBuilder {
         } else if let inputURL = request.inputFASTQURLs.first {
             arguments.append("in=\(inputURL.path)")
         }
-        arguments += request.advancedArguments
 
         return ManagedMappingCommand(
             executable: executable,

@@ -680,8 +680,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
                 "--memory-gb", "24",
                 "--min-contig-length", "1000",
                 "--profile", "meta-sensitive",
-                "--extra-arg", "--k-min",
-                "--extra-arg", "21",
+                "--advanced-options", "--k-min 21",
             ]
         )
     }
@@ -715,7 +714,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
                 "--threads", "8",
                 "--output", "<derived>",
                 "--profile", "haploid-viral",
-                "--extra-arg", "--primary",
+                "--advanced-options", "--primary",
             ]
         )
         XCTAssertFalse(invocation.arguments.contains("--n-hap"))

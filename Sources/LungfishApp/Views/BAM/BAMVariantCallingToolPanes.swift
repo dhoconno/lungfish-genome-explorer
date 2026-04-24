@@ -10,6 +10,7 @@ struct BAMVariantCallingToolPanes: View {
                 overviewSection
                 thresholdsSection
                 callerSpecificSection
+                advancedOptionsSection
                 readinessSection
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -89,6 +90,17 @@ struct BAMVariantCallingToolPanes: View {
                         .textFieldStyle(.roundedBorder)
                 }
             }
+        }
+    }
+
+    private var advancedOptionsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Advanced Options")
+                .font(.headline)
+
+            TextField("--call-indels", text: $state.advancedOptionsText)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.body, design: .monospaced))
         }
     }
 

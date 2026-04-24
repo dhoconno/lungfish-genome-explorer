@@ -67,6 +67,25 @@ final class ManagedMappingPipelineTests: XCTestCase {
         XCTAssertNil(command.environment)
     }
 
+    func testBuildsBBMapCommandWithAdvancedOptions() throws {
+        let request = makeRequest(tool: .bbmap, advancedArguments: ["minid=0.97", "local=t"])
+
+        let command = try ManagedMappingPipeline.buildCommand(for: request)
+
+        XCTAssertTrue(command.arguments.contains("minid=0.97"))
+        XCTAssertTrue(command.arguments.contains("local=t"))
+    }
+
+    func testAdvancedBwaOptionsPrecedePositionalInputs() throws {
+        let request = makeRequest(tool: .bwaMem2, advancedArguments: ["-k", "19"])
+
+        let command = try ManagedMappingPipeline.buildCommand(for: request)
+
+        let advancedIndex = try XCTUnwrap(command.arguments.firstIndex(of: "-k"))
+        let indexPrefixIndex = try XCTUnwrap(command.arguments.firstIndex(of: "/tmp/mapping-output/.mapping-index/reference-index"))
+        XCTAssertLessThan(advancedIndex, indexPrefixIndex)
+    }
+
     func testBuildsBBMapPacBioCommandAsNativeTool() throws {
         let request = makeRequest(tool: .bbmap, modeID: MappingMode.bbmapPacBio.id)
 
@@ -558,7 +577,11 @@ final class ManagedMappingPipelineTests: XCTestCase {
         XCTAssertTrue(staged.cleanupURLs.isEmpty)
     }
 
-    private func makeRequest(tool: MappingTool, modeID: String? = nil) -> MappingRunRequest {
+    private func makeRequest(
+        tool: MappingTool,
+        modeID: String? = nil,
+        advancedArguments: [String] = []
+    ) -> MappingRunRequest {
         MappingRunRequest(
             tool: tool,
             modeID: modeID ?? (tool == .bbmap ? MappingMode.bbmapStandard.id : MappingMode.defaultShortRead.id),
@@ -570,7 +593,8 @@ final class ManagedMappingPipelineTests: XCTestCase {
             outputDirectory: URL(fileURLWithPath: "/tmp/mapping-output"),
             sampleName: "sample",
             pairedEnd: true,
-            threads: 8
+            threads: 8,
+            advancedArguments: advancedArguments
         )
     }
 }

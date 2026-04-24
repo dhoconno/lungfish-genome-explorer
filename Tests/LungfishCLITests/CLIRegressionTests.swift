@@ -632,6 +632,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
         XCTAssertTrue(help.contains("--assembler"))
         XCTAssertTrue(help.contains("--read-type"))
         XCTAssertTrue(help.contains("--profile"))
+        XCTAssertTrue(help.contains("--advanced-options"))
         XCTAssertFalse(help.localizedCaseInsensitiveContains("Apple Containers"))
     }
 
@@ -644,6 +645,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
             "--threads", "12",
             "--memory-gb", "32",
             "--profile", "nano-hq",
+            "--advanced-options", #"--meta --rg-id "sample 1""#,
             "--extra-arg", "--meta",
         ])
 
@@ -653,6 +655,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
         XCTAssertEqual(command.globalOptions.threads, 12)
         XCTAssertEqual(command.memoryGB, 32)
         XCTAssertEqual(command.profile, "nano-hq")
+        XCTAssertEqual(command.advancedOptions, #"--meta --rg-id "sample 1""#)
         XCTAssertEqual(command.extraArg, ["--meta"])
     }
 
@@ -833,7 +836,20 @@ final class MapCommandRegressionTests: XCTestCase {
         let help = MapCommand.helpMessage()
 
         XCTAssertTrue(help.contains("--mapper"))
+        XCTAssertTrue(help.contains("--advanced-options"))
+        XCTAssertFalse(help.contains("--match-score"))
         XCTAssertTrue(help.contains("read-mapping"))
+    }
+
+    func testParsingAdvancedMappingOptions() throws {
+        let command = try MapCommand.parse([
+            "reads.fastq.gz",
+            "--reference", "reference.fa",
+            "--mapper", "bbmap",
+            "--advanced-options", #"minid=0.97 local=t idtag="sample 1""#,
+        ])
+
+        XCTAssertEqual(command.advancedOptions, #"minid=0.97 local=t idtag="sample 1""#)
     }
 
     func testReferenceBundleInputResolvesToContainedFASTAForExecution() throws {

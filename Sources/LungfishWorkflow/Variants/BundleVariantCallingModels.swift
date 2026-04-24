@@ -33,6 +33,7 @@ public struct BundleVariantCallingRequest: Sendable, Equatable {
     public let minimumDepth: Int?
     public let ivarPrimerTrimConfirmed: Bool
     public let medakaModel: String?
+    public let advancedArguments: [String]
 
     public init(
         bundleURL: URL,
@@ -43,7 +44,8 @@ public struct BundleVariantCallingRequest: Sendable, Equatable {
         minimumAlleleFrequency: Double? = nil,
         minimumDepth: Int? = nil,
         ivarPrimerTrimConfirmed: Bool = false,
-        medakaModel: String? = nil
+        medakaModel: String? = nil,
+        advancedArguments: [String] = []
     ) {
         self.bundleURL = bundleURL
         self.alignmentTrackID = alignmentTrackID
@@ -54,6 +56,7 @@ public struct BundleVariantCallingRequest: Sendable, Equatable {
         self.minimumDepth = minimumDepth
         self.ivarPrimerTrimConfirmed = ivarPrimerTrimConfirmed
         self.medakaModel = medakaModel
+        self.advancedArguments = advancedArguments
     }
 }
 
@@ -113,6 +116,7 @@ public struct BundleVariantTrackAttachmentRequest: Sendable {
     public let variantCount: Int?
     public let variantCallerVersion: String
     public let variantCallerParametersJSON: String
+    public let variantCallerCommandLine: String
     public let referenceStagedFASTASHA256: String
 
     public init(
@@ -127,6 +131,7 @@ public struct BundleVariantTrackAttachmentRequest: Sendable {
         variantCount: Int?,
         variantCallerVersion: String,
         variantCallerParametersJSON: String,
+        variantCallerCommandLine: String = "",
         referenceStagedFASTASHA256: String
     ) {
         self.bundleURL = bundleURL
@@ -140,6 +145,7 @@ public struct BundleVariantTrackAttachmentRequest: Sendable {
         self.variantCount = variantCount
         self.variantCallerVersion = variantCallerVersion
         self.variantCallerParametersJSON = variantCallerParametersJSON
+        self.variantCallerCommandLine = variantCallerCommandLine
         self.referenceStagedFASTASHA256 = referenceStagedFASTASHA256
     }
 }

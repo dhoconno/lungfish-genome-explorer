@@ -92,6 +92,10 @@ actor CLIVariantCallingRunner {
             arguments += ["--medaka-model", medakaModel]
         }
 
+        if !request.advancedArguments.isEmpty {
+            arguments += ["--advanced-options", AdvancedCommandLineOptions.join(request.advancedArguments)]
+        }
+
         return arguments
     }
 

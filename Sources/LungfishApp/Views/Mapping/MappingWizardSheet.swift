@@ -26,13 +26,7 @@ struct MappingWizardSheet: View {
     @State private var includeSupplementary = true
     @State private var minMappingQuality = 0
     @State private var showAdvanced = false
-
-    @State private var matchScore = ""
-    @State private var mismatchPenalty = ""
-    @State private var gapOpen = ""
-    @State private var gapExt = ""
-    @State private var seedLength = ""
-    @State private var bandwidth = ""
+    @State private var advancedOptionsText = ""
 
     @State private var detectedSequenceFormat: SequenceFormat?
     @State private var detectedReadClass: MappingReadClass?
@@ -147,7 +141,7 @@ struct MappingWizardSheet: View {
     }
 
     private var canRun: Bool {
-        compatibilityPresentation.isReady
+        compatibilityPresentation.isReady && advancedOptionsParseError == nil
     }
 
     private var modeOptions: [MappingMode] {
@@ -405,18 +399,18 @@ struct MappingWizardSheet: View {
                         .font(.system(size: 12))
                 }
 
-                if initialTool == .minimap2 {
-                    Divider().padding(.vertical, 4)
-                    Text("minimap2 scoring overrides")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.tertiary)
-
-                    advancedTextField("Match score (-A)", text: $matchScore)
-                    advancedTextField("Mismatch penalty (-B)", text: $mismatchPenalty)
-                    advancedTextField("Gap open (-O)", text: $gapOpen)
-                    advancedTextField("Gap ext (-E)", text: $gapExt)
-                    advancedTextField("Seed length (-k)", text: $seedLength)
-                    advancedTextField("Bandwidth (-r)", text: $bandwidth)
+                Divider().padding(.vertical, 4)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Advanced Options")
+                        .font(.system(size: 12))
+                    TextField("minid=0.97", text: $advancedOptionsText)
+                        .font(.system(size: 12, design: .monospaced))
+                        .textFieldStyle(.roundedBorder)
+                    if let advancedOptionsParseError {
+                        Text(advancedOptionsParseError)
+                            .font(.caption)
+                            .foregroundStyle(Color.orange)
+                    }
                 }
             }
             .padding(.top, 8)
@@ -424,23 +418,11 @@ struct MappingWizardSheet: View {
         .font(.system(size: 12, weight: .medium))
     }
 
-    private func advancedTextField(_ title: String, text: Binding<String>) -> some View {
-        HStack {
-            Text(title + ":")
-                .font(.system(size: 12))
-                .frame(width: 150, alignment: .trailing)
-            TextField("", text: text)
-                .font(.system(size: 12, design: .monospaced))
-                .frame(width: 80)
-                .textFieldStyle(.roundedBorder)
-        }
-    }
-
     private var footerSection: some View {
         HStack {
-            Text(compatibilityPresentation.message)
+            Text(advancedOptionsParseError ?? compatibilityPresentation.message)
                 .font(.caption)
-                .foregroundStyle(compatibilityPresentation.color)
+                .foregroundStyle(advancedOptionsParseError == nil ? compatibilityPresentation.color : Color.orange)
 
             Spacer()
 
@@ -597,14 +579,15 @@ struct MappingWizardSheet: View {
     }
 
     private func advancedArguments() -> [String] {
-        guard initialTool == .minimap2 else { return [] }
-        var arguments: [String] = []
-        if !matchScore.isEmpty { arguments += ["-A", matchScore] }
-        if !mismatchPenalty.isEmpty { arguments += ["-B", mismatchPenalty] }
-        if !gapOpen.isEmpty { arguments += ["-O", gapOpen] }
-        if !gapExt.isEmpty { arguments += ["-E", gapExt] }
-        if !seedLength.isEmpty { arguments += ["-k", seedLength] }
-        if !bandwidth.isEmpty { arguments += ["-r", bandwidth] }
-        return arguments
+        (try? AdvancedCommandLineOptions.parse(advancedOptionsText)) ?? []
+    }
+
+    private var advancedOptionsParseError: String? {
+        do {
+            _ = try AdvancedCommandLineOptions.parse(advancedOptionsText)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 }

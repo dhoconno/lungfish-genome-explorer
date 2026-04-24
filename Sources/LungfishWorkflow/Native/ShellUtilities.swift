@@ -30,6 +30,88 @@ public func shellEscape(_ value: String) -> String {
     return "'\(escaped)'"
 }
 
+public enum AdvancedCommandLineOptionsError: Error, LocalizedError, Equatable {
+    case unterminatedQuote(Character)
+    case trailingEscape
+
+    public var errorDescription: String? {
+        switch self {
+        case .unterminatedQuote(let quote):
+            return "Advanced options contain an unterminated \(quote) quote."
+        case .trailingEscape:
+            return "Advanced options end with an unfinished escape sequence."
+        }
+    }
+}
+
+public enum AdvancedCommandLineOptions {
+    public static func parse(_ text: String) throws -> [String] {
+        var arguments: [String] = []
+        var current = ""
+        var currentStarted = false
+        var activeQuote: Character?
+        var escaping = false
+
+        for character in text {
+            if escaping {
+                current.append(character)
+                currentStarted = true
+                escaping = false
+                continue
+            }
+
+            if character == "\\" && activeQuote != "'" {
+                escaping = true
+                currentStarted = true
+                continue
+            }
+
+            if let quote = activeQuote {
+                if character == quote {
+                    activeQuote = nil
+                } else {
+                    current.append(character)
+                }
+                currentStarted = true
+                continue
+            }
+
+            if character == "'" || character == "\"" {
+                activeQuote = character
+                currentStarted = true
+                continue
+            }
+
+            if character.isWhitespace {
+                if currentStarted {
+                    arguments.append(current)
+                    current.removeAll(keepingCapacity: true)
+                    currentStarted = false
+                }
+                continue
+            }
+
+            current.append(character)
+            currentStarted = true
+        }
+
+        if escaping {
+            throw AdvancedCommandLineOptionsError.trailingEscape
+        }
+        if let activeQuote {
+            throw AdvancedCommandLineOptionsError.unterminatedQuote(activeQuote)
+        }
+        if currentStarted {
+            arguments.append(current)
+        }
+        return arguments
+    }
+
+    public static func join(_ arguments: [String]) -> String {
+        arguments.map(shellEscape).joined(separator: " ")
+    }
+}
+
 // MARK: - Version Detection
 
 /// Detects a tool's version by running it with version flags in a conda environment.

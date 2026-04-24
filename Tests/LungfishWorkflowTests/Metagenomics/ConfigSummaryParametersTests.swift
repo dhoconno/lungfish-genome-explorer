@@ -178,6 +178,7 @@ final class ConfigSummaryParametersTests: XCTestCase {
             threads: 16,
             minContigLength: 500,
             careful: true,
+            customArgs: ["--phred-offset", "33", "--label", "sample 1"],
             outputDirectory: URL(fileURLWithPath: "/output")
         )
 
@@ -188,8 +189,9 @@ final class ConfigSummaryParametersTests: XCTestCase {
         XCTAssertEqual(params["memoryGB"], .int(32))
         XCTAssertEqual(params["minContigLength"], .int(500))
         XCTAssertEqual(params["careful"], .bool(true))
+        XCTAssertEqual(params["advancedOptions"], .string("--phred-offset 33 --label 'sample 1'"))
 
-        // Paths and custom args must not appear
+        // Paths and raw custom args must not appear
         XCTAssertNil(params["forwardReads"])
         XCTAssertNil(params["reverseReads"])
         XCTAssertNil(params["unpairedReads"])
@@ -224,7 +226,8 @@ final class ConfigSummaryParametersTests: XCTestCase {
             threads: 8,
             isPairedEnd: false,
             outputDirectory: URL(fileURLWithPath: "/output"),
-            sampleName: "ONT_Run1"
+            sampleName: "ONT_Run1",
+            advancedArguments: ["-A", "2", "--tag", "sample 1"]
         )
 
         let params = config.summaryParameters()
@@ -233,10 +236,32 @@ final class ConfigSummaryParametersTests: XCTestCase {
         XCTAssertEqual(params["sampleName"], .string("ONT_Run1"))
         XCTAssertEqual(params["threads"], .int(8))
         XCTAssertEqual(params["isPairedEnd"], .bool(false))
+        XCTAssertEqual(params["advancedOptions"], .string("-A 2 --tag 'sample 1'"))
 
         // Paths must not appear
         XCTAssertNil(params["inputFiles"])
         XCTAssertNil(params["referenceURL"])
+        XCTAssertNil(params["outputDirectory"])
+    }
+
+    func testMappingRunRequestSummaryIncludesAdvancedOptions() {
+        let request = MappingRunRequest(
+            tool: .bbmap,
+            modeID: MappingMode.bbmapStandard.id,
+            inputFASTQURLs: [URL(fileURLWithPath: "/data/reads.fastq.gz")],
+            referenceFASTAURL: URL(fileURLWithPath: "/ref/genome.fasta"),
+            outputDirectory: URL(fileURLWithPath: "/output"),
+            sampleName: "Sample1",
+            pairedEnd: false,
+            threads: 4,
+            advancedArguments: ["minid=0.97", "idtag=sample 1"]
+        )
+
+        let params = request.summaryParameters()
+
+        XCTAssertEqual(params["advancedOptions"], .string("minid=0.97 'idtag=sample 1'"))
+        XCTAssertNil(params["inputFASTQURLs"])
+        XCTAssertNil(params["referenceFASTAURL"])
         XCTAssertNil(params["outputDirectory"])
     }
 

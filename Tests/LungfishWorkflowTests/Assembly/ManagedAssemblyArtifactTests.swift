@@ -262,6 +262,43 @@ final class ManagedAssemblyArtifactTests: XCTestCase {
         XCTAssertEqual(provenance.containerRuntime, "apple_containerization")
     }
 
+    func testManagedAssemblyProvenanceIncludesAdvancedOptions() throws {
+        let tempDir = try makeTempDirectory(prefix: "managed-assembly-provenance")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let request = AssemblyRunRequest(
+            tool: .megahit,
+            readType: .illuminaShortReads,
+            inputURLs: [URL(fileURLWithPath: "/tmp/reads.fastq.gz")],
+            projectName: "advanced-demo",
+            outputDirectory: tempDir,
+            threads: 4,
+            selectedProfileID: "meta-sensitive",
+            extraArguments: ["--presets", "meta-large", "--tag", "sample 1"]
+        )
+        let result = AssemblyResult(
+            tool: .megahit,
+            readType: .illuminaShortReads,
+            contigsPath: tempDir.appendingPathComponent("final.contigs.fa"),
+            graphPath: nil,
+            logPath: nil,
+            assemblerVersion: "1.2.9",
+            commandLine: "megahit --presets meta-large --tag 'sample 1'",
+            outputDirectory: tempDir,
+            statistics: AssemblyStatisticsCalculator.computeFromLengths([]),
+            wallTimeSeconds: 1
+        )
+
+        let provenance = ProvenanceBuilder.build(
+            request: request,
+            result: result,
+            inputRecords: []
+        )
+
+        XCTAssertEqual(provenance.parameters.advancedArguments, ["--presets", "meta-large", "--tag", "sample 1"])
+        XCTAssertEqual(provenance.parameters.advancedOptions, "--presets meta-large --tag 'sample 1'")
+    }
+
     func testNormalizeHifiasmOutputsGeneratesContigFASTA() throws {
         let tempDir = try makeTempDirectory(prefix: "hifiasm-normalizer")
         defer { try? FileManager.default.removeItem(at: tempDir) }

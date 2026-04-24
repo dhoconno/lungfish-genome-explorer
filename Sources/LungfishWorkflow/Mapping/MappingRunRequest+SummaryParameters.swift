@@ -15,6 +15,7 @@ public extension MappingRunRequest {
             "includeSecondary": .bool(includeSecondary),
             "includeSupplementary": .bool(includeSupplementary),
             "minimumMappingQuality": .int(minimumMappingQuality),
+            "advancedOptions": .string(AdvancedCommandLineOptions.join(advancedArguments)),
         ]
     }
 }

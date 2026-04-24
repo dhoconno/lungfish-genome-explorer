@@ -133,27 +133,8 @@ public struct Minimap2Config: Sendable {
     /// Sample name used in the @RG read group header and output file naming.
     public let sampleName: String
 
-    // MARK: Advanced Scoring Parameters
-
-    /// Matching score override (nil = use preset default).
-    public let matchScore: Int?
-
-    /// Mismatch penalty override (nil = use preset default).
-    public let mismatchPenalty: Int?
-
-    /// Gap open penalty override (nil = use preset default).
-    /// Format: single integer or comma-separated pair for affine gap model.
-    public let gapOpenPenalty: String?
-
-    /// Gap extension penalty override (nil = use preset default).
-    /// Format: single integer or comma-separated pair for affine gap model.
-    public let gapExtensionPenalty: String?
-
-    /// Minimum seed length override (nil = use preset default).
-    public let seedLength: Int?
-
-    /// Bandwidth for chaining and alignment (nil = use preset default).
-    public let bandwidth: Int?
+    /// Additional minimap2 command line arguments supplied by advanced users.
+    public let advancedArguments: [String]
 
     /// Creates a new minimap2 configuration.
     ///
@@ -168,12 +149,7 @@ public struct Minimap2Config: Sendable {
     ///   - isPairedEnd: Whether input is paired-end (default: true).
     ///   - outputDirectory: Directory for output files.
     ///   - sampleName: Sample name for read group and filenames.
-    ///   - matchScore: Scoring override (nil = preset default).
-    ///   - mismatchPenalty: Scoring override (nil = preset default).
-    ///   - gapOpenPenalty: Scoring override (nil = preset default).
-    ///   - gapExtensionPenalty: Scoring override (nil = preset default).
-    ///   - seedLength: Seeding override (nil = preset default).
-    ///   - bandwidth: Chaining bandwidth override (nil = preset default).
+    ///   - advancedArguments: Additional minimap2 options passed through as argv tokens.
     public init(
         inputFiles: [URL],
         referenceURL: URL,
@@ -185,12 +161,7 @@ public struct Minimap2Config: Sendable {
         isPairedEnd: Bool = true,
         outputDirectory: URL,
         sampleName: String,
-        matchScore: Int? = nil,
-        mismatchPenalty: Int? = nil,
-        gapOpenPenalty: String? = nil,
-        gapExtensionPenalty: String? = nil,
-        seedLength: Int? = nil,
-        bandwidth: Int? = nil
+        advancedArguments: [String] = []
     ) {
         self.inputFiles = inputFiles
         self.referenceURL = referenceURL
@@ -202,12 +173,7 @@ public struct Minimap2Config: Sendable {
         self.isPairedEnd = isPairedEnd
         self.outputDirectory = outputDirectory
         self.sampleName = sampleName
-        self.matchScore = matchScore
-        self.mismatchPenalty = mismatchPenalty
-        self.gapOpenPenalty = gapOpenPenalty
-        self.gapExtensionPenalty = gapExtensionPenalty
-        self.seedLength = seedLength
-        self.bandwidth = bandwidth
+        self.advancedArguments = advancedArguments
     }
 }
 
@@ -522,34 +488,14 @@ public final class Minimap2Pipeline: @unchecked Sendable {
             minimap2Args.append("--secondary=no")
         }
 
-        // Advanced scoring overrides
-        if let matchScore = config.matchScore {
-            minimap2Args.append(contentsOf: ["-A", String(matchScore)])
-        }
-        if let mismatchPenalty = config.mismatchPenalty {
-            minimap2Args.append(contentsOf: ["-B", String(mismatchPenalty)])
-        }
-        if let gapOpen = config.gapOpenPenalty {
-            minimap2Args.append(contentsOf: ["-O", gapOpen])
-        }
-        if let gapExt = config.gapExtensionPenalty {
-            minimap2Args.append(contentsOf: ["-E", gapExt])
-        }
-        if let seedLen = config.seedLength {
-            minimap2Args.append(contentsOf: ["-k", String(seedLen)])
-        }
-        if let bw = config.bandwidth {
-            minimap2Args.append(contentsOf: ["-r", String(bw)])
-        }
+        minimap2Args += config.advancedArguments
+        minimap2Args += ["-o", unsortedSAM.path]
 
         // Reference and input files (positional args at the end)
         minimap2Args.append(config.referenceURL.path)
         for inputFile in config.inputFiles {
             minimap2Args.append(inputFile.path)
         }
-
-        // Output to SAM file
-        minimap2Args.append(contentsOf: ["-o", unsortedSAM.path])
 
         // -- Step 1: Align with minimap2 --------------------------------------
 

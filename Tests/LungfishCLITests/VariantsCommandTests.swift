@@ -28,13 +28,35 @@ final class VariantsCommandTests: XCTestCase {
             "--bundle", "/tmp/Test.lungfishref",
             "--alignment-track", "aln-1",
             "--caller", "lofreq",
+            "--advanced-options", #"--call-indels --tag "sample 1""#,
             "--format", "json",
         ])
 
         XCTAssertEqual(command.bundlePath, "/tmp/Test.lungfishref")
         XCTAssertEqual(command.alignmentTrackID, "aln-1")
         XCTAssertEqual(command.caller, "lofreq")
+        XCTAssertEqual(command.advancedOptions, #"--call-indels --tag "sample 1""#)
         XCTAssertEqual(command.globalOptions.outputFormat, .json)
+    }
+
+    func testCallSubcommandPassesAdvancedOptionsToRuntime() async throws {
+        let capture = CapturedVariantRequest()
+        let command = try VariantsCommand.CallSubcommand.parse([
+            "call",
+            "--bundle", tempDir.path,
+            "--alignment-track", "aln-1",
+            "--caller", "lofreq",
+            "--advanced-options", #"--call-indels --tag "sample 1""#,
+            "--format", "json",
+        ])
+        let runtime = try makeRuntime(onPreflight: { request in
+            capture.request = request
+        })
+        var lines: [String] = []
+
+        _ = try await command.executeForTesting(runtime: runtime) { lines.append($0) }
+
+        XCTAssertEqual(capture.request?.advancedArguments, ["--call-indels", "--tag", "sample 1"])
     }
 
     func testCallSubcommandEmitsRunCompleteJSON() async throws {
@@ -145,7 +167,8 @@ final class VariantsCommandTests: XCTestCase {
     }
 
     private func makeRuntime(
-        onRunPipeline: (@Sendable (VariantsCommand.CallContext) -> Void)? = nil
+        onRunPipeline: (@Sendable (VariantsCommand.CallContext) -> Void)? = nil,
+        onPreflight: (@Sendable (BundleVariantCallingRequest) -> Void)? = nil
     ) throws -> VariantsCommand.Runtime {
         let bundleURL = tempDir.appendingPathComponent("Bundle.lungfishref", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
@@ -218,7 +241,10 @@ final class VariantsCommandTests: XCTestCase {
         )
 
         return VariantsCommand.Runtime(
-            preflight: { _ in preflight },
+            preflight: { request in
+                onPreflight?(request)
+                return preflight
+            },
             runPipeline: { _, _, context in
                 onRunPipeline?(context)
                 return pipelineResult
@@ -246,6 +272,10 @@ final class VariantsCommandTests: XCTestCase {
 private final class CapturedVariantStaging: @unchecked Sendable {
     var root: URL?
     var marker: ProjectTempDirectory.TempOriginMarker?
+}
+
+private final class CapturedVariantRequest: @unchecked Sendable {
+    var request: BundleVariantCallingRequest?
 }
 
 private func decodeEvent(_ line: String) -> VariantsCommand.VariantCallingEvent? {

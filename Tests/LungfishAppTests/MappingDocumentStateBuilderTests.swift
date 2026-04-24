@@ -108,6 +108,7 @@ final class MappingDocumentStateBuilderTests: XCTestCase {
         XCTAssertTrue(state.contextRows.contains(where: { $0.0 == "Minimum MAPQ" && $0.1 == "17" }))
         XCTAssertTrue(state.contextRows.contains(where: { $0.0 == "Include Secondary" && $0.1 == "No" }))
         XCTAssertTrue(state.contextRows.contains(where: { $0.0 == "Include Supplementary" && $0.1 == "No" }))
+        XCTAssertTrue(state.contextRows.contains(where: { $0.0 == "Advanced Options" && $0.1 == "--eqx" }))
         XCTAssertTrue(state.contextRows.contains(where: { $0.0 == "Mapper Version" && $0.1 == "2.0.0" }))
         XCTAssertTrue(state.contextRows.contains(where: { $0.0 == "Samtools Version" && $0.1 == "1.21" }))
         XCTAssertTrue(state.contextRows.contains(where: { $0.0 == "samtools index" }))

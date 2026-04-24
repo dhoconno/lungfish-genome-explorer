@@ -22,7 +22,7 @@ struct AssemblyWizardSheet: View {
     @State private var minContigLength: Int
     @State private var selectedProfileID: String
     @State private var projectName: String = ""
-    @State private var extraArgumentsText: String = ""
+    @State private var advancedOptionsText: String = ""
     @State private var hasConfirmedManualReadType: Bool
     @State private var showAdvanced = false
     @State private var spadesCareful = false
@@ -214,6 +214,7 @@ struct AssemblyWizardSheet: View {
         guard outputDirectory != nil else { return false }
         guard !projectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         guard !requiresManualReadTypeConfirmation || hasConfirmedManualReadType else { return false }
+        guard advancedOptionsParseError == nil else { return false }
         guard compatibilityPresentation.state == .ready else { return false }
         return configurationBlockingMessage == nil
     }
@@ -230,6 +231,9 @@ struct AssemblyWizardSheet: View {
         }
         if requiresManualReadTypeConfirmation && !hasConfirmedManualReadType {
             return "Choose a read type before running this assembly."
+        }
+        if let advancedOptionsParseError {
+            return advancedOptionsParseError
         }
         if let configurationBlockingMessage {
             return configurationBlockingMessage
@@ -536,12 +540,12 @@ struct AssemblyWizardSheet: View {
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Additional arguments")
+                        Text("Advanced Options")
                             .font(.subheadline.weight(.medium))
-                        TextField("Enter tool-specific flags", text: $extraArgumentsText)
+                        TextField("--meta --tmp-dir '/Volumes/Fast Scratch'", text: $advancedOptionsText)
                             .textFieldStyle(.roundedBorder)
                             .font(.system(.body, design: .monospaced))
-                        Text("Use this only for flags not covered by the shared controls.")
+                        Text("Additional command line options passed to \(selectedTool.displayName).")
                             .font(.caption)
                             .foregroundStyle(Color.lungfishSecondaryText)
                     }
@@ -706,7 +710,7 @@ struct AssemblyWizardSheet: View {
             memoryGB: supportsMemoryLimit ? Int(memoryGB) : nil,
             minContigLength: supportsMinContigLength ? minContigLength : nil,
             selectedProfileID: selectedProfileID.isEmpty ? nil : selectedProfileID,
-            extraArguments: curatedAdvancedArguments + parsedExtraArguments
+            extraArguments: curatedAdvancedArguments + parsedAdvancedOptions
         )
     }
 
@@ -734,10 +738,17 @@ struct AssemblyWizardSheet: View {
         return arguments
     }
 
-    private var parsedExtraArguments: [String] {
-        extraArgumentsText
-            .split(whereSeparator: \.isWhitespace)
-            .map(String.init)
+    private var parsedAdvancedOptions: [String] {
+        (try? AdvancedCommandLineOptions.parse(advancedOptionsText)) ?? []
+    }
+
+    private var advancedOptionsParseError: String? {
+        do {
+            _ = try AdvancedCommandLineOptions.parse(advancedOptionsText)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 
     private func detectPairedEndFiles(_ urls: [URL]) -> (forward: [URL], reverse: [URL], unpaired: [URL]) {
@@ -855,7 +866,7 @@ struct AssemblyWizardSheet: View {
         spadesSkipErrorCorrection = false
         flyeMetagenomeMode = false
         hifiasmPrimaryOnly = false
-        extraArgumentsText = ""
+        advancedOptionsText = ""
     }
 
     private func syncSelectedToolToAvailableTools() {

@@ -53,6 +53,7 @@ public struct ViralVariantCallingPipelineResult: Sendable, Equatable {
     public let referenceFASTASHA256: String
     public let callerVersion: String
     public let callerParametersJSON: String
+    public let commandLine: String
 
     public init(
         normalizedVCFURL: URL,
@@ -61,7 +62,8 @@ public struct ViralVariantCallingPipelineResult: Sendable, Equatable {
         referenceFASTAURL: URL,
         referenceFASTASHA256: String,
         callerVersion: String,
-        callerParametersJSON: String
+        callerParametersJSON: String,
+        commandLine: String = ""
     ) {
         self.normalizedVCFURL = normalizedVCFURL
         self.stagedVCFGZURL = stagedVCFGZURL
@@ -70,6 +72,7 @@ public struct ViralVariantCallingPipelineResult: Sendable, Equatable {
         self.referenceFASTASHA256 = referenceFASTASHA256
         self.callerVersion = callerVersion
         self.callerParametersJSON = callerParametersJSON
+        self.commandLine = commandLine
     }
 }
 
@@ -119,6 +122,8 @@ public struct ViralVariantCallingPipeline: Sendable {
         let minimumDepth: Int?
         let ivarPrimerTrimConfirmed: Bool
         let medakaModel: String?
+        let advancedOptions: String
+        let advancedArguments: [String]
     }
 
     public typealias ProgressHandler = @Sendable (Double, String) -> Void
@@ -316,7 +321,8 @@ public struct ViralVariantCallingPipeline: Sendable {
             referenceFASTAURL: plan.referenceURL,
             referenceFASTASHA256: referenceFASTASHA256,
             callerVersion: callerVersion,
-            callerParametersJSON: callerParametersJSON()
+            callerParametersJSON: callerParametersJSON(),
+            commandLine: plan.commandLine
         )
     }
 
@@ -492,15 +498,15 @@ public struct ViralVariantCallingPipeline: Sendable {
                     stagedTabixURL: rawVCFURL.deletingLastPathComponent().appendingPathComponent("variants.vcf.gz.tbi"),
                     commandLine: ""
                 )
-            )).joined(separator: " ")
+            )).map(shellEscape).joined(separator: " ")
         case .ivar:
             return """
-            samtools \(ivarMpileupArguments(plan: placeholderPlan(referenceURL: referenceURL, alignmentURL: alignmentURL, medakaFASTQURL: medakaFASTQURL, rawVCFURL: rawVCFURL)).joined(separator: " ")) | ivar \(ivarVariantArguments(plan: placeholderPlan(referenceURL: referenceURL, alignmentURL: alignmentURL, medakaFASTQURL: medakaFASTQURL, rawVCFURL: rawVCFURL)).joined(separator: " "))
+            samtools \(ivarMpileupArguments(plan: placeholderPlan(referenceURL: referenceURL, alignmentURL: alignmentURL, medakaFASTQURL: medakaFASTQURL, rawVCFURL: rawVCFURL)).map(shellEscape).joined(separator: " ")) | ivar \(ivarVariantArguments(plan: placeholderPlan(referenceURL: referenceURL, alignmentURL: alignmentURL, medakaFASTQURL: medakaFASTQURL, rawVCFURL: rawVCFURL)).map(shellEscape).joined(separator: " "))
             """
         case .medaka:
             return ([nativeTool(for: caller).executableName] + medakaArguments(
                 plan: placeholderPlan(referenceURL: referenceURL, alignmentURL: alignmentURL, medakaFASTQURL: medakaFASTQURL, rawVCFURL: rawVCFURL)
-            )).joined(separator: " ")
+            )).map(shellEscape).joined(separator: " ")
         }
     }
 
@@ -527,8 +533,9 @@ public struct ViralVariantCallingPipeline: Sendable {
     }
 
     private func lofreqArguments(plan: ViralVariantCallingExecutionPlan) -> [String] {
-        [
-            "call-parallel",
+        return ["call-parallel"]
+            + request.advancedArguments
+            + [
             "--pp-threads", String(max(1, request.threads)),
             "-f", plan.referenceURL.path,
             "-o", plan.rawVCFURL.path,
@@ -552,8 +559,9 @@ public struct ViralVariantCallingPipeline: Sendable {
 
     private func ivarVariantArguments(plan: ViralVariantCallingExecutionPlan) -> [String] {
         let prefix = plan.rawVCFURL.deletingPathExtension().path
-        return [
-            "variants",
+        return ["variants"]
+            + request.advancedArguments
+            + [
             "-p", prefix,
             "-q", "20",
             "-t", String(request.minimumAlleleFrequency ?? 0.05),
@@ -564,8 +572,9 @@ public struct ViralVariantCallingPipeline: Sendable {
     }
 
     private func medakaArguments(plan: ViralVariantCallingExecutionPlan) -> [String] {
-        [
-            "variant",
+        return ["variant"]
+            + request.advancedArguments
+            + [
             "-i", plan.medakaFASTQURL?.path ?? "",
             "-r", plan.referenceURL.path,
             "-o", plan.rawVCFURL.path,
@@ -581,7 +590,9 @@ public struct ViralVariantCallingPipeline: Sendable {
             minimumAlleleFrequency: request.minimumAlleleFrequency,
             minimumDepth: request.minimumDepth,
             ivarPrimerTrimConfirmed: request.ivarPrimerTrimConfirmed,
-            medakaModel: request.medakaModel
+            medakaModel: request.medakaModel,
+            advancedOptions: AdvancedCommandLineOptions.join(request.advancedArguments),
+            advancedArguments: request.advancedArguments
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

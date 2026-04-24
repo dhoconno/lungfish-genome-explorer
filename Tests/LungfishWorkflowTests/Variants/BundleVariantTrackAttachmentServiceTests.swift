@@ -36,6 +36,7 @@ final class BundleVariantTrackAttachmentServiceTests: XCTestCase {
                 variantCount: 99,
                 variantCallerVersion: "2.1.5",
                 variantCallerParametersJSON: #"{"min_af":0.05}"#,
+                variantCallerCommandLine: "lofreq call-parallel --call-indels sample.bam",
                 referenceStagedFASTASHA256: "ref-sha-256"
             )
         )
@@ -66,6 +67,10 @@ final class BundleVariantTrackAttachmentServiceTests: XCTestCase {
         XCTAssertEqual(VariantDatabase.metadataValue(at: dbURL, key: "variant_caller"), "lofreq")
         XCTAssertEqual(VariantDatabase.metadataValue(at: dbURL, key: "variant_caller_version"), "2.1.5")
         XCTAssertEqual(VariantDatabase.metadataValue(at: dbURL, key: "variant_caller_parameters_json"), #"{"min_af":0.05}"#)
+        XCTAssertEqual(
+            VariantDatabase.metadataValue(at: dbURL, key: "variant_caller_command_line"),
+            "lofreq call-parallel --call-indels sample.bam"
+        )
         XCTAssertEqual(VariantDatabase.metadataValue(at: dbURL, key: "source_alignment_track_id"), "aln-1")
         XCTAssertEqual(VariantDatabase.metadataValue(at: dbURL, key: "source_alignment_track_name"), "Sample BAM")
         XCTAssertEqual(VariantDatabase.metadataValue(at: dbURL, key: "source_alignment_relative_path"), "alignments/sample.sorted.bam")

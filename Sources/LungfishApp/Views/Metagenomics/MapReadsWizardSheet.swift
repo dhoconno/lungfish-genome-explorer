@@ -12,7 +12,7 @@ import LungfishIO
 /// A SwiftUI sheet for configuring and launching a minimap2 read mapping run.
 ///
 /// The wizard guides the user through selecting a reference genome and
-/// alignment preset. Advanced scoring parameters are available in a
+/// alignment preset. Additional minimap2 options are available in a
 /// collapsed disclosure group.
 ///
 /// ## Reference Selection
@@ -47,9 +47,7 @@ import LungfishIO
 /// |   Secondary alignments: [ ]                        |
 /// |   Supplementary alignments: [x]                    |
 /// |   Min MAPQ: [ 0 ]                                  |
-/// |   Match score: [  ]                                |
-/// |   Mismatch penalty: [  ]                           |
-/// |   Seed length: [  ]                                |
+/// |   Advanced Options: [ -A 2 -k 19 ]                 |
 /// +----------------------------------------------------+
 /// |                        [Cancel]  [Run]             |
 /// +----------------------------------------------------+
@@ -95,9 +93,7 @@ struct MapReadsWizardSheet: View {
     @State private var includeSecondary: Bool = false
     @State private var includeSupplementary: Bool = true
     @State private var minMappingQuality: Int = 0
-    @State private var matchScore: String = ""
-    @State private var mismatchPenalty: String = ""
-    @State private var seedLength: String = ""
+    @State private var advancedOptionsText: String = ""
 
     // MARK: - Callbacks
 
@@ -152,7 +148,7 @@ struct MapReadsWizardSheet: View {
 
     /// Whether the Run button should be enabled.
     private var canRun: Bool {
-        resolvedReferenceURL != nil && !inputFiles.isEmpty
+        resolvedReferenceURL != nil && !inputFiles.isEmpty && advancedOptionsParseError == nil
     }
 
     /// The common presets shown in the segmented control.
@@ -386,41 +382,17 @@ struct MapReadsWizardSheet: View {
                 Divider()
                     .padding(.vertical, 4)
 
-                Text("Scoring Overrides (leave blank for preset defaults)")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-
-                // Match score
-                HStack {
-                    Text("Match score (-A):")
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Advanced Options")
                         .font(.system(size: 12))
-                        .frame(width: 140, alignment: .trailing)
-                    TextField("", text: $matchScore)
+                    TextField("-A 2 -k 19", text: $advancedOptionsText)
                         .font(.system(size: 12, design: .monospaced))
-                        .frame(width: 60)
                         .textFieldStyle(.roundedBorder)
-                }
-
-                // Mismatch penalty
-                HStack {
-                    Text("Mismatch penalty (-B):")
-                        .font(.system(size: 12))
-                        .frame(width: 140, alignment: .trailing)
-                    TextField("", text: $mismatchPenalty)
-                        .font(.system(size: 12, design: .monospaced))
-                        .frame(width: 60)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                // Seed length
-                HStack {
-                    Text("Seed length (-k):")
-                        .font(.system(size: 12))
-                        .frame(width: 140, alignment: .trailing)
-                    TextField("", text: $seedLength)
-                        .font(.system(size: 12, design: .monospaced))
-                        .frame(width: 60)
-                        .textFieldStyle(.roundedBorder)
+                    if let advancedOptionsParseError {
+                        Text(advancedOptionsParseError)
+                            .font(.caption)
+                            .foregroundStyle(Color.lungfishOrangeFallback)
+                    }
                 }
             }
             .padding(.top, 8)
@@ -432,7 +404,11 @@ struct MapReadsWizardSheet: View {
 
     private var footerSection: some View {
         HStack {
-            if !canRun && resolvedReferenceURL == nil {
+            if let advancedOptionsParseError {
+                Text(advancedOptionsParseError)
+                    .font(.caption)
+                    .foregroundStyle(Color.lungfishOrangeFallback)
+            } else if !canRun && resolvedReferenceURL == nil {
                 Text("Select a reference genome")
                     .font(.caption)
                     .foregroundStyle(Color.lungfishOrangeFallback)
@@ -496,6 +472,7 @@ struct MapReadsWizardSheet: View {
     /// Builds a ``Minimap2Config`` from the current settings and calls ``onRun``.
     private func performRun() {
         guard let referenceURL = resolvedReferenceURL else { return }
+        guard advancedOptionsParseError == nil else { return }
 
         // Determine output directory: next to the first input file
         let baseDir = inputFiles.first?.deletingLastPathComponent()
@@ -514,11 +491,22 @@ struct MapReadsWizardSheet: View {
             isPairedEnd: isPairedEnd,
             outputDirectory: outputDir,
             sampleName: inputDisplayName,
-            matchScore: Int(matchScore),
-            mismatchPenalty: Int(mismatchPenalty),
-            seedLength: Int(seedLength)
+            advancedArguments: advancedArguments()
         )
 
         onRun?(config)
+    }
+
+    private func advancedArguments() -> [String] {
+        (try? AdvancedCommandLineOptions.parse(advancedOptionsText)) ?? []
+    }
+
+    private var advancedOptionsParseError: String? {
+        do {
+            _ = try AdvancedCommandLineOptions.parse(advancedOptionsText)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 }

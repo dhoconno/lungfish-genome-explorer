@@ -29,6 +29,7 @@ final class BAMVariantCallingDialogState {
     var minimumDepthText: String
     var ivarPrimerTrimConfirmed: Bool
     var medakaModel: String
+    var advancedOptionsText: String
     private(set) var generatedTrackID: String
     private(set) var pendingRequest: BundleVariantCallingRequest?
 
@@ -53,6 +54,7 @@ final class BAMVariantCallingDialogState {
         self.minimumDepthText = "10"
         self.ivarPrimerTrimConfirmed = false
         self.medakaModel = ""
+        self.advancedOptionsText = ""
         self.generatedTrackID = Self.makeTrackID()
         self.pendingRequest = nil
         self.outputTrackName = ""
@@ -101,6 +103,10 @@ final class BAMVariantCallingDialogState {
             return "Minimum depth must be a whole number."
         }
 
+        if let advancedOptionsParseError {
+            return advancedOptionsParseError
+        }
+
         switch selectedCaller {
         case .lofreq:
             return "Ready to run LoFreq on \(selectedAlignmentTrack?.name ?? "the selected alignment")."
@@ -122,6 +128,7 @@ final class BAMVariantCallingDialogState {
         guard !trimmedOutputTrackName.isEmpty else { return false }
         guard trimmedMinimumAlleleFrequency.isEmpty || minimumAlleleFrequency != nil else { return false }
         guard trimmedMinimumDepth.isEmpty || minimumDepth != nil else { return false }
+        guard advancedOptionsParseError == nil else { return false }
 
         switch selectedCaller {
         case .lofreq:
@@ -163,7 +170,8 @@ final class BAMVariantCallingDialogState {
             minimumAlleleFrequency: minimumAlleleFrequency,
             minimumDepth: minimumDepth,
             ivarPrimerTrimConfirmed: ivarPrimerTrimConfirmed,
-            medakaModel: trimmedMedakaModel.isEmpty ? nil : trimmedMedakaModel
+            medakaModel: trimmedMedakaModel.isEmpty ? nil : trimmedMedakaModel,
+            advancedArguments: parsedAdvancedOptions
         )
     }
 
@@ -216,6 +224,19 @@ final class BAMVariantCallingDialogState {
 
     private var trimmedMedakaModel: String {
         medakaModel.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var parsedAdvancedOptions: [String] {
+        (try? AdvancedCommandLineOptions.parse(advancedOptionsText)) ?? []
+    }
+
+    private var advancedOptionsParseError: String? {
+        do {
+            _ = try AdvancedCommandLineOptions.parse(advancedOptionsText)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 
     private var minimumAlleleFrequency: Double? {

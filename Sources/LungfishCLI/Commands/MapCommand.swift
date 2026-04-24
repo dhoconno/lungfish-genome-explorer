@@ -72,23 +72,12 @@ struct MapCommand: AsyncParsableCommand {
     @Option(name: .customLong("min-mapq"), help: "Minimum mapping quality to retain in the normalized BAM")
     var minMapQ: Int = 0
 
-    @Option(name: .customLong("match-score"), help: "minimap2 only: override match score (-A)")
-    var matchScore: Int?
-
-    @Option(name: .customLong("mismatch-penalty"), help: "minimap2 only: override mismatch penalty (-B)")
-    var mismatchPenalty: Int?
-
-    @Option(name: .customLong("gap-open"), help: "minimap2 only: override gap open penalty (-O)")
-    var gapOpen: String?
-
-    @Option(name: .customLong("gap-ext"), help: "minimap2 only: override gap extension penalty (-E)")
-    var gapExt: String?
-
-    @Option(name: .customLong("seed-length"), help: "minimap2 only: override minimum seed length (-k)")
-    var seedLength: Int?
-
-    @Option(name: .customLong("bandwidth"), help: "minimap2 only: override chaining bandwidth (-r)")
-    var bandwidth: Int?
+    @Option(
+        name: .customLong("advanced-options"),
+        parsing: .unconditional,
+        help: "Additional mapper options, written exactly as they should be passed to the underlying tool"
+    )
+    var advancedOptions: String = ""
 
     @OptionGroup var globalOptions: GlobalOptions
 
@@ -141,13 +130,6 @@ struct MapCommand: AsyncParsableCommand {
             throw ExitCode.failure
         }
 
-        if selectedTool != .minimap2,
-           matchScore != nil || mismatchPenalty != nil || gapOpen != nil || gapExt != nil || seedLength != nil || bandwidth != nil
-        {
-            print(formatter.error("Advanced scoring overrides are only supported for minimap2."))
-            throw ExitCode.failure
-        }
-
         let outputDirectory: URL
         if let outputDir {
             outputDirectory = URL(fileURLWithPath: outputDir)
@@ -158,7 +140,13 @@ struct MapCommand: AsyncParsableCommand {
         }
 
         let effectiveSampleName = sampleName ?? deriveSampleName(from: inputURLs.first!, pairedEnd: pairedEnd)
-        let advancedArguments = makeAdvancedArguments(for: selectedTool)
+        let advancedArguments: [String]
+        do {
+            advancedArguments = try AdvancedCommandLineOptions.parse(advancedOptions)
+        } catch {
+            print(formatter.error(error.localizedDescription))
+            throw ExitCode.failure
+        }
 
         let request = MappingRunRequest(
             tool: selectedTool,
@@ -188,6 +176,7 @@ struct MapCommand: AsyncParsableCommand {
             ("Supplementary", noSupplementary ? "no" : "yes"),
             ("Min MAPQ", String(minMapQ)),
             ("Sample name", effectiveSampleName),
+            ("Advanced options", advancedArguments.isEmpty ? "none" : AdvancedCommandLineOptions.join(advancedArguments)),
             ("Output", outputDirectory.path),
         ]))
         print("")
@@ -272,28 +261,4 @@ struct MapCommand: AsyncParsableCommand {
         return name
     }
 
-    private func makeAdvancedArguments(for tool: MappingTool) -> [String] {
-        guard tool == .minimap2 else { return [] }
-
-        var arguments: [String] = []
-        if let matchScore {
-            arguments += ["-A", String(matchScore)]
-        }
-        if let mismatchPenalty {
-            arguments += ["-B", String(mismatchPenalty)]
-        }
-        if let gapOpen {
-            arguments += ["-O", gapOpen]
-        }
-        if let gapExt {
-            arguments += ["-E", gapExt]
-        }
-        if let seedLength {
-            arguments += ["-k", String(seedLength)]
-        }
-        if let bandwidth {
-            arguments += ["-r", String(bandwidth)]
-        }
-        return arguments
-    }
 }
