@@ -42,6 +42,13 @@ public struct BAMPrimerTrimProvenance: Codable, Sendable, Equatable {
 
         /// Canonical reference accession the primer coordinates were authored against.
         public let canonicalAccession: String
+
+        enum CodingKeys: String, CodingKey {
+            case bundleName = "bundle_name"
+            case bundleSource = "bundle_source"
+            case bundleVersion = "bundle_version"
+            case canonicalAccession = "canonical_accession"
+        }
     }
 
     enum CodingKeys: String, CodingKey {
@@ -75,14 +82,5 @@ public struct BAMPrimerTrimProvenance: Codable, Sendable, Equatable {
         self.ivarVersion = ivarVersion
         self.ivarTrimArgs = ivarTrimArgs
         self.timestamp = timestamp
-    }
-}
-
-extension BAMPrimerTrimProvenance.PrimerSchemeRef {
-    enum CodingKeys: String, CodingKey {
-        case bundleName = "bundle_name"
-        case bundleSource = "bundle_source"
-        case bundleVersion = "bundle_version"
-        case canonicalAccession = "canonical_accession"
     }
 }
