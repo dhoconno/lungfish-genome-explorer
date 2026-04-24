@@ -1,0 +1,133 @@
+name: Workflow or tool failure
+description: Report a failed operation, bundled tool, workflow, database download, or CLI command.
+title: "[Workflow/tool]: "
+labels: ["workflow", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this when an operation starts but a tool, workflow, database download, container run, or CLI command fails. Public issues may be reviewed with coding agents such as Codex or Claude Code, so please do not include private sequence data, PHI, credentials, API keys, or unpublished datasets.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What failed?
+      placeholder: "Example: Kraken 2 classification exits after database selection with a missing hash.k2d error."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: operation
+    attributes:
+      label: Operation type
+      options:
+        - Import
+        - FASTQ operation
+        - Alignment / mapping
+        - Variant calling
+        - Classification / metagenomics
+        - Assembly
+        - Read extraction / conversion
+        - Reference or database download
+        - Nextflow workflow
+        - Snakemake workflow
+        - Container execution
+        - Plugin operation
+        - Command line
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: tool-or-workflow
+    attributes:
+      label: Tool, workflow, or command
+      description: Name the tool, recipe, workflow, or CLI subcommand if you know it.
+      placeholder: "Example: kraken2 + bracken, minimap2, SPAdes, lungfish-cli classify kraken2"
+    validations:
+      required: false
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: How did you start it?
+      description: Describe the UI path or paste the CLI command. Remove private file paths if needed.
+      placeholder: "Example: Selected FASTQ dataset > Operations > Classify > Kraken 2 > Standard database > Run"
+    validations:
+      required: true
+
+  - type: textarea
+    id: input-context
+    attributes:
+      label: Input and configuration context
+      description: Share file type, approximate size, selected reference/database, parameters changed from defaults, and whether this was a first-time tool/database install.
+      placeholder: "Example: Paired-end FASTQ, ~8 GB total, Standard Kraken 2 database, default parameters, first run on this Mac."
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Operation log or terminal output
+      description: Paste the relevant part of the Operations Panel export or terminal output. This is usually the most useful field for triage.
+      render: shell
+    validations:
+      required: false
+
+  - type: upload
+    id: attachments
+    attributes:
+      label: Redacted attachments
+      description: Add redacted logs, screenshots, or small synthetic examples if they help explain the failure. Do not upload private sequence data or unpublished datasets.
+    validations:
+      required: false
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected output
+      description: What output dataset, report, or project state did you expect?
+    validations:
+      required: false
+
+  - type: input
+    id: app-version
+    attributes:
+      label: Lungfish Genome Explorer version
+      description: Find this in Lungfish Genome Explorer > About Lungfish Genome Explorer, or paste the git commit if built from source.
+      placeholder: "Example: 0.1.0-alpha, or git commit abc1234"
+    validations:
+      required: true
+
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      placeholder: "Example: macOS 26.1 Tahoe"
+    validations:
+      required: true
+
+  - type: input
+    id: mac-model
+    attributes:
+      label: Mac model and memory
+      placeholder: "Example: M2 Mac mini, 16 GB RAM"
+    validations:
+      required: true
+
+  - type: input
+    id: install-context
+    attributes:
+      label: Tool installation context
+      description: If relevant, note whether tools are bundled, installed on demand in ~/.lungfish, built from source, or containerized.
+      placeholder: "Example: First-run on-demand tool install into ~/.lungfish completed earlier today."
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I have not included private sequence data, PHI, credentials, API keys, or unpublished datasets in this public issue.
+          required: true

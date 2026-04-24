@@ -1,0 +1,96 @@
+name: Feature or usability request
+description: Suggest an improvement to a workflow, UI, file format, tool, or documentation.
+title: "[Request]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement. Public issues may be reviewed with coding agents such as Codex or Claude Code, so please do not include private sequence data, PHI, credentials, API keys, or unpublished datasets.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the real workflow, confusing step, missing capability, or scientific task.
+      placeholder: "Example: I need to compare variant calls across several samples, but currently have to export each VCF and merge them elsewhere."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like Lungfish Genome Explorer to do?
+      description: A rough idea is fine. You do not need to design the whole feature.
+      placeholder: "Example: Add a multi-sample variant comparison view with filters for shared/private variants."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: affected-area
+    attributes:
+      label: Affected area
+      options:
+        - Sequences / FASTA / FASTQ
+        - Alignments / BAM / CRAM / SAM
+        - Variants / VCF
+        - Classification / metagenomics
+        - Assembly
+        - Reference data / downloads
+        - Workflows / Nextflow / Snakemake
+        - AI assistant
+        - Plugins
+        - Command line
+        - Installation / onboarding
+        - Documentation
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: user-type
+    attributes:
+      label: Who would this help?
+      options:
+        - Bench scientist / non-bioinformatician
+        - Bioinformatician
+        - Core facility / shared instrument user
+        - Developer / plugin author
+        - Instructor / trainer
+        - Not sure
+    validations:
+      required: false
+
+  - type: textarea
+    id: current-workaround
+    attributes:
+      label: Current workaround
+      description: What do you do today instead, if anything?
+      placeholder: "Example: Export the table, run bcftools manually, then re-import the result."
+    validations:
+      required: false
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Examples or references
+      description: Link tools, papers, screenshots, public datasets, or apps that behave the way you want.
+    validations:
+      required: false
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Important constraints
+      description: Mention scale, file types, platform requirements, privacy constraints, or compatibility needs.
+      placeholder: "Example: Needs to work on a 16 GB M2 laptop with BAM files around 20 GB."
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I have not included private sequence data, PHI, credentials, API keys, or unpublished datasets in this public issue.
+          required: true

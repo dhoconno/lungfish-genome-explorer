@@ -145,12 +145,14 @@ Lungfish Genome Explorer is organised into seven Swift modules:
 
 ## Reporting Issues
 
-If you run into a bug, crash, or unexpected behaviour, please open an issue on the [Issues](../../issues) tracker. Helpful reports include:
+If you run into a bug, crash, failed workflow, or unexpected behaviour, please open an issue on the [Issues](../../issues) tracker. The issue tracker has short templates for bugs, workflow/tool failures, feature requests, and rough reports. Partial reports are welcome; the templates are there to make triage easier, not to make reporting harder.
 
 - macOS version and Mac model
-- Lungfish Genome Explorer version (Lungfish > About Lungfish)
+- Lungfish Genome Explorer version (Lungfish Genome Explorer > About Lungfish Genome Explorer)
 - The dataset type and approximate size
 - Steps to reproduce and the resulting log output (Window > Operations Panel exports the run log)
+
+Please do not attach private sequence data, PHI, credentials, API keys, or unpublished datasets to public issues. When possible, use public accessions, synthetic examples, screenshots, or redacted logs instead.
 
 ## Contributing
 

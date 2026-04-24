@@ -1,0 +1,125 @@
+name: Bug report
+description: Report a crash, incorrect result, UI bug, or unexpected behavior.
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem with Lungfish Genome Explorer. Public issues may be reviewed with coding agents such as Codex or Claude Code, so please do not include private sequence data, PHI, credentials, API keys, or unpublished datasets.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the crash, wrong result, broken UI state, or other unexpected behavior.
+      placeholder: "Example: Importing a paired-end FASTQ folder completes, but the resulting dataset only shows the R1 reads."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the steps that trigger the problem. If you are not sure, write what you remember.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+      placeholder: "Example: The import should create one paired-end FASTQ dataset with both R1 and R2 attached."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: affected-area
+    attributes:
+      label: Affected area
+      description: Pick the closest area. It is fine to choose "Not sure."
+      options:
+        - Sequences / FASTA / FASTQ
+        - Alignments / BAM / CRAM / SAM
+        - Variants / VCF
+        - Classification / metagenomics
+        - Assembly
+        - Reference data / downloads
+        - Workflows / Nextflow / Snakemake
+        - AI assistant
+        - Plugins
+        - Command line
+        - Installation / first launch / updates
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: app-version
+    attributes:
+      label: Lungfish Genome Explorer version
+      description: Find this in Lungfish Genome Explorer > About Lungfish Genome Explorer, or paste the git commit if built from source.
+      placeholder: "Example: 0.1.0-alpha, or git commit abc1234"
+    validations:
+      required: true
+
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      placeholder: "Example: macOS 26.1 Tahoe"
+    validations:
+      required: true
+
+  - type: input
+    id: mac-model
+    attributes:
+      label: Mac model and memory
+      placeholder: "Example: M3 Max MacBook Pro, 36 GB RAM"
+    validations:
+      required: true
+
+  - type: textarea
+    id: dataset
+    attributes:
+      label: Dataset context
+      description: Share only non-sensitive details such as file type, approximate size, read count, contig count, public accession, or a synthetic/minimal example.
+      placeholder: "Example: Paired-end Illumina FASTQ, ~2 x 4 GB, 150 bp reads, public SRA accession SRR..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or crash reports
+      description: Paste the relevant part of the Operations Panel export, CLI output, or macOS crash report. Remove private paths and sensitive data first.
+    validations:
+      required: false
+
+  - type: upload
+    id: attachments
+    attributes:
+      label: Redacted screenshots or attachments
+      description: Add screenshots, redacted logs, or small synthetic examples if they help explain the problem. Do not upload private sequence data or unpublished datasets.
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Add related issues, workarounds, timing, or whether this is intermittent.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I have not included private sequence data, PHI, credentials, API keys, or unpublished datasets in this public issue.
+          required: true
