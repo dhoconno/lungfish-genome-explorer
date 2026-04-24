@@ -8,6 +8,8 @@ A native macOS workbench for everyday genomics. Lungfish brings sequence browsin
 
 Lungfish is developed in association with the [Lungfish Research Collaboratory](http://lung.fish).
 
+> ⚠️ **Alpha software.** Lungfish is at an early alpha stage. Expect rough edges, missing polish, and bugs that have not yet been surfaced. The current shape of the app reflects where it is headed rather than a finished product, and a lot of what's visible today will be sharpened as more people start using it. Please report what you find on the [Issues](../../issues) tracker.
+
 ## About
 
 Lungfish is an opinionated app built by Dave O'Connor to make powerful command-line bioinformatics tools usable without touching a terminal. Where most tools assume you already know what to do, Lungfish leans into the things beginners actually need and that other apps tend to skip:
