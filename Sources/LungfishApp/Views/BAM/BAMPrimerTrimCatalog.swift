@@ -1,9 +1,9 @@
 import Foundation
 import LungfishWorkflow
 
-/// Gates the BAM primer-trim operation on the readiness of the `variant-calling`
-/// plugin pack, which installs the `ivar` and `samtools` executables that
-/// primer trimming depends on.
+/// Gates the BAM primer-trim operation on readiness of the `variant-calling`
+/// plugin pack, which provides the `ivar` environment the primer-trim pipeline
+/// invokes. (`samtools sort`/`samtools index` run from that same environment.)
 struct BAMPrimerTrimCatalog: Sendable {
     private let statusProvider: any PluginPackStatusProviding
 
@@ -24,7 +24,7 @@ struct BAMPrimerTrimCatalog: Sendable {
 
     private func disabledReason() -> String {
         guard let pack = PluginPack.builtInPack(id: "variant-calling") else {
-            return "No tools available"
+            return "Variant Calling pack unavailable"
         }
         return "Requires \(pack.name) Pack"
     }

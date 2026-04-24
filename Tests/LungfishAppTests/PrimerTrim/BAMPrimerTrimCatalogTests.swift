@@ -49,4 +49,17 @@ final class BAMPrimerTrimCatalogTests: XCTestCase {
             XCTFail("expected disabled, got \(availability)")
         }
     }
+
+    func testAvailabilityDisabledForAllNonReadyStates() async {
+        for state: PluginPackState in [.needsInstall, .installing, .failed] {
+            let catalog = BAMPrimerTrimCatalog(
+                statusProvider: FakePackStatusProvider(state: state)
+            )
+            let availability = await catalog.availability()
+            guard case .disabled = availability else {
+                XCTFail("expected disabled for state \(state), got \(availability)")
+                continue
+            }
+        }
+    }
 }
