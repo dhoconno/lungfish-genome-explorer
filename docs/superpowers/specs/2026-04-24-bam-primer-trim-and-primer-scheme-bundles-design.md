@@ -13,14 +13,14 @@ The Lungfish Genome Explorer supports variant calling with three callers today: 
 
 This spec introduces two coupled capabilities:
 
-1. A new BAM sidecar operation — **Primer-trim BAM** — that runs `ivar trim` against the currently open BAM using a project-local primer scheme and emits a sorted, indexed, provenance-tagged BAM.
+1. A new BAM Analysis operation — **Primer-trim BAM** — exposed as a button in the BAM bundle's Inspector *Analysis* section (same surface as the existing "Call Variants…" button), which opens a dialog that runs `ivar trim` against the currently open BAM using a project-local primer scheme and emits a sorted, indexed, provenance-tagged BAM.
 2. A new bundle type — **`.lungfishprimers`** — that treats a primer scheme as a first-class citizen of the project alongside reference sequences and sequencing datasets. The bundle carries the scheme's BED, its primer sequences in FASTA, and arbitrary attachments (panel PDFs, provenance notes). One canonical bundle, `QIASeqDIRECT-SARS2.lungfishprimers`, ships built-in as a reference implementation and as a test fixture.
 
 ## 2. Goals and non-goals
 
 ### Goals
 
-- Expose `ivar trim` as a first-class BAM sidecar operation with a dialog that mirrors the existing `BAMVariantCallingDialog` design pattern.
+- Expose `ivar trim` as a first-class BAM Analysis operation, surfaced as a button in the BAM Inspector's Analysis section alongside "Call Variants…", with a dialog that mirrors the existing `BAMVariantCallingDialog` design pattern.
 - Define the `.lungfishprimers` bundle shape, with both BED (authoritative for trimming) and FASTA (authoritative for sequence-level work) as peer artifacts.
 - Support multiple equivalent reference accessions in one bundle (e.g., `MN908947.3` and `NC_045512.2` for SARS-CoV-2), with byte-identical-sequence verification at bundle-build time and on-the-fly BED header rewriting at use time.
 - Ship `QIASeqDIRECT-SARS2.lungfishprimers` as a built-in scheme and as a test fixture.
@@ -42,11 +42,22 @@ This spec introduces two coupled capabilities:
 
 `NativeToolRunner` (actor) already wraps `ivar` for variant calling. `ivar trim` is one additional subcommand path, following the same invocation and progress-reporting conventions. No new process-management surface is introduced.
 
-### 3.2 Sidecar catalog
+### 3.2 Surfacing: Analysis section of the BAM Inspector
 
-`BAMVariantCallingCatalog.swift` is the precedent: a `Sendable` struct that reports sidebar items gated on a plugin pack's readiness. A parallel `BAMPrimerTrimCatalog.swift` mirrors its shape and reuses the existing `variant-calling` pack (iVar is already part of that pack). If `variant-calling` is not ready, the Primer-trim operation is surfaced as disabled with "Requires Variant Calling Pack" subtitle, matching the existing pattern.
+The existing "Call Variants…" button lives in the BAM Inspector's Analysis section, rendered by `ReadStyleSection.variantCallingSection` in `Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift`. The new Primer-trim operation is surfaced by a sibling `primerTrimSection` in the same file, immediately above the variant-calling section (the workflow reads top-down: primer-trim, then call variants). The section contains:
 
-### 3.3 Dialog
+- A short caption describing the operation ("Trim amplicon primers from the alignment before variant calling.").
+- A secondary caption that explains when to use it ("Required for iVar variant calling on amplicon-sequenced BAMs; recommended for any amplicon panel.") or a disabled-state caption matching the existing pattern.
+- A "Primer-trim BAM…" button that opens the new dialog.
+- The button is disabled when no alignment track is loaded, in the same way the "Call Variants…" button is disabled.
+
+The Inspector's `viewModel` gains `onPrimerTrimRequested: (() -> Void)?` alongside the existing `onCallVariantsRequested`. The callback is wired from `InspectorViewController` to present the new dialog, mirroring the existing `BAMVariantCallingDialogPresenter.present(…)` wiring at line 1639 of `InspectorViewController.swift`.
+
+### 3.3 Catalog
+
+`BAMVariantCallingCatalog.swift` is the precedent for pack-gated tool availability: a `Sendable` struct that reports items for a dialog's picker gated on a plugin pack's readiness. A parallel `BAMPrimerTrimCatalog.swift` mirrors its shape and reuses the existing `variant-calling` pack (iVar is already part of that pack). Its output is consumed by the Primer-trim dialog's picker. If `variant-calling` is not ready, the dialog's Run button is disabled with a "Requires Variant Calling Pack" caption; additionally, the Inspector's Primer-trim button itself may be disabled with a disabled-state caption when the pack isn't ready, matching the existing Variant Calling pattern.
+
+### 3.4 Dialog
 
 The existing `BAMVariantCallingDialog` is split into four files: `Dialog`, `DialogState`, `DialogPresenter`, and `ToolPanes`. The new `BAMPrimerTrimDialog` follows the same split verbatim, so the codebase stays regular. The dialog's inputs:
 
@@ -54,7 +65,7 @@ The existing `BAMVariantCallingDialog` is split into four files: `Dialog`, `Dial
 - **Advanced options** (progressive disclosure, matching the existing advanced-options pattern): minimum read length after trim, quality threshold, sliding window width, offset. Defaults match `ivar trim`'s upstream defaults.
 - **Output location**: derivatives folder of the source BAM bundle, same pattern as variant calling outputs.
 
-### 3.4 Bundle shape
+### 3.5 Bundle shape
 
 ```
 <name>.lungfishprimers/
@@ -66,7 +77,7 @@ The existing `BAMVariantCallingDialog` is split into four files: `Dialog`, `Dial
     <arbitrary files>
 ```
 
-### 3.5 Manifest
+### 3.6 Manifest
 
 ```json
 {
@@ -94,7 +105,7 @@ The existing `BAMVariantCallingDialog` is split into four files: `Dialog`, `Dial
 
 `primer_count` and `amplicon_count` are computed at bundle-build time and stored, so the inspector can render them without re-parsing the BED. `canonical` on a reference accession means "the BED's column 1 matches this string literally." `equivalent` means "byte-identical sequence under a different name." A bundle has exactly one canonical accession and zero or more equivalents.
 
-### 3.6 Reference-name resolution at use time
+### 3.7 Reference-name resolution at use time
 
 When the user runs primer-trim against a BAM, the app:
 
@@ -106,7 +117,7 @@ When the user runs primer-trim against a BAM, the app:
 
 This is a single code path — `PrimerSchemeResolver.resolve(bundle:targetReferenceName:) -> URL` — with unit tests for each case.
 
-### 3.7 Bundle-build-time verification
+### 3.8 Bundle-build-time verification
 
 Bundles declare equivalence only when the sequences are byte-identical. A `scripts/build-primer-bundle.swift` tool (or equivalent) used to author canonical bundles:
 
@@ -117,7 +128,7 @@ Bundles declare equivalence only when the sequences are byte-identical. A `scrip
 
 This runs at bundle authoring time, not at import or use time. It catches the case where NCBI silently revises a reference while we still treat it as equivalent.
 
-### 3.8 Import Center
+### 3.9 Import Center
 
 A new "Import Primer Scheme" entry. Sub-flows:
 
@@ -131,7 +142,7 @@ Validation at import:
 - Manifest conforms to `schema_version: 1`.
 - `PROVENANCE.md` present and non-empty.
 
-### 3.9 Project folder
+### 3.10 Project folder
 
 New top-level folder: `Primer Schemes/`. Sits alongside `Reference Sequences/` and `Downloads/`. Added to:
 
@@ -139,7 +150,7 @@ New top-level folder: `Primer Schemes/`. Sits alongside `Reference Sequences/` a
 - Sidebar group labels.
 - Project folder creation logic when a new project is created.
 
-### 3.10 Built-in schemes
+### 3.11 Built-in schemes
 
 New resource folder `Resources/PrimerSchemes/` containing `QIASeqDIRECT-SARS2.lungfishprimers/`. Discovered by the picker via a `BuiltInPrimerSchemeService` that enumerates the bundled resource. Built-in schemes:
 
@@ -147,7 +158,7 @@ New resource folder `Resources/PrimerSchemes/` containing `QIASeqDIRECT-SARS2.lu
 - Appear at the top of the picker, grouped "Built-in," and listed separately from project-local schemes.
 - Identified by manifest `source == "built-in"` (or by being discovered under `Resources/`; implementation detail).
 
-### 3.11 Provenance
+### 3.12 Provenance
 
 The primer-trimmed BAM's sidecar metadata records:
 
@@ -219,7 +230,7 @@ The script is committed so that the bundle can be rebuilt deterministically from
 
 ### 5.3 UI tests
 
-- `PrimerTrimXCUITests`: open BAM → sidebar shows Primer-trim operation → open dialog → pick built-in scheme → run → observe result in Analyses sidebar.
+- `PrimerTrimXCUITests`: open BAM → Inspector's Analysis section shows a "Primer-trim BAM…" button → click it → dialog opens → pick built-in scheme → run → observe result in the sidebar's Analyses group.
 - `VariantCallingAutoConfirmXCUITests`: with a primer-trimmed BAM selected, open variant calling dialog, pick iVar, observe the `ivarPrimerTrimConfirmed` checkbox is auto-checked-and-disabled with the expected caption.
 
 ## 6. Risks
@@ -246,13 +257,13 @@ Track 1 lives in its own worktree off `main`, named `track1-bam-primer-trim`. Th
 ## 9. Follow-ups (captured, not built here)
 
 - Ship additional built-in bundles for ARTIC v3, v4.1, and Midnight 1200 once QIASeq is proven.
-- A primer-QC sidecar operation on `.lungfishprimers` bundles themselves (primer-dimer scan, mismatch analysis against the reference).
+- Primer-QC operations on `.lungfishprimers` bundles themselves (primer-dimer scan, mismatch analysis against the reference), surfaced either as bundle-level Inspector actions or as a Primer Schemes sidebar action menu.
 - A "reveal equivalent accessions" affordance in the primer-scheme inspector.
 - UI for editing a bundle's manifest post-import (currently read-only; advanced users edit the JSON directly).
 
 ## 10. "Done" criteria
 
-- Primer-trim BAM operation appears in the BAM sidecar, gated on the `variant-calling` pack as expected.
+- Primer-trim BAM operation appears in the BAM Inspector's Analysis section as a "Primer-trim BAM…" button, gated on the `variant-calling` pack as expected.
 - `BAMPrimerTrimDialog` opens, allows scheme selection from built-in + project-local + filesystem, and runs `ivar trim` producing a sorted, indexed BAM.
 - Output BAM carries provenance metadata per §3.11.
 - BAM variant calling dialog auto-confirms the primer-trim checkbox when selecting a Lungfish-trimmed BAM.

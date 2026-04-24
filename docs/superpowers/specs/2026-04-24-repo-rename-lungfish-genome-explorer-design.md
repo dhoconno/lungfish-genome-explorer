@@ -18,6 +18,7 @@ The GitHub repository has been renamed from `lungfish-genome-browser` to `lungfi
 - Rename the local working directory to `lungfish-genome-explorer`.
 - Update the `origin` git remote to the new repository URL.
 - Replace the user-facing product name "Lungfish Genome Browser" with "Lungfish Genome Explorer" in active documentation, README, and design docs.
+- In `README.md` specifically, also replace bare user-facing "Lungfish" (when it refers to the product) with "Lungfish Genome Explorer," since the README is the first thing a reader sees and needs the full product name consistently. This rule applies to `README.md` only; the user manual and other docs continue to use "Lungfish" as the short form after a first full-name introduction (see §4.3 for the rule).
 - Sweep absolute path references in markdown files (specs, plans, TODOs, agent definitions, memory) to the new path.
 - Move the Claude Code memory directory to match the new path.
 - Leave the `swift build` pipeline working from the new directory with no further changes.
@@ -59,12 +60,27 @@ Verified with `git remote -v`. The exact URL form (`git@` vs `https://`) matches
 
 ### 4.3 Product-name prose sweep
 
-Every active occurrence of "Lungfish Genome Browser" in `README.md`, `docs/user-manual/**/*.md`, `docs/design/**/*.md`, `docs/designs/**/*.md`, and `.claude/agents/**/*.md` is replaced with "Lungfish Genome Explorer" with two exceptions:
+Two substitutions run together:
+
+**Substitution 1: "Lungfish Genome Browser" → "Lungfish Genome Explorer".**
+Every active occurrence in `README.md`, `docs/user-manual/**/*.md`, `docs/design/**/*.md`, `docs/designs/**/*.md`, and `.claude/agents/**/*.md` is rewritten to the new product name.
+
+**Substitution 2: bare "Lungfish" → "Lungfish Genome Explorer" in `README.md` only.**
+The README is the first thing a reader encounters and needs the full product name consistently. Every bare user-facing "Lungfish" in `README.md` that refers to the product is rewritten to "Lungfish Genome Explorer," with the following exceptions that apply even inside `README.md`:
+
+- **File-type and module names** (`.lungfishfastq`, `LungfishCore`, etc.) and compound internal terms (e.g., `LungfishApp`, `NativeToolRunner`) are not touched.
+- **The word "Lungfish" as a brand/company mark** (e.g., "the Lungfish team," if it appears) is not touched; that is a company reference, not a product reference.
+- **Code fences and command-line examples** (where "Lungfish" is a binary or CLI name) are not touched.
+
+**This full-name rule does not apply to the user manual or other docs.** The user manual, agent definitions, and design docs continue to use "Lungfish" as a short-form after a first full-name introduction, because forcing the full name into every sentence of a long chapter produces stilted prose. Those documents keep Substitution 1 only.
+
+**Exceptions (both substitutions):**
 
 - Occurrences inside an explicit history/preamble block that documents the product's former name as a historical fact.
 - Occurrences inside code fences that reproduce a past commit message, log line, or document.
+- Occurrences inside fixed-text artifacts (glossary entries defining the historical name, change-log entries from before the rename).
 
-Both exceptions are evaluated per-occurrence. When in doubt, rename (it is easier to restore a historical reference than to find a missed active one).
+Both exception sets are evaluated per-occurrence. When in doubt, rename (it is easier to restore a historical reference than to find a missed active one).
 
 ### 4.4 Absolute-path sweep
 
