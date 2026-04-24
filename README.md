@@ -1,30 +1,30 @@
 # Lungfish Genome Explorer
 
-A native macOS workbench for everyday genomics. Lungfish brings sequence browsing, read mapping, variant analysis, metagenomic classification, and assembly into a single Apple Silicon app, with a built-in toolbox of established command-line bioinformatics tools.
+A native macOS workbench for everyday genomics. Lungfish Genome Explorer brings sequence browsing, read mapping, variant analysis, metagenomic classification, and assembly into a single Apple Silicon app, with a built-in toolbox of established command-line bioinformatics tools.
 
 [![Swift 6.2](https://img.shields.io/badge/Swift-6.2-orange.svg)](https://swift.org)
 [![macOS 26+](https://img.shields.io/badge/macOS-26_Tahoe+-blue.svg)](https://www.apple.com/macos)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Lungfish is developed in association with the [Lungfish Research Collaboratory](http://lung.fish).
+Lungfish Genome Explorer is developed in association with the [Lungfish Research Collaboratory](http://lung.fish).
 
-> ⚠️ **Alpha software.** Lungfish is at an early alpha stage. Expect rough edges, missing polish, and bugs that have not yet been surfaced. The current shape of the app reflects where it is headed rather than a finished product, and a lot of what's visible today will be sharpened as more people start using it. Please report what you find on the [Issues](../../issues) tracker.
+> ⚠️ **Alpha software.** Lungfish Genome Explorer is at an early alpha stage. Expect rough edges, missing polish, and bugs that have not yet been surfaced. The current shape of the app reflects where it is headed rather than a finished product, and a lot of what's visible today will be sharpened as more people start using it. Please report what you find on the [Issues](../../issues) tracker.
 
 ## About
 
-Lungfish is an opinionated app built by Dave O'Connor to make powerful command-line bioinformatics tools usable without touching a terminal. Where most tools assume you already know what to do, Lungfish leans into the things non-bioinformatician biologists frequently need and that other apps tend to skip:
+Lungfish Genome Explorer is an opinionated app built by Dave O'Connor to make powerful command-line bioinformatics tools usable without touching a terminal. Where most tools assume you already know what to do, Lungfish Genome Explorer leans into the things non-bioinformatician biologists frequently need and that other apps tend to skip:
 
 - **First-class human read removal**. Recipes such as VSP2 (with more to come) run scrubbing as a standard step, and the same scrubber is one click away as a manual operation on any FASTQ dataset.
 - **Variants you can actually work with**. Sort, filter, and inspect VCF records without writing awk(ward) one-liners.
-- **Portable projects**. A Lungfish project is just a folder. Copy it to a thumb drive, share it with a collaborator, drop it on a backup disk, and everything (datasets, derivatives, reports, metadata) travels together.
+- **Portable projects**. A Lungfish Genome Explorer project is just a folder. Copy it to a thumb drive, share it with a collaborator, drop it on a backup disk, and everything (datasets, derivatives, reports, metadata) travels together.
 
-The trade-off is that Lungfish makes opinionated choices about defaults, file layout, and which tool to reach for. If those choices fit how you work, it should feel like the bench-friendly bioinformatics environment you wished existed.
+The trade-off is that Lungfish Genome Explorer makes opinionated choices about defaults, file layout, and which tool to reach for. If those choices fit how you work, it should feel like the bench-friendly bioinformatics environment you wished existed.
 
-Lungfish is also an experiment in what modern coding agents can build. Dave had never written a macOS app before starting this project, only a clear conception of what the app should do for bench scientists. The codebase has been developed in close collaboration with [Claude Code](https://www.anthropic.com/claude-code) and [Codex](https://openai.com/codex) to see how far that pairing can go toward a comprehensive, tasteful, and effective native app.
+Lungfish Genome Explorer is also an experiment in what modern coding agents can build. Dave had never written a macOS app before starting this project, only a clear conception of what the app should do for bench scientists. The codebase has been developed in close collaboration with [Claude Code](https://www.anthropic.com/claude-code) and [Codex](https://openai.com/codex) to see how far that pairing can go toward a comprehensive, tasteful, and effective native app.
 
-## What Lungfish Does
+## What Lungfish Genome Explorer Does
 
-Lungfish is built around five viewport classes (sequence, alignment, variant, taxonomy, and assembly) that share a common project workspace, sidebar, inspector, and operations panel. Files imported into a project become first-class datasets that can flow between viewports without re-importing or re-indexing.
+Lungfish Genome Explorer is built around five viewport classes (sequence, alignment, variant, taxonomy, and assembly) that share a common project workspace, sidebar, inspector, and operations panel. Files imported into a project become first-class datasets that can flow between viewports without re-importing or re-indexing.
 
 ### Sequences (FASTA / FASTQ)
 
@@ -71,7 +71,7 @@ Lungfish is built around five viewport classes (sequence, alignment, variant, ta
 
 - Run [Nextflow](https://www.nextflow.io/) and [Snakemake](https://snakemake.readthedocs.io/) workflows from inside the app. Nextflow pipelines with a `nextflow_schema.json` get an auto-generated parameter form.
 - Browse the [nf-core](https://nf-co.re/) pipeline catalogue and launch directly into the project.
-- Direct import path for the [NVD (Novel Virus Discovery)](https://github.com/dholab/nvd) workflow. Point Lungfish at an NVD output directory and the run lands in the taxonomy browser with reads, hits, and reports cross-linked.
+- Direct import path for the [NVD (Novel Virus Discovery)](https://github.com/dholab/nvd) workflow. Point Lungfish Genome Explorer at an NVD output directory and the run lands in the taxonomy browser with reads, hits, and reports cross-linked.
 - Workflow outputs auto-import as project datasets in the appropriate viewport.
 - Container support via [Apple Containerization](https://github.com/apple/containerization). Docker / Apptainer images run in lightweight Linux VMs on Apple Silicon.
 
@@ -117,7 +117,7 @@ The `fastq` command groups subcommands for `materialize`, `orient`, `qc-summary`
 
 ## Installation
 
-The simplest way to install Lungfish is to download the latest signed and notarized `.dmg` from the [Releases](../../releases) page, drag the app to Applications, and launch it. On first launch the welcome screen will offer to install the on-demand toolchain (Nextflow, Snakemake, BBTools, mappers, assemblers, classifiers) into `~/.lungfish`.
+The simplest way to install Lungfish Genome Explorer is to download the latest signed and notarized `.dmg` from the [Releases](../../releases) page, drag the app to Applications, and launch it. On first launch the welcome screen will offer to install the on-demand toolchain (Nextflow, Snakemake, BBTools, mappers, assemblers, classifiers) into `~/.lungfish`.
 
 ### Building from source
 
@@ -131,7 +131,7 @@ A signed and notarized `.dmg` can be produced with `bash scripts/release/build-n
 
 ## Architecture
 
-Lungfish is organised into seven Swift modules:
+Lungfish Genome Explorer is organised into seven Swift modules:
 
 | Module             | Purpose                                              |
 |--------------------|------------------------------------------------------|
@@ -148,17 +148,17 @@ Lungfish is organised into seven Swift modules:
 If you run into a bug, crash, or unexpected behaviour, please open an issue on the [Issues](../../issues) tracker. Helpful reports include:
 
 - macOS version and Mac model
-- Lungfish version (Lungfish > About Lungfish)
+- Lungfish Genome Explorer version (Lungfish > About Lungfish)
 - The dataset type and approximate size
 - Steps to reproduce and the resulting log output (Window > Operations Panel exports the run log)
 
 ## Contributing
 
-Lungfish is open source under the **MIT License**, and you are welcome to fork the repository and adapt it for your own work. Pull requests are not being accepted at this time, but issue reports are very much appreciated and will inform the roadmap.
+Lungfish Genome Explorer is open source under the **MIT License**, and you are welcome to fork the repository and adapt it for your own work. Pull requests are not being accepted at this time, but issue reports are very much appreciated and will inform the roadmap.
 
 ## Embedded and Bundled Tools
 
-Lungfish stands on the shoulders of the open-source bioinformatics community. The following tools are either bundled inside the app or installed on demand into `~/.lungfish` after the user accepts the install prompt on the welcome screen.
+Lungfish Genome Explorer stands on the shoulders of the open-source bioinformatics community. The following tools are either bundled inside the app or installed on demand into `~/.lungfish` after the user accepts the install prompt on the welcome screen.
 
 ### Bundled in the app
 
@@ -202,7 +202,7 @@ Lungfish stands on the shoulders of the open-source bioinformatics community. Th
 
 The full canonical list, with license texts, is in [`THIRD-PARTY-NOTICES`](THIRD-PARTY-NOTICES). Tool versions are pinned in [`tool-versions.json`](Sources/LungfishWorkflow/Resources/Tools/tool-versions.json) and [`third-party-tools-lock.json`](Sources/LungfishWorkflow/Resources/ManagedTools/third-party-tools-lock.json).
 
-VSEARCH is dual-licensed BSD-2-Clause / GPL-3.0; Lungfish elects BSD-2-Clause.
+VSEARCH is dual-licensed BSD-2-Clause / GPL-3.0; Lungfish Genome Explorer elects BSD-2-Clause.
 
 ### Reference databases
 
@@ -215,11 +215,11 @@ VSEARCH is dual-licensed BSD-2-Clause / GPL-3.0; Lungfish elects BSD-2-Clause.
 
 ## License
 
-Lungfish is licensed under the **MIT License**. See [LICENSE](LICENSE) for details. Bundled and on-demand third-party tools are distributed under their own licenses; see [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).
+Lungfish Genome Explorer is licensed under the **MIT License**. See [LICENSE](LICENSE) for details. Bundled and on-demand third-party tools are distributed under their own licenses; see [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES).
 
 ## Funding
 
-Development of Lungfish is supported by [Inkfish](http://ink.fish).
+Development of Lungfish Genome Explorer is supported by [Inkfish](http://ink.fish).
 
 ---
 
