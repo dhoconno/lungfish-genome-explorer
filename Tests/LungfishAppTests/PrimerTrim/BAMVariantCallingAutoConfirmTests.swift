@@ -121,7 +121,11 @@ final class BAMVariantCallingAutoConfirmTests: XCTestCase {
         XCTAssertTrue(FileManager.default.createFile(atPath: indexURL.path, contents: Data("BAI-bytes".utf8)))
 
         if let sidecar {
-            let sidecarURL = sourceURL.appendingPathExtension("primer-trim-provenance.json")
+            // Sidecar lives at `<bam-sans-ext>.primer-trim-provenance.json`, matching
+            // what BAMPrimerTrimPipeline writes next to the trimmed BAM.
+            let sidecarURL = sourceURL
+                .deletingPathExtension()
+                .appendingPathExtension("primer-trim-provenance.json")
             try sidecar.write(to: sidecarURL)
         }
 

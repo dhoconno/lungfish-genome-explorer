@@ -139,6 +139,13 @@ public enum TestFixtures {
         bundlePath: "primerschemes/QIASeqDIRECT-SARS2.lungfishprimers"
     )
 
+    /// Primer scheme anchored to `MT192765.1`, the reference the `sarscov2`
+    /// fixture BAM is mapped to. Shared with `BAMPrimerTrimPipelineTests`
+    /// via a symlink — a single source of truth for the integration primer set.
+    public static let mt192765Integration: PrimerSchemeFixture = .init(
+        bundlePath: "primerschemes/mt192765-integration.lungfishprimers"
+    )
+
     // MARK: - Base URL Resolution
 
     /// Resolves the Fixtures directory from the test bundle or source tree.

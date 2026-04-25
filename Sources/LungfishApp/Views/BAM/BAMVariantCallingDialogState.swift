@@ -88,7 +88,11 @@ final class BAMVariantCallingDialogState {
     ) -> BAMPrimerTrimProvenance? {
         guard let track = bundle.alignmentTrack(id: trackID) else { return nil }
         let bamURL = bundle.url.appendingPathComponent(track.sourcePath)
-        let sidecarURL = bamURL.appendingPathExtension("primer-trim-provenance.json")
+        // Mirror `BAMPrimerTrimPipeline`, which writes `<bam-sans-ext>.primer-trim-provenance.json`
+        // (e.g. `trimmed.primer-trim-provenance.json` next to `trimmed.bam`).
+        let sidecarURL = bamURL
+            .deletingPathExtension()
+            .appendingPathExtension("primer-trim-provenance.json")
         guard FileManager.default.fileExists(atPath: sidecarURL.path) else { return nil }
         guard let data = try? Data(contentsOf: sidecarURL) else { return nil }
         let decoder = JSONDecoder()
