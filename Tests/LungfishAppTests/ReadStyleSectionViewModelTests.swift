@@ -283,11 +283,11 @@ final class ReadStyleSectionViewModelTests: XCTestCase {
     func testAnalysisWorkflowSubsectionsMatchApprovedIA() {
         XCTAssertEqual(
             AnalysisWorkflowSubsection.allCases,
-            [.filtering, .annotations, .consensus, .variantCalling, .export]
+            [.filtering, .annotations, .consensus, .primerTrim, .variantCalling, .export]
         )
         XCTAssertEqual(
             AnalysisWorkflowSubsection.allCases.map(\.displayTitle),
-            ["Filtering", "Annotations", "Consensus", "Variant Calling", "Export"]
+            ["Filtering", "Annotations", "Consensus", "Primer Trim", "Variant Calling", "Export"]
         )
     }
 
