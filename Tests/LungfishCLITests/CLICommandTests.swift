@@ -7,6 +7,7 @@ import XCTest
 @testable import LungfishCLI
 @testable import LungfishCore
 @testable import LungfishIO
+@testable import LungfishWorkflow
 
 // MARK: - SequenceStats Tests
 
@@ -1394,6 +1395,34 @@ final class FastqCommandTests: XCTestCase {
         XCTAssertNil(cmd.reference)
         XCTAssertEqual(cmd.kmerSize, 31)
         XCTAssertEqual(cmd.hammingDistance, 1)
+    }
+
+    func testContaminantFilterPhixArgumentsResolveManagedReferencePath() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-cli-phix-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let phixReference = CoreToolLocator.environmentURL(named: "bbtools", homeDirectory: home)
+            .appendingPathComponent("share/bbmap/resources", isDirectory: true)
+            .appendingPathComponent("phix174_ill.ref.fa.gz")
+        try FileManager.default.createDirectory(
+            at: phixReference.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data().write(to: phixReference)
+
+        let args = try FastqContaminantFilterSubcommand.bbdukArguments(
+            inputURL: URL(fileURLWithPath: "/tmp/input.fq"),
+            outputPath: "/tmp/out.fq",
+            mode: "phix",
+            reference: nil,
+            kmerSize: 31,
+            hammingDistance: 1,
+            homeDirectory: home
+        )
+
+        XCTAssertTrue(args.contains("ref=\(phixReference.path)"))
+        XCTAssertFalse(args.contains("ref=phix174_ill.ref.fa.gz"))
     }
 
     // MARK: - Primer Removal Argument Parsing

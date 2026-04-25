@@ -6,6 +6,8 @@ import Foundation
 import LungfishCore
 
 public enum CoreToolLocator {
+    public static let bbToolsPhiXReferenceFileName = "phix174_ill.ref.fa.gz"
+
     public static func managedExecutableURL(
         environment: String,
         executableName: String,
@@ -60,6 +62,59 @@ public enum CoreToolLocator {
         environmentURL(named: environment, homeDirectory: homeDirectory)
             .appendingPathComponent("bin", isDirectory: true)
             .appendingPathComponent(executableName)
+    }
+
+    public static func bbToolsResourceURL(
+        named resourceName: String,
+        homeDirectory: URL,
+        fileManager: FileManager = .default
+    ) -> URL? {
+        let envRoot = environmentURL(named: "bbtools", homeDirectory: homeDirectory)
+        let directCandidates = [
+            envRoot
+                .appendingPathComponent("share/bbmap/resources", isDirectory: true)
+                .appendingPathComponent(resourceName),
+            envRoot
+                .appendingPathComponent("resources", isDirectory: true)
+                .appendingPathComponent(resourceName),
+        ]
+
+        for candidate in directCandidates where fileManager.fileExists(atPath: candidate.path) {
+            return candidate
+        }
+
+        let optRoot = envRoot.appendingPathComponent("opt", isDirectory: true)
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: optRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return nil
+        }
+
+        for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
+            where entry.lastPathComponent.hasPrefix("bbmap")
+        {
+            let candidate = entry
+                .appendingPathComponent("resources", isDirectory: true)
+                .appendingPathComponent(resourceName)
+            if fileManager.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+        }
+
+        return nil
+    }
+
+    public static func bbToolsPhiXReferenceURL(
+        homeDirectory: URL,
+        fileManager: FileManager = .default
+    ) -> URL? {
+        bbToolsResourceURL(
+            named: bbToolsPhiXReferenceFileName,
+            homeDirectory: homeDirectory,
+            fileManager: fileManager
+        )
     }
 
     public static func bbToolsEnvironment(

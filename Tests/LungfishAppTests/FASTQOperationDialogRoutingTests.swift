@@ -284,7 +284,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(state.readinessText, "Select a reference sequence to continue.")
     }
 
-    func testPhixContaminantModeDoesNotRequireCustomReferenceSelection() {
+    func testPhixContaminantModeDoesNotRequireCustomReferenceSelection() throws {
         let state = FASTQOperationDialogState(
             initialCategory: .decontamination,
             selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
@@ -310,6 +310,26 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
                 outputMode: .perInput
             )
         )
+
+        let launchRequest = try XCTUnwrap(state.pendingLaunchRequest)
+        let invocation = try FASTQOperationExecutionService().buildInvocation(for: launchRequest)
+        XCTAssertEqual(invocation.subcommand, "fastq")
+        XCTAssertEqual(
+            invocation.arguments,
+            [
+                "contaminant-filter",
+                "/tmp/sample.lungfishfastq",
+                "--mode",
+                "phix",
+                "--kmer",
+                "31",
+                "--hdist",
+                "1",
+                "-o",
+                "<derived>",
+            ]
+        )
+        XCTAssertFalse(invocation.arguments.contains("--ref"))
     }
 
     func testCustomContaminantModeRequiresReferenceSelection() {

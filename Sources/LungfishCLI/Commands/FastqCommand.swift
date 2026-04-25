@@ -349,23 +349,30 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
 
     @OptionGroup var output: OutputOptions
 
-    func run() async throws {
-        let inputURL = try validateInput(input)
-        try output.validateOutput()
-        guard kmerSize > 0 else { throw ValidationError("--kmer must be > 0") }
-        guard hammingDistance >= 0 else { throw ValidationError("--hdist must be >= 0") }
-        let runner = NativeToolRunner.shared
-
+    static func bbdukArguments(
+        inputURL: URL,
+        outputPath: String,
+        mode: String,
+        reference: String?,
+        kmerSize: Int,
+        hammingDistance: Int,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) throws -> [String] {
         var args = [
             "in=\(inputURL.path)",
-            "out=\(output.output)",
+            "out=\(outputPath)",
             "k=\(kmerSize)",
             "hdist=\(hammingDistance)",
         ]
 
         switch mode {
         case "phix":
-            args.append("ref=phix174_ill.ref.fa.gz")
+            guard let phixReference = CoreToolLocator.bbToolsPhiXReferenceURL(homeDirectory: homeDirectory) else {
+                throw ValidationError(
+                    "PhiX reference not found in managed BBTools resources: \(CoreToolLocator.bbToolsPhiXReferenceFileName)"
+                )
+            }
+            args.append("ref=\(phixReference.path)")
         case "custom":
             guard let reference else {
                 throw ValidationError("Custom mode requires --ref")
@@ -377,6 +384,25 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
         default:
             throw ValidationError("Invalid mode: \(mode). Use: phix, custom")
         }
+
+        return args
+    }
+
+    func run() async throws {
+        let inputURL = try validateInput(input)
+        try output.validateOutput()
+        guard kmerSize > 0 else { throw ValidationError("--kmer must be > 0") }
+        guard hammingDistance >= 0 else { throw ValidationError("--hdist must be >= 0") }
+        let runner = NativeToolRunner.shared
+
+        let args = try Self.bbdukArguments(
+            inputURL: inputURL,
+            outputPath: output.output,
+            mode: mode,
+            reference: reference,
+            kmerSize: kmerSize,
+            hammingDistance: hammingDistance
+        )
 
         let env = await bbToolsEnvironment(runner: runner)
         let result = try await runner.run(.bbduk, arguments: args, environment: env, timeout: 1800)

@@ -3232,8 +3232,14 @@ public actor FASTQDerivativeService {
 
         switch mode {
         case .phix:
-            // bbduk.sh resolves the "phix" alias via Data.findPath() to its bundled PhiX reference
-            args.append("ref=phix")
+            guard let phixReference = CoreToolLocator.bbToolsPhiXReferenceURL(
+                homeDirectory: FileManager.default.homeDirectoryForCurrentUser
+            ) else {
+                throw FASTQDerivativeError.invalidOperation(
+                    "PhiX reference not found in managed BBTools resources: \(CoreToolLocator.bbToolsPhiXReferenceFileName)"
+                )
+            }
+            args.append("ref=\(phixReference.path)")
         case .custom:
             guard let refPath = referenceFasta else {
                 throw FASTQDerivativeError.invalidOperation("Custom contaminant filter requires a reference FASTA path")
