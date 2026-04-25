@@ -259,13 +259,26 @@ func fetchSequence(accession: String) throws -> String {
 
 /// Returns the lower-cased hex SHA256 of the FASTA's sequence body
 /// (everything after the first newline, with all whitespace removed).
-func sequenceHash(fasta: String) -> String {
-    guard let firstNewline = fasta.firstIndex(of: "\n") else { return "" }
+///
+/// Throws when the FASTA lacks a header, lacks a body separator, or has
+/// an empty body after whitespace removal — these all indicate a malformed
+/// efetch response and would otherwise hash to a value that compares equal
+/// across two empty responses, falsely passing the equivalence check.
+func sequenceHash(fasta: String, accession: String) throws -> String {
+    guard fasta.hasPrefix(">") else {
+        throw ScriptError.fetchFailure(accession: accession, detail: "response is not a FASTA (missing > header)")
+    }
+    guard let firstNewline = fasta.firstIndex(of: "\n") else {
+        throw ScriptError.fetchFailure(accession: accession, detail: "FASTA has no body (no newline after header)")
+    }
     let body = fasta[fasta.index(after: firstNewline)...]
     var bytes = [UInt8]()
     bytes.reserveCapacity(body.utf8.count)
     for byte in body.utf8 where byte != 0x20 && byte != 0x09 && byte != 0x0A && byte != 0x0D {
         bytes.append(byte)
+    }
+    guard !bytes.isEmpty else {
+        throw ScriptError.fetchFailure(accession: accession, detail: "FASTA body is empty after whitespace stripping")
     }
     return SHA256.hexDigest(bytes)
 }
@@ -571,11 +584,11 @@ func run(_ argv: [String]) -> Int32 {
         let stats = try validateAndCountBED(path: args.bed!, canonicalChrom: args.canonical!)
 
         let canonicalFasta = try fetchSequence(accession: args.canonical!)
-        let canonicalHash = sequenceHash(fasta: canonicalFasta)
+        let canonicalHash = try sequenceHash(fasta: canonicalFasta, accession: args.canonical!)
         FileHandle.standardError.write(Data("  \(args.canonical!) SHA256 = \(canonicalHash)\n".utf8))
         for accession in args.equivalents {
             let other = try fetchSequence(accession: accession)
-            let otherHash = sequenceHash(fasta: other)
+            let otherHash = try sequenceHash(fasta: other, accession: accession)
             FileHandle.standardError.write(Data("  \(accession) SHA256 = \(otherHash)\n".utf8))
             if otherHash != canonicalHash {
                 throw ScriptError.sequenceMismatch(

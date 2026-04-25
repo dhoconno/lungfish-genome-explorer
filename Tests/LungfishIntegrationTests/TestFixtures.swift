@@ -173,13 +173,13 @@ public enum TestFixtures {
 
 /// Lightweight handle to a `.lungfishprimers` test fixture bundle.
 ///
-/// `bundlePath` is relative to `Tests/Fixtures/`. Use ``url`` to obtain an
-/// absolute URL once the fixture base directory has been resolved.
+/// `bundlePath` is relative to `Tests/Fixtures/`. Use ``bundleURL`` to obtain
+/// an absolute URL once the fixture base directory has been resolved.
 public struct PrimerSchemeFixture: Sendable {
     public let bundlePath: String
 
     /// Absolute URL of the fixture bundle, validated to exist on disk.
-    public var url: URL {
+    public var bundleURL: URL {
         let resolved = TestFixtures.fixturesBaseURL.appendingPathComponent(bundlePath)
         precondition(
             FileManager.default.fileExists(atPath: resolved.path),
