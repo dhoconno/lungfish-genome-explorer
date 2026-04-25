@@ -176,8 +176,9 @@ struct ReleaseBuildConfigurationTests {
         let textURL = toolsRoot.appendingPathComponent("VERSIONS.txt")
         try "micromamba only\n".write(to: textURL, atomically: true, encoding: .utf8)
 
+        let repoRootString = repositoryRoot.path
         let binaryEmbeddedPaths = [
-            "prefix\0/Users/dho/Documents/lungfish-genome-browser/.build/tools/build\0",
+            "prefix\0\(repoRootString)/.build/tools/build\0",
             "prefix\0/opt/homebrew/bin\0",
         ].joined()
         let binaryHandle = try FileHandle(forWritingTo: micromambaURL)
@@ -185,6 +186,8 @@ struct ReleaseBuildConfigurationTests {
         try binaryHandle.write(contentsOf: Data(binaryEmbeddedPaths.utf8))
         try binaryHandle.close()
 
+        // Scripts (non-Mach-O) are intentionally left untouched by the sanitizer.
+        // Keep the historical "browser" path literal here to prove that.
         let scriptEmbeddedPaths = """
         /Users/dho/Documents/lungfish-genome-browser/.build/tools/build
         /opt/homebrew/bin
@@ -663,8 +666,9 @@ struct ReleaseBuildConfigurationTests {
 
         let vendoredBinaryURL = toolsRoot.appendingPathComponent("prefetch")
         try FileManager.default.copyItem(at: URL(fileURLWithPath: "/bin/ls"), to: vendoredBinaryURL)
+        let repoRootString = repositoryRoot.path
         let embeddedPaths = [
-            "prefix\0/Users/dho/Documents/lungfish-genome-browser/.build/xcode-cli-release/checkouts/test\0",
+            "prefix\0\(repoRootString)/.build/xcode-cli-release/checkouts/test\0",
             "prefix\0/Users/dho/Documents/ncbi-vdb/libs/vfs/resolver.c\0",
             "prefix\0/usr/local/Cellar/openssl@3/3.4.0/lib/engines-3\0",
             "prefix\0/usr/local/etc/openssl@3\0",
