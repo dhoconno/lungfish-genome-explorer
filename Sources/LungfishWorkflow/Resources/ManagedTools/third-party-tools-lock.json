@@ -1,7 +1,7 @@
 {
   "packID": "lungfish-tools",
   "displayName": "Third-Party Tools",
-  "version": "0.4.0-alpha.2",
+  "version": "0.4.0-alpha.3",
   "tools": [
     { "id": "nextflow", "environment": "nextflow", "packageSpec": "bioconda::nextflow=25.10.4=h2a3209d_0", "executables": ["nextflow"], "version": "25.10.4", "license": "Apache-2.0", "sourceUrl": "https://github.com/nextflow-io/nextflow" },
     { "id": "snakemake", "environment": "snakemake", "packageSpec": "bioconda::snakemake=9.19.0=hdfd78af_1", "executables": ["snakemake"], "version": "9.19.0", "license": "MIT", "sourceUrl": "https://github.com/snakemake/snakemake" },

@@ -25,7 +25,7 @@ final class CLITopLevelRegressionTests: XCTestCase {
     }
 
     func testLungfishCLIVersion() {
-        XCTAssertEqual(LungfishCLI.configuration.version, "0.4.0-alpha.2")
+        XCTAssertEqual(LungfishCLI.configuration.version, "0.4.0-alpha.3")
     }
 
     func testLungfishCLIAbstractIsNonEmpty() {
