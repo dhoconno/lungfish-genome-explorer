@@ -49,6 +49,37 @@ final class BAMPrimerTrimDialogStateTests: XCTestCase {
         XCTAssertFalse(state.isRunEnabled)
     }
 
+    func testIsRunEnabledFalseWhenAdvancedFieldInvalid() throws {
+        let scheme = try loadSampleScheme()
+        let state = BAMPrimerTrimDialogState(
+            bundle: makeStubReferenceBundle(),
+            availability: .available,
+            builtInSchemes: [scheme],
+            projectSchemes: []
+        )
+        state.selectScheme(id: scheme.manifest.name)
+        XCTAssertTrue(state.isRunEnabled, "precondition: enabled with valid defaults")
+
+        // Each invalid value should disable the run.
+        state.minReadLengthText = "abc"
+        XCTAssertFalse(state.isRunEnabled, "non-numeric minReadLength must disable")
+        state.minReadLengthText = "30"
+
+        state.minQualityText = "-5"
+        XCTAssertFalse(state.isRunEnabled, "negative minQuality must disable")
+        state.minQualityText = "20"
+
+        state.slidingWindowText = ""
+        XCTAssertFalse(state.isRunEnabled, "empty slidingWindow must disable")
+        state.slidingWindowText = "4"
+
+        state.primerOffsetText = "  "
+        XCTAssertFalse(state.isRunEnabled, "whitespace-only primerOffset must disable")
+        state.primerOffsetText = "0"
+
+        XCTAssertTrue(state.isRunEnabled, "postcondition: re-enabled when all fields valid again")
+    }
+
     // MARK: - Fixture helpers
 
     private func makeStubReferenceBundle() -> ReferenceBundle {

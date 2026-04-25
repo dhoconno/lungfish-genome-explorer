@@ -58,9 +58,8 @@ final class BAMPrimerTrimDialogState {
         selectedSchemeID = id
     }
 
-    /// `true` when the variant-calling pack is `.available`, a primer scheme
-    /// is selected, and all four advanced-option text fields parse as
-    /// non-negative integers.
+    /// `true` when the operation is `.available`, a primer scheme is selected,
+    /// and all four advanced-option text fields parse as non-negative integers.
     var isRunEnabled: Bool {
         guard availability == .available else { return false }
         guard selectedScheme != nil else { return false }
