@@ -12,7 +12,7 @@ import os.log
 private let logger = Logger(subsystem: LogSubsystem.app, category: "SidebarViewController")
 
 /// Pasteboard type for internal sidebar item dragging
-private let sidebarItemPasteboardType = NSPasteboard.PasteboardType("com.lungfish.browser.sidebaritem")
+let sidebarItemPasteboardType = NSPasteboard.PasteboardType("com.lungfish.browser.sidebaritem")
 
 private enum SidebarAccessibilityIdentifier {
     static let outline = "sidebar-outline"
@@ -2546,12 +2546,13 @@ extension SidebarViewController: NSOutlineViewDataSource {
         let hasInternalType = pasteboard.availableType(from: [sidebarItemPasteboardType]) != nil
         debugLog("acceptDrop: hasInternalType=\(hasInternalType)")
 
-        if hasInternalType,
-           let identifierString = pasteboard.string(forType: sidebarItemPasteboardType) {
-            debugLog("acceptDrop: Internal drag detected with identifier='\(identifierString)'")
+        if hasInternalType {
+            let identifiers = Self.draggedItemIdentifiers(from: pasteboard)
+            debugLog("acceptDrop: Internal drag detected with \(identifiers.count) identifier(s)")
 
             // Find the source item by its identifier
-            if let sourceItem = findItem(byPath: identifierString),
+            let sourceItems = identifiers.compactMap { findItem(byPath: $0) }
+            if !sourceItems.isEmpty,
                let dest = destinationItem, (dest.type == .folder || dest.type == .project) {
                 // Check modifier keys for copy vs move
                 let modifiers = NSEvent.modifierFlags
@@ -2559,10 +2560,10 @@ extension SidebarViewController: NSOutlineViewDataSource {
 
                 if isCopy {
                     // Copy the item
-                    return copyItem(sourceItem, to: dest, at: index)
+                    return copyItems(sourceItems, to: dest, at: index)
                 } else {
                     // Move the item
-                    return moveItem(sourceItem, to: dest, at: index)
+                    return moveItems(sourceItems, to: dest, at: index)
                 }
             }
 
@@ -2613,6 +2614,27 @@ extension SidebarViewController: NSOutlineViewDataSource {
     }
 
     // MARK: - Selection Helpers
+
+    static func draggedItemIdentifiers(from pasteboard: NSPasteboard) -> [String] {
+        var identifiers: [String] = []
+        var seen = Set<String>()
+
+        for item in pasteboard.pasteboardItems ?? [] {
+            guard let identifier = item.string(forType: sidebarItemPasteboardType),
+                  !seen.contains(identifier) else {
+                continue
+            }
+            identifiers.append(identifier)
+            seen.insert(identifier)
+        }
+
+        if identifiers.isEmpty,
+           let identifier = pasteboard.string(forType: sidebarItemPasteboardType) {
+            identifiers.append(identifier)
+        }
+
+        return identifiers
+    }
 
     /// Returns all currently selected sidebar items
     public func selectedItems() -> [SidebarItem] {
@@ -2824,59 +2846,97 @@ extension SidebarViewController: NSOutlineViewDataSource {
 
     /// Moves an item from its current location to a new destination
     private func moveItem(_ sourceItem: SidebarItem, to destination: SidebarItem, at index: Int) -> Bool {
-        logger.info("moveItem: Moving '\(sourceItem.title, privacy: .public)' to '\(destination.title, privacy: .public)'")
+        moveItems([sourceItem], to: destination, at: index)
+    }
 
-        guard let sourceURL = sourceItem.url, let destFolderURL = destination.url else {
-            logger.warning("moveItem: Missing URL for source or destination")
+    /// Moves multiple items from their current locations to a new destination.
+    private func moveItems(_ sourceItems: [SidebarItem], to destination: SidebarItem, at index: Int) -> Bool {
+        guard !sourceItems.isEmpty else { return false }
+        if sourceItems.count == 1 {
+            logger.info("moveItem: Moving '\(sourceItems[0].title, privacy: .public)' to '\(destination.title, privacy: .public)'")
+        } else {
+            logger.info("moveItems: Moving \(sourceItems.count) items to '\(destination.title, privacy: .public)'")
+        }
+
+        guard let destFolderURL = destination.url else {
+            logger.warning("moveItems: Missing URL for destination")
             return false
         }
 
-        // Move the actual file
-        let destURL = destFolderURL.appendingPathComponent(sourceURL.lastPathComponent)
-        do {
-            try FileManager.default.moveItem(at: sourceURL, to: destURL)
-            logger.info("moveItem: File moved from \(sourceURL.path, privacy: .public) to \(destURL.path, privacy: .public)")
-            // Immediately refresh sidebar for instant feedback
+        var movedCount = 0
+        for sourceItem in sourceItems {
+            guard let sourceURL = sourceItem.url else {
+                logger.warning("moveItems: Missing URL for source '\(sourceItem.title, privacy: .public)'")
+                continue
+            }
+
+            let destURL = destFolderURL.appendingPathComponent(sourceURL.lastPathComponent)
+            do {
+                try FileManager.default.moveItem(at: sourceURL, to: destURL)
+                movedCount += 1
+                logger.info("moveItems: File moved from \(sourceURL.path, privacy: .public) to \(destURL.path, privacy: .public)")
+            } catch {
+                logger.error("moveItems: Failed to move \(sourceURL.lastPathComponent, privacy: .public) - \(error.localizedDescription, privacy: .public)")
+            }
+        }
+
+        if movedCount > 0 {
             reloadFromFilesystem()
-            return true
-        } catch {
-            logger.error("moveItem: Failed to move file - \(error.localizedDescription, privacy: .public)")
-            return false
         }
+        return movedCount == sourceItems.count
     }
 
     /// Copies an item to a new destination
     private func copyItem(_ sourceItem: SidebarItem, to destination: SidebarItem, at index: Int) -> Bool {
-        logger.info("copyItem: Copying '\(sourceItem.title, privacy: .public)' to '\(destination.title, privacy: .public)'")
+        copyItems([sourceItem], to: destination, at: index)
+    }
 
-        guard let sourceURL = sourceItem.url, let destFolderURL = destination.url else {
-            logger.warning("copyItem: Missing URL for source or destination")
+    /// Copies multiple items to a new destination.
+    private func copyItems(_ sourceItems: [SidebarItem], to destination: SidebarItem, at index: Int) -> Bool {
+        guard !sourceItems.isEmpty else { return false }
+        if sourceItems.count == 1 {
+            logger.info("copyItem: Copying '\(sourceItems[0].title, privacy: .public)' to '\(destination.title, privacy: .public)'")
+        } else {
+            logger.info("copyItems: Copying \(sourceItems.count) items to '\(destination.title, privacy: .public)'")
+        }
+
+        guard let destFolderURL = destination.url else {
+            logger.warning("copyItems: Missing URL for destination")
             return false
         }
 
-        // Generate unique filename
-        var destURL = destFolderURL.appendingPathComponent(sourceURL.lastPathComponent)
-        var counter = 1
-        let baseName = sourceURL.deletingPathExtension().lastPathComponent
-        let fileExtension = sourceURL.pathExtension
+        var copiedCount = 0
+        for sourceItem in sourceItems {
+            guard let sourceURL = sourceItem.url else {
+                logger.warning("copyItems: Missing URL for source '\(sourceItem.title, privacy: .public)'")
+                continue
+            }
 
-        while FileManager.default.fileExists(atPath: destURL.path) {
-            let newName = "\(baseName)_copy\(counter > 1 ? "_\(counter)" : "").\(fileExtension)"
-            destURL = destFolderURL.appendingPathComponent(newName)
-            counter += 1
+            var destURL = destFolderURL.appendingPathComponent(sourceURL.lastPathComponent)
+            var counter = 1
+            let baseName = sourceURL.deletingPathExtension().lastPathComponent
+            let fileExtension = sourceURL.pathExtension
+
+            while FileManager.default.fileExists(atPath: destURL.path) {
+                let suffix = counter > 1 ? "_copy_\(counter)" : "_copy"
+                let newName = fileExtension.isEmpty ? "\(baseName)\(suffix)" : "\(baseName)\(suffix).\(fileExtension)"
+                destURL = destFolderURL.appendingPathComponent(newName)
+                counter += 1
+            }
+
+            do {
+                try FileManager.default.copyItem(at: sourceURL, to: destURL)
+                copiedCount += 1
+                logger.info("copyItems: File copied to \(destURL.path, privacy: .public)")
+            } catch {
+                logger.error("copyItems: Failed to copy \(sourceURL.lastPathComponent, privacy: .public) - \(error.localizedDescription, privacy: .public)")
+            }
         }
 
-        // Copy the file
-        do {
-            try FileManager.default.copyItem(at: sourceURL, to: destURL)
-            logger.info("copyItem: File copied to \(destURL.path, privacy: .public)")
-            // Immediately refresh sidebar for instant feedback
+        if copiedCount > 0 {
             reloadFromFilesystem()
-            return true
-        } catch {
-            logger.error("copyItem: Failed to copy file - \(error.localizedDescription, privacy: .public)")
-            return false
         }
+        return copiedCount == sourceItems.count
     }
 }
 

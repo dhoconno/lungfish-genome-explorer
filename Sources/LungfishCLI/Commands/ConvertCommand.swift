@@ -110,6 +110,12 @@ struct ConvertCommand: AsyncParsableCommand {
             }
             annotations = []
 
+        case "lungfishref":
+            (sequences, annotations) = try await Self.readReferenceBundle(
+                inputURL,
+                includeAnnotations: includeAnnotations
+            )
+
         default:
             throw CLIError.formatDetectionFailed(path: input)
         }
@@ -189,6 +195,55 @@ struct ConvertCommand: AsyncParsableCommand {
         formatter.dateFormat = "dd-MMM-yyyy"
         formatter.locale = Locale(identifier: "en_US_POSIX")
         return formatter.string(from: Date()).uppercased()
+    }
+
+    private static func readReferenceBundle(
+        _ bundleURL: URL,
+        includeAnnotations: Bool
+    ) async throws -> ([Sequence], [SequenceAnnotation]) {
+        let manifest = try BundleManifest.load(from: bundleURL)
+        guard let genome = manifest.genome else {
+            throw CLIError.conversionFailed(reason: "Reference bundle has no genome sequence: \(bundleURL.path)")
+        }
+
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let sequences = try await genome.chromosomes.mapAsync { chromosome in
+            let region = GenomicRegion(chromosome: chromosome.name, start: 0, end: Int(chromosome.length))
+            let bases = try await bundle.fetchSequence(region: region)
+            return try Sequence(
+                name: chromosome.name,
+                description: chromosome.fastaDescription,
+                alphabet: .dna,
+                bases: bases
+            )
+        }
+
+        guard includeAnnotations else {
+            return (sequences, [])
+        }
+
+        var annotations: [SequenceAnnotation] = []
+        for track in manifest.annotations {
+            guard let dbPath = track.databasePath else { continue }
+            let dbURL = bundleURL.appendingPathComponent(dbPath)
+            guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
+            let db = try AnnotationDatabase(url: dbURL)
+            annotations.append(contentsOf: db.query(limit: Int.max).map { $0.toAnnotation() })
+        }
+
+        return (sequences, annotations)
+    }
+}
+
+private extension Array {
+    func mapAsync<T>(_ transform: (Element) async throws -> T) async throws -> [T] {
+        var values: [T] = []
+        values.reserveCapacity(count)
+        for element in self {
+            let value = try await transform(element)
+            values.append(value)
+        }
+        return values
     }
 }
 

@@ -861,6 +861,25 @@ public final class GenBankWriter: Sendable {
         try content.write(to: url, atomically: true, encoding: .utf8)
     }
 
+    /// Writes a single record, appending to the file when it already exists.
+    ///
+    /// - Parameter record: The record to write
+    /// - Throws: If writing fails
+    public func append(_ record: GenBankRecord) throws {
+        let content = formatRecord(record)
+        if FileManager.default.fileExists(atPath: url.path) {
+            let handle = try FileHandle(forWritingTo: url)
+            defer { try? handle.close() }
+            handle.seekToEndOfFile()
+            guard let data = content.data(using: .utf8) else {
+                throw GenBankError.invalidEncoding
+            }
+            handle.write(data)
+        } else {
+            try content.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
     private func formatRecord(_ record: GenBankRecord) -> String {
         var lines: [String] = []
 
@@ -967,31 +986,32 @@ public final class GenBankWriter: Sendable {
 
     private func formatOrigin(_ sequence: String) -> [String] {
         var lines: [String] = []
+        var bases = Array(sequence.utf8)
+        bases.withUnsafeMutableBufferPointer { buffer in
+            for index in buffer.indices where buffer[index] >= 65 && buffer[index] <= 90 {
+                buffer[index] += 32
+            }
+        }
+        lines.reserveCapacity((bases.count / 60) + 1)
+
         var position = 0
-        let lowercaseSeq = sequence.lowercased()
-
-        while position < lowercaseSeq.count {
+        while position < bases.count {
             let lineStart = position
-            var lineParts: [String] = []
-
-            // Position number (right-justified in 9 characters)
+            let lineEnd = min(position + 60, bases.count)
             let positionStr = String(format: "%9d", lineStart + 1)
+            var line = positionStr + " "
 
-            // Up to 6 groups of 10 bases per line
-            for _ in 0..<6 {
-                if position >= lowercaseSeq.count {
-                    break
+            while position < lineEnd {
+                let groupEnd = min(position + 10, lineEnd)
+                if position > lineStart {
+                    line += " "
                 }
-                let endPos = min(position + 10, lowercaseSeq.count)
-                let startIndex = lowercaseSeq.index(lowercaseSeq.startIndex, offsetBy: position)
-                let endIndex = lowercaseSeq.index(lowercaseSeq.startIndex, offsetBy: endPos)
-                lineParts.append(String(lowercaseSeq[startIndex..<endIndex]))
-                position = endPos
+                line += String(decoding: bases[position..<groupEnd], as: UTF8.self)
+                position = groupEnd
             }
 
-            lines.append(positionStr + " " + lineParts.joined(separator: " "))
+            lines.append(line)
         }
-
         return lines
     }
 }

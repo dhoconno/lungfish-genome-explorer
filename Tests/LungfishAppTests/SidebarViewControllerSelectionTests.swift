@@ -4,6 +4,42 @@ import LungfishIO
 
 @MainActor
 final class SidebarViewControllerSelectionTests: XCTestCase {
+    func testDraggedItemIdentifiersReadsEveryPasteboardItem() {
+        let pasteboard = NSPasteboard.withUniqueName()
+        pasteboard.clearContents()
+
+        let first = NSPasteboardItem()
+        first.setString("/tmp/project/A.lungfishref", forType: sidebarItemPasteboardType)
+        let second = NSPasteboardItem()
+        second.setString("/tmp/project/B.lungfishref", forType: sidebarItemPasteboardType)
+        pasteboard.writeObjects([first, second])
+
+        XCTAssertEqual(
+            SidebarViewController.draggedItemIdentifiers(from: pasteboard),
+            ["/tmp/project/A.lungfishref", "/tmp/project/B.lungfishref"]
+        )
+    }
+
+    func testBatchSequenceExportTargetsCreatesOneFilePerBundle() {
+        let folder = URL(fileURLWithPath: "/tmp/Exports", isDirectory: true)
+        let bundles = [
+            URL(fileURLWithPath: "/tmp/project/Alpha.lungfishref", isDirectory: true),
+            URL(fileURLWithPath: "/tmp/project/Beta.lungfishref", isDirectory: true),
+        ]
+
+        let targets = AppDelegate.batchSequenceExportTargets(
+            for: bundles,
+            outputFolder: folder,
+            format: .genbank,
+            compression: .none
+        )
+
+        XCTAssertEqual(targets, [
+            bundles[0]: folder.appendingPathComponent("Alpha.gb"),
+            bundles[1]: folder.appendingPathComponent("Beta.gb"),
+        ])
+    }
+
     func testSuggestedMergedBundleNameUsesFirstSelectedTitle() {
         let items = [
             SidebarItem(

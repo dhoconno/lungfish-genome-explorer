@@ -86,6 +86,13 @@ struct SidebarImportRequestTrackerUpdate {
     let isFinished: Bool
 }
 
+private struct SequenceExportDocumentSnapshot: Sendable {
+    let name: String
+    let url: URL
+    let sequences: [LungfishCore.Sequence]
+    let annotations: [SequenceAnnotation]
+}
+
 /// Main-thread import tracking state used by File > Import.
 ///
 /// This object is captured by notification handlers that are `@Sendable`.
@@ -2817,19 +2824,36 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             .filter { $0.type == .referenceBundle || $0.type == .sequence } ?? []
 
         // Fall back to current document
-        let documents: [LoadedDocument]
+        let documents: [SequenceExportDocumentSnapshot]
         if !sidebarItems.isEmpty {
             // Will load from sidebar items
             documents = []
         } else if let doc = mainWindowController?.mainSplitViewController?.viewerController?.currentDocument,
                   !doc.sequences.isEmpty {
-            documents = [doc]
+            documents = [SequenceExportDocumentSnapshot(
+                name: doc.name,
+                url: doc.url,
+                sequences: doc.sequences,
+                annotations: doc.annotations
+            )]
         } else {
             showExportError(message: "No sequences to export. Select files in the sidebar or open a document.")
             return
         }
 
         guard let window = mainWindowController?.window else { return }
+
+        let selectedBundleURLs = sidebarItems.compactMap(\.url)
+        if sidebarItems.count > 1,
+           sidebarItems.allSatisfy({ $0.type == .referenceBundle }),
+           selectedBundleURLs.count == sidebarItems.count {
+            presentBatchSequenceExport(
+                bundleURLs: selectedBundleURLs,
+                defaultFormat: defaultFormat,
+                window: window
+            )
+            return
+        }
 
         // Build save panel with format accessory
         let panel = NSSavePanel()
@@ -2939,14 +2963,126 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
+    private func presentBatchSequenceExport(
+        bundleURLs: [URL],
+        defaultFormat: SequenceExportFormat,
+        window: NSWindow
+    ) {
+        let panel = NSOpenPanel()
+        panel.title = "Export \(bundleURLs.count) Sequence Files - Choose Output Folder"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.prompt = "Export Here"
+
+        let accessory = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 60))
+
+        let formatLabel = NSTextField(labelWithString: "Format:")
+        formatLabel.font = .systemFont(ofSize: 11)
+        formatLabel.frame = NSRect(x: 0, y: 32, width: 60, height: 18)
+        accessory.addSubview(formatLabel)
+
+        let formatPopup = NSPopUpButton(frame: NSRect(x: 64, y: 28, width: 120, height: 24))
+        formatPopup.controlSize = .small
+        formatPopup.addItems(withTitles: ["FASTA", "GenBank"])
+        formatPopup.selectItem(at: defaultFormat == .genbank ? 1 : 0)
+        accessory.addSubview(formatPopup)
+
+        let compLabel = NSTextField(labelWithString: "Compression:")
+        compLabel.font = .systemFont(ofSize: 11)
+        compLabel.frame = NSRect(x: 0, y: 4, width: 80, height: 18)
+        accessory.addSubview(compLabel)
+
+        let compPopup = NSPopUpButton(frame: NSRect(x: 84, y: 0, width: 120, height: 24))
+        compPopup.controlSize = .small
+        compPopup.addItems(withTitles: ["None", "gzip (.gz)", "zstd (.zst)"])
+        accessory.addSubview(compPopup)
+        panel.accessoryView = accessory
+
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let outputFolder = panel.url else { return }
+            guard let self else { return }
+
+            let format: SequenceExportFormat = formatPopup.indexOfSelectedItem == 1 ? .genbank : .fasta
+            let compression: SequenceExportCompression
+            switch compPopup.indexOfSelectedItem {
+            case 1: compression = .gzip
+            case 2: compression = .zstd
+            default: compression = .none
+            }
+
+            let targets = Self.batchSequenceExportTargets(
+                for: bundleURLs,
+                outputFolder: outputFolder,
+                format: format,
+                compression: compression
+            )
+
+            Task.detached { [weak self] in
+                do {
+                    var count = 0
+                    for bundleURL in bundleURLs {
+                        guard let outputURL = targets[bundleURL] else { continue }
+                        count += try await self?.performSequenceExport(
+                            sidebarURLs: [bundleURL],
+                            documents: [],
+                            outputURL: outputURL,
+                            format: format,
+                            compression: compression
+                        ) ?? 0
+                    }
+
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            let alert = NSAlert()
+                            alert.messageText = "Export Complete"
+                            alert.informativeText = "Exported \(bundleURLs.count) file(s) with \(count) sequence(s) to \(outputFolder.lastPathComponent)."
+                            alert.alertStyle = .informational
+                            alert.addButton(withTitle: "OK")
+                            alert.addButton(withTitle: "Show in Finder")
+                            alert.beginSheetModal(for: window) { response in
+                                if response == .alertSecondButtonReturn {
+                                    NSWorkspace.shared.activateFileViewerSelecting([outputFolder])
+                                }
+                            }
+                        }
+                    }
+                } catch {
+                    debugLog("presentBatchSequenceExport: Failed - \(error)")
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            let alert = NSAlert()
+                            alert.messageText = "Export Failed"
+                            alert.informativeText = error.localizedDescription
+                            alert.alertStyle = .critical
+                            alert.addButton(withTitle: "OK")
+                            alert.beginSheetModal(for: window)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Loads sequences from sidebar URLs or documents, writes to output file, and optionally compresses.
-    private func performSequenceExport(
+    nonisolated private func performSequenceExport(
         sidebarURLs: [URL],
-        documents: [LoadedDocument],
+        documents: [SequenceExportDocumentSnapshot],
         outputURL: URL,
         format: SequenceExportFormat,
         compression: SequenceExportCompression
     ) async throws -> Int {
+        if sidebarURLs.count == 1,
+           let bundleURL = sidebarURLs.first,
+           bundleURL.pathExtension.lowercased() == "lungfishref" {
+            return try await performReferenceBundleSequenceExport(
+                bundleURL: bundleURL,
+                outputURL: outputURL,
+                format: format,
+                compression: compression
+            )
+        }
+
         // Collect all sequences and annotations
         var allSequences: [LungfishCore.Sequence] = []
         var allAnnotations: [SequenceAnnotation] = []
@@ -3023,31 +3159,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             defer { try? FileManager.default.removeItem(at: writeURL.deletingLastPathComponent()) }
             switch compression {
             case .gzip:
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-                process.arguments = ["-c", writeURL.path]
-                let outputHandle = try FileHandle(forWritingTo: {
-                    FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-                    return outputURL
-                }())
-                process.standardOutput = outputHandle
-                process.standardError = FileHandle.nullDevice
-                try process.run()
-                process.waitUntilExit()
-                try outputHandle.close()
+                try compressExportFile(writeURL, to: outputURL, compression: .gzip)
             case .zstd:
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/zstd")
-                process.arguments = ["-c", writeURL.path]
-                let outputHandle = try FileHandle(forWritingTo: {
-                    FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-                    return outputURL
-                }())
-                process.standardOutput = outputHandle
-                process.standardError = FileHandle.nullDevice
-                try process.run()
-                process.waitUntilExit()
-                try outputHandle.close()
+                try compressExportFile(writeURL, to: outputURL, compression: .zstd)
             case .none:
                 break
             }
@@ -3056,20 +3170,168 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         return allSequences.count
     }
 
+    nonisolated static func batchSequenceExportTargets(
+        for bundleURLs: [URL],
+        outputFolder: URL,
+        format: SequenceExportFormat,
+        compression: SequenceExportCompression
+    ) -> [URL: URL] {
+        var usedNames = Set<String>()
+        var targets: [URL: URL] = [:]
+
+        for bundleURL in bundleURLs {
+            let rawBase = bundleURL.deletingPathExtension().lastPathComponent
+            let base = rawBase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "reference" : rawBase
+            var filename = "\(base).\(format.fileExtension)"
+            if let compressionExtension = compression.fileExtension {
+                filename += ".\(compressionExtension)"
+            }
+
+            if usedNames.contains(filename) {
+                var counter = 2
+                repeat {
+                    filename = "\(base)-\(counter).\(format.fileExtension)"
+                    if let compressionExtension = compression.fileExtension {
+                        filename += ".\(compressionExtension)"
+                    }
+                    counter += 1
+                } while usedNames.contains(filename)
+            }
+
+            usedNames.insert(filename)
+            targets[bundleURL] = outputFolder.appendingPathComponent(filename)
+        }
+
+        return targets
+    }
+
+    nonisolated private func performReferenceBundleSequenceExport(
+        bundleURL: URL,
+        outputURL: URL,
+        format: SequenceExportFormat,
+        compression: SequenceExportCompression
+    ) async throws -> Int {
+        let manifest = try BundleManifest.load(from: bundleURL)
+        guard let genome = manifest.genome, !genome.chromosomes.isEmpty else {
+            throw NSError(domain: "com.lungfish.browser", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "No genome sequence in bundle \(bundleURL.lastPathComponent)"])
+        }
+
+        let writeURL: URL
+        if compression != .none {
+            let exportTempDir = try ProjectTempDirectory.createFromContext(
+                prefix: "export-", contextURL: outputURL)
+            writeURL = exportTempDir.appendingPathComponent("export.\(format.fileExtension)")
+        } else {
+            writeURL = outputURL
+        }
+
+        try? FileManager.default.removeItem(at: writeURL)
+
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let annotations = try loadBundleAnnotations(bundleURL: bundleURL, manifest: manifest)
+
+        switch format {
+        case .fasta:
+            let writer = FASTAWriter(url: writeURL)
+            for chromosome in genome.chromosomes {
+                let sequence = try await sequenceForWholeChromosome(chromosome, in: bundle)
+                try writer.append(sequence)
+            }
+        case .genbank:
+            let writer = GenBankWriter(url: writeURL)
+            for chromosome in genome.chromosomes {
+                let sequence = try await sequenceForWholeChromosome(chromosome, in: bundle)
+                let seqAnnotations = annotations.filter {
+                    $0.chromosome == nil || $0.chromosome == sequence.name
+                }
+                let locus = LocusInfo(
+                    name: sequence.name,
+                    length: sequence.length,
+                    moleculeType: .dna,
+                    topology: .linear,
+                    division: nil,
+                    date: Self.currentDateString()
+                )
+                let record = GenBankRecord(
+                    sequence: sequence,
+                    annotations: seqAnnotations,
+                    locus: locus,
+                    definition: sequence.description,
+                    accession: nil,
+                    version: nil
+                )
+                try writer.append(record)
+            }
+        }
+
+        if compression != .none {
+            defer { try? FileManager.default.removeItem(at: writeURL.deletingLastPathComponent()) }
+            try compressExportFile(writeURL, to: outputURL, compression: compression)
+        }
+
+        return genome.chromosomes.count
+    }
+
+    nonisolated private func sequenceForWholeChromosome(_ chromosome: ChromosomeInfo, in bundle: ReferenceBundle) async throws -> LungfishCore.Sequence {
+        let region = GenomicRegion(chromosome: chromosome.name, start: 0, end: Int(chromosome.length))
+        let bases = try await bundle.fetchSequence(region: region)
+        return try LungfishCore.Sequence(
+            name: chromosome.name,
+            description: chromosome.fastaDescription,
+            alphabet: .dna,
+            bases: bases
+        )
+    }
+
+    nonisolated private func loadBundleAnnotations(bundleURL: URL, manifest: BundleManifest) throws -> [SequenceAnnotation] {
+        var annotations: [SequenceAnnotation] = []
+        for track in manifest.annotations {
+            guard let dbPath = track.databasePath else { continue }
+            let dbURL = bundleURL.appendingPathComponent(dbPath)
+            guard FileManager.default.fileExists(atPath: dbURL.path) else { continue }
+            let db = try AnnotationDatabase(url: dbURL)
+            let records = db.query(limit: Int.max)
+            annotations.append(contentsOf: records.map { $0.toAnnotation() })
+        }
+        return annotations
+    }
+
+    nonisolated private func compressExportFile(
+        _ writeURL: URL,
+        to outputURL: URL,
+        compression: SequenceExportCompression
+    ) throws {
+        let process = Process()
+        switch compression {
+        case .gzip:
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        case .zstd:
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/zstd")
+        case .none:
+            return
+        }
+        process.arguments = ["-c", writeURL.path]
+        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+        let outputHandle = try FileHandle(forWritingTo: outputURL)
+        defer { try? outputHandle.close() }
+        process.standardOutput = outputHandle
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw NSError(domain: "com.lungfish.browser", code: Int(process.terminationStatus),
+                          userInfo: [NSLocalizedDescriptionKey: "Compression failed for \(outputURL.lastPathComponent)."])
+        }
+    }
+
     /// Reads sequences and annotations from a file or reference bundle for export.
     ///
     /// For reference bundles, reads the FASTA directly and loads annotations from the
     /// annotation database (BigBed tracks) via the bundle's data provider.
     /// For GenBank files, reads both sequences and annotations from the file.
     /// For FASTA files, reads sequences only.
-    private func loadSequencesForExport(from url: URL) async throws -> ([LungfishCore.Sequence], [SequenceAnnotation]) {
-        // Check if this document is already loaded in DocumentManager
-        if let existingDoc = DocumentManager.shared.documents.first(where: {
-            $0.url.standardizedFileURL == url.standardizedFileURL
-        }), !existingDoc.sequences.isEmpty {
-            return (existingDoc.sequences, existingDoc.annotations)
-        }
-
+    nonisolated private func loadSequencesForExport(from url: URL) async throws -> ([LungfishCore.Sequence], [SequenceAnnotation]) {
         // Reference bundle: read FASTA path from manifest
         if url.pathExtension.lowercased() == "lungfishref" {
             let manifest = try BundleManifest.load(from: url)
@@ -3137,16 +3399,31 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         return (sequences, [])
     }
 
-    private enum SequenceExportFormat {
+    enum SequenceExportFormat {
         case fasta, genbank
+
+        var fileExtension: String {
+            switch self {
+            case .fasta: return "fa"
+            case .genbank: return "gb"
+            }
+        }
     }
 
-    private enum SequenceExportCompression {
+    enum SequenceExportCompression {
         case none, gzip, zstd
+
+        var fileExtension: String? {
+            switch self {
+            case .none: return nil
+            case .gzip: return "gz"
+            case .zstd: return "zst"
+            }
+        }
     }
 
     /// Returns current date in GenBank format (DD-MMM-YYYY)
-    private static func currentDateString() -> String {
+    nonisolated private static func currentDateString() -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "dd-MMM-yyyy"
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -7849,6 +8126,7 @@ private class GenBankParser {
 // MARK: - Export Filename Updater
 
 /// Helper that updates NSSavePanel filename when format/compression popups change.
+@MainActor
 private class ExportFilenameUpdater: NSObject {
     nonisolated(unsafe) static var associatedKey: UInt8 = 0
     weak var panel: NSSavePanel?
