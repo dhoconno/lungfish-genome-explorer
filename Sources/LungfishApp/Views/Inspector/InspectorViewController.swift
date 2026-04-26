@@ -588,23 +588,11 @@ public class InspectorViewController: NSViewController {
 
         logger.info("handleBundleDidLoad: Updating document tab with manifest=\(manifest != nil), bundleURL=\(bundleURL?.lastPathComponent ?? "nil", privacy: .public)")
 
-        updateBundleMetadata(manifest: manifest, bundleURL: bundleURL)
+        let bundle = userInfo[NotificationUserInfoKey.referenceBundle] as? ReferenceBundle
+        updateReferenceBundleDocumentState(manifest: manifest, bundleURL: bundleURL, bundle: bundle)
 
-        // Wire reference bundle for on-the-fly CDS translation computation
-        if let bundle = userInfo[NotificationUserInfoKey.referenceBundle] as? ReferenceBundle {
-            viewModel.selectionSectionViewModel.referenceBundle = bundle
-
-            // Populate sample section with variant database sample data
-            updateSampleSection(from: bundle)
-
-            // Populate alignment statistics from metadata databases
+        if let bundle {
             updateAlignmentSection(from: bundle)
-        }
-
-        // Auto-select the first chromosome so the Chromosome section is visible immediately
-        if let chromosomes = manifest?.genome?.chromosomes, !chromosomes.isEmpty {
-            let sorted = naturalChromosomeSort(chromosomes)
-            updateSelectedChromosome(sorted.first)
         }
     }
 
@@ -914,6 +902,25 @@ public class InspectorViewController: NSViewController {
     ///   - bundleURL: The URL of the loaded bundle
     public func updateBundleMetadata(manifest: BundleManifest?, bundleURL: URL?) {
         viewModel.documentSectionViewModel.update(manifest: manifest, bundleURL: bundleURL)
+    }
+
+    private func updateReferenceBundleDocumentState(
+        manifest: BundleManifest?,
+        bundleURL: URL?,
+        bundle: ReferenceBundle?
+    ) {
+        updateBundleMetadata(manifest: manifest, bundleURL: bundleURL)
+
+        if let bundle {
+            viewModel.selectionSectionViewModel.referenceBundle = bundle
+            updateSampleSection(from: bundle)
+        }
+
+        // Auto-select the first chromosome so the Chromosome section is visible immediately.
+        if let chromosomes = manifest?.genome?.chromosomes, !chromosomes.isEmpty {
+            let sorted = naturalChromosomeSort(chromosomes)
+            updateSelectedChromosome(sorted.first)
+        }
     }
 
     /// Updates the Document inspector with assembly provenance, source inputs, and artifact links.
@@ -1604,6 +1611,28 @@ public class InspectorViewController: NSViewController {
         }
         applySettings(makeReadDisplaySettingsPayload(from: viewModel.readStyleSectionViewModel))
         logger.info("updateMappingAlignmentSection: \(bundle.alignmentTrackIds.count) alignment tracks loaded")
+    }
+
+    func updateReferenceBundleTrackSections(
+        from bundle: ReferenceBundle,
+        applySettings: @escaping ([AnyHashable: Any]) -> Void
+    ) {
+        updateReferenceBundleDocumentState(
+            manifest: bundle.manifest,
+            bundleURL: bundle.url,
+            bundle: bundle
+        )
+        updateAlignmentSection(from: bundle)
+        viewModel.readStyleSectionViewModel.supportsConsensusExtraction = false
+        viewModel.readStyleSectionViewModel.onExtractConsensusRequested = nil
+        viewModel.readStyleSectionViewModel.onSettingsChanged = { [weak self] in
+            guard let self else { return }
+            self.viewModel.documentSectionViewModel.visibleAlignmentTrackID =
+                self.viewModel.readStyleSectionViewModel.selectedVisibleAlignmentTrackID
+            applySettings(self.makeReadDisplaySettingsPayload(from: self.viewModel.readStyleSectionViewModel))
+        }
+        applySettings(makeReadDisplaySettingsPayload(from: viewModel.readStyleSectionViewModel))
+        logger.info("updateReferenceBundleTrackSections: \(bundle.alignmentTrackIds.count) alignment tracks loaded")
     }
 
     // MARK: - Variant Calling Workflow

@@ -91,6 +91,24 @@ final class InspectorMappingModeTests: XCTestCase {
         )
     }
 
+    func testDirectReferenceBundleSectionPopulatesBundleStateAndAppliesReadSettings() throws {
+        let vc = InspectorViewController()
+        _ = vc.view
+        let bundle = try makeReferenceBundle()
+
+        var deliveredPayload: [AnyHashable: Any]?
+        vc.updateReferenceBundleTrackSections(from: bundle) { payload in
+            deliveredPayload = payload
+        }
+
+        XCTAssertEqual(vc.selectionSectionViewModel.referenceBundle?.url, bundle.url)
+        XCTAssertEqual(vc.viewModel.documentSectionViewModel.manifest?.name, bundle.manifest.name)
+        XCTAssertEqual(vc.viewModel.documentSectionViewModel.bundleURL, bundle.url)
+        XCTAssertEqual(vc.viewModel.documentSectionViewModel.selectedChromosome?.name, "chr1")
+        XCTAssertEqual(deliveredPayload?[NotificationUserInfoKey.showReads] as? Bool, vc.readStyleSectionViewModel.showReads)
+        XCTAssertFalse(vc.readStyleSectionViewModel.supportsConsensusExtraction)
+    }
+
     func testEmptySidebarDeselectionPreservesActiveBundleContextForInspectorActions() throws {
         let vc = InspectorViewController()
         _ = vc.view

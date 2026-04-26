@@ -2450,13 +2450,14 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 defer { self.activityIndicator.hide() }
 
                 do {
+                    self.inspectorController.clearSelection()
                     let manifest = try BundleManifest.load(from: url)
                     let input = ReferenceBundleViewportInput.directBundle(
                         bundleURL: url,
                         manifest: manifest
                     )
-                    self.inspectorController.clearSelection()
                     try self.viewerController.displayReferenceBundleViewport(input)
+                    self.wireDirectReferenceViewportInspectorUpdates()
                     logger.info("displayReferenceBundleViewport: Bundle displayed successfully")
                 } catch {
                     logger.error("displayReferenceBundleViewport: Failed - \(error.localizedDescription, privacy: .public)")
@@ -2464,6 +2465,20 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 }
             }
         }
+    }
+
+    private func wireDirectReferenceViewportInspectorUpdates() {
+        guard let controller = viewerController.referenceBundleViewportController else { return }
+        controller.onEmbeddedReferenceBundleLoaded = { [weak self, weak controller] bundle in
+            guard let self, let controller else { return }
+            self.inspectorController.updateReferenceBundleTrackSections(
+                from: bundle,
+                applySettings: { payload in
+                    controller.applyEmbeddedReadDisplaySettings(payload)
+                }
+            )
+        }
+        controller.notifyEmbeddedReferenceBundleLoadedIfAvailable()
     }
 
     private func displayAssemblyAnalysisFromSidebar(at url: URL) {
