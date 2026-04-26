@@ -9,7 +9,7 @@ struct ReferenceBundleViewportInput: Equatable {
     }
 
     let kind: Kind
-    let renderedBundleURL: URL
+    let renderedBundleURL: URL?
     let manifest: BundleManifest?
     let mappingResult: MappingResult?
     let mappingResultDirectoryURL: URL?
@@ -18,7 +18,8 @@ struct ReferenceBundleViewportInput: Equatable {
     var documentTitle: String {
         manifest?.name
             ?? mappingResultDirectoryURL?.lastPathComponent
-            ?? renderedBundleURL.deletingPathExtension().lastPathComponent
+            ?? renderedBundleURL?.deletingPathExtension().lastPathComponent
+            ?? "Reference Bundle"
     }
 
     var hasMappingRunContext: Bool {
@@ -46,8 +47,7 @@ struct ReferenceBundleViewportInput: Equatable {
     ) -> ReferenceBundleViewportInput {
         ReferenceBundleViewportInput(
             kind: .mappingResult,
-            renderedBundleURL: result.viewerBundleURL?.standardizedFileURL
-                ?? result.bamURL.deletingLastPathComponent().standardizedFileURL,
+            renderedBundleURL: result.viewerBundleURL?.standardizedFileURL,
             manifest: nil,
             mappingResult: result,
             mappingResultDirectoryURL: resultDirectoryURL?.standardizedFileURL,

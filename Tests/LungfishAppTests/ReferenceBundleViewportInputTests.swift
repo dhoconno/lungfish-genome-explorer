@@ -53,4 +53,34 @@ final class ReferenceBundleViewportInputTests: XCTestCase {
         XCTAssertEqual(input.mappingResultDirectoryURL, resultDirectory.standardizedFileURL)
         XCTAssertTrue(input.hasMappingRunContext)
     }
+
+    func testMappingInputWithoutViewerBundlePreservesUnavailableRenderableBundleState() throws {
+        let resultDirectory = URL(fileURLWithPath: "/tmp/project/Analyses/minimap2-run", isDirectory: true)
+        let bam = resultDirectory.appendingPathComponent("sample.sorted.bam")
+        let result = MappingResult(
+            mapper: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            sourceReferenceBundleURL: nil,
+            viewerBundleURL: nil,
+            bamURL: bam,
+            baiURL: resultDirectory.appendingPathComponent("sample.sorted.bam.bai"),
+            totalReads: 10,
+            mappedReads: 9,
+            unmappedReads: 1,
+            wallClockSeconds: 1.0,
+            contigs: []
+        )
+
+        let input = ReferenceBundleViewportInput.mappingResult(
+            result: result,
+            resultDirectoryURL: resultDirectory,
+            provenance: nil as MappingProvenance?
+        )
+
+        XCTAssertNil(input.renderedBundleURL)
+        XCTAssertEqual(input.documentTitle, "minimap2-run")
+        XCTAssertEqual(input.mappingResult, result)
+        XCTAssertEqual(input.mappingResultDirectoryURL, resultDirectory.standardizedFileURL)
+        XCTAssertTrue(input.hasMappingRunContext)
+    }
 }
