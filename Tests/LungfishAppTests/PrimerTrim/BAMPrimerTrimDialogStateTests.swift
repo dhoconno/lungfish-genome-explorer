@@ -144,6 +144,41 @@ final class BAMPrimerTrimDialogStateTests: XCTestCase {
         XCTAssertTrue(state.isRunEnabled)
     }
 
+    func testAddProjectSchemeSelectsBrowsedSchemeAndRefreshesOutputName() throws {
+        let builtInScheme = try loadSampleScheme(name: "built-in", displayName: "Built In")
+        let browsedScheme = try loadSampleScheme(name: "browsed", displayName: "Browsed Scheme")
+        let state = BAMPrimerTrimDialogState(
+            bundle: makeStubReferenceBundle(includeAlignment: true),
+            availability: .available,
+            builtInSchemes: [builtInScheme],
+            projectSchemes: []
+        )
+
+        state.addProjectSchemeAndSelect(browsedScheme)
+
+        XCTAssertEqual(state.projectSchemes.map(\.manifest.name), ["browsed"])
+        XCTAssertEqual(state.selectedSchemeID, "browsed")
+        XCTAssertEqual(state.selectedScheme?.manifest.displayName, "Browsed Scheme")
+        XCTAssertTrue(state.outputTrackName.contains("Browsed Scheme"))
+        XCTAssertTrue(state.isRunEnabled)
+    }
+
+    func testAddProjectSchemeReplacesDuplicateInsteadOfAppending() throws {
+        let first = try loadSampleScheme(name: "browsed", displayName: "Browsed Scheme")
+        let duplicate = try loadSampleScheme(name: "browsed", displayName: "Browsed Scheme Updated")
+        let state = BAMPrimerTrimDialogState(
+            bundle: makeStubReferenceBundle(includeAlignment: true),
+            availability: .available,
+            builtInSchemes: [],
+            projectSchemes: [first]
+        )
+
+        state.addProjectSchemeAndSelect(duplicate)
+
+        XCTAssertEqual(state.projectSchemes.map(\.manifest.name), ["browsed"])
+        XCTAssertEqual(state.selectedScheme?.manifest.displayName, "Browsed Scheme Updated")
+    }
+
     func testPrepareForRunReturnsNilWhenFieldsInvalid() throws {
         let scheme = try loadSampleScheme()
         let state = BAMPrimerTrimDialogState(
@@ -209,16 +244,19 @@ final class BAMPrimerTrimDialogStateTests: XCTestCase {
         return ReferenceBundle(url: url, manifest: manifest)
     }
 
-    private func loadSampleScheme() throws -> PrimerSchemeBundle {
+    private func loadSampleScheme(
+        name: String = "sample",
+        displayName: String = "Sample Scheme"
+    ) throws -> PrimerSchemeBundle {
         let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("sample-\(UUID().uuidString).lungfishprimers", isDirectory: true)
+            .appendingPathComponent("\(name)-\(UUID().uuidString).lungfishprimers", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         temporaryURLs.append(bundleURL)
         let manifestJSON = """
         {
           "schema_version": 1,
-          "name": "sample",
-          "display_name": "Sample Scheme",
+          "name": "\(name)",
+          "display_name": "\(displayName)",
           "reference_accessions": [{ "accession": "MN908947.3", "canonical": true }],
           "primer_count": 1,
           "amplicon_count": 1,

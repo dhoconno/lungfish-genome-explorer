@@ -19,7 +19,7 @@ struct BAMPrimerTrimDialogPresenter {
         availability: DatasetOperationAvailability,
         onRun: ((BAMPrimerTrimDialogState) -> Void)? = nil,
         onCancel: (() -> Void)? = nil,
-        onBrowseScheme: (() -> Void)? = nil
+        onBrowseScheme: ((BAMPrimerTrimDialogState) -> Void)? = nil
     ) {
         let state = BAMPrimerTrimDialogState(
             bundle: bundle,
@@ -47,7 +47,7 @@ struct BAMPrimerTrimDialogPresenter {
                 window.endSheet(panel)
                 onRun?(state)
             },
-            onBrowseScheme: { onBrowseScheme?() }
+            onBrowseScheme: { onBrowseScheme?(state) }
         )
 
         let hostingController = NSHostingController(rootView: dialog)

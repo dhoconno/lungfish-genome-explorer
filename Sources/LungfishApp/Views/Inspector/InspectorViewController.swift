@@ -1902,8 +1902,8 @@ public class InspectorViewController: NSViewController {
                 onRun: { [weak self] state in
                     self?.launchPrimerTrimOperation(state: state)
                 },
-                onBrowseScheme: { [weak self] in
-                    self?.presentPrimerSchemeBrowseSheet()
+                onBrowseScheme: { [weak self] state in
+                    self?.presentPrimerSchemeBrowseSheet(for: state)
                 }
             )
         }
@@ -2069,8 +2069,33 @@ public class InspectorViewController: NSViewController {
         OperationCenter.shared.log(id: operationID, level: level, message: detail)
     }
 
-    private func presentPrimerSchemeBrowseSheet() {
-        // TODO(Task 14): Replace with NSOpenPanel for .lungfishprimers directories. Out of scope for Task 10.
+    private func presentPrimerSchemeBrowseSheet(for state: BAMPrimerTrimDialogState) {
+        guard let window = view.window ?? NSApp.keyWindow else { return }
+
+        let panel = NSOpenPanel()
+        panel.title = "Choose Primer Scheme"
+        panel.prompt = "Choose"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = []
+        panel.directoryURL = (parent as? MainSplitViewController)?
+            .sidebarController
+            .currentProjectURL
+            .flatMap { PrimerSchemesFolder.folderURL(in: $0) }
+
+        panel.beginSheetModal(for: window) { [weak self, weak state] response in
+            guard response == .OK, let url = panel.url else { return }
+            do {
+                let scheme = try PrimerSchemeBundle.load(from: url)
+                state?.addProjectSchemeAndSelect(scheme)
+            } catch {
+                self?.presentSimpleAlert(
+                    title: "Could Not Load Primer Scheme",
+                    message: error.localizedDescription
+                )
+            }
+        }
     }
 
     // MARK: - Duplicate Workflows

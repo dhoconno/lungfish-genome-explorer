@@ -22,7 +22,7 @@ final class BAMPrimerTrimDialogState {
     let bundle: ReferenceBundle
     let availability: DatasetOperationAvailability
     let builtInSchemes: [PrimerSchemeBundle]
-    let projectSchemes: [PrimerSchemeBundle]
+    private(set) var projectSchemes: [PrimerSchemeBundle]
 
     var selectedSchemeID: String?
     var minReadLengthText: String = "30"
@@ -76,6 +76,17 @@ final class BAMPrimerTrimDialogState {
         guard allSchemes.contains(where: { $0.manifest.name == id }) else { return }
         selectedSchemeID = id
         refreshDefaultOutputTrackNameIfEmpty()
+    }
+
+    func addProjectSchemeAndSelect(_ scheme: PrimerSchemeBundle) {
+        if let existingIndex = projectSchemes.firstIndex(where: { $0.manifest.name == scheme.manifest.name }) {
+            projectSchemes[existingIndex] = scheme
+        } else {
+            projectSchemes.append(scheme)
+            projectSchemes.sort { $0.manifest.displayName.localizedStandardCompare($1.manifest.displayName) == .orderedAscending }
+        }
+        outputTrackName = ""
+        selectScheme(id: scheme.manifest.name)
     }
 
     /// Synthesizes the default output track name from the source track name
