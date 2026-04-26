@@ -1428,7 +1428,7 @@ public class InspectorViewController: NSViewController {
                 trackID: trackID,
                 trackName: row.name,
                 bundleURL: bundleURL,
-                shouldReloadMappingViewer: split.viewerController.mappingResultController != nil
+                shouldReloadMappingViewer: split.viewerController.activeMappingViewportController != nil
             )
         }
     }
@@ -1723,7 +1723,7 @@ public class InspectorViewController: NSViewController {
         let operationTitle = "Calling variants with \(state.selectedCaller.displayName)"
         let shouldReloadMappingViewer = (parent as? MainSplitViewController)?
             .viewerController
-            .mappingResultController != nil
+            .activeMappingViewportController != nil
         let opID = OperationCenter.shared.start(
             title: operationTitle,
             detail: "Preparing \(state.selectedCaller.displayName)...",
@@ -2090,7 +2090,7 @@ public class InspectorViewController: NSViewController {
         switch Self.makeFilteredAlignmentWorkflowStartOutcome(
             bundleURL: bundleURL,
             serviceTarget: .bundle(bundleURL),
-            isMappingViewerDisplayedAtLaunch: split.viewerController.mappingResultController != nil
+            isMappingViewerDisplayedAtLaunch: split.viewerController.activeMappingViewportController != nil
         ) {
         case .blocked(let alert):
             presentSimpleAlert(title: alert.title, message: alert.message)
@@ -2205,8 +2205,8 @@ public class InspectorViewController: NSViewController {
 
         let startOutcome = Self.makeFilteredAlignmentWorkflowStartOutcome(
             bundleURL: bundleURL,
-            serviceTarget: split.viewerController.mappingResultController?.filteredAlignmentServiceTarget ?? .bundle(bundleURL),
-            isMappingViewerDisplayedAtLaunch: split.viewerController.mappingResultController != nil
+            serviceTarget: split.viewerController.activeMappingViewportController?.filteredAlignmentServiceTarget ?? .bundle(bundleURL),
+            isMappingViewerDisplayedAtLaunch: split.viewerController.activeMappingViewportController != nil
         )
         let launchContext: FilteredAlignmentWorkflowLaunchContext
         switch startOutcome {

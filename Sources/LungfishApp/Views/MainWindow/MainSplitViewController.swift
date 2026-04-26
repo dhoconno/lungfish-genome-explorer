@@ -2481,6 +2481,20 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         controller.notifyEmbeddedReferenceBundleLoadedIfAvailable()
     }
 
+    private func wireMappingReferenceViewportInspectorUpdates() {
+        guard let controller = viewerController.referenceBundleViewportController else { return }
+        controller.onEmbeddedReferenceBundleLoaded = { [weak self, weak controller] bundle in
+            guard let self, let controller else { return }
+            self.inspectorController.updateMappingAlignmentSection(
+                from: bundle,
+                applySettings: { payload in
+                    controller.applyEmbeddedReadDisplaySettings(payload)
+                }
+            )
+        }
+        controller.notifyEmbeddedReferenceBundleLoadedIfAvailable()
+    }
+
     private func displayAssemblyAnalysisFromSidebar(at url: URL) {
         logger.info("displayAssemblyAnalysis: Opening '\(url.lastPathComponent, privacy: .public)'")
         recordUITestEvent("assembly.display.requested \(url.lastPathComponent)")
@@ -2526,6 +2540,11 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             let result = try MappingResult.load(from: url)
             let provenance = MappingProvenance.load(from: url)
             let projectURL = sidebarController.currentProjectURL ?? DocumentManager.shared.activeProject?.url
+            let input = ReferenceBundleViewportInput.mappingResult(
+                result: result,
+                resultDirectoryURL: url,
+                provenance: provenance
+            )
             inspectorController.clearSelection()
             inspectorController.updateMappingDocument(
                 MappingDocumentStateBuilder.build(
@@ -2534,19 +2553,8 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                     projectURL: projectURL
                 )
             )
-            viewerController.displayMappingResult(result, resultDirectoryURL: url)
-            if let mappingController = viewerController.mappingResultController {
-                mappingController.onEmbeddedReferenceBundleLoaded = { [weak self, weak mappingController] bundle in
-                    guard let self, let mappingController else { return }
-                    self.inspectorController.updateMappingAlignmentSection(
-                        from: bundle,
-                        applySettings: { payload in
-                            mappingController.applyEmbeddedReadDisplaySettings(payload)
-                        }
-                    )
-                }
-                mappingController.notifyEmbeddedReferenceBundleLoadedIfAvailable()
-            }
+            try viewerController.displayReferenceBundleViewport(input)
+            wireMappingReferenceViewportInspectorUpdates()
             recordUITestEvent(
                 "mapping.display.succeeded tool=\(result.mapper.rawValue) contigs=\(result.contigs.count)"
             )

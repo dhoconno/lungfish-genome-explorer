@@ -652,7 +652,7 @@ public class ReferenceBundleViewportController: NSViewController {
     }
 
     var filteredAlignmentServiceTarget: AlignmentFilterTarget? {
-        if let resultDirectoryURL = currentResultDirectoryURL?.standardizedFileURL {
+        if let resultDirectoryURL = currentInput?.mappingResultDirectoryURL?.standardizedFileURL {
             return .mappingResult(resultDirectoryURL)
         }
 

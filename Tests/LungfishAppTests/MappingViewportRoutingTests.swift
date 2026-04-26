@@ -3,6 +3,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
+@testable import LungfishWorkflow
 
 @MainActor
 final class MappingViewportRoutingTests: XCTestCase {
@@ -54,6 +55,23 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertTrue(routeSource.contains("notifyEmbeddedReferenceBundleLoadedIfAvailable()"))
     }
 
+    func testMappingAnalysisRouteDisplaysReferenceViewportWithMappingResultInput() throws {
+        let mainWindowSource = try loadSource(at: "Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift")
+        let routeStart = try XCTUnwrap(
+            mainWindowSource.range(of: "private func displayMappingAnalysisFromSidebar")
+        )
+        let routeEnd = try XCTUnwrap(
+            mainWindowSource.range(of: "/// Routes a classifier result directory through the DB router.")
+        )
+        let routeSource = String(mainWindowSource[routeStart.lowerBound..<routeEnd.lowerBound])
+
+        XCTAssertTrue(routeSource.contains("ReferenceBundleViewportInput.mappingResult("))
+        XCTAssertTrue(routeSource.contains("resultDirectoryURL: url"))
+        XCTAssertTrue(routeSource.contains("provenance: provenance"))
+        XCTAssertTrue(routeSource.contains("try viewerController.displayReferenceBundleViewport(input)"))
+        XCTAssertFalse(routeSource.contains("viewerController.displayMappingResult(result, resultDirectoryURL: url)"))
+    }
+
     func testViewerDisplaysDirectBundleViewportWithDirectInput() throws {
         let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
             name: "Route Reference",
@@ -71,6 +89,43 @@ final class MappingViewportRoutingTests: XCTestCase {
         XCTAssertEqual(controller.currentInput?.kind, .directBundle)
         XCTAssertEqual(controller.currentInput?.renderedBundleURL, bundleURL.standardizedFileURL)
         XCTAssertNil(vc.testBundleBrowserController)
+    }
+
+    func testViewerExposesReferenceViewportMappingInputAsActiveMappingViewport() throws {
+        let resultDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mapping-route-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: resultDirectory, withIntermediateDirectories: true)
+        let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
+            name: "Route Mapping Reference",
+            chromosomes: [
+                .init(name: "chr1", length: 100),
+            ]
+        )
+        let result = MappingResult(
+            mapper: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            sourceReferenceBundleURL: nil,
+            viewerBundleURL: bundleURL,
+            bamURL: resultDirectory.appendingPathComponent("sample.sorted.bam"),
+            baiURL: resultDirectory.appendingPathComponent("sample.sorted.bam.bai"),
+            totalReads: 10,
+            mappedReads: 9,
+            unmappedReads: 1,
+            wallClockSeconds: 1.0,
+            contigs: []
+        )
+        let vc = ViewerViewController()
+        _ = vc.view
+
+        try vc.displayReferenceBundleViewport(
+            .mappingResult(result: result, resultDirectoryURL: resultDirectory, provenance: nil)
+        )
+
+        XCTAssertEqual(vc.activeMappingViewportController?.currentInput?.kind, .mappingResult)
+        XCTAssertEqual(
+            vc.activeMappingViewportController?.testFilteredAlignmentServiceTarget,
+            .mappingResult(resultDirectory.standardizedFileURL)
+        )
     }
 
     func testBundleBackNavigationButtonUsesStableAccessibilityIdentifier() throws {

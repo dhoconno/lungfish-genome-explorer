@@ -10,8 +10,19 @@ import os.log
 private let mappingDisplayLogger = Logger(subsystem: LogSubsystem.app, category: "ViewerMapping")
 
 extension ViewerViewController {
+    var activeMappingViewportController: ReferenceBundleViewportController? {
+        if let mappingResultController {
+            return mappingResultController
+        }
+        if let referenceBundleViewportController,
+           referenceBundleViewportController.currentInput?.kind == .mappingResult {
+            return referenceBundleViewportController
+        }
+        return nil
+    }
+
     func presentMappingConsensusExtraction() {
-        guard let controller = mappingResultController else {
+        guard let controller = activeMappingViewportController else {
             NSSound.beep()
             return
         }
@@ -37,7 +48,7 @@ extension ViewerViewController {
     }
 
     func reloadMappingViewerBundleIfDisplayed() throws {
-        try mappingResultController?.reloadViewerBundleForInspectorChanges()
+        try activeMappingViewportController?.reloadViewerBundleForInspectorChanges()
     }
 
     public func displayMappingResult(_ result: MappingResult) {
@@ -167,7 +178,7 @@ extension ViewerViewController {
     }
 
     func mappingZoomRegion(for annotation: SequenceAnnotation) -> GenomicRegion? {
-        guard mappingResultController?.currentResult != nil else { return nil }
+        guard activeMappingViewportController?.currentResult != nil else { return nil }
         guard let provider = currentBundleDataProvider,
               let chromosome = annotation.chromosome,
               let chromosomeInfo = provider.chromosomeInfo(named: chromosome) else {
@@ -196,7 +207,7 @@ extension ViewerViewController {
     }
 
     func mappingExtractionConfiguration(for annotation: SequenceAnnotation) -> BAMRegionExtractionConfig? {
-        guard let result = mappingResultController?.currentResult else { return nil }
+        guard let result = activeMappingViewportController?.currentResult else { return nil }
         let outputDirectory = result.bamURL.deletingLastPathComponent().appendingPathComponent(
             "annotation-extractions",
             isDirectory: true
@@ -209,7 +220,7 @@ extension ViewerViewController {
     }
 
     func mappingZoomUnavailableReason(for annotation: SequenceAnnotation) -> String? {
-        guard mappingResultController?.currentResult != nil else { return nil }
+        guard activeMappingViewportController?.currentResult != nil else { return nil }
         guard annotation.chromosome != nil else {
             return "annotation chromosome is unavailable"
         }
@@ -223,7 +234,7 @@ extension ViewerViewController {
     }
 
     func mappingExtractionUnavailableReason(for annotation: SequenceAnnotation) -> String? {
-        guard mappingResultController?.currentResult != nil else { return nil }
+        guard activeMappingViewportController?.currentResult != nil else { return nil }
         guard annotation.chromosome != nil else {
             return "annotation chromosome is unavailable"
         }

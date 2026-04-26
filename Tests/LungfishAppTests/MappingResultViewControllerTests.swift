@@ -80,6 +80,26 @@ final class MappingResultViewControllerTests: XCTestCase {
         )
     }
 
+    func testMappingResultInputAndFilteredAlignmentTargetUseExplicitResultDirectory() throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+        let resultDirectory = tempDir.appendingPathComponent("mapping-run", isDirectory: true)
+        try FileManager.default.createDirectory(at: resultDirectory, withIntermediateDirectories: true)
+        let result = makeMappingResult(
+            viewerBundleURL: try makeReferenceBundleWithAnnotationDatabase(),
+            resultDirectoryURL: resultDirectory
+        )
+
+        vc.configureForTesting(result: result, resultDirectoryURL: resultDirectory)
+
+        XCTAssertEqual(vc.currentInput?.kind, .mappingResult)
+        XCTAssertEqual(vc.currentInput?.mappingResultDirectoryURL, resultDirectory.standardizedFileURL)
+        XCTAssertEqual(
+            vc.testFilteredAlignmentServiceTarget,
+            .mappingResult(resultDirectory.standardizedFileURL)
+        )
+    }
+
     func testEmbeddedViewerDoesNotPublishGlobalViewportNotifications() {
         let vc = MappingResultViewController()
         _ = vc.view
@@ -420,14 +440,18 @@ final class MappingResultViewControllerTests: XCTestCase {
         XCTAssertFalse(controller.testListContainer.isHidden)
     }
 
-    private func makeMappingResult(viewerBundleURL: URL? = nil) -> MappingResult {
-        MappingResult(
+    private func makeMappingResult(
+        viewerBundleURL: URL? = nil,
+        resultDirectoryURL: URL? = nil
+    ) -> MappingResult {
+        let directory = resultDirectoryURL ?? URL(fileURLWithPath: "/tmp", isDirectory: true)
+        return MappingResult(
             mapper: .minimap2,
             modeID: MappingMode.defaultShortRead.id,
             sourceReferenceBundleURL: nil,
             viewerBundleURL: viewerBundleURL,
-            bamURL: URL(fileURLWithPath: "/tmp/example.sorted.bam"),
-            baiURL: URL(fileURLWithPath: "/tmp/example.sorted.bam.bai"),
+            bamURL: directory.appendingPathComponent("example.sorted.bam"),
+            baiURL: directory.appendingPathComponent("example.sorted.bam.bai"),
             totalReads: 200,
             mappedReads: 198,
             unmappedReads: 2,
