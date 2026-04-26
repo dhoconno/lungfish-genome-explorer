@@ -679,10 +679,39 @@ public class ReferenceBundleViewportController: NSViewController {
         return ([record], request.suggestedName)
     }
 
-    // TODO(2026-04-22): Add visible-viewport consensus export.
-    // TODO(2026-04-22): Add selected-annotation consensus export.
-    // TODO(2026-04-22): Add selected-region consensus export.
     func buildConsensusExportRequest() throws -> MappingConsensusExportRequest {
+        try buildConsensusExportRequest(explicitRegion: nil)
+    }
+
+    func buildVisibleViewportConsensusExportRequest() throws -> MappingConsensusExportRequest {
+        try buildConsensusExportRequest(explicitRegion: visibleViewportConsensusRegion())
+    }
+
+    func buildSelectedRegionConsensusExportRequest() throws -> MappingConsensusExportRequest {
+        guard let region = selectedConsensusRegion() else {
+            throw NSError(
+                domain: "Lungfish",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "No selected region is available"]
+            )
+        }
+        return try buildConsensusExportRequest(explicitRegion: region)
+    }
+
+    func buildSelectedAnnotationConsensusExportRequest() throws -> MappingConsensusExportRequest {
+        guard let region = selectedAnnotationConsensusRegion() else {
+            throw NSError(
+                domain: "Lungfish",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "No selected annotation is available"]
+            )
+        }
+        return try buildConsensusExportRequest(explicitRegion: region)
+    }
+
+    private func buildConsensusExportRequest(
+        explicitRegion: MappingConsensusExportRequestBuilder.ExplicitRegion?
+    ) throws -> MappingConsensusExportRequest {
         guard let result = currentResult else {
             throw NSError(
                 domain: "Lungfish",
@@ -698,6 +727,7 @@ public class ReferenceBundleViewportController: NSViewController {
             sampleName: result.bamURL.deletingPathExtension().deletingPathExtension().lastPathComponent,
             selectedContig: currentSelectedContig(),
             fallbackChromosome: fallbackChromosome,
+            explicitRegion: explicitRegion,
             consensusMode: embeddedViewerController.viewerView.consensusModeSetting,
             consensusMinDepth: embeddedViewerController.viewerView.consensusMinDepthSetting,
             consensusMinMapQ: max(
@@ -707,6 +737,45 @@ public class ReferenceBundleViewportController: NSViewController {
             consensusMinBaseQ: embeddedViewerController.viewerView.consensusMinBaseQSetting,
             excludeFlags: embeddedViewerController.viewerView.excludeFlagsSetting,
             useAmbiguity: embeddedViewerController.viewerView.consensusUseAmbiguitySetting
+        )
+    }
+
+    private func visibleViewportConsensusRegion() -> MappingConsensusExportRequestBuilder.ExplicitRegion? {
+        guard let frame = embeddedViewerController.referenceFrame else { return nil }
+        return .init(
+            chromosome: frame.chromosome,
+            start: Int(floor(frame.start)),
+            end: Int(ceil(frame.end)),
+            label: "visible"
+        )
+    }
+
+    private func selectedConsensusRegion() -> MappingConsensusExportRequestBuilder.ExplicitRegion? {
+        guard let range = embeddedViewerController.viewerView.selectionRange else { return nil }
+        let chromosome = embeddedViewerController.referenceFrame?.chromosome
+            ?? embeddedViewerController.currentBundleDataProvider?.chromosomes.first?.name
+            ?? ""
+        guard !chromosome.isEmpty else { return nil }
+        return .init(
+            chromosome: chromosome,
+            start: range.lowerBound,
+            end: range.upperBound,
+            label: "selection"
+        )
+    }
+
+    private func selectedAnnotationConsensusRegion() -> MappingConsensusExportRequestBuilder.ExplicitRegion? {
+        guard let annotation = embeddedViewerController.viewerView.selectedAnnotation else { return nil }
+        let chromosome = annotation.chromosome
+            ?? embeddedViewerController.referenceFrame?.chromosome
+            ?? embeddedViewerController.currentBundleDataProvider?.chromosomes.first?.name
+            ?? ""
+        guard !chromosome.isEmpty else { return nil }
+        return .init(
+            chromosome: chromosome,
+            start: annotation.start,
+            end: annotation.end,
+            label: "annotation \(annotation.name)"
         )
     }
 

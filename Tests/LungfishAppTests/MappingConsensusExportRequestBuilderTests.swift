@@ -58,4 +58,53 @@ final class MappingConsensusExportRequestBuilderTests: XCTestCase {
         XCTAssertEqual(request.mode, .simple)
         XCTAssertTrue(request.useAmbiguity)
     }
+
+    func testBuildPrefersExplicitRegionForVisibleViewport() {
+        let request = try! MappingConsensusExportRequestBuilder.build(
+            sampleName: "sample",
+            selectedContig: .init(
+                contigName: "whole",
+                contigLength: 10_000,
+                mappedReads: 100,
+                mappedReadPercent: 100,
+                meanDepth: 12,
+                coverageBreadth: 100,
+                medianMAPQ: 60,
+                meanIdentity: 99
+            ),
+            fallbackChromosome: nil,
+            explicitRegion: .init(chromosome: "chr2", start: 120, end: 480, label: "visible"),
+            consensusMode: .simple,
+            consensusMinDepth: 5,
+            consensusMinMapQ: 7,
+            consensusMinBaseQ: 9,
+            excludeFlags: 0x904,
+            useAmbiguity: true
+        )
+
+        XCTAssertEqual(request.chromosome, "chr2")
+        XCTAssertEqual(request.start, 120)
+        XCTAssertEqual(request.end, 480)
+        XCTAssertEqual(request.recordName, "sample chr2:121-480 visible consensus")
+        XCTAssertEqual(request.suggestedName, "sample-chr2-121-480-visible-consensus")
+    }
+
+    func testBuildClampsExplicitRegionToNonEmptyInterval() {
+        let request = try! MappingConsensusExportRequestBuilder.build(
+            sampleName: "sample",
+            selectedContig: nil,
+            fallbackChromosome: nil,
+            explicitRegion: .init(chromosome: "chr2", start: -10, end: -1, label: "selection"),
+            consensusMode: .simple,
+            consensusMinDepth: 5,
+            consensusMinMapQ: 7,
+            consensusMinBaseQ: 9,
+            excludeFlags: 0x904,
+            useAmbiguity: true
+        )
+
+        XCTAssertEqual(request.start, 0)
+        XCTAssertEqual(request.end, 1)
+        XCTAssertEqual(request.suggestedName, "sample-chr2-1-1-selection-consensus")
+    }
 }
