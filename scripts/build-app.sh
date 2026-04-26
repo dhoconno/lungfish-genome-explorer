@@ -12,6 +12,7 @@ VERSION="0.4.0-alpha.3"
 BUILD_NUMBER="1"
 CONFIGURATION="release"
 SKIP_BUILD=0
+LOG_DIR=""
 
 # Paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,7 +26,7 @@ NC='\033[0m' # No Color
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") [--configuration release|debug] [--skip-build]
+Usage: $(basename "$0") [--configuration release|debug] [--skip-build] [--log-dir PATH]
 EOF
 }
 
@@ -52,6 +53,15 @@ while [ "$#" -gt 0 ]; do
             SKIP_BUILD=1
             shift
             ;;
+        --log-dir)
+            if [ "$#" -lt 2 ]; then
+                echo "Missing value for --log-dir" >&2
+                usage >&2
+                exit 64
+            fi
+            LOG_DIR="$2"
+            shift 2
+            ;;
         -h|--help)
             usage
             exit 0
@@ -63,6 +73,14 @@ while [ "$#" -gt 0 ]; do
             ;;
     esac
 done
+
+if [ -n "$LOG_DIR" ]; then
+    mkdir -p "$LOG_DIR"
+    LOG_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+    LOG_FILE="$LOG_DIR/build-app-${CONFIGURATION}-${LOG_STAMP}.log"
+    exec > >(tee "$LOG_FILE") 2>&1
+    echo "Writing build log to $LOG_FILE"
+fi
 
 case "$CONFIGURATION" in
     release)

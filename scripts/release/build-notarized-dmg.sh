@@ -24,6 +24,9 @@ Optional:
   --derived-data-path DerivedData path for the Xcode archive (default: <project-root>/.build/release-derived-data)
   --reuse-archive     Reuse an existing archive instead of running xcodebuild archive
   --reuse-built-cli   Reuse an existing lungfish-cli from --scratch-path instead of running swift build
+
+The archive step writes an Xcode timing summary to stdout and stores an
+archive result bundle under <release-dir>/logs/archive.xcresult.
 EOF
 }
 
@@ -98,6 +101,11 @@ fi
 if [ -z "$DERIVED_DATA_PATH" ]; then
     DERIVED_DATA_PATH="${PROJECT_ROOT}/.build/release-derived-data"
 fi
+RELEASE_LOG_DIR="${RELEASE_DIR}/logs"
+ARCHIVE_RESULT_BUNDLE_PATH="${RELEASE_LOG_DIR}/archive.xcresult"
+
+mkdir -p "$RELEASE_LOG_DIR"
+rm -rf "$ARCHIVE_RESULT_BUNDLE_PATH"
 
 require_command() {
     if ! command -v "$1" >/dev/null 2>&1; then
@@ -236,6 +244,8 @@ else
         OTHER_CFLAGS="\$(inherited) $XCODE_OTHER_CFLAGS" \
         OTHER_CPLUSPLUSFLAGS="\$(inherited) $XCODE_OTHER_CFLAGS" \
         DEVELOPMENT_TEAM="$TEAM_ID" \
+        -showBuildTimingSummary \
+        -resultBundlePath "$ARCHIVE_RESULT_BUNDLE_PATH" \
         archive
 fi
 
