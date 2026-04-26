@@ -47,6 +47,7 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         switch mode {
         case .browse:
             try displayReferenceBundleViewport(.directBundle(bundleURL: context.url, manifest: context.manifest))
+            (parent as? MainSplitViewController)?.wireDirectReferenceViewportInspectorUpdates()
         case .sequence(let name, let restoreViewState):
             activateBundleDisplayContext(context)
             try displayBundleSequence(

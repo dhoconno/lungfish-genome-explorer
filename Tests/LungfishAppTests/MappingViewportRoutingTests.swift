@@ -29,11 +29,13 @@ final class MappingViewportRoutingTests: XCTestCase {
     func testReferenceBundlesRouteThroughHarmonizedReferenceViewport() throws {
         let mainWindowSource = try loadSource(at: "Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift")
         let viewerMappingSource = try loadSource(at: "Sources/LungfishApp/Views/Viewer/ViewerViewController+Mapping.swift")
+        let viewerBundleSource = try loadSource(at: "Sources/LungfishApp/Views/Viewer/ViewerViewController+BundleDisplay.swift")
 
         XCTAssertTrue(mainWindowSource.contains("displayReferenceBundleViewportFromSidebar(at: url)"))
         XCTAssertFalse(mainWindowSource.contains("displayBundle(at: url, mode: .browse)"))
         XCTAssertTrue(viewerMappingSource.contains("displayReferenceBundleViewport("))
         XCTAssertTrue(viewerMappingSource.contains("ReferenceBundleViewportController()"))
+        XCTAssertTrue(viewerBundleSource.contains("wireDirectReferenceViewportInspectorUpdates()"))
     }
 
     func testReferenceBundleRouteClearsInspectorBeforeManifestLoadAndWiresDirectInspectorState() throws {

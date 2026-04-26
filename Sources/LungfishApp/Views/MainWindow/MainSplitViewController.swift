@@ -2467,7 +2467,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         }
     }
 
-    private func wireDirectReferenceViewportInspectorUpdates() {
+    func wireDirectReferenceViewportInspectorUpdates() {
         guard let controller = viewerController.referenceBundleViewportController else { return }
         controller.onEmbeddedReferenceBundleLoaded = { [weak self, weak controller] bundle in
             guard let self, let controller else { return }
