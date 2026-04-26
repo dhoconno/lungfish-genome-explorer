@@ -1,0 +1,76 @@
+# Call Variants dialog with iVar selected against the trimmed alignment.
+#
+# FIXTURE GAP: this shot needs a primer-trimmed BAM in the project sidebar
+# at capture time. The committed fixture
+# (docs/user-manual/fixtures/sarscov2-clinical/) ships only
+# alignments.bam + alignments.bam.bai. There is no precomputed
+# alignments-trimmed.bam (and no companion .bai or .lungfish-primertrim
+# provenance sidecar). Capture is blocked until ONE of:
+#   (a) the fixture author commits alignments-trimmed.bam +
+#       alignments-trimmed.bam.bai + the primer-trim provenance sidecar
+#       so the "auto-checked and disabled" iVar acknowledgement renders;
+#   (b) the schema gains a `run_pipeline` (or similar) action so the
+#       recipe can drive the Primer-trim run that produced the trimmed
+#       track in primer-trim-dialog.yaml.
+# Flagged for fixture-author follow-up. Until then the steps below
+# describe the prerequisite UI state in prose.
+#
+# RUNNER GAP: same `click` shortfall as primer-trim-dialog.yaml. Reaching
+# the Call Variants dialog requires (1) selecting the trimmed alignment
+# track in the sidebar and (2) clicking the Inspector's
+# "Call Variants..." button under Analysis, then (3) clicking the iVar
+# entry in the dialog's tool sidebar. None of those are expressible in
+# the current schema action vocabulary.
+id: variant-call-dialog
+chapter: 04-variants/02-calling-variants-from-a-bam
+caption: "The Call Variants dialog with iVar selected against the trimmed alignment."
+viewport_class: variant
+app_state:
+  fixture: docs/user-manual/fixtures/sarscov2-clinical
+  open_files:
+    - reference: "{fixture}/reference.fasta"
+    - alignment: "{fixture}/alignments.bam"
+    # Required precomputed asset; see FIXTURE GAP above.
+    - trimmed_alignment: "{fixture}/alignments-trimmed.bam"
+  window_size: [1600, 1000]
+  appearance: light
+steps:
+  - action: open_application
+    app: Lungfish
+  - action: wait_ready
+    signal: main_window_visible
+  - action: open_file
+    path: "{fixture}"
+  - action: wait_ready
+    signal: project_folder_loaded
+  - action: resize_window
+    size: [1600, 1000]
+  - action: wait_ready
+    signal: sequence_viewer_loaded
+  # PROSE-ONLY (blocked on `click` action):
+  # 1. Click the trimmed alignment track row in the sidebar (the one
+  #    suffixed "Primer-trimmed (QIASeqDIRECT-SARS2)").
+  # 2. Click the Inspector's "Call Variants..." button under Analysis.
+  # 3. In the Call Variants tool sidebar (left side of dialog), click
+  #    the "iVar" entry.
+  # 4. Wait for the dialog to settle (signal: call_variants_dialog_ivar_visible)
+  #    so the auto-checked, disabled "This BAM has already been
+  #    primer-trimmed for iVar." toggle has rendered.
+  - action: wait_ready
+    signal: call_variants_dialog_ivar_visible
+crop:
+  mode: window
+annotations:
+  # Callout pointing at the iVar entry in the dialog's tool sidebar.
+  # Coordinates first-pass; reviewer tightens on first capture.
+  - type: callout
+    target: [120, 200]
+    text: "iVar tool"
+  # Callout pointing at the auto-checked, disabled primer-trim
+  # acknowledgement toggle in the Inputs section.
+  - type: callout
+    target: [520, 360]
+    text: "Auto-detected: BAM is already primer-trimmed"
+post:
+  retina: true
+  format: png

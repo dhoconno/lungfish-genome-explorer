@@ -1,0 +1,68 @@
+# Primer-trim BAM dialog with QIASeqDIRECT-SARS2 selected.
+#
+# RUNNER GAP: the schema action vocabulary is currently
+# {open_application, wait_ready, open_file, resize_window, scroll_to}.
+# Reaching the Primer-trim BAM dialog from the alignment Inspector requires
+# at least two clicks (select the alignment track in the sidebar, then
+# click the Inspector's "Primer-trim BAM..." button) and one picker
+# selection (choose QIASeqDIRECT-SARS2). None of those map to existing
+# actions. Capture is blocked until schema.json grows a `click` action
+# (target by accessibility identifier preferred) and a `select_in_picker`
+# action, OR until the runner gains an AppleScript bridge for these UI
+# steps. The prose-only steps below describe the desired end state so a
+# human capture pass can drive the dialog manually until the runner team
+# closes the gap.
+#
+# RUNNER NOTE: `open_file` runs `open -a Lungfish <path>`. When `<path>`
+# is a directory, AppKit's default behaviour is to ask Lungfish to open
+# the project folder, which is what step 3 relies on. If that turns out
+# not to fire the project-folder code path, the runner will need a
+# dedicated `open_project_folder` action.
+id: primer-trim-dialog
+chapter: 04-variants/02-calling-variants-from-a-bam
+caption: "The Primer Trim dialog with the QIASeqDIRECT-SARS2 scheme selected."
+viewport_class: alignment
+app_state:
+  fixture: docs/user-manual/fixtures/sarscov2-clinical
+  open_files:
+    - reference: "{fixture}/reference.fasta"
+    - alignment: "{fixture}/alignments.bam"
+  window_size: [1600, 1000]
+  appearance: light
+steps:
+  - action: open_application
+    app: Lungfish
+  - action: wait_ready
+    signal: main_window_visible
+  # Open the fixture as a project folder. `open -a Lungfish <dir>` is
+  # expected to invoke the Open Project Folder code path; see RUNNER NOTE.
+  - action: open_file
+    path: "{fixture}"
+  - action: wait_ready
+    signal: project_folder_loaded
+  - action: resize_window
+    size: [1600, 1000]
+  - action: wait_ready
+    signal: sequence_viewer_loaded
+  # PROSE-ONLY (blocked on `click` action):
+  # 1. Click the alignment track row in the sidebar (track named
+  #    "alignments.bam") so the Inspector populates with Read Style.
+  # 2. Click the Inspector's "Primer-trim BAM..." button under Read Style.
+  # 3. In the Primer scheme picker, select "QIASeqDIRECT-SARS2".
+  # 4. Wait for the dialog to settle (signal: primer_trim_dialog_visible).
+  - action: wait_ready
+    signal: primer_trim_dialog_visible
+crop:
+  mode: window
+annotations:
+  # Bracket around the Primer scheme picker row.
+  # Coordinates are first-pass; reviewer tightens on first capture.
+  - type: bracket
+    region: [180, 220, 360, 36]
+  # Callout pointing at the selected QIASeqDIRECT-SARS2 entry.
+  - type: callout
+    target: [360, 238]
+    text: "QIASeqDIRECT-SARS2 scheme"
+post:
+  retina: true
+  format: png

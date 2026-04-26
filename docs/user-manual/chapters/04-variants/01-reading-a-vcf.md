@@ -12,7 +12,7 @@ shots:
 glossary_refs: [VCF, REF, ALT, genotype, allele-frequency]
 features_refs: [import.vcf, viewport.variant-browser]
 fixtures_refs: [sarscov2-clinical]
-brand_reviewed: false
+brand_reviewed: true
 lead_approved: false
 ---
 
@@ -41,12 +41,14 @@ Variants are where raw reads stop being data and start being interpretation. Rea
 
 ## Procedure
 
-1. Open the reference FASTA first, so the variant browser has a coordinate axis to place records against. From the menu bar, choose `File > Open`, then select `fixtures/sarscov2-clinical/reference.fasta`.
-2. Open the VCF through the same menu: `File > Open`, then select `fixtures/sarscov2-clinical/variants.vcf.gz`. With a reference already active, Lungfish filters the Open dialog to variant-family extensions (`.vcf`, `.vcf.gz`), which makes the VCF easy to find.
+1. Create a new Lungfish project to hold the imports. From the Welcome window choose `Create Project`, or from the menu bar choose `File > New Project`. Name the project (`SARS-CoV-2 Clinical Demo` is a sensible label) and save it under your `Documents` folder. Lungfish opens a new window titled with the project name.
+2. Import the reference. Choose `File > Import Center…`, then in the left rail select `Reference Sequences` and click `Import…`. Lungfish opens a file picker filtered to the formats it accepts as a reference (`.fa`, `.fasta`, `.gb`, `.embl`, optionally `.gz`-compressed). Select `fixtures/sarscov2-clinical/reference.fasta`. The reference appears in the left sidebar under `Reference Sequences > reference`.
+3. Import the VCF. Open `File > Import Center…` again and select `Variants` in the left rail. Click `Import…`. The picker is now filtered to VCF files. Select `fixtures/sarscov2-clinical/variants.vcf.gz`, then accept the default name in the `Name Imported Variant Bundle` sheet. The bundle appears in the left sidebar as `variants`.
 
 <!-- SHOT: vcf-open-dialog -->
 
-3. Lungfish opens the VCF in the variant browser as a sortable, filterable table. Column headers can be clicked to sort, and a row click centers the genome context pane on that coordinate.
+4. Click the `variants` entry in the sidebar to load the variant browser. The browser opens with a genome track view at the top and a tabbed table at the bottom (`Annotations | Variants | Samples`). Click the `Variants` tab.
+5. By default the table applies a `Quality / QC: PASS` filter, which is correct for production data but will hide every record in this fixture, since each row carries `FILTER=LowQual`. Click the `PASS` chip to deselect it. The table now lists all nine variants on `MT192765.1`.
 
 <!-- SHOT: vcf-variant-table -->
 

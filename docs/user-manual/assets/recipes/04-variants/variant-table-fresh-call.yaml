@@ -1,0 +1,76 @@
+# Freshly produced VCF loaded in the variant browser.
+#
+# This shot intentionally mirrors vcf-variant-table.yaml (chapter 01).
+# Visual delta from vcf-variant-table is intentional. Reviewer should
+# accept that the AF column and the 1-2 row DP changes ARE the
+# pedagogical content of this chapter: AF is iVar-only, and DP shifts
+# show the primer-trim soft-clipping at amplicon edges.
+#
+# FIXTURE GAP: this shot needs the freshly produced VCF (iVar output,
+# bcftools-sorted, bgzipped, tabix-indexed) on disk. The committed
+# fixture only ships variants.vcf.gz from the chapter-01 bcftools run.
+# Capture is blocked until ONE of:
+#   (a) the fixture author commits variants-ivar.vcf.gz (+ .tbi) as the
+#       canonical iVar output for this chapter, OR
+#   (b) the schema gains run-pipeline actions so the recipe can drive
+#       the Call Variants run end to end and pick up the new track.
+# The path used in open_files below assumes (a); rename if the fixture
+# author chooses a different filename.
+#
+# RUNNER GAP: same `click` shortfall noted in the sibling recipes.
+# Selecting the new variant track in the sidebar requires a click that
+# is not in the current action vocabulary. Until that lands, manual
+# capture must select the track between the open_file and the
+# wait_ready signal.
+id: variant-table-fresh-call
+chapter: 04-variants/02-calling-variants-from-a-bam
+caption: "The freshly produced VCF loaded in the variant browser."
+viewport_class: variant
+app_state:
+  fixture: docs/user-manual/fixtures/sarscov2-clinical
+  open_files:
+    - reference: "{fixture}/reference.fasta"
+    # Required precomputed asset; see FIXTURE GAP above.
+    - variants: "{fixture}/variants-ivar.vcf.gz"
+  window_size: [1600, 1000]
+  appearance: light
+steps:
+  - action: open_application
+    app: Lungfish
+  - action: wait_ready
+    signal: main_window_visible
+  - action: open_file
+    path: "{fixture}/reference.fasta"
+  - action: open_file
+    path: "{fixture}/variants-ivar.vcf.gz"
+  - action: wait_ready
+    signal: variant_browser_loaded
+  - action: resize_window
+    size: [1600, 1000]
+  - action: scroll_to
+    target: first_variant
+crop:
+  # Same crop region as vcf-variant-table.yaml so the chapter-01 and
+  # chapter-02 VCFs sit side-by-side cleanly in the comparison the
+  # "Interpreting what you see" section invites the reader to do.
+  mode: viewport
+  region: [0, 60, 1600, 900]
+annotations:
+  # Callout pointing at the AF (allele-frequency) column header.
+  # iVar emits AF; the chapter-01 bcftools VCF does not, so this is the
+  # most visible delta from vcf-variant-table.yaml.
+  # Coordinate first-pass; reviewer tightens on first capture against
+  # the actual AF column position.
+  - type: callout
+    target: [820, 200]
+    text: "AF: allele frequency (iVar only)"
+  # Bracket around a row whose DP differs from the chapter-01 file by
+  # 1-2 reads, where the primer trim soft-clipped at an amplicon edge.
+  # The exact y-offset depends on which row the reviewer selects;
+  # update on first capture once the diff between the two VCFs is in
+  # hand.
+  - type: bracket
+    region: [60, 320, 1480, 28]
+post:
+  retina: true
+  format: png

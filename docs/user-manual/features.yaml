@@ -51,3 +51,65 @@ features:
       QUAL, FILTER, GT, and AF columns. Selecting a row centers the genome
       context pane on that coordinate. The Inspector surfaces the full INFO
       and FORMAT payload for the selected record.
+  variants.call:
+    title: Call variants from a bundle alignment track
+    entry_points:
+      - "Tools > Call Variants…"
+      - "Inspector > Read Style > Call Variants…"
+      - "CLI: lungfish variants call"
+    inputs: [reference-bundle, bundle-alignment-track]
+    outputs: [vcf.gz, tbi, variant-track, variant-sqlite-db]
+    viewport_class: variant
+    sources:
+      - Sources/LungfishApp/Views/BAM/BAMVariantCallingDialog.swift
+      - Sources/LungfishApp/Views/BAM/BAMVariantCallingDialogState.swift
+      - Sources/LungfishApp/Views/BAM/BAMVariantCallingDialogPresenter.swift
+      - Sources/LungfishApp/Views/BAM/BAMVariantCallingCatalog.swift
+      - Sources/LungfishApp/Views/BAM/BAMVariantCallingEligibility.swift
+      - Sources/LungfishApp/Views/BAM/BAMVariantCallingToolPanes.swift
+      - Sources/LungfishApp/Views/Inspector/InspectorViewController.swift
+      - Sources/LungfishApp/Services/CLIVariantCallingRunner.swift
+      - Sources/LungfishWorkflow/Variants/ViralVariantCallingPipeline.swift
+      - Sources/LungfishWorkflow/Variants/BAMVariantCallingPreflight.swift
+      - Sources/LungfishWorkflow/Variants/BundleVariantCallingModels.swift
+      - Sources/LungfishWorkflow/Variants/BundleVariantTrackAttachmentService.swift
+      - Sources/LungfishWorkflow/Variants/VariantSQLiteImportCoordinator.swift
+      - Sources/LungfishCLI/Commands/VariantsCommand.swift
+    notes: >-
+      Runs LoFreq, iVar, or Medaka against a bundle-owned BAM alignment
+      track, normalizes the resulting VCF, imports it into the bundle
+      SQLite variant store, and attaches a new variant track. The iVar
+      caller requires the user to confirm the BAM was primer-trimmed; the
+      Medaka caller requires an ONT basecaller model identifier.
+  bam.primer-trim:
+    title: Primer-trim a BAM with iVar
+    entry_points:
+      - "Inspector > Read Style > Primer-trim BAM…"
+      - "CLI: lungfish bam primer-trim"
+    inputs: [reference-bundle, bundle-alignment-track, lungfishprimers]
+    outputs: [bam, bai, alignment-track, primer-trim-provenance]
+    viewport_class: alignment
+    sources:
+      - Sources/LungfishApp/Views/BAM/BAMPrimerTrimDialog.swift
+      - Sources/LungfishApp/Views/BAM/BAMPrimerTrimDialogState.swift
+      - Sources/LungfishApp/Views/BAM/BAMPrimerTrimDialogPresenter.swift
+      - Sources/LungfishApp/Views/BAM/BAMPrimerTrimCatalog.swift
+      - Sources/LungfishApp/Views/BAM/BAMPrimerTrimToolPanes.swift
+      - Sources/LungfishApp/Views/BAM/PrimerSchemePickerView.swift
+      - Sources/LungfishApp/Views/Inspector/InspectorViewController.swift
+      - Sources/LungfishApp/Services/CLIPrimerTrimRunner.swift
+      - Sources/LungfishWorkflow/Primers/BAMPrimerTrimPipeline.swift
+      - Sources/LungfishWorkflow/Primers/BAMPrimerTrimRequest.swift
+      - Sources/LungfishWorkflow/Primers/BAMPrimerTrimResult.swift
+      - Sources/LungfishWorkflow/Primers/BAMPrimerTrimProvenance.swift
+      - Sources/LungfishWorkflow/Primers/PrimerSchemeResolver.swift
+      - Sources/LungfishWorkflow/Primers/PrimerTrimProvenanceLoader.swift
+      - Sources/LungfishIO/Bundles/PrimerSchemeBundle.swift
+      - Sources/LungfishIO/Bundles/PrimerSchemesFolder.swift
+      - Sources/LungfishCLI/Commands/BAMCommand.swift
+      - Sources/LungfishCLI/Commands/BAMPrimerTrimSubcommand.swift
+    notes: >-
+      Runs `ivar trim` against a bundle-owned BAM alignment track using a
+      .lungfishprimers scheme bundle, sorts and indexes the result, and
+      attaches a new primer-trimmed alignment track to the bundle with
+      provenance JSON capturing the scheme manifest hash and command line.
