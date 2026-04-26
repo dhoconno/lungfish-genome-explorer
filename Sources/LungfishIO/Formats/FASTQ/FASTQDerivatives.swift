@@ -273,6 +273,8 @@ public enum FASTQDerivativeOperationKind: String, Codable, Sendable, CaseIterabl
     case primerRemoval
     case errorCorrection
     case interleaveReformat
+    case reverseComplement
+    case translate
 
     // Demultiplexing
     case demultiplex
@@ -298,8 +300,8 @@ public enum FASTQDerivativeOperationKind: String, Codable, Sendable, CaseIterabl
         case .qualityTrim, .adapterTrim, .fixedTrim, .primerRemoval:
             return false
         case .pairedEndMerge, .pairedEndRepair,
-             .errorCorrection, .interleaveReformat, .demultiplex,
-             .orient, .humanReadScrub:
+             .errorCorrection, .interleaveReformat, .reverseComplement,
+             .translate, .demultiplex, .orient, .humanReadScrub:
             return false
         }
     }
@@ -309,7 +311,7 @@ public enum FASTQDerivativeOperationKind: String, Codable, Sendable, CaseIterabl
         switch self {
         case .pairedEndMerge, .pairedEndRepair,
              .errorCorrection, .interleaveReformat, .demultiplex,
-             .deduplicate, .humanReadScrub:
+             .deduplicate, .humanReadScrub, .reverseComplement, .translate:
             return true
         default:
             return false
@@ -327,6 +329,7 @@ public enum FASTQDerivativeOperationKind: String, Codable, Sendable, CaseIterabl
         case .subsampleProportion, .subsampleCount, .lengthFilter,
              .searchText, .searchMotif, .deduplicate, .adapterTrim,
              .fixedTrim, .contaminantFilter, .primerRemoval,
+             .reverseComplement, .translate,
              .demultiplex, .orient, .sequencePresenceFilter,
              .humanReadScrub:
             return true
@@ -431,6 +434,9 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
 
     // Interleave parameters
     public var interleaveDirection: FASTQInterleaveDirection?
+
+    // Sequence transform parameters
+    public var translationFrameOffset: Int?
 
     // Demultiplex parameters
     public var barcodeID: String?
@@ -601,6 +607,7 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
         self.adapterFilterSearchReverseComplement = adapterFilterSearchReverseComplement
         self.errorCorrectionKmerSize = errorCorrectionKmerSize
         self.interleaveDirection = interleaveDirection
+        self.translationFrameOffset = nil
         self.barcodeID = barcodeID
         self.sampleName = sampleName
         self.demuxRunID = demuxRunID
@@ -668,6 +675,11 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
         case .interleaveReformat:
             let dir = interleaveDirection ?? .interleave
             return "\(dir.rawValue)"
+        case .reverseComplement:
+            return "reverse-complement"
+        case .translate:
+            let offset = translationFrameOffset ?? 0
+            return "translate-frame-\(offset + 1)"
         case .sequencePresenceFilter:
             let end = adapterFilterSearchEnd ?? .fivePrime
             let keep = adapterFilterKeepMatched ?? true
@@ -790,6 +802,11 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
             case .deinterleave:
                 return "Deinterleave to R1/R2"
             }
+        case .reverseComplement:
+            return "Reverse complement sequences"
+        case .translate:
+            let offset = translationFrameOffset ?? 0
+            return "Translate sequences (frame \(offset + 1))"
         case .sequencePresenceFilter:
             let end = adapterFilterSearchEnd ?? .fivePrime
             let keep = adapterFilterKeepMatched ?? true
@@ -1554,6 +1571,13 @@ extension FASTQDerivativeOperation {
         case .interleaveReformat:
             let dir = interleaveDirection ?? .interleave
             return "Reads were reformatted\(tool) (\(dir.rawValue))."
+
+        case .reverseComplement:
+            return "Sequences were reverse-complemented\(tool)."
+
+        case .translate:
+            let offset = translationFrameOffset ?? 0
+            return "Sequences were translated\(tool) in frame \(offset + 1)."
 
         case .sequencePresenceFilter:
             let end = adapterFilterSearchEnd ?? .fivePrime

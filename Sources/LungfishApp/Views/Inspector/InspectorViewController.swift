@@ -332,6 +332,13 @@ public class InspectorViewController: NSViewController {
                 userInfo: [NotificationUserInfoKey.annotation: annotation]
             )
         }
+        viewModel.selectionSectionViewModel.onRunFASTAOperation = { annotation in
+            NotificationCenter.default.post(
+                name: .runFASTAOperationOnAnnotationRequested,
+                object: nil,
+                userInfo: [NotificationUserInfoKey.annotation: annotation]
+            )
+        }
         viewModel.selectionSectionViewModel.onZoomToAnnotation = { annotation in
             NotificationCenter.default.post(
                 name: .zoomToAnnotationRequested,

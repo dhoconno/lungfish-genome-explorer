@@ -411,6 +411,20 @@ final class FASTQOperationDialogState {
                 outputMode: outputMode
             )
 
+        case .reverseComplement:
+            return .derivative(
+                request: .reverseComplement,
+                inputURLs: selectedInputURLs,
+                outputMode: outputMode
+            )
+
+        case .translate:
+            return .derivative(
+                request: .translate(frameOffset: 0),
+                inputURLs: selectedInputURLs,
+                outputMode: outputMode
+            )
+
         case .orientReads:
             guard let referenceURL = auxiliaryInputURL(for: .referenceSequence) else { return nil }
             return .derivative(
@@ -725,6 +739,10 @@ final class FASTQOperationDialogState {
             return "Merge overlapping paired-end reads."
         case .repairPairedEndFiles:
             return "Repair synchronization issues between paired-end mates."
+        case .reverseComplement:
+            return "Reverse-complement nucleotide sequences while preserving FASTQ qualities when present."
+        case .translate:
+            return "Translate nucleotide sequences and emit FASTA protein-sequence output."
         case .orientReads:
             return "Orient reads against a required reference sequence."
         case .correctSequencingErrors:
@@ -796,7 +814,7 @@ final class FASTQOperationDialogState {
         case .decontamination:
             return [.removeHumanReads, .removeContaminants, .removeDuplicates]
         case .readProcessing:
-            return [.mergeOverlappingPairs, .repairPairedEndFiles, .orientReads, .correctSequencingErrors]
+            return [.mergeOverlappingPairs, .repairPairedEndFiles, .reverseComplement, .translate, .orientReads, .correctSequencingErrors]
         case .searchSubsetting:
             return [.subsampleByProportion, .subsampleByCount, .extractReadsByID, .extractReadsByMotif, .selectReadsBySequence]
         case .mapping:
@@ -871,7 +889,7 @@ final class FASTQOperationDialogState {
                 ? nil
                 : "Enter a positive minimum overlap."
 
-        case .repairPairedEndFiles:
+        case .repairPairedEndFiles, .reverseComplement, .translate:
             return nil
 
         case .orientReads:
@@ -1148,6 +1166,8 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
     case removeDuplicates
     case mergeOverlappingPairs
     case repairPairedEndFiles
+    case reverseComplement
+    case translate
     case orientReads
     case correctSequencingErrors
     case subsampleByProportion
@@ -1182,6 +1202,8 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .removeDuplicates: return "Remove Duplicates"
         case .mergeOverlappingPairs: return "Merge Overlapping Pairs"
         case .repairPairedEndFiles: return "Repair Paired-End Files"
+        case .reverseComplement: return "Reverse Complement"
+        case .translate: return "Translate"
         case .orientReads: return "Orient Reads"
         case .correctSequencingErrors: return "Correct Sequencing Errors"
         case .subsampleByProportion: return "Subsample by Proportion"
@@ -1218,6 +1240,8 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .removeDuplicates: return "Collapse duplicate reads."
         case .mergeOverlappingPairs: return "Merge overlapping paired-end reads."
         case .repairPairedEndFiles: return "Restore proper pairing for FASTQ mates."
+        case .reverseComplement: return "Reverse-complement nucleotide sequences."
+        case .translate: return "Translate nucleotide sequences to amino-acid FASTA."
         case .orientReads: return "Orient reads to a reference strand."
         case .correctSequencingErrors: return "Correct random sequencing errors."
         case .subsampleByProportion: return "Keep a fraction of the input reads."
@@ -1250,7 +1274,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return .trimmingFiltering
         case .removeHumanReads, .removeContaminants, .removeDuplicates:
             return .decontamination
-        case .mergeOverlappingPairs, .repairPairedEndFiles, .orientReads, .correctSequencingErrors:
+        case .mergeOverlappingPairs, .repairPairedEndFiles, .reverseComplement, .translate, .orientReads, .correctSequencingErrors:
             return .readProcessing
         case .subsampleByProportion, .subsampleByCount, .extractReadsByID, .extractReadsByMotif, .selectReadsBySequence:
             return .searchSubsetting
@@ -1271,7 +1295,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return [.fastqDataset, .barcodeDefinition]
         case .qualityTrim, .adapterRemoval, .trimFixedBases, .filterByReadLength,
              .removeDuplicates, .mergeOverlappingPairs, .repairPairedEndFiles,
-             .correctSequencingErrors, .subsampleByProportion, .subsampleByCount,
+             .reverseComplement, .translate, .correctSequencingErrors, .subsampleByProportion, .subsampleByCount,
              .extractReadsByID, .extractReadsByMotif, .selectReadsBySequence,
              .spades, .megahit, .skesa, .flye, .hifiasm:
             return [.fastqDataset]
@@ -1361,7 +1385,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         switch self {
         case .demultiplexBarcodes, .adapterRemoval, .primerTrimming,
              .trimFixedBases, .filterByReadLength, .removeHumanReads,
-             .removeContaminants, .removeDuplicates, .orientReads,
+             .removeContaminants, .removeDuplicates, .reverseComplement, .translate, .orientReads,
              .subsampleByProportion, .subsampleByCount, .extractReadsByID,
              .extractReadsByMotif, .selectReadsBySequence, .minimap2,
              .bwaMem2, .bowtie2, .bbmap, .spades, .megahit, .skesa,

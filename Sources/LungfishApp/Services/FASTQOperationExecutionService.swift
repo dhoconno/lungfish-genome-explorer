@@ -634,6 +634,24 @@ struct FASTQOperationExecutionService {
                 outputTarget,
             ]
 
+        case .reverseComplement:
+            return [
+                "reverse-complement",
+                inputURL.path,
+                "-o",
+                outputTarget,
+            ]
+
+        case .translate(let frameOffset):
+            return [
+                "translate",
+                inputURL.path,
+                "--frame",
+                "\(frameOffset + 1)",
+                "-o",
+                outputTarget,
+            ]
+
         case .primerRemoval(let configuration):
             guard configuration.tool == .bbduk else {
                 throw FASTQOperationExecutionError.unsupportedPrimerRemoval(

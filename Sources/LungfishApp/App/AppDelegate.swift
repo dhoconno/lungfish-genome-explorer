@@ -4300,12 +4300,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             showAlert(title: "No Viewer", message: "Open a sequence to use Reverse Complement.")
             return
         }
-        // Delegate to the viewer view's reverse complement copy action
-        viewerView.performReverseComplement()
+        viewerView.runSelectedSequenceFASTAOperation(toolID: .reverseComplement)
     }
 
     @objc func translate(_ sender: Any?) {
-        mainWindowController?.showTranslationTool(sender)
+        guard let viewerView = mainWindowController?.mainSplitViewController?.viewerController?.viewerView else {
+            showAlert(title: "No Viewer", message: "Open a sequence to use Translate.")
+            return
+        }
+        viewerView.runSelectedSequenceFASTAOperation(toolID: .translate)
     }
 
 
@@ -4739,6 +4742,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     func showFASTQOperationsDialog(
         _ sender: Any?,
         initialCategory: FASTQOperationCategoryID,
+        initialToolID: FASTQOperationToolID? = nil,
         preferredInputURLs: [URL] = []
     ) {
         guard let window = mainWindowController?.window else {
@@ -4762,6 +4766,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             from: window,
             selectedInputURLs: selectedInputURLs,
             initialCategory: initialCategory,
+            initialToolID: initialToolID,
             projectURL: currentProjectURL,
             onRun: { [weak self] state in
                 guard let self else { return }

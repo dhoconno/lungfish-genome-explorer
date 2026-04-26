@@ -297,6 +297,14 @@ private struct FASTQOperationPrimarySettingsSection: View {
                 Text("No additional settings are required for paired-end repair.")
                     .foregroundStyle(.secondary)
 
+            case .reverseComplement:
+                Text("No additional settings are required for reverse complement.")
+                    .foregroundStyle(.secondary)
+
+            case .translate:
+                Text("Frame 1 translation is used for this operation.")
+                    .foregroundStyle(.secondary)
+
             case .orientReads:
                 labeledCompactTextField("Word Length", text: Self.intBinding(state, \.orientWordLength))
                 Picker("Database Mask", selection: $state.orientDbMask) {
@@ -483,6 +491,12 @@ private struct FASTQOperationAdvancedSettingsSection: View {
                     .foregroundStyle(.secondary)
             case .repairPairedEndFiles:
                 Text("Paired-end repair has no additional settings.")
+                    .foregroundStyle(.secondary)
+            case .reverseComplement:
+                Text("Reverse complement preserves FASTQ quality scores by reversing them with the sequence.")
+                    .foregroundStyle(.secondary)
+            case .translate:
+                Text("Translation emits FASTA output because amino-acid sequences do not have nucleotide quality scores.")
                     .foregroundStyle(.secondary)
             case .orientReads:
                 Text("Orient reads against the selected reference sequence without saving a separate unoriented bundle.")

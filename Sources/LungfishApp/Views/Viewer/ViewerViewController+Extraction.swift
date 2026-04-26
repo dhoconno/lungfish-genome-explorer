@@ -116,6 +116,36 @@ extension SequenceViewerView {
         }
     }
 
+    @objc func runAnnotationFASTAOperation(_ sender: NSMenuItem?) {
+        guard let annotation = sender?.representedObject as? SequenceAnnotation else { return }
+        runAnnotationFASTAOperationImpl(annotation)
+    }
+
+    func runAnnotationFASTAOperationImpl(_ annotation: SequenceAnnotation) {
+        guard let provider = makeSequenceProvider(for: annotation) else {
+            NSSound.beep()
+            return
+        }
+
+        let chromLength = chromosomeLengthForAnnotation(annotation)
+        let request = ExtractionRequest(source: .annotation(annotation))
+
+        do {
+            let result = try SequenceExtractor.extract(
+                request: request,
+                sequenceProvider: provider,
+                chromosomeLength: chromLength
+            )
+            viewController?.presentFASTAOperationDialog(
+                records: [SequenceExtractor.formatFASTA(result)],
+                suggestedName: annotation.name
+            )
+        } catch {
+            extractionLogger.error("Failed to prepare annotation for FASTQ/FASTA operation: \(error.localizedDescription)")
+            NSSound.beep()
+        }
+    }
+
     @objc func copyAnnotationTranslationAsFASTA(_ sender: NSMenuItem?) {
         guard let annotation = sender?.representedObject as? SequenceAnnotation else { return }
         copyAnnotationTranslationAsFASTAImpl(annotation)

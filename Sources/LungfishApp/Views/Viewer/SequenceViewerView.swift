@@ -6058,6 +6058,11 @@ public class SequenceViewerView: NSView {
         extractItem.representedObject = annotation
         menu.addItem(extractItem)
 
+        let runOperationItem = NSMenuItem(title: "Run FASTQ/FASTA Operation\u{2026}", action: #selector(runAnnotationFASTAOperationAction(_:)), keyEquivalent: "")
+        runOperationItem.target = self
+        runOperationItem.representedObject = annotation
+        menu.addItem(runOperationItem)
+
         menu.addItem(NSMenuItem.separator())
 
         // --- Navigation ---
@@ -6429,6 +6434,11 @@ public class SequenceViewerView: NSView {
         viewController?.extractOverlappingReads(from: annotation)
     }
 
+    @objc private func runAnnotationFASTAOperationAction(_ sender: NSMenuItem?) {
+        guard let annotation = sender?.representedObject as? SequenceAnnotation else { return }
+        runAnnotationFASTAOperationImpl(annotation)
+    }
+
     /// Zooms the viewer to show the given annotation (callable from notification handlers).
     func zoomToAnnotation(_ annotation: SequenceAnnotation) {
         if viewController?.activeMappingViewportController?.currentResult != nil {
@@ -6488,6 +6498,46 @@ public class SequenceViewerView: NSView {
         pasteboard.clearContents()
         pasteboard.setString(revComp, forType: .string)
         logger.info("Reverse complement: copied \(end - start) bases to clipboard")
+    }
+
+    /// Opens the generic FASTQ/FASTA Operations dialog for the current sequence selection.
+    func runSelectedSequenceFASTAOperation(toolID: FASTQOperationToolID) {
+        guard let seq = sequence,
+              let range = selectionRange else {
+            NSSound.beep()
+            return
+        }
+        let start = max(0, range.lowerBound)
+        let end = min(seq.length, range.upperBound)
+        guard start < end else {
+            NSSound.beep()
+            return
+        }
+
+        let sequenceName = selectedSequenceName(start: start, end: end)
+        let fasta = formatFASTA(name: sequenceName, sequence: seq[start..<end])
+        viewController?.presentFASTAOperationDialog(
+            records: [fasta],
+            suggestedName: sequenceName,
+            initialCategory: toolID.categoryID,
+            initialToolID: toolID
+        )
+    }
+
+    private func selectedSequenceName(start: Int, end: Int) -> String {
+        let chromosome = viewController?.referenceFrame?.chromosome ?? sequence?.name ?? "selection"
+        return "\(chromosome)_\(start + 1)_\(end)"
+    }
+
+    private func formatFASTA(name: String, sequence: String) -> String {
+        var output = ">\(name)\n"
+        var index = sequence.startIndex
+        while index < sequence.endIndex {
+            let end = sequence.index(index, offsetBy: 60, limitedBy: sequence.endIndex) ?? sequence.endIndex
+            output += String(sequence[index..<end]) + "\n"
+            index = end
+        }
+        return output
     }
 
     /// Copies the annotation's reverse complement to the clipboard (callable from notification handlers).

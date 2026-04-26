@@ -224,6 +224,12 @@ extension Notification.Name {
     /// - `"annotation"`: The `SequenceAnnotation` whose reverse complement to copy.
     public static let copyAnnotationReverseComplementRequested = Notification.Name("copyAnnotationReverseComplementRequested")
 
+    /// Posted to request opening the generic FASTQ/FASTA Operations dialog for an annotation.
+    ///
+    /// The `userInfo` dictionary contains:
+    /// - `"annotation"`: The `SequenceAnnotation` to materialize as FASTA input.
+    public static let runFASTAOperationOnAnnotationRequested = Notification.Name("runFASTAOperationOnAnnotationRequested")
+
     /// Posted when an operation starts, completes, fails, or is cancelled.
     ///
     /// The `userInfo` dictionary contains:

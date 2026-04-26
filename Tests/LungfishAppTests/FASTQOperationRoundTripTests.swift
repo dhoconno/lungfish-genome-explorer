@@ -111,6 +111,62 @@ final class FASTQOperationRoundTripTests: XCTestCase {
         }
     }
 
+    func testReverseComplementOperationProducesMaterializedFASTQArtifact() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "ReverseComplementArtifact")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let root = try FASTQOperationTestHelper.makeBundle(named: "root", in: tempDir)
+        try """
+        @read1
+        AACG
+        +
+        ABCD
+
+        """.write(to: root.fastqURL, atomically: true, encoding: .utf8)
+
+        let service = FASTQDerivativeService()
+        let derivedURL = try await service.createDerivative(
+            from: root.bundleURL,
+            request: .reverseComplement,
+            progress: nil
+        )
+
+        FASTQOperationTestHelper.assertPayloadType(bundleURL: derivedURL, expected: "full")
+        let records = try await FASTQOperationTestHelper.loadFASTQRecords(
+            from: derivedURL.appendingPathComponent("reads.fastq")
+        )
+        XCTAssertEqual(records.map(\.sequence), ["CGTT"])
+    }
+
+    func testTranslateOperationProducesMaterializedFASTAArtifact() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "TranslateArtifact")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let root = try FASTQOperationTestHelper.makeBundle(named: "root", in: tempDir)
+        try """
+        @read1
+        ATGGCATAA
+        +
+        IIIIIIIII
+
+        """.write(to: root.fastqURL, atomically: true, encoding: .utf8)
+
+        let service = FASTQDerivativeService()
+        let derivedURL = try await service.createDerivative(
+            from: root.bundleURL,
+            request: .translate(frameOffset: 0),
+            progress: nil
+        )
+
+        FASTQOperationTestHelper.assertPayloadType(bundleURL: derivedURL, expected: "fullFASTA")
+        let fasta = try String(
+            contentsOf: derivedURL.appendingPathComponent("reads.fasta"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(fasta.contains(">read1_frame1"))
+        XCTAssertTrue(fasta.contains("MA*"))
+    }
+
     // MARK: - Subset Operations
 
     func testSubsampleCountRoundTrip() async throws {

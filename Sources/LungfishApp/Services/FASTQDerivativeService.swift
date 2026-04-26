@@ -40,6 +40,8 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
     )
     case errorCorrection(kmerSize: Int)
     case interleaveReformat(direction: FASTQInterleaveDirection)
+    case reverseComplement
+    case translate(frameOffset: Int)
 
     // Demultiplexing (produces per-barcode bundles)
     case demultiplex(
@@ -86,6 +88,8 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
         case .sequencePresenceFilter: return "Sequence Presence Filter"
         case .errorCorrection: return "Error Correction"
         case .interleaveReformat: return "Interleave Reformat"
+        case .reverseComplement: return "Reverse Complement"
+        case .translate: return "Translate"
         case .demultiplex: return "Demultiplex"
         case .orient: return "Orient Sequences"
         case .humanReadScrub: return "Human Read Scrub"
@@ -102,8 +106,8 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
              .sequencePresenceFilter:
             return false
         case .pairedEndMerge, .pairedEndRepair,
-             .errorCorrection, .interleaveReformat, .demultiplex,
-             .orient, .humanReadScrub:
+             .errorCorrection, .interleaveReformat, .reverseComplement,
+             .translate, .demultiplex, .orient, .humanReadScrub:
             return false
         }
     }
@@ -112,7 +116,8 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
     var isFullOperation: Bool {
         switch self {
         case .pairedEndMerge, .pairedEndRepair,
-             .errorCorrection, .interleaveReformat, .demultiplex, .humanReadScrub:
+             .errorCorrection, .interleaveReformat, .demultiplex, .humanReadScrub,
+             .reverseComplement, .translate:
             return true
         default:
             return false
@@ -179,6 +184,8 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
         case .sequencePresenceFilter: return "sequencePresenceFilter"
         case .errorCorrection: return "errorCorrection"
         case .interleaveReformat: return "interleaveReformat"
+        case .reverseComplement: return "reverseComplement"
+        case .translate: return "translate"
         case .demultiplex: return "demultiplex"
         case .orient: return "orient"
         case .humanReadScrub: return "humanReadScrub"
@@ -248,6 +255,10 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
             return ["kmerSize": "\(kmerSize)"]
         case .interleaveReformat(let direction):
             return ["direction": "\(direction)"]
+        case .reverseComplement:
+            return [:]
+        case .translate(let frameOffset):
+            return ["frame": "\(frameOffset + 1)"]
         case .demultiplex(let kitID, _, let location, _, _, _, let errorRate, let trimBarcodes, _, _):
             return ["kitID": kitID, "location": location, "errorRate": "\(errorRate)", "trimBarcodes": "\(trimBarcodes)"]
         case .orient(_, let wordLength, _, _):
@@ -277,6 +288,15 @@ extension FASTQDerivativeRequest {
             return DeaconPanhumanDatabaseInstaller.databaseID
         }
         return canonical
+    }
+
+    func outputSequenceFormat(sourceSequenceFormat: SequenceFormat) -> SequenceFormat {
+        switch self {
+        case .translate:
+            return .fasta
+        default:
+            return sourceSequenceFormat
+        }
     }
 
     /// Constructs the equivalent `lungfish fastq` CLI command for this operation.
@@ -423,6 +443,12 @@ extension FASTQDerivativeRequest {
                     "--in1", inputPath, "--in2", "<R2>", "-o", outputPath,
                 ])
             }
+
+        case .reverseComplement:
+            return buildToolCommand(parts: ["seqkit", "seq", "--reverse", "--complement", inputPath, "-o", outputPath])
+
+        case .translate(let frameOffset):
+            return buildToolCommand(parts: ["seqkit", "translate", "--frame", String(frameOffset + 1), inputPath, "-o", outputPath])
 
         case .demultiplex(let kitID, let customCSVPath, let location, _, _, _, let errorRate, let trimBarcodes, _, _):
             var args = [inputPath, "--kit", customCSVPath ?? kitID, "-o", outputPath]
@@ -679,12 +705,14 @@ public actor FASTQDerivativeService {
             progress: progress
         )
 
+        let outputSequenceFormat = request.outputSequenceFormat(sourceSequenceFormat: sourceSequenceFormat)
+
         // Statistics are computed on the transformed output. For deinterleave, this is the
         // interleaved source (same reads, just reorganized into R1/R2), so stats represent
         // the combined R1+R2 dataset — which is correct for display purposes.
         progress?("Computing output statistics...")
         let stats: FASTQDatasetStatistics
-        if sourceSequenceFormat == .fasta {
+        if outputSequenceFormat == .fasta {
             stats = try await SyntheticFASTQBridge.placeholderStatistics(fromFASTQ: transformedFASTQ)
         } else {
             let reader = FASTQReader(validateSequence: false)
@@ -733,11 +761,11 @@ public actor FASTQDerivativeService {
             }
             payload = .fullPaired(r1Filename: r1Filename, r2Filename: r2Filename)
         } else if request.isFullOperation {
-            if sourceSequenceFormat == .fasta {
+            if outputSequenceFormat == .fasta {
                 progress?("Storing materialized FASTA...")
                 let fastaFilename = "reads.fasta"
                 let destinationFASTA = outputBundle.appendingPathComponent(fastaFilename)
-                try await SyntheticFASTQBridge.convertFASTQToFASTA(
+                try await convertFASTQSequencesToFASTA(
                     inputURL: transformedFASTQ,
                     outputURL: destinationFASTA
                 )
@@ -828,7 +856,7 @@ public actor FASTQDerivativeService {
             operation: operation,
             cachedStatistics: stats,
             pairingMode: pairingMode,
-            sequenceFormat: sourceSequenceFormat
+            sequenceFormat: outputSequenceFormat
         )
         try FASTQBundle.saveDerivedManifest(manifest, in: outputBundle)
 
@@ -1407,6 +1435,40 @@ public actor FASTQDerivativeService {
             .lowercased()
     }
 
+    private func convertFASTQSequencesToFASTA(inputURL: URL, outputURL: URL) async throws {
+        if FileManager.default.fileExists(atPath: outputURL.path) {
+            try FileManager.default.removeItem(at: outputURL)
+        }
+        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: outputURL)
+        defer { try? handle.close() }
+
+        let reader = FASTQReader(validateSequence: false)
+        for try await record in reader.records(from: inputURL) {
+            var content = ">\(record.identifier)"
+            if let description = record.description, !description.isEmpty {
+                content += " \(description)"
+            }
+            content += "\n"
+            content += wrappedSequence(record.sequence)
+            if let data = content.data(using: .utf8) {
+                handle.write(data)
+            }
+        }
+    }
+
+    private func wrappedSequence(_ sequence: String, lineWidth: Int = 60) -> String {
+        guard !sequence.isEmpty else { return "\n" }
+        var output = ""
+        var index = sequence.startIndex
+        while index < sequence.endIndex {
+            let end = sequence.index(index, offsetBy: lineWidth, limitedBy: sequence.endIndex) ?? sequence.endIndex
+            output += sequence[index..<end] + "\n"
+            index = end
+        }
+        return output
+    }
+
     /// Creates a derivative bundle for operations that produce multiple classified files
     /// (e.g. paired-end merge produces R1, R2, and merged files).
     private func createMixedOutputDerivative(
@@ -1942,6 +2004,29 @@ public actor FASTQDerivativeService {
                 toolCommand: result.toolCommand
             )
 
+        case .reverseComplement:
+            try await writeReverseComplementedFASTQ(
+                sourceFASTQ: sourceFASTQ,
+                outputFASTQ: outputFASTQ
+            )
+            return FASTQDerivativeOperation(
+                kind: .reverseComplement,
+                toolUsed: "lungfish",
+                toolCommand: "lungfish fastq reverse-complement \(sourceFASTQ.path) -o \(outputFASTQ.path)"
+            )
+
+        case .translate(let frameOffset):
+            try await writeTranslatedSyntheticFASTQ(
+                sourceFASTQ: sourceFASTQ,
+                outputFASTQ: outputFASTQ,
+                frameOffset: frameOffset
+            )
+            return FASTQDerivativeOperation(
+                kind: .translate,
+                toolUsed: "lungfish",
+                toolCommand: "lungfish fasta translate \(sourceFASTQ.path) --frame \(frameOffset + 1) -o \(outputFASTQ.path)"
+            )
+
         case .demultiplex:
             throw FASTQDerivativeError.invalidOperation(
                 "Demultiplexing is not implemented in FASTQDerivativeService. Use the demultiplexing pipeline."
@@ -1965,6 +2050,49 @@ public actor FASTQDerivativeService {
                 humanScrubRemoveReads: true,
                 humanScrubDatabaseID: Self.canonicalHumanScrubDatabaseID(for: databaseID),
                 toolUsed: "deacon"
+            )
+        }
+    }
+
+    private func writeReverseComplementedFASTQ(
+        sourceFASTQ: URL,
+        outputFASTQ: URL
+    ) async throws {
+        let reader = FASTQReader(validateSequence: false)
+        let writer = FASTQWriter(url: outputFASTQ)
+        try writer.open()
+        defer { try? writer.close() }
+
+        for try await record in reader.records(from: sourceFASTQ) {
+            try writer.write(record.reverseComplement())
+        }
+    }
+
+    private func writeTranslatedSyntheticFASTQ(
+        sourceFASTQ: URL,
+        outputFASTQ: URL,
+        frameOffset: Int
+    ) async throws {
+        guard (0...2).contains(frameOffset) else {
+            throw FASTQDerivativeError.invalidOperation("Translation frame must be 1, 2, or 3.")
+        }
+
+        let reader = FASTQReader(validateSequence: false)
+        let writer = FASTQWriter(url: outputFASTQ)
+        try writer.open()
+        defer { try? writer.close() }
+
+        for try await record in reader.records(from: sourceFASTQ) {
+            let protein = TranslationEngine.translate(record.sequence, offset: frameOffset)
+            guard !protein.isEmpty else { continue }
+            let quality = QualityScore(values: Array(repeating: 40, count: protein.count), encoding: .phred33)
+            try writer.write(
+                FASTQRecord(
+                    identifier: "\(record.identifier)_frame\(frameOffset + 1)",
+                    description: record.description,
+                    sequence: protein,
+                    quality: quality
+                )
             )
         }
     }

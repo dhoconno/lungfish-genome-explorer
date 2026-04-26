@@ -91,6 +91,15 @@ final class FASTQOperationsCatalogTests: XCTestCase {
         }
     }
 
+    func testReadProcessingIncludesSequenceTransformsForFASTAAndFASTQ() {
+        let readProcessingTools = FASTQOperationDialogState.toolIDs(for: .readProcessing)
+
+        XCTAssertTrue(readProcessingTools.contains(.reverseComplement))
+        XCTAssertTrue(readProcessingTools.contains(.translate))
+        XCTAssertTrue(FASTQOperationToolID.reverseComplement.supportsFASTA)
+        XCTAssertTrue(FASTQOperationToolID.translate.supportsFASTA)
+    }
+
     func testPackLookupReturnsNilForUnknownPackID() async {
         let provider: any PluginPackStatusProviding = StubPackStatusProvider(states: [:])
 

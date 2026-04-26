@@ -83,7 +83,8 @@ public enum OperationContract {
                 requiredPairing: nil
             )
         case .subsampleProportion, .subsampleCount, .lengthFilter,
-             .searchText, .searchMotif, .deduplicate, .fixedTrim:
+             .searchText, .searchMotif, .deduplicate, .fixedTrim,
+             .reverseComplement, .translate:
             return OperationInput(
                 acceptedFormats: [.fastq, .fasta],
                 requiredPairing: nil
@@ -142,6 +143,8 @@ public enum OperationContract {
             return OperationOutput(format: .fastq, pairing: newPairing)
         case .demultiplex:
             return OperationOutput(format: .fastq, pairing: .single)
+        case .translate:
+            return OperationOutput(format: .fasta, pairing: .single)
         default:
             // Most operations preserve the input pairing and format
             return OperationOutput(format: .fastq, pairing: inputPairing)

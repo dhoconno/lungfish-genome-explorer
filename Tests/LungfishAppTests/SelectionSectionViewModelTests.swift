@@ -9,6 +9,29 @@ import XCTest
 
 @MainActor
 final class SelectionSectionViewModelTests: XCTestCase {
+    func testSelectionInspectorAndViewerRouteAnnotationsToGenericFASTAOperations() throws {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let selectionSource = try String(contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift"), encoding: .utf8)
+        let inspectorSource = try String(contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Inspector/InspectorViewController.swift"), encoding: .utf8)
+        let viewerSource = try String(contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController.swift"), encoding: .utf8)
+        let extractionSource = try String(contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/ViewerViewController+Extraction.swift"), encoding: .utf8)
+        let sequenceViewerSource = try String(contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift"), encoding: .utf8)
+        let appDelegateSource = try String(contentsOf: root.appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift"), encoding: .utf8)
+
+        XCTAssertTrue(selectionSource.contains("onRunFASTAOperation"))
+        XCTAssertTrue(selectionSource.contains("Run FASTQ/FASTA Operation"))
+        XCTAssertTrue(selectionSource.contains("Menu {"))
+        XCTAssertTrue(selectionSource.contains("Label(\"Copy\", systemImage: \"doc.on.doc\")"))
+        XCTAssertTrue(selectionSource.contains("Copy Reverse Complement"))
+        XCTAssertTrue(inspectorSource.contains(".runFASTAOperationOnAnnotationRequested"))
+        XCTAssertTrue(viewerSource.contains("handleRunFASTAOperationOnAnnotationRequested"))
+        XCTAssertTrue(extractionSource.contains("runAnnotationFASTAOperationImpl"))
+        XCTAssertTrue(extractionSource.contains("presentFASTAOperationDialog"))
+        XCTAssertTrue(sequenceViewerSource.contains("runSelectedSequenceFASTAOperation(toolID:"))
+        XCTAssertTrue(appDelegateSource.contains("viewerView.runSelectedSequenceFASTAOperation(toolID: .reverseComplement)"))
+        XCTAssertTrue(appDelegateSource.contains("viewerView.runSelectedSequenceFASTAOperation(toolID: .translate)"))
+    }
+
 
     // MARK: - extractEnrichment from qualifiers["extra"]
 

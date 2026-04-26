@@ -74,6 +74,9 @@ public final class SelectionSectionViewModel {
     /// Callback to copy annotation's reverse complement to clipboard.
     public var onCopyReverseComplement: ((SequenceAnnotation) -> Void)?
 
+    /// Callback to run generic FASTQ/FASTA operations on the annotation sequence.
+    public var onRunFASTAOperation: ((SequenceAnnotation) -> Void)?
+
     /// Callback to zoom the viewer to an annotation.
     public var onZoomToAnnotation: ((SequenceAnnotation) -> Void)?
 
@@ -692,44 +695,52 @@ public struct SelectionSection: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            Button {
-                viewModel.onCopySequence?(annotation)
-            } label: {
-                Label("Copy Sequence", systemImage: "doc.on.doc")
-            }
-            .buttonStyle(.borderless)
-            .controlSize(.small)
-
-            Button {
-                viewModel.onCopyReverseComplement?(annotation)
-            } label: {
-                Label("Copy Reverse Complement", systemImage: "doc.on.doc")
-            }
-            .buttonStyle(.borderless)
-            .controlSize(.small)
-
-            Button {
-                viewModel.onCopyAsFASTA?(annotation)
-            } label: {
-                Label("Copy as FASTA", systemImage: "doc.on.doc")
-            }
-            .buttonStyle(.borderless)
-            .controlSize(.small)
-
-            if annotation.type == .cds {
+            Menu {
                 Button {
-                    viewModel.onCopyTranslationAsFASTA?(annotation)
+                    viewModel.onCopySequence?(annotation)
                 } label: {
-                    Label("Copy Translation as FASTA", systemImage: "doc.on.doc")
+                    Label("Copy Sequence", systemImage: "doc.on.doc")
                 }
-                .buttonStyle(.borderless)
-                .controlSize(.small)
+
+                Button {
+                    viewModel.onCopyReverseComplement?(annotation)
+                } label: {
+                    Label("Copy Reverse Complement", systemImage: "arrow.triangle.2.circlepath")
+                }
+
+                Divider()
+
+                Button {
+                    viewModel.onCopyAsFASTA?(annotation)
+                } label: {
+                    Label("Copy as FASTA", systemImage: "doc.on.doc")
+                }
+
+                if annotation.type == .cds {
+                    Button {
+                        viewModel.onCopyTranslationAsFASTA?(annotation)
+                    } label: {
+                        Label("Copy Translation as FASTA", systemImage: "doc.on.doc")
+                    }
+                }
+            } label: {
+                Label("Copy", systemImage: "doc.on.doc")
             }
+            .menuStyle(.borderlessButton)
+            .controlSize(.small)
 
             Button {
                 viewModel.onExtractSequence?(annotation)
             } label: {
                 Label("Extract Sequence\u{2026}", systemImage: "scissors")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+
+            Button {
+                viewModel.onRunFASTAOperation?(annotation)
+            } label: {
+                Label("Run FASTQ/FASTA Operation\u{2026}", systemImage: "wand.and.stars")
             }
             .buttonStyle(.borderless)
             .controlSize(.small)

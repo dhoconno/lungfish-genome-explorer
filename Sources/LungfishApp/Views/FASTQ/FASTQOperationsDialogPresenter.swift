@@ -7,6 +7,7 @@ struct FASTQOperationsDialogPresenter {
         from window: NSWindow,
         selectedInputURLs: [URL],
         initialCategory: FASTQOperationCategoryID,
+        initialToolID: FASTQOperationToolID? = nil,
         projectURL: URL? = nil,
         onRun: ((FASTQOperationDialogState) -> Void)? = nil,
         onCancel: (() -> Void)? = nil
@@ -16,6 +17,9 @@ struct FASTQOperationsDialogPresenter {
             selectedInputURLs: selectedInputURLs,
             projectURL: projectURL
         )
+        if let initialToolID {
+            state.selectTool(initialToolID)
+        }
 
         let panel = NSPanel(
             contentRect: .zero,

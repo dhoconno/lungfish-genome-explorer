@@ -585,6 +585,10 @@ public actor BatchProcessingEngine {
             )
         case .pairedEndRepair:
             return .pairedEndRepair
+        case .reverseComplement:
+            return .reverseComplement
+        case .translate:
+            return .translate(frameOffset: step.translationFrameOffset ?? 0)
         case .primerRemoval:
             return .primerRemoval(configuration: FASTQPrimerTrimConfiguration(
                 source: step.primerSource ?? .literal,

@@ -50,6 +50,8 @@ final class FASTQBatchOperationTests: XCTestCase {
         XCTAssertEqual(FASTQDerivativeRequest.qualityTrim(threshold: 20, windowSize: 4, mode: .cutRight).operationKindString, "qualityTrim")
         XCTAssertEqual(FASTQDerivativeRequest.adapterTrim(mode: .autoDetect, sequence: nil, sequenceR2: nil, fastaFilename: nil).operationKindString, "adapterTrim")
         XCTAssertEqual(FASTQDerivativeRequest.fixedTrim(from5Prime: 10, from3Prime: 5).operationKindString, "fixedTrim")
+        XCTAssertEqual(FASTQDerivativeRequest.reverseComplement.operationKindString, "reverseComplement")
+        XCTAssertEqual(FASTQDerivativeRequest.translate(frameOffset: 0).operationKindString, "translate")
         XCTAssertEqual(FASTQDerivativeRequest.pairedEndRepair.operationKindString, "pairedEndRepair")
         XCTAssertEqual(FASTQDerivativeRequest.errorCorrection(kmerSize: 50).operationKindString, "errorCorrection")
     }
@@ -116,6 +118,8 @@ final class FASTQBatchOperationTests: XCTestCase {
     func testIsFullOperation() {
         XCTAssertTrue(FASTQDerivativeRequest.pairedEndRepair.isFullOperation)
         XCTAssertTrue(FASTQDerivativeRequest.errorCorrection(kmerSize: 50).isFullOperation)
+        XCTAssertTrue(FASTQDerivativeRequest.reverseComplement.isFullOperation)
+        XCTAssertTrue(FASTQDerivativeRequest.translate(frameOffset: 0).isFullOperation)
         XCTAssertFalse(FASTQDerivativeRequest.lengthFilter(min: 100, max: nil).isFullOperation)
         XCTAssertFalse(FASTQDerivativeRequest.qualityTrim(threshold: 20, windowSize: 4, mode: .cutRight).isFullOperation)
     }

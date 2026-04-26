@@ -2683,6 +2683,10 @@ public final class FASTQDatasetViewController: NSViewController {
             return "PE merge (\(strictness.rawValue), min overlap: \(minOverlap))"
         case .pairedEndRepair:
             return "PE read repair"
+        case .reverseComplement:
+            return "Reverse complement"
+        case .translate(let frameOffset):
+            return "Translate (frame \(frameOffset + 1))"
         case .primerRemoval(let configuration):
             let source = configuration.source == .literal
                 ? (configuration.forwardSequence ?? "literal")

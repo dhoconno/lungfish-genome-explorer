@@ -548,6 +548,13 @@ public class ViewerViewController: NSViewController {
 
         NotificationCenter.default.addObserver(
             self,
+            selector: #selector(handleRunFASTAOperationOnAnnotationRequested(_:)),
+            name: .runFASTAOperationOnAnnotationRequested,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
             selector: #selector(handleAppSettingsChanged(_:)),
             name: .appSettingsChanged,
             object: nil
@@ -617,6 +624,11 @@ public class ViewerViewController: NSViewController {
     @objc private func handleCopyAnnotationReverseComplementRequested(_ notification: Notification) {
         guard let annotation = notification.userInfo?["annotation"] as? SequenceAnnotation else { return }
         viewerView?.copyAnnotationReverseComplementImpl(annotation)
+    }
+
+    @objc private func handleRunFASTAOperationOnAnnotationRequested(_ notification: Notification) {
+        guard let annotation = notification.userInfo?["annotation"] as? SequenceAnnotation else { return }
+        viewerView?.runAnnotationFASTAOperationImpl(annotation)
     }
 
     /// Handles annotation settings change notifications.
@@ -1539,7 +1551,12 @@ public class ViewerViewController: NSViewController {
         window.beginSheet(sheetWindow)
     }
 
-    func presentFASTAOperationDialog(records: [String], suggestedName: String) {
+    func presentFASTAOperationDialog(
+        records: [String],
+        suggestedName: String,
+        initialCategory: FASTQOperationCategoryID = .searchSubsetting,
+        initialToolID: FASTQOperationToolID? = nil
+    ) {
         guard !records.isEmpty, !FASTAOperationCatalog.availableToolIDs().isEmpty else { return }
         let projectURL = DocumentManager.shared.activeProject?.url
         guard let bundleURL = try? FASTAOperationCatalog.createTemporaryInputBundle(
@@ -1551,7 +1568,8 @@ public class ViewerViewController: NSViewController {
         }
         AppDelegate.shared?.showFASTQOperationsDialog(
             nil,
-            initialCategory: .searchSubsetting,
+            initialCategory: initialCategory,
+            initialToolID: initialToolID,
             preferredInputURLs: [bundleURL]
         )
     }

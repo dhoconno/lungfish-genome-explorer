@@ -270,6 +270,48 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(state.readinessText, "Ready to configure output.")
     }
 
+    func testReverseComplementBuildsGenericOperationLaunchRequest() {
+        let inputURL = URL(fileURLWithPath: "/tmp/sample.lungfishfastq")
+        let state = FASTQOperationDialogState(
+            initialCategory: .readProcessing,
+            selectedInputURLs: [inputURL]
+        )
+
+        state.selectTool(.reverseComplement)
+        state.prepareForRun()
+
+        XCTAssertTrue(state.isRunEnabled)
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .reverseComplement,
+                inputURLs: [inputURL],
+                outputMode: .perInput
+            )
+        )
+    }
+
+    func testTranslateBuildsGenericFASTAOutputLaunchRequest() {
+        let inputURL = URL(fileURLWithPath: "/tmp/sample.lungfishfastq")
+        let state = FASTQOperationDialogState(
+            initialCategory: .readProcessing,
+            selectedInputURLs: [inputURL]
+        )
+
+        state.selectTool(.translate)
+        state.prepareForRun()
+
+        XCTAssertTrue(state.isRunEnabled)
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .translate(frameOffset: 0),
+                inputURLs: [inputURL],
+                outputMode: .perInput
+            )
+        )
+    }
+
     func testOrientingRejectsInvalidReferenceSelection() {
         let state = FASTQOperationDialogState(
             initialCategory: .readProcessing,
