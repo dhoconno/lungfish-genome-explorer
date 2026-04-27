@@ -8,6 +8,7 @@ final class AboutAcknowledgementsTests: XCTestCase {
         let sections = AboutAcknowledgements.currentSections()
         let expectedTitles = ["Bundled Bootstrap", PluginPack.requiredSetupPack.name]
             + PluginPack.activeOptionalPacks.map(\.name)
+            + ["Supported nf-core Workflows"]
 
         XCTAssertEqual(sections.map(\.title), expectedTitles)
 
