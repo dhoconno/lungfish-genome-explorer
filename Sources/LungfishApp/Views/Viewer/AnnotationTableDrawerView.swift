@@ -128,11 +128,18 @@ final class DrawerDividerView: NSView {
 
 // MARK: - AnnotationTableDrawerDelegate
 
+struct AnnotationTableDrawerSelectionRegion: Equatable, Sendable {
+    let chromosome: String
+    let start: Int
+    let end: Int
+}
+
 /// Delegate protocol for annotation table selection events.
 @MainActor
 protocol AnnotationTableDrawerDelegate: AnyObject {
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didSelectAnnotation result: AnnotationSearchIndex.SearchResult)
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didRequestExtract annotations: [SequenceAnnotation])
+    func annotationDrawerSelectedSequenceRegion(_ drawer: AnnotationTableDrawerView) -> AnnotationTableDrawerSelectionRegion?
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didDeleteVariants count: Int)
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didResolveGeneRegions regions: [GeneRegion])
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didUpdateVisibleVariantRenderKeys keys: Set<String>?)
@@ -146,6 +153,10 @@ protocol AnnotationTableDrawerDelegate: AnyObject {
 
 extension AnnotationTableDrawerDelegate {
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didRequestExtract annotations: [SequenceAnnotation]) {}
+
+    func annotationDrawerSelectedSequenceRegion(_ drawer: AnnotationTableDrawerView) -> AnnotationTableDrawerSelectionRegion? {
+        nil
+    }
 
     func annotationDrawer(
         _ drawer: AnnotationTableDrawerView,
@@ -5060,6 +5071,29 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         delegate?.annotationDrawer(self, didRequestExtract: annotations)
     }
 
+    @objc private func addAnnotationAction(_ sender: NSMenuItem) {
+        let form = makeAnnotationCreateAccessoryView(defaultRegion: defaultAnnotationCreationRegion())
+        let alert = NSAlert()
+        alert.messageText = "Add Annotation"
+        alert.addButton(withTitle: "Add")
+        alert.addButton(withTitle: "Cancel")
+        alert.accessoryView = form.view
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard performAnnotationCreation(
+            name: form.nameField.stringValue,
+            type: form.typeField.stringValue,
+            chromosome: form.chromosomeField.stringValue,
+            startValue: form.startField.stringValue,
+            endValue: form.endField.stringValue,
+            strand: form.strandField.stringValue,
+            attributes: form.attributesField.stringValue
+        ) else {
+            NSSound.beep()
+            return
+        }
+    }
+
     @objc private func editAnnotationAction(_ sender: NSMenuItem) {
         guard let result = sender.representedObject as? AnnotationSearchIndex.SearchResult,
               let rowID = result.annotationRowId,
@@ -5115,7 +5149,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         makeAnnotationEditForm(for: result, currentRecord: currentRecord).view
     }
 
-    private struct AnnotationEditForm {
+    struct AnnotationEditForm {
         let view: NSView
         let nameField: NSTextField
         let typeField: NSTextField
@@ -5126,15 +5160,49 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         let attributesField: NSTextField
     }
 
+    func makeAnnotationCreateAccessoryView(defaultRegion: AnnotationTableDrawerSelectionRegion?) -> AnnotationEditForm {
+        let region = defaultRegion ?? AnnotationTableDrawerSelectionRegion(
+            chromosome: displayedAnnotations.first?.chromosome ?? "",
+            start: 0,
+            end: 1
+        )
+        let result = AnnotationSearchIndex.SearchResult(
+            name: "",
+            chromosome: region.chromosome,
+            start: region.start,
+            end: region.end,
+            trackId: searchIndex?.annotationDatabaseHandles.first?.trackId ?? "",
+            type: "gene",
+            strand: "."
+        )
+        return makeAnnotationForm(
+            for: result,
+            currentRecord: nil,
+            subtitle: "Create an annotation in this bundle. Use a selected sequence region or enter coordinates."
+        )
+    }
+
     private func makeAnnotationEditForm(
         for result: AnnotationSearchIndex.SearchResult,
         currentRecord: AnnotationDatabaseRecord?
+    ) -> AnnotationEditForm {
+        makeAnnotationForm(
+            for: result,
+            currentRecord: currentRecord,
+            subtitle: "Update the annotation fields stored in this bundle."
+        )
+    }
+
+    private func makeAnnotationForm(
+        for result: AnnotationSearchIndex.SearchResult,
+        currentRecord: AnnotationDatabaseRecord?,
+        subtitle subtitleText: String
     ) -> AnnotationEditForm {
         let formWidth: CGFloat = 520
         let formHeight: CGFloat = 292
         let container = NSView(frame: NSRect(x: 0, y: 0, width: formWidth, height: formHeight))
 
-        let subtitle = NSTextField(wrappingLabelWithString: "Update the annotation fields stored in this bundle.")
+        let subtitle = NSTextField(wrappingLabelWithString: subtitleText)
         subtitle.font = .systemFont(ofSize: 12)
         subtitle.textColor = .secondaryLabelColor
         subtitle.translatesAutoresizingMaskIntoConstraints = false
@@ -5204,6 +5272,109 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             strandField: strandField,
             attributesField: attributesField
         )
+    }
+
+    private func defaultAnnotationCreationRegion() -> AnnotationTableDrawerSelectionRegion? {
+        delegate?.annotationDrawerSelectedSequenceRegion(self)
+    }
+
+    @discardableResult
+    func performAnnotationCreation(
+        name: String,
+        type: String,
+        chromosome: String,
+        start: Int,
+        end: Int,
+        strand: String,
+        attributes: String
+    ) -> Bool {
+        performAnnotationCreation(
+            name: name,
+            type: type,
+            chromosome: chromosome,
+            startValue: "\(start)",
+            endValue: "\(end)",
+            strand: strand,
+            attributes: attributes
+        )
+    }
+
+    @discardableResult
+    private func performAnnotationCreation(
+        name rawName: String,
+        type rawType: String,
+        chromosome rawChromosome: String,
+        startValue rawStart: String,
+        endValue rawEnd: String,
+        strand rawStrand: String,
+        attributes rawAttributes: String
+    ) -> Bool {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let type = rawType.trimmingCharacters(in: .whitespacesAndNewlines)
+        let chromosome = rawChromosome.trimmingCharacters(in: .whitespacesAndNewlines)
+        let strandValue = rawStrand.trimmingCharacters(in: .whitespacesAndNewlines)
+        let attributes = rawAttributes.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !type.isEmpty, !chromosome.isEmpty,
+              let start = Int(rawStart.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let end = Int(rawEnd.trimmingCharacters(in: .whitespacesAndNewlines)),
+              end >= start else {
+            return false
+        }
+        let parsedAttrs = attributes.isEmpty ? [:] : AnnotationDatabase.parseAttributes(attributes)
+        let geneName = parsedAttrs["gene"] ?? parsedAttrs["gene_name"] ?? parsedAttrs["gene_id"]
+        let strand = strandValue.isEmpty ? "." : strandValue
+
+        if let searchIndex {
+            guard searchIndex.insertAnnotation(
+                name: name,
+                type: type,
+                chromosome: chromosome,
+                start: start,
+                end: end,
+                strand: strand,
+                attributes: attributes.isEmpty ? nil : attributes,
+                geneName: geneName
+            ) != nil else {
+                return false
+            }
+            totalAnnotationCount = searchIndex.entryCount
+            if !availableAnnotationTypes.contains(type) {
+                availableAnnotationTypes.append(type)
+                availableAnnotationTypes.sort()
+                visibleAnnotationTypes.insert(type)
+                rebuildChipButtons()
+            }
+            annotationAttributeColumnKeys = Self.orderedAnnotationAttributeKeys(
+                from: searchIndex.queryAnnotationsOnly(limit: Self.maxDisplayCount)
+            )
+            configureColumnsForTab(.annotations)
+            updateDisplayedAnnotations()
+            return selectAnnotation(named: name)
+        }
+
+        let result = AnnotationSearchIndex.SearchResult(
+            name: name,
+            chromosome: chromosome,
+            start: start,
+            end: end,
+            trackId: "manual",
+            type: type,
+            strand: strand,
+            attributes: parsedAttrs.isEmpty ? nil : parsedAttrs
+        )
+        var rows = baseDisplayedAnnotationRows
+        rows.append(result)
+        totalAnnotationCount = rows.count
+        if !availableAnnotationTypes.contains(type) {
+            availableAnnotationTypes.append(type)
+            availableAnnotationTypes.sort()
+            visibleAnnotationTypes.insert(type)
+            rebuildChipButtons()
+        }
+        setAnnotationBaseResults(rows)
+        tableView.reloadData()
+        updateCountLabel()
+        return selectAnnotation(named: name)
     }
 
     @objc private func deleteSelectedAnnotationsAction(_ sender: NSMenuItem) {
@@ -5456,7 +5627,12 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             return
         }
 
-        guard targetRow >= 0, targetRow < displayedAnnotations.count else { return }
+        guard targetRow >= 0, targetRow < displayedAnnotations.count else {
+            if activeTab == .annotations {
+                buildAnnotationGlobalContextMenu(menu)
+            }
+            return
+        }
 
         let annotation = displayedAnnotations[targetRow]
 
@@ -5465,6 +5641,13 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         } else {
             buildAnnotationContextMenu(menu, annotation: annotation)
         }
+    }
+
+    private func buildAnnotationGlobalContextMenu(_ menu: NSMenu) {
+        let addItem = NSMenuItem(title: "Add Annotation\u{2026}", action: #selector(addAnnotationAction(_:)), keyEquivalent: "")
+        addItem.target = self
+        addItem.isEnabled = searchIndex?.hasDatabaseBackend ?? true
+        menu.addItem(addItem)
     }
 
     private func buildAnnotationContextMenu(_ menu: NSMenu, annotation: AnnotationSearchIndex.SearchResult) {
@@ -5539,6 +5722,11 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         menu.addItem(NSMenuItem.separator())
 
         // --- Editing ---
+        let addItem = NSMenuItem(title: "Add Annotation\u{2026}", action: #selector(addAnnotationAction(_:)), keyEquivalent: "")
+        addItem.target = self
+        addItem.isEnabled = searchIndex?.hasDatabaseBackend ?? true
+        menu.addItem(addItem)
+
         let editItem = NSMenuItem(title: "Edit Annotation\u{2026}", action: #selector(editAnnotationAction(_:)), keyEquivalent: "")
         editItem.target = self
         editItem.representedObject = annotation
@@ -5732,6 +5920,12 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         let tableColumn = tableView.tableColumns[column]
         guard let key = annotationFilterKey(forColumnIdentifier: tableColumn.identifier.rawValue) else { return }
         let displayName = tableColumn.title.isEmpty ? "Column" : tableColumn.title
+
+        let addItem = NSMenuItem(title: "Add Annotation\u{2026}", action: #selector(addAnnotationAction(_:)), keyEquivalent: "")
+        addItem.target = self
+        addItem.isEnabled = searchIndex?.hasDatabaseBackend ?? true
+        menu.addItem(addItem)
+        menu.addItem(NSMenuItem.separator())
 
         addColumnSizingMenuItems(menu, tableColumn: tableColumn)
         menu.addItem(NSMenuItem.separator())

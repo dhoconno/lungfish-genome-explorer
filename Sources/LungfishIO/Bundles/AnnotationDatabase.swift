@@ -517,6 +517,70 @@ public final class AnnotationDatabase: @unchecked Sendable {
     }
 
     @discardableResult
+    public func insertAnnotation(
+        name: String,
+        type: String,
+        chromosome: String,
+        start: Int,
+        end: Int,
+        strand: String,
+        attributes: String?,
+        geneName: String?,
+        blockCount: Int? = nil,
+        blockSizes: String? = nil,
+        blockStarts: String? = nil
+    ) throws -> Int64 {
+        guard let db else { throw AnnotationDatabaseError.openFailed("Database is not open") }
+        let sql = """
+        INSERT INTO annotations (
+            name, type, chromosome, start, end, strand, attributes,
+            block_count, block_sizes, block_starts, gene_name
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            throw AnnotationDatabaseError.createFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        sqlite3_bind_text(stmt, 1, (name as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 2, (type as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 3, (chromosome as NSString).utf8String, -1, nil)
+        sqlite3_bind_int64(stmt, 4, Int64(start))
+        sqlite3_bind_int64(stmt, 5, Int64(end))
+        sqlite3_bind_text(stmt, 6, (strand as NSString).utf8String, -1, nil)
+        if let attributes {
+            sqlite3_bind_text(stmt, 7, (attributes as NSString).utf8String, -1, nil)
+        } else {
+            sqlite3_bind_null(stmt, 7)
+        }
+        if let blockCount {
+            sqlite3_bind_int(stmt, 8, Int32(blockCount))
+        } else {
+            sqlite3_bind_null(stmt, 8)
+        }
+        if let blockSizes {
+            sqlite3_bind_text(stmt, 9, (blockSizes as NSString).utf8String, -1, nil)
+        } else {
+            sqlite3_bind_null(stmt, 9)
+        }
+        if let blockStarts {
+            sqlite3_bind_text(stmt, 10, (blockStarts as NSString).utf8String, -1, nil)
+        } else {
+            sqlite3_bind_null(stmt, 10)
+        }
+        if let geneName {
+            sqlite3_bind_text(stmt, 11, (geneName as NSString).utf8String, -1, nil)
+        } else {
+            sqlite3_bind_null(stmt, 11)
+        }
+        guard sqlite3_step(stmt) == SQLITE_DONE else {
+            throw AnnotationDatabaseError.createFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        return sqlite3_last_insert_rowid(db)
+    }
+
+    @discardableResult
     public func updateAnnotation(
         rowID: Int64,
         name: String,

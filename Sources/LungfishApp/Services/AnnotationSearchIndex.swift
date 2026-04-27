@@ -473,6 +473,61 @@ public final class AnnotationSearchIndex {
     }
 
     @discardableResult
+    public func insertAnnotation(
+        trackId: String? = nil,
+        name: String,
+        type: String,
+        chromosome: String,
+        start: Int,
+        end: Int,
+        strand: String,
+        attributes: String?,
+        geneName: String?
+    ) -> SearchResult? {
+        let resolved: (trackId: String, dbURL: URL)?
+        if let trackId, let handle = annotationDatabases.first(where: { $0.trackId == trackId }) {
+            resolved = (trackId, handle.db.databaseURL)
+        } else if let trackId, annotationDatabases.isEmpty, trackId == databaseTrackId, let db = database {
+            resolved = (trackId, db.databaseURL)
+        } else if let handle = annotationDatabases.first {
+            resolved = (handle.trackId, handle.db.databaseURL)
+        } else if let db = database {
+            resolved = (databaseTrackId, db.databaseURL)
+        } else {
+            resolved = nil
+        }
+        guard let resolved else { return nil }
+        do {
+            let rwDB = try AnnotationDatabase(url: resolved.dbURL, readWrite: true)
+            let rowID = try rwDB.insertAnnotation(
+                name: name,
+                type: type,
+                chromosome: chromosome,
+                start: start,
+                end: end,
+                strand: strand,
+                attributes: attributes,
+                geneName: geneName
+            )
+            let record = AnnotationDatabaseRecord(
+                rowID: rowID,
+                name: name,
+                type: type,
+                chromosome: chromosome,
+                start: start,
+                end: end,
+                strand: strand,
+                attributes: attributes,
+                geneName: geneName
+            )
+            return annotationRecordToSearchResult(record, trackId: resolved.trackId)
+        } catch {
+            searchLogger.error("AnnotationSearchIndex: Failed to insert annotation: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    @discardableResult
     public func deleteAnnotations(rowIDsByTrack: [String: [Int64]]) -> Int {
         var deleted = 0
         for (trackId, rowIDs) in rowIDsByTrack {

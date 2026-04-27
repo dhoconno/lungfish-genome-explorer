@@ -315,6 +315,19 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         viewerView.presentAnnotationSequenceExtractionDialog(annotations)
     }
 
+    func annotationDrawerSelectedSequenceRegion(_ drawer: AnnotationTableDrawerView) -> AnnotationTableDrawerSelectionRegion? {
+        guard viewerView.isUserColumnSelection,
+              let range = viewerView.selectionRange,
+              let frame = referenceFrame else {
+            return nil
+        }
+        return AnnotationTableDrawerSelectionRegion(
+            chromosome: frame.chromosome,
+            start: range.lowerBound,
+            end: range.upperBound
+        )
+    }
+
     public func annotationDrawer(_ drawer: AnnotationTableDrawerView, didUpdateVisibleVariantRenderKeys keys: Set<String>?) {
         viewerView.setLocalVariantRenderFilterKeys(keys)
         viewerView.setNeedsDisplay(viewerView.bounds)

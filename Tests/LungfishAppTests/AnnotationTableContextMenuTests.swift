@@ -14,10 +14,14 @@ final class AnnotationTableContextMenuTests: XCTestCase {
 
     private final class DrawerDelegateSpy: AnnotationTableDrawerDelegate {
         var extractedAnnotations: [SequenceAnnotation] = []
+        var selectedRegion: AnnotationTableDrawerSelectionRegion?
 
         func annotationDrawer(_ drawer: AnnotationTableDrawerView, didSelectAnnotation result: AnnotationSearchIndex.SearchResult) {}
         func annotationDrawer(_ drawer: AnnotationTableDrawerView, didRequestExtract annotations: [SequenceAnnotation]) {
             extractedAnnotations = annotations
+        }
+        func annotationDrawerSelectedSequenceRegion(_ drawer: AnnotationTableDrawerView) -> AnnotationTableDrawerSelectionRegion? {
+            selectedRegion
         }
         func annotationDrawer(_ drawer: AnnotationTableDrawerView, didDeleteVariants count: Int) {}
         func annotationDrawer(_ drawer: AnnotationTableDrawerView, didResolveGeneRegions regions: [GeneRegion]) {}
@@ -242,6 +246,48 @@ final class AnnotationTableContextMenuTests: XCTestCase {
 
         XCTAssertGreaterThanOrEqual(form.frame.width, 460)
         XCTAssertGreaterThanOrEqual(form.frame.height, 260)
+    }
+
+    func testAnnotationContextMenuOffersAddAnnotationWhenNoRowIsClicked() throws {
+        let drawer = try createDrawerWithDatabase(lines: [
+            "chr1\t100\t200\tgene-a\t0\t+\t100\t200\t0,0,0\t1\t100\t0\tgene\tgene=gene-a"
+        ])
+
+        let menu = NSMenu()
+        drawer.menuNeedsUpdate(menu)
+
+        XCTAssertNotNil(findMenuItem(titled: "Add Annotation\u{2026}", in: menu))
+    }
+
+    func testAnnotationCreateFormPrefillsSelectedSequenceRegion() throws {
+        let drawer = try createDrawerWithDatabase(lines: [
+            "chr1\t100\t200\tgene-a\t0\t+\t100\t200\t0,0,0\t1\t100\t0\tgene\tgene=gene-a"
+        ])
+        let region = AnnotationTableDrawerSelectionRegion(chromosome: "chr2", start: 120, end: 180)
+
+        let form = drawer.makeAnnotationCreateAccessoryView(defaultRegion: region)
+
+        XCTAssertEqual(form.chromosomeField.stringValue, "chr2")
+        XCTAssertEqual(form.startField.stringValue, "120")
+        XCTAssertEqual(form.endField.stringValue, "180")
+    }
+
+    func testPerformAnnotationCreationPersistsToDatabase() throws {
+        let drawer = try createDrawerWithDatabase(lines: [
+            "chr1\t100\t200\tgene-a\t0\t+\t100\t200\t0,0,0\t1\t100\t0\tgene\tgene=gene-a"
+        ])
+
+        XCTAssertTrue(drawer.performAnnotationCreation(
+            name: "new-feature",
+            type: "misc_feature",
+            chromosome: "chr1",
+            start: 220,
+            end: 260,
+            strand: "+",
+            attributes: "Note=created"
+        ))
+
+        XCTAssertTrue(drawer.selectAnnotation(named: "new-feature"))
     }
 
     func testContextMenuUsesSelectedRowWhenNoClickedRow() throws {
