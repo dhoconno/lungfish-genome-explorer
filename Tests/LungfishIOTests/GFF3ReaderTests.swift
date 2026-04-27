@@ -61,6 +61,24 @@ final class GFF3ReaderTests: XCTestCase {
         XCTAssertEqual(gene?.attributes["Name"], "TestGene")
     }
 
+    func testParseGeneiousQuotedAttributes() async throws {
+        let gff = #"""
+        ##gff-version 3
+        ##source-version geneious 2023.2.1
+        M1	Geneious	gene	263031	291324	.	-	.	gene_id "GABBR1"; gene_name "GABBR1"
+        """#
+        let url = try createTempFile(content: gff)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = GFF3Reader()
+        let features = try await reader.readAll(from: url)
+
+        XCTAssertEqual(features.count, 1)
+        XCTAssertEqual(features[0].name, "GABBR1")
+        XCTAssertEqual(features[0].attributes["gene_id"], "GABBR1")
+        XCTAssertEqual(features[0].attributes["gene_name"], "GABBR1")
+    }
+
     func testParseCDSFeature() async throws {
         let url = try createTempFile(content: sampleGFF3)
         defer { try? FileManager.default.removeItem(at: url) }

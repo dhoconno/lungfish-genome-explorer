@@ -495,23 +495,15 @@ public final class AnnotationDatabase: @unchecked Sendable {
 
     // MARK: - Attribute Parsing
 
-    /// Parses a GFF3-style attributes string into a dictionary.
+    /// Parses a GFF3- or GTF-style attributes string into a dictionary.
     ///
-    /// Format: `key1=value1;key2=value2;key3=value3`
+    /// Formats: `key1=value1;key2=value2` or `key1 "value1"; key2 "value2";`
     /// Values are URL-decoded (percent-encoded spaces, commas, etc.).
     ///
     /// - Parameter attrs: Raw attributes string
     /// - Returns: Dictionary of key-value pairs
     public static func parseAttributes(_ attrs: String) -> [String: String] {
-        var result: [String: String] = [:]
-        for pair in attrs.split(separator: ";") {
-            let parts = pair.split(separator: "=", maxSplits: 1)
-            guard parts.count == 2 else { continue }
-            let key = String(parts[0])
-            let value = String(parts[1]).removingPercentEncoding ?? String(parts[1])
-            result[key] = value
-        }
-        return result
+        parseFlexibleAttributes(attrs)
     }
 
     // MARK: - Static Creation (for bundle building)
@@ -762,14 +754,14 @@ public final class AnnotationDatabase: @unchecked Sendable {
             "regulatory", "ncRNA", "misc_binding", "protein_bind",
             "stem_loop", "primer_bind",
             // GFF3 transcript types (multi-exon transcripts need indexing)
-            "lnc_RNA", "rRNA", "tRNA", "snRNA", "snoRNA", "miRNA",
+            "lnc_RNA", "Lnc_RNA", "rRNA", "tRNA", "snRNA", "snoRNA", "miRNA",
             "primary_transcript", "V_gene_segment", "D_gene_segment",
             "J_gene_segment", "C_gene_segment",
         ]
 
         // Transcript-level types whose children get aggregated into blocks
         let transcriptTypes: Set<String> = [
-            "mRNA", "transcript", "lnc_RNA", "rRNA", "tRNA", "snRNA", "snoRNA",
+            "mRNA", "transcript", "lnc_RNA", "Lnc_RNA", "rRNA", "tRNA", "snRNA", "snoRNA",
             "miRNA", "ncRNA", "primary_transcript", "V_gene_segment",
             "D_gene_segment", "J_gene_segment", "C_gene_segment",
         ]
@@ -812,7 +804,7 @@ public final class AnnotationDatabase: @unchecked Sendable {
             }
 
             let attrs = parseGFF3Attributes(fields[8])
-            let name = attrs["Name"] ?? attrs["ID"] ?? fields[2]
+            let name = displayName(from: attrs, fallback: fields[2])
 
             let feature = ParsedFeature(
                 seqid: fields[0],
@@ -928,7 +920,7 @@ public final class AnnotationDatabase: @unchecked Sendable {
             // Only index selected types
             guard indexableTypes.contains(feature.featureType) else { continue }
 
-            let geneName = feature.attributes["gene"]
+            let geneName = geneName(from: feature.attributes)
 
             // ── Same-ID merging: CDS features sharing a GFF3 ID are intervals of one CDS ──
             if let featureID = feature.id,
@@ -1080,23 +1072,65 @@ public final class AnnotationDatabase: @unchecked Sendable {
         return insertCount
     }
 
-    /// Parses GFF3 attributes string into a dictionary.
+    /// Parses GFF3 or GTF-style attributes string into a dictionary.
     private static func parseGFF3Attributes(_ attributeString: String) -> [String: String] {
+        parseFlexibleAttributes(attributeString)
+    }
+
+    private static func parseFlexibleAttributes(_ attributeString: String) -> [String: String] {
         var attributes: [String: String] = [:]
         for pair in attributeString.split(separator: ";") {
-            let kv = pair.split(separator: "=", maxSplits: 1)
-            if kv.count == 2 {
-                let key = String(kv[0]).trimmingCharacters(in: .whitespaces)
-                let value = String(kv[1])
-                    .replacingOccurrences(of: "%3B", with: ";")
-                    .replacingOccurrences(of: "%3D", with: "=")
-                    .replacingOccurrences(of: "%26", with: "&")
-                    .replacingOccurrences(of: "%2C", with: ",")
-                    .replacingOccurrences(of: "%25", with: "%")
-                attributes[key] = value
+            let entry = pair.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !entry.isEmpty else { continue }
+
+            if let equalsIndex = entry.firstIndex(of: "=") {
+                let key = String(entry[..<equalsIndex]).trimmingCharacters(in: .whitespaces)
+                let rawValue = String(entry[entry.index(after: equalsIndex)...])
+                    .trimmingCharacters(in: .whitespaces)
+                if !key.isEmpty {
+                    attributes[key] = decodeAttributeValue(rawValue)
+                }
+                continue
+            }
+
+            guard let spaceIndex = entry.firstIndex(where: { $0 == " " || $0 == "\t" }) else {
+                continue
+            }
+
+            let key = String(entry[..<spaceIndex]).trimmingCharacters(in: .whitespaces)
+            let rawValue = String(entry[entry.index(after: spaceIndex)...])
+                .trimmingCharacters(in: .whitespaces)
+            if !key.isEmpty {
+                attributes[key] = decodeAttributeValue(rawValue)
             }
         }
         return attributes
+    }
+
+    private static func displayName(from attributes: [String: String], fallback: String) -> String {
+        attributes["Name"]
+            ?? attributes["gene_name"]
+            ?? attributes["gene"]
+            ?? attributes["gene_id"]
+            ?? attributes["transcript_name"]
+            ?? attributes["transcript_id"]
+            ?? attributes["ID"]
+            ?? fallback
+    }
+
+    private static func geneName(from attributes: [String: String]) -> String? {
+        attributes["gene"] ?? attributes["gene_name"]
+    }
+
+    private static func decodeAttributeValue(_ value: String) -> String {
+        let unquoted: String
+        if value.hasPrefix("\""), value.hasSuffix("\""), value.count >= 2 {
+            unquoted = String(value.dropFirst().dropLast())
+        } else {
+            unquoted = value
+        }
+
+        return unquoted.removingPercentEncoding ?? unquoted
     }
 }
 

@@ -59,9 +59,16 @@ public struct GFF3Feature: Sendable, Identifiable {
         parentIDs.first
     }
 
-    /// Feature name (from Name attribute or ID)
+    /// Feature name (from Name/gene attributes or ID)
     public var name: String {
-        attributes["Name"] ?? attributes["ID"] ?? type
+        attributes["Name"]
+            ?? attributes["gene_name"]
+            ?? attributes["gene"]
+            ?? attributes["gene_id"]
+            ?? attributes["transcript_name"]
+            ?? attributes["transcript_id"]
+            ?? attributes["ID"]
+            ?? type
     }
 
     /// Creates a GFF3 feature from parsed fields.
@@ -294,27 +301,49 @@ public final class GFF3Reader: Sendable {
     private func parseAttributes(_ value: String) -> [String: String] {
         var attributes: [String: String] = [:]
 
-        // Split by ";" and parse key=value pairs
+        // Split by ";" and parse key=value or GTF/GFF2-style key "value" pairs.
         let pairs = value.split(separator: ";")
         for pair in pairs {
-            let keyValue = pair.split(separator: "=", maxSplits: 1)
-            if keyValue.count == 2 {
-                let key = String(keyValue[0]).trimmingCharacters(in: .whitespaces)
-                var rawValue = String(keyValue[1])
+            let entry = pair.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !entry.isEmpty else { continue }
 
-                // URL decode the value
-                rawValue = urlDecode(rawValue)
+            if let equalsIndex = entry.firstIndex(of: "=") {
+                let key = String(entry[..<equalsIndex]).trimmingCharacters(in: .whitespaces)
+                let rawValue = String(entry[entry.index(after: equalsIndex)...])
+                    .trimmingCharacters(in: .whitespaces)
+                if !key.isEmpty {
+                    attributes[key] = urlDecode(stripQuotes(rawValue))
+                }
+                continue
+            }
 
-                // Handle multiple values (comma-separated)
-                attributes[key] = rawValue
+            guard let spaceIndex = entry.firstIndex(where: { $0 == " " || $0 == "\t" }) else {
+                continue
+            }
+
+            let key = String(entry[..<spaceIndex]).trimmingCharacters(in: .whitespaces)
+            let rawValue = String(entry[entry.index(after: spaceIndex)...])
+                .trimmingCharacters(in: .whitespaces)
+            if !key.isEmpty {
+                attributes[key] = urlDecode(stripQuotes(rawValue))
             }
         }
 
         return attributes
     }
 
+    private func stripQuotes(_ value: String) -> String {
+        if value.hasPrefix("\""), value.hasSuffix("\""), value.count >= 2 {
+            return String(value.dropFirst().dropLast())
+        }
+        return value
+    }
+
     private func urlDecode(_ value: String) -> String {
-        value
+        if let decoded = value.removingPercentEncoding {
+            return decoded
+        }
+        return value
             .replacingOccurrences(of: "%3B", with: ";")
             .replacingOccurrences(of: "%3D", with: "=")
             .replacingOccurrences(of: "%26", with: "&")

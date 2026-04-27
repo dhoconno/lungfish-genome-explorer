@@ -714,6 +714,34 @@ final class AnnotationDatabaseTests: XCTestCase {
         XCTAssertEqual(gene.end, 2000)
     }
 
+    func testCreateFromGFF3ParsesGeneiousQuotedAttributes() async throws {
+        let lines = [
+            "##gff-version 3",
+            "##source-version geneious 2023.2.1",
+            gff3Line(seqid: "M1", source: "Geneious", type: "gene", start: 263031, end: 291324, strand: "-",
+                     attributes: #"gene_id "GABBR1"; gene_name "GABBR1""#),
+            gff3Line(seqid: "M1", source: "Geneious", type: "transcript", start: 263031, end: 291324, strand: "-",
+                     attributes: #"gene_id "GABBR1"; gene_name "GABBR1"; transcript_id "GABBR1"; transcript_name "GABBR1""#),
+        ]
+        let (db, count) = try await createAndOpenDBFromGFF3(lines: lines)
+
+        XCTAssertEqual(count, 2)
+        let results = db.queryByRegion(chromosome: "M1", start: 263000, end: 292000)
+        let byType = Dictionary(uniqueKeysWithValues: results.map { ($0.type, $0) })
+
+        XCTAssertEqual(byType["gene"]?.name, "GABBR1")
+        XCTAssertEqual(byType["gene"]?.geneName, "GABBR1")
+        XCTAssertEqual(byType["transcript"]?.name, "GABBR1")
+        XCTAssertEqual(byType["transcript"]?.geneName, "GABBR1")
+
+        let attrs = try XCTUnwrap(byType["transcript"]?.attributes)
+        let parsed = AnnotationDatabase.parseAttributes(attrs)
+        XCTAssertEqual(parsed["gene_id"], "GABBR1")
+        XCTAssertEqual(parsed["gene_name"], "GABBR1")
+        XCTAssertEqual(parsed["transcript_id"], "GABBR1")
+        XCTAssertEqual(parsed["transcript_name"], "GABBR1")
+    }
+
     func testCreateFromGFF3CoordinateConversion() async throws {
         // GFF3 is 1-based inclusive; SQLite stores 0-based half-open
         let lines = [
